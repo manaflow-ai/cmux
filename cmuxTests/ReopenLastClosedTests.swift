@@ -526,6 +526,11 @@ struct ReopenLastClosedTests {
             let originalFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
                 prefix: "reopen-last-closed"
             )
+            // Stands in for a window another suite left behind with its Dock
+            // focused; a focused Dock takes Cmd+Shift+T for its own closed panels.
+            let bystanderWindowId = appDelegate.createMainWindow(shouldActivate: false)
+            defer { appDelegate.discardMainWindowWithoutClosedHistory(windowId: bystanderWindowId) }
+            let bystanderWindow = try #require(appDelegate.mainWindow(for: bystanderWindowId))
             let baselineWindowIds = mainWindowIds(appDelegate: appDelegate)
             ClosedItemHistoryStore.shared.removeAll()
             defer {
@@ -580,6 +585,7 @@ struct ReopenLastClosedTests {
             })
             #expect(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount == 2)
 
+            focusDockAsRoutingKeyWindow(bystanderWindow, appDelegate: appDelegate)
             try pressCommandShiftT(appDelegate: appDelegate)
             #expect(await AppKitTestEventPump().waitUntil {
                 mainWindowIds(appDelegate: appDelegate).subtracting(baselineWindowIds).count == 1
@@ -603,6 +609,7 @@ struct ReopenLastClosedTests {
                 equals: newerFrame
             )
 
+            focusDockAsRoutingKeyWindow(bystanderWindow, appDelegate: appDelegate)
             try pressCommandShiftT(appDelegate: appDelegate)
             #expect(await AppKitTestEventPump().waitUntil {
                 mainWindowIds(appDelegate: appDelegate).subtracting(baselineWindowIds).count == 2
@@ -663,6 +670,12 @@ struct ReopenLastClosedTests {
     }
 
     #if DEBUG
+    private func focusDockAsRoutingKeyWindow(_ window: NSWindow, appDelegate: AppDelegate) {
+        appDelegate.debugSetShortcutRoutingFocusedWindowForTesting(window)
+        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
+        #expect(appDelegate.focusedDockStoreForShortcut(preferredWindow: window) != nil)
+    }
+
     private func pressCommandShiftT(appDelegate: AppDelegate) throws {
         let event = try #require(NSEvent.keyEvent(
             with: .keyDown,
