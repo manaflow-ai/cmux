@@ -24,6 +24,10 @@ class MachineFailureTests(unittest.TestCase):
     def test_a_runner_that_never_initialized_is_a_machine_failure(self):
         self.assertIn("Automation Mode", machine_failure.reason(AUTOMATION_MODE))
 
+    def test_an_unwritable_homebrew_prefix_is_a_machine_failure(self):
+        log = "##[error]The following directories are not writable by your user:\n  /opt/homebrew\n"
+        self.assertEqual(machine_failure.reason(log), "the Mac's Homebrew prefix is not writable by the runner user")
+
     def test_a_started_test_makes_it_the_codes_failure(self):
         for started in (
             "Test Case '-[cmuxUITests.SidebarTests testA]' started.",
