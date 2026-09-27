@@ -114,6 +114,11 @@ export const changelogMedia: Record<string, VersionMedia> = {
           "A terminal no longer reloads its dark theme after macOS switches to light, and Light applies the light palette when the Ghostty config sets only a font, keybinding, or opacity.",
         tryIt:
           "Set Settings > App > Appearance to System, then switch macOS to Light.",
+        video: {
+          src: "/changelog/0.64.25/light-mode-terminals.mp4",
+          webm: "/changelog/0.64.25/light-mode-terminals.webm",
+          poster: "/changelog/0.64.25/light-mode-terminals-poster.png",
+        },
       },
     ],
   },

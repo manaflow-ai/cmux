@@ -8362,6 +8362,18 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.terminalPasteLastScreenshot",
+                title: constant(String(localized: "command.terminalPasteLastScreenshot.title", defaultValue: "Paste Last Screenshot")),
+                subtitle: terminalPanelSubtitle,
+                keywords: [
+                    "terminal", "paste", "screenshot", "screen", "shot", "capture", "image",
+                    "picture", "latest", "newest", "recent", "last", "path", "file", "desktop",
+                ],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.terminalClearScreenKeepScrollback",
                 title: constant(String(localized: "command.terminalClearScreenKeepScrollback.title", defaultValue: "Clear Screen (Keep Scrollback)")),
                 subtitle: terminalPanelSubtitle,
@@ -9315,6 +9327,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSendCtrlF") {
             if !tabManager.sendCtrlFToFocusedTerminal() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.terminalPasteLastScreenshot") {
+            if !tabManager.pasteLastScreenshotIntoFocusedTerminal() {
                 NSSound.beep()
             }
         }

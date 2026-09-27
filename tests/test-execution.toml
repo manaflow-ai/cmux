@@ -1348,3 +1348,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_machine_failure.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_media.py"
+lane = "linux-guard"
