@@ -65,14 +65,16 @@ enum SessionPersistencePolicy {
     /// `defaults write <bundle> sidebarMinimumWidth 180`, which stores a string
     /// unless `-float` is passed) as a number, so the window layout, the
     /// Settings slider and the `cmux.json` restore path all read the same value.
-    /// Unparseable or non-finite strings are left alone and resolve to the default.
+    /// Runs at launch before the settings file store takes its backups.
+    /// Unparseable or non-finite strings are removed, so they resolve to the
+    /// default everywhere instead of being backed up as 0.
     static func normalizeLegacySidebarMinimumWidthIfNeeded(defaults: UserDefaults = .standard) {
-        guard let raw = defaults.object(forKey: sidebarMinimumWidthKey) as? String,
-              let value = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
-              value.isFinite else {
-            return
+        guard let raw = defaults.object(forKey: sidebarMinimumWidthKey) as? String else { return }
+        if let value = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)), value.isFinite {
+            defaults.set(value, forKey: sidebarMinimumWidthKey)
+        } else {
+            defaults.removeObject(forKey: sidebarMinimumWidthKey)
         }
-        defaults.set(value, forKey: sidebarMinimumWidthKey)
     }
 
     private static func storedSidebarMinimumWidth(defaults: UserDefaults) -> Double? {

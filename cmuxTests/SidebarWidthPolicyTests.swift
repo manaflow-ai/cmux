@@ -85,13 +85,13 @@ final class SidebarWidthPolicyTests: XCTestCase {
         XCTAssertEqual(SidebarCatalogSection().leftMinWidth.value(in: defaults), 180, accuracy: 0.001)
         XCTAssertEqual(SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults), 180, accuracy: 0.001)
 
-        // Numbers are left untouched, and garbage is not rewritten.
+        // Numbers are left untouched, and garbage is removed.
         defaults.set(150.0, forKey: key)
         SessionPersistencePolicy.normalizeLegacySidebarMinimumWidthIfNeeded(defaults: defaults)
         XCTAssertEqual(defaults.object(forKey: key) as? Double, 150)
         defaults.set("wide", forKey: key)
         SessionPersistencePolicy.normalizeLegacySidebarMinimumWidthIfNeeded(defaults: defaults)
-        XCTAssertEqual(defaults.object(forKey: key) as? String, "wide")
+        XCTAssertNil(defaults.object(forKey: key))
         XCTAssertEqual(
             SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults),
             LeftSidebarWidthSettings.defaultMinimumWidth,
@@ -395,6 +395,46 @@ final class SidebarWidthPolicyTests: XCTestCase {
                 LeftSidebarWidthSettings.defaultMinimumWidth,
                 accuracy: 0.001
             )
+        }
+    }
+
+    func testRemovingLeftSidebarMinimumWidthFromSettingsFileRestoresEarlierDefaultsValue() throws {
+        // An earlier `defaults write … sidebarMinimumWidth 180` (normalized at
+        // launch) survives cmux.json setting and then dropping the key.
+        for earlier in [180.0 as Any, "180" as Any] {
+            try withIsolatedLeftSidebarMinimumWidthDefaults { defaults in
+                defaults.set(earlier, forKey: LeftSidebarWidthSettings.minimumWidthKey)
+                SessionPersistencePolicy.normalizeLegacySidebarMinimumWidthIfNeeded(defaults: defaults)
+
+                let settingsFileURL = try writeSettingsFile(
+                    #"{ "sidebar": { "leftMinWidth": 150 } }"#,
+                    named: "left-sidebar-min-width-restore"
+                )
+                defer { try? FileManager.default.removeItem(at: settingsFileURL.deletingLastPathComponent()) }
+
+                let store = KeyboardShortcutSettingsFileStore(
+                    primaryPath: settingsFileURL.path,
+                    fallbackPath: nil,
+                    additionalFallbackPaths: [],
+                    startWatching: false
+                )
+                XCTAssertEqual(
+                    SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults),
+                    150,
+                    accuracy: 0.001,
+                    "earlier \(earlier)"
+                )
+
+                try #"{ "sidebar": {} }"#.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+                store.reload()
+
+                XCTAssertEqual(
+                    SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults),
+                    180,
+                    accuracy: 0.001,
+                    "earlier \(earlier)"
+                )
+            }
         }
     }
 
