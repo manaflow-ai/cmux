@@ -71,11 +71,11 @@ struct BrowserInlineHostAttachmentTests {
 
         // No rootView reassignment or unrelated panel change should be needed
         // to finish an attachment deferred solely for a missing window.
+        #expect(waitUntil { host.window === visibleWindow })
+        #expect(waitUntil { panel.webView.isDescendant(of: host) })
+        #expect(waitUntil { panel.webView.window === visibleWindow })
         #expect(waitUntil {
-            host.window === visibleWindow &&
-                panel.webView.isDescendant(of: host) &&
-                panel.webView.window === visibleWindow &&
-                abs(panel.webView.frame.width - host.bounds.width) < 1 &&
+            abs(panel.webView.frame.width - host.bounds.width) < 1 &&
                 abs(panel.webView.frame.height - host.bounds.height) < 1
         })
     }
