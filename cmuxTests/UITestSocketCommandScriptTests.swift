@@ -105,4 +105,32 @@ struct UITestSocketCommandScriptTests {
         #expect(UITestSocketCommandScript.lastUUID(in: "OK workspace:1 \(id)") == id)
         #expect(UITestSocketCommandScript.lastUUID(in: "OK") == nil)
     }
+
+    @Test
+    func groupCreateRepliesFillTheGroupPlaceholder() throws {
+        let group = UUID().uuidString
+        let script = try #require(UITestSocketCommandScript(environment: [
+            UITestSocketCommandScript.commandsKey: """
+            {"id":"g","method":"workspace.group.create","params":{}}
+            {"id":"c","method":"workspace.group.collapse","params":{"group_id":"{group}"}}
+            """,
+        ]))
+        var sent: [String] = []
+        _ = script.run { line in
+            sent.append(line)
+            return sent.count == 1
+                ? #"{"id":"g","ok":true,"result":{"created":true,"group":{"id":"\#(group)"}}}"#
+                : #"{"id":"c","ok":true,"result":{}}"#
+        }
+
+        #expect(sent[1].contains(#""group_id":"\#(group)""#))
+    }
+
+    @Test
+    func v2ErrorRepliesCountAsFailures() {
+        #expect(UITestSocketCommandScript.isFailure(#"{"id":"c","ok":false,"error":{"code":"not_found"}}"#))
+        #expect(!UITestSocketCommandScript.isFailure(#"{"id":"c","ok":true,"result":{}}"#))
+        #expect(UITestSocketCommandScript.isFailure("ERROR: nope"))
+        #expect(!UITestSocketCommandScript.isFailure("OK"))
+    }
 }

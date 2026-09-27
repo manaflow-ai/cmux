@@ -41,6 +41,18 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
         ("plain terminal", []),
     ]
 
+    /// A collapsed group whose hidden members need input and are running:
+    /// its header shows the needs-input glyph, naming both members.
+    private let groupCommands: [String] = [
+        "new_workspace grouped input", "select_workspace {last}", "wait 400", "let groupedInput",
+        "set_agent_lifecycle claude_code needsInput --tab={groupedInput}",
+        "new_workspace grouped running", "select_workspace {last}", "wait 400", "let groupedRunning",
+        "set_agent_lifecycle claude_code running --tab={groupedRunning}",
+        #"{"id":"group","method":"workspace.group.create","params":{"name":"agents","child_workspace_ids":["{groupedInput}","{groupedRunning}"]}}"#,
+        #"{"id":"collapse","method":"workspace.group.collapse","params":{"group_id":"{group}"}}"#,
+        "wait 400",
+    ]
+
     private func runScenario(compact: Bool) {
         let app = XCUIApplication.cmuxTestApplication()
         let token = UUID().uuidString
@@ -59,7 +71,7 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
             "list_surfaces {unseen}",
             "notify_target {unseen} {surface} Done|Claude Code|Finished",
             "wait 400",
-        ]
+        ] + groupCommands
         app.launchArguments += ["-newWorkspacePlacement", "end"]
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         // Plist syntax: the settings decoder accepts only real booleans, and a
@@ -111,7 +123,8 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
         if compact {
             // Glyph accessibility labels carry the tooltip text.
             // "Finished" is the unseen workspace's notification, which leads its tooltip.
-            for label in ["Needs input", "PR #12: open", "PR #13: merged", "main", "Idle", "Finished"] {
+            // "grouped input: " is the collapsed group header's roll-up.
+            for label in ["Needs input", "PR #12: open", "PR #13: merged", "main", "Idle", "Finished", "grouped input: "] {
                 let glyph = sidebar.descendants(matching: .any)
                     .matching(NSPredicate(format: "label CONTAINS %@", label)).firstMatch
                 XCTAssertTrue(glyph.waitForExistence(timeout: 5.0), "Expected a compact status glyph labelled \(label)")

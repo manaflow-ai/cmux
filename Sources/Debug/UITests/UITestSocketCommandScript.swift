@@ -14,7 +14,10 @@ import Foundation
 ///   before per-panel reports (`set_agent_lifecycle`, `report_git_branch`).
 ///   `let <name>` saves the current `{last}` as `{<name>}`, to address that
 ///   workspace after others were created. `{surface}` is the surface id the
-///   most recent `list_surfaces` returned (for `notify_target`).
+///   most recent `list_surfaces` returned (for `notify_target`). A line
+///   starting with `{"` is a v2 JSON request; `{group}` is the group id the
+///   most recent `workspace.group.create` returned, and an `"ok": false`
+///   reply counts as a failure.
 /// - `CMUX_UI_TEST_SOCKET_COMMANDS_RESULT_PATH`: JSON written when done:
 ///   `{"done": "1", "replies": [...], "failed": "0|1"}`; wait on it before
 ///   asserting on the UI.
@@ -62,6 +65,9 @@ struct UITestSocketCommandScript: Equatable {
             if line.hasPrefix("list_surfaces"), let id = Self.lastUUID(in: reply) {
                 values["surface"] = id
             }
+            if let id = Self.createdGroupId(in: reply) {
+                values["group"] = id
+            }
         }
         return replies
     }
@@ -84,6 +90,21 @@ struct UITestSocketCommandScript: Equatable {
         }
     }
 
+    /// `result.group.id` of a v2 `workspace.group.create` reply.
+    static func createdGroupId(in reply: String) -> String? {
+        let result = v2Reply(reply)?["result"] as? [String: Any]
+        return (result?["group"] as? [String: Any])?["id"] as? String
+    }
+
+    static func isFailure(_ reply: String) -> Bool {
+        reply.isEmpty || reply.hasPrefix("ERROR") || v2Reply(reply)?["ok"] as? Bool == false
+    }
+
+    private static func v2Reply(_ reply: String) -> [String: Any]? {
+        guard reply.hasPrefix("{"), let data = reply.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
     static func lastUUID(in reply: String) -> String? {
         reply.split(whereSeparator: { $0.isWhitespace || $0 == "," || $0 == "\"" })
             .reversed()
@@ -103,7 +124,7 @@ struct UITestSocketCommandScript: Equatable {
             try? await Task.sleep(for: .milliseconds(500))
             let replies = script.run(handle)
             guard let resultPath, !resultPath.isEmpty else { return }
-            let failed = replies.contains { $0.isEmpty || $0.hasPrefix("ERROR") }
+            let failed = replies.contains(where: Self.isFailure)
             let payload: [String: Any] = ["done": "1", "failed": failed ? "1" : "0", "replies": replies]
             if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) {
                 try? data.write(to: URL(fileURLWithPath: resultPath), options: .atomic)
