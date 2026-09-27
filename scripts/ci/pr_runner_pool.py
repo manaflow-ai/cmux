@@ -155,6 +155,13 @@ root runner about half the time (11 of 21 on 2026-09-25, 06:30 to 09:00Z,
 3,300 s of root-runner time) and kept a compile or product consumer off that
 mini's root while it ran; on cmux7s and cmux9s, with one root, it blocked the
 mini's only compile. A pool without a root count keeps the pool label.
+The light pool's side runners come first (light_side_lanes()): on attempt 1
+of a same-repository pull request whose pick is an owned pool, when that
+many of them are idle now, every side lane takes the light side label, and
+the picked pool places only admission and what follows it. The light minis
+sat almost idle (about 1% of their runner time over the 7 days to
+2026-09-27) while side lanes held std side runners, because a run takes one
+owned pool and std, first in the order with the most room, always won.
 
 Warm affinity: an owned Mac keeps compile admission's DerivedData
 (owned_build_state.py), and the queue janitor's snapshot carries `warm`: for
@@ -522,6 +529,20 @@ def side_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
     if owned_slots.get(choice.runner, 0) <= owned_slots.get(choice.root_runner, 0):
         return ""
     return side_label(choice.runner)
+
+
+def light_side_lanes(plan: "RunJobs", runners: Sequence[Mapping[str, Any]], owned_slots: Mapping[str, int],
+                     pr_xcode_app: str | None) -> str:
+    """The light pool's side label when its idle side runners can take every side lane of `plan` now, else "".
+
+    Only while CI_OWNED_POOL_SLOTS gives the light pool machines beyond its
+    root runners (side_runner()'s rule), so removing that count turns it off.
+    """
+    light = next((label for label in owned_pools(pr_xcode_app) if label.startswith(f"glaeda-{LIGHT_CLASS}-")), "")
+    label = side_label(light)
+    if not plan.side or not label or owned_slots.get(light, 0) <= owned_slots.get(root_label(light), 0):
+        return ""
+    return label if live_owned_free(runners, [label])[label] >= len(plan.side) else ""
 
 
 def pool_label(label: str) -> str:
@@ -2118,6 +2139,15 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         except Exception as error:  # noqa: BLE001 - the snapshot path still decides
             print(f"::warning title=live owned capacity::could not list runners ({error}); using the snapshot")
             live_owned = online = live_runners = None
+    # The side lanes on the light minis' side runners when enough are idle now (light_side_lanes()): the pool
+    # picked below then holds only admission and what follows it.
+    light_side, side_lanes = "", ()
+    if live_runners is not None and attempt in ("", "1") and event == "pull_request" and env.get("HEAD_REPO") == repo:
+        light_side = light_side_lanes(plan, live_runners, slots(env.get("OWNED_SLOTS"), env.get(PR_XCODE_VARIABLE)),
+                                      env.get(PR_XCODE_VARIABLE))
+    if light_side:
+        side_lanes, plan = plan.side, dataclasses.replace(plan, side=())
+        jobs = owned_peak(plan, gui)
     choice, snapshot = choose(
         event=event,
         ref=ref,
@@ -2212,6 +2242,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 admission_runner = admission_route = ""
                 print(f"::warning title=warm routing::{type(error).__name__}: {error}"[:300])
     side = side_runner(choice, owned_slots)
+    if light_side and persistent(choice.runner):
+        owned_jobs, side = owned_jobs + side_lanes, light_side
     text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,
                    owned_jobs=owned_jobs, admission_runner=admission_runner, side=side)
     print(text)
