@@ -697,7 +697,12 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             return shellSingleQuote(path)
         }
         let encoded = shellSingleQuote(Data(path.utf8).base64EncodedString())
-        return "\"$(printf '%s' \(encoded) | base64 --decode 2>/dev/null || printf '%s' \(encoded) | base64 -D 2>/dev/null)\""
+        // GNU coreutils and macOS accept --decode, BusyBox (Alpine) only -d;
+        // -D is the older macOS short flag.
+        let decode = ["--decode", "-d", "-D"]
+            .map { "printf '%s' \(encoded) | base64 \($0) 2>/dev/null" }
+            .joined(separator: " || ")
+        return "\"$(\(decode))\""
     }
 
     private static func shellSingleQuote(_ value: String) -> String {

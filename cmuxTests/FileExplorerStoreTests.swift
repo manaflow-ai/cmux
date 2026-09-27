@@ -207,7 +207,8 @@ struct FileExplorerStoreTests {
         for name in ["モデル.md", "보고서.md", "résumé.md", "отчёт.md", "it's é.md"] {
             let path = "/tmp/nfd/" + name.precomposedStringWithCanonicalMapping
             let word = ProcessSSHFileExplorerTransport.remoteShellPathWord(path)
-            #expect(word.unicodeScalars.allSatisfy(\.isASCII))
+            let wordIsASCII = word.unicodeScalars.allSatisfy { $0.isASCII }
+            #expect(wordIsASCII)
 
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/sh")
