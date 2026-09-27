@@ -145,6 +145,17 @@ struct TerminalPromptSelectionTests {
         #expect(forward == .select(TerminalPromptSelection(anchor: 3, head: 5)))
     }
 
+    /// With output selected elsewhere, Shift-arrows stay Ghostty's
+    /// adjust_selection instead of starting a prompt selection.
+    @Test func extendingPassesThroughWhenOutputIsSelected() {
+        let action = terminalPromptSelectionResolve(
+            intent: .extend(.backward, .character),
+            snapshot: TerminalPromptInputSnapshot(length: 5, caret: 5, selection: nil, selectionOutsideInput: true),
+            tracked: nil
+        )
+        #expect(action == .passThrough)
+    }
+
     /// A stale tracked selection (the user dragged a new one with the mouse)
     /// must not win over what the terminal actually has selected.
     @Test func staleTrackedSelectionIsIgnored() {

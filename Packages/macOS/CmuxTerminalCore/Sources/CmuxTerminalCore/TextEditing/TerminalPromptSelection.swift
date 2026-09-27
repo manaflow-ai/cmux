@@ -16,6 +16,11 @@ public struct TerminalPromptInputSnapshot: Equatable, Sendable {
     /// wholly within the input.
     public let selection: Range<Int>?
 
+    /// Whether the terminal has a selection that is not wholly inside the
+    /// input, such as earlier output selected with the mouse. Shift-arrows
+    /// then belong to that selection, not to the prompt.
+    public let selectionOutsideInput: Bool
+
     /// Creates a snapshot.
     ///
     /// - Parameters:
@@ -23,10 +28,13 @@ public struct TerminalPromptInputSnapshot: Equatable, Sendable {
     ///   - caret: Caret stops before the cursor.
     ///   - selection: The selected stops, or `nil` when the terminal selection
     ///     is absent or reaches outside the input.
-    public init(length: Int, caret: Int, selection: Range<Int>?) {
+    ///   - selectionOutsideInput: Whether a terminal selection exists that
+    ///     does not lie wholly inside the input.
+    public init(length: Int, caret: Int, selection: Range<Int>?, selectionOutsideInput: Bool = false) {
         self.length = length
         self.caret = caret
         self.selection = selection
+        self.selectionOutsideInput = selectionOutsideInput
     }
 }
 
@@ -98,7 +106,10 @@ public enum TerminalPromptSelectionIntent: Equatable, Sendable {
 ///
 /// This assumes an emacs-style keymap. In a vi command mode Backspace moves
 /// instead of deleting, and a Right arrow at the end of a zsh buffer accepts
-/// an autosuggestion, so an edit there does the wrong thing.
+/// an autosuggestion, so an edit that reaches into a suggestion does the
+/// wrong thing. It also assumes one cell per buffer character: a control
+/// character the line editor shows as `^X` takes two cells, so an edit
+/// across it sends one Backspace too many.
 public struct TerminalPromptInputEdit: Equatable, Sendable {
     /// Left-arrow presses to send first.
     public let moveLeft: Int
@@ -217,6 +228,9 @@ public func terminalPromptSelectionResolve(
         return .select(TerminalPromptSelection(anchor: 0, head: length))
 
     case let .extend(direction, granularity):
+        // A selection elsewhere in the terminal keeps Ghostty's own
+        // Shift-arrow handling (adjust_selection).
+        if selection == nil, snapshot.selectionOutsideInput { return .passThrough }
         let current = terminalPromptSelectionCurrent(
             selection: selection,
             tracked: tracked,
@@ -287,8 +301,8 @@ private func terminalPromptSelectionCurrent(
 
 /// Maps a key-down event to a prompt selection intent.
 ///
-/// Cmd+A and Cmd+X are not mapped here: they arrive as the Edit menu's Select
-/// All and Cut actions. Control-bearing events never map, so Ctrl+C keeps
+/// Cmd+A and Cmd+X are not mapped here: the terminal view matches them in
+/// its key-equivalent path, ahead of Ghostty's `select_all` binding. Control-bearing events never map, so Ctrl+C keeps
 /// reaching the shell. Option+arrow and Option+Delete do not map;
 /// word-wise selection needs the input text, which Ghostty does not export.
 /// Option-typed text (German `@`, accented letters) does map to insertion.

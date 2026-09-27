@@ -6393,7 +6393,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return TerminalPromptInputSnapshot(
             length: Int(input.length),
             caret: Int(input.caret),
-            selection: selection
+            selection: selection,
+            selectionOutsideInput: selection == nil && ghostty_surface_has_selection(surface)
         )
     }
 
@@ -6409,9 +6410,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ event: NSEvent,
         surface: ghostty_surface_t
     ) -> Bool {
-        guard !keyboardCopyModeActive, !hasMarkedText() else { return false }
+        // An in-flight clipboard read queues later input behind the paste;
+        // acting now would edit the prompt ahead of it.
+        guard !keyboardCopyModeActive, !hasMarkedText(), !hasClipboardInputDeferral else { return false }
         let intent: TerminalPromptSelectionIntent
-        switch event.charactersIgnoringModifiers?.lowercased() ?? "" {
+        switch KeyboardLayout.normalizedCharacters(for: event) {
         case "a": intent = .selectAll
         case "x": intent = .cut
         default: return false
@@ -6509,12 +6512,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             promptSelectionTracked = collapsed
             return true
         case let .edit(edit, copyFirst, thenPassThrough):
-            // Cut copies through the normal copy path first, which never
-            // writes an empty clipboard. If nothing was copied, leave the
-            // input alone rather than delete text the user cannot paste back.
-            if copyFirst, !copyCurrentGhosttySelectionToClipboard(surface: surface) {
-                promptSelectionTracked = nil
-                return false
+            // Cut copies the selection's exact text, untrimmed, so pasting
+            // restores what was deleted. The resolver only cuts a non-empty
+            // input selection; if Ghostty still reads no text, leave the
+            // input alone and never write an empty clipboard.
+            if copyFirst {
+                guard let text = readSelectionSnapshot(surface: surface)?.string, !text.isEmpty else {
+                    promptSelectionTracked = nil
+                    return false
+                }
+                GhosttyApp.terminalPasteboard.writeString(text, to: GHOSTTY_CLIPBOARD_STANDARD)
             }
             promptSelectionTracked = nil
             GhosttyRuntimeCInterop.clearSelection(surface)
