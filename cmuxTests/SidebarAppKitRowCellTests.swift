@@ -246,6 +246,25 @@ struct SidebarAppKitRowCellTests {
         return cell
     }
 
+    @Test(arguments: [false, true], [
+        ("**Pi finished.**", "Pi finished."),
+        ("Run `swift test` and read [the results](https://example.com).", "Run swift test and read the results."),
+        ("**Done**\n*All checks passed*", "Done\nAll checks passed"),
+    ])
+    func notificationPreviewDisplaysPlainText(isActive: Bool, content: (String, String)) throws {
+        let (markdown, expected) = content
+        var model = Self.makeModel(isActive: isActive)
+        model.latestNotificationText = markdown
+        let cell = Self.configuredCell(model: model)
+        let subtitle = try #require(Self.descendants(of: cell)
+            .compactMap { $0 as? SidebarRowTextView }
+            .first { !$0.isHidden && $0.stringValue == expected })
+
+        #expect(Self.accessibilityLinks(in: subtitle).isEmpty)
+        #expect(subtitle.maximumNumberOfLines == model.settings.notificationMessageLineLimit)
+        #expect(cell.currentModelForMeasurement?.latestNotificationText == markdown)
+    }
+
     static func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
@@ -1920,12 +1939,24 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func shortcutHintPillUsesExplicitOpacityAnimationInsideDisabledTransaction() {
+    func shortcutHintPillAppearsWithoutFadeIn() {
         let pill = SidebarShortcutHintPillView(reduceMotionProvider: { false })
+
+        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+
+        #expect(!pill.isHidden)
+        #expect(pill.layer?.opacity == 1)
+        #expect((pill.layer?.animationKeys() ?? []).isEmpty)
+    }
+
+    @Test
+    func shortcutHintPillFadesOutWithExplicitOpacityAnimationInsideDisabledTransaction() {
+        let pill = SidebarShortcutHintPillView(reduceMotionProvider: { false })
+        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+        pill.configure(text: nil, fontSize: 9, emphasis: 1)
         CATransaction.commit()
 
         let hasOpacityAnimation = (pill.layer?.animationKeys() ?? []).contains { key in
