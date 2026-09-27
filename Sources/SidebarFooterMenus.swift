@@ -13,6 +13,11 @@ import SwiftUI
 @MainActor
 final class SidebarFooterMenuAnchor {
     fileprivate weak var view: NSView?
+    /// Keeps the last menu, and so its closure-backed items, alive after
+    /// `popUp` returns. AppKit can deliver the chosen item's action after
+    /// tracking ends, and an item's `target` is weak: with only a local
+    /// reference the item is already gone and the click does nothing.
+    private var presentedMenu: NSMenu?
 
     /// Pops `menu` just above the button, left-aligned with it: the footer sits
     /// at the bottom edge of the window, so a menu hanging below would be
@@ -25,6 +30,7 @@ final class SidebarFooterMenuAnchor {
         menu.minimumWidth = max(menu.minimumWidth, view.bounds.width)
         let menuHeight = menu.size.height
         let y = view.isFlipped ? -(menuHeight + gap) : view.bounds.height + gap + menuHeight
+        presentedMenu = menu
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: y), in: view)
     }
 }
