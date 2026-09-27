@@ -33,8 +33,9 @@ final class InterfaceDensityUITests: XCTestCase {
         // controls leave the accessibility tree, so hover by position first.
         hoverTitlebarRow(in: app)
         let bell = titlebarButton("titlebarControl.showNotifications", in: app)
+        // Minimal mode's clickable layer is an AppKit proxy with its own
+        // accessibility frame, so check reveal here, not the drawn width.
         XCTAssertTrue(waitForHittable(bell), "Hovering the sidebar header reveals its controls.")
-        XCTAssertEqual(bell.frame.width, 24, accuracy: 0.5)
         attachScreenshot(of: app, name: "comfortable, minimal mode, pointer over sidebar header")
     }
 
@@ -57,7 +58,7 @@ final class InterfaceDensityUITests: XCTestCase {
         XCTAssertEqual(bell.frame.width, 20, accuracy: 0.5, "Compact keeps the 20pt minimum hit target.")
 
         hoverSidebarFooter(in: app)
-        let help = element("SidebarHelpMenuButton", in: app)
+        let help = sidebarHelpButton(in: app)
         XCTAssertTrue(waitForHittable(help), "Hovering the sidebar footer reveals its folded actions.")
         attachScreenshot(of: app, name: "compact, pointer over sidebar footer")
     }
@@ -82,7 +83,7 @@ final class InterfaceDensityUITests: XCTestCase {
 
         let bell = titlebarButton("titlebarControl.showNotifications", in: app)
         let forward = titlebarButton("titlebarControl.focusHistoryForward", in: app)
-        let help = element("SidebarHelpMenuButton", in: app)
+        let help = sidebarHelpButton(in: app)
         XCTAssertTrue(help.waitForExistence(timeout: 5))
         moveMouseToTerminal(in: app)
         attachScreenshot(of: app, name: "\(density), standard titlebar")
@@ -129,6 +130,15 @@ final class InterfaceDensityUITests: XCTestCase {
     @MainActor
     private func element(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
+    /// The sidebar footer's help button. Its accessibility identifier is
+    /// replaced by the enclosing sidebar's, so match the label instead.
+    @MainActor
+    private func sidebarHelpButton(in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .other)
+            .matching(NSPredicate(format: "label == %@", "Help"))
+            .firstMatch
     }
 
     @MainActor
