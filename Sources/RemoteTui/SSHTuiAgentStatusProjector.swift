@@ -34,14 +34,22 @@ final class SSHTuiAgentStatusProjector {
     func reconcile() {
         var desired: [UUID: [UUID: RemoteAgentSidebarStatus]] = [:]
         for projection in catalog.projections where projection.resource.machine.isSSH && projection.resource.kind == .terminal {
-            guard let resource = catalog.resources[projection.resource], resource.lifecycle != .exited,
+            // A dropped link keeps the last reported rows; show nothing rather than a stale Running.
+            guard catalog.machines[projection.resource.machine]?.linkState == .connected,
+                  let resource = catalog.resources[projection.resource], resource.lifecycle != .exited,
                   let badge = resource.agent, let status = RemoteAgentSidebarStatus(badge: badge) else { continue }
             desired[projection.workspaceID, default: [:]][projection.panelID] = status
         }
         var nextLifecycles: [UUID: [UUID: String]] = [:]
         var nextWorkspacesWithStatus: Set<UUID> = []
         for workspaceID in workspacesWithStatus.union(appliedLifecycles.keys).union(desired.keys) {
-            guard let workspace = workspaceLookup(workspaceID) else { continue }
+            guard let workspace = workspaceLookup(workspaceID) else {
+                // Not reachable right now (moving between windows): keep what we
+                // own so a later pass can still clear it.
+                if let owned = appliedLifecycles[workspaceID] { nextLifecycles[workspaceID] = owned }
+                if workspacesWithStatus.contains(workspaceID) { nextWorkspacesWithStatus.insert(workspaceID) }
+                continue
+            }
             let panels = desired[workspaceID] ?? [:]
             let lifecycles = applyLifecycles(panels, previous: appliedLifecycles[workspaceID] ?? [:], to: workspace)
             applyStatusEntries(RemoteAgentSidebarStatus.workspaceSlots(panels.values), to: workspace)
@@ -107,7 +115,7 @@ final class SSHTuiAgentStatusProjector {
         }
     }
 
-    private static func workspace(id: UUID) -> Workspace? {
+    static func workspace(id: UUID) -> Workspace? {
         AppDelegate.shared?.tabManagerFor(tabId: id)?.tabs.first { $0.id == id }
     }
 }
