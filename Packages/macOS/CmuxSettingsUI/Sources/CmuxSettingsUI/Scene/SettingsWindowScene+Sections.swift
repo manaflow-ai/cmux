@@ -34,7 +34,8 @@ extension SettingsWindowRoot {
             AppSection(
                 defaultsStore: defaultsStore,
                 catalog: catalog,
-                hostActions: hostActions
+                hostActions: hostActions,
+                soundAgentCache: soundAgentCache
             )
         }
 
@@ -183,19 +184,14 @@ extension SettingsWindowRoot {
     /// inside the update that laid it out, before that frame commits.
     /// `scrollTo` resolves against the layout that exists when it is called,
     /// so this is the moment to scroll: a navigation deferred to this
-    /// section can reach its rows now, and if the section sits above the
-    /// pinned navigation its growth just pushed the pinned anchor down, so
-    /// the pin is re-applied here and the committed frame never shows the
-    /// shift. The next section then mounts one main-actor hop later — a
-    /// later update pass — so every section is built in a pass of its own
-    /// and input queued meanwhile is serviced first.
+    /// section can reach its rows now, and the committed frame never shows
+    /// the pane at the previous pane's offset. The next section then mounts
+    /// one main-actor hop later, in a later update pass.
     func sectionContentDidAppear(_ section: SettingsSectionID, proxy: ScrollViewProxy) {
         shownPaneSection = section
         if let deferred = mountModel.takeDeferredScroll(for: section),
            deferred.generation == settingsNavigationGeneration {
             proxy.scrollTo(deferred.anchorID, anchor: deferred.anchor)
-        } else if let pin = mountModel.pinnedScroll, mountModel.isAbove(section, pin.section) {
-            proxy.scrollTo(pin.anchorID, anchor: pin.anchor)
         }
         Task { @MainActor in
             _ = mountModel.sectionDidAppear(section)
