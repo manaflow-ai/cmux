@@ -7386,6 +7386,36 @@ describe("private SCP workflow", () => {
 });
 
 describe("team tunnel cron reconciliation", () => {
+  test("conditional generation delete preserves a concurrent re-attach for the next pass", async () => {
+    const vm = testCloudVmRow({ providerVmId: "provider-vm-cron-generation" });
+    let generation = 0;
+    let firstDetach = true;
+    const deleted: string[] = [];
+    const repo = {
+      ...testWorkflowRepo({ vm }),
+      listTeamNetworkAttachmentsPage: () => Effect.succeed([{
+        id: "generation-row", teamId: "team-generation", provider: "freestyle" as const,
+        providerNetworkId: "vpc-generation", slug: "generation", cidr: "10.63.0.0/24", cidrV6: "fd63::/64",
+        createdByUserId: "user-1", createdAt: new Date(), updatedAt: new Date(),
+        attachments: [{ tunnelId: "tun-generation", providerTunnelId: "tun-generation", userId: "removed", revokedAt: null, generation }],
+      }]),
+      deleteTunnelTeamNetwork: (_tunnelId: string, _teamNetworkId: string, options?: { generation?: number }) => Effect.sync(() => {
+        if (options?.generation === generation) deleted.push("generation-row");
+      }),
+    } as unknown as VmRepositoryShape;
+    const provider = {
+      ...testPrivateNetworkProvider(unusedProviderGateway()),
+      getStatus: () => Effect.succeed("running" as const),
+      detachTunnelNetwork: () => Effect.sync(() => { if (firstDetach) { firstDetach = false; generation += 1; } }),
+    } as VmProviderGatewayShape;
+    const directory = { listMemberIds: async () => [] };
+    const layer = Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, provider), Layer.succeed(VmBillingGateway, noOpVmBillingGateway()));
+    await Effect.runPromise(reconcileVmProviderStatuses({ teamDirectory: directory }).pipe(Effect.provide(layer)));
+    expect(deleted).toEqual([]);
+    await Effect.runPromise(reconcileVmProviderStatuses({ teamDirectory: directory }).pipe(Effect.provide(layer)));
+    expect(deleted).toEqual(["generation-row"]);
+  });
+
   test("runs status and heal before the bounded team pass and keeps unprocessed attachments", async () => {
     const vm = testCloudVmRow({ providerVmId: "vm-cron-budget", status: "running" });
     const events: string[] = [];
@@ -7394,7 +7424,7 @@ describe("team tunnel cron reconciliation", () => {
       id, teamId: id, provider: "freestyle" as const, providerNetworkId: `vpc-${id}`,
       slug: id, cidr: "10.60.0.0/24", cidrV6: "fd60::/64",
       createdByUserId: "user-1", createdAt: new Date(), updatedAt: new Date(),
-      attachments: [{ tunnelId: `tun-${id}`, providerTunnelId: `tun-${id}`, userId: "removed", revokedAt: null }],
+      attachments: [{ tunnelId: `tun-${id}`, providerTunnelId: `tun-${id}`, userId: "removed", revokedAt: null, generation: 0 }],
     }));
     let time = 0;
     let pages = 0;
@@ -7452,14 +7482,14 @@ describe("team tunnel cron reconciliation", () => {
       ...testWorkflowRepo({ vm }),
       listTeamNetworkAttachmentsPage: () => Effect.succeed([
         { ...first, attachments: [
-          { tunnelId: "tun-removed", providerTunnelId: "tun-removed", userId: "removed", revokedAt: null },
-          { tunnelId: "tun-revoked", providerTunnelId: "tun-revoked", userId: "member-1", revokedAt: new Date() },
+          { tunnelId: "tun-removed", providerTunnelId: "tun-removed", userId: "removed", revokedAt: null, generation: 0 },
+          { tunnelId: "tun-revoked", providerTunnelId: "tun-revoked", userId: "member-1", revokedAt: new Date(), generation: 0 },
         ] },
-        { ...gone, attachments: [{ tunnelId: "tun-gone", providerTunnelId: "tun-gone", userId: "member-2", revokedAt: null }] },
-        { ...error, attachments: [{ tunnelId: "tun-skipped", providerTunnelId: "tun-skipped", userId: "removed", revokedAt: null }] },
+        { ...gone, attachments: [{ tunnelId: "tun-gone", providerTunnelId: "tun-gone", userId: "member-2", revokedAt: null, generation: 0 }] },
+        { ...error, attachments: [{ tunnelId: "tun-skipped", providerTunnelId: "tun-skipped", userId: "removed", revokedAt: null, generation: 0 }] },
         { ...good, attachments: [
-          { tunnelId: "tun-bad", providerTunnelId: "tun-bad", userId: "removed", revokedAt: null },
-          { tunnelId: "tun-good", providerTunnelId: "tun-good", userId: "removed", revokedAt: null },
+          { tunnelId: "tun-bad", providerTunnelId: "tun-bad", userId: "removed", revokedAt: null, generation: 0 },
+          { tunnelId: "tun-good", providerTunnelId: "tun-good", userId: "removed", revokedAt: null, generation: 0 },
         ] },
       ]),
       deleteTunnelTeamNetwork: (_tunnelId: string, teamNetworkId: string) => Effect.sync(() => { deleted.push(teamNetworkId); }),
@@ -7492,7 +7522,7 @@ describe("team tunnel cron reconciliation", () => {
     const deleted: string[] = [];
     const first = { id: "page-1", teamId: "team-page-1", provider: "freestyle" as const, providerNetworkId: "vpc-page-1", slug: "page-1", cidr: "10.61.0.0/24", cidrV6: "fd61::/64", createdByUserId: "user-1", createdAt: new Date(), updatedAt: new Date() };
     const second = { id: "page-2", teamId: "team-page-2", provider: "freestyle" as const, providerNetworkId: "vpc-page-2", slug: "page-2", cidr: "10.62.0.0/24", cidrV6: "fd62::/64", createdByUserId: "user-1", createdAt: new Date(), updatedAt: new Date() };
-    const repo = { ...testWorkflowRepo({ vm }), listTeamNetworkAttachmentsPage: (input: { afterTeamNetworkId?: string }) => Effect.succeed(input.afterTeamNetworkId === "page-2" ? [] : input.afterTeamNetworkId ? [{ ...second, attachments: [{ tunnelId: "tun-page-2", providerTunnelId: "tun-page-2", userId: "removed", revokedAt: null }] }] : [{ ...first, attachments: [{ tunnelId: "tun-timeout", providerTunnelId: "tun-timeout", userId: "removed", revokedAt: null }] }]), deleteTunnelTeamNetwork: (_tunnelId: string, id: string) => Effect.sync(() => { deleted.push(id); }) } as unknown as VmRepositoryShape;
+    const repo = { ...testWorkflowRepo({ vm }), listTeamNetworkAttachmentsPage: (input: { afterTeamNetworkId?: string }) => Effect.succeed(input.afterTeamNetworkId === "page-2" ? [] : input.afterTeamNetworkId ? [{ ...second, attachments: [{ tunnelId: "tun-page-2", providerTunnelId: "tun-page-2", userId: "removed", revokedAt: null, generation: 0 }] }] : [{ ...first, attachments: [{ tunnelId: "tun-timeout", providerTunnelId: "tun-timeout", userId: "removed", revokedAt: null, generation: 0 }] }]), deleteTunnelTeamNetwork: (_tunnelId: string, id: string) => Effect.sync(() => { deleted.push(id); }) } as unknown as VmRepositoryShape;
     const provider = { ...testPrivateNetworkProvider(unusedProviderGateway()), getStatus: () => Effect.succeed("running" as const), detachTunnelNetwork: (_provider: string, id: string) => Effect.sync(() => { detached.push(id); }) } as VmProviderGatewayShape;
     const directory = { listMemberIds: async (teamId: string) => teamId === "team-page-1" ? new Promise<readonly string[]>(() => {}) : ["member-1"] };
     await Effect.runPromise(reconcileVmProviderStatuses({ teamDirectory: directory, directoryTimeoutMs: 1, teamNetworkPageSize: 1 }).pipe(Effect.provide(Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, provider), Layer.succeed(VmBillingGateway, noOpVmBillingGateway())))));
