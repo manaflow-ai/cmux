@@ -193,6 +193,7 @@ extension CmuxSettingsFileStore {
                     "socketPassword": "",
                     "claudeCodeIntegration": IntegrationsCatalogSection().claudeCodeHooksEnabled.defaultValue,
                     "claudeBinaryPath": "",
+                    "codexIntegration": IntegrationsCatalogSection().codexHooksEnabled.defaultValue,
                     "ripgrepBinaryPath": "",
                     "suppressSubagentNotifications": IntegrationsCatalogSection().suppressSubagentNotifications.defaultValue,
                     "ampIntegration": IntegrationsCatalogSection().ampHooksEnabled.defaultValue,

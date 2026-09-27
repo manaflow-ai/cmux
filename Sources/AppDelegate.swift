@@ -1265,6 +1265,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         qos: .utility
     )
     private var todoStatePersistenceCoordinator: SessionTodoStatePersistenceCoordinator?
+    /// Holds back primary snapshot writes from a launch that restored less
+    /// than it started from; installed by startup snapshot preparation or the
+    /// first save, whichever comes first.
+    var sessionSnapshotOverwriteGuard: SessionSnapshotOverwriteGuard?
     /// Session snapshot persistence (CmuxSession); composition-root owned.
     /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
     nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
@@ -3618,13 +3622,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func finishPreparingStartupSessionSnapshot() {
+        // Decode the primary once: the archive, the `-previous` sync, and the
+        // restore below all read it, and none of them rewrites it.
+        let primaryOutcome = sessionSnapshotStore.defaultSnapshotFileURL().map {
+            sessionSnapshotStore.loadOutcome(fileURL: $0)
+        }
+        installSessionSnapshotOverwriteGuardIfNeeded(primaryOutcome: primaryOutcome)
         syncManualRestoreSnapshotCachePruningCrashDiagnostics(
-            preserveExistingBackup: previousSessionLaunchWasUnclean
+            preserveExistingBackup: previousSessionLaunchWasUnclean,
+            primaryOutcome: primaryOutcome
         )
-        let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics()
+        let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics(
+            primaryOutcome: primaryOutcome
+        )
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup else { return }
         startupSessionSnapshot = sanitizedStartupSnapshot
+    }
+
+    /// Archives the on-disk snapshot and installs the overwrite guard once per
+    /// process, before the first `-previous` sync or primary write. Skipped
+    /// under XCTest so tests never archive into real Application Support.
+    func installSessionSnapshotOverwriteGuardIfNeeded(
+        primaryOutcome: SessionSnapshotLoadOutcome<AppSessionSnapshot>? = nil
+    ) {
+        guard sessionSnapshotOverwriteGuard == nil,
+              !isRunningUnderXCTest(ProcessInfo.processInfo.environment),
+              !isRunningUnderXCTestCached else { return }
+        archiveSessionSnapshotAndInstallOverwriteGuard(
+            primaryOutcome: primaryOutcome,
+            recoversMissingPrimary: Self.shouldRecoverMissingPrimarySessionSnapshot(
+                previousLaunchWasUnclean: previousSessionLaunchWasUnclean,
+                crashOnlyPrimarySnapshotRemovalMarker: Self.hasCrashOnlyPrimarySnapshotRemovalMarker()
+            )
+        )
     }
 
     private func resumeDeferredInitialMainWindowBootstrapIfNeeded() {
@@ -3637,9 +3668,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         scheduleInitialMainWindowBootstrap(debugSource: debugSource)
     }
 
-    private func loadStartupSessionSnapshotPruningCrashDiagnostics() -> AppSessionSnapshot? {
+    private func loadStartupSessionSnapshotPruningCrashDiagnostics(
+        primaryOutcome: SessionSnapshotLoadOutcome<AppSessionSnapshot>? = nil
+    ) -> AppSessionSnapshot? {
         guard let primaryURL = sessionSnapshotStore.defaultSnapshotFileURL() else { return nil }
-        switch sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
+        switch primaryOutcome ?? sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
         case .loaded(let snapshot):
             if let prunedSnapshot = SessionPersistencePolicy
                 .pruningCmuxCrashDiagnosticWindows(from: snapshot)
@@ -3687,7 +3720,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let data = Self.encodedPersistedWindowGeometryData(frame: frame, display: display) else {
             return
         }
-        defaults.set(data, forKey: Self.persistedWindowGeometryDefaultsKey)
+        defaults.setIfChanged(data, forKey: Self.persistedWindowGeometryDefaultsKey)
     }
 
     private nonisolated static func encodedPersistedWindowGeometryData(
@@ -3700,7 +3733,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             frame: frame,
             display: display
         )
-        return try? JSONEncoder().encode(payload)
+        // Sorted keys keep the bytes stable so autosave can skip unchanged writes.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try? encoder.encode(payload)
     }
 
     nonisolated static func decodedPersistedWindowGeometryData(_ data: Data) -> PersistedWindowGeometry? {
@@ -3714,7 +3750,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private nonisolated static func removeLegacyPersistedWindowGeometry(
         defaults: UserDefaults = .standard
     ) {
-        legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObject(forKey: $0) }
+        legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObjectIfPresent(forKey: $0) }
     }
 
     private func persistWindowGeometry(from window: NSWindow?) {
@@ -5042,13 +5078,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         preserveManualRestoreBackupOnMissingPrimary: Bool = false
     ) {
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
+        installSessionSnapshotOverwriteGuardIfNeeded()
+        let snapshot = snapshotAllowedByOverwriteGuard(snapshot)
+        guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
 
         // Persistence can outlive its main-actor owner; retain only the Sendable
         // store so finishing a write cannot destroy AppDelegate on this queue.
         let writeBlock = { [sessionSnapshotStore] in
+            // Autosave runs every few seconds. Only write defaults that changed:
+            // each set/remove posts didChangeNotification even when it is a no-op,
+            // waking every defaults observer and SwiftUI's @AppStorage lock.
             Self.removeLegacyPersistedWindowGeometry()
             if let persistedGeometryData {
-                UserDefaults.standard.set(
+                UserDefaults.standard.setIfChanged(
                     persistedGeometryData,
                     forKey: Self.persistedWindowGeometryDefaultsKey
                 )
@@ -6518,6 +6560,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             publishCmuxWindowLifecycle(name: "window.focused", windowId: windowId, origin: "focus_request")
         }
         return didFocus
+    }
+
+    /// Resizes a main window, keeping its top-left corner fixed: a height change grows or
+    /// shrinks downward, a width change rightward. The dimensions set and returned are
+    /// the window FRAME size (title bar and chrome included), not the content
+    /// rect. Passing nil for both dimensions reads the frame without changing it.
+    ///
+    /// A height change is the input to the terminal's no-reflow resize path, and
+    /// nothing else in the debug surface can produce one: splits change the
+    /// layout inside a fixed window, and driving the real window from a script
+    /// needs Accessibility permission the automation host does not have. Tests
+    /// for resize behavior have to be able to say "make this window shorter".
+    func resizeMainWindow(windowId: UUID, width: CGFloat?, height: CGFloat?) -> CGSize? {
+        guard let window = windowForMainWindowId(windowId) else { return nil }
+        // Both dimensions nil is a read. setFrame is still a mutation even when the frame is
+        // unchanged -- it posts the frame-change notifications observers act on -- so the
+        // read path must not call it.
+        guard width != nil || height != nil else { return window.frame.size }
+        var frame = window.frame
+        let top = frame.maxY
+        // AppKit does not apply minSize to setFrame, only to interactive resizing, so a
+        // caller asking for 1x1 would otherwise get it. Clamp to the same floor a person
+        // dragging the frame would hit.
+        if let width { frame.size.width = max(width, window.minSize.width) }
+        if let height { frame.size.height = max(height, window.minSize.height) }
+        frame.origin.y = top - frame.size.height
+        window.setFrame(frame, display: true)
+        return window.frame.size
     }
 
     func closeMainWindow(windowId: UUID, recordHistory: Bool = true) -> Bool {
@@ -10465,14 +10535,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
             bringToFront(window)
         }
-        guard let workspace = context.tabManager.addWorkspaceIfActive(select: true, autoWelcomeIfNeeded: false) else {
+        let launch = WelcomeBannerDelivery.prepareLaunch(context.tabManager.welcomeBannerDeliveryResolver())
+        guard let workspace = context.tabManager.addWorkspaceIfActive(
+            initialTerminalEnvironment: launch.environment,
+            select: true,
+            autoWelcomeIfNeeded: false
+        ) else {
             return
         }
-        sendWelcomeCommandWhenReady(to: workspace)
+        if launch.delivery == .typedCommand {
+            sendWelcomeCommandWhenReady(to: workspace)
+        }
     }
 
     func sendWelcomeCommandWhenReady(to workspace: Workspace, markShownOnSend: Bool = false) {
-        sendTextWhenReady("cmux welcome\n", to: workspace, beforeSend: {
+        sendTextWhenReady(WelcomeBannerDelivery.typedCommandText, to: workspace, beforeSend: {
             if markShownOnSend {
                 UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
             }
@@ -15595,8 +15672,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
-            routedTabs?.movePaneFocus(direction: .left)
+            AppDelegate.moveMainAreaPaneFocus(.direction(.left), tabManager: routedTabs, window: shortcutRoutingKeyWindow)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .left)
 #endif
@@ -15616,8 +15692,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
-            routedTabs?.movePaneFocus(direction: .right)
+            AppDelegate.moveMainAreaPaneFocus(.direction(.right), tabManager: routedTabs, window: shortcutRoutingKeyWindow)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .right)
 #endif
@@ -15637,8 +15712,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
-            routedTabs?.movePaneFocus(direction: .up)
+            AppDelegate.moveMainAreaPaneFocus(.direction(.up), tabManager: routedTabs, window: shortcutRoutingKeyWindow)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .up)
 #endif
@@ -15658,8 +15732,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
-            routedTabs?.movePaneFocus(direction: .down)
+            AppDelegate.moveMainAreaPaneFocus(.direction(.down), tabManager: routedTabs, window: shortcutRoutingKeyWindow)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .down)
 #endif
@@ -15682,8 +15755,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
-            let moved = routedTabs?.cyclePaneFocus(forward: false) ?? false
+            let moved = AppDelegate.moveMainAreaPaneFocus(.previous, tabManager: routedTabs, window: shortcutRoutingKeyWindow)
 #if DEBUG
             if moved, let workspace = routedTabs?.selectedWorkspace {
                 GotoSplitCycleUITestSupport().recordCycleMoveIfNeeded(
@@ -15706,8 +15778,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
-            let moved = routedTabs?.cyclePaneFocus(forward: true) ?? false
+            let moved = AppDelegate.moveMainAreaPaneFocus(.next, tabManager: routedTabs, window: shortcutRoutingKeyWindow)
 #if DEBUG
             if moved, let workspace = routedTabs?.selectedWorkspace {
                 GotoSplitCycleUITestSupport().recordCycleMoveIfNeeded(
@@ -16222,6 +16293,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return false
+    }
+
+    /// Runs a workspace terminal font size action from a non-keyboard
+    /// entrypoint (command palette) through the same coordinator enqueue as
+    /// the keyboard shortcut.
+    ///
+    /// - Returns: Whether a workspace resolved and the change was not rejected.
+    @discardableResult
+    func performWorkspaceTerminalFontSizeAction(
+        _ action: KeyboardShortcutSettings.Action,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        let routedTabs = activeTabManagerForCommands(
+            preferredWindow: preferredWindow ?? shortcutRoutingActiveWindow
+        )
+        guard let workspace = routedTabs?.selectedWorkspace else { return false }
+        switch enqueueWorkspaceTerminalFontSizeChange(
+            action,
+            workspace: workspace,
+            tabManager: routedTabs,
+            deferFlush: false
+        ) {
+        case .rejected:
+            return false
+        case .acceptedMutation, .consumedWithoutMutation:
+            return true
+        }
     }
 
     private func enqueueWorkspaceTerminalFontSizeChange(
@@ -17937,14 +18035,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         let currentPid = ProcessInfo.processInfo.processIdentifier
-        var terminatedPids: [String] = []
+        let environment = ProcessInfo.processInfo.environment
+        var quitRequestedPids: [String] = []
 
         for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleId) {
             guard app.processIdentifier != currentPid else { continue }
-            terminatedPids.append(String(app.processIdentifier))
-            app.terminate()
-            if !app.isTerminated {
-                _ = app.forceTerminate()
+            guard Self.isDuplicateApplicationExecutable(
+                app.executableURL,
+                mainExecutableURL: Self.bundleExecutableURL(of: app)
+            ) else { continue }
+            switch SingleInstanceConflictPolicy(environment: environment).action(
+                currentBundleURL: Bundle.main.bundleURL,
+                existingBundleURL: app.bundleURL
+            ) {
+            case .yieldToExisting:
+                // Another bundle sharing this id (a local Release build, a
+                // tool-launched copy) must not kill the user's running app.
+                // Exit without a session save: both share the snapshot file.
+                StartupBreadcrumbLog.append(
+                    "singleInstance.enforce.yield",
+                    fields: [
+                        "bundleIdentifier": bundleId,
+                        "existingPid": String(app.processIdentifier),
+                        "existingBundlePath": app.bundleURL?.path ?? "nil"
+                    ]
+                )
+                NSLog(
+                    "cmux: another instance with bundle id %@ is running from %@; exiting instead of replacing it (set %@=1 to replace)",
+                    bundleId,
+                    app.bundleURL?.path ?? "an unknown path",
+                    SingleInstanceConflictPolicy.allowReplacingEnvironmentKey
+                )
+                app.activate(options: [.activateAllWindows])
+                // _exit: skip atexit handlers and static teardown while
+                // Ghostty and Sentry threads are still running.
+                _exit(0)
+            case .replaceExisting:
+                quitRequestedPids.append(String(app.processIdentifier))
+                // Graceful quit first so the older instance saves its session;
+                // force only if it is still running after the timeout.
+                app.terminate()
+                DispatchQueue.main.asyncAfter(
+                    deadline: .now() + SingleInstanceConflictPolicy.gracefulTerminationTimeout
+                ) {
+                    if !app.isTerminated {
+                        _ = app.forceTerminate()
+                    }
+                }
             }
         }
         StartupBreadcrumbLog.append(
@@ -17952,9 +18089,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             fields: [
                 "bundleIdentifier": bundleId,
                 "currentPid": String(currentPid),
-                "terminatedPids": terminatedPids.joined(separator: ",")
+                "quitRequestedPids": quitRequestedPids.joined(separator: ",")
             ]
         )
+    }
+
+    /// The main executable of the bundle `app` was registered with, if any.
+    /// A helper that inherits cmux's bundle identifier runs some other
+    /// executable, so comparing against this rejects it without also
+    /// rejecting a cmux launched from a different bundle path.
+    nonisolated private static func bundleExecutableURL(of app: NSRunningApplication) -> URL? {
+        app.bundleURL.flatMap { Bundle(url: $0)?.executableURL }
+    }
+
+    /// Rejects helpers that inherit the application bundle identifier.
+    nonisolated static func isDuplicateApplicationExecutable(
+        _ executableURL: URL?,
+        mainExecutableURL: URL?
+    ) -> Bool {
+        guard let executableURL, let mainExecutableURL else { return false }
+        return executableURL.standardizedFileURL.resolvingSymlinksInPath() ==
+            mainExecutableURL.standardizedFileURL.resolvingSymlinksInPath()
     }
 
     private func observeDuplicateLaunches() {
@@ -17962,10 +18117,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             StartupBreadcrumbLog.append("singleInstance.observe.skip", fields: ["reason": "missingBundleId"])
             return
         }
-        let embeddedCLIURL = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
         let currentPid = ProcessInfo.processInfo.processIdentifier
         StartupBreadcrumbLog.append(
             "singleInstance.observe.install",
@@ -17983,10 +18134,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard self != nil else { return }
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             guard app.bundleIdentifier == bundleId, app.processIdentifier != currentPid else { return }
-            if let executableURL = app.executableURL?
-                   .standardizedFileURL
-                   .resolvingSymlinksInPath(),
-               executableURL == embeddedCLIURL {
+            guard Self.isDuplicateApplicationExecutable(
+                app.executableURL,
+                mainExecutableURL: Self.bundleExecutableURL(of: app)
+            ) else {
+                return
+            }
+            // A relaunch of this same bundle is meant to replace us (its
+            // enforceSingleInstance asks us to quit gracefully); let it live.
+            if let launchedBundleURL = app.bundleURL,
+               SingleInstanceConflictPolicy(environment: [:]).action(
+                   currentBundleURL: launchedBundleURL,
+                   existingBundleURL: Bundle.main.bundleURL
+               ) == .replaceExisting {
+                StartupBreadcrumbLog.append(
+                    "singleInstance.observe.sameBundleRelaunch",
+                    fields: ["duplicatePid": String(app.processIdentifier)]
+                )
                 return
             }
 

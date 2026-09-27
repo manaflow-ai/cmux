@@ -64,7 +64,7 @@ public struct AppSection: View {
     @State private var customSoundFile: DefaultsValueModel<String>
     @State private var soundOverrides: DefaultsValueModel<String>
     @State private var soundOverridesModel: NotificationSoundOverridesModel
-    @State private var soundAgents: [NotificationSoundAgentOption] = []
+    private let soundAgentCache: NotificationSoundAgentCache
     @State private var telemetry: DefaultsValueModel<Bool>
     @State private var confirmQuit: DefaultsValueModel<ConfirmQuitMode>
     @State private var warnCloseTab: DefaultsValueModel<Bool>
@@ -84,10 +84,12 @@ public struct AppSection: View {
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         catalog: SettingCatalog,
-        hostActions: SettingsHostActions
+        hostActions: SettingsHostActions,
+        soundAgentCache: NotificationSoundAgentCache = NotificationSoundAgentCache()
     ) {
         self.catalog = catalog
         self.hostActions = hostActions
+        self.soundAgentCache = soundAgentCache
         _language = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.language))
         _appearance = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appearance))
         _appIcon = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon))
@@ -161,9 +163,7 @@ public struct AppSection: View {
         }
         .task {
             startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
-            if soundAgents.isEmpty {
-                soundAgents = await hostActions.notificationSoundAgentOptions()
-            }
+            await soundAgentCache.loadIfNeeded { await hostActions.notificationSoundAgentOptions() }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
         .task {
@@ -807,7 +807,7 @@ public struct AppSection: View {
                         soundOverrides.set(encoded)
                     },
                     hostActions: hostActions,
-                    agents: soundAgents
+                    agents: soundAgentCache.agents ?? []
                 )
                 .frame(minWidth: 510, maxWidth: .infinity, alignment: .leading)
             }

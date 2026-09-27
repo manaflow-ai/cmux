@@ -789,6 +789,16 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
                 "Sidebar git metadata refresh \(index + 1) never completed a metadata read."
             )
         }
+        // The last read's snapshot is applied after the read completes; wait
+        // for the probe to finish before asserting on what it did.
+        XCTAssertTrue(
+            waitForCondition(timeout: 15) {
+                manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(
+                    workspaceId: workspace.id
+                ).contains(panelId)
+            },
+            "The last sidebar git metadata refresh never finished applying."
+        )
 
         XCTAssertEqual(
             gitRunner.invocationCount,
