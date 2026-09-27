@@ -2,7 +2,7 @@ import Foundation
 
 /// Visual style for the active-workspace indicator in the sidebar.
 public enum WorkspaceIndicatorStyle: String, CaseIterable, Sendable, SettingCodable {
-    case leftRail, solidFill
+    case leftRail, solidFill, border
 
     /// Maps raw strings written by earlier iterations of the indicator
     /// setting onto the closest modern case, exactly as the legacy
@@ -15,7 +15,9 @@ public enum WorkspaceIndicatorStyle: String, CaseIterable, Sendable, SettingCoda
         switch string {
         case "rail":
             return .leftRail
-        case "border", "wash", "lift", "typography", "washRail", "blueWashColorRail":
+        case "border":
+            return .border
+        case "wash", "lift", "typography", "washRail", "blueWashColorRail":
             return .solidFill
         default:
             return nil

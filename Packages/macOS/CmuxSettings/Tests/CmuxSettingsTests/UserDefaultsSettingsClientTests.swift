@@ -122,7 +122,7 @@ struct WorkspaceIndicatorStyleLegacyDecodeTests {
         ("leftRail", WorkspaceIndicatorStyle.leftRail),
         ("solidFill", .solidFill),
         ("rail", .leftRail),
-        ("border", .solidFill),
+        ("border", .border),
         ("wash", .solidFill),
         ("lift", .solidFill),
         ("typography", .solidFill),

@@ -13,8 +13,10 @@ struct SidebarRowPalette {
     var colorScheme: ColorScheme { model.colorSchemeIsDark ? .dark : .light }
 
     var selectedBackground: NSColor {
-        sidebarSelectedWorkspaceBackgroundNSColor(
-            for: colorScheme,
+        sidebarWorkspaceRowActiveBackgroundNSColor(
+            activeTabIndicatorStyle: model.settings.activeTabIndicatorStyle,
+            customColorHex: model.snapshot.customColorHex,
+            colorScheme: colorScheme,
             sidebarSelectionColorHex: model.settings.selectionColorHex
         )
     }

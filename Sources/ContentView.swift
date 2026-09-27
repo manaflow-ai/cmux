@@ -15871,8 +15871,10 @@ struct TabItemView: View, Equatable {
     }
 
     private var selectedWorkspaceBackgroundNSColor: NSColor {
-        sidebarSelectedWorkspaceBackgroundNSColor(
-            for: colorScheme,
+        sidebarWorkspaceRowActiveBackgroundNSColor(
+            activeTabIndicatorStyle: activeTabIndicatorStyle,
+            customColorHex: workspaceSnapshot.customColorHex,
+            colorScheme: colorScheme,
             sidebarSelectionColorHex: sidebarSelectionColorHex
         )
     }
@@ -15930,7 +15932,7 @@ struct TabItemView: View, Equatable {
         switch activeTabIndicatorStyle {
         case .leftRail:
             return 0
-        case .solidFill:
+        case .solidFill, .border:
             return isActive ? 1.5 : 0
         }
     }
@@ -15940,7 +15942,7 @@ struct TabItemView: View, Equatable {
         switch activeTabIndicatorStyle {
         case .leftRail:
             return .clear
-        case .solidFill:
+        case .solidFill, .border:
             return Color.primary.opacity(0.5)
         }
     }
