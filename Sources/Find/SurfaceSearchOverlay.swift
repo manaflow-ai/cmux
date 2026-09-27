@@ -61,6 +61,10 @@ struct SurfaceSearchOverlay: View {
                 .padding(.vertical, 6)
                 .background(Color.primary.opacity(0.1))
                 .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(isSearchFieldFocused ? cmuxAccentColor() : Color.clear, lineWidth: 1)
+                )
                 .overlay(alignment: .trailing) {
                     if let selected = searchState.selected {
                         let totalText = searchState.total.map { String($0) } ?? "?"
