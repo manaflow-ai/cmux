@@ -254,12 +254,19 @@ impl SshBootstrapper {
         })?;
         let remote = self.remote_platform().await?;
         let local = Platform::local();
-        if !local.compatible_with(&remote) {
+        let artifact = crate::ssh_artifacts::payload(
+            source,
+            &self.config.build_identity,
+            &remote.os,
+            &remote.arch,
+        )?;
+        if artifact.is_none() && !local.compatible_with(&remote) {
             return Err(BootstrapError::LocalBinaryIncompatible {
                 local: local.display(),
                 remote: remote.display(),
             });
         }
+        let source = artifact.as_deref().unwrap_or(source);
         let temporary_dir = self.temporary_upload_path();
         let temporary = format!("{temporary_dir}/payload");
         let parent = self
@@ -607,7 +614,10 @@ impl SshBootstrapper {
 /// opens the payload with no-clobber semantics, so a same-UID process cannot
 /// redirect the stream through a planted payload symlink.
 fn upload_command(_parent: &str, _temporary_dir: &str, temporary: &str) -> String {
-    format!("umask 077; (set -C; exec 3> {temporary} && cat >&3) && chmod 755 -- {temporary}")
+    // The validated temporary path is rooted under the configured remote
+    // binary directory and cannot begin with `-`. macOS chmod does not accept
+    // the GNU `--` separator, so keep this command portable across Unix hosts.
+    format!("umask 077; (set -C; exec 3> {temporary} && cat >&3) && chmod 755 {temporary}")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -818,7 +828,7 @@ mod tests {
         );
         assert!(command.contains("set -C; exec 3> ~/.local/bin/.cmux-upload-test/payload"));
         assert!(command.contains("cat >&3"));
-        assert!(command.contains("chmod 755 -- ~/.local/bin/.cmux-upload-test/payload"));
+        assert!(command.contains("chmod 755 ~/.local/bin/.cmux-upload-test/payload"));
         assert!(!command.contains("cat > ~/.local/bin"));
     }
 

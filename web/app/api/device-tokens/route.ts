@@ -20,6 +20,7 @@ import {
   MAX_PUSH_REQUEST_BYTES,
   normalizeApnsBundle,
   readBoundedJsonObject,
+  registrationApnsBundle,
 } from "../../../services/apns/routePolicy";
 import {
   AccountDeletionMutationBlockedError,
@@ -321,7 +322,7 @@ function parseRegistrationInput(
   const installationId = typeof body.installationId === "string" ? body.installationId.trim() : "";
   const pushKeyId = typeof body.pushKeyId === "string" ? body.pushKeyId.trim() : "";
   const pushPublicKey = typeof body.pushPublicKey === "string" ? body.pushPublicKey.trim() : "";
-  const bundle = normalizeApnsBundle(bundleId);
+  const bundle = registrationApnsBundle(normalizeApnsBundle(bundleId), body.environment);
   if (!HEX_TOKEN.test(deviceToken)) return { ok: false, response: jsonResponse({ error: "invalid_device_token" }, 400) };
   if (!bundle) return { ok: false, response: jsonResponse({ error: "invalid_bundle_id" }, 400) };
   if (!/^[A-Za-z0-9._:-]{1,255}$/.test(clientNamespace) || (clientNamespace !== "legacy" && clientNamespace !== bundle.bundleId)) {

@@ -23,84 +23,6 @@ private final class RejectingRestoreTabDelegate: BonsplitDelegate {
 @MainActor
 @Suite("Terminal startup restore failure handling", .serialized)
 struct TerminalStartupRestoreFailureTests {
-    @Test("Binding-only persistent SSH resume waits for topology admission")
-    func persistentSSHBindingOnlyResumeWaitsForTopologyAdmission() throws {
-        let defaults = try makeAutoResumeDefaults()
-        defer { defaults.store.removePersistentDomain(forName: defaults.name) }
-        TerminalController.shared.stop(cleanupDiscoveryState: true)
-        let socketPath = TerminalController.shared.reserveStartupSocketPath(
-            "/tmp/cmux-terminal-restore-\(UUID().uuidString).sock"
-        )
-        defer {
-            TerminalController.shared.stop(cleanupDiscoveryState: true)
-            try? FileManager.default.removeItem(atPath: socketPath)
-            try? FileManager.default.removeItem(atPath: socketPath + ".lock")
-        }
-        let source = Workspace(agentSessionAutoResumeDefaults: defaults.store)
-        defer { source.teardownAllPanels() }
-        source.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
-
-        let savedPanelID = try #require(source.focusedPanelId)
-        let remotePTYSessionID = Workspace.defaultSSHPTYSessionID(
-            workspaceId: source.id,
-            panelId: savedPanelID
-        )
-        source.remotePTYSessionIDsByPanelId[savedPanelID] = remotePTYSessionID
-        source.surfaceResumeBindingsByPanelId[savedPanelID] = SurfaceResumeBindingSnapshot(
-            name: "Codex",
-            kind: "codex",
-            command: "cd '/srv/project' && codex resume persistent-ssh-session",
-            cwd: "/srv/project",
-            checkpointId: "persistent-ssh-session",
-            source: "agent-hook",
-            autoResume: true,
-            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
-                workspaceID: source.id,
-                surfaceID: savedPanelID,
-                persistentPTYSessionID: remotePTYSessionID
-            )),
-            updatedAt: 1_800_000_300
-        )
-        source.updatePanelShellActivityState(
-            panelId: savedPanelID,
-            state: .commandRunning
-        )
-        var snapshot = source.sessionSnapshot(includeScrollback: false)
-        let savedPanelIndex = try #require(
-            snapshot.panels.firstIndex { $0.id == savedPanelID }
-        )
-        snapshot.panels[savedPanelIndex].terminal?.wasAgentRunning = true
-        #expect(snapshot.panels[savedPanelIndex].terminal?.agent == nil)
-        #expect(snapshot.panels[savedPanelIndex].terminal?.wasAgentRunning == true)
-
-        let restored = Workspace(agentSessionAutoResumeDefaults: defaults.store)
-        defer { restored.teardownAllPanels() }
-        let restoredIDs = restored.restoreSessionSnapshot(
-            snapshot,
-            startupRestoreCommitOwner: .tabManagerTopology
-        )
-        let restoredPanelID = try #require(restoredIDs[savedPanelID])
-        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
-        let startupCommand = try #require(restoredPanel.surface.debugInitialCommand())
-        let remoteCommand = try decodedRemoteCommand(from: startupCommand)
-        let initialCommand = try decodedInitialCommand(from: remoteCommand)
-
-        #expect(startupCommand.contains("ssh-pty-attach"))
-        #expect(initialCommand.contains("/srv/project"), "\(initialCommand)")
-        #expect(initialCommand.contains("codex resume persistent-ssh-session"), "\(initialCommand)")
-        #expect(!initialCommand.contains("cmux restore"), "\(initialCommand)")
-        #expect(!restoredPanel.surface.canCreateRuntimeSurface)
-
-        restored.terminalStartupRestoreCoordinator.commitPendingRestores(
-            panelIDs: [restoredPanelID]
-        )
-        // Topology publication alone does not admit an ownership-sensitive
-        // resume. The deferred resolver must still accept or cancel it from
-        // the fresh shared index before the runtime can start.
-        #expect(!restoredPanel.surface.canCreateRuntimeSurface)
-        #expect(restored.deferredAgentResumeRestoresByPanelId[restoredPanelID] != nil)
-    }
-
     @Test("Transferred persistent SSH restore adopts the destination owner")
     func transferredPersistentSSHRestoreRetargetsRemoteOwner() throws {
         let panelID = UUID()
@@ -134,14 +56,12 @@ struct TerminalStartupRestoreFailureTests {
             resumeBinding: binding,
             restoresRemoteWorkspaceTerminalSnapshot: true,
             remoteResumeContext: sourceContext,
-            remoteResumeCommandEmbedded: true,
             workingDirectory: binding.cwd,
             resumeWorkingDirectory: binding.cwd
         )
 
         let retargeted = restore.retargetingRemoteOwner(destinationContext)
         #expect(retargeted.remoteResumeContext == destinationContext)
-        #expect(retargeted.remoteResumeCommandEmbedded)
         #expect(
             retargeted.resumeBinding == binding.retargetingRemoteOwner(
                 expectedWorkspaceID: sourceWorkspaceID,
@@ -340,7 +260,6 @@ struct TerminalStartupRestoreFailureTests {
             panel: restoredPanel,
             snapshot: agent,
             manualResumeAvailable: true,
-            willRunStartupCommand: false,
             willRunStartupInput: false,
             resumeWorkingDirectory: workingDirectory,
             ownsResumeLaunchClaim: true,
@@ -426,47 +345,4 @@ struct TerminalStartupRestoreFailureTests {
         return (store, name)
     }
 
-    private func decodedRemoteCommand(from startupCommand: String) throws -> String {
-        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(startupCommand).map(\.value)
-        let script = try #require(words.first(where: { $0.contains("--command-b64") }))
-        let scriptWords = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(script).map(\.value)
-        let commandIndex = try #require(scriptWords.firstIndex(of: "--command-b64"))
-        let token = try #require(scriptWords.dropFirst(commandIndex + 1).first)
-        let encoded = token.hasSuffix(";") ? String(token.dropLast()) : token
-        let data = try #require(Data(base64Encoded: encoded))
-        return try #require(String(data: data, encoding: .utf8))
-    }
-
-    private func decodedInitialCommand(from bootstrap: String) throws -> String {
-        let payloadLine = try #require(bootstrap.split(separator: "\n").first { line in
-            line.contains("printf %s '") && line.contains("> \"$cmux_initial_command_tmp\"")
-        })
-        let prefixRange = try #require(payloadLine.range(of: "printf %s '"))
-        let encodedSuffix = payloadLine[prefixRange.upperBound...]
-        let closingQuote = try #require(encodedSuffix.firstIndex(of: "'"))
-        let encodedCommand = String(encodedSuffix[..<closingQuote])
-        let data = try #require(Data(base64Encoded: encodedCommand))
-        return try #require(String(data: data, encoding: .utf8))
-    }
-
-    private func remoteConfiguration() -> WorkspaceRemoteConfiguration {
-        WorkspaceRemoteConfiguration(
-            transport: .ssh,
-            terminalTransport: .ssh,
-            destination: "dev@example.com",
-            port: 22,
-            identityFile: nil,
-            sshOptions: ["StrictHostKeyChecking=accept-new"],
-            localProxyPort: nil,
-            relayPort: 64_089,
-            relayID: "relay-terminal-startup-failure",
-            relayToken: String(repeating: "a", count: 64),
-            localSocketPath: "/tmp/cmux-terminal-startup-failure.sock",
-            terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(
-                requireExisting: false
-            ),
-            preserveAfterTerminalExit: true,
-            persistentDaemonSlot: "ssh-terminal-startup-failure"
-        )
-    }
 }

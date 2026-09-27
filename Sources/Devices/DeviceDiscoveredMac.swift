@@ -9,4 +9,7 @@ struct DeviceDiscoveredMac: Sendable {
     let displayName: String?
     let endpointID: CmxIrohPeerIdentity
     let pathHints: [CmxIrohPathHint]
+    /// Whether the directory that named this Mac was issued by a service that
+    /// implements the Mac-to-Mac admission rule; false means no dial can be admitted.
+    let controlPlaneSupportsMacPeers: Bool
 }

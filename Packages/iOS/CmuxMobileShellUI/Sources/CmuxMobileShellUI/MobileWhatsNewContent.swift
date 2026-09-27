@@ -205,12 +205,17 @@ struct MobileWhatsNewPairingSetupContent: View {
     let page: MobileWhatsNewPage
     let layout: MobileWhatsNewPageLayout
     @Environment(MobileMacCompatCenter.self) private var macCompatCenter: MobileMacCompatCenter?
+    @Environment(MobileWhatsNewCenter.self) private var whatsNewCenter: MobileWhatsNewCenter?
+
+    private var buildType: MobileBuildType {
+        whatsNewCenter?.buildType ?? .current()
+    }
 
     private var compatibility: MobileWhatsNewMacCompatibility {
         MobileWhatsNewCatalog().macCompatibility(
             policy: macCompatCenter?.policy ?? .baked,
-            iosVersion: AppVersionInfo.current().marketingVersion,
-            buildType: MobileBuildType.current()
+            iosVersion: whatsNewCenter?.appVersion ?? AppVersionInfo.current().marketingVersion,
+            buildType: buildType
         )
     }
 
@@ -311,9 +316,9 @@ struct MobileWhatsNewPairingSetupContent: View {
                 )
             }
 
-            if MobileBuildType.current().usesInternalBuildVocabulary {
+            if buildType.usesInternalBuildVocabulary {
                 Text(MobileWhatsNewCatalog().macUpdateDetail(
-                    buildType: MobileBuildType.current(),
+                    buildType: buildType,
                     requiredVersion: compatibility.stableVersion
                 ))
                 .font(.footnote)

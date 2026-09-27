@@ -944,7 +944,8 @@ enum FilePreviewKindResolver {
 
     private static let textExtensions: Set<String> = [
         "bash", "c", "cc", "cfg", "conf", "cpp", "cs", "css", "csv", "cts", "env",
-        "fish", "go", "h", "hpp", "htm", "html", "ini", "java", "js", "json",
+        "erl", "ex", "exs", "fish", "go", "h", "hpp", "hrl", "htm", "html", "ini",
+        "java", "js", "json",
         "jsx", "kt", "log", "m", "markdown", "md", "mdx", "mm", "mts", "plist",
         "py", "rb", "rs", "sh", "sql", "swift", "toml", "ts", "tsx", "tsv", "txt",
         "xml", "yaml", "yml", "zsh"
@@ -1243,26 +1244,6 @@ enum FilePreviewTextLoader {
     }
 }
 
-enum FilePreviewTextSaver {
-    enum Result: Sendable {
-        case saved
-        case failed(fileExists: Bool)
-    }
-
-    @concurrent
-    static func save(content: String, to url: URL, encoding: String.Encoding) async -> Result {
-        guard let data = content.data(using: encoding) else {
-            return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
-        }
-
-        do {
-            try data.write(to: url, options: [])
-            return .saved
-        } catch {
-            return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
-        }
-    }
-}
 
 @MainActor
 final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
@@ -1303,11 +1284,23 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     weak var tabMetadataHost: (any FilePreviewTabMetadataHost)?
     var lastObservedFileState: FilePreviewFileState?
     var isClosed = false
-    weak var textView: NSTextView?
+    weak var textView: NSTextView? {
+        didSet { if cloudPreviewLease != nil { textView?.isEditable = false } }
+    }
+    var cloudPreviewRemotePath: String?
+    var cloudPreviewProviderIdentity: String?
+    var remotePreviewRefresh: (@MainActor () -> Void)?
+    var cloudPreviewLease: CloudFilePreviewLease? {
+        didSet {
+            cloudPreviewRemotePath = cloudPreviewLease?.remotePath
+            cloudPreviewProviderIdentity = cloudPreviewLease?.remoteIdentity
+            if cloudPreviewLease != nil { textView?.isEditable = false }
+        }
+    }
     let focusCoordinator: FilePreviewFocusCoordinator
     private let selectionReader = NativeTextSurfaceSelectionReader()
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
-    private let textSaver: @Sendable (String, URL, String.Encoding) async -> FilePreviewTextSaver.Result
+    private let textSaver: @Sendable (String, URL, String.Encoding) async -> FilePreviewTextSaveResult
     private let modeResolver: @Sendable (URL) async -> FilePreviewMode
     private let textLoadCoordinator = FilePreviewLatestLoadCoordinator<FilePreviewTextLoader.Result>()
     private let modeLoadCoordinator = FilePreviewLatestLoadCoordinator<FilePreviewMode>()
@@ -1336,7 +1329,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
             await FilePreviewTextLoader.load(url: url)
         },
-        textSaver: @escaping @Sendable (String, URL, String.Encoding) async -> FilePreviewTextSaver.Result = {
+        textSaver: @escaping @Sendable (String, URL, String.Encoding) async -> FilePreviewTextSaveResult = {
             content, url, encoding in
             await FilePreviewTextSaver.save(content: content, to: url, encoding: encoding)
         },
@@ -1429,6 +1422,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func close() {
+        cloudPreviewLease = nil
+        remotePreviewRefresh = nil
+        cloudPreviewProviderIdentity = nil
         isClosed = true
         unbindTabMetadata()
         stopWatchingForFileChanges()
@@ -1440,6 +1436,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         textView = nil
         focusCoordinator.unregisterAll()
     }
+
+    func refreshRemotePreview() { if let remotePreviewRefresh { remotePreviewRefresh() } else { _ = reloadFromDisk() } }
 
     func readSurfaceSelection() async -> SurfaceSelectionReadResult {
         guard previewMode == .text else { return .unsupported }
@@ -1485,7 +1483,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
-        guard previewMode == .text, let textView else { return false }
+        guard cloudPreviewLease == nil, previewMode == .text, let textView else { return false }
         let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
         guard !text.isEmpty else { return false }
         textView.window?.makeFirstResponder(textView)
@@ -1570,6 +1568,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func updateTextContent(_ nextContent: String) {
+        guard cloudPreviewLease == nil else { return }
         guard replaceTextContentIfChanged(nextContent) else { return }
         setTabMetadataDirtyState(nextContent != originalTextContent)
     }
@@ -1714,6 +1713,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     @discardableResult
     func saveTextContent() -> Task<Void, Never>? {
+        guard cloudPreviewLease == nil else { return nil }
         guard previewMode == .text else { return nil }
         guard !isSaving else { return nil }
         let currentContent = textView?.string ?? textContent
@@ -1870,7 +1870,7 @@ struct FilePreviewPanelView: View {
             PanelHeaderIconButton(
                 systemName: "arrow.clockwise",
                 label: String(localized: "filePreview.refresh", defaultValue: "Refresh"),
-                action: { panel.reloadFromDisk() }
+                action: { panel.refreshRemotePreview() }
             )
 
             FileExternalOpenMenu(fileURL: panel.fileURL, isDisabled: panel.isFileUnavailable)

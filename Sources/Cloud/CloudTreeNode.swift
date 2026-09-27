@@ -1,5 +1,7 @@
+import CmuxCloud
 import CmuxCore
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
 /// One row of the Cloud outline, built from the surface catalog: this Mac or a
 /// cloud machine, a pool ("Terminals", "Displays"), a group header, a workspace
@@ -62,9 +64,11 @@ final class CloudTreeNode: NSObject {
         case device(CloudTreeDeviceRow)
         /// The "Devices" section header when devices share the tree with the fleet.
         case devicesSection(CloudTreeDevicesSection)
-        /// The collapsible Cloud Machines section header.
-        case cloudMachinesSection
-        /// Empty My Devices state with independent discovery actions.
+        /// The collapsible Cloud Machines section header. `canCreateMachine`
+        /// shows its hover "+", which runs the New Machine action (Cmd-Y); it
+        /// is false while Cloud Machines is off and the header stands alone.
+        case cloudMachinesSection(canCreateMachine: Bool)
+        /// My Devices guidance and independent discovery actions, also shown with peers.
         case devicesEmpty(CloudTreeDevicesSection)
         /// Port discovery is demand-driven when the user opens the Ports group.
         var refreshesOnExpansion: Bool { switch self { case .portsGroup, .displaysPool: true; default: false } }
@@ -194,7 +198,10 @@ final class CloudTreeNode: NSObject {
         case .device(let row): return row.searchableTitle
         case .devicesSection: return String(localized: "cloudTree.group.devices", defaultValue: "My Devices")
         case .cloudMachinesSection: return String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines")
-        case .devicesEmpty: return String(localized: "devices.empty.title", defaultValue: "No other Macs yet")
+        case .devicesEmpty(let section):
+            return section.count == 0
+                ? String(localized: "devices.empty.title", defaultValue: "No other Macs yet")
+                : String(localized: "devices.manage", defaultValue: "Manage My Devices")
         }
     }
 
@@ -573,6 +580,7 @@ enum CloudTreeNodeBuilder {
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine,
         source: CloudTreeMachineSource = .cloud,
         devicesSection: CloudTreeDevicesSection = .init(),
+        canCreateCloudMachine: Bool = false,
         now: Date = .now
     ) -> [CloudTreeNode] {
         let projectionIndex = LocalProjectionIndex(snapshot: snapshot, unreadTerminalIDs: unreadTerminalIDs)
@@ -668,7 +676,7 @@ enum CloudTreeNodeBuilder {
                 : nodes
             nodes = [CloudTreeNode(
                 id: "cloud-machines-section",
-                kind: .cloudMachinesSection,
+                kind: .cloudMachinesSection(canCreateMachine: canCreateCloudMachine),
                 children: cloudChildren
             )]
         }

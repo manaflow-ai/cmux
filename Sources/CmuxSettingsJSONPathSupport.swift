@@ -1,7 +1,29 @@
+import CmuxBrowser
 import CmuxSettings
 import CmuxSidebar
 import CmuxSidebarGit
 import Foundation
+
+// Keep the portable settings skill's source fallback aware of catalog-owned
+// viewer paths when the generated all-keys reference is unavailable.
+private enum SettingsJSONPathFallbackCatalog {
+    static let viewerPaths = [
+        "app.openSupportedFilesInCmux",
+        "app.openMarkdownInCmuxViewer",
+        "app.preferredEditor",
+        "markdown.fontSize",
+        "markdown.fontFamily",
+        "markdown.maxWidth",
+        "fileEditor.wordWrap",
+        "fileEditor.syntaxHighlighting",
+        "fileEditor.lineNumbers",
+        "fileEditor.indentGuides",
+        "fileEditor.currentLineHighlight",
+        "fileEditor.tabWidth",
+        "fileExplorer.doubleClickAction",
+        "diffViewer.defaultLayout",
+    ]
+}
 
 typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
 
@@ -142,6 +164,10 @@ enum AppSettingsFileMapping {
             defaultsKey: app.focusHistoryIncludesPanesAndTabs.userDefaultsKey
         ),
         .init(
+            jsonKey: "equalizeSplitsOnCreate",
+            defaultsKey: app.equalizeSplitsOnCreate.userDefaultsKey
+        ),
+        .init(
             jsonKey: "openSupportedFilesInCmux",
             defaultsKey: app.openSupportedFilesInCmux.userDefaultsKey
         ),
@@ -164,6 +190,14 @@ enum AppSettingsFileMapping {
             defaultsKey: app.warnBeforeClosingTabXButton.userDefaultsKey
         ),
         .init(
+            jsonKey: "warnBeforeClosingWorkspace",
+            defaultsKey: app.warnBeforeClosingWorkspace.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "warnBeforeClosingWindow",
+            defaultsKey: app.warnBeforeClosingWindow.userDefaultsKey
+        ),
+        .init(
             jsonKey: "hideTabCloseButton",
             defaultsKey: app.hideTabCloseButton.userDefaultsKey
         ),
@@ -179,6 +213,7 @@ enum AppSettingsFileMapping {
 
     static let stringSettings: [SettingsFileStringMapping] = [
         .init(jsonKey: "preferredEditor", defaultsKey: app.preferredEditor.userDefaultsKey),
+        .init(jsonKey: "defaultWorkspacePath", defaultsKey: app.defaultWorkspacePath.userDefaultsKey),
     ]
 }
 
@@ -232,9 +267,34 @@ enum TerminalSettingsFileMapping {
             invalidPath: "terminal.copyOnSelect"
         ),
         .init(
+            jsonKey: "reflowHardWrapOnCopy",
+            defaultsKey: terminal.reflowHardWrapOnCopy.userDefaultsKey,
+            invalidPath: terminal.reflowHardWrapOnCopy.id
+        ),
+        .init(
+            jsonKey: "confirmUnsafePaste",
+            defaultsKey: terminal.confirmUnsafePaste.userDefaultsKey,
+            invalidPath: terminal.confirmUnsafePaste.id
+        ),
+        .init(
+            jsonKey: "showPasswordInputIndicator",
+            defaultsKey: terminal.showPasswordInputIndicator.userDefaultsKey,
+            invalidPath: terminal.showPasswordInputIndicator.id
+        ),
+        .init(
+            jsonKey: "showPasswordInputDots",
+            defaultsKey: terminal.showPasswordInputDots.userDefaultsKey,
+            invalidPath: terminal.showPasswordInputDots.id
+        ),
+        .init(
             jsonKey: "autoResumeAgentSessions",
             defaultsKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
             invalidPath: "terminal.autoResumeAgentSessions"
+        ),
+        .init(
+            jsonKey: "textEditingGestures",
+            defaultsKey: terminal.textEditingGestures.userDefaultsKey,
+            invalidPath: terminal.textEditingGestures.id
         ),
     ]
 }
@@ -334,6 +394,7 @@ enum AutomationSettingsFileMapping {
             jsonKey: "suppressSubagentNotifications",
             defaultsKey: automation.suppressSubagentNotifications.userDefaultsKey
         ),
+        .init(jsonKey: "codexIntegration", defaultsKey: automation.codexIntegration.userDefaultsKey),
         .init(jsonKey: "ampIntegration", defaultsKey: automation.ampIntegration.userDefaultsKey),
         .init(jsonKey: "cursorIntegration", defaultsKey: automation.cursorIntegration.userDefaultsKey),
         .init(jsonKey: "geminiIntegration", defaultsKey: automation.geminiIntegration.userDefaultsKey),

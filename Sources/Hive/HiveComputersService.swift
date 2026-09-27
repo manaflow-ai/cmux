@@ -1,7 +1,9 @@
+import CmuxCloud
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxHive
 import CmuxSettingsUI
+import CmuxSurfaceCatalogModel
 import Foundation
 import Observation
 

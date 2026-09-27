@@ -1,18 +1,29 @@
 #!/usr/bin/env python3
-"""Run the full CI suite on main on a timer and keep one issue for a red main.
+"""Run the full CI suite on main continuously and keep one issue for a red main.
 
-Pull requests run compile admission only unless labeled `full-ci`, and the
+Pull requests run a subset of the suite unless labeled `full-ci`, and the
 merge queue that used to run the full suite before landing is off. Without a
-periodic run on main, app-host shards and package tests would never run at all.
+full-suite run on main, a break outside that subset would never show.
 
-`gate` decides whether main's HEAD still needs a full-suite run. Every
-workflow_dispatch CI run is a full-suite run (choose_ci_suite.py), so any
-dispatch run on main for this SHA that is queued, running, or finished green or
-red means there is nothing to do. A cancelled run does not count. Any API error
-fails open and dispatches.
+Runs are continuous, one at a time: a push to main starts one when none is in
+flight, and each run's completion starts the next on the newest HEAD. A red
+result therefore covers only the commits that landed during one run, instead
+of a three-hour window. The three-hour schedule stays as a backstop.
+
+`gate` decides whether main's HEAD still needs a full-suite run. It holds when
+the run that just completed was already at HEAD, so an idle main never loops,
+and when another full-suite run on main is in flight for any commit, since that
+run's completion dispatches the next one. An in-flight run older than
+STALE_IN_FLIGHT does not hold: a run GitHub never starts would otherwise stop
+every later dispatch. Every workflow_dispatch CI run is a full-suite run
+(choose_ci_suite.py), so any dispatch run on main for this SHA that is queued,
+running, or finished green or red means there is nothing to do. A cancelled run
+does not count. Any API error fails open and dispatches.
 
 `report` syncs the single tracking issue with a completed dispatch run on main:
 a red run opens the issue or comments on it once, and a green run closes it.
+A red report carries the "New since" section main_regression_attribution.py
+writes: which tests newly fail and the pull requests suspected of it.
 """
 
 from __future__ import annotations
@@ -23,6 +34,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Iterable, Mapping
+from datetime import datetime, timedelta, timezone
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 CI_WORKFLOW_FILE = "ci.yml"
@@ -32,6 +44,8 @@ FAILED_JOB_CONCLUSIONS = frozenset({"failure", "timed_out"})
 ISSUE_LABEL = "main-full-suite-failure"
 ISSUE_TITLE = "Main full-suite CI is red"
 MAX_LISTED_JOBS = 40
+# Well past a full-suite run plus a long runner queue.
+STALE_IN_FLIGHT = timedelta(hours=6)
 
 
 def is_main_full_suite_run(run: Mapping[str, object], branch: str) -> bool:
@@ -42,19 +56,58 @@ def is_main_full_suite_run(run: Mapping[str, object], branch: str) -> bool:
     )
 
 
-def dispatch_decision(runs: Iterable[Mapping[str, object]], head_sha: str, branch: str = "main") -> tuple[bool, str]:
+def created_before(run: Mapping[str, object], cutoff: datetime) -> bool:
+    try:
+        created = datetime.fromisoformat(str(run.get("created_at")).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return created < cutoff
+
+
+def dispatch_decision(
+    runs: Iterable[Mapping[str, object]], head_sha: str, branch: str = "main", now: datetime | None = None,
+) -> tuple[bool, str]:
     """Return (dispatch, reason) for main's HEAD given its earlier CI runs."""
+    cutoff = (now or datetime.now(timezone.utc)) - STALE_IN_FLIGHT
     candidates = [
         run for run in runs
         if is_main_full_suite_run(run, branch) and run.get("head_sha") == head_sha
     ]
     for run in candidates:
-        if run.get("status") != "completed":
+        if run.get("status") != "completed" and not created_before(run, cutoff):
             return False, f"run {run.get('id')} for {head_sha} is already {run.get('status')}"
     for run in candidates:
         if run.get("conclusion") in TESTED_CONCLUSIONS:
             return False, f"run {run.get('id')} already tested {head_sha} ({run.get('conclusion')})"
     return True, f"no completed full-suite run for {head_sha}"
+
+
+def in_flight_run(
+    runs: Iterable[Mapping[str, object]], branch: str = "main", now: datetime | None = None,
+) -> Mapping[str, object] | None:
+    """A queued or running full-suite run on the branch, for any commit, that is not stale."""
+    cutoff = (now or datetime.now(timezone.utc)) - STALE_IN_FLIGHT
+    for run in runs:
+        if (
+            is_main_full_suite_run(run, branch)
+            and run.get("status") != "completed"
+            and not created_before(run, cutoff)
+        ):
+            return run
+    return None
+
+
+def in_flight_reason(
+    runs: Iterable[Mapping[str, object]], branch: str = "main", now: datetime | None = None,
+) -> str | None:
+    """Why another full-suite run in flight holds this dispatch, or None."""
+    busy = in_flight_run(runs, branch, now)
+    if busy is None:
+        return None
+    return (
+        f"run {busy.get('id')} for {busy.get('head_sha')} is still {busy.get('status')}; "
+        "its completion dispatches the next run on the newest HEAD"
+    )
 
 
 def latest_tested_run(runs: Iterable[Mapping[str, object]], branch: str = "main") -> Mapping[str, object] | None:
@@ -84,9 +137,9 @@ def issue_plan(conclusion: str, has_open_issue: bool, already_reported: bool) ->
     return "none"
 
 
-def failure_body(run: Mapping[str, object], jobs: list[Mapping[str, object]]) -> str:
+def failure_body(run: Mapping[str, object], jobs: list[Mapping[str, object]], extra: str = "") -> str:
     lines = [
-        f"Scheduled full-suite CI on `main` failed at {run.get('head_sha')}: {run.get('html_url')}",
+        f"Full-suite CI on `main` failed at {run.get('head_sha')}: {run.get('html_url')}",
         "",
     ]
     if jobs:
@@ -97,10 +150,12 @@ def failure_body(run: Mapping[str, object], jobs: list[Mapping[str, object]]) ->
             lines.append(f"- ...and {len(jobs) - MAX_LISTED_JOBS} more")
     else:
         lines.append("No individual job reported failure; see the run summary.")
+    if extra.strip():
+        lines += ["", extra.strip()]
     lines += [
         "",
-        "Pull requests run compile admission only, so this run is the first place app-host "
-        "and package-test regressions show up. This issue closes itself on the next green run.",
+        "Pull requests run a subset of the suite, so this run is the first place "
+        "a regression outside that subset shows up. This issue closes itself on the next green run.",
     ]
     return "\n".join(lines)
 
@@ -130,10 +185,21 @@ def write_output(path: str | None, values: Mapping[str, str]) -> None:
 def command_gate(args: argparse.Namespace) -> int:
     if args.force:
         dispatch, reason = True, "forced by workflow_dispatch input"
+    elif args.completed_sha and args.completed_sha == args.head_sha:
+        # Checked before any API call, so a failed lookup cannot fail open into
+        # re-running the commit that just finished, cancelled or not.
+        dispatch, reason = False, (
+            f"main has not moved since the run that just completed at {args.head_sha}; "
+            "the schedule retries it if that run was cancelled"
+        )
     else:
         try:
-            runs = list_runs(args.repo, args.branch, ["-f", f"head_sha={args.head_sha}"])
-            dispatch, reason = dispatch_decision(runs, args.head_sha, args.branch)
+            held = in_flight_reason(list_runs(args.repo, args.branch, []), args.branch)
+            if held is not None:
+                dispatch, reason = False, held
+            else:
+                runs = list_runs(args.repo, args.branch, ["-f", f"head_sha={args.head_sha}"])
+                dispatch, reason = dispatch_decision(runs, args.head_sha, args.branch)
         except (subprocess.CalledProcessError, json.JSONDecodeError) as error:
             dispatch, reason = True, f"could not read earlier runs ({error}); dispatching"
     print(reason)
@@ -167,8 +233,19 @@ def ensure_label(repo: str) -> None:
     subprocess.run([
         "gh", "api", f"repos/{repo}/labels",
         "-f", f"name={ISSUE_LABEL}", "-f", "color=b60205",
-        "-f", "description=Scheduled full-suite CI on main is failing",
+        "-f", "description=Full-suite CI on main is failing",
     ], check=True, capture_output=True, text=True)
+
+
+def read_extra_section(path: str | None) -> str:
+    """The new-failure attribution, when main_regression_attribution.py wrote one."""
+    if not path:
+        return ""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return handle.read()
+    except OSError:
+        return ""
 
 
 def command_report(args: argparse.Namespace) -> int:
@@ -196,7 +273,7 @@ def command_report(args: argparse.Namespace) -> int:
             "-X", "GET", "-f", "filter=latest", "-f", "per_page=100",
             "--jq", ".jobs[] | {name, conclusion, html_url} | tojson",
         ]))
-        body = failure_body(run, jobs)
+        body = failure_body(run, jobs, read_extra_section(args.extra_section))
         if plan == "open":
             ensure_label(args.repo)
             subprocess.run([
@@ -228,11 +305,13 @@ def main(argv: list[str]) -> int:
     gate = commands.add_parser("gate", help="decide whether main's HEAD still needs a full-suite run")
     gate.add_argument("--head-sha", required=True)
     gate.add_argument("--force", action="store_true")
+    gate.add_argument("--completed-sha", help="head SHA of the full-suite run whose completion triggered this gate")
     gate.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT"))
     gate.set_defaults(handler=command_gate)
 
     report = commands.add_parser("report", help="sync the tracking issue with a completed run")
     report.add_argument("--run-id", help="defaults to the newest green or red full-suite run")
+    report.add_argument("--extra-section", help="markdown to add to a failure report, e.g. new-failure attribution")
     report.set_defaults(handler=command_report)
 
     args = parser.parse_args(argv)

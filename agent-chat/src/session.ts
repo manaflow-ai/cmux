@@ -1,6 +1,7 @@
 // Client-side session state: one WebSocket, one session per page.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyThemeVars } from "./theme";
+import type { HarnessRecommendation, HarnessCatalogs } from "../harness-contract";
 import { latestRouteStatus, normalizeRouteStatus, type RouteHealth, type RoutePhase, type RouteStatus } from "../route-status";
 
 export type AgentEvent =
@@ -32,7 +33,7 @@ export type AgentEvent =
   | { kind: "tool-end"; toolId: string; name?: string; detail?: string; ok?: boolean }
   | { kind: "done"; stats?: string }
   | { kind: "files-changed"; files: ChangedFile[] }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string; prompt?: string };
 
 export type OptionKind = "select" | "toggle";
 export type OptionValue = string | boolean;
@@ -93,6 +94,56 @@ export type Block =
   | { kind: "files"; files: ChangedFile[]; revision?: string };
 
 export interface Provider { id: string; label: string; iconUrl?: string; iconDarkUrl?: string; installed?: boolean; installCommand?: string; }
+export type { HarnessRecommendation } from "../harness-contract";
+
+export interface CwdHarnessRequest {
+  requestId: string;
+  cwd: string;
+  connectionEpoch: number;
+}
+
+export interface CwdHarnessResponse {
+  requestId?: unknown;
+  cwd?: unknown;
+  connectionEpoch?: unknown;
+}
+
+/** Only the latest request on the current WebSocket may update visible harnesses. */
+export function acceptsCwdHarnessResponse(
+  active: CwdHarnessRequest | null,
+  response: CwdHarnessResponse,
+): boolean {
+  return Boolean(
+    active
+    && response.requestId === active.requestId
+    && response.cwd === active.cwd
+    && response.connectionEpoch === active.connectionEpoch,
+  );
+}
+
+/** Harness recommendations and the cwd they were discovered for. */
+export interface HarnessSnapshot {
+  cwd: string;
+  harnesses: HarnessRecommendation[];
+}
+
+const EMPTY_HARNESS_SNAPSHOT: HarnessSnapshot = { cwd: "", harnesses: [] };
+
+/** The server discovers hello harnesses for the default cwd it also sends. */
+export function helloHarnessSnapshot(hello: { defaultCwd: string; harnesses?: HarnessRecommendation[] }): HarnessSnapshot {
+  return { cwd: hello.defaultCwd, harnesses: hello.harnesses ?? [] };
+}
+
+/** Keep recommendations already known for the checked cwd; drop any for another cwd. */
+export function harnessSnapshotForCwdCheck(current: HarnessSnapshot, cwd: string): HarnessSnapshot {
+  return current.cwd === cwd ? current : EMPTY_HARNESS_SNAPSHOT;
+}
+
+export function visibleWorkflowHarnesses(snapshot: HarnessSnapshot, cwd: string): HarnessRecommendation[] {
+  if (!cwd || snapshot.cwd !== cwd) return [];
+  return snapshot.harnesses.filter((h) => h.kind === "workflow" && h.installed).slice(0, 2);
+}
+
 export interface SessionSummary {
   id: string;
   provider: string;
@@ -104,6 +155,10 @@ export interface SessionSummary {
   parentSessionId?: string;
   parentConversationId?: string;
   startRequestId?: string;
+  /** "transcript": a chat view of an agent running in a cmux terminal. */
+  mode?: "transcript";
+  /** What that agent is waiting on in the terminal (permission, question). */
+  attention?: string | null;
 }
 export type CtrlJMode = "newline" | "menu";
 
@@ -158,12 +213,14 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
   }
 }
 
-interface Hello { providers: Provider[]; defaultCwd: string; keys?: { ctrlJ?: CtrlJMode }; }
+interface Hello { providers: Provider[]; harnesses?: HarnessRecommendation[]; harnessCatalogs?: HarnessCatalogs; defaultCwd: string; keys?: { ctrlJ?: CtrlJMode }; }
 
 export interface SessionState {
   ready: boolean;
   connectionEpoch: number;
   providers: Provider[];
+  harnessSnapshot: HarnessSnapshot;
+  harnessCatalogs: HarnessCatalogs;
   capabilities: Record<string, ProviderCapabilities>;
   defaultCwd: string;
   ctrlJ: CtrlJMode;
@@ -186,6 +243,8 @@ export interface SessionState {
   compose(): void;
   reply(text: string): void;
   stop(): void;
+  /** Focuses the terminal pane behind a terminal chat view. */
+  focusTerminal(): void;
   setOption(id: string, value: OptionValue): void;
   fork(): void;
   handoff(): void;
@@ -220,6 +279,8 @@ function appPath(path: string): string {
 }
 
 const routedSessionId = (routePath().match(/^\/s\/([\w-]+)/) || [])[1] || null;
+/** Transcript views use `t-<agent session id>`; known before history arrives. */
+export const routedToTranscript = routedSessionId?.startsWith("t-") ?? false;
 export const composerDraftKey = "agentui.draft";
 const PENDING_START_TIMEOUT_MS = 30_000;
 
@@ -231,9 +292,12 @@ export function restoreComposerDraft(storage: Pick<Storage, "setItem">, prompt: 
   storage.setItem(composerDraftKey, prompt);
 }
 
+// An echo matches anywhere in the queue: one that never lands (a failed send)
+// or lands rewritten (`!ls` recorded as a bash input) must not block the rest.
 export function consumeOptimisticUserEcho(queue: string[], text: string): boolean {
-  if (queue[0] !== text) return false;
-  queue.shift();
+  const index = queue.indexOf(text);
+  if (index < 0) return false;
+  queue.splice(index, 1);
   return true;
 }
 
@@ -253,6 +317,8 @@ export function useSession(): SessionState {
   const [ready, setReady] = useState(false);
   const [connectionEpoch, setConnectionEpoch] = useState(0);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [harnessSnapshot, setHarnessSnapshot] = useState<HarnessSnapshot>(EMPTY_HARNESS_SNAPSHOT);
+  const [harnessCatalogs, setHarnessCatalogs] = useState<HarnessCatalogs>({});
   const [capabilities, setCapabilities] = useState<Record<string, ProviderCapabilities>>({});
   const [defaultCwd, setDefaultCwd] = useState("");
   const [ctrlJ, setCtrlJ] = useState<CtrlJMode>("newline");
@@ -292,6 +358,14 @@ export function useSession(): SessionState {
   } | null>(null);
   const pendingStartTimeoutRef = useRef<number | null>(null);
   const optimisticUsersRef = useRef<string[]>([]);
+  // The last status the server sent: reply() shows "running" before the server
+  // knows, and a send that fails puts this back.
+  const serverStatusRef = useRef<string | null>(null);
+  const sessionModeRef = useRef<SessionSummary["mode"]>(routedToTranscript ? "transcript" : undefined);
+  useEffect(() => {
+    if (session) sessionModeRef.current = session.mode;
+  }, [session]);
+  const latestCwdRequestRef = useRef<CwdHarnessRequest | null>(null);
 
   const closeHandoffWindow = useCallback(() => {
     const popup = handoffWindowRef.current;
@@ -362,6 +436,9 @@ export function useSession(): SessionState {
           case "hello": {
             const h = msg as Hello & { kind: string; capabilities?: Record<string, ProviderCapabilities> };
             setProviders(h.providers);
+            setHarnessCatalogs(h.harnessCatalogs ?? {});
+            latestCwdRequestRef.current = null;
+            setHarnessSnapshot(helloHarnessSnapshot(h));
             setCapabilities(h.capabilities ?? {});
             setDefaultCwd(h.defaultCwd);
             setCtrlJ(h.keys?.ctrlJ === "menu" ? "menu" : "newline");
@@ -390,6 +467,7 @@ export function useSession(): SessionState {
                 sendRaw({ op: "send", sessionId: msg.session.id, requestId: queued.requestId, prompt: queued.prompt });
               }
             } else {
+              serverStatusRef.current = msg.session.status;
               setSession(msg.session);
               setRouting(msg.routing?.kind === "routing" ? normalizeRouteStatus(msg.routing) : null);
               setBlocks([]);
@@ -412,6 +490,7 @@ export function useSession(): SessionState {
             }
             sessionIdRef.current = msg.session.id;
             document.title = msg.session.title || "cmux agent";
+            serverStatusRef.current = msg.session.status;
             setSession(msg.session);
             setRouting(latestRouteStatus(msg.events as AgentEvent[]));
             setBlocks((msg.events as AgentEvent[]).reduce(foldEvent, [] as Block[]));
@@ -440,7 +519,19 @@ export function useSession(): SessionState {
             break;
           case "session-status":
             if (msg.sessionId === sessionIdRef.current) {
+              serverStatusRef.current = msg.status;
               setSession((s) => (s ? { ...s, status: msg.status } : s));
+            }
+            break;
+          case "session-attention":
+            if (msg.sessionId === sessionIdRef.current) {
+              setSession((s) => (s ? { ...s, attention: typeof msg.attention === "string" ? msg.attention : null } : s));
+            }
+            break;
+          case "session-title":
+            if (msg.sessionId === sessionIdRef.current && typeof msg.title === "string") {
+              document.title = msg.title || "cmux agent";
+              setSession((s) => (s ? { ...s, title: msg.title } : s));
             }
             break;
           case "event":
@@ -455,6 +546,13 @@ export function useSession(): SessionState {
               if (evt.kind === "options") setActions(evt.actions ?? {});
               if (evt.kind === "commands") setCommands((gs) => upsertCommands(gs, evt));
               if (evt.kind === "error") setForkPending(false);
+              if (evt.kind === "error" && evt.prompt !== undefined) {
+                // The prompt never reached the terminal: its echo will not
+                // come, and the agent is as busy as the server last said.
+                consumeOptimisticUserEcho(optimisticUsersRef.current, evt.prompt);
+                const status = serverStatusRef.current ?? "idle";
+                setSession((s) => (s ? { ...s, status } : s));
+              }
             }
             break;
           case "session-forked":
@@ -504,6 +602,9 @@ export function useSession(): SessionState {
             break;
           case "cwd-check":
             setCwdChecks((m) => ({ ...m, [msg.cwd]: { ok: Boolean(msg.ok), message: msg.message } }));
+            if (Array.isArray(msg.harnesses) && acceptsCwdHarnessResponse(latestCwdRequestRef.current, msg)) {
+              setHarnessSnapshot({ cwd: String(msg.cwd), harnesses: msg.harnesses as HarnessRecommendation[] });
+            }
             break;
           case "theme":
             if (msg.vars && typeof msg.vars === "object") applyThemeVars(msg.vars, msg.theme);
@@ -619,9 +720,18 @@ export function useSession(): SessionState {
     if (sessionIdRef.current) {
       if (sendRaw({ op: "send", sessionId: sessionIdRef.current, requestId: newClientRequestId("turn"), prompt: text })) {
         setSession((s) => (s ? { ...s, status: "running" } : s));
+        // A terminal view's prompt only reaches the event log when the agent's
+        // transcript records it; show it now and drop that echo when it lands.
+        if (sessionModeRef.current === "transcript") {
+          optimisticUsersRef.current.push(text);
+          setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
+        }
       }
     }
   }, [sendRaw, start]);
+  const focusTerminal = useCallback(() => {
+    if (sessionIdRef.current) sendRaw({ op: "focus-terminal", sessionId: sessionIdRef.current });
+  }, [sendRaw]);
   const stop = useCallback(() => {
     if (sessionIdRef.current) sendRaw({ op: "stop", sessionId: sessionIdRef.current });
   }, [sendRaw]);
@@ -663,14 +773,20 @@ export function useSession(): SessionState {
     }
   }, [sendRaw]);
   const checkCwd = useCallback((cwd: string) => {
-    sendRaw({ op: "check-cwd", cwd });
-  }, [sendRaw]);
+    const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const request: CwdHarnessRequest = { requestId, cwd, connectionEpoch };
+    latestCwdRequestRef.current = request;
+    setHarnessSnapshot((current) => harnessSnapshotForCwdCheck(current, cwd));
+    sendRaw({ op: "check-cwd", ...request });
+  }, [connectionEpoch, sendRaw]);
   const clearError = useCallback(() => setLastError(""), []);
 
   return {
     ready,
     connectionEpoch,
     providers,
+    harnessSnapshot,
+    harnessCatalogs,
     capabilities,
     defaultCwd,
     ctrlJ,
@@ -693,6 +809,7 @@ export function useSession(): SessionState {
     compose,
     reply,
     stop,
+    focusTerminal,
     setOption,
     fork,
     handoff,
