@@ -4971,8 +4971,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         removeWhenEmpty: Bool = false
     ) -> Bool {
         // Synchronous lifecycle backstops cannot wait for the authoritative off-main load.
-        // Revalidate only the already-cached process generations and argv, and fail closed
-        // with an empty index when startup has not populated that cache yet.
+        // Revalidate only the already-cached process generations and argv (an empty agent
+        // index when startup has not populated that cache yet). No surface scan runs, so the
+        // surface binding index is unavailable and live bindings are not reconciled away.
         let resumeIndexes = ProcessDetectedResumeIndexes.cached(
             restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
         )
@@ -6064,7 +6065,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func postCommandPaletteRequest(
         kind: CommandPaletteRequestKind,
         preferredWindow: NSWindow?,
-        source: String
+        source: String,
+        userInfo: [AnyHashable: Any]? = nil
     ) {
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
         if let targetWindow,
@@ -6075,7 +6077,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if markPending {
             markCommandPaletteOpenRequested(for: targetWindow)
         }
-        NotificationCenter.default.post(name: Notification.Name(kind.notificationName), object: targetWindow)
+        NotificationCenter.default.post(
+            name: Notification.Name(kind.notificationName),
+            object: targetWindow,
+            userInfo: userInfo
+        )
 #if DEBUG
         cmuxDebugLog(
             "shortcut.palette.request source=\(source) " +
@@ -6106,6 +6112,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             kind: .renameTab,
             preferredWindow: preferredWindow,
             source: source
+        )
+    }
+
+    /// Opens the palette rename editor for one explicit object. Context menus
+    /// use this when the object has no inline rename, so every rename edits in
+    /// the same place instead of an app-modal alert.
+    func requestCommandPaletteRename(
+        _ target: CommandPaletteRenameTarget,
+        preferredWindow: NSWindow? = nil,
+        source: String = "api.commandPaletteRename"
+    ) {
+        postCommandPaletteRequest(
+            kind: .rename,
+            preferredWindow: preferredWindow,
+            source: source,
+            userInfo: target.userInfo
         )
     }
 
@@ -14497,35 +14519,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    func promptRenameSelectedWorkspace() -> Bool {
-        guard let tabManager,
-              let tabId = tabManager.selectedTabId,
-              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
-            NSSound.beep()
-            return false
-        }
-
-        let alert = NSAlert()
-        alert.messageText = String(localized: "dialog.renameWorkspace.title", defaultValue: "Rename Workspace")
-        alert.informativeText = String(localized: "dialog.renameWorkspace.message", defaultValue: "Enter a custom name for this workspace.")
-        let input = NSTextField(string: tab.customTitle ?? tab.title)
-        input.placeholderString = String(localized: "dialog.renameWorkspace.placeholder", defaultValue: "Workspace name")
-        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
-        alert.addButton(withTitle: String(localized: "common.rename", defaultValue: "Rename"))
-        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        let response = alert.runCmuxModal(
-            presentingWindow: mainWindowContainingWorkspace(tab.id)
-        ) { _ in
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
-        guard response == .alertFirstButtonReturn else { return true }
-        tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
-        return true
-    }
     /// Dispatches configured shortcuts using the event window’s focus and chord state.
     private func handleCustomShortcut(event: NSEvent) -> Bool {
         guard event.type == .keyDown else {
@@ -20226,6 +20219,56 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
         }
     }
 
+    func updaterRelaunchBlockers() -> UpdateRelaunchBlockers {
+        var seen = Set<ObjectIdentifier>()
+        let managers = mainWindowContexts.values.map { $0.tabManager }
+            + [tabManager].compactMap { $0 }
+            + mainWindowSessionPersistenceRoutes().map { $0.tabManager }
+        let workspaces = managers
+            .filter { seen.insert(ObjectIdentifier($0)).inserted }
+            .flatMap(\.tabs)
+        var activity: [UpdateRelaunchPanelActivity] = []
+        for workspace in workspaces {
+            let isRemote = workspace.isRemoteWorkspace || workspace.isRemoteTmuxMirror
+            for panelId in workspace.panels.keys {
+                activity.append(UpdateRelaunchPanelActivity(
+                    agentLifecycles: workspace.agentLifecycleStatesByPanelId[panelId] ?? [:],
+                    shellActivity: workspace.panelShellActivityStates[panelId],
+                    isRemote: isRemote
+                ))
+            }
+            if let dock = workspace._dockSplit {
+                activity += dock.updateRelaunchPanelActivity(isRemote: isRemote)
+            }
+        }
+        for dock in existingWindowDocks {
+            activity += dock.updateRelaunchPanelActivity(isRemote: false)
+        }
+        return Self.updateRelaunchBlockers(panels: activity)
+    }
+
+    /// Counts what an update relaunch would interrupt. A panel with a mid-turn agent is a busy
+    /// agent. A local panel running some other foreground command is a running command; panels
+    /// with agent lifecycle state are left to the agent count, and remote panels are skipped
+    /// because their processes live on the remote host. Manual `cmux workspace loading` keys
+    /// are not agents and are ignored.
+    nonisolated static func updateRelaunchBlockers(
+        panels: [UpdateRelaunchPanelActivity]
+    ) -> UpdateRelaunchBlockers {
+        var blockers = UpdateRelaunchBlockers.empty
+        for panel in panels {
+            let agentStates = panel.agentLifecycles
+                .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
+                .values
+            if agentStates.contains(.running) {
+                blockers.busyAgentCount += 1
+            } else if agentStates.isEmpty, !panel.isRemote, panel.shellActivity == .commandRunning {
+                blockers.runningCommandCount += 1
+            }
+        }
+        return blockers
+    }
+
     func attemptUpdate() {
         attemptUpdate(nil)
     }
@@ -20239,6 +20282,26 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 
     var updateLogPath: String {
         updateLog.logPath()
+    }
+}
+
+/// One terminal panel's agent and shell activity, as read by ``AppDelegate/updaterRelaunchBlockers()``.
+struct UpdateRelaunchPanelActivity: Sendable {
+    var agentLifecycles: [String: AgentHibernationLifecycleState]
+    var shellActivity: PanelShellActivityState?
+    var isRemote: Bool
+}
+
+extension DockSplitStore {
+    /// Dock panels keep agent lifecycle in their runtime map and shell state on the panel.
+    func updateRelaunchPanelActivity(isRemote: Bool) -> [UpdateRelaunchPanelActivity] {
+        panels.map { panelId, panel in
+            UpdateRelaunchPanelActivity(
+                agentLifecycles: agentRuntimeByPanelId[panelId]?.agentLifecycleStates ?? [:],
+                shellActivity: (panel as? TerminalPanel)?.shellActivity.state,
+                isRemote: isRemote || terminalLinkIsRemoteTerminal(panelId)
+            )
+        }
     }
 }
 
