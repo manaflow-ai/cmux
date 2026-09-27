@@ -493,6 +493,16 @@ class DetachTests(unittest.TestCase):
             for directory in excluded:
                 self.assertNotIn(str(directory), search_paths)
             self.assertNotIn(str(host / "Frameworks"), search_paths)
+            # An embedded name alone cannot choose between multiple compatible targets.
+            alternate = artifacts / "alternate" / "Sparkle.xcframework"
+            (alternate / "macos" / "Sparkle.framework").mkdir(parents=True)
+            (alternate / "Info.plist").write_bytes(plistlib.dumps(dict(AvailableLibraries=[dict(
+                LibraryIdentifier="macos", LibraryPath="Sparkle.framework",
+                SupportedPlatform="macos", SupportedArchitectures=["arm64"],
+            )])))
+            project.write_text(PROJECT)
+            with unittest.mock.patch("sys.stdout"), self.assertRaisesRegex(ValueError, "ambiguous.*Sparkle"):
+                rerun.detach(args)
 
     def test_umbrella_header_wins_over_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

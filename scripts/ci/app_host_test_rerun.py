@@ -443,11 +443,25 @@ def locate_c_targets(names: list[str], roots: list[Path], dump: Callable[[Path],
     return found
 
 
-def binary_framework_search_paths(roots: list[Path], arch: str | None) -> list[str]:
+def binary_framework_search_paths(
+    roots: list[Path], arch: str | None, debug_products: Path, target: str
+) -> list[str]:
     """Use resolved macOS XCFramework slices when archived runtime copies lack modules."""
     if roots and not arch:
         raise ValueError("binary framework selection requires the product architecture")
-    paths = set()
+    required = set()
+    for bundle in debug_products.glob(f"*.app/Contents/PlugIns/{target}.xctest"):
+        for directory in (bundle.parents[1] / "Frameworks", bundle / "Contents" / "Frameworks"):
+            required.update(framework.name for framework in directory.glob("*.framework"))
+    # The product tells us which variants it used. Do not expose unused binary
+    # targets just because SwiftPM downloaded them while resolving a package.
+    for name in list(required):
+        for directory in (debug_products, debug_products / "PackageFrameworks"):
+            modules = directory / name / "Modules"
+            if (modules / "module.modulemap").is_file() or any(modules.glob("*.swiftmodule")):
+                required.discard(name)
+                break
+    candidates: dict[str, set[Path]] = {}
     for root in roots:
         if not root.is_dir():
             raise ValueError(f"resolved binary artifact directory is missing: {root}")
@@ -460,12 +474,17 @@ def binary_framework_search_paths(roots: list[Path], arch: str | None) -> list[s
                         or arch not in library.get("SupportedArchitectures", [])):
                     continue
                 relative = Path(library["LibraryIdentifier"]) / library["LibraryPath"]
-                if relative.suffix != ".framework":
+                if relative.suffix != ".framework" or relative.name not in required:
                     continue
                 framework = (manifest.parent / relative).resolve()
                 if not framework.is_relative_to(manifest.parent.resolve()) or not framework.is_dir():
                     raise ValueError(f"invalid binary framework slice: {framework}")
-                paths.add(str(framework.parent))
+                candidates.setdefault(relative.name, set()).add(framework)
+    paths = set()
+    for name, frameworks in sorted(candidates.items()):
+        if len(frameworks) != 1:
+            raise ValueError(f"ambiguous binary framework slices for {name}: {sorted(map(str, frameworks))}")
+        paths.add(str(next(iter(frameworks)).parent))
     return sorted(paths)
 
 
@@ -497,7 +516,8 @@ def detach(args: argparse.Namespace, dump: Callable[[Path], dict] = dump_package
         "FRAMEWORK_SEARCH_PATHS": [
             "$(inherited)", "$(BUILT_PRODUCTS_DIR)/PackageFrameworks",
             *binary_framework_search_paths(
-                [Path(root) for root in getattr(args, "xcframework_root", [])], getattr(args, "arch", None)
+                [Path(root) for root in getattr(args, "xcframework_root", [])], getattr(args, "arch", None),
+                debug_products, args.target
             ),
         ],
         "OTHER_LDFLAGS": ["$(inherited)", *ldflags],
