@@ -347,7 +347,11 @@ def park(store: Path) -> str:
     incoming.mkdir(parents=True)
     write_stamp(incoming, stamp)
     write_stamp(store, {})  # the store no longer holds that build, whatever happens next
-    (store / DERIVED).rename(incoming / DERIVED)
+    try:
+        (store / DERIVED).rename(incoming / DERIVED)
+    except OSError:
+        write_stamp(store, stamp)
+        raise
     clear(slot)
     incoming.rename(slot)
     os.utime(slot)
@@ -359,14 +363,21 @@ def unpark(store: Path, number: object, fingerprint: str) -> bool:
     slot = pr_slot(store, number)
     if slot is None or not (slot / DERIVED).is_dir():
         return False
+    try:
+        if time.time() - slot.stat().st_mtime > PR_SLOT_HOURS * 3600:
+            return False  # expired: neither published nor routed to
+    except OSError:
+        return False
     stamp = read_stamp(slot)
     if not fingerprint or stamp.get("fingerprint") != stamped(fingerprint):
         return False
     current = read_stamp(store)
     if pr_key(current.get("pr")) == pr_key(number) and (store / DERIVED).is_dir():
         return False  # the kept build is this pull request's already
-    # A main build (no pull request) or a park refused for disk stays: the job starts from it instead.
-    if (store / DERIVED).exists() and not park(store):
+    # A current main build (no pull request) stays, and so does one a park refused for disk: the job
+    # starts from it instead. A kept build no router can read (stale or missing stamp) is replaced.
+    kept_current = str(current.get("fingerprint") or "").endswith(f"-{STATE_VERSION}")
+    if (store / DERIVED).exists() and kept_current and not park(store):
         return False
     if (store / DERIVED).exists():
         clear(store / DERIVED)

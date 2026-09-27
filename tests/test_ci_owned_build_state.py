@@ -359,6 +359,21 @@ class WarmKeys(Fixture):
         self.assertEqual(self.kept_marker(), "main")
         self.assertTrue((self.store / "pr-builds" / "pr-7" / "derived-data").is_dir())
 
+    def test_check_replaces_an_unreadable_kept_build_and_skips_an_expired_slot(self):
+        with unittest.mock.patch("owned_build_state.free_gib", return_value=500.0):
+            self.build("seven")
+            self.kept(pr="7")
+            self.build("nine")
+            self.kept(pr="9")
+        (self.store / "stamp.json").write_text("{}")
+        slot = self.store / "pr-builds" / "pr-7"
+        os.utime(slot, (1, 1))
+        run(state.check, self.store, "fp", self.workspace, None, "7")
+        self.assertEqual(self.kept_marker(), "nine")
+        os.utime(slot)
+        result = run(state.check, self.store, "fp", self.workspace, None, "7")
+        self.assertEqual((result["reason"], self.kept_marker()), ("this pull request's parked build", "seven"))
+
     def test_keep_drops_a_stale_parked_build_of_its_own_pull_request(self):
         with unittest.mock.patch("owned_build_state.free_gib", return_value=500.0):
             self.build("seven")
