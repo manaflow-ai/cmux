@@ -3258,7 +3258,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           FULL_SUITE: ${{ inputs.full_suite }}
-          STEP_XCODE_APP: ${{ inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR }}
+          STEP_XCODE_APP: ${{ github.event.pull_request.head.repo.full_name == github.repository && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || '' }}
         run: |
           set -uo pipefail
           status=0
