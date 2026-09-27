@@ -316,8 +316,10 @@ runs:
       run: |
         defaults write com.apple.CrashReporter DialogType none 2>/dev/null || true
         uid="$(id -u)"
+        # SIGKILL: a SecurityAgent showing a prompt ignores SIGTERM (cmux12s,
+        # 2026-09-27: pkill "succeeded" and the 7 h old prompt stayed).
         for process in UserNotificationCenter SecurityAgent; do
-          if pkill -x -u "$uid" "$process" 2>/dev/null; then
+          if pkill -KILL -x -u "$uid" "$process" 2>/dev/null; then
             echo "Closed $process (its dialogs are cancelled; launchd restarts it on demand)"
           fi
         done
