@@ -71,7 +71,7 @@ final class ScrollbackTestTerminal {
 
     func close() {
         surface.hostedView.removeFromSuperview()
-        surface.teardownSurface()
+        surface.teardownHostedSurfaceForTesting()
         continuation.finish()
         window.orderOut(nil)
         window.close()
