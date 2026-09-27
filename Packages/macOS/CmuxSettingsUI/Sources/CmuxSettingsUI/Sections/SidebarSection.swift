@@ -1,3 +1,4 @@
+import Combine
 import CmuxFoundation
 import CmuxSettings
 import SwiftUI
@@ -78,11 +79,29 @@ public struct SidebarSection: View {
             rightSidebarTabsCard
         }
         .task { startObservingSettings() }
+        // Debounced onto the main queue: a cmux.json reload writes many keys
+        // at once, and defaults writes can post this from any thread.
+        .onReceive(
+            NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+                .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
+        ) { _ in
+            refreshDensityGovernedPresence()
+        }
         .task {
             for await tabs in hostActions.rightSidebarTabsUpdates() {
                 rightSidebarTabs = tabs
             }
         }
+    }
+
+    /// Re-reads whether each density-governed setting has an explicit value.
+    /// A `cmux.json` reload can add or remove a key without changing its
+    /// value, which the per-key value streams do not report.
+    private func refreshDensityGovernedPresence() {
+        for model in [showDesc, showNotification, showBranchDir, showPR, showSSH, showPorts, showLog, showProgress, showMetadata] {
+            model.refreshStoredPresence()
+        }
+        notificationMessageLineLimit.refreshStoredPresence()
     }
 
     private func startObservingSettings() {

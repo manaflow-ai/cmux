@@ -305,6 +305,18 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         updateCurrent(committedValue)
     }
 
+    /// Re-reads ``hasStoredValue`` from storage.
+    ///
+    /// The store only emits an event when a key's value changes, so a write
+    /// that only adds or removes an explicit value equal to the default (for
+    /// example a `cmux.json` reload adding `"showPorts": true`) leaves
+    /// ``hasStoredValue`` stale. Views that resolve layered defaults call this
+    /// when `UserDefaults` reports a change. A local write still in flight
+    /// keeps its optimistic presence.
+    public func refreshStoredPresence() {
+        reconcileStoredPresenceIfSettled()
+    }
+
     /// Re-reads explicit-value presence from storage once no local write is in
     /// flight; while one is, the optimistic presence from ``set(_:)`` or
     /// ``reset()`` stands.
