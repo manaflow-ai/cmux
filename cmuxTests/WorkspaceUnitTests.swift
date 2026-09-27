@@ -107,7 +107,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
     }
 
-    func testDefaultRailSelectionIsACalmTintWithLabelColoredText() {
+    func testDefaultRailSelectionIsAHairlineTintWithLabelColoredText() {
         for (scheme, expectedWhite) in [(ColorScheme.light, CGFloat(0)), (.dark, 1)] {
             let fill = CmuxSelectionFill.resolve(
                 colorScheme: scheme,
@@ -115,7 +115,8 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
                 increasesContrast: false
             )
             XCTAssertLessThanOrEqual(fill.color.alphaComponent, 0.3)
-            XCTAssertNil(fill.edgeColor)
+            XCTAssertNotNil(fill.edgeColor)
+            XCTAssertGreaterThan(fill.edgeColor?.alphaComponent ?? 0, fill.color.alphaComponent)
 
             let style = sidebarWorkspaceRowBackgroundStyle(
                 activeTabIndicatorStyle: .leftRail,
@@ -154,7 +155,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
 
             XCTAssertLessThan(inactive.color.alphaComponent, key.color.alphaComponent)
             XCTAssertGreaterThan(keyContrast.color.alphaComponent, key.color.alphaComponent)
-            XCTAssertNotNil(keyContrast.edgeColor)
+            XCTAssertGreaterThan(keyContrast.edgeColor?.alphaComponent ?? 0, key.edgeColor?.alphaComponent ?? 1)
             XCTAssertLessThan(multi.color.alphaComponent, key.color.alphaComponent)
             guard let neutral = inactive.color.usingColorSpace(.sRGB) else {
                 XCTFail("Expected sRGB-convertible color")

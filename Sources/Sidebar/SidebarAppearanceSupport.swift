@@ -273,12 +273,13 @@ enum SidebarRemoteErrorCopySupport {
     }
 }
 
-/// Selection fill for the workspace sidebar. Selection is persistent state,
-/// so it reads as a wash instead of a saturated block: a low-alpha tint of the
-/// user's accent while the window is key, and a neutral wash when it isn't,
-/// the way Finder dims an inactive window's selection (`FileExplorerRowView`
-/// makes the same split). Increase Contrast strengthens the fill and adds an
-/// edge.
+/// Selection treatment for the workspace sidebar. Selection is persistent
+/// state, so it reads as a faint wash with a 1 pt hairline instead of a
+/// saturated block: the user's accent while the window is active, and a
+/// neutral wash and edge when it isn't, the way Finder dims an inactive
+/// window's selection. Increase Contrast strengthens both. Picked from a
+/// pairwise comparison of eight treatments across accents and sidebar themes
+/// (manaflow-ai/cmux#14890).
 struct CmuxSelectionFill: Equatable {
     let color: NSColor
     let edgeColor: NSColor?
@@ -291,22 +292,25 @@ struct CmuxSelectionFill: Equatable {
     ) -> CmuxSelectionFill {
         let isDark = colorScheme == .dark
         let base: NSColor
-        let alpha: CGFloat
+        let fillAlpha: CGFloat
+        let edgeAlpha: CGFloat
         if isEmphasized {
             base = .controlAccentColor
-            alpha = increasesContrast ? (isDark ? 0.42 : 0.36) : (isDark ? 0.24 : 0.20)
+            fillAlpha = increasesContrast ? 0.26 : (isDark ? 0.14 : 0.11)
+            edgeAlpha = increasesContrast ? 0.95 : 0.60
         } else {
             base = .labelColor
-            alpha = increasesContrast ? (isDark ? 0.20 : 0.16) : (isDark ? 0.10 : 0.07)
+            fillAlpha = isDark ? 0.08 : 0.06
+            edgeAlpha = increasesContrast ? 0.45 : 0.20
         }
-        let resolver = SidebarAppearanceColorResolver()
         // Secondary selections (multi-select members) sit at roughly half the
         // primary strength so the active row stays the clear anchor.
-        let fill = resolver.resolvedColor(base, for: colorScheme, opacity: isSecondary ? alpha * 0.55 : alpha)
-        let edge = increasesContrast
-            ? resolver.resolvedColor(base, for: colorScheme, opacity: isEmphasized ? 0.85 : 0.45)
-            : nil
-        return CmuxSelectionFill(color: fill, edgeColor: edge)
+        let scale: CGFloat = isSecondary ? 0.55 : 1
+        let resolver = SidebarAppearanceColorResolver()
+        return CmuxSelectionFill(
+            color: resolver.resolvedColor(base, for: colorScheme, opacity: fillAlpha * scale),
+            edgeColor: resolver.resolvedColor(base, for: colorScheme, opacity: edgeAlpha * scale)
+        )
     }
 }
 
