@@ -49,6 +49,16 @@ extension Workspace {
             visibleStatusKeys.insert(statusKey)
         }
 
+        // An agent on a relay host reports state only through hooks and has no
+        // local PID, so the hook-written entry is the liveness evidence there.
+        // cmux-tui SSH workspaces publish their own remote status keys instead.
+        if isRemoteWorkspace, !usesSSHTui {
+            for statusKey in AgentHibernationLifecycleStatusKeys.allowedStatusKeys
+            where statusEntries[statusKey] != nil {
+                visibleStatusKeys.insert(statusKey)
+            }
+        }
+
         return visibleStatusKeys
     }
 

@@ -458,6 +458,18 @@ extension AgentNotificationRegressionTests {
         #expect(code == "not_found")
     }
 
+    @Test("Relay-host agent status shows without a local agent PID")
+    func relayHostAgentStatusIsVisibleWithoutLocalPID() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let workspace = fixture.source
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(key: "claude_code", value: "Running")
+        #expect(!workspace.sidebarStatusEntriesVisibleForDisplay().contains { $0.key == "claude_code" })
+
+        workspace.remoteConfiguration = deliveryTargetRemoteConfiguration(relayPort: 64_011)
+        #expect(workspace.sidebarStatusEntriesVisibleForDisplay().contains { $0.key == "claude_code" })
+    }
+
     private func deliveryTargetRemoteConfiguration(
         relayPort: Int? = nil,
         preserveAfterTerminalExit: Bool = false
