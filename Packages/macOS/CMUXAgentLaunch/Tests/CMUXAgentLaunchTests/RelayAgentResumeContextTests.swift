@@ -30,6 +30,12 @@ import Testing
         #expect(RelayAgentResumeContext(kind: "claude", sessionID: sessionID, environment: environment(cwd: nil)) == nil)
         #expect(RelayAgentResumeContext(kind: "claude", sessionID: sessionID, environment: environment(cwd: "repo")) == nil)
         #expect(RelayAgentResumeContext(kind: "claude", sessionID: sessionID, environment: environment(cwd: "/a\nb")) == nil)
+        #expect(RelayAgentResumeContext(kind: "claude", sessionID: "--dangerously-skip-permissions", environment: environment()) == nil)
+        #expect(RelayAgentResumeContext(kind: "claude", sessionID: sessionID, environment: environment(cwd: "/home/leo/日本語 repo/v1.2_x-y+z,@a:b=c~d%e")) != nil)
+        // fish reads \' inside single quotes, so shell punctuation is refused rather than quoted.
+        for unsafe in ["/tmp/;id;#\\", "/tmp/it's", "/tmp/$(id)", "/tmp/`id`", "/tmp/a!b", "/tmp/a\u{2028}b", "/tmp/a\u{202E}b", "/tmp/a\u{85}b"] {
+            #expect(RelayAgentResumeContext(kind: "claude", sessionID: sessionID, environment: environment(cwd: unsafe)) == nil)
+        }
         let long = "/" + String(repeating: "x", count: RelayAgentResumeContext.maximumWorkingDirectoryBytes)
         #expect(RelayAgentResumeContext(kind: "claude", sessionID: sessionID, environment: environment(cwd: long)) == nil)
     }

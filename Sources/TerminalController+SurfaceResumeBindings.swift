@@ -146,9 +146,8 @@ extension TerminalController {
         // `cmux restore`/`cmux fork` run in the caller's local shell, so a
         // relay-origin session has no record here; it resumes only through the
         // remote workspace restore.
-        if RelayAgentResumeContext.isRelayOrigin(
-            source: (binding?.launchCommand ?? target.restorableAgent?.launchCommand)?.source
-        ) {
+        if RelayAgentResumeContext.isRelayOrigin(source: binding?.launchCommand?.source)
+            || RelayAgentResumeContext.isRelayOrigin(source: target.restorableAgent?.launchCommand?.source) {
             return nil
         }
         // Structured fields remain untouched; only the explicit legacy fallback

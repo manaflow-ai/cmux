@@ -39,6 +39,11 @@ func TestClaudeRelayAncestorWordsRedactsForwardedArguments(t *testing.T) {
 		{"word cap", []string{"env", "A=1", "B=2", "C=3", "D=4", "E=5", "F=6", "teamclaude"}, []string{"env", "A=", "B=", "C=", "D=", "E="}},
 		{"long path falls back to basename", []string{"/" + strings.Repeat("a", 140) + "/teamclaude", "run"}, []string{"teamclaude"}},
 		{"control characters end the words", []string{"env", "llm\ngateway"}, []string{"env"}},
+		{"C1 and bidi characters end the words", []string{"env", "llm\u0085gw", "x"}, []string{"env"}},
+		{"bidi override ends the words", []string{"env", "a\u202egw"}, []string{"env"}},
+		{"url with credentials is never sent", []string{"uvx", "git+https://u:ghp_secret@github.com/o/tool"}, []string{"uvx"}},
+		{"user:password@host is never sent", []string{"npx", "-y", "tok:secret@host/pkg.tgz"}, []string{"npx", "-y"}},
+		{"scoped npm package is kept", []string{"npx", "@scope/teamclaude@1.2.3"}, []string{"npx", "@scope/teamclaude@1.2.3"}},
 		{"empty argv", nil, nil},
 	}
 	for _, tc := range cases {
@@ -105,10 +110,18 @@ func TestClaudeRelayAncestorExecutablesWalksNearestFirstWithinBounds(t *testing.
 // TestClaudeRelayRemoteCwdIsBounded checks the cwd admission rules.
 func TestClaudeRelayRemoteCwdIsBounded(t *testing.T) {
 	for input, want := range map[string]string{
-		`{"cwd":"/home/leo/repo"}`:                     "/home/leo/repo",
-		`{"cwd":"relative/path"}`:                      "",
-		`{"cwd":"/home/leo/\nrepo"}`:                   "",
-		`{"cwd":"/` + strings.Repeat("x", 1024) + `"}`: "",
+		`{"cwd":"/home/leo/repo"}`:                           "/home/leo/repo",
+		`{"cwd":"relative/path"}`:                            "",
+		`{"cwd":"/home/leo/\nrepo"}`:                         "",
+		`{"cwd":"/home/leo/日本語 repo/v1.2_x-y+z,@a:b=c~d%e"}`: "/home/leo/日本語 repo/v1.2_x-y+z,@a:b=c~d%e",
+		`{"cwd":"/tmp/;id;#\\"}`:                             "",
+		`{"cwd":"/tmp/it's"}`:                                "",
+		`{"cwd":"/tmp/$(id)"}`:                               "",
+		`{"cwd":"/tmp/` + "`id`" + `"}`:                      "",
+		`{"cwd":"/tmp/a\u2028b"}`:                            "",
+		`{"cwd":"/tmp/a\u202eb"}`:                            "",
+		`{"cwd":"/tmp/a!b"}`:                                 "",
+		`{"cwd":"/` + strings.Repeat("x", 1024) + `"}`:       "",
 		`{"cwd":7}`:                           "",
 		`not json`:                            "",
 		`{"nested":{"cwd":"/home/leo/repo"}}`: "",

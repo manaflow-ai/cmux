@@ -101,10 +101,19 @@ struct RemoteRelayRoutingSchema {
     static let maximumRelayAncestorWordBytes = 128
     static let maximumRelayAncestorBytes = 2_048
 
-    /// An absolute remote path within bounds and free of control characters.
+    /// Punctuation a relayed remote directory may use besides letters, digits, and marks. The
+    /// Mac types the path into a remote shell whose dialect it cannot see, so quotes,
+    /// backslashes, and shell metacharacters are refused rather than escaped.
+    static let relayRemoteWorkingDirectoryPunctuation = " /._-+,@:=~%"
+
+    /// An absolute remote path within bounds that uses only letters, digits, marks, and
+    /// ``relayRemoteWorkingDirectoryPunctuation``.
     static func isAdmissibleRelayRemoteWorkingDirectory(_ value: String) -> Bool {
         value.hasPrefix("/") && value.utf8.count <= maximumRelayRemoteWorkingDirectoryBytes
-            && !containsControlCharacter(value)
+            && value.unicodeScalars.allSatisfy { scalar in
+                CharacterSet.alphanumerics.contains(scalar)
+                    || relayRemoteWorkingDirectoryPunctuation.unicodeScalars.contains(scalar)
+            }
     }
 
     /// Ancestor argv words within the relay bounds: at most 8 ancestors of 1 to 6
@@ -129,9 +138,17 @@ struct RemoteRelayRoutingSchema {
         return total <= maximumRelayAncestorBytes ? result : nil
     }
 
-    /// Whether `value` holds a C0 control character or DEL.
+    /// Whether `value` holds a C0 or C1 control character, DEL, a line or paragraph separator, or
+    /// a bidirectional formatting character.
     private static func containsControlCharacter(_ value: String) -> Bool {
-        value.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7F }
+        value.unicodeScalars.contains { scalar in
+            switch scalar.value {
+            case 0..<0x20, 0x7F...0x9F, 0x200E, 0x200F, 0x2028, 0x2029, 0x202A...0x202E, 0x2066...0x2069:
+                return true
+            default:
+                return false
+            }
+        }
     }
 
     /// Returns the first parameter outside the method's reviewed contract, or

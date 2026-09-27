@@ -1663,7 +1663,17 @@ extension Workspace {
             // snapshot available for manual continuation, but never let the
             // ownership-deferred path synthesize an agent resume command on
             // top of that binding.
+            // A relay-origin session may be typed only into a fresh remote
+            // shell. A tmux profile reattaches the surviving tmux session and a
+            // Mosh terminal can outlive the app, so Claude may still be running
+            // at the prompt the resume command would be typed into.
+            let relayResumeTargetMayBeLive =
+                (restorableAgent?.requiresRemoteHostExecution == true ||
+                    RelayAgentResumeContext.isRelayOrigin(source: resumeBinding?.launchCommand?.source)) &&
+                (remoteConfiguration?.terminalProfile.kind != .shell ||
+                    remoteConfiguration?.terminalTransport == .mosh)
             let restorableAgentCanAutoResume = restorableAgent != nil &&
+                !relayResumeTargetMayBeLive &&
                 (resumeBinding == nil || resumeBinding?.isAgentHookBinding == true)
             let usesExecutionAdmission = !restoresRemoteWorkspaceTerminalSnapshot &&
                 (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
@@ -1865,7 +1875,7 @@ extension Workspace {
             // disabled, unapproved, or cannot render a command must start as an
             // ordinary shell instead of waiting behind deferred admission.
             let deferredAgentResumeCandidateInput: String? = if restoreStartupBlocked || liveSessionOwner != nil,
-                restoredHibernation == nil,
+                restoredHibernation == nil, !relayResumeTargetMayBeLive,
                 restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
                 if let restorableAgent {
                     if restoresRemoteWorkspaceTerminalSnapshot {

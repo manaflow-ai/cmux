@@ -93,16 +93,28 @@ public struct RelayAgentResumeContext: Equatable, Sendable {
         source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == launchCommandSource
     }
 
-    /// Whether `value` is a session identifier the resume builder may quote.
+    /// Whether `value` is a session identifier the resume builder may quote. It starts with a
+    /// letter or digit, so it can never be read as an option after `--resume`.
     public static func isAdmissibleSessionID(_ value: String) -> Bool {
         !value.isEmpty && value.utf8.count <= maximumSessionIDBytes
-            && value.range(of: "^[A-Za-z0-9._-]+$", options: .regularExpression) != nil
+            && value.range(of: "^[A-Za-z0-9][A-Za-z0-9._-]*$", options: .regularExpression) != nil
     }
 
-    /// Whether `value` is an absolute remote path within bounds and free of control characters.
+    /// Punctuation a relayed remote directory may use besides letters, digits, and marks.
+    ///
+    /// The Mac types the directory into a remote shell whose dialect it cannot see (fish reads
+    /// `\'` inside single quotes), so quotes, backslashes, and shell metacharacters are refused
+    /// instead of escaped. The remote host and relay admission apply the same rule.
+    public static let portableWorkingDirectoryPunctuation = " /._-+,@:=~%"
+
+    /// Whether `value` is an absolute remote path within bounds that uses only letters, digits,
+    /// marks, and ``portableWorkingDirectoryPunctuation``.
     public static func isAdmissibleWorkingDirectory(_ value: String) -> Bool {
         value.hasPrefix("/") && value.utf8.count <= maximumWorkingDirectoryBytes
-            && !containsControlCharacter(value)
+            && value.unicodeScalars.allSatisfy { scalar in
+                CharacterSet.alphanumerics.contains(scalar)
+                    || portableWorkingDirectoryPunctuation.unicodeScalars.contains(scalar)
+            }
     }
 
     /// Validates decoded ancestor words against the relay bounds.
@@ -139,8 +151,16 @@ public struct RelayAgentResumeContext: Equatable, Sendable {
         return admissibleAncestorExecutables(value)
     }
 
-    /// Whether `value` holds a C0 control character or DEL.
+    /// Whether `value` holds a C0 or C1 control character, DEL, a line or paragraph separator, or
+    /// a bidirectional formatting character.
     private static func containsControlCharacter(_ value: String) -> Bool {
-        value.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7F }
+        value.unicodeScalars.contains { scalar in
+            switch scalar.value {
+            case 0..<0x20, 0x7F...0x9F, 0x200E, 0x200F, 0x2028, 0x2029, 0x202A...0x202E, 0x2066...0x2069:
+                return true
+            default:
+                return false
+            }
+        }
     }
 }

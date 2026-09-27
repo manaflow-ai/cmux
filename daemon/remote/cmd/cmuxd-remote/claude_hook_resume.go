@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -103,7 +104,7 @@ func claudeRelayRemoteCwd(input []byte) string {
 		return ""
 	}
 	cwd := object.Cwd
-	if !strings.HasPrefix(cwd, "/") || len(cwd) > claudeRelayRemoteCwdMaximumBytes || !claudeRelayWordIsClean(cwd) {
+	if !strings.HasPrefix(cwd, "/") || len(cwd) > claudeRelayRemoteCwdMaximumBytes || !claudeRelayPathIsPortable(cwd) {
 		return ""
 	}
 	return cwd
@@ -149,7 +150,8 @@ func claudeRelayAncestorWords(argv []string) []string {
 	var words []string
 	full := false
 	emit := func(word string) bool {
-		if len(words) >= claudeRelayAncestorMaximumWords || len(word) > claudeRelayAncestorMaximumWordBytes || !claudeRelayWordIsClean(word) {
+		if len(words) >= claudeRelayAncestorMaximumWords || len(word) > claudeRelayAncestorMaximumWordBytes ||
+			!claudeRelayWordIsClean(word) || claudeRelayWordMayCarryCredential(word) {
 			full = true
 			return false
 		}
@@ -260,15 +262,47 @@ func claudeRelayForwardedExecutableIndex(argv []string, index int, command strin
 	return 0, false
 }
 
-// claudeRelayWordIsClean rejects invalid UTF-8 and control characters.
+// claudeRelayWordIsClean rejects invalid UTF-8, C0 and C1 control
+// characters, line and paragraph separators, and bidirectional overrides.
 func claudeRelayWordIsClean(word string) bool {
 	if !utf8.ValidString(word) {
 		return false
 	}
 	for _, r := range word {
-		if r < 0x20 || r == 0x7f {
+		switch {
+		case r < 0x20, r >= 0x7f && r <= 0x9f,
+			r == 0x2028, r == 0x2029, r == 0x200e, r == 0x200f,
+			r >= 0x202a && r <= 0x202e, r >= 0x2066 && r <= 0x2069:
 			return false
 		}
 	}
 	return true
+}
+
+// claudeRelayPortablePathPunctuation is the punctuation a relayed remote cwd
+// may use. The Mac types the path into a remote shell whose dialect it cannot
+// see (fish reads `\'` inside single quotes), so quotes, backslashes and
+// shell metacharacters are refused rather than escaped.
+const claudeRelayPortablePathPunctuation = " /._-+,@:=~%"
+
+// claudeRelayPathIsPortable reports whether a path uses only letters,
+// digits, combining marks and claudeRelayPortablePathPunctuation.
+func claudeRelayPathIsPortable(path string) bool {
+	if !utf8.ValidString(path) {
+		return false
+	}
+	for _, r := range path {
+		if !unicode.IsLetter(r) && !unicode.IsNumber(r) && !unicode.IsMark(r) &&
+			!strings.ContainsRune(claudeRelayPortablePathPunctuation, r) {
+			return false
+		}
+	}
+	return true
+}
+
+// claudeRelayWordMayCarryCredential reports words shaped like URLs or
+// user:password@host, which a package runner may be given and which must not
+// leave the host. The scan stops there.
+func claudeRelayWordMayCarryCredential(word string) bool {
+	return strings.Contains(word, "://") || (strings.Contains(word, "@") && strings.Contains(word, ":"))
 }
