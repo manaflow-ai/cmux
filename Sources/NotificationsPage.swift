@@ -386,6 +386,7 @@ struct NotificationRow: View, Equatable {
             // description, so the icon-only button needs an explicit label (the prior
             // SwiftUI system-symbol path used to supply one implicitly).
             .accessibilityLabel(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
+            .safeHelp(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
         }
         .padding(12)
         .background(

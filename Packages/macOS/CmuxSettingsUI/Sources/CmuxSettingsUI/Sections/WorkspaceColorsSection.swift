@@ -15,6 +15,7 @@ public struct WorkspaceColorsSection: View {
 
     @State private var indicator: DefaultsValueModel<WorkspaceIndicatorStyle>
     @State private var selectionHex: DefaultsValueModel<String>
+    @State private var subtleSelection: DefaultsValueModel<Bool>
     @State private var badgeHex: DefaultsValueModel<String>
     @State private var paneFlashHex: DefaultsValueModel<String>
     @State private var paletteModel: DefaultsValueModel<[String: String]>
@@ -55,6 +56,7 @@ public struct WorkspaceColorsSection: View {
         self.errorLog = errorLog
         _indicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.indicatorStyle))
         _selectionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.selectionColorHex))
+        _subtleSelection = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.subtleSelection))
         _badgeHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex))
         _paneFlashHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlashColorHex))
         _paletteModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.palette))
@@ -78,6 +80,7 @@ public struct WorkspaceColorsSection: View {
         let models: [any SettingObservationStarting] = [
             indicator,
             selectionHex,
+            subtleSelection,
             badgeHex,
             paneFlashHex,
             paletteModel,
@@ -100,6 +103,20 @@ public struct WorkspaceColorsSection: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("workspaceColors.subtleSelection"),
+                String(localized: "settings.workspaceColors.subtleSelection", defaultValue: "Subtle Selection Highlight"),
+                subtitle: String(localized: "settings.workspaceColors.subtleSelection.subtitle", defaultValue: "Show the selected workspace as a faint accent tint with a thin edge instead of a solid fill. A custom Selection Highlight color still uses a solid fill.")
+            ) {
+                Toggle("", isOn: Binding(get: { subtleSelection.current }, set: { subtleSelection.set($0) }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    // Solid Fill always paints a solid selection.
+                    .disabled(indicator.current == .solidFill)
             }
             SettingsCardDivider()
 

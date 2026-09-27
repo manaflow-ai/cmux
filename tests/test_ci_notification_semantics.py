@@ -119,6 +119,8 @@ else:
             helpers.mkdir(parents=True)
             shutil.copy(ROOT / "scripts/ci/select_package_tests.py", helpers)
             shutil.copy(ROOT / "scripts/ci/require_swift_test_execution.py", helpers)
+            shutil.copy(ROOT / "scripts/ci/hung_test_watchdog.py", helpers)
+            shutil.copy(ROOT / "scripts/ci/ci_process_tree.py", helpers)
             runner_temp = root / "runner-temp"
             runner_temp.mkdir()
             selected = runner_temp / "selected-packages.txt"
@@ -178,6 +180,23 @@ print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
             with self.subTest(package=package):
                 result, _ = self.run_packages(package)
                 self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_a_failing_package_does_not_hide_later_packages(self):
+        # CMUXAgentLaunch sorts first, so every other package runs after it.
+        result, calls = self.run_packages("CMUXAgentLaunch")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        ran = {Path(args[args.index('--package-path') + 1]).name for args in calls}
+        self.assertIn("CmuxTerminal", ran)
+        self.assertIn("CmuxUpdater", ran)
+        self.assertIn(
+            "::error title=Swift package tests failed::CMUXAgentLaunch failed with exit status 1",
+            result.stdout,
+        )
+        self.assertEqual(result.stdout.count("::error title=Swift package tests failed::"), 1)
+        table = result.stdout.split("Swift package test results:\n", 1)[1]
+        self.assertRegex(table, r"CMUXAgentLaunch +failed \(exit 1\)")
+        self.assertRegex(table, r"CmuxUpdater +passed")
+        self.assertIn("1 of ", result.stdout)
 
 
 if __name__ == "__main__":

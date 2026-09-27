@@ -209,6 +209,35 @@ restores agents from the current projection table rather than scanning report
 history. Tombstoning a terminal deletes its projection in the same transaction,
 so historical reports cannot resurrect it.
 
+An agent value's `extra.agent` names the hook adapter (`claude`, `codex`, ...)
+when one has claimed the terminal. `extra.agent_session_id` is the agent's own
+session id from its hook events (Claude's `session_id`). It is opaque metadata
+that a client can pass to the agent's own resume path (for Claude,
+`claude --resume <id>`); this API does not define a resume operation. Both the
+`agent` upsert change and the snapshot and `agent.list` values carry it, and it
+is persisted with the projection, so it survives a restart. A later hook
+session on the same terminal (for example after `/clear` or a resume) replaces
+it. It is absent for socket, plugin, and screen-detected agents, for hook
+adapters that report no session id, and for ids longer than 256 bytes or with
+characters outside `[A-Za-z0-9._:-]`. Clients still pass it as a separate
+argument, never through a shell string. The id is opaque
+metadata at the same level as terminal IDs; remote clients receive it like the
+rest of the agent value. An ended hook session still publishes a `delete`
+change for the agent.
+
+```json
+{
+  "id": "agent_4f0c9f2a8e1b3d5c7a9e0b2d4f6a8c1e",
+  "session_id": "session_…",
+  "terminal_id": "terminal_…",
+  "state": "working",
+  "source": "hook",
+  "updated_at_ms": "1790000000000",
+  "source_session": null,
+  "extra": {"agent": "claude", "agent_session_id": "6f1d2c3e-…"}
+}
+```
+
 `terminal.viewport.scroll` changes the session's compatibility inspection
 viewport. Interactive frontends keep scroll in their own terminal mirror and
 must not call this operation for user scrolling. Its first success returns the

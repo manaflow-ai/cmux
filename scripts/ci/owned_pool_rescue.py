@@ -53,21 +53,11 @@ both the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images reported
 Xcode 26.6 build 17F113. If those builds ever differ, re-run the whole run
 here instead (rescue with failed_only=False).
 
-A refused job goes back to the fleet once before Blacksmith: attempt 2 of a
-re-run of failed jobs may take the owned pool again (the job's runs-on reads
-`github.run_attempt == 2 && inputs.pr_refused_retry_runner` first, where the
-job can run on an owned Mac). GitHub delivers no `requested` event for a
-re-run (run 36059281883's attempt 2 started no rescue), so the watch that
-re-ran the failed jobs goes on to watch attempt 2 itself, for owned jobs
-only, and stops at the first look that lists no job on an owned label. A job
-queued past the budget on attempt 2 gets the run cancelled if it is still
-going, and one refused there waits for the run to finish (as on attempt 1);
-either way its failed and cancelled jobs are re-run once more, keeping the
-jobs that passed; attempt 3 and later always take retry_runner on
-Blacksmith, so a busy fleet costs at most one extra refusal and never loops.
-Attempt 2 of a re-run of failed jobs needs no marker: `changes` is not
-re-run, so the watch follows any job on an owned label and stops when none
-appears.
+A refused job never goes back to the fleet: every runs-on sends a job's
+attempt 2 and later to retry_runner (Blacksmith), so the re-run of failed
+jobs cannot land on the mini that refused it, and one re-run is all a refusal
+costs. (Before 2026-09-27, attempt 2 tried the owned pool once more and could
+be refused again, by the same mini.) So the watch ends with that re-run.
 
 E2E runs (test-e2e.yml) are watched the same way. Its `runner` job runs
 e2e_runner_pool.py, which may pick an owned pool, and uploads the same marker
@@ -106,17 +96,21 @@ idle mini carries waits like any other queued owned job, so it is moved after
 the same budget.
 
 Side-lane workflows (SIDE_WORKFLOW_PATHS) have no picker. On attempt 1 of a
-same-repository pull request run, their light macOS jobs take
-vars.CI_SIDE_LANE_RUNNER, a glaeda-side-* label that only the minis' non-root
-runners carry, and every later attempt takes the job's Blacksmith default. So
-the first job on an owned label marks the run as on a persistent pool (a job
-behind a Linux gate appears once the gate ends), and the watch stops once
-every owned job has been accepted, which a side lane's few short jobs reach in
-minutes. A refused side-lane job gets the run's failed jobs re-run; a stuck
-one gets the run cancelled and its failed and cancelled jobs re-run, keeping
-the jobs that had already finished. That re-run is on Blacksmith, so it is
-not followed. A stuck run that finished some other way (a newer push cancelled
-it) is not re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS.
+trusted run (a same-repository pull request, or a push, schedule or
+workflow_dispatch, whose code is this repository's own branch; see
+TRUSTED_SIDE_EVENTS), their small macOS jobs take vars.CI_LIGHT_LANE_RUNNER
+(the light minis' side label) or vars.CI_SIDE_LANE_RUNNER (the std minis'),
+both glaeda-side-* labels that only the minis' non-root runners carry. Attempt
+2 and later take the job's Blacksmith default. So the first job on an owned label marks the run as on a persistent
+pool (a job behind a Linux gate appears once the gate ends), and the watch
+stops once every owned job has been accepted, which a side lane's few short
+jobs reach in minutes. A refused side-lane job gets the run's failed jobs
+re-run; a stuck one gets the run cancelled and its failed and cancelled jobs
+re-run, keeping the jobs that had already finished. That re-run (attempt 2)
+takes the lane's Blacksmith default, so the watch ends there. A
+stuck run that finished some other way (a newer push cancelled it) is not
+re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS. A side-lane run that is not
+a pull request has no head to move, like a dispatch.
 
 Nightly builds (NIGHTLY_WORKFLOW_PATH) are watched like a side lane: there is
 no picker, and attempt 1 of a push or schedule run on main puts
@@ -140,8 +134,9 @@ were met can never count as already past the budget.
 It stops watching, doing nothing, when:
 - owned pools are off (CI_PR_POOL_OWNED is not 1), before any API request;
 - the run is not attempt 1 of a same-repository pull request run of ci.yml
-  or a side-lane workflow, of main's full-suite dispatch of ci.yml, or of a
-  dispatch in DISPATCH_WORKFLOW_PATHS;
+  or a side-lane workflow, of a trusted non-PR run of a side-lane workflow, of
+  main's full-suite dispatch of ci.yml, or of a dispatch in
+  DISPATCH_WORKFLOW_PATHS;
 - a side-lane run finished with no job on an owned label, or the fleet
   accepted all of its owned jobs;
 - on the attempt 2 it re-ran from failed jobs, no job runs on an owned label;
@@ -214,9 +209,9 @@ DISPATCH_WORKFLOW_PATHS = (E2E_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, IOS_SCREEN
 # CI_PR_POOL_QUEUE_ROUNDS (ios_runner_pool.py and e2e_runner_pool.py read it
 # since run 36136190497).
 QUEUEING_WORKFLOW_PATHS = (CI_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, E2E_WORKFLOW_PATH)
-# Side-lane workflows: no picker job. Their light macOS jobs take
-# vars.CI_SIDE_LANE_RUNNER (a glaeda-side-* label) on attempt 1 of a same-repo
-# pull request run, and every later attempt takes their Blacksmith default.
+# Side-lane workflows: no picker job. Their small macOS jobs take
+# vars.CI_LIGHT_LANE_RUNNER or vars.CI_SIDE_LANE_RUNNER (glaeda-side-* labels)
+# on attempt 1 of a trusted run, and their Blacksmith default from attempt 2 on.
 # nightly.yml: no picker job either. build-nightly-app takes the trusted owned
 # pool (vars.CI_SEED_TRUSTED_POOL) on attempt 1 of a push or schedule run on
 # main, and Blacksmith on every later attempt.
@@ -227,14 +222,23 @@ NIGHTLY_EVENTS = frozenset({"push", "schedule"})
 # app build asks for one through this watch.
 TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 SIDE_WORKFLOW_PATHS = frozenset({
+    ".github/workflows/app-host-test-rerun.yml",
     ".github/workflows/auth-refresh-tests.yml",
     ".github/workflows/cloud-command-deadlines.yml",
     ".github/workflows/cloud-machine-tests.yml",
     ".github/workflows/cloud-task-local-tests.yml",
+    ".github/workflows/cmux-tui.yml",
     ".github/workflows/iroh-v2.yml",
     ".github/workflows/relay-tls.yml",
+    ".github/workflows/reload-build.yml",
+    ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
 })
+# Events whose code is this repository's own: a push or schedule runs a branch
+# of it, and a workflow_dispatch needs write access. A side-lane run of one of
+# these is owned-eligible like a same-repository pull request. merge_group,
+# workflow_run and pull_request_target are not: they can carry fork code.
+TRUSTED_SIDE_EVENTS = frozenset({"push", "schedule", "workflow_dispatch"})
 # test-e2e.yml's job that runs e2e_runner_pool.py (and the iOS workflows' job
 # that runs ios_runner_pool.py).
 E2E_PICKER_JOB = "runner"
@@ -292,8 +296,9 @@ RERUN_MARGIN_SECONDS = 60
 # costs far less than a refusal's rescue round trip and a Blacksmith re-run
 # (cmuxterm-hq#661 Workstream 7), so the window covers that wait with room.
 REFUSAL_SECONDS = 360
-# The last attempt that may run on an owned pool: a refused job's one retry
-# on the fleet (see the module docstring).
+# The last attempt that may run on an owned pool: a stuck run's full re-run
+# on the light tier (CI_OWNED_LIGHT_RETRY). A re-run of failed jobs never
+# takes one (see the module docstring).
 LAST_OWNED_ATTEMPT = 2
 # The runner's own steps, which run before glaeda's hook decides.
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
@@ -610,7 +615,9 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
     # against its pull request's head like a CI run.
     ios_pull = path == IOS_TEST_WORKFLOW_PATH and run.get("event") == "pull_request"
     expected = "workflow_dispatch" if e2e else "pull_request"
-    if run.get("event") != expected and not on_main and not ios_pull:
+    # A side lane's trusted non-PR run (push, schedule, dispatch) is watched too.
+    side_trusted = side and run.get("event") in TRUSTED_SIDE_EVENTS
+    if run.get("event") != expected and not on_main and not ios_pull and not side_trusted:
         what = f"{expected} or a dispatch on {MAIN_BRANCH}" if path == CI_WORKFLOW_PATH else expected
         return f"a {run.get('event') or 'unknown'} run of {path}, not a {what}"
     head = (run.get("head_repository") or {}).get("full_name") or ""
@@ -623,6 +630,9 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, e2e=True, path=str(path))
     if on_main:
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=str(path), main=True)
+    if side_trusted:
+        # No pull request: no head to re-check (pull_moved), like a dispatch.
+        return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, side=True, path=str(path))
     pulls = [pr for pr in run.get("pull_requests") or [] if isinstance(pr, Mapping) and pr.get("number")]
     if len(pulls) != 1:
         return "the run does not name exactly one pull request"
@@ -781,9 +791,6 @@ def next_attempt(target: Target) -> str:
     following = target.attempt + 1
     if target.side:
         return f"attempt {following} takes the side lane's Blacksmith default"
-    if following <= LAST_OWNED_ATTEMPT:
-        return (f"attempt {following} takes the owned pool once more where its jobs may "
-                "(pr_refused_retry_runner), else retry_runner")
     return f"attempt {following} takes retry_runner on Blacksmith"
 
 
@@ -808,8 +815,6 @@ def e2e_build_unfinished(api: GitHub, target: Target, sleep: Callable[[float], N
 def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
                log: Callable[[str], None]) -> str:
     """Why the pull request (or main) no longer wants this run, or "" when it still does."""
-    if target.e2e and not target.pr_number:
-        return ""  # a dispatch has no head to move; a newer one cancels it by concurrency
     if target.nightly:
         # nightly.yml's concurrency group never cancels in progress: a newer
         # run waits behind this one, and a re-run of this one would join the
@@ -818,6 +823,8 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
         if newer:
             return f"a newer nightly run on {MAIN_BRANCH} ({newer[0]}) has not finished and builds instead"
         return ""
+    if (target.e2e or target.side) and not target.pr_number:
+        return ""  # a dispatch, push or schedule has no head to move; a newer run cancels it by concurrency
     if target.main:
         head = read(lambda: api.branch_head(MAIN_BRANCH), sleep, log)
         if head != target.head_sha:
@@ -1005,7 +1012,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                "an E2E dispatch" if target.path == E2E_WORKFLOW_PATH else f"a dispatch of {target.path}") \
         if target.e2e else f"main's full-suite dispatch at {target.head_sha[:12]}" if target.main \
         else f"main's nightly build at {target.head_sha[:12]}" if target.nightly \
-        else f"pull request #{target.pr_number}"
+        else f"pull request #{target.pr_number}" if target.pr_number else f"a run of {target.path}"
     if target.side and not target.nightly:
         subject += " (side lane)"
     # ci.yml's, test-ios.yml's and test-e2e.yml's pickers queue on purpose, within the queue
@@ -1040,14 +1047,13 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                         refused=(outcome == "refused") if target.e2e or target.side else None,
                         refusal=outcome == "refused")
         log(result)
-        # A side lane's re-run never takes an owned label, so there is nothing more to watch.
-        if target.side or not (result.startswith("re-ran") and target.attempt + 1 <= LAST_OWNED_ATTEMPT):
+        # A re-run of failed jobs runs every job on Blacksmith (retry_runner, or
+        # a side lane's default), so there is nothing to follow. Only a stuck
+        # run's full re-run may take the light tier (CI_OWNED_LIGHT_RETRY),
+        # and that one is watched here.
+        if target.nightly or not (result.startswith("re-ran") and target.attempt + 1 <= LAST_OWNED_ATTEMPT):
             return "done"
-        # The re-run may take the owned pool once more: a refused job's
-        # re-run reuses the owned label, and a stuck run's full re-run may
-        # take the light tier (CI_OWNED_LIGHT_RETRY). Watch it here. A
-        # full re-run without the variable never holds an owned machine.
-        if not failed_only and not light_retry:
+        if failed_only or not light_retry:
             return "done"
         target = dataclasses.replace(target, attempt=target.attempt + 1, full_rerun=not failed_only, late=False)
         # The followed attempt gets its own watch: a late rescue of attempt 1
