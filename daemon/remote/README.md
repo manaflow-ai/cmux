@@ -171,7 +171,10 @@ The shim only sees launches from a shell that cmux started. A Claude session who
 
 - do nothing outside cmux, and when the CLI is missing;
 - step aside when the shim already added hooks to the session (the wrapper's marker variable), and for a Claude process that has another Claude process above it, such as `claude -p` run by an agent's tool call;
-- inside tmux, when a cmux client is attached to the hook's tmux session, route to that client: they ask tmux for the session's clients and read the most recently active client's `CMUX_SOCKET_PATH`, `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID` from `/proc/<pid>/environ` (Linux; same user only), and send the client's TTY as `caller_tty`. Otherwise they use their own environment, like the shim's hooks.
+- inside tmux, when a cmux client is attached to the hook's tmux session (or a session grouped with it), route to that client: they ask tmux for the pane's window and the attached clients, prefer a client whose current window holds the pane and then the most recently active one, read its `CMUX_SOCKET_PATH`, `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID` from `/proc/<pid>/environ` (Linux; same user only), and send the client's TTY as `caller_tty`. Otherwise they use their own environment, like the shim's hooks;
+- share one 3-second budget between the tmux queries and the relay round trip, inside the 5-second hook timeout they declare, so Claude always gets `{}`.
+
+Install and uninstall rewrite the file only when the hooks change: an uninstall with no settings file creates nothing, numbers keep their exact text, and a `hooks` value that is not an object is refused rather than replaced. The installed commands call the stable `~/.cmux/bin/cmux`, so they survive upgrades.
 
 Claude reads hooks when a session starts, so sessions that were already running pick them up only after a restart (for example `claude --resume <id>`, or the launcher's own resume).
 

@@ -27,9 +27,11 @@ const (
 	// Set on the exec'd claude so a launcher that re-resolves `claude` from
 	// PATH passes through instead of stacking a second set of hooks.
 	claudeRelayWrapperActiveKey = "CMUX_CLAUDE_RELAY_WRAPPER_ACTIVE"
-	claudeHookRoundTripTimeout  = 3 * time.Second
 	claudeWrapperPingTimeout    = time.Second
-	claudeHookDeclaredTimeout   = 5
+	// claudeHookDeclaredTimeout is the hook timeout, in seconds, written into
+	// Claude's settings. Claude kills a hook that runs past it, before `{}`
+	// prints, so the hook's own work stays well inside it.
+	claudeHookDeclaredTimeout = 5
 	// The relay bootstrap's `claude` wrapper runs `cmux claude-wrapper
 	// --cmux-probe` before handing off. This CLI answers 0 without touching
 	// the relay; an older CLI without the verb exits nonzero, so the wrapper
@@ -53,6 +55,10 @@ var claudeRelayHookEvents = []struct {
 	{"PreToolUse", "AskUserQuestion|ExitPlanMode", "pre-tool-use"},
 }
 
+// claudeHookTimeBudget bounds one hook run: tmux routing and the relay round
+// trip share it, well under claudeHookDeclaredTimeout. Tests shorten it.
+var claudeHookTimeBudget = 3 * time.Second
+
 var claudeRelayHookSubcommands = func() map[string]bool {
 	subcommands := make(map[string]bool, len(claudeRelayHookEvents))
 	for _, definition := range claudeRelayHookEvents {
@@ -74,6 +80,7 @@ var claudeHookFilesystemKeys = map[string]bool{
 // runClaudeHookRelay implements `cmux claude-hook [--user-settings] <subcommand>`.
 func runClaudeHookRelay(socketPath string, args []string, refreshAddr func() string, stdin io.Reader, stdout io.Writer) int {
 	defer fmt.Fprintln(stdout, "{}")
+	deadline := time.Now().Add(claudeHookTimeBudget)
 	input, _ := io.ReadAll(io.LimitReader(stdin, claudeHookMaximumInputBytes))
 	fromUserSettings := len(args) > 0 && args[0] == claudeHookUserSettingsFlag
 	if fromUserSettings {
@@ -87,7 +94,7 @@ func runClaudeHookRelay(socketPath string, args []string, refreshAddr func() str
 		refreshAddr: refreshAddr,
 		getenv:      os.Getenv,
 		callerTTY:   claudeHookCallerTTY,
-	}, fromUserSettings, os.Getppid(), claudeRelayProcessTree, defaultClaudeHookTmuxProbe())
+	}, fromUserSettings, os.Getppid(), claudeRelayProcessTree, defaultClaudeHookTmuxProbe(deadline))
 	if !ok {
 		return 0
 	}
@@ -96,8 +103,7 @@ func runClaudeHookRelay(socketPath string, args []string, refreshAddr func() str
 		return 0
 	}
 	// Delivery is best effort: a slow or missing relay must not hold the agent.
-	_, _ = socketRoundTripV2Until(delivery.socketPath, "agent.hook.enqueue", params, delivery.refreshAddr,
-		time.Now().Add(claudeHookRoundTripTimeout))
+	_, _ = socketRoundTripV2Until(delivery.socketPath, "agent.hook.enqueue", params, delivery.refreshAddr, deadline)
 	return 0
 }
 

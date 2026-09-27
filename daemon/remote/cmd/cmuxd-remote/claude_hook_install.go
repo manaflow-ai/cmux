@@ -17,7 +17,7 @@ import (
 // the installed hooks also cover sessions whose shell never saw cmux, such as
 // a tmux server or launcher started before cmux attached to it. Launchers
 // that pass their own --settings and CLAUDE_CONFIG_DIR still load hooks from
-// the user settings file they merge (sr, for example, merges
+// the user settings file they merge (a routed launcher, for example, merges
 // ~/.claude/settings.json into its launch settings).
 
 // claudeHookInstallMarker identifies installed hook commands, so install is
@@ -52,21 +52,44 @@ func runClaudeHookInstall(args []string, stdout io.Writer, stderr io.Writer) int
 		fmt.Fprintln(stderr, "cmux: could not locate the agent settings file; pass --settings-file")
 		return 1
 	}
+	var changed bool
 	var err error
 	switch action {
 	case "install":
-		err = updateClaudeUserSettingsFile(settingsPath, func(settings map[string]any) {
+		cmuxBin, binErr := claudeHookInstalledCmuxBinary()
+		if binErr != nil {
+			err = binErr
+			break
+		}
+		changed, err = updateClaudeUserSettingsFile(settingsPath, func(settings map[string]any) error {
+			if _, present := settings["hooks"]; present {
+				if _, ok := settings["hooks"].(map[string]any); !ok {
+					return errors.New(`"hooks" is not a JSON object; leaving the settings file unchanged`)
+				}
+			}
 			removeInstalledClaudeHooks(settings)
-			mergeClaudeSettings(settings, installedClaudeHookSettings(claudeWrapperCmuxBinary()))
+			mergeClaudeSettings(settings, installedClaudeHookSettings(cmuxBin))
+			return nil
 		})
 		if err == nil {
-			fmt.Fprintf(stdout, "cmux: installed status hooks in %s\n", settingsPath)
-			fmt.Fprintln(stdout, "cmux: restart running agent sessions to load them")
+			if changed {
+				fmt.Fprintf(stdout, "cmux: installed status hooks in %s\n", settingsPath)
+				fmt.Fprintln(stdout, "cmux: restart running agent sessions to load them")
+			} else {
+				fmt.Fprintf(stdout, "cmux: status hooks are already installed in %s\n", settingsPath)
+			}
 		}
 	case "uninstall":
-		err = updateClaudeUserSettingsFile(settingsPath, removeInstalledClaudeHooks)
+		changed, err = updateClaudeUserSettingsFile(settingsPath, func(settings map[string]any) error {
+			removeInstalledClaudeHooks(settings)
+			return nil
+		})
 		if err == nil {
-			fmt.Fprintf(stdout, "cmux: removed status hooks from %s\n", settingsPath)
+			if changed {
+				fmt.Fprintf(stdout, "cmux: removed status hooks from %s\n", settingsPath)
+			} else {
+				fmt.Fprintf(stdout, "cmux: no status hooks installed in %s\n", settingsPath)
+			}
 		}
 	default:
 		fmt.Fprintln(stderr, "usage: cmux claude-hook install|uninstall [--settings-file <path>]")
@@ -89,6 +112,17 @@ func defaultClaudeUserSettingsPath() string {
 		return ""
 	}
 	return filepath.Join(home, ".claude", "settings.json")
+}
+
+// claudeHookInstalledCmuxBinary is the CLI path written into user settings:
+// the relay's stable entrypoint, which follows daemon and app upgrades. The
+// installed command skips itself while that path is missing.
+func claudeHookInstalledCmuxBinary() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return "", errors.New("could not locate the home directory for the cmux CLI path")
+	}
+	return filepath.Join(home, ".cmux", "bin", "cmux"), nil
 }
 
 // installedClaudeHookSettings is the hook fragment for Claude's user settings.
@@ -114,18 +148,20 @@ func installedClaudeHookSettings(cmuxBin string) map[string]any {
 }
 
 // removeInstalledClaudeHooks drops cmux-installed hook commands, then any
-// group, event, or hooks object they leave empty. Other hooks are untouched.
+// group, event, or hooks object that removal leaves empty. Other hooks,
+// including empty ones the user wrote, are untouched.
 func removeInstalledClaudeHooks(settings map[string]any) {
 	hooks, ok := settings["hooks"].(map[string]any)
 	if !ok {
 		return
 	}
+	removedEvent := false
 	for event, rawGroups := range hooks {
 		groups, ok := rawGroups.([]any)
 		if !ok {
 			continue
 		}
-		var keptGroups []any
+		keptGroups := make([]any, 0, len(groups))
 		for _, rawGroup := range groups {
 			group, ok := rawGroup.(map[string]any)
 			entries, entriesOK := group["hooks"].([]any)
@@ -133,7 +169,7 @@ func removeInstalledClaudeHooks(settings map[string]any) {
 				keptGroups = append(keptGroups, rawGroup)
 				continue
 			}
-			var keptEntries []any
+			keptEntries := make([]any, 0, len(entries))
 			for _, rawEntry := range entries {
 				entry, _ := rawEntry.(map[string]any)
 				command, _ := entry["command"].(string)
@@ -142,75 +178,127 @@ func removeInstalledClaudeHooks(settings map[string]any) {
 				}
 				keptEntries = append(keptEntries, rawEntry)
 			}
-			if len(keptEntries) == 0 {
+			if len(keptEntries) == len(entries) {
+				keptGroups = append(keptGroups, rawGroup)
 				continue
 			}
-			if len(keptEntries) != len(entries) {
+			if len(keptEntries) > 0 {
 				group["hooks"] = keptEntries
+				keptGroups = append(keptGroups, group)
 			}
-			keptGroups = append(keptGroups, group)
+		}
+		if len(keptGroups) == len(groups) {
+			continue
 		}
 		if len(keptGroups) == 0 {
 			delete(hooks, event)
+			removedEvent = true
 		} else {
 			hooks[event] = keptGroups
 		}
 	}
-	if len(hooks) == 0 {
+	if removedEvent && len(hooks) == 0 {
 		delete(settings, "hooks")
 	}
 }
 
-// updateClaudeUserSettingsFile rewrites a settings file through update. A
-// file that is not a JSON object is left alone. The write replaces the
-// resolved file atomically and keeps its mode; a new file is private.
-func updateClaudeUserSettingsFile(path string, update func(map[string]any)) error {
+// updateClaudeUserSettingsFile rewrites a settings file through update and
+// reports whether it changed. A file that is not a JSON object is left alone,
+// and nothing is written (or created) when update changes nothing. Numbers
+// keep their exact text. The write replaces the resolved file atomically and
+// keeps its mode; a new file is private.
+func updateClaudeUserSettingsFile(path string, update func(map[string]any) error) (bool, error) {
 	target := path
 	if resolved, err := filepath.EvalSymlinks(path); err == nil {
 		target = resolved
 	}
 	settings := map[string]any{}
 	mode := fs.FileMode(0o600)
+	exists := false
 	data, err := os.ReadFile(target)
 	switch {
 	case err == nil:
+		exists = true
 		if trimmed := bytes.TrimSpace(data); len(trimmed) > 0 {
-			if err := json.Unmarshal(trimmed, &settings); err != nil || settings == nil {
-				return fmt.Errorf("%s is not a JSON object; leaving it unchanged", path)
+			if err := decodeClaudeSettingsObject(trimmed, &settings); err != nil {
+				return false, fmt.Errorf("%s is not a JSON object; leaving it unchanged", path)
 			}
 		}
 		if info, err := os.Stat(target); err == nil {
 			mode = info.Mode().Perm()
 		}
 	case errors.Is(err, fs.ErrNotExist):
-		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-			return err
-		}
 	default:
+		return false, err
+	}
+	before, err := encodeClaudeSettings(settings)
+	if err != nil {
+		return false, err
+	}
+	if err := update(settings); err != nil {
+		return false, fmt.Errorf("%s: %w", path, err)
+	}
+	after, err := encodeClaudeSettings(settings)
+	if err != nil {
+		return false, err
+	}
+	if bytes.Equal(before, after) {
+		return false, nil
+	}
+	if !exists {
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return false, err
+		}
+	}
+	file, err := os.CreateTemp(filepath.Dir(target), ".settings-*.json")
+	if err != nil {
+		return false, err
+	}
+	defer os.Remove(file.Name())
+	defer file.Close()
+	if _, err := file.Write(after); err != nil {
+		return false, err
+	}
+	if err := file.Chmod(mode); err != nil {
+		return false, err
+	}
+	if err := file.Sync(); err != nil {
+		return false, err
+	}
+	if err := file.Close(); err != nil {
+		return false, err
+	}
+	if err := os.Rename(file.Name(), target); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// decodeClaudeSettingsObject parses exactly one JSON object, keeping numbers
+// as json.Number so large integers survive a rewrite.
+func decodeClaudeSettingsObject(data []byte, settings *map[string]any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(settings); err != nil {
 		return err
 	}
-	update(settings)
+	if *settings == nil {
+		return errors.New("settings are null")
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return errors.New("trailing data after the settings object")
+	}
+	return nil
+}
+
+// encodeClaudeSettings is the file form of settings: indented, keys sorted.
+func encodeClaudeSettings(settings map[string]any) ([]byte, error) {
 	var encoded bytes.Buffer
 	encoder := json.NewEncoder(&encoded)
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(settings); err != nil {
-		return err
+		return nil, err
 	}
-	file, err := os.CreateTemp(filepath.Dir(target), ".settings-*.json")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(file.Name())
-	defer file.Close()
-	if _, err := file.Write(encoded.Bytes()); err != nil {
-		return err
-	}
-	if err := file.Chmod(mode); err != nil {
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(file.Name(), target)
+	return encoded.Bytes(), nil
 }
