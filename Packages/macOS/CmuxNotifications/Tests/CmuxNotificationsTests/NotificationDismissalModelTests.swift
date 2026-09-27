@@ -230,14 +230,23 @@ struct NotificationDismissalModelTests {
         #expect(!model.dismissNotificationOnDirectInteraction(workspaceId: workspaceId, surfaceId: panelId))
         #expect(host.log.isEmpty)
 
-        // Terminal interaction clears it and triggers the indicator flash.
+        // Terminal interaction clears it without flashing the pane being typed in.
         #expect(model.dismissNotificationOnTerminalInteraction(workspaceId: workspaceId, surfaceId: panelId))
         let prefix = String(panelId.uuidString.prefix(4))
         #expect(host.log == [
             "panelClearManualUnread", "storeClearManualUnread",
             "storeClearManualUnread:\(prefix)",
-            "clearFocusedRead:\(prefix)", "unreadIndicatorFlash",
+            "clearFocusedRead:\(prefix)",
         ])
+    }
+
+    @Test func typingDismissesAnUnreadNotificationWithoutFlashing() {
+        let (model, host, workspaceId, panelId) = makeModel()
+        host.unreadNotificationSurfaces = [panelId]
+
+        #expect(model.dismissNotificationOnTerminalInteraction(workspaceId: workspaceId, surfaceId: panelId))
+        let prefix = String(panelId.uuidString.prefix(4))
+        #expect(host.log == ["markRead:\(prefix)", "clearFocusedRead:\(prefix)"])
     }
 
     @Test func restoredUnreadNotClearedByPlainActiveFocus() {
