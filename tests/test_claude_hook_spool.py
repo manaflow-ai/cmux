@@ -37,6 +37,7 @@ class ClaudeHookSpoolTests(unittest.TestCase):
         self.server.settimeout(0.2)
         self.addCleanup(self.server.close)
         self.frames = []
+        self.rejected_seq = set()
         self.condition = threading.Condition()
         self.stopping = threading.Event()
         self.addCleanup(self.stopping.set)
@@ -118,6 +119,13 @@ sys.stdin.read()
                 with self.condition:
                     self.frames.append(frame)
                     self.condition.notify_all()
+                if frame.get('method') == 'agent.hook.enqueue' and \
+                        json.loads(frame['params']['payload']).get('seq') in self.rejected_seq:
+                    # The app's reply when replaceable tool telemetry is already
+                    # outstanding for this lane.
+                    error = {'code': 'queue_full', 'message': 'Agent hook delivery queue is full'}
+                    conn.sendall((json.dumps({'id': frame['id'], 'ok': False, 'error': error}) + '\n').encode())
+                    continue
                 if 'id' in frame:
                     result = {'queued': True} if frame.get('method') == 'agent.hook.enqueue' else {}
                     conn.sendall((json.dumps({'id': frame['id'], 'ok': True, 'result': result}) + '\n').encode())
@@ -159,6 +167,15 @@ sys.stdin.read()
             self.assertEqual(params['environment']['CLAUDE_CONFIG_DIR'], self.env['CLAUDE_CONFIG_DIR'])
             self.assertTrue(params['environment']['CMUX_CLAUDE_PID'].isdigit())
         self.assertEqual(sorted(p.name for p in self.spool.iterdir() if p.suffix == '.rec'), [])
+
+    def test_a_rejected_event_does_not_stop_the_forwarder(self):
+        self.rejected_seq = {1}
+        self.start_forwarder()
+        for index, subcommand in enumerate(['pre-tool-use', 'pre-tool-use', 'prompt-submit', 'stop']):
+            self.run_hook(subcommand, {'session_id': 'spool-test', 'seq': index, 'tool_name': 'Read'})
+        enqueued = self.admitted(4)
+        self.assertEqual([json.loads(p['payload'])['seq'] for p in enqueued], [0, 1, 2, 3])
+        self.assertEqual(self.cli_launches(), [], 'a queue_full reply must not end the forwarder')
 
     def test_forwarder_removes_the_spool_after_the_session_ends(self):
         self.start_forwarder()

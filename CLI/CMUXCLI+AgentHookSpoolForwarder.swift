@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import CMUXAgentLaunch
 
@@ -6,8 +7,9 @@ extension CMUXCLI {
     /// hook takes its own queue position.
     ///
     /// Direct CLI hooks (a decision barrier, or a producer's fallback) call this
-    /// so an event published earlier is never ordered after a later one. It is
-    /// a no-op outside a spooled session.
+    /// so an event published earlier is never ordered after a later one. It also
+    /// waits for a forwarder's final drain of a retired spool. It is a no-op
+    /// outside a spooled session.
     func admitSpooledAgentHooks(
         agent: String,
         client: SocketClient,
@@ -22,16 +24,19 @@ extension CMUXCLI {
               path.hasPrefix("/") else {
             return
         }
-        let spool = AgentHookSpoolDirectory(url: URL(fileURLWithPath: path))
-        // The forwarder holds this lock only while admitting a bounded batch,
-        // each admission limited by the queue's short response timeout.
-        guard spool.isPrivate(),
-              let drainLock = spool.lock(AgentHookSpoolDirectory.drainLockName, blocking: true) else {
-            return
-        }
-        withExtendedLifetime(drainLock) {
-            _ = admitPublishedAgentHookRecords(in: spool) { record in
-                try admitAgentHookSpoolRecord(record, client: client, socketPassword: socketPassword)
+        let live = AgentHookSpoolDirectory(url: URL(fileURLWithPath: path))
+        for spool in [live, live.retiredLocation] where spool.isPrivate() {
+            // The forwarder holds this lock only while admitting a bounded
+            // batch, each admission limited by the queue's short timeout.
+            guard let drainLock = spool.lock(AgentHookSpoolDirectory.drainLockName, blocking: true) else {
+                continue
+            }
+            withExtendedLifetime(drainLock) {
+                _ = admitPublishedAgentHookRecords(in: spool) { record in
+                    try admitAgentHookSpoolRecord(
+                        record, agentExited: false, client: client, socketPassword: socketPassword
+                    )
+                }
             }
         }
     }
@@ -41,9 +46,9 @@ extension CMUXCLI {
     /// The agent wrapper starts this in the background just before it execs the
     /// agent, so the agent is this process's parent. Queued hook events arrive
     /// as spool records instead of CLI launches; one socket connection admits
-    /// them in publication order. When an admission fails, the forwarder exits
-    /// so every later hook falls back to the CLI, which also drains any record
-    /// left behind.
+    /// them in publication order. When the socket connection fails, the
+    /// forwarder exits so every later hook falls back to the CLI, which also
+    /// drains any record left behind.
     func runAgentHookSpoolForwarder(
         agent: String,
         socketPath: String,
@@ -52,29 +57,33 @@ extension CMUXCLI {
         let environment = ProcessInfo.processInfo.environment
         let producer = AgentHookSpoolProducer(agent: agent)
         let pidKey = Self.agentHookPIDEnvironmentVariable(agentName: agent)
-        guard let path = environment[producer.spoolDirectoryEnvironmentKey], path.hasPrefix("/"),
-              let parentPID = environment[pidKey].flatMap(Int32.init), parentPID > 1,
-              parentPID == getppid() else {
+        guard let path = environment[producer.spoolDirectoryEnvironmentKey], path.hasPrefix("/") else {
             return
         }
         let spool = AgentHookSpoolDirectory(url: URL(fileURLWithPath: path))
         let client = SocketClient(path: socketPath)
-        guard !client.isRelayBacked,
-              spool.createLockFiles(),
-              let lifetimeLock = spool.lock(AgentHookSpoolDirectory.forwarderLockName, blocking: false),
+        guard let parentPID = environment[pidKey].flatMap(Int32.init), parentPID > 1,
+              parentPID == getppid(), !client.isRelayBacked,
+              spool.createLockFiles() else {
+            // Nothing was published yet; an empty directory is removable, and
+            // producers without a key list use the CLI.
+            spool.removeAll()
+            return
+        }
+        guard let lifetimeLock = spool.lock(AgentHookSpoolDirectory.forwarderLockName, blocking: false),
               spool.publishEnvironmentKeys(Self.agentHookSpoolEnvironmentKeys(agent: agent)) else {
             return
         }
 
-        var healthy = true
+        var connected = true
         let watcher = AgentHookSpoolWatcher(directory: spool.url)
         for await _ in await watcher.changes(parentPID: parentPID) {
-            healthy = forwardPublishedAgentHookRecords(
-                in: spool, client: client, socketPassword: socketPassword
+            connected = forwardPublishedAgentHookRecords(
+                in: spool, agentExited: false, client: client, socketPassword: socketPassword
             )
-            if !healthy { break }
+            if !connected { break }
         }
-        guard healthy else {
+        guard connected else {
             // Unclaimed records stay for the next CLI hook's drain. Releasing
             // the lifetime lock sends every later producer to the CLI.
             client.close()
@@ -82,13 +91,15 @@ extension CMUXCLI {
             return
         }
         // Move the spool aside so no producer can publish after the final
-        // drain; a producer that loses the rename takes the CLI path.
+        // drain; a producer that loses the rename takes the CLI path and its
+        // drain waits for this one on the retired spool's drain lock.
         let finalSpool = spool.retire() ?? spool
-        _ = forwardPublishedAgentHookRecords(
-            in: finalSpool, client: client, socketPassword: socketPassword
-        )
+        if forwardPublishedAgentHookRecords(
+            in: finalSpool, agentExited: true, client: client, socketPassword: socketPassword
+        ) {
+            finalSpool.removeAll()
+        }
         client.close()
-        finalSpool.removeAll()
         withExtendedLifetime(lifetimeLock) {}
     }
 
@@ -106,9 +117,11 @@ extension CMUXCLI {
     /// detected before sending and replaced. A failed send is not retried: the
     /// app may already have admitted the event, and a retry could duplicate it.
     ///
-    /// - Returns: `false` when an admission failed.
+    /// - Returns: `false` when the socket connection failed; unclaimed records
+    ///   then stay in the spool.
     private func forwardPublishedAgentHookRecords(
         in spool: AgentHookSpoolDirectory,
+        agentExited: Bool,
         client: SocketClient,
         socketPassword: String?
     ) -> Bool {
@@ -122,7 +135,9 @@ extension CMUXCLI {
                     client.close()
                 }
                 try connectAgentHookForwarder(client, socketPassword: socketPassword)
-                try admitAgentHookSpoolRecord(record, client: client, socketPassword: socketPassword)
+                try admitAgentHookSpoolRecord(
+                    record, agentExited: agentExited, client: client, socketPassword: socketPassword
+                )
             }
         }
     }
@@ -139,13 +154,15 @@ extension CMUXCLI {
         )
     }
 
-    /// Claims and admits records in publication order until one fails.
+    /// Claims and admits records in publication order.
     ///
-    /// Callers hold the spool's drain lock. A record whose admission throws is
-    /// dropped, as a failed CLI admission would be; later records stay
-    /// unclaimed for the next drainer.
+    /// Callers hold the spool's drain lock. A record the app rejects (for
+    /// example `queue_full` for replaceable tool telemetry) is dropped, exactly
+    /// as its CLI admission would have been, and draining continues so later
+    /// records keep their order. A transport failure stops the drain and leaves
+    /// the remaining records unclaimed for the next drainer.
     ///
-    /// - Returns: Whether every claimed record was admitted.
+    /// - Returns: `false` when a transport failure stopped the drain.
     private func admitPublishedAgentHookRecords(
         in spool: AgentHookSpoolDirectory,
         admit: (AgentHookSpoolRecord) throws -> Void
@@ -154,6 +171,8 @@ extension CMUXCLI {
             guard let record = spool.claim(name: name) else { continue }
             do {
                 try admit(record)
+            } catch let error as CLIError where error.isStructuredProtocolResponse {
+                continue
             } catch {
                 return false
             }
@@ -163,6 +182,7 @@ extension CMUXCLI {
 
     private func admitAgentHookSpoolRecord(
         _ record: AgentHookSpoolRecord,
+        agentExited: Bool,
         client: SocketClient,
         socketPassword: String?
     ) throws {
@@ -170,11 +190,19 @@ extension CMUXCLI {
         guard Self.agentHookCanRunQueued(agent: record.agent, subcommand: record.subcommand) else {
             return
         }
+        var environment = record.environment
+        if agentExited,
+           let surfaceID = environment["CMUX_SURFACE_ID"],
+           UUID(uuidString: surfaceID) != nil {
+            // The agent PID no longer identifies its terminal. Deliver by the
+            // surface instead, which the app re-homes if the pane moved.
+            environment[Self.agentHookRouteSnapshotEnvironmentKey] = "1"
+        }
         try admitQueuedAgentHook(
             agent: record.agent,
             subcommand: record.subcommand,
             rawPayload: String(data: record.payload, encoding: .utf8) ?? "{}",
-            processEnvironment: record.environment,
+            processEnvironment: environment,
             client: client,
             socketPassword: socketPassword
         )

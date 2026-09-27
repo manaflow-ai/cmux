@@ -2098,9 +2098,9 @@ if [[ -n "$CMUX_SETTINGS_PATH" && "$OSTYPE" == darwin* && -x /bin/zsh
         || cmux_claude_hook_spool_dir=""
     if [[ -n "$cmux_claude_hook_spool_dir" ]]; then
         export CMUX_CLAUDE_HOOK_SPOOL_DIR="$cmux_claude_hook_spool_dir"
-        # Terminal signals for Claude's process group must not end the forwarder
-        # before its final drain; it exits when Claude exits.
-        ( trap '' HUP INT QUIT; exec "$CMUX_CLAUDE_HOOK_CMUX_BIN" hooks claude spool-forwarder ) \
+        # Signals for Claude's process group must not end the forwarder before
+        # its final drain; it exits on its own when Claude exits.
+        ( trap '' HUP INT QUIT TERM; exec "$CMUX_CLAUDE_HOOK_CMUX_BIN" hooks claude spool-forwarder ) \
             </dev/null >/dev/null 2>&1 &
     fi
     unset cmux_claude_hook_spool_dir

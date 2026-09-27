@@ -160,10 +160,16 @@ public struct AgentHookSpoolDirectory: Sendable {
     ///
     /// - Returns: The moved directory, or `nil` when the rename failed.
     public func retire() -> AgentHookSpoolDirectory? {
-        let retired = url.deletingLastPathComponent()
-            .appendingPathComponent("\(url.lastPathComponent).retired")
-        guard rename(url.path, retired.path) == 0 else { return nil }
-        return AgentHookSpoolDirectory(url: retired)
+        let retired = retiredLocation
+        guard rename(url.path, retired.url.path) == 0 else { return nil }
+        return retired
+    }
+
+    /// Where ``retire()`` moves this spool for the forwarder's final drain.
+    public var retiredLocation: AgentHookSpoolDirectory {
+        AgentHookSpoolDirectory(
+            url: url.deletingLastPathComponent().appendingPathComponent("\(url.lastPathComponent).retired")
+        )
     }
 
     /// Removes this protocol's files and the directory after the final drain.

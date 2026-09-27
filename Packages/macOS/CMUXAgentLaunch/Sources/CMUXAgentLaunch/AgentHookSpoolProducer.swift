@@ -48,7 +48,10 @@ public struct AgentHookSpoolProducer: Sendable {
     public func command(subcommand: String, fallback: String) -> String {
         let pidKey = AgentHookDeliveryPolicy().pidEnvironmentVariable(agentName: agent)
         let spool = AgentHookSpoolDirectory.self
-        // `exec` replaces the agent's hook shell. zsh -f loads no user startup
+        // `exec` replaces the agent's hook shell. The agent reads its response
+        // from fd 3: zsh sources /etc/zshenv even under -f, and anything that
+        // file prints goes to stderr instead of the hook response. zsh -f loads
+        // no user startup
         // files; sysread, epochtime, mv, rm and zsystem flock are module
         // builtins, so the published path starts no further process.
         // Ownership rule (see AgentHookSpoolDirectory): the record is renamed
@@ -57,17 +60,18 @@ public struct AgentHookSpoolProducer: Sendable {
         // owns the event, so it is admitted exactly once or by the fallback.
         let script = #"""
         LC_ALL=C
-        cmux_fallback() { { print -rn -- "$cmux_p"; /bin/cat; } | /bin/sh -c "$1"; exit $?; }
-        zmodload zsh/system zsh/datetime zsh/files 2>/dev/null || exec /bin/sh -c "$1"
+        cmux_fallback() { { print -rn -- "$cmux_p"; /bin/cat; } | /bin/sh -c "$1" >&3; exit $?; }
+        zmodload zsh/system zsh/datetime zsh/files 2>/dev/null || exec /bin/sh -c "$1" >&3
         cmux_p= cmux_c= cmux_e=0
         while (( ${#cmux_p} < \#(Self.maximumPayloadBytes) )); do sysread -i 0 -s 65536 cmux_c || { cmux_e=$?; break; }; cmux_p+=$cmux_c; done
-        [[ -n ${CMUX_SURFACE_ID:-} && ${\#(disableEnvironmentKey):-} != 1 ]] || { (( cmux_e == 5 )) || /bin/cat >/dev/null; print -r -- '{}'; exit 0; }
+        [[ -n ${CMUX_SURFACE_ID:-} && ${\#(disableEnvironmentKey):-} != 1 ]] || { (( cmux_e == 5 )) || /bin/cat >/dev/null; print -r -- '{}' >&3; exit 0; }
         cmux_d=$\#(spoolDirectoryEnvironmentKey)
         (( cmux_e == 5 )) && [[ -f $cmux_d/\#(spool.environmentKeysName) ]] || cmux_fallback "$1"
-        \#(pidKey)=${\#(pidKey):-$PPID}
+        export \#(pidKey)=${\#(pidKey):-$PPID}
         cmux_r="\#(AgentHookSpoolRecord.formatMarker)"$'\n'"\#(agent)"$'\n'"$2"$'\n'
         for cmux_k in ${(f)"$(<$cmux_d/\#(spool.environmentKeysName))"}; do (( ${+parameters[$cmux_k]} )) && cmux_r+="$cmux_k=${(P)cmux_k}"$'\0'; done
         cmux_r+=$'\0'"$cmux_p"
+        (( ${#cmux_r} <= \#(AgentHookSpoolDirectory.maximumRecordBytes) )) || cmux_fallback "$1"
         umask 077
         cmux_n=$cmux_d/$epochtime[1].$epochtime[2]-$$
         { print -rn -- "$cmux_r" >| $cmux_n.tmp && mv -f -- $cmux_n.tmp $cmux_n\#(spool.recordSuffix); } 2>/dev/null || { rm -f -- $cmux_n.tmp 2>/dev/null; cmux_fallback "$1"; }
@@ -75,10 +79,10 @@ public struct AgentHookSpoolProducer: Sendable {
           zsystem flock -u $cmux_l
           rm -- $cmux_n\#(spool.recordSuffix) 2>/dev/null && cmux_fallback "$1"
         fi
-        print -r -- '{}'
+        print -r -- '{}' >&3
         """#
         return "if [ -n \"${\(spoolDirectoryEnvironmentKey):-}\" ] && [ -x /bin/zsh ]; then "
-            + "exec /bin/zsh -fc \(Self.singleQuoted(script)) cmux-hook \(Self.singleQuoted(fallback)) \(subcommand); "
+            + "exec /bin/zsh -fc \(Self.singleQuoted(script)) cmux-hook \(Self.singleQuoted(fallback)) \(subcommand) 3>&1 1>&2; "
             + "else \(fallback); fi"
     }
 
