@@ -688,6 +688,8 @@
 		E1724349548A4068A8377242 /* CloudCommandDeadlineClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54945EFADC4466F8B520CA0 /* CloudCommandDeadlineClock.swift */; };
 		2626F8CD8D00447CA73AF900 /* CloudCommandDeadlineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791992D7B1A443AF960CC85A /* CloudCommandDeadlineTests.swift */; };
 		EA2B013FB51E4424834575A5 /* CloudCommandOperationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AAC366FD05843F5BC94E64D /* CloudCommandOperationTests.swift */; };
+		11289AB9227D6786E6E48D33 /* CloudCreateTeamSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52323A1D1A58A7B604DE3D82 /* CloudCreateTeamSheet.swift */; };
+		A43E15A5F6F23102AC639AFD /* CloudCreateTeamSheetPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EECF7D6B3A6F8657DC038C77 /* CloudCreateTeamSheetPresenter.swift */; };
 		9A1261600000000000000004 /* CloudDesktopAccessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1261600000000000000003 /* CloudDesktopAccessTests.swift */; };
 		FBC4B7B2AA372C0205F2966E /* CloudDesktopGraphOpenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3115B11FBE63D81B98EBAE5A /* CloudDesktopGraphOpenTests.swift */; };
 		ED002A43AC267A896DE357DB /* CloudDesktopNavigationFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 806164938A2B2E2C3C2A1375 /* CloudDesktopNavigationFixture.swift */; };
@@ -808,12 +810,13 @@
 		09FBC463786149D49E73B297 /* CloudSurfaceDropGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A23E881DEAE40649BC8FFCF /* CloudSurfaceDropGateView.swift */; };
 		5CB4AC1D92064236B5C2DDF1 /* CloudSurfaceMoveOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF212BA811D54BB986A5E27F /* CloudSurfaceMoveOwnershipTests.swift */; };
 		6D2669CD5E4944C2B8C0F49C /* CloudSurfaceOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4DAE66C6AF74046B5545B47 /* CloudSurfaceOwnershipTests.swift */; };
-		13019A000000000000000004 /* CloudTeamPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13019A000000000000000003 /* CloudTeamPicker.swift */; };
 		A14327000000000000000004 /* CloudTeamPickerHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14327000000000000000003 /* CloudTeamPickerHeader.swift */; };
+		270246D98C0855B7EFB5C087 /* CloudTeamPickerMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 080D6C181C210FE2F33B5B35 /* CloudTeamPickerMenu.swift */; };
+		F3652B9AAF82CE9B22C69255 /* CloudTeamPickerMenuAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCB0A8E1552E2CD2205B9B33 /* CloudTeamPickerMenuAnchor.swift */; };
+		D1958D1287A709CAF4AEC411 /* CloudTeamPickerMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 491AEB05DEFFB15C16C047E1 /* CloudTeamPickerMenuTests.swift */; };
 		A14327000000000000000006 /* CloudTeamPickerPlacementUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14327000000000000000005 /* CloudTeamPickerPlacementUITests.swift */; };
 		A14327000000000000000002 /* CloudTeamPickerPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14327000000000000000001 /* CloudTeamPickerPresentation.swift */; };
 		13019A000000000000000006 /* CloudTeamPickerRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13019A000000000000000005 /* CloudTeamPickerRow.swift */; };
-		2F646430024CB401EEC6AC0D /* CloudTeamPickerTeamRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA268D4CE6EFBDFFB69F9B7E /* CloudTeamPickerTeamRow.swift */; };
 		13019C000000000000000002 /* CloudTeamScopeObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13019C000000000000000001 /* CloudTeamScopeObserver.swift */; };
 		83EFE46711801D1A82B94FD1 /* CloudTerminalAttachmentRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBC170FBE7AEBB71A5BE2922 /* CloudTerminalAttachmentRecoveryTests.swift */; };
 		C12537000000000000000313 /* CloudTerminalCardFlashRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12537000000000000000314 /* CloudTerminalCardFlashRegressionTests.swift */; };
@@ -4827,6 +4830,8 @@
 		A54945EFADC4466F8B520CA0 /* CloudCommandDeadlineClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudCommandDeadlineClock.swift"; sourceTree = "<group>"; };
 		791992D7B1A443AF960CC85A /* CloudCommandDeadlineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudCommandDeadlineTests.swift"; sourceTree = "<group>"; };
 		3AAC366FD05843F5BC94E64D /* CloudCommandOperationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudCommandOperationTests.swift"; sourceTree = "<group>"; };
+		52323A1D1A58A7B604DE3D82 /* CloudCreateTeamSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudCreateTeamSheet.swift; sourceTree = "<group>"; };
+		EECF7D6B3A6F8657DC038C77 /* CloudCreateTeamSheetPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudCreateTeamSheetPresenter.swift; sourceTree = "<group>"; };
 		9A1261600000000000000003 /* CloudDesktopAccessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudDesktopAccessTests.swift"; sourceTree = "<group>"; };
 		3115B11FBE63D81B98EBAE5A /* CloudDesktopGraphOpenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudDesktopGraphOpenTests.swift"; sourceTree = "<group>"; };
 		806164938A2B2E2C3C2A1375 /* CloudDesktopNavigationFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudDesktopNavigationFixture.swift"; sourceTree = "<group>"; };
@@ -4947,12 +4952,13 @@
 		3A23E881DEAE40649BC8FFCF /* CloudSurfaceDropGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSurfaceDropGateView.swift; sourceTree = "<group>"; };
 		DF212BA811D54BB986A5E27F /* CloudSurfaceMoveOwnershipTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSurfaceMoveOwnershipTests.swift; sourceTree = "<group>"; };
 		D4DAE66C6AF74046B5545B47 /* CloudSurfaceOwnershipTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSurfaceOwnershipTests.swift; sourceTree = "<group>"; };
-		13019A000000000000000003 /* CloudTeamPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamPicker.swift; sourceTree = "<group>"; };
 		A14327000000000000000003 /* CloudTeamPickerHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamPickerHeader.swift; sourceTree = "<group>"; };
+		080D6C181C210FE2F33B5B35 /* CloudTeamPickerMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamPickerMenu.swift; sourceTree = "<group>"; };
+		CCB0A8E1552E2CD2205B9B33 /* CloudTeamPickerMenuAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamPickerMenuAnchor.swift; sourceTree = "<group>"; };
+		491AEB05DEFFB15C16C047E1 /* CloudTeamPickerMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTeamPickerMenuTests.swift"; sourceTree = "<group>"; };
 		A14327000000000000000005 /* CloudTeamPickerPlacementUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamPickerPlacementUITests.swift; sourceTree = "<group>"; };
 		A14327000000000000000001 /* CloudTeamPickerPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamPickerPresentation.swift; sourceTree = "<group>"; };
 		13019A000000000000000005 /* CloudTeamPickerRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamPickerRow.swift; sourceTree = "<group>"; };
-		CA268D4CE6EFBDFFB69F9B7E /* CloudTeamPickerTeamRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTeamPickerTeamRow.swift"; sourceTree = "<group>"; };
 		13019C000000000000000001 /* CloudTeamScopeObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTeamScopeObserver.swift"; sourceTree = "<group>"; };
 		BBC170FBE7AEBB71A5BE2922 /* CloudTerminalAttachmentRecoveryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTerminalAttachmentRecoveryTests.swift; sourceTree = "<group>"; };
 		C12537000000000000000314 /* CloudTerminalCardFlashRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalCardFlashRegressionTests.swift; sourceTree = "<group>"; };
@@ -8766,11 +8772,13 @@
 				D792B1E5CE28BAFC121F6781 /* CloudNotificationLocalDelivery.swift */,
 				7A0CE1000000000000000725 /* CloudTreeNodeActions+Prompts.swift */,
 				A14327000000000000000003 /* CloudTeamPickerHeader.swift */,
-				CA268D4CE6EFBDFFB69F9B7E /* CloudTeamPickerTeamRow.swift */,
-				13019A000000000000000003 /* CloudTeamPicker.swift */,
 				13019A000000000000000005 /* CloudTeamPickerRow.swift */,
 				A14327000000000000000001 /* CloudTeamPickerPresentation.swift */,
 				13019C000000000000000001 /* CloudTeamScopeObserver.swift */,
+				080D6C181C210FE2F33B5B35 /* CloudTeamPickerMenu.swift */,
+				CCB0A8E1552E2CD2205B9B33 /* CloudTeamPickerMenuAnchor.swift */,
+				52323A1D1A58A7B604DE3D82 /* CloudCreateTeamSheet.swift */,
+				EECF7D6B3A6F8657DC038C77 /* CloudCreateTeamSheetPresenter.swift */,
 			);
 			name = Cloud;
 			path = Cloud;
@@ -12226,6 +12234,7 @@
 				D87FDCA31298C3B71D50F9E7 /* PasteLastScreenshotShortcutTests.swift */,
 				AFD49B60E1A7F637C0ADFEF4 /* TerminalPasteFailureNoticeTests.swift */,
 				8E924EBE2A4B7D8798B993C1 /* SidebarSelectedRowScrollTests.swift */,
+				491AEB05DEFFB15C16C047E1 /* CloudTeamPickerMenuTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -13376,6 +13385,8 @@
 				68B60071A7049D7CD9C2CFD7 /* CloudAgentSkillLauncher.swift in Sources */,
 				69AA6941BCDDF67E7B44CA26 /* CloudBrowserAccessState.swift in Sources */,
 				57C7774B1620767AED6F13B7 /* CloudBrowserAccessView.swift in Sources */,
+				11289AB9227D6786E6E48D33 /* CloudCreateTeamSheet.swift in Sources */,
+				A43E15A5F6F23102AC639AFD /* CloudCreateTeamSheetPresenter.swift in Sources */,
 				32E508E45F3E7B0832FB99EA /* CloudDiagnosticsView.swift in Sources */,
 				5EDE6BFD28BE4BD58EF84889 /* CloudFeatureAvailabilityObserver.swift in Sources */,
 				CFSF00000000000000000001 /* CloudFileExplorerCommandRunning.swift in Sources */,
@@ -13410,11 +13421,11 @@
 				375E0D1FDA464DC4A05359E1 /* CloudSidebarRowSnapshot.swift in Sources */,
 				D318853B007D48AD9532F83F /* CloudSurfaceDropGate.swift in Sources */,
 				09FBC463786149D49E73B297 /* CloudSurfaceDropGateView.swift in Sources */,
-				13019A000000000000000004 /* CloudTeamPicker.swift in Sources */,
 				A14327000000000000000004 /* CloudTeamPickerHeader.swift in Sources */,
+				270246D98C0855B7EFB5C087 /* CloudTeamPickerMenu.swift in Sources */,
+				F3652B9AAF82CE9B22C69255 /* CloudTeamPickerMenuAnchor.swift in Sources */,
 				A14327000000000000000002 /* CloudTeamPickerPresentation.swift in Sources */,
 				13019A000000000000000006 /* CloudTeamPickerRow.swift in Sources */,
-				2F646430024CB401EEC6AC0D /* CloudTeamPickerTeamRow.swift in Sources */,
 				13019C000000000000000002 /* CloudTeamScopeObserver.swift in Sources */,
 				3EAC8AAF4F2E473CA9DA0194 /* CloudTerminalCreationCoordinator.swift in Sources */,
 				C12537000000000000000201 /* CloudTerminalLayoutCreation.swift in Sources */,
@@ -16044,6 +16055,7 @@
 				92556BB814BE41C3A3891685 /* CloudSurfaceDragFixture.swift in Sources */,
 				5CB4AC1D92064236B5C2DDF1 /* CloudSurfaceMoveOwnershipTests.swift in Sources */,
 				6D2669CD5E4944C2B8C0F49C /* CloudSurfaceOwnershipTests.swift in Sources */,
+				D1958D1287A709CAF4AEC411 /* CloudTeamPickerMenuTests.swift in Sources */,
 				83EFE46711801D1A82B94FD1 /* CloudTerminalAttachmentRecoveryTests.swift in Sources */,
 				C12537000000000000000313 /* CloudTerminalCardFlashRegressionTests.swift in Sources */,
 				C12537000000000000000309 /* CloudTerminalConnectionPresentationPolicyTests.swift in Sources */,
