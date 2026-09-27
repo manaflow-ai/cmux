@@ -120,6 +120,11 @@ jobs:
         with:
           bun-version: "1.4.2"
 
+      - name: Install web runtime dependencies
+        if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry' }}
+        working-directory: web
+        run: bun install --frozen-lockfile --ignore-scripts
+
       - name: Materialize isolated staging account
         if: ${{ inputs.environment == 'staging' && (matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry') }}
         env:

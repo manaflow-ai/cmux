@@ -105,7 +105,7 @@ export function stackConfigurationFromEnvFile(environmentFile) {
 }
 
 function loadStackServerApp(configuration) {
-  const { StackServerApp } = webRequire("@stackframe/stack");
+  const { StackServerApp } = webRequire("@hexclave/next");
   return new StackServerApp(configuration);
 }
 
