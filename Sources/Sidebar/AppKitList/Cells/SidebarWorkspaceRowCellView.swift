@@ -1111,6 +1111,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 self?.contextMenuVisible = false
                 self?.updateCloseVisibility()
                 didClose?()
+            },
+            beginInlineRename: { [weak self] in
+                self?.beginInlineRename()
             }
         )
     }
