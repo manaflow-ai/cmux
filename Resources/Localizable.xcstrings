@@ -546475,115 +546475,115 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jede Maschine hat eine eigene private IP. Zwei Maschinen können beide Port 3000 verwenden, etwa 10.40.0.10:3000 und 10.40.0.11:3000. Klicken Sie nach dem Verbinden mit der rechten Maustaste auf einen Cloud-Port und wählen Sie URL der privaten Adresse kopieren. Diese Adressen sind privat und keine öffentlichen Freigabelinks."
+            "value": "Um einen Dienst aus einer anderen App zu öffnen, binden Sie ihn an 0.0.0.0 oder die private Adresse der Maschine. Dienste, die nur an 127.0.0.1 gebunden sind, bleiben in cmux erreichbar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chaque machine a sa propre IP privée. Deux machines peuvent utiliser le port 3000, par exemple 10.40.0.10:3000 et 10.40.0.11:3000. Après connexion, faites un clic droit sur un port Cloud et choisissez Copier l’URL de l’adresse privée. Ces adresses sont privées, ce ne sont pas des liens publics de partage."
+            "value": "Pour ouvrir un service depuis une autre app, liez-le à 0.0.0.0 ou à l’adresse privée de la machine. Les services liés uniquement à 127.0.0.1 restent accessibles dans cmux."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cada máquina tiene su propia IP privada. Dos máquinas pueden usar el puerto 3000, como 10.40.0.10:3000 y 10.40.0.11:3000. Después de conectar, haz clic derecho en un puerto Cloud y elige Copiar URL de dirección privada. Estas direcciones son privadas, no enlaces públicos para compartir."
+            "value": "Para abrir un servicio desde otra app, vincúlalo a 0.0.0.0 o a la dirección privada de la máquina. Los servicios vinculados solo a 127.0.0.1 siguen siendo accesibles dentro de cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "各マシンには個別のプライベートIPがあります。2台のマシンがどちらもポート3000を使えます（例：10.40.0.10:3000と10.40.0.11:3000）。接続後にCloudポートを右クリックし、「プライベートアドレスURLをコピー」を選びます。これらはプライベートアドレスで、公開共有リンクではありません。"
+            "value": "別のアプリからサービスを開くには、0.0.0.0またはマシンのプライベートアドレスにバインドしてください。127.0.0.1のみにバインドされたサービスは、引き続きcmux内でアクセスできます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "每台机器都有自己的私有 IP。两台机器可以同时使用端口 3000，例如 10.40.0.10:3000 和 10.40.0.11:3000。连接后右键点击 Cloud 端口，选择“复制私有地址 URL”。这些地址是私有地址，不是公开分享链接。"
+            "value": "若要从其他应用打开服务，请将其绑定到 0.0.0.0 或机器的私有地址。仅绑定到 127.0.0.1 的服务仍可在 cmux 内访问。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "每台機器都有自己的私有 IP。兩台機器可以同時使用連接埠 3000，例如 10.40.0.10:3000 和 10.40.0.11:3000。連線後對 Cloud 連接埠按右鍵，選擇「複製私有位址 URL」。這些位址是私有位址，不是公開分享連結。"
+            "value": "若要從其他 App 開啟服務，請將其綁定到 0.0.0.0 或機器的私有位址。僅綁定到 127.0.0.1 的服務仍可在 cmux 內存取。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "각 머신에는 고유한 비공개 IP가 있습니다. 두 머신 모두 포트 3000을 사용할 수 있습니다(예: 10.40.0.10:3000 및 10.40.0.11:3000). 연결 후 Cloud 포트를 오른쪽 클릭하고 비공개 주소 URL 복사를 선택하세요. 이 주소는 비공개이며 공개 공유 링크가 아닙니다."
+            "value": "다른 앱에서 서비스를 열려면 0.0.0.0 또는 머신의 비공개 주소에 바인딩하세요. 127.0.0.1에만 바인딩된 서비스는 cmux 안에서 계속 접근할 수 있습니다."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لكل جهاز عنوان IP خاص به. يمكن لجهازين استخدام المنفذ 3000، مثل 10.40.0.10:3000 و10.40.0.11:3000. بعد الاتصال، انقر بزر الماوس الأيمن على منفذ Cloud واختر نسخ رابط العنوان الخاص. هذه عناوين خاصة وليست روابط مشاركة عامة."
+            "value": "لفتح خدمة من تطبيق آخر، اربطها بالعنوان 0.0.0.0 أو بالعنوان الخاص للجهاز. تظل الخدمات المرتبطة بالعنوان 127.0.0.1 فقط متاحة داخل cmux."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Svaka mašina ima svoju privatnu IP adresu. Dvije mašine mogu koristiti port 3000, na primjer 10.40.0.10:3000 i 10.40.0.11:3000. Nakon povezivanja kliknite desnim dugmetom na Cloud port i izaberite Kopiraj URL privatne adrese. Ovo su privatne adrese, a ne javne veze za dijeljenje."
+            "value": "Da biste otvorili servis iz druge aplikacije, vežite ga za 0.0.0.0 ili privatnu adresu mašine. Servisi vezani samo za 127.0.0.1 ostaju dostupni unutar cmux-a."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hver maskine har sin egen private IP. To maskiner kan begge bruge port 3000, f.eks. 10.40.0.10:3000 og 10.40.0.11:3000. Højreklik på en Cloud-port efter tilslutning, og vælg Kopiér URL til privat adresse. Adresserne er private, ikke offentlige delelinks."
+            "value": "For at åbne en tjeneste fra en anden app skal du binde den til 0.0.0.0 eller maskinens private adresse. Tjenester, der kun er bundet til 127.0.0.1, er stadig tilgængelige i cmux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ogni macchina ha il proprio IP privato. Due macchine possono usare entrambe la porta 3000, ad esempio 10.40.0.10:3000 e 10.40.0.11:3000. Dopo la connessione fai clic destro su una porta Cloud e scegli Copia URL indirizzo privato. Sono indirizzi privati, non link pubblici."
+            "value": "Per aprire un servizio da un’altra app, collegalo a 0.0.0.0 o all’indirizzo privato della macchina. I servizi collegati solo a 127.0.0.1 restano accessibili all’interno di cmux."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ម៉ាស៊ីននីមួយៗមាន IP ឯកជនផ្ទាល់ខ្លួន។ ម៉ាស៊ីនពីរអាចប្រើច្រក 3000 ដូចគ្នា ឧទាហរណ៍ 10.40.0.10:3000 និង 10.40.0.11:3000។ បន្ទាប់ពីភ្ជាប់ ចុចខាងស្តាំលើច្រក Cloud ហើយជ្រើស ចម្លង URL អាសយដ្ឋានឯកជន។ ទាំងនេះជាអាសយដ្ឋានឯកជន មិនមែនតំណចែករំលែកសាធារណៈទេ។"
+            "value": "ដើម្បីបើកសេវាពីកម្មវិធីផ្សេង សូមភ្ជាប់វាទៅ 0.0.0.0 ឬអាសយដ្ឋានឯកជនរបស់ម៉ាស៊ីន។ សេវាដែលភ្ជាប់តែទៅ 127.0.0.1 នៅតែអាចចូលប្រើបាននៅក្នុង cmux។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hver maskin har sin egen private IP. To maskiner kan bruke port 3000, for eksempel 10.40.0.10:3000 og 10.40.0.11:3000. Høyreklikk en Cloud-port etter tilkobling og velg Kopier URL for privat adresse. Adressene er private, ikke offentlige delingslenker."
+            "value": "For å åpne en tjeneste fra en annen app, bind den til 0.0.0.0 eller maskinens private adresse. Tjenester som bare er bundet til 127.0.0.1, er fortsatt tilgjengelige i cmux."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Każda maszyna ma własny prywatny adres IP. Dwie maszyny mogą używać portu 3000, na przykład 10.40.0.10:3000 i 10.40.0.11:3000. Po połączeniu kliknij prawym przyciskiem port Cloud i wybierz Kopiuj URL prywatnego adresu. To prywatne adresy, nie publiczne linki udostępniania."
+            "value": "Aby otworzyć usługę z innej aplikacji, powiąż ją z adresem 0.0.0.0 lub prywatnym adresem maszyny. Usługi powiązane tylko z 127.0.0.1 pozostają dostępne w cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cada máquina tem seu próprio IP privado. Duas máquinas podem usar a porta 3000, por exemplo 10.40.0.10:3000 e 10.40.0.11:3000. Depois de conectar, clique com o botão direito em uma porta Cloud e escolha Copiar URL do endereço privado. Esses endereços são privados, não links públicos de compartilhamento."
+            "value": "Para abrir um serviço em outro app, vincule-o a 0.0.0.0 ou ao endereço privado da máquina. Serviços vinculados apenas a 127.0.0.1 continuam acessíveis dentro do cmux."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "У каждой машины свой частный IP. Две машины могут использовать порт 3000, например 10.40.0.10:3000 и 10.40.0.11:3000. После подключения щёлкните правой кнопкой мыши порт Cloud и выберите Скопировать URL частного адреса. Это частные адреса, а не публичные ссылки."
+            "value": "Чтобы открыть сервис из другого приложения, привяжите его к 0.0.0.0 или к частному адресу машины. Сервисы, привязанные только к 127.0.0.1, остаются доступны внутри cmux."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แต่ละเครื่องมี IP ส่วนตัวของตนเอง สองเครื่องสามารถใช้พอร์ต 3000 ได้ เช่น 10.40.0.10:3000 และ 10.40.0.11:3000 หลังเชื่อมต่อ คลิกขวาที่พอร์ต Cloud แล้วเลือกคัดลอก URL ที่อยู่ส่วนตัว ที่อยู่เหล่านี้เป็นส่วนตัว ไม่ใช่ลิงก์สาธารณะ"
+            "value": "หากต้องการเปิดบริการจากแอปอื่น ให้ผูกบริการกับ 0.0.0.0 หรือที่อยู่ส่วนตัวของเครื่อง บริการที่ผูกกับ 127.0.0.1 เท่านั้นยังคงเข้าถึงได้ภายใน cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Her makinenin kendi özel IP’si vardır. İki makine 3000 bağlantı noktasını kullanabilir; örneğin 10.40.0.10:3000 ve 10.40.0.11:3000. Bağlandıktan sonra bir Cloud portuna sağ tıklayın ve Özel Adres URL’sini Kopyala’yı seçin. Bunlar özel adreslerdir, herkese açık paylaşım bağlantıları değildir."
+            "value": "Bir hizmeti başka bir uygulamadan açmak için onu 0.0.0.0 adresine veya makinenin özel adresine bağlayın. Yalnızca 127.0.0.1 adresine bağlı hizmetler cmux içinde erişilebilir kalır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Кожна машина має власну приватну IP-адресу. Дві машини можуть використовувати порт 3000, наприклад 10.40.0.10:3000 і 10.40.0.11:3000. Після підключення клацніть правою кнопкою миші порт Cloud і виберіть Копіювати URL приватної адреси. Це приватні адреси, а не публічні посилання для спільного доступу."
+            "value": "Щоб відкрити сервіс з іншої програми, прив’яжіть його до 0.0.0.0 або до приватної адреси машини. Сервіси, прив’язані лише до 127.0.0.1, залишаються доступними в cmux."
           }
         }
       }
@@ -547600,115 +547600,115 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die VPN-Software ist in cmux enthalten. Sie brauchen keine weitere App. macOS kann bei der Genehmigung Ihr Passwort oder Touch ID verlangen."
+            "value": "Wenn Sie cmux VPN aktivieren, wird eine VPN-Konfiguration für Ihr Cloud-Netzwerk hinzugefügt. macOS fordert Sie möglicherweise auf, die zugehörige Netzwerkerweiterung in den Systemeinstellungen zu genehmigen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le logiciel VPN est inclus dans cmux. Aucune autre app n’est nécessaire. macOS peut demander votre mot de passe ou Touch ID lors de l’autorisation."
+            "value": "L’activation de cmux VPN ajoute une configuration VPN pour votre réseau Cloud. macOS peut vous demander d’approuver son extension réseau dans Réglages Système."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El software VPN está incluido en cmux. No necesitas otra app. macOS puede solicitar tu contraseña o Touch ID durante la autorización."
+            "value": "Al activar cmux VPN se añade una configuración VPN para tu red Cloud. macOS puede pedirte que apruebes su extensión de red en Ajustes del Sistema."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPNソフトウェアはcmuxに含まれています。別のアプリは不要です。承認時にmacOSがパスワードまたはTouch IDを求めることがあります。"
+            "value": "cmux VPNを有効にすると、CloudネットワークのVPN構成が追加されます。macOSが「システム設定」でネットワーク拡張機能の承認を求めることがあります。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 已包含 VPN 软件，无需其他应用。批准时，macOS 可能要求您输入密码或使用触控 ID。"
+            "value": "启用 cmux VPN 会为您的 Cloud 网络添加 VPN 配置。macOS 可能会要求您在“系统设置”中批准其网络扩展。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 已包含 VPN 軟體，不需要其他 App。核准時，macOS 可能要求您輸入密碼或使用 Touch ID。"
+            "value": "啟用 cmux VPN 會為您的 Cloud 網路新增 VPN 設定。macOS 可能會要求您在「系統設定」中核准其網路延伸功能。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN 소프트웨어는 cmux에 포함되어 있습니다. 다른 앱은 필요하지 않습니다. 승인 시 macOS에서 암호 또는 Touch ID를 요청할 수 있습니다."
+            "value": "cmux VPN을 활성화하면 Cloud 네트워크용 VPN 구성이 추가됩니다. macOS가 시스템 설정에서 네트워크 확장 프로그램을 승인하도록 요청할 수 있습니다."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "برنامج VPN مضمن في cmux. لا تحتاج إلى تطبيق آخر. قد يطلب macOS كلمة المرور أو Touch ID أثناء الموافقة."
+            "value": "يؤدي تفعيل cmux VPN إلى إضافة إعداد VPN لشبكة Cloud الخاصة بك. قد يطلب منك macOS الموافقة على امتداد الشبكة الخاص به في إعدادات النظام."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN softver je uključen u cmux. Nije potrebna druga aplikacija. macOS može zatražiti lozinku ili Touch ID tokom odobravanja."
+            "value": "Uključivanjem cmux VPN-a dodaje se VPN konfiguracija za vašu Cloud mrežu. macOS može tražiti da odobrite njegovo mrežno proširenje u Postavkama sistema."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN-softwaren er inkluderet i cmux. Du behøver ingen anden app. macOS kan bede om din adgangskode eller Touch ID under godkendelsen."
+            "value": "Når du aktiverer cmux VPN, tilføjes en VPN-konfiguration til dit Cloud-netværk. macOS beder dig muligvis om at godkende dens netværksudvidelse i Systemindstillinger."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il software VPN è incluso in cmux. Non serve un’altra app. macOS potrebbe chiedere la password o Touch ID durante l’autorizzazione."
+            "value": "L’attivazione di cmux VPN aggiunge una configurazione VPN per la tua rete Cloud. macOS potrebbe chiederti di approvare la sua estensione di rete in Impostazioni di Sistema."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កម្មវិធី VPN មាននៅក្នុង cmux។ អ្នកមិនត្រូវការកម្មវិធីផ្សេងទៀតទេ។ macOS អាចស្នើពាក្យសម្ងាត់ ឬ Touch ID ក្នុងពេលអនុម័ត។"
+            "value": "ការបើក cmux VPN នឹងបន្ថែមការកំណត់រចនាសម្ព័ន្ធ VPN សម្រាប់បណ្ដាញ Cloud របស់អ្នក។ macOS អាចស្នើឱ្យអ្នកអនុម័តផ្នែកបន្ថែមបណ្ដាញរបស់វានៅក្នុង ការកំណត់ប្រព័ន្ធ។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN-programvaren er inkludert i cmux. Du trenger ingen annen app. macOS kan be om passord eller Touch ID under godkjenningen."
+            "value": "Når du aktiverer cmux VPN, legges det til en VPN-konfigurasjon for Cloud-nettverket ditt. macOS kan be deg om å godkjenne nettverksutvidelsen i Systeminnstillinger."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oprogramowanie VPN jest zawarte w cmux. Nie potrzebujesz innej aplikacji. macOS może poprosić o hasło lub Touch ID podczas zatwierdzania."
+            "value": "Włączenie cmux VPN dodaje konfigurację VPN dla Twojej sieci Cloud. macOS może poprosić o zatwierdzenie jego rozszerzenia sieciowego w Ustawieniach systemowych."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O software VPN vem incluído no cmux. Você não precisa de outro app. O macOS pode pedir sua senha ou Touch ID durante a aprovação."
+            "value": "Ativar o cmux VPN adiciona uma configuração de VPN para sua rede Cloud. O macOS pode pedir que você aprove a extensão de rede em Ajustes do Sistema."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN-программа уже входит в cmux. Другие приложения не нужны. Во время подтверждения macOS может запросить пароль или Touch ID."
+            "value": "При включении cmux VPN добавляется конфигурация VPN для вашей сети Cloud. macOS может попросить вас одобрить его сетевое расширение в Системных настройках."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ซอฟต์แวร์ VPN รวมอยู่ใน cmux แล้ว ไม่ต้องใช้แอปอื่น macOS อาจขอรหัสผ่านหรือ Touch ID ระหว่างการอนุมัติ"
+            "value": "การเปิดใช้ cmux VPN จะเพิ่มการกำหนดค่า VPN สำหรับเครือข่าย Cloud ของคุณ macOS อาจขอให้คุณอนุมัติส่วนขยายเครือข่ายใน การตั้งค่าระบบ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN yazılımı cmux içinde bulunur. Başka bir uygulama gerekmez. macOS onay sırasında parolanızı veya Touch ID’yi isteyebilir."
+            "value": "cmux VPN’i etkinleştirmek, Cloud ağınız için bir VPN yapılandırması ekler. macOS, ağ uzantısını Sistem Ayarları’nda onaylamanızı isteyebilir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Програмне забезпечення VPN входить до cmux. Інша програма не потрібна. Під час схвалення macOS може попросити пароль або Touch ID."
+            "value": "Увімкнення cmux VPN додає конфігурацію VPN для вашої мережі Cloud. macOS може попросити вас схвалити його мережеве розширення в Системних налаштуваннях."
           }
         }
       }
