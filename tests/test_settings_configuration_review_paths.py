@@ -102,11 +102,10 @@ def advertised_paths():
 
 
 # Rows advertising a path absent from the supported set when this guard was
-# added. Each was checked against the parsers by hand: none of these five has a
-# reader, so writing them into cmux.json genuinely does nothing.
-# `cloud`, `computerUse` and `customSidebars` have no top-level case in the
-# section dispatch at all, and the parsed `automation` section has no
-# `codexIntegration` key. See the tracking issue.
+# added. `cloud` has no top-level case in the section dispatch, so writing
+# `cloud.beta.machines.enabled` into cmux.json does nothing. The `computerUse`
+# keys are JSON-backed catalog keys read straight from cmux.json by
+# JSONConfigStore rather than by a section parser. See the tracking issue.
 #
 # This list is NOT automatically ratcheted -- nothing compares it to a baseline,
 # so a new failure could be parked here in the same change that introduces it.
@@ -114,11 +113,9 @@ def advertised_paths():
 # or are no longer advertised. Treat additions as needing review on their own
 # merits.
 KNOWN_UNSUPPORTED = frozenset({
-    "automation.codexIntegration",
     "cloud.beta.machines.enabled",
     "computerUse.enabled",
     "computerUse.showInMenuBar",
-    "customSidebars.renderer",
 })
 
 

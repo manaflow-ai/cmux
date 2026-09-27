@@ -18,6 +18,14 @@ public struct IrxProtocol: Sendable {
     public let keepaliveInterval: Duration = .seconds(5)
     /// A missed application pong retires only the diagnostic stream.
     public let keepaliveDeadline: Duration = .seconds(2)
+    /// How long a control-stream replacement may take to open a fresh stream
+    /// and receive the host's acknowledgement. Generous next to the 2 s
+    /// keepalive deadline because it includes opening the stream and a host
+    /// actor hop, and a miss here only falls back to the conservative
+    /// two-silent-timeout threshold unless the connection is also silent.
+    public let controlRepairDeadline: Duration = .seconds(5)
+    /// Error code for resetting a control stream retired by a replacement.
+    public let retiredControlStreamErrorCode: UInt64 = 7
 
 }
 
@@ -93,6 +101,12 @@ public enum IrxLaneKind: String, Codable, Sendable {
     case terminalInput = "terminal_input"
     case artifact
     case simulatorStream = "simulator_stream"
+    /// Client-opened replacement for a stalled control stream on an admitted
+    /// connection. The server acknowledges with ``IrxControlLaneRepairAck``
+    /// and moves the session's control lane onto this stream. A server that
+    /// predates it cannot decode the descriptor and resets the stream, which
+    /// the client treats as "replacement unavailable".
+    case controlRepair = "control_repair"
 }
 
 /// The first frame on every stream: which lane this is, plus lane-specific
@@ -154,6 +168,19 @@ public struct IrxAdmit: Codable, Equatable, Sendable {
         self.session = session
         keepaliveIntervalMs = Int(IrxProtocol().keepaliveInterval.components.seconds) * 1000
         keepaliveDeadlineMs = Int(IrxProtocol().keepaliveDeadline.components.seconds) * 1000
+    }
+}
+
+/// Server -> client acknowledgement, first frame on a ``IrxLaneKind/controlRepair``
+/// stream. It is written by the server's application layer after it has
+/// moved the admitted session's control lane onto the stream, so receiving it
+/// is evidence that the host process, not just its QUIC stack, is serving the
+/// connection.
+public struct IrxControlLaneRepairAck: Codable, Equatable, Sendable {
+    public var v: Int
+
+    public init() {
+        v = IrxProtocol().version
     }
 }
 
