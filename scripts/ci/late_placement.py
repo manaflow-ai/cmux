@@ -16,6 +16,11 @@ up to that many idle runners. The shards and friends then run
 test-without-building on the mini against admission's uploaded products, as
 they do after an owned admission; they never compile.
 
+When OWNED_SLOTS (vars.CI_OWNED_POOL_SLOTS) gives the pool's gui label a count
+(pr_runner_pool.gui_label(): one gui runner per mini), the GUI jobs (the shards, tests-build-and-lag)
+take that label instead, one per idle gui runner, and the other jobs the root
+label, one per idle root runner: each mini runs one GUI job at a time.
+
 Output `runners` is a JSON object from job key (shard-N, lag, cli-product)
 to label. Any failure prints a warning and outputs {} (no change).
 """
@@ -56,13 +61,21 @@ def root_for(xcode_app: str | None) -> str:
     return pool.root_label(std[0]) if std else ""
 
 
-def place(jobs: Sequence[str], *, owned_jobs: str, idle: int, root: str, gui: bool = True) -> dict[str, str]:
-    """Give the not-yet-owned jobs the root label, highest priority first, one per idle runner."""
-    if not root or idle <= 0:
+def place(jobs: Sequence[str], *, owned_jobs: str, idle: int, root: str, gui: bool = True,
+          gui_label: str = "", gui_idle: int = 0) -> dict[str, str]:
+    """Give the not-yet-owned jobs the root label, highest priority first, one per idle runner.
+
+    With `gui_label`, the GUI jobs take it instead, one per idle gui runner (`gui_idle`)."""
+    if not root:
         return {}
     owned = f" {owned_jobs.strip()} " if owned_jobs.strip() else " "
-    waiting = [key for key in jobs if f" {key} " not in owned and (gui or not pool.gui_job(key))]
-    return {key: root for key in sorted(waiting, key=pool.priority)[:idle]}
+    waiting = sorted((key for key in jobs if f" {key} " not in owned and (gui or not pool.gui_job(key))),
+                     key=pool.priority)
+    if not gui_label:
+        return {key: root for key in waiting[:max(0, idle)]}
+    on_gui = [key for key in waiting if pool.gui_job(key)][:max(0, gui_idle)]
+    on_root = [key for key in waiting if not pool.gui_job(key)][:max(0, idle)]
+    return {**{key: gui_label for key in on_gui}, **{key: root for key in on_root}}
 
 
 def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[dict[str, str], str]:
@@ -76,12 +89,19 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) 
         return {}, f"no owned pool runs admission's Xcode ({env.get('ADMISSION_XCODE_APP') or 'unknown'})"
     if runners is None:
         return {}, "owned runners could not be read live"
-    idle = pool.live_owned_free(runners, [root])[root]
+    # From the slots, not the picker's gui_runner: a run the picker sent to Blacksmith has none,
+    # and its GUI jobs must still never take the root label once the minis have gui runners.
+    gui_label = pool.gui_label(pool.pool_label(root))
+    if pool.slots(env.get("OWNED_SLOTS"), env.get("ADMISSION_XCODE_APP")).get(gui_label, 0) <= 0:
+        gui_label = ""
+    free = pool.live_owned_free(runners, [root, *([gui_label] if gui_label else [])])
+    idle, gui_idle = free[root], free.get(gui_label, 0)
     placed = place(jobs, owned_jobs=env.get("OWNED_JOBS", ""), idle=idle, root=root,
-                   gui=env.get("POOL_OWNED_GUI", "").strip() != "0")
+                   gui=env.get("POOL_OWNED_GUI", "").strip() != "0", gui_label=gui_label, gui_idle=gui_idle)
+    seen = f"{idle} idle `{root}` runner(s)" + (f" and {gui_idle} idle `{gui_label}`" if gui_label else "")
     if not placed:
-        return {}, f"{idle} idle `{root}` runner(s); nothing to move"
-    return placed, (f"{idle} idle `{root}` runner(s) now; moved {', '.join(placed)} there "
+        return {}, f"{seen}; nothing to move"
+    return placed, (f"{seen} now; moved {', '.join(f'{key} to `{label}`' for key, label in placed.items())} "
                     f"(admission ran on `{env.get('ADMISSION_RUNNER') or 'unknown'}`)")
 
 

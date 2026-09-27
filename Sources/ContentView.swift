@@ -7120,6 +7120,19 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.authWorking, auth.accountFlow.isWorkingOnAuth)
         }
 
+        let focusedDock = AppDelegate.shared?.focusedDockStoreForShortcut(
+            preferredWindow: observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        )
+        snapshot.setBool(
+            Self.commandPaletteShortcutTerminalFocusedKey,
+            Self.commandPaletteShortcutTerminalFocused(
+                focusedDockPanelIsTerminal: focusedDock.map { dock in
+                    dock.focusedPanelId.flatMap { dock.panels[$0] }?.panelType == .terminal
+                },
+                mainAreaPanelIsTerminal: focusedPanelContext?.panel.panelType == .terminal
+            )
+        )
+
         if let workspace = tabManager.selectedWorkspace {
             let pinTarget = WorkspaceActionDispatcher.Target.single(workspace.id)
             let pinState = WorkspaceActionDispatcher.pinState(in: tabManager, target: pinTarget)
@@ -7135,9 +7148,8 @@ struct ContentView: View {
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasSplits,
-                (AppDelegate.shared?.focusedDockStoreForShortcut(
-                    preferredWindow: observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
-                )?.bonsplitController.allPaneIds.count ?? workspace.bonsplitController.allPaneIds.count) > 1
+                (focusedDock?.bonsplitController.allPaneIds.count
+                    ?? workspace.bonsplitController.allPaneIds.count) > 1
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceCanvasLayout,
@@ -8478,6 +8490,13 @@ struct ContentView: View {
             )
         )
         contributions.append(contentsOf: paneSizingContributions(subtitle: workspaceSubtitle))
+        contributions.append(
+            contentsOf: Self.commandPaletteShortcutParityContributions(
+                workspaceSubtitle: workspaceSubtitle,
+                terminalSubtitle: terminalPanelSubtitle,
+                browserSubtitle: browserPanelSubtitle
+            )
+        )
 
         let cmuxConfigDefaultSubtitle = String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json")
         for issue in cmuxConfigStore.configurationIssues {
@@ -9356,6 +9375,10 @@ struct ContentView: View {
             }
         }
         registerPaneResizeHandlers(&registry) { observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow }
+        registerShortcutParityCommandHandlers(
+            &registry,
+            performBrowserAction: performBrowserAction
+        ) { observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow }
 
         for issue in cmuxConfigStore.configurationIssues {
             let captured = issue
@@ -9783,8 +9806,22 @@ struct ContentView: View {
     }
 
     private func commandPalettePostRunFocusTarget(for command: CommandPaletteCommand) -> CommandPaletteRestoreFocusTarget? {
-        guard let intent = Self.commandPalettePostRunRestoreFocusIntent(forCommandId: command.id),
-              let panelContext = focusedPanelContext else {
+        guard let intent = Self.commandPalettePostRunRestoreFocusIntent(forCommandId: command.id) else {
+            return nil
+        }
+        if Self.commandPalettePostRunFocusFollowsFocusedDock(forCommandId: command.id),
+           let app = AppDelegate.shared,
+           let dock = app.focusedDockStoreForShortcut(
+               preferredWindow: observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+           ) {
+            guard let panelId = dock.focusedPanelId else { return nil }
+            return CommandPaletteRestoreFocusTarget(
+                host: app.panelHost(for: dock),
+                panelId: panelId,
+                intent: intent
+            )
+        }
+        guard let panelContext = focusedPanelContext else {
             return nil
         }
         return CommandPaletteRestoreFocusTarget(
@@ -9899,6 +9936,9 @@ struct ContentView: View {
         case "palette.terminalFocusTextBoxInput",
              "palette.terminalAttachTextBoxFile":
             return .terminal(.textBoxInput)
+        case "palette.toggleTerminalCopyMode":
+            // Copy mode reads keys from the terminal surface.
+            return .terminal(.surface)
         default:
             return nil
         }
