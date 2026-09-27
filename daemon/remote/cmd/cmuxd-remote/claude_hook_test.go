@@ -239,6 +239,22 @@ func TestClaudeWrapperSkipsInjectionForNonLaunchInvocations(t *testing.T) {
 	}
 }
 
+// TestClaudeWrapperProbeAnswersWithoutRelay checks the version probe the relay
+// bootstrap wrapper runs succeeds offline and never launches the agent.
+func TestClaudeWrapperProbeAnswersWithoutRelay(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	if code := runClaudeWrapper("", []string{claudeWrapperProbeFlag}, nil); code != 0 {
+		t.Fatalf("probe exit = %d, want 0", code)
+	}
+	if code := runCLI([]string{"claude-wrapper", claudeWrapperProbeFlag}); code != 0 {
+		t.Fatalf("cli probe exit = %d, want 0", code)
+	}
+	// With extra arguments it is a launch; no agent on PATH means 127.
+	if code := runClaudeWrapper("", []string{claudeWrapperProbeFlag, "--model", "opus"}, nil); code != 127 {
+		t.Fatalf("launch exit = %d, want 127", code)
+	}
+}
+
 // TestWriteClaudeSettingsFilePrunesIdleCopies checks idle copies are pruned and reused copies refreshed.
 func TestWriteClaudeSettingsFilePrunesIdleCopies(t *testing.T) {
 	dir := t.TempDir()
