@@ -1435,7 +1435,7 @@ class Wiring(unittest.TestCase):
             ("2", owned, gui, gui),
             ("2", owned, "", root),
             ("1", " admission ", gui, retry),
-            ("3", owned, gui, retry),
+            ("3", owned, gui, gui),  # no attempt count sends a re-run to Blacksmith
         ):
             context = github_context("pull_request", ref="refs/pull/1/merge")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt,
