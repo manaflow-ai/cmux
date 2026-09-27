@@ -18042,7 +18042,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard app.processIdentifier != currentPid else { continue }
             guard Self.isDuplicateApplicationExecutable(
                 app.executableURL,
-                mainExecutableURL: Bundle.main.executableURL
+                mainExecutableURL: Self.bundleExecutableURL(of: app)
             ) else { continue }
             switch SingleInstanceConflictPolicy(environment: environment).action(
                 currentBundleURL: Bundle.main.bundleURL,
@@ -18094,6 +18094,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// The main executable of the bundle `app` was registered with, if any.
+    /// A helper that inherits cmux's bundle identifier runs some other
+    /// executable, so comparing against this rejects it without also
+    /// rejecting a cmux launched from a different bundle path.
+    nonisolated private static func bundleExecutableURL(of app: NSRunningApplication) -> URL? {
+        app.bundleURL.flatMap { Bundle(url: $0)?.executableURL }
+    }
+
     /// Rejects helpers that inherit the application bundle identifier.
     nonisolated static func isDuplicateApplicationExecutable(
         _ executableURL: URL?,
@@ -18126,10 +18134,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard self != nil else { return }
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             guard app.bundleIdentifier == bundleId, app.processIdentifier != currentPid else { return }
-            guard let executableURL = app.executableURL else { return }
             guard Self.isDuplicateApplicationExecutable(
-                executableURL,
-                mainExecutableURL: Bundle.main.executableURL
+                app.executableURL,
+                mainExecutableURL: Self.bundleExecutableURL(of: app)
             ) else {
                 return
             }
