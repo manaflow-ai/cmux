@@ -908,7 +908,7 @@ private struct TitlebarControlButtonStyleBody: View {
             }
             .scaleEffect(titlebarControlPressedScale(isPressed: configuration.isPressed))
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
-            .animation(.easeInOut(duration: 0.12), value: isHovering)
+            .chromeRevealAnimation(isVisible: isHovering, fadeOut: .easeOut(duration: 0.12))
             .contentShape(Rectangle())
             .onHover { hovering in
                 if titlebarControlsShouldTrackButtonHover(config: config) {
@@ -1074,7 +1074,7 @@ struct TitlebarControlsView: View {
             .contentShape(Rectangle())
             .opacity(shouldShowControls ? 1 : 0)
             .allowsHitTesting(shouldShowControls)
-            .animation(.easeInOut(duration: 0.14), value: shouldShowControls)
+            .chromeRevealAnimation(isVisible: shouldShowControls, fadeOut: .easeOut(duration: 0.14))
             .background(
                 WindowAccessor(refreshID: showModifierHoldHints) { window in
                     let nextWindowNumber = window.windowNumber
@@ -1610,7 +1610,7 @@ struct HiddenTitlebarSidebarControlsView: View {
             .opacity(shouldPinControls ? 1 : 0)
             .allowsHitTesting(shouldPinControls)
             .accessibilityHidden(true)
-            .animation(.easeInOut(duration: 0.14), value: shouldPinControls)
+            .chromeRevealAnimation(isVisible: shouldPinControls, fadeOut: .easeOut(duration: 0.14))
 
             TitlebarControlsGapDragView(config: style.config)
                 .frame(
