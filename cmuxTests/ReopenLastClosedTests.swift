@@ -526,15 +526,22 @@ struct ReopenLastClosedTests {
             let originalFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
                 prefix: "reopen-last-closed"
             )
-            // Stands in for a window another suite left behind with its Dock
-            // focused; a focused Dock takes Cmd+Shift+T for its own closed panels.
-            let bystanderWindowId = appDelegate.createMainWindow(shouldActivate: false)
-            defer { appDelegate.discardMainWindowWithoutClosedHistory(windowId: bystanderWindowId) }
-            let bystanderWindow = try #require(appDelegate.mainWindow(for: bystanderWindowId))
-            let baselineWindowIds = mainWindowIds(appDelegate: appDelegate)
+            // Other suites share this app host and can open, close or focus
+            // main windows meanwhile, so this test finds its windows by their
+            // unique workspace titles and routes the shortcut through a
+            // window of its own.
+            let titleToken = UUID().uuidString
+            let olderTitle = "Older Window Workspace \(titleToken)"
+            let newestTitle = "Newest Window Workspace \(titleToken)"
+            let newestSecondTitle = "Newest Window Second Workspace \(titleToken)"
+            var helperWindowIds: [UUID] = []
             ClosedItemHistoryStore.shared.removeAll()
             defer {
-                for windowId in mainWindowIds(appDelegate: appDelegate).subtracting(baselineWindowIds) {
+                let ownWindowIds = windowIds(
+                    containingAnyOf: [olderTitle, newestTitle, newestSecondTitle],
+                    appDelegate: appDelegate
+                ).union(helperWindowIds)
+                for windowId in ownWindowIds {
                     appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId)
                 }
                 ClosedItemHistoryStore.shared.removeAll()
@@ -553,16 +560,29 @@ struct ReopenLastClosedTests {
             }
             appDelegate.debugResetShortcutRoutingStateForTesting()
 
+            // A real keyDown carries its window, and routing follows it. The
+            // synthetic event must too: without one, routing falls back to the
+            // key window, where another suite may have left the Dock focused,
+            // and a focused Dock takes Cmd+Shift+T for its own closed panels.
+            let shortcutWindowId = appDelegate.createMainWindow(shouldActivate: false)
+            helperWindowIds.append(shortcutWindowId)
+            let shortcutWindow = try #require(appDelegate.mainWindow(for: shortcutWindowId))
+            // Stands in for a window another suite left behind with its Dock
+            // focused.
+            let bystanderWindowId = appDelegate.createMainWindow(shouldActivate: false)
+            helperWindowIds.append(bystanderWindowId)
+            let bystanderWindow = try #require(appDelegate.mainWindow(for: bystanderWindowId))
+
             let olderWindowId = appDelegate.createMainWindow(shouldActivate: false)
             let newerWindowId = appDelegate.createMainWindow(shouldActivate: false)
             let olderWindow = try #require(appDelegate.mainWindow(for: olderWindowId))
             let newerWindow = try #require(appDelegate.mainWindow(for: newerWindowId))
             let olderManager = try #require(appDelegate.tabManagerFor(windowId: olderWindowId))
             let newerManager = try #require(appDelegate.tabManagerFor(windowId: newerWindowId))
-            try #require(olderManager.selectedWorkspace).setCustomTitle("Older Window Workspace")
-            try #require(newerManager.selectedWorkspace).setCustomTitle("Newest Window Workspace")
+            try #require(olderManager.selectedWorkspace).setCustomTitle(olderTitle)
+            try #require(newerManager.selectedWorkspace).setCustomTitle(newestTitle)
             _ = newerManager.addWorkspace(
-                title: "Newest Window Second Workspace",
+                title: newestSecondTitle,
                 select: false,
                 autoWelcomeIfNeeded: false
             )
@@ -586,23 +606,20 @@ struct ReopenLastClosedTests {
             #expect(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount == 2)
 
             focusDockAsRoutingKeyWindow(bystanderWindow, appDelegate: appDelegate)
-            try pressCommandShiftT(appDelegate: appDelegate)
+            try pressCommandShiftT(in: shortcutWindow, appDelegate: appDelegate)
             #expect(await AppKitTestEventPump().waitUntil {
-                mainWindowIds(appDelegate: appDelegate).subtracting(baselineWindowIds).count == 1
+                !windowIds(containingAnyOf: [newestTitle], appDelegate: appDelegate).isEmpty
             })
             let newestRestoredId = try #require(
-                mainWindowIds(appDelegate: appDelegate).subtracting(baselineWindowIds).first { windowId in
-                    appDelegate.tabManagerFor(windowId: windowId)?.tabs.contains {
-                        $0.customTitle == "Newest Window Workspace"
-                    } == true
-                }
+                windowIds(containingAnyOf: [newestTitle], appDelegate: appDelegate).first
             )
+            #expect(windowIds(containingAnyOf: [olderTitle], appDelegate: appDelegate).isEmpty)
             let newestRestoredManager = try #require(
                 appDelegate.tabManagerFor(windowId: newestRestoredId)
             )
             #expect(newestRestoredManager.tabs.map(\.customTitle) == [
-                "Newest Window Workspace",
-                "Newest Window Second Workspace",
+                newestTitle,
+                newestSecondTitle,
             ])
             assertFrame(
                 try #require(appDelegate.mainWindow(for: newestRestoredId)).frame,
@@ -610,16 +627,12 @@ struct ReopenLastClosedTests {
             )
 
             focusDockAsRoutingKeyWindow(bystanderWindow, appDelegate: appDelegate)
-            try pressCommandShiftT(appDelegate: appDelegate)
+            try pressCommandShiftT(in: shortcutWindow, appDelegate: appDelegate)
             #expect(await AppKitTestEventPump().waitUntil {
-                mainWindowIds(appDelegate: appDelegate).subtracting(baselineWindowIds).count == 2
+                !windowIds(containingAnyOf: [olderTitle], appDelegate: appDelegate).isEmpty
             })
             let olderRestoredId = try #require(
-                mainWindowIds(appDelegate: appDelegate).subtracting(baselineWindowIds).first { windowId in
-                    appDelegate.tabManagerFor(windowId: windowId)?.tabs.contains {
-                        $0.customTitle == "Older Window Workspace"
-                    } == true
-                }
+                windowIds(containingAnyOf: [olderTitle], appDelegate: appDelegate).first
             )
             assertFrame(
                 try #require(appDelegate.mainWindow(for: olderRestoredId)).frame,
@@ -676,13 +689,13 @@ struct ReopenLastClosedTests {
         #expect(appDelegate.focusedDockStoreForShortcut(preferredWindow: window) != nil)
     }
 
-    private func pressCommandShiftT(appDelegate: AppDelegate) throws {
+    private func pressCommandShiftT(in window: NSWindow, appDelegate: AppDelegate) throws {
         let event = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [.command, .shift],
             timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
+            windowNumber: window.windowNumber,
             context: nil,
             characters: "t",
             charactersIgnoringModifiers: "t",
@@ -720,6 +733,14 @@ struct ReopenLastClosedTests {
 
     private func mainWindowIds(appDelegate: AppDelegate) -> Set<UUID> {
         Set(appDelegate.mainWindowContexts.values.map(\.windowId))
+    }
+
+    private func windowIds(containingAnyOf titles: Set<String>, appDelegate: AppDelegate) -> Set<UUID> {
+        mainWindowIds(appDelegate: appDelegate).filter { windowId in
+            appDelegate.tabManagerFor(windowId: windowId)?.tabs.contains { workspace in
+                workspace.customTitle.map { titles.contains($0) } == true
+            } == true
+        }
     }
 
     #endif
