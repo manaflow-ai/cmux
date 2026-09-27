@@ -63,7 +63,7 @@ public struct CloudPortsStatusPresentation: Equatable, Sendable {
         if isVPNGuidance {
             return String(
                 localized: "cloud.ports.vpnOff.explanation",
-                defaultValue: "cmux’s in-app forwarding works without a system VPN. Cloud VPN lets Safari, Chrome, and other apps open private VM ports."
+                defaultValue: "cmux’s in-app forwarding works without a system VPN. Cloud VPN lets web browsers and other apps open private VM ports."
             )
         }
         switch state {
@@ -97,7 +97,7 @@ public struct CloudPortsStatusPresentation: Equatable, Sendable {
     }
 
     public static var routeNote: String {
-        String(localized: "cloudTree.ports.routeNote", defaultValue: "cmux forwards ports without Cloud VPN. Safari, Chrome, and other Mac apps need Cloud VPN to reach services bound to the machine’s private address.")
+        String(localized: "cloudTree.ports.routeNote", defaultValue: "cmux forwards ports without Cloud VPN. Web browsers and other Mac apps need Cloud VPN to reach services bound to the machine’s private address.")
     }
 
     public var action: CloudPortsStatusAction {

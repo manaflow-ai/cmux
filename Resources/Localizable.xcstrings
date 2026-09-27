@@ -545917,121 +545917,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux’s in-app forwarding works without a system VPN. Cloud VPN lets Safari, Chrome, and other apps open private VM ports."
+            "value": "cmux’s in-app forwarding works without a system VPN. Cloud VPN lets web browsers and other apps open private VM ports."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Portweiterleitung in cmux funktioniert ohne System-VPN. Mit Cloud-VPN können Safari, Chrome und andere Apps private VM-Ports öffnen."
+            "value": "Die Portweiterleitung in cmux funktioniert ohne System-VPN. Mit Cloud-VPN können Webbrowser und andere Apps private VM-Ports öffnen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le transfert de ports dans cmux fonctionne sans VPN système. Le VPN Cloud permet à Safari, Chrome et aux autres apps d’ouvrir les ports privés des VM."
+            "value": "Le transfert de ports dans cmux fonctionne sans VPN système. Le VPN Cloud permet aux navigateurs web et aux autres apps d’ouvrir les ports privés des VM."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعمل إعادة توجيه المنافذ داخل cmux من دون VPN للنظام. يتيح Cloud VPN لتطبيقات Safari وChrome وغيرها فتح المنافذ الخاصة للأجهزة الافتراضية."
+            "value": "تعمل إعادة توجيه المنافذ داخل cmux من دون VPN للنظام. يتيح Cloud VPN لمتصفحات الويب والتطبيقات الأخرى فتح المنافذ الخاصة للأجهزة الافتراضية."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El reenvío de puertos dentro de cmux funciona sin una VPN del sistema. Cloud VPN permite a Safari, Chrome y otras apps abrir puertos privados de las VM."
+            "value": "El reenvío de puertos dentro de cmux funciona sin una VPN del sistema. Cloud VPN permite a los navegadores web y otras apps abrir puertos privados de las VM."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 的 App 內連接埠轉送不需要系統 VPN。Cloud VPN 可讓 Safari、Chrome 和其他 App 開啟 VM 的私有連接埠。"
+            "value": "cmux 的 App 內連接埠轉送不需要系統 VPN。Cloud VPN 可讓網頁瀏覽器和其他 App 開啟 VM 的私有連接埠。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 的应用内端口转发无需系统 VPN。云 VPN 让 Safari、Chrome 和其他应用可以打开 VM 的私有端口。"
+            "value": "cmux 的应用内端口转发无需系统 VPN。云 VPN 让网页浏览器和其他应用可以打开 VM 的私有端口。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux의 앱 내 포트 전달은 시스템 VPN 없이 작동합니다. Cloud VPN을 사용하면 Safari, Chrome 및 다른 앱에서 VM의 비공개 포트를 열 수 있습니다."
+            "value": "cmux의 앱 내 포트 전달은 시스템 VPN 없이 작동합니다. Cloud VPN을 사용하면 웹 브라우저 및 다른 앱에서 VM의 비공개 포트를 열 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux のアプリ内ポート転送はシステム VPN なしで動作します。Cloud VPN を使うと、Safari、Chrome などのアプリから VM のプライベートポートを開けます。"
+            "value": "cmux のアプリ内ポート転送はシステム VPN なしで動作します。Cloud VPN を使うと、Web ブラウザなどのアプリから VM のプライベートポートを開けます。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prosljeđivanje portova unutar cmux-a radi bez sistemskog VPN-a. Cloud VPN omogućava Safariju, Chromeu i drugim aplikacijama otvaranje privatnih portova virtuelnih mašina."
+            "value": "Prosljeđivanje portova unutar cmux-a radi bez sistemskog VPN-a. Cloud VPN omogućava web preglednicima i drugim aplikacijama otvaranje privatnih portova virtuelnih mašina."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Portvideresendelse i cmux fungerer uden en system-VPN. Med Cloud VPN kan Safari, Chrome og andre apps åbne private porte på virtuelle maskiner."
+            "value": "Portvideresendelse i cmux fungerer uden en system-VPN. Med Cloud VPN kan webbrowsere og andre apps åbne private porte på virtuelle maskiner."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’inoltro delle porte all’interno di cmux funziona senza una VPN di sistema. Cloud VPN consente a Safari, Chrome e ad altre app di aprire le porte private delle macchine virtuali."
+            "value": "L’inoltro delle porte all’interno di cmux funziona senza una VPN di sistema. Cloud VPN consente ai browser web e ad altre app di aprire le porte private delle macchine virtuali."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការបញ្ជូនបន្តច្រកនៅក្នុង cmux ដំណើរការដោយមិនត្រូវការ VPN របស់ប្រព័ន្ធ។ Cloud VPN អនុញ្ញាតឱ្យ Safari, Chrome និងកម្មវិធីផ្សេងទៀតបើកច្រកឯកជនរបស់ម៉ាស៊ីននិម្មិត។"
+            "value": "ការបញ្ជូនបន្តច្រកនៅក្នុង cmux ដំណើរការដោយមិនត្រូវការ VPN របស់ប្រព័ន្ធ។ Cloud VPN អនុញ្ញាតឱ្យកម្មវិធីរុករកបណ្តាញ និងកម្មវិធីផ្សេងទៀតបើកច្រកឯកជនរបស់ម៉ាស៊ីននិម្មិត។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Portvideresending i cmux fungerer uten en system-VPN. Cloud VPN lar Safari, Chrome og andre apper åpne private porter på virtuelle maskiner."
+            "value": "Portvideresending i cmux fungerer uten en system-VPN. Cloud VPN lar nettlesere og andre apper åpne private porter på virtuelle maskiner."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przekierowywanie portów w cmux działa bez systemowej sieci VPN. Cloud VPN pozwala Safari, Chrome i innym aplikacjom otwierać prywatne porty maszyn wirtualnych."
+            "value": "Przekierowywanie portów w cmux działa bez systemowej sieci VPN. Cloud VPN pozwala przeglądarkom internetowym i innym aplikacjom otwierać prywatne porty maszyn wirtualnych."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O encaminhamento de portas dentro do cmux funciona sem uma VPN do sistema. O Cloud VPN permite que Safari, Chrome e outros apps abram portas privadas de máquinas virtuais."
+            "value": "O encaminhamento de portas dentro do cmux funciona sem uma VPN do sistema. O Cloud VPN permite que navegadores e outros apps abram portas privadas de máquinas virtuais."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перенаправление портов внутри cmux работает без системного VPN. Cloud VPN позволяет Safari, Chrome и другим приложениям открывать приватные порты виртуальных машин."
+            "value": "Перенаправление портов внутри cmux работает без системного VPN. Cloud VPN позволяет веб-браузерам и другим приложениям открывать приватные порты виртуальных машин."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การส่งต่อพอร์ตภายใน cmux ทำงานได้โดยไม่ต้องใช้ VPN ของระบบ Cloud VPN ช่วยให้ Safari, Chrome และแอปอื่นๆ เปิดพอร์ตส่วนตัวของเครื่องเสมือนได้"
+            "value": "การส่งต่อพอร์ตภายใน cmux ทำงานได้โดยไม่ต้องใช้ VPN ของระบบ Cloud VPN ช่วยให้เว็บเบราว์เซอร์และแอปอื่นๆ เปิดพอร์ตส่วนตัวของเครื่องเสมือนได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux içindeki bağlantı noktası yönlendirme, sistem VPN’i olmadan çalışır. Cloud VPN, Safari, Chrome ve diğer uygulamaların sanal makinelerin özel bağlantı noktalarına erişmesini sağlar."
+            "value": "cmux içindeki bağlantı noktası yönlendirme, sistem VPN’i olmadan çalışır. Cloud VPN, web tarayıcılarının ve diğer uygulamaların sanal makinelerin özel bağlantı noktalarına erişmesini sağlar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перенаправлення портів усередині cmux працює без системного VPN. Cloud VPN дає змогу Safari, Chrome та іншим застосункам відкривати приватні порти віртуальних машин."
+            "value": "Перенаправлення портів усередині cmux працює без системного VPN. Cloud VPN дає змогу веббраузерам та іншим застосункам відкривати приватні порти віртуальних машин."
           }
         }
       }
@@ -546096,67 +546096,67 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN nije povezan"
+            "value": "Cloud VPN je isključen"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN ikke forbundet"
+            "value": "Cloud VPN er slået fra"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN non connessa"
+            "value": "La VPN Cloud è disattivata"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN មិនបានភ្ជាប់"
+            "value": "Cloud VPN ត្រូវបានបិទ"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN ikke tilkoblet"
+            "value": "Cloud VPN er av"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN nie jest połączony"
+            "value": "Cloud VPN jest wyłączony"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN não conectada"
+            "value": "O Cloud VPN está desativado"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN не подключён"
+            "value": "Cloud VPN выключен"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN ไม่ได้เชื่อมต่อ"
+            "value": "Cloud VPN ปิดอยู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN bağlı değil"
+            "value": "Cloud VPN kapalı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN не підключено"
+            "value": "Cloud VPN вимкнено"
           }
         }
       }
@@ -547967,6 +547967,72 @@
             "state": "translated",
             "value": "マシンを起動"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Probudi mašinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Væk maskine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riattiva macchina"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដាស់ម៉ាស៊ីន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vekk maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybudź maszynę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Despertar máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разбудить машину"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปลุกเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makineyi uyandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розбудити машину"
+          }
         }
       }
     },
@@ -548025,6 +548091,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "マシンを起動してサービスを確認してください。cmux のアプリ内転送に Cloud VPN は不要です。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Probudite mašinu da provjerite njene servise. Prosljeđivanje unutar cmux-a ne treba Cloud VPN."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Væk maskinen for at kontrollere dens tjenester. Videresendelse i cmux kræver ikke Cloud VPN."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riattiva la macchina per controllarne i servizi. L’inoltro all’interno di cmux non richiede la VPN Cloud."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដាស់ម៉ាស៊ីនដើម្បីពិនិត្យសេវាកម្មរបស់វា។ ការបញ្ជូនបន្តនៅក្នុង cmux មិនត្រូវការ Cloud VPN ទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vekk maskinen for å sjekke tjenestene. Videresending i cmux trenger ikke Cloud VPN."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybudź maszynę, aby sprawdzić jej usługi. Przekierowywanie w cmux nie wymaga Cloud VPN."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desperte a máquina para verificar os serviços. O encaminhamento dentro do cmux não precisa do Cloud VPN."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разбудите машину, чтобы проверить её службы. Перенаправлению внутри cmux Cloud VPN не нужен."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปลุกเครื่องเพื่อตรวจสอบบริการ การส่งต่อภายใน cmux ไม่ต้องใช้ Cloud VPN"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hizmetlerini denetlemek için makineyi uyandırın. cmux içi yönlendirme Cloud VPN gerektirmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розбудіть машину, щоб перевірити її служби. Перенаправлення всередині cmux не потребує Cloud VPN."
           }
         }
       }
@@ -548085,6 +548217,72 @@
             "state": "translated",
             "value": "待ち受け中のサービス"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servisi koji slušaju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lyttende tjenester"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servizi in ascolto"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាកម្មដែលកំពុងស្តាប់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lyttende tjenester"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nasłuchujące usługi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serviços em escuta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прослушивающие службы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการที่กำลังรับฟัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dinleyen hizmetler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Служби, що прослуховують"
+          }
         }
       }
     },
@@ -548143,6 +548341,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux のブラウザはマシン上の 127.0.0.1 に接続します。サービスを 127.0.0.1 または 0.0.0.0 にバインドして更新してください。Cloud VPN を有効にしてもこの経路は変わりません。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruta preglednika u cmux-u povezuje se na 127.0.0.1 na mašini. Vežite servis na 127.0.0.1 ili 0.0.0.0, zatim osvježite. Uključivanje Cloud VPN-a ne mijenja ovu rutu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’ browserrute forbinder til 127.0.0.1 på maskinen. Bind tjenesten til 127.0.0.1 eller 0.0.0.0, og opdater derefter. Aktivering af Cloud VPN ændrer ikke denne rute."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il percorso del browser di cmux si connette a 127.0.0.1 sulla macchina. Associa il servizio a 127.0.0.1 o 0.0.0.0, quindi aggiorna. L’attivazione della VPN Cloud non modifica questo percorso."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លូវកម្មវិធីរុករករបស់ cmux ភ្ជាប់ទៅ 127.0.0.1 នៅលើម៉ាស៊ីន។ ចងសេវាកម្មទៅ 127.0.0.1 ឬ 0.0.0.0 រួចផ្ទុកឡើងវិញ។ ការបើក Cloud VPN មិនផ្លាស់ប្តូរផ្លូវនេះទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sin nettleserrute kobler til 127.0.0.1 på maskinen. Bind tjenesten til 127.0.0.1 eller 0.0.0.0, og oppdater deretter. Å slå på Cloud VPN endrer ikke denne ruten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trasa przeglądarki cmux łączy się z 127.0.0.1 na maszynie. Powiąż usługę z 127.0.0.1 lub 0.0.0.0, a następnie odśwież. Włączenie Cloud VPN nie zmienia tej trasy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A rota de navegador do cmux se conecta a 127.0.0.1 na máquina. Vincule o serviço a 127.0.0.1 ou 0.0.0.0 e atualize. Ativar o Cloud VPN não altera essa rota."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Браузерный маршрут cmux подключается к 127.0.0.1 на машине. Привяжите службу к 127.0.0.1 или 0.0.0.0, затем обновите. Включение Cloud VPN не меняет этот маршрут."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เส้นทางเบราว์เซอร์ของ cmux เชื่อมต่อกับ 127.0.0.1 บนเครื่อง ผูกบริการกับ 127.0.0.1 หรือ 0.0.0.0 แล้วรีเฟรช การเปิด Cloud VPN ไม่ได้เปลี่ยนเส้นทางนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’un tarayıcı yolu makinedeki 127.0.0.1 adresine bağlanır. Hizmeti 127.0.0.1 veya 0.0.0.0 adresine bağlayın, ardından yenileyin. Cloud VPN’i açmak bu yolu değiştirmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Браузерний маршрут cmux підключається до 127.0.0.1 на машині. Прив’яжіть службу до 127.0.0.1 або 0.0.0.0, потім оновіть. Увімкнення Cloud VPN не змінює цей маршрут."
           }
         }
       }
@@ -548203,6 +548467,72 @@
             "state": "translated",
             "value": "サービスが別のインターフェイスを使用しています"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servisi koriste drugi interfejs"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tjenester bruger en anden grænseflade"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I servizi usano un’altra interfaccia"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាកម្មប្រើចំណុចប្រទាក់ផ្សេង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tjenester bruker et annet grensesnitt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usługi używają innego interfejsu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os serviços usam outra interface"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Службы используют другой интерфейс"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการใช้อินเทอร์เฟซอื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hizmetler başka bir arabirim kullanıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Служби використовують інший інтерфейс"
+          }
         }
       }
     },
@@ -548261,6 +548591,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "待ち受け中のアプリサービスはありません。マシンで HTTP サービスを起動してから更新してください。cmux のアプリ内転送に Cloud VPN は不要です。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedan aplikacijski servis ne sluša. Pokrenite HTTP servis na mašini, zatim osvježite. Prosljeđivanje unutar cmux-a ne treba Cloud VPN."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen programtjeneste lytter. Start en HTTP-tjeneste på maskinen, og opdater derefter. Videresendelse i cmux kræver ikke Cloud VPN."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun servizio applicativo è in ascolto. Avvia un servizio HTTP sulla macchina, quindi aggiorna. L’inoltro all’interno di cmux non richiede la VPN Cloud."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានសេវាកម្មកម្មវិធីណាកំពុងស្តាប់ទេ។ ចាប់ផ្តើមសេវាកម្ម HTTP នៅលើម៉ាស៊ីន រួចផ្ទុកឡើងវិញ។ ការបញ្ជូនបន្តនៅក្នុង cmux មិនត្រូវការ Cloud VPN ទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen programtjeneste lytter. Start en HTTP-tjeneste på maskinen, og oppdater deretter. Videresending i cmux trenger ikke Cloud VPN."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Żadna usługa aplikacji nie nasłuchuje. Uruchom usługę HTTP na maszynie, a następnie odśwież. Przekierowywanie w cmux nie wymaga Cloud VPN."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum serviço de aplicativo está em escuta. Inicie um serviço HTTP na máquina e atualize. O encaminhamento dentro do cmux não precisa do Cloud VPN."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ни одна служба приложения не прослушивает порты. Запустите HTTP-службу на машине, затем обновите. Перенаправлению внутри cmux Cloud VPN не нужен."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีบริการแอปพลิเคชันที่กำลังรับฟัง เริ่มบริการ HTTP บนเครื่อง แล้วรีเฟรช การส่งต่อภายใน cmux ไม่ต้องใช้ Cloud VPN"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dinleyen bir uygulama hizmeti yok. Makinede bir HTTP hizmeti başlatın, ardından yenileyin. cmux içi yönlendirme Cloud VPN gerektirmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жодна служба застосунку не прослуховує. Запустіть HTTP-службу на машині, потім оновіть. Перенаправлення всередині cmux не потребує Cloud VPN."
           }
         }
       }
@@ -548321,6 +548717,72 @@
             "state": "translated",
             "value": "このビルドでは cmux の認証済み Cloud 転送を開始できません。cmux を更新して再試行してください。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova verzija ne može pokrenuti autentificirano Cloud prosljeđivanje cmux-a. Ažurirajte cmux, zatim pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne build kan ikke starte cmux’ godkendte Cloud-videresendelse. Opdater cmux, og prøv igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa build non può avviare l’inoltro Cloud autenticato di cmux. Aggiorna cmux, quindi riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណែនេះមិនអាចចាប់ផ្តើមការបញ្ជូនបន្ត Cloud ដែលបានផ្ទៀងផ្ទាត់របស់ cmux បានទេ។ ធ្វើបច្ចុប្បន្នភាព cmux រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne versjonen kan ikke starte cmux sin autentiserte Cloud-videresending. Oppdater cmux, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta kompilacja nie może uruchomić uwierzytelnionego przekierowania Cloud w cmux. Zaktualizuj cmux i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta versão não consegue iniciar o encaminhamento Cloud autenticado do cmux. Atualize o cmux e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта сборка не может запустить аутентифицированное перенаправление Cloud в cmux. Обновите cmux и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บิลด์นี้ไม่สามารถเริ่มการส่งต่อ Cloud ที่ยืนยันตัวตนแล้วของ cmux ได้ อัปเดต cmux แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu derleme cmux’un kimliği doğrulanmış Cloud yönlendirmesini başlatamıyor. cmux’u güncelleyin, ardından yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця збірка не може запустити автентифіковане перенаправлення Cloud у cmux. Оновіть cmux і повторіть спробу."
+          }
         }
       }
     },
@@ -548379,6 +548841,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "ポート検出がこのマシンに接続できませんでした。既存の cmux ポートは引き続き動作する可能性があります。更新して再接続してください。Cloud VPN は不要です。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otkrivanje portova nije se moglo povezati s ovom mašinom. Postojeći cmux portovi možda i dalje rade. Osvježite za ponovno povezivanje; Cloud VPN nije potreban."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portregistrering kunne ikke oprette forbindelse til denne maskine. Eksisterende cmux-porte virker muligvis stadig. Opdater for at genoprette forbindelsen; Cloud VPN er ikke påkrævet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il rilevamento delle porte non è riuscito a connettersi a questa macchina. Le porte cmux esistenti potrebbero funzionare ancora. Aggiorna per riconnetterti; la VPN Cloud non è necessaria."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការស្វែងរកច្រកមិនអាចភ្ជាប់ទៅម៉ាស៊ីននេះបានទេ។ ច្រក cmux ដែលមានស្រាប់អាចនៅតែដំណើរការ។ ផ្ទុកឡើងវិញដើម្បីភ្ជាប់ម្តងទៀត; មិនត្រូវការ Cloud VPN ទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portoppdagelse kunne ikke koble til denne maskinen. Eksisterende cmux-porter kan fortsatt fungere. Oppdater for å koble til på nytt; Cloud VPN er ikke nødvendig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wykrywanie portów nie mogło połączyć się z tą maszyną. Istniejące porty cmux mogą nadal działać. Odśwież, aby połączyć ponownie; Cloud VPN nie jest wymagany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A descoberta de portas não conseguiu se conectar a esta máquina. As portas existentes do cmux ainda podem funcionar. Atualize para reconectar; o Cloud VPN não é necessário."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обнаружению портов не удалось подключиться к этой машине. Существующие порты cmux могут по-прежнему работать. Обновите, чтобы переподключиться; Cloud VPN не требуется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การค้นหาพอร์ตไม่สามารถเชื่อมต่อกับเครื่องนี้ได้ พอร์ต cmux ที่มีอยู่อาจยังใช้งานได้ รีเฟรชเพื่อเชื่อมต่อใหม่ ไม่จำเป็นต้องใช้ Cloud VPN"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port keşfi bu makineye bağlanamadı. Mevcut cmux portları hâlâ çalışıyor olabilir. Yeniden bağlanmak için yenileyin; Cloud VPN gerekmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виявленню портів не вдалося підключитися до цієї машини. Наявні порти cmux можуть і далі працювати. Оновіть, щоб підключитися знову; Cloud VPN не потрібен."
           }
         }
       }
@@ -548439,6 +548967,72 @@
             "state": "translated",
             "value": "Cloud 接続を利用できません"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud veza nije dostupna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-forbindelse utilgængelig"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collegamento Cloud non disponibile"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តំណ Cloud មិនអាចប្រើបាន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-tilkobling utilgjengelig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połączenie Cloud niedostępne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conexão Cloud indisponível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Связь с Cloud недоступна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลิงก์ Cloud ไม่พร้อมใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud bağlantısı kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зв’язок із Cloud недоступний"
+          }
         }
       }
     },
@@ -548497,6 +549091,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux の認証済み Cloud 接続でサービスを確認しています。システム VPN は不要です。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provjera servisa putem autentificirane Cloud veze cmux-a. Sistemski VPN nije potreban."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrollerer tjenester via cmux’ godkendte Cloud-forbindelse. Der kræves ingen system-VPN."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controllo dei servizi tramite il collegamento Cloud autenticato di cmux. Non serve una VPN di sistema."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងពិនិត្យសេវាកម្មតាមរយៈតំណ Cloud ដែលបានផ្ទៀងផ្ទាត់របស់ cmux។ មិនត្រូវការ VPN របស់ប្រព័ន្ធទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sjekker tjenester via cmux sin autentiserte Cloud-tilkobling. Ingen system-VPN er nødvendig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprawdzanie usług przez uwierzytelnione połączenie Cloud w cmux. Systemowa sieć VPN nie jest potrzebna."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificando serviços pela conexão Cloud autenticada do cmux. Nenhuma VPN do sistema é necessária."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверка служб через аутентифицированную связь cmux с Cloud. Системный VPN не нужен."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังตรวจสอบบริการผ่านลิงก์ Cloud ที่ยืนยันตัวตนแล้วของ cmux ไม่ต้องใช้ VPN ของระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hizmetler cmux’un kimliği doğrulanmış Cloud bağlantısı üzerinden denetleniyor. Sistem VPN’i gerekmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевірка служб через автентифікований зв’язок cmux із Cloud. Системний VPN не потрібен."
           }
         }
       }
@@ -548557,6 +549217,72 @@
             "state": "translated",
             "value": "これらのサービスは Cloud VPN なしで cmux から開けます。マシンのループバックアドレスで待ち受けるため、VPN 接続中でも他のアプリからプライベート IP 経由ではアクセスできません。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovi servisi se otvaraju u cmux-u bez Cloud VPN-a. Slušaju na loopback adresi mašine, pa ih druge aplikacije ne mogu dosegnuti preko njene privatne IP adrese, čak ni uz povezan VPN."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disse tjenester åbnes i cmux uden Cloud VPN. De lytter på maskinens loopback-adresse, så andre apps kan ikke nå dem via dens private IP, heller ikke med VPN forbundet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questi servizi si aprono in cmux senza VPN Cloud. Sono in ascolto sull’indirizzo di loopback della macchina, quindi le altre app non possono raggiungerli tramite il suo IP privato, nemmeno con la VPN connessa."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាកម្មទាំងនេះបើកនៅក្នុង cmux ដោយមិនត្រូវការ Cloud VPN។ ពួកវាស្តាប់នៅលើអាសយដ្ឋាន loopback របស់ម៉ាស៊ីន ដូច្នេះកម្មវិធីផ្សេងទៀតមិនអាចចូលដល់ពួកវាតាមរយៈ IP ឯកជនរបស់វាបានទេ ទោះបីភ្ជាប់ VPN ក៏ដោយ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disse tjenestene åpnes i cmux uten Cloud VPN. De lytter på maskinens loopback-adresse, så andre apper kan ikke nå dem via den private IP-adressen, selv med VPN tilkoblet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Te usługi otwierają się w cmux bez Cloud VPN. Nasłuchują na adresie pętli zwrotnej maszyny, więc inne aplikacje nie mogą do nich dotrzeć przez jej prywatny adres IP, nawet przy połączonym VPN."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esses serviços abrem no cmux sem o Cloud VPN. Eles escutam no endereço de loopback da máquina, então outros apps não conseguem alcançá-los pelo IP privado dela, mesmo com a VPN conectada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эти службы открываются в cmux без Cloud VPN. Они прослушивают loopback-адрес машины, поэтому другие приложения не могут обратиться к ним через её частный IP даже при подключённом VPN."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการเหล่านี้เปิดใน cmux ได้โดยไม่ต้องใช้ Cloud VPN บริการรับฟังบนที่อยู่ loopback ของเครื่อง แอปอื่นจึงเข้าถึงผ่าน IP ส่วนตัวของเครื่องไม่ได้ แม้จะเชื่อมต่อ VPN แล้วก็ตาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu hizmetler cmux’ta Cloud VPN olmadan açılır. Makinenin geri döngü adresinde dinledikleri için diğer uygulamalar, VPN bağlıyken bile makinenin özel IP’si üzerinden onlara ulaşamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ці служби відкриваються в cmux без Cloud VPN. Вони прослуховують loopback-адресу машини, тому інші застосунки не можуть дістатися до них через її приватну IP-адресу, навіть із підключеним VPN."
+          }
         }
       }
     },
@@ -548615,6 +549341,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "ループバックのサービスを利用できます"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostupni loopback servisi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loopback-tjenester tilgængelige"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servizi di loopback disponibili"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានសេវាកម្ម loopback"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loopback-tjenester tilgjengelige"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostępne usługi pętli zwrotnej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serviços de loopback disponíveis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступны loopback-службы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีบริการ loopback พร้อมใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geri döngü hizmetleri kullanılabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступні loopback-служби"
           }
         }
       }
@@ -548675,6 +549467,72 @@
             "state": "translated",
             "value": "ポートは未確認です"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portovi još nisu provjereni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Porte er ikke kontrolleret endnu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Porte non ancora controllate"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនទាន់បានពិនិត្យច្រកនៅឡើយ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Porter er ikke sjekket ennå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Porty nie zostały jeszcze sprawdzone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portas ainda não verificadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Порты ещё не проверены"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังไม่ได้ตรวจสอบพอร์ต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portlar henüz denetlenmedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Порти ще не перевірено"
+          }
         }
       }
     },
@@ -548733,6 +549591,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "プライベートアドレスを利用できません"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privatna adresa nije dostupna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privat adresse utilgængelig"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indirizzo privato non disponibile"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អាសយដ្ឋានឯកជនមិនអាចប្រើបាន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privat adresse utilgjengelig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adres prywatny niedostępny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Endereço privado indisponível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Частный адрес недоступен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีที่อยู่ส่วนตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özel adres kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приватна адреса недоступна"
           }
         }
       }
@@ -548793,6 +549717,72 @@
             "state": "translated",
             "value": "cmux の認証済み経路にはこのマシンのプライベートアドレスが必要です。更新して取得してください。Cloud VPN を有効にしても不足しているアドレスは割り当てられません。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autentificirana ruta cmux-a treba privatnu adresu ove mašine. Osvježite da je preuzmete. Uključivanje Cloud VPN-a ne dodjeljuje adresu koja nedostaje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’ godkendte rute kræver denne maskines private adresse. Opdater for at hente den. Aktivering af Cloud VPN tildeler ikke en manglende adresse."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il percorso autenticato di cmux richiede l’indirizzo privato di questa macchina. Aggiorna per recuperarlo. L’attivazione della VPN Cloud non assegna un indirizzo mancante."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លូវដែលបានផ្ទៀងផ្ទាត់របស់ cmux ត្រូវការអាសយដ្ឋានឯកជនរបស់ម៉ាស៊ីននេះ។ ផ្ទុកឡើងវិញដើម្បីទាញយកវា។ ការបើក Cloud VPN មិនផ្តល់អាសយដ្ឋានដែលបាត់ទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sin autentiserte rute trenger denne maskinens private adresse. Oppdater for å hente den. Å slå på Cloud VPN tildeler ikke en manglende adresse."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uwierzytelniona trasa cmux wymaga prywatnego adresu tej maszyny. Odśwież, aby go pobrać. Włączenie Cloud VPN nie przypisuje brakującego adresu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A rota autenticada do cmux precisa do endereço privado desta máquina. Atualize para obtê-lo. Ativar o Cloud VPN não atribui um endereço ausente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аутентифицированному маршруту cmux нужен частный адрес этой машины. Обновите, чтобы получить его. Включение Cloud VPN не назначает отсутствующий адрес."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เส้นทางที่ยืนยันตัวตนแล้วของ cmux ต้องใช้ที่อยู่ส่วนตัวของเครื่องนี้ รีเฟรชเพื่อดึงข้อมูล การเปิด Cloud VPN ไม่ได้กำหนดที่อยู่ที่ขาดหายไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’un kimliği doğrulanmış yolu bu makinenin özel adresine ihtiyaç duyar. Adresi almak için yenileyin. Cloud VPN’i açmak eksik bir adres atamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автентифікованому маршруту cmux потрібна приватна адреса цієї машини. Оновіть, щоб отримати її. Увімкнення Cloud VPN не призначає відсутню адресу."
+          }
         }
       }
     },
@@ -548802,7 +549792,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux forwards ports without Cloud VPN. Safari, Chrome, and other Mac apps need Cloud VPN to reach services bound to the machine’s private address."
+            "value": "cmux forwards ports without Cloud VPN. Web browsers and other Mac apps need Cloud VPN to reach services bound to the machine’s private address."
           }
         },
         "de": {
@@ -548852,6 +549842,72 @@
             "state": "translated",
             "value": "cmux は Cloud VPN なしでポートを転送します。Web ブラウザやその他の Mac アプリからマシンのプライベートアドレスにバインドされたサービスにアクセスするには Cloud VPN が必要です。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux prosljeđuje portove bez Cloud VPN-a. Web preglednicima i drugim Mac aplikacijama potreban je Cloud VPN za pristup servisima vezanim za privatnu adresu mašine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux videresender porte uden Cloud VPN. Webbrowsere og andre Mac-apps skal bruge Cloud VPN for at nå tjenester, der er bundet til maskinens private adresse."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux inoltra le porte senza VPN Cloud. I browser web e le altre app per Mac hanno bisogno della VPN Cloud per raggiungere i servizi associati all’indirizzo privato della macchina."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux បញ្ជូនបន្តច្រកដោយមិនត្រូវការ Cloud VPN។ កម្មវិធីរុករកបណ្តាញ និងកម្មវិធី Mac ផ្សេងទៀតត្រូវការ Cloud VPN ដើម្បីចូលដល់សេវាកម្មដែលចងទៅអាសយដ្ឋានឯកជនរបស់ម៉ាស៊ីន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux videresender porter uten Cloud VPN. Nettlesere og andre Mac-apper trenger Cloud VPN for å nå tjenester som er bundet til maskinens private adresse."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux przekierowuje porty bez Cloud VPN. Przeglądarki internetowe i inne aplikacje na Maca potrzebują Cloud VPN, aby dotrzeć do usług powiązanych z prywatnym adresem maszyny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux encaminha portas sem o Cloud VPN. Navegadores e outros apps do Mac precisam do Cloud VPN para acessar serviços vinculados ao endereço privado da máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux перенаправляет порты без Cloud VPN. Веб-браузерам и другим приложениям Mac нужен Cloud VPN, чтобы обращаться к службам, привязанным к частному адресу машины."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ส่งต่อพอร์ตได้โดยไม่ต้องใช้ Cloud VPN เว็บเบราว์เซอร์และแอป Mac อื่นๆ ต้องใช้ Cloud VPN เพื่อเข้าถึงบริการที่ผูกกับที่อยู่ส่วนตัวของเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, portları Cloud VPN olmadan yönlendirir. Web tarayıcıları ve diğer Mac uygulamaları, makinenin özel adresine bağlı hizmetlere ulaşmak için Cloud VPN’e ihtiyaç duyar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux перенаправляє порти без Cloud VPN. Веббраузерам та іншим застосункам Mac потрібен Cloud VPN, щоб звертатися до служб, прив’язаних до приватної адреси машини."
+          }
         }
       }
     },
@@ -548866,7 +549922,18 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "設定 VPN…" } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "设置 VPN…" } },
         "ko": { "stringUnit": { "state": "translated", "value": "VPN 설정…" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "VPN を設定…" } }
+        "ja": { "stringUnit": { "state": "translated", "value": "VPN を設定…" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Postavi VPN…" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Konfigurer VPN…" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Configura VPN…" } },
+        "km": { "stringUnit": { "state": "translated", "value": "រៀបចំ VPN…" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Konfigurer VPN…" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Skonfiguruj VPN…" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Configurar VPN…" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Настроить VPN…" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ตั้งค่า VPN…" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "VPN’i Kur…" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Налаштувати VPN…" } }
       }
     },
     "cloudTree.ports.stale": {
@@ -548924,6 +549991,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "ポートリストが古い可能性があります"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lista portova je možda zastarjela"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portlisten er muligvis forældet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’elenco delle porte potrebbe non essere aggiornato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជីច្រកអាចហួសសម័យ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portlisten kan være utdatert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lista portów może być nieaktualna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A lista de portas pode estar desatualizada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Список портов может быть устаревшим"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รายการพอร์ตอาจไม่เป็นปัจจุบัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port listesi güncel olmayabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Список портів може бути застарілим"
           }
         }
       }
@@ -548984,6 +550117,72 @@
             "state": "translated",
             "value": "前回のスキャンを更新できませんでした。表示されたサービスが変わっている可能性があります。更新して再確認してください。cmux の転送に Cloud VPN は不要です。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posljednje skeniranje nije se moglo osvježiti. Navedeni servisi su se možda promijenili; osvježite da ponovo provjerite. Prosljeđivanje u cmux-u ne treba Cloud VPN."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den seneste scanning kunne ikke opdateres. De viste tjenester kan have ændret sig; opdater for at kontrollere igen. Videresendelse i cmux kræver ikke Cloud VPN."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è stato possibile aggiornare l’ultima scansione. I servizi elencati potrebbero essere cambiati; aggiorna per controllare di nuovo. L’inoltro di cmux non richiede la VPN Cloud."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចផ្ទុកការស្កេនចុងក្រោយឡើងវិញបានទេ។ សេវាកម្មដែលបានរាយអាចបានផ្លាស់ប្តូរ; ផ្ទុកឡើងវិញដើម្បីពិនិត្យម្តងទៀត។ ការបញ្ជូនបន្តរបស់ cmux មិនត្រូវការ Cloud VPN ទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den siste skanningen kunne ikke oppdateres. De oppførte tjenestene kan ha endret seg; oppdater for å sjekke på nytt. Videresending i cmux trenger ikke Cloud VPN."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się odświeżyć ostatniego skanowania. Wymienione usługi mogły się zmienić; odśwież, aby sprawdzić ponownie. Przekierowywanie w cmux nie wymaga Cloud VPN."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível atualizar a última verificação. Os serviços listados podem ter mudado; atualize para verificar de novo. O encaminhamento do cmux não precisa do Cloud VPN."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось обновить последнее сканирование. Перечисленные службы могли измениться; обновите, чтобы проверить снова. Перенаправлению cmux Cloud VPN не нужен."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถรีเฟรชการสแกนครั้งล่าสุดได้ บริการที่แสดงอาจเปลี่ยนไปแล้ว รีเฟรชเพื่อตรวจสอบอีกครั้ง การส่งต่อของ cmux ไม่ต้องใช้ Cloud VPN"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son tarama yenilenemedi. Listelenen hizmetler değişmiş olabilir; yeniden denetlemek için yenileyin. cmux yönlendirmesi Cloud VPN gerektirmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося оновити останнє сканування. Перелічені служби могли змінитися; оновіть, щоб перевірити знову. Перенаправлення cmux не потребує Cloud VPN."
+          }
         }
       }
     },
@@ -549042,6 +550241,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "ポートスキャンが失敗しましたが、サービスが待ち受けていないとは限りません。既存の cmux ポートは引き続き動作する可能性があります。更新して再試行してください。Cloud VPN は不要です。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skeniranje portova nije uspjelo; to ne znači da nijedan servis ne sluša. Postojeći cmux portovi možda i dalje rade. Osvježite za ponovni pokušaj; Cloud VPN nije potreban."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portscanningen mislykkedes; det betyder ikke, at ingen tjeneste lytter. Eksisterende cmux-porte virker muligvis stadig. Opdater for at prøve igen; Cloud VPN er ikke påkrævet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La scansione delle porte non è riuscita; ciò non significa che nessun servizio sia in ascolto. Le porte cmux esistenti potrebbero funzionare ancora. Aggiorna per riprovare; la VPN Cloud non è necessaria."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការស្កេនច្រកបានបរាជ័យ; នេះមិនមានន័យថាគ្មានសេវាកម្មណាកំពុងស្តាប់ទេ។ ច្រក cmux ដែលមានស្រាប់អាចនៅតែដំណើរការ។ ផ្ទុកឡើងវិញដើម្បីព្យាយាមម្តងទៀត; មិនត្រូវការ Cloud VPN ទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portskanningen mislyktes; det betyr ikke at ingen tjeneste lytter. Eksisterende cmux-porter kan fortsatt fungere. Oppdater for å prøve igjen; Cloud VPN er ikke nødvendig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skanowanie portów nie powiodło się; nie oznacza to, że żadna usługa nie nasłuchuje. Istniejące porty cmux mogą nadal działać. Odśwież, aby spróbować ponownie; Cloud VPN nie jest wymagany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A verificação de portas falhou; isso não significa que nenhum serviço esteja em escuta. As portas existentes do cmux ainda podem funcionar. Atualize para tentar de novo; o Cloud VPN não é necessário."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сканирование портов не удалось; это не значит, что ни одна служба не прослушивает порты. Существующие порты cmux могут по-прежнему работать. Обновите, чтобы повторить; Cloud VPN не требуется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การสแกนพอร์ตล้มเหลว ไม่ได้หมายความว่าไม่มีบริการที่กำลังรับฟัง พอร์ต cmux ที่มีอยู่อาจยังใช้งานได้ รีเฟรชเพื่อลองอีกครั้ง ไม่จำเป็นต้องใช้ Cloud VPN"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port taraması başarısız oldu; bu, dinleyen bir hizmet olmadığı anlamına gelmez. Mevcut cmux portları hâlâ çalışıyor olabilir. Yeniden denemek için yenileyin; Cloud VPN gerekmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сканування портів не вдалося; це не означає, що жодна служба не прослуховує. Наявні порти cmux можуть і далі працювати. Оновіть, щоб повторити; Cloud VPN не потрібен."
           }
         }
       }
@@ -549102,6 +550367,72 @@
             "state": "translated",
             "value": "このプロバイダーはポートをサポートしていません。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj pružalac ne podržava portove."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Porte understøttes ikke af denne udbyder."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le porte non sono supportate da questo provider."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្នកផ្តល់សេវានេះមិនគាំទ្រច្រកទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Porter støttes ikke av denne leverandøren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten dostawca nie obsługuje portów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este provedor não oferece suporte a portas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот провайдер не поддерживает порты."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ผู้ให้บริการนี้ไม่รองรับพอร์ต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sağlayıcı portları desteklemiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей постачальник не підтримує порти."
+          }
         }
       }
     },
@@ -549160,6 +550491,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "このプロバイダーはアプリ内のポート経路に対応していません。シェルを開き、マシン内でサービスにアクセスしてください。Cloud VPN を有効にしても対応は追加されません。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj pružalac nema podržanu rutu portova unutar aplikacije. Otvorite shell da pristupite servisu unutar mašine. Cloud VPN ne dodaje podršku pružaoca."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne udbyder har ingen understøttet portrute i appen. Åbn en shell for at få adgang til tjenesten inde i maskinen. Cloud VPN tilføjer ikke understøttelse for udbyderen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo provider non ha un percorso delle porte supportato nell’app. Apri una shell per accedere al servizio all’interno della macchina. La VPN Cloud non aggiunge il supporto del provider."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្នកផ្តល់សេវានេះគ្មានផ្លូវច្រកក្នុងកម្មវិធីដែលគាំទ្រទេ។ បើក shell ដើម្បីចូលប្រើសេវាកម្មនៅខាងក្នុងម៉ាស៊ីន។ Cloud VPN មិនបន្ថែមការគាំទ្រអ្នកផ្តល់សេវាទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne leverandøren har ingen støttet portrute i appen. Åpne et skall for å få tilgang til tjenesten inne i maskinen. Cloud VPN legger ikke til støtte for leverandøren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten dostawca nie ma obsługiwanej trasy portów w aplikacji. Otwórz powłokę, aby uzyskać dostęp do usługi wewnątrz maszyny. Cloud VPN nie dodaje obsługi dostawcy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este provedor não tem uma rota de portas compatível no app. Abra um shell para acessar o serviço dentro da máquina. O Cloud VPN não adiciona suporte ao provedor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У этого провайдера нет поддерживаемого маршрута портов в приложении. Откройте оболочку, чтобы получить доступ к службе внутри машины. Cloud VPN не добавляет поддержку провайдера."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ผู้ให้บริการนี้ไม่มีเส้นทางพอร์ตในแอปที่รองรับ เปิดเชลล์เพื่อเข้าถึงบริการภายในเครื่อง Cloud VPN ไม่ได้เพิ่มการรองรับผู้ให้บริการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sağlayıcının desteklenen bir uygulama içi port yolu yok. Makinenin içindeki hizmete erişmek için bir kabuk açın. Cloud VPN sağlayıcı desteği eklemez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей постачальник не має підтримуваного маршруту портів у застосунку. Відкрийте оболонку, щоб отримати доступ до служби всередині машини. Cloud VPN не додає підтримку постачальника."
           }
         }
       }
