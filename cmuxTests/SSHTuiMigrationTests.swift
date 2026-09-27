@@ -131,6 +131,45 @@ struct SSHTuiMigrationTests {
 
     }
 
+    @Test("A legacy persistent SSH snapshot running a named tmux session reattaches it through cmux-tui")
+    func legacyTmuxSnapshotReattachesItsTmuxSession() throws {
+        // The remote block 0.64.25 wrote for `cmux ssh` workspaces with a tmux
+        // profile: relay port and daemon slot, no session owner.
+        let json = Data("""
+        {"destination": "fixture-host", "persistentDaemonSlot": "ssh-410b76b4-e7ea-4db1-8394-9d06bfc19b5c",
+         "preserveAfterTerminalExit": true, "relayPort": 52206, "skipDaemonBootstrap": false,
+         "sshOptions": ["EscapeChar=none", "EnableEscapeCommandline=no", "StrictHostKeyChecking=accept-new"],
+         "terminalProfile": {"kind": "tmux", "tmuxSessionName": "cc-fixture"},
+         "terminalTransport": "ssh", "transport": "ssh"}
+        """.utf8)
+        let legacy = try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: json)
+        #expect(legacy.sshSessionOwner == nil)
+
+        let restored = try #require(legacy.workspaceConfiguration())
+        #expect(restored.routesThroughSSHTui)
+        #expect(restored.restoredSSHSession == nil)
+        #expect(restored.destination == "fixture-host")
+        #expect(restored.terminalProfile.tmuxSessionName == "cc-fixture")
+        #expect(restored.terminalStartupCommand == nil)
+        #expect(restored.relayPort == nil)
+        #expect(restored.preserveAfterTerminalExit)
+        let tmux = try #require(WorkspaceRemoteTerminalProfile(kind: .tmux, tmuxSessionName: "cc-fixture"))
+        #expect(SSHTuiConnection(configuration: restored).shellCommand == tmux.remoteCommandArguments)
+
+        // The next save records cmux-tui ownership, so later restores take the native path.
+        let resaved = try #require(restored.sessionSnapshot())
+        #expect(resaved.sshSessionOwner == "cmux-tui")
+        #expect(resaved.relayPort == nil)
+        #expect(resaved.persistentDaemonSlot == nil)
+        #expect(resaved.terminalProfile == tmux)
+        let roundTripped = try JSONDecoder().decode(
+            SessionRemoteWorkspaceSnapshot.self, from: JSONEncoder().encode(resaved)
+        )
+        let native = try #require(roundTripped.tuiSSHConfiguration(agentSocketPath: nil))
+        #expect(SSHTuiConnection(configuration: native).id == SSHTuiConnection(configuration: restored).id)
+        #expect(native.terminalProfile == tmux)
+    }
+
     // Covers the two attach helpers: the title attach enqueues as a rename before
     // binding, and the create request, whose fingerprint must not depend on it.
     @MainActor
