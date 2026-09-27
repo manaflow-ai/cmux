@@ -28,7 +28,7 @@ Rules that only matter in one part of the tree live next to that code. Read the 
 
 Before drafting or revising a top-level issue, PR description, RFC or progress update, read [STYLE.md](STYLE.md).
 
-When a user-visible change merges, add one line under `## Unreleased` in [CHANGELOG.md](CHANGELOG.md) (PR link, `-- thanks @user!` for outside authors).
+Fill in the `## Changelog` section of the PR description: one `Added`/`Changed`/`Fixed`/`Removed` line for a user-visible change, `none` otherwise. Don't edit [CHANGELOG.md](CHANGELOG.md) in feature PRs; `/release` builds it from these lines and adds the PR link and `-- thanks @user!` credit.
 
 ## Outside contributors
 

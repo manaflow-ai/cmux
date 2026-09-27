@@ -133,7 +133,7 @@ The `ghostty` submodule points to [manaflow-ai/ghostty](https://github.com/manaf
 
 - Describe the change as the [writing guide](STYLE.md) says and fill in the pull request template, including what ran.
 - For a bug fix, commit the failing regression test before the fix; see [regression commits](skills/cmux-testing/SKILL.md#reproduce-and-repair).
-- Add one line under `## Unreleased` in [CHANGELOG.md](CHANGELOG.md) for a user-visible change.
+- Fill in the template's `## Changelog` section: one `Added`/`Changed`/`Fixed`/`Removed` line for a user-visible change, or `none`. Don't edit [CHANGELOG.md](CHANGELOG.md); the release builds it from these lines.
 - Sign the [CLA](CLA.md) once by commenting `I have read the CLA Document v2.2 and I hereby sign the CLA` on your pull request. The CLA check asks for it on your first pull request.
 
 Agents working in this repository also follow [CLAUDE.md](CLAUDE.md) (also `AGENTS.md`).

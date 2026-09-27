@@ -1857,7 +1857,7 @@
       "shadowConfig": "Тіньова конфігурація",
       "shadowConfigDesc": "cmux omo використовує тіньову директорію конфігурації, щоб ваше оригінальне налаштування OpenCode не було змінено:",
       "shadowStep1": "Копіює ваш ~/.config/opencode/opencode.json з oh-my-opencode, доданим до масиву плагінів",
-      "shadowStep2": "Створює символічні посилання на node_modules, package.json та bun.lock з оригінальної директорії",
+      "shadowStep2": "Створює посилання на інші файли в ~/.config/opencode, на які посилається ваш opencode.json (наприклад, файли промптів), і повторно використовує ваш node_modules (агенти, команди та плагіни вже завантажуються з оригінальної директорії)",
       "shadowStep3": "Записує oh-my-opencode.json з tmux.enabled, встановленим на true",
       "shadowStep4": "Встановлює OPENCODE_CONFIG_DIR на тіньову директорію перед запуском opencode",
       "envVars": "Змінні середовища",
