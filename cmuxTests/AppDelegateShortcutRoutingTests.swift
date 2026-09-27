@@ -7637,7 +7637,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxPendingFocusRunsWhenTextViewMovesToWindow() {
         let terminalPanel = TerminalPanel(workspaceId: UUID())
-        defer { terminalPanel.surface.teardownSurface() }
+        defer { terminalPanel.surface.teardownHostedSurfaceForTesting() }
 
         XCTAssertTrue(terminalPanel.focusTextBoxInputOrTerminal())
 #if DEBUG
@@ -7689,7 +7689,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxFocusShortcutReportsUnhandledWhenTerminalCannotReceiveFocus() {
         let terminalPanel = TerminalPanel(workspaceId: UUID())
-        defer { terminalPanel.surface.teardownSurface() }
+        defer { terminalPanel.surface.teardownHostedSurfaceForTesting() }
 
         XCTAssertTrue(terminalPanel.focusTextBoxInputOrTerminal())
         XCTAssertFalse(

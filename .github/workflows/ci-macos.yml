@@ -1943,6 +1943,30 @@ jobs:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
           path: ${{ runner.temp }}/app-host-products
 
+      # On an owned Mac every GUI job shares the one console session, so the
+      # tests need glaeda's gui token. glaeda's hook gives this job none at
+      # job start (class gui-step), so the product fetch above leaves the
+      # console to other GUI jobs; the token is taken here, before the restore
+      # step takes the producer's canonical root (the order every GUI job
+      # takes them in), and held until the job ends, through the console
+      # session cleanup. An older hook gave the token at job start, so
+      # take-gui returns 0 at once; one without take-gui exits 2 and still
+      # gave it at job start. Blacksmith has no helper.
+      - name: Take this Mac's gui token
+        run: |
+          set -uo pipefail
+          helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+          [ -x "$helper" ] || exit 0
+          status=0
+          "$helper" take-gui --wait 1800 || status=$?
+          case "$status" in
+            0|2) ;;
+            *)
+              echo "::error::Could not take this Mac's gui token for the app-host tests (take-gui exited $status)."
+              exit 1
+              ;;
+          esac
+
       - name: Restore compiled app-host test product
         id: restore-products
         env:
