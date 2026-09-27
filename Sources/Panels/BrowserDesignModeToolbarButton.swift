@@ -25,7 +25,7 @@ struct BrowserDesignModeToolbarButton: View {
         .frame(width: hitSize, height: hitSize, alignment: .center)
         .disabled(!controller.canToggle)
         .opacity(controller.canToggle ? 1 : 0.4)
-        .help(
+        .safeHelp(
             controller.unavailableMessage ?? String(
                 format: String(
                     localized: "browser.designMode.buttonHelpFormat",
