@@ -1782,6 +1782,7 @@
       "metaTitle": "سجل التغييرات",
       "versionTitle": "cmux {version} · سجل التغييرات",
       "releaseNavLabel": "الإصدارات القريبة من cmux {version}",
+      "tryIt": "جرّبها",
       "sections": {
         "added": "تمت الإضافة",
         "changed": "تم التغيير",

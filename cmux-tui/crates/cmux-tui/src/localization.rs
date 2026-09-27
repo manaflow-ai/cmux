@@ -1532,6 +1532,8 @@ TRANSPORT:
   --wireguard-hub PATH  dial ws routes through a running `cmux wg hub` socket
     instead; exclusive with --wireguard-config
   --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
+  --agent-hooks PROVIDER[,PROVIDER...] installs those coding-agent hooks for
+    the remote user on each attach (for example claude,codex)
   --remote-state-dir PATH for a non-default daemon state directory
   --upgrade explicitly replaces an SSH-managed remote sidecar after installing
     the pinned binary; terminal panes survive, while remote RPC state resets
@@ -1551,6 +1553,8 @@ set, installed into the user account when missing or incompatible.
 OPTIONS:
   --session NAME  --lanes single|auto|isolated  --headless [--json]
   --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
+  --agent-hooks PROVIDER[,PROVIDER...] installs those coding-agent hooks for
+    the remote user on each attach (for example claude,codex)
   --remote-state-dir PATH for a non-default daemon state directory
   --upgrade explicitly replaces an SSH-managed remote sidecar; terminal panes
     survive, remote clients and forwards disconnect, RPC processes stop, and
@@ -2222,6 +2226,8 @@ ID とセッション:
   --wireguard-hub パス  実行中の `cmux wg hub` ソケット経由で ws ルートに接続します。
     --wireguard-config とは併用できません
   --ssh-binary パス  --remote-binary パス  --ssh-arg 引数  --no-install
+  --agent-hooks プロバイダー[,プロバイダー...] 接続のたびにリモートユーザーへ
+    コーディングエージェントのフックを導入 (例: claude,codex)
   --remote-state-dir パス  既定以外のデーモン状態ディレクトリ
   --upgrade は固定済みバイナリのインストール後に SSH 管理のサイドカーを置換します。
     ターミナルペインは維持され、リモート RPC 状態はリセットされます。
@@ -2241,6 +2247,8 @@ ID とセッション:
 オプション:
   --session 名前  --lanes single|auto|isolated  --headless [--json]
   --ssh-binary パス  --remote-binary パス  --ssh-arg 引数  --no-install
+  --agent-hooks プロバイダー[,プロバイダー...] 接続のたびにリモートユーザーへ
+    コーディングエージェントのフックを導入 (例: claude,codex)
   --remote-state-dir パス  既定以外のデーモン状態ディレクトリ
   --upgrade は SSH 管理のサイドカーを明示的に置換します。ターミナルペインは維持され、
     リモートクライアントと転送は切断され、RPC プロセスなどの状態はリセットされます。

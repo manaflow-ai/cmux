@@ -27,6 +27,8 @@ public struct TerminalSection: View {
     @State private var textEditingGestures: DefaultsValueModel<Bool>
     @State private var textEditingCommandMovesByWord: DefaultsValueModel<Bool>
     @State private var textEditingGesturesInFullScreenApps: DefaultsValueModel<Bool>
+    @State private var passwordInputIndicator: DefaultsValueModel<Bool>
+    @State private var passwordInputDots: DefaultsValueModel<Bool>
     @State private var adaptiveDefaultTheme: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
@@ -62,6 +64,8 @@ public struct TerminalSection: View {
         _textEditingGesturesInFullScreenApps = State(
             initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGesturesInFullScreenApps)
         )
+        _passwordInputIndicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputIndicator))
+        _passwordInputDots = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputDots))
         _adaptiveDefaultTheme = State(
             initialValue: DefaultsValueModel(
                 store: defaultsStore,
@@ -101,6 +105,8 @@ public struct TerminalSection: View {
             textEditingGestures,
             textEditingCommandMovesByWord,
             textEditingGesturesInFullScreenApps,
+            passwordInputIndicator,
+            passwordInputDots,
             adaptiveDefaultTheme,
             autoResume,
             hibernation,
@@ -493,6 +499,33 @@ public struct TerminalSection: View {
                     .controlSize(.small)
                     .disabled(!textEditingGestures.current)
                     .accessibilityIdentifier("SettingsTerminalTextEditingGesturesInFullScreenAppsToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.showPasswordInputIndicator"),
+                String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"),
+                subtitle: passwordInputIndicator.current
+                    ? String(localized: "settings.terminal.showPasswordInputIndicator.subtitleOn", defaultValue: "A lock badge appears in the terminal corner while a program reads a password with echo off, such as sudo or ssh.")
+                    : String(localized: "settings.terminal.showPasswordInputIndicator.subtitleOff", defaultValue: "No badge is shown when a program reads a password with echo off.")
+            ) {
+                Toggle("", isOn: Binding(get: { passwordInputIndicator.current }, set: { passwordInputIndicator.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalPasswordInputIndicatorToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.showPasswordInputDots"),
+                String(localized: "settings.terminal.showPasswordInputDots", defaultValue: "Show Typed Password Dots"),
+                subtitle: passwordInputDots.current
+                    ? String(localized: "settings.terminal.showPasswordInputDots.subtitleOn", defaultValue: "The badge shows one dot per typed character. cmux keeps only a count, never the characters.")
+                    : String(localized: "settings.terminal.showPasswordInputDots.subtitleOff", defaultValue: "The badge shows only a lock, without counting typed characters.")
+            ) {
+                Toggle("", isOn: Binding(get: { passwordInputDots.current }, set: { passwordInputDots.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .disabled(!passwordInputIndicator.current)
+                    .accessibilityIdentifier("SettingsTerminalPasswordInputDotsToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(
