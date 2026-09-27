@@ -58,6 +58,19 @@ extension TerminalSurface {
         killShellProcessesForTesting()
         releaseSurfaceForTesting()
     }
+
+    /// Tears down a test-hosted terminal through the product close path
+    /// after killing its shell.
+    ///
+    /// `teardownSurface()` hands the native free to the shared teardown
+    /// coordinator. With login(1) still ignoring SIGHUP, that free holds one
+    /// of the coordinator's two close slots for Ghostty's 12 s grace, into
+    /// whatever test runs next. With the shell already dead it finishes at once.
+    @MainActor
+    func teardownHostedSurfaceForTesting() {
+        killShellProcessesForTesting()
+        teardownSurface()
+    }
 }
 
 extension TabManager {
