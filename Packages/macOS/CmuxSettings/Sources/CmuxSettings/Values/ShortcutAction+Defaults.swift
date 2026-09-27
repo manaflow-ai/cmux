@@ -107,6 +107,7 @@ extension ShortcutAction {
         case .nextSidebarTabInGroup, .prevSidebarTabInGroup: return nil
         case .focusHistoryBack: return ShortcutStroke(key: "[", command: true)
         case .focusHistoryForward: return ShortcutStroke(key: "]", command: true)
+        case .focusHistoryLast: return nil
         case .renameTab: return ShortcutStroke(key: "r", command: true)
         case .renameWorkspace: return ShortcutStroke(key: "r", command: true, shift: true)
         case .editWorkspaceDescription: return ShortcutStroke(key: "e", command: true, option: true)
@@ -185,6 +186,7 @@ extension ShortcutAction {
         case .cycleTextBoxSubmitAction: return ShortcutStroke(key: "\t", shift: true)
         case .attachTextBoxFile: return ShortcutStroke(key: "a", command: true, shift: true, option: true)
         case .sendCtrlFToTerminal: return nil
+        case .pasteLastScreenshot: return nil
         case .clearScreenKeepScrollback: return ShortcutStroke(key: "k", command: true, shift: true)
         case .toggleRightSidebar: return ShortcutStroke(key: "b", command: true, option: true)
         case .fileExplorerOpenSelection: return ShortcutStroke(key: "\r")

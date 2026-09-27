@@ -18,6 +18,7 @@ final class PlainPastePTYFixture {
     let surface: TerminalSurface
     let window: NSWindow
     private let previousMenu: NSMenu?
+    private let workerClient: TerminalPastePreparationWorkerClient
     var view: GhosttyNSView { surface.hostedView.surfaceView }
 
     init(optimized: Bool, workerStartupDelay: Double = 0) throws {
@@ -41,6 +42,7 @@ final class PlainPastePTYFixture {
             plainTextExecutableURL: optimized ? textWrapper : nil,
             prewarmPlainTextWorker: workerStartupDelay > 0
         )
+        workerClient = client
         let service = TerminalImageTransferPreparationService(
             operation: { try await client.prepare($0) },
             cleanup: { $0.cleanupTransferredTemporaryFiles(using: owner) }
@@ -119,6 +121,35 @@ final class PlainPastePTYFixture {
         try #require(surface.readText(region: .screen)?.contains("PASTE_READY") == true)
     }
 
+    /// Warms this fixture's worker launch path before the timed trials.
+    ///
+    /// The launch-counting wrapper is a fresh shell script per fixture, and
+    /// its first launch of the app binary is slow on the owned Mac runners:
+    /// 0.86-1.1 s on an idle mini, over the paste service's 5 s deadline on a
+    /// loaded one, which drops trial 0 as `deadlineExceeded`. The same binary
+    /// launched directly, as the app does, answered the same general-pasteboard
+    /// paste request in ~50 ms just before, and every later wrapper launch
+    /// takes ~15-50 ms. So run one preparation through the wrapper, outside the
+    /// service and its deadline, then clear the launch log so the per-trial
+    /// counts are unchanged and trial 0 measures a fresh worker per paste.
+    func warmWorkerLaunchPath() async throws {
+        NSPasteboard.general.clearContents()
+        try #require(NSPasteboard.general.setString("cmux-paste-pty-warmup", forType: .string))
+        let started = ContinuousClock.now
+        let result = try await workerClient.prepare(TerminalPastePreparationRequest(
+            pasteboard: TerminalPasteboardReadRequest(pasteboard: NSPasteboard.general),
+            mode: .paste,
+            destination: .terminal
+        ))
+        let elapsed = started.duration(to: .now)
+        guard case .terminal(.insertText("cmux-paste-pty-warmup")) = result else {
+            Issue.record("Worker warm-up did not read the warm-up text: \(result)")
+            return
+        }
+        try Data().write(to: launches)
+        print("PASTE_PTY_WARMUP duration=\(elapsed)")
+    }
+
     func receipt(trial: Int) async throws -> [String: Any] {
         let url = root.appendingPathComponent("receipt-\(trial).json")
         let deadline = ContinuousClock.now + .seconds(20)
@@ -134,7 +165,7 @@ final class PlainPastePTYFixture {
 
     func close() {
         NSApp.mainMenu = previousMenu
-        surface.teardownSurface()
+        surface.teardownHostedSurfaceForTesting()
         window.orderOut(nil)
         try? FileManager.default.removeItem(at: root)
     }

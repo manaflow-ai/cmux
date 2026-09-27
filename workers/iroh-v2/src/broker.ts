@@ -18,6 +18,7 @@ export interface BrokerSession {
   readonly identityGeneration: number;
   readonly authority: VerifiedAuthority;
   readonly expiresAt: number;
+  readonly issueTicket: boolean;
 }
 
 export interface BrokerDependencies {
@@ -35,7 +36,7 @@ export interface BrokerDependencies {
 export interface BrokerResult {
   readonly response: ControlResponse;
   readonly session?: BrokerSession;
-  readonly changed?: { revision: number; revokedDeviceRecordId?: string; permissionUserId?: string };
+  readonly changed?: { revision: number; revokedDeviceRecordId?: string; revokedDeviceRecoverable?: boolean; permissionUserId?: string };
   readonly close?: boolean;
 }
 
@@ -60,8 +61,12 @@ export class TeamBroker {
     if (expiresAt <= now) throw new OperationError("ticket_expired", 401, true);
     this.assertControlEnabled(setup.device);
     let existing = this.dependencies.store.getDevice(setup.device.identity);
+    const recoveringRevoked = existing?.revoked === true && this.dependencies.store.canRecoverRevokedDevice(existing.deviceRecordId);
     if (existing) {
-      this.assertDevice(existing, setup.device);
+      // A Forget revocation is recoverable by the same Mac when it proves the
+      // current Stack account again. An old Iroh ticket must never reopen it.
+      if (existing.revoked && (!recoveringRevoked || !issueTicket)) throw new OperationError("device_revoked", 403);
+      this.assertDeviceIdentity(existing, setup.device);
       if (!setup.proof) throw new OperationError("invalid_device_proof", 403);
     }
     if (setup.proof) {
@@ -71,23 +76,27 @@ export class TeamBroker {
     }
     existing = this.dependencies.store.getDevice(setup.device.identity);
     if (existing) {
-      this.assertDevice(existing, setup.device);
+      this.assertDeviceIdentity(existing, setup.device);
       if (!setup.proof) throw new OperationError("invalid_device_proof", 403);
-      this.dependencies.store.consumeDeviceProof({ ...setup.device, requestId: setup.proof.nonce, issuedAt: setup.proof.issuedAt, now: this.dependencies.now() });
+      if (!existing.revoked) {
+        this.dependencies.store.consumeDeviceProof({ ...setup.device, requestId: setup.proof.nonce, issuedAt: setup.proof.issuedAt, now: this.dependencies.now() });
+      }
     }
     const session: BrokerSession = {
       sessionId: crypto.randomUUID(), identity: setup.device.identity, endpointId: setup.device.endpointId,
-      identityGeneration: setup.device.identityGeneration, authority, expiresAt,
+      identityGeneration: setup.device.identityGeneration, authority, expiresAt, issueTicket,
     };
     let ticket;
     if (issueTicket) {
       await this.dependencies.charge(authority.userId, "ticket.request");
       ticket = await this.dependencies.issueTicket(setup.device, authority.verifiedAt);
     }
-    const challenge = existing ? undefined : await this.challenge(session, setup.device);
+    const challenge = recoveringRevoked
+      ? await this.challenge(session, setup.device, true, true)
+      : existing ? undefined : await this.challenge(session, setup.device);
     // Signing and user-budget calls can yield to revocation or key replacement.
     existing = this.dependencies.store.getDevice(setup.device.identity);
-    if (existing) this.assertDevice(existing, setup.device);
+    this.validateSetup(session, challenge !== undefined);
     if (session.expiresAt <= this.dependencies.now()) throw new OperationError("ticket_expired", 401, true);
     const revision = this.observeAuthority(authority);
     return {
@@ -96,13 +105,14 @@ export class TeamBroker {
       response: {
         schemaId: "session.ready.v1", requestId: setup.requestId, sessionId: session.sessionId,
         teamRevision: this.dependencies.store.readRevision(),
-        ...(ticket ? { ticket } : {}), ...(challenge ? { challenge } : {}), ...(existing ? { device: existing } : {}),
+        ...(ticket ? { ticket } : {}), ...(challenge ? { challenge } : {}),
+        ...(existing && !recoveringRevoked ? { device: existing } : {}),
       },
     };
   }
 
   /** HTTP authorization proves this exact operation before using the local broker. */
-  async authorizeHTTP(setup: SocketSetup, input: unknown, authority: VerifiedAuthority, expiresAt: number): Promise<BrokerSession> {
+  async authorizeHTTP(setup: SocketSetup, input: unknown, authority: VerifiedAuthority, expiresAt: number, issueTicket: boolean): Promise<BrokerSession> {
     this.assertAuthority(authority, setup.device.identity);
     const now = this.dependencies.now();
     const request = parseControlRequest(input);
@@ -114,12 +124,16 @@ export class TeamBroker {
     await verifyDeviceSignature(setup.device.endpointId, requestSigningInput(setup.device, proof.requestId, proof.issuedAt, { setup: plainSetup, request }, proof.nonce), proof.signature);
     const existing = this.dependencies.store.getDevice(setup.device.identity);
     if (existing) {
-      this.assertDevice(existing, setup.device);
-      this.dependencies.store.consumeDeviceProof({ ...setup.device, requestId: proof.nonce, issuedAt: proof.issuedAt, now: this.dependencies.now() });
+      this.assertDeviceIdentity(existing, setup.device);
+      const recoveringRevoked = existing.revoked && this.dependencies.store.canRecoverRevokedDevice(existing.deviceRecordId);
+      if (!(recoveringRevoked && request.schemaId === "device.register.v1" && issueTicket)) this.assertDevice(existing, setup.device);
+      if (!existing.revoked) {
+        this.dependencies.store.consumeDeviceProof({ ...setup.device, requestId: proof.nonce, issuedAt: proof.issuedAt, now: this.dependencies.now() });
+      }
     } else if (request.schemaId !== "challenge.request.v1" && request.schemaId !== "device.register.v1") {
       throw new OperationError("device_not_enrolled", 409);
     }
-    return { sessionId: proof.requestId, identity: setup.device.identity, endpointId: setup.device.endpointId, identityGeneration: setup.device.identityGeneration, authority, expiresAt };
+    return { sessionId: proof.requestId, identity: setup.device.identity, endpointId: setup.device.endpointId, identityGeneration: setup.device.identityGeneration, authority, expiresAt, issueTicket };
   }
 
   async execute(session: BrokerSession, input: unknown): Promise<BrokerResult> {
@@ -132,7 +146,9 @@ export class TeamBroker {
       throw new OperationError("ticket_expired", 401, true);
     }
     const existing = this.dependencies.store.getDevice(session.identity);
-    if (existing) this.assertDevice(existing, session);
+    if (existing) this.assertDeviceIdentity(existing, session);
+    const recoveringRevoked = existing?.revoked === true && this.dependencies.store.canRecoverRevokedDevice(existing.deviceRecordId);
+    if (existing && !(recoveringRevoked && request.schemaId === "device.register.v1" && session.issueTicket)) this.assertDevice(existing, session);
     if (!existing && request.schemaId !== "device.register.v1" && request.schemaId !== "challenge.request.v1" && request.schemaId !== "session.goodbye.v1") {
       throw new OperationError("device_not_enrolled", 409);
     }
@@ -195,7 +211,10 @@ export class TeamBroker {
         if (target.revoked) return this.completed(request.requestId, target.revision);
         if (session.expiresAt <= this.dependencies.now()) throw new OperationError("ticket_expired", 401, true);
         const revision = this.dependencies.store.revokeDevice(target.deviceRecordId, this.dependencies.now(), authority.userId);
-        return { ...this.completed(request.requestId, revision), changed: { revision, revokedDeviceRecordId: target.deviceRecordId } };
+        return { ...this.completed(request.requestId, revision), changed: {
+          revision, revokedDeviceRecordId: target.deviceRecordId,
+          revokedDeviceRecoverable: this.dependencies.store.canRecoverRevokedDevice(target.deviceRecordId),
+        } };
       }
       case "preferences.update.v1": {
         if (!canManageTeam) throw new OperationError("permission_denied", 403);
@@ -251,7 +270,10 @@ export class TeamBroker {
         const target = this.manageableDevice(session, request.deviceRecordId);
         if (target.revoked) return this.completed(request.requestId, target.revision);
         const revision = this.dependencies.store.revokeDevice(request.deviceRecordId, now, session.identity.userId);
-        return { ...this.completed(request.requestId, revision), changed: { revision, revokedDeviceRecordId: request.deviceRecordId } };
+        return { ...this.completed(request.requestId, revision), changed: {
+          revision, revokedDeviceRecordId: request.deviceRecordId,
+          revokedDeviceRecoverable: this.dependencies.store.canRecoverRevokedDevice(request.deviceRecordId),
+        } };
       }
       case "permission.update.v1": {
         this.manageableDevice(session, request.permission.deviceRecordId);
@@ -282,10 +304,19 @@ export class TeamBroker {
     return record;
   }
 
-  private async challenge(session: BrokerSession, device: DeviceDescriptor, charge = true) {
+  /** Revalidate after every setup yield, including the socket delivery budget. */
+  validateSetup(session: BrokerSession, allowRecovery = false): void {
+    const record = this.dependencies.store.getDevice(session.identity);
+    if (!record) return;
+    this.assertDeviceIdentity(record, session);
+    if (record.revoked && !(allowRecovery && session.issueTicket && this.dependencies.store.canRecoverRevokedDevice(record.deviceRecordId))) {
+      throw new OperationError("device_revoked", 403);
+    }
+  }
+
+  private async challenge(session: BrokerSession, device: DeviceDescriptor, charge = true, allowRevoked = false) {
     this.assertSessionDevice(session, device);
-    const existing = this.dependencies.store.getDevice(device.identity);
-    if (existing) this.assertDevice(existing, device);
+    this.validateSetup(session, allowRevoked);
     if (charge) await this.dependencies.charge(session.identity.userId, "challenge.request");
     const now = this.dependencies.now();
     const challengeId = crypto.randomUUID();
@@ -293,8 +324,7 @@ export class TeamBroker {
     const payloadHash = await hash(canonicalJSON(device));
     const nonceHash = await hash(nonce);
     const expiresAt = now + CHALLENGE_SECONDS;
-    const current = this.dependencies.store.getDevice(device.identity);
-    if (current) this.assertDevice(current, device);
+    this.validateSetup(session, allowRevoked);
     if (session.expiresAt <= this.dependencies.now()) throw new OperationError("ticket_expired", 401, true);
     this.dependencies.store.issueChallenge(device.identity, { challengeId, nonceHash, payloadHash, expiresAt, issuedAt: now });
     return { challengeId, nonce, payloadHash, expiresAt };
@@ -309,10 +339,13 @@ export class TeamBroker {
       payloadHash: await hash(canonicalJSON(request.device)), requestId: request.requestId,
       requestHash: await hash(canonicalJSON(request)), now: this.dependencies.now(),
     };
+    this.validateSetup(session, true);
     const receipt = this.dependencies.store.findRegistrationReceipt(session.identity, request.requestId, commit.requestHash);
     if (receipt) return { response: { schemaId: "device.registered.v1", requestId: request.requestId, device: receipt.device } };
     this.dependencies.store.validateRegistrationChallenge(commit);
     await this.dependencies.ownership.reserve(request.device, commit.now);
+    this.validateSetup(session, true);
+    if (session.expiresAt <= this.dependencies.now()) throw new OperationError("ticket_expired", 401, true);
     const result = this.dependencies.store.commitRegistration({ ...commit, now: this.dependencies.now() });
     return {
       response: { schemaId: "device.registered.v1", requestId: request.requestId, device: result.device },
@@ -398,6 +431,10 @@ export class TeamBroker {
 
   private assertDevice(record: DeviceRecord, device: { endpointId: string; identityGeneration: number }): void {
     if (record.revoked) throw new OperationError("device_revoked", 403);
+    this.assertDeviceIdentity(record, device);
+  }
+
+  private assertDeviceIdentity(record: DeviceRecord, device: { endpointId: string; identityGeneration: number }): void {
     if (record.descriptor.endpointId !== device.endpointId || record.descriptor.identityGeneration !== device.identityGeneration) throw new OperationError("key_replacement_required", 409);
   }
 }

@@ -11,6 +11,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("localize_changes", ROOT / "scripts/localize_changes.py")
 MODULE = importlib.util.module_from_spec(SPEC)
