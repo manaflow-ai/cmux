@@ -246,11 +246,13 @@ struct FocusFlashSegment: Equatable {
     let curve: FocusFlashCurve
 }
 
+/// One short pulse: enough to say where focus or attention landed without
+/// replaying a blink every time someone moves between panes.
 enum FocusFlashPattern {
-    static let values: [Double] = [0, 1, 0, 1, 0]
-    static let keyTimes: [Double] = [0, 0.25, 0.5, 0.75, 1]
-    static let duration: TimeInterval = 0.9
-    static let curves: [FocusFlashCurve] = [.easeOut, .easeIn, .easeOut, .easeIn]
+    static let values: [Double] = [0, 1, 0]
+    static let keyTimes: [Double] = [0, 0.3, 1]
+    static let duration: TimeInterval = 0.4
+    static let curves: [FocusFlashCurve] = [.easeOut, .easeIn]
     static let ringInset: Double = Double(PanelOverlayRingMetrics.inset)
     static let ringCornerRadius: Double = Double(PanelOverlayRingMetrics.cornerRadius)
 
