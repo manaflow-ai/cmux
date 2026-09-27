@@ -66,6 +66,33 @@ class Layout(unittest.TestCase):
 @unittest.skipUnless(sys.platform == "darwin" and shutil.which("clang") and shutil.which("codesign"),
                      "needs clang, install_name_tool and codesign")
 class RoundTrip(unittest.TestCase):
+    def test_relative_rpath_fits_where_a_long_absolute_one_does_not(self):
+        with tempfile.TemporaryDirectory(prefix="relocate-rpaths-") as work:
+            # A deep, long products directory like a runner's _work/_temp one.
+            products = Path(work) / ("runner-temp-" + "x" * 90) / "Build/Products/Debug"
+            nested = products / "cmux DEV.app/Contents/Resources/bin"
+            nested.mkdir(parents=True)
+            source = Path(work) / "main.c"
+            source.write_text("int main(void) { return 0; }\n")
+            binary = nested / "cmux"
+            subprocess.run(["clang", str(source), "-o", str(binary), "-Wl,-rpath," + PRODUCER], check=True)
+            subprocess.run([sys.executable, str(SCRIPT), str(products)], check=True, capture_output=True)
+            self.assertEqual(relocate.rpaths(binary), ["@loader_path/../../../../PackageFrameworks"])
+            subprocess.run([str(binary)], check=True)
+
+    def test_both_producer_spellings_leave_one_rpath(self):
+        with tempfile.TemporaryDirectory(prefix="relocate-rpaths-") as work:
+            products = Path(work) / "Build/Products/Debug"
+            products.mkdir(parents=True)
+            source = Path(work) / "main.c"
+            source.write_text("int main(void) { return 0; }\n")
+            binary = products / "tool"
+            subprocess.run(["clang", str(source), "-o", str(binary), "-Wl,-rpath," + PRODUCER,
+                            "-Wl,-rpath,/private" + PRODUCER], check=True)
+            subprocess.run([sys.executable, str(SCRIPT), str(products)], check=True, capture_output=True)
+            self.assertEqual(relocate.rpaths(binary), ["@loader_path/PackageFrameworks"])
+            subprocess.run(["codesign", "--verify", "--strict", str(binary)], check=True)
+
     def test_relocates_signs_and_is_idempotent(self):
         with tempfile.TemporaryDirectory(prefix="relocate-rpaths-") as work:
             products = Path(work) / "Build/Products/Debug"
@@ -84,7 +111,7 @@ class RoundTrip(unittest.TestCase):
                                    capture_output=True, text=True)
             self.assertIn("pointed 1 Mach-O file(s)", first.stdout)
             self.assertEqual(relocate.rpaths(binary),
-                             [str(products / "PackageFrameworks"), "@executable_path/../Frameworks"])
+                             ["@loader_path/PackageFrameworks", "@executable_path/../Frameworks"])
             self.assertEqual(relocate.rpaths(copy)[0], PRODUCER)
             subprocess.run(["codesign", "--verify", "--strict", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)

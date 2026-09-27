@@ -10,8 +10,9 @@ then loads that commit's package frameworks first and aborts on a missing
 symbol (the bundled CLI failing every CLI test with status 6 on main, 09-26).
 
 This rewrites that rpath, in every Mach-O under the products directory, to the
-products directory's own PackageFrameworks, then re-signs ad hoc what it
-changed, innermost first so each bundle seals its already-signed nested code.
+products directory's own PackageFrameworks as an @loader_path-relative path,
+then re-signs ad hoc what it changed and every bundle around it, innermost
+first so each bundle seals its already-signed nested code.
 A product restored where it was compiled has nothing to rewrite.
 
 usage: relocate_package_framework_rpaths.py <Build/Products/Debug>
@@ -36,6 +37,7 @@ FAT_MAGIC_64 = 0xCAFEBABF
 LC_RPATH = 0x8000001C
 # Directories that hold no code: skipping them keeps the walk to seconds.
 SKIPPED_SUFFIXES = (".swiftmodule", ".dSYM", ".swiftdoc", ".swiftsourceinfo")
+BUNDLE_SUFFIXES = (".app", ".appex", ".framework", ".plugin", ".systemextension", ".xctest", ".bundle")
 
 
 def _thin_rpaths(data: bytes, offset: int) -> list[str]:
@@ -136,6 +138,38 @@ def _bundle_executable(info: Path) -> str | None:
         return None
 
 
+def loader_relative(own: str, path: Path) -> str:
+    """`own` as seen from the directory holding `path`, for an @loader_path rpath.
+
+    Shorter than any producer path (a deep test-bundle framework needs about
+    55 bytes against the producer's 81), so it always fits the load commands
+    the linker padded, and it survives copying the whole products directory.
+    """
+    return "@loader_path/" + os.path.relpath(own, path.parent)
+
+
+def enclosing_bundles(path: Path, products: Path) -> list[Path]:
+    """Every bundle between `path` and `products` whose seal covers it."""
+    bundles = []
+    for parent in path.parents:
+        if parent == products or products not in parent.parents:
+            break
+        if parent.suffix not in BUNDLE_SUFFIXES:
+            continue
+        code = parent / "Versions/A" if (parent / "Versions/A").is_dir() else parent
+        # Only a directory codesign recognizes as a bundle has a seal to renew.
+        if any((code / info).is_file() for info in ("Contents/Info.plist", "Resources/Info.plist", "Info.plist")):
+            bundles.append(code)
+    return bundles
+
+
+def run(command: list[str]) -> None:
+    result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    if result.returncode != 0:
+        print(f"relocate-package-rpaths: {' '.join(command)} failed:\n{result.stderr}", file=sys.stderr)
+        raise SystemExit(result.returncode)
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print(__doc__.strip().splitlines()[-1], file=sys.stderr)
@@ -152,21 +186,22 @@ def main(argv: list[str]) -> int:
             stale = stale_rpaths(rpaths(path), own)
             if not stale:
                 continue
-            command = ["install_name_tool"]
-            for entry in stale:
-                command += ["-rpath", entry, own]
-            subprocess.run(command + [str(path)], check=True, stderr=subprocess.DEVNULL)
+            # One replacement; a second producer spelling (/tmp and /private/tmp)
+            # would otherwise become a duplicate rpath, which install_name_tool refuses.
+            command = ["install_name_tool", "-rpath", stale[0], loader_relative(own, path)]
+            for entry in stale[1:]:
+                command += ["-delete_rpath", entry]
+            run(command + [str(path)])
             rewritten.append(path)
     if not rewritten:
         print("relocate-package-rpaths: nothing to rewrite")
         return 0
-    targets = sorted({signing_target(path) for path in rewritten}, key=lambda target: (-len(target.parts), str(target)))
-    for target in targets:
-        subprocess.run(
-            ["codesign", "--force", "--sign", "-", "--preserve-metadata=identifier,entitlements,flags,runtime",
-             str(target)],
-            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-        )
+    targets = {signing_target(path) for path in rewritten}
+    for path in rewritten:
+        targets.update(enclosing_bundles(path, products))
+    for target in sorted(targets, key=lambda target: (-len(target.parts), str(target))):
+        run(["codesign", "--force", "--sign", "-", "--preserve-metadata=identifier,entitlements,flags,runtime",
+             str(target)])
     print(f"relocate-package-rpaths: pointed {len(rewritten)} Mach-O file(s) at {own}; re-signed {len(targets)}")
     return 0
 
