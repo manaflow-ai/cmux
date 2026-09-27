@@ -292,6 +292,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         cloudImageView.setAccessibilityElement(false)
         contentContainer.addSubview(trailingBadge)
         closeButton.onClick = { [weak self] in self?.actions?.commands.closeWorkspace() }
+        closeButton.concealImmediately()
         contentContainer.addSubview(closeButton)
 
         contentContainer.addSubview(descriptionView)
@@ -337,6 +338,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
         model = nil
         paintedSelectionModel = nil
+        // The recycled cell may have been the hovered row (often the one just
+        // closed). Snap its close button hidden so it cannot fade out on
+        // whichever row AppKit hands this cell to next.
+        isPointerHovering = false
+        closeButton.concealImmediately()
         hintPill.resetForReuse()
     }
 
@@ -690,6 +696,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 #if DEBUG
     var dropIndicatorPaintForTesting: (top: Bool, bottom: Bool) {
         (!topDropIndicator.isHidden, !bottomDropIndicator.isHidden)
+    }
+
+    var closeButtonPaintForTesting: (isHidden: Bool, alpha: CGFloat) {
+        (closeButton.isHidden, closeButton.alphaValue)
     }
 #endif
 
