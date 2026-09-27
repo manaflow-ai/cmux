@@ -241,6 +241,10 @@ path = "tests/test_issue_10926_watcher_pid_reuse_guard.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_issue_15066_zsh_watcher_sleep.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_issue_13343_claude_integration_toggle.py"
 lane = "macos-cli-no-socket"
 
