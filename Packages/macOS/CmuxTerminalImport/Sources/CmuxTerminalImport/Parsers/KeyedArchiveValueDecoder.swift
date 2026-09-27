@@ -5,6 +5,8 @@ import Foundation
 /// `NSKeyedUnarchiver` is pointed at small stand-in classes that read the same
 /// keys AppKit writes (`NSRGB`, `NSWhite`, `NSColorSpace`, `NSName`, `NSSize`),
 /// so the package stays free of AppKit and decodes identically everywhere.
+/// Secure coding stays on: only the stand-ins may appear in an archive, so a
+/// crafted preferences value cannot instantiate any other class.
 struct KeyedArchiveValueDecoder {
     /// A decoded color with its alpha, which Terminal uses for window opacity.
     struct Color: Equatable {
@@ -31,17 +33,23 @@ struct KeyedArchiveValueDecoder {
 
     private func unarchive<T: NSObject>(_ data: Data, as type: T.Type, className: String) -> T? {
         guard let unarchiver = try? NSKeyedUnarchiver(forReadingFrom: data) else { return nil }
-        unarchiver.requiresSecureCoding = false
+        unarchiver.requiresSecureCoding = true
+        unarchiver.decodingFailurePolicy = .setErrorAndReturn
         unarchiver.setClass(type, forClassName: className)
         unarchiver.setClass(ArchivedColorSpace.self, forClassName: "NSColorSpace")
         defer { unarchiver.finishDecoding() }
-        return unarchiver.decodeObject(forKey: NSKeyedArchiveRootObjectKey) as? T
+        return unarchiver.decodeObject(
+            of: [type as AnyClass, ArchivedColorSpace.self as AnyClass],
+            forKey: NSKeyedArchiveRootObjectKey
+        ) as? T
     }
 }
 
 /// Stand-in for an archived `NSColor`.
 @objc(CmuxTerminalImportArchivedColor)
-private final class ArchivedColor: NSObject, NSCoding {
+private final class ArchivedColor: NSObject, NSSecureCoding {
+    static var supportsSecureCoding: Bool { true }
+
     let decoded: KeyedArchiveValueDecoder.Color?
 
     func encode(with coder: NSCoder) {}
@@ -83,28 +91,32 @@ private final class ArchivedColor: NSObject, NSCoding {
         let values = text
             .trimmingCharacters(in: CharacterSet(charactersIn: "\0").union(.whitespaces))
             .split(separator: " ")
-            .compactMap { Double($0) }
+            .compactMap { ConfigValue.decimal(String($0)) }
         return values.isEmpty ? nil : values
     }
 }
 
 /// Stand-in for an archived `NSColorSpace`, decoded and ignored.
 @objc(CmuxTerminalImportArchivedColorSpace)
-private final class ArchivedColorSpace: NSObject, NSCoding {
+private final class ArchivedColorSpace: NSObject, NSSecureCoding {
+    static var supportsSecureCoding: Bool { true }
+
     func encode(with coder: NSCoder) {}
     init?(coder: NSCoder) { super.init() }
 }
 
 /// Stand-in for an archived `NSFont`.
 @objc(CmuxTerminalImportArchivedFont)
-private final class ArchivedFont: NSObject, NSCoding {
+private final class ArchivedFont: NSObject, NSSecureCoding {
+    static var supportsSecureCoding: Bool { true }
+
     let name: String?
     let size: Double
 
     func encode(with coder: NSCoder) {}
 
     init?(coder: NSCoder) {
-        name = coder.decodeObject(forKey: "NSName") as? String
+        name = coder.decodeObject(of: NSString.self, forKey: "NSName") as String?
         size = coder.decodeDouble(forKey: "NSSize")
         super.init()
     }

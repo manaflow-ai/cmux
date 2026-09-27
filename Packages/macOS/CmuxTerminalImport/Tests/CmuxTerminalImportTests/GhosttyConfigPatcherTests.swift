@@ -45,6 +45,17 @@ struct GhosttyConfigPatcherTests {
         #expect(patch.hasChanges)
     }
 
+    @Test("a CRLF config keeps CRLF and its values carry no stray carriage return")
+    func crlf() {
+        let patch = patcher.apply(
+            [.init(key: "font-size", value: "14"), .init(key: "cursor-style", value: "bar")],
+            to: "font-size = 13\r\ntheme = Dracula\r\n",
+            header: "Imported"
+        )
+        #expect(patch.changes.first?.oldValues == ["13"])
+        #expect(patch.contents == "font-size = 14\r\ntheme = Dracula\r\n\r\n# Imported\r\ncursor-style = bar\r\n")
+    }
+
     @Test("an empty config gets just the header and settings")
     func emptyConfig() {
         let patch = patcher.apply([.init(key: "font-size", value: "14")], to: "", header: "Imported")

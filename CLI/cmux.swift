@@ -18748,7 +18748,9 @@ struct CMUXCLI {
             then selected. Other settings go into cmux's own Ghostty config. Your
             ~/.config/ghostty/config and the other terminal's files are never changed.
             The command prints each line it will write, with the previous value, and
-            lists anything it could not import.
+            lists anything it could not import, then asks before writing. Without a
+            terminal to ask in (scripts, pipes) or with --json, it writes only when
+            --yes is passed.
 
             Terminals:
               iterm2      iTerm2 default profile
@@ -18760,9 +18762,9 @@ struct CMUXCLI {
 
             Flags:
               --dry-run       Print the changes without writing anything
-              --yes, -y       Write without asking for confirmation
+              --yes, -y       Write without asking; required to write from scripts or with --json
               --path <file>   Read this config file (or Warp theme) instead of the detected one
-              --json          Print the plan as JSON
+              --json          Print the plan as JSON (writes only with --yes)
 
             Examples:
               cmux import

@@ -59,6 +59,9 @@ extension CMUXCLI {
             return
         }
 
+        if jsonOutput, !dryRun, !assumeYes {
+            throw CLIError(message: "import: --json writes only with --yes. Add --dry-run to preview the plan instead.")
+        }
         guard let source = TerminalImportSource(argument: sourceName) else {
             let names = TerminalImportSource.allCases.map(\.rawValue).joined(separator: ", ")
             throw CLIError(message: "import: unknown terminal '\(sourceName)'. Supported: \(names).")
@@ -187,7 +190,11 @@ extension CMUXCLI {
             print("Dry run: nothing was written.")
             return
         }
-        if !assumeYes, isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 {
+        if !assumeYes {
+            // Without a terminal to confirm in, writing takes an explicit --yes.
+            guard isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else {
+                throw CLIError(message: "import: not a terminal, so nothing was written. Re-run with --yes to write these changes.")
+            }
             print("Write these changes? [y/N] ", terminator: "")
             guard readLine()?.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("y") == true else {
                 print("Nothing written.")

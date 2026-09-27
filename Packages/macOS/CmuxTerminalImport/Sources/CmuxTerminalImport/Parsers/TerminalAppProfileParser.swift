@@ -83,7 +83,7 @@ public struct TerminalAppProfileParser: Sendable {
         }
         if let blur = ITerm2ProfileParser.double(profile["BackgroundBlur"]) {
             // Terminal's blur slider runs 0 to 1; Ghostty's default blur is 20.
-            settings.backgroundBlur = Int((blur * 20).rounded())
+            settings.backgroundBlur = ConfigValue.int(blur * 20)
         }
         if (profile["ShouldLimitScrollback"] as? Bool) == true,
            let lines = ITerm2ProfileParser.int(profile["ScrollbackLines"]) {

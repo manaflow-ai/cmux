@@ -13,6 +13,10 @@ public struct GhosttyImportMapper: Sendable {
     ///
     /// Ghostty limits scrollback by memory, not lines, so line counts are converted with this estimate.
     public static let estimatedScrollbackBytesPerLine = 2_000
+    /// The largest padding, in points, written for one side; larger values would hide the grid.
+    public static let maximumPadding = 1_000
+    /// The strongest blur written; Ghostty warns that very high intensities render badly.
+    public static let maximumBlur = 100
 
     private let fontResolver: any FontFamilyResolving
 
@@ -52,11 +56,12 @@ public struct GhosttyImportMapper: Sendable {
         if let value = paddingValue(settings.paddingTop, settings.paddingBottom) {
             plan.settings.append(.init(key: "window-padding-y", value: value))
         }
-        if let opacity = settings.backgroundOpacity {
+        if let opacity = settings.backgroundOpacity, opacity.isFinite {
             plan.settings.append(.init(key: "background-opacity", value: Self.number(min(max(opacity, 0), 1))))
         }
         if let blur = settings.backgroundBlur {
-            plan.settings.append(.init(key: "background-blur", value: blur > 0 ? "\(blur)" : "false"))
+            let intensity = min(blur, Self.maximumBlur)
+            plan.settings.append(.init(key: "background-blur", value: intensity > 0 ? "\(intensity)" : "false"))
         }
         appendScrollback(for: settings, to: &plan)
         return plan
@@ -126,7 +131,7 @@ public struct GhosttyImportMapper: Sendable {
                 plan.notes.append("Font \"\(name)\" is not installed system-wide (it may ship inside the app), so the font family stays as is.")
             }
         }
-        if let size = settings.fontSize, size > 0 {
+        if let size = settings.fontSize, size.isFinite, size > 0 {
             plan.settings.append(.init(key: "font-size", value: Self.number(size)))
         }
     }
@@ -141,7 +146,8 @@ public struct GhosttyImportMapper: Sendable {
             return
         }
         guard let lines = settings.scrollbackLines, lines > 0 else { return }
-        let bytes = lines * Self.estimatedScrollbackBytesPerLine
+        let (product, overflow) = lines.multipliedReportingOverflow(by: Self.estimatedScrollbackBytesPerLine)
+        let bytes = overflow ? Int.max : product
         if bytes > Self.ghosttyDefaultScrollbackBytes {
             plan.settings.append(.init(key: "scrollback-limit", value: "\(bytes)"))
             plan.notes.append(
@@ -156,8 +162,10 @@ public struct GhosttyImportMapper: Sendable {
 
     /// Ghostty padding is whole points; one known side pads both.
     private func paddingValue(_ first: Double?, _ second: Double?) -> String? {
-        func points(_ value: Double) -> Int { max(0, Int(value.rounded())) }
-        switch (first, second) {
+        func points(_ value: Double) -> Int { min(max(0, ConfigValue.int(value) ?? 0), Self.maximumPadding) }
+        let finiteFirst = first.flatMap { $0.isFinite ? $0 : nil }
+        let finiteSecond = second.flatMap { $0.isFinite ? $0 : nil }
+        switch (finiteFirst, finiteSecond) {
         case (nil, nil):
             return nil
         case let (value?, nil), let (nil, value?):
@@ -169,9 +177,10 @@ public struct GhosttyImportMapper: Sendable {
 
     /// Formats a number without a trailing `.0` and with at most two decimals.
     static func number(_ value: Double) -> String {
+        guard value.isFinite else { return "0" }
         let rounded = (value * 100).rounded() / 100
-        if rounded == rounded.rounded() {
-            return String(Int(rounded))
+        if rounded == rounded.rounded(), let whole = ConfigValue.int(rounded) {
+            return String(whole)
         }
         var text = String(format: "%.2f", rounded)
         while text.hasSuffix("0") { text.removeLast() }

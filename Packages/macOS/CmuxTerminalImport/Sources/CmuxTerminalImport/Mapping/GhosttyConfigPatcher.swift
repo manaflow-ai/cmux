@@ -22,7 +22,11 @@ public struct GhosttyConfigPatcher: Sendable {
         to contents: String,
         header: String
     ) -> GhosttyConfigPatch {
-        var lines = contents.isEmpty ? [] : contents.components(separatedBy: "\n")
+        // A CRLF config stays CRLF, and no value carries a stray `\r` into the diff.
+        let lineEnding = contents.range(of: "\r\n") != nil ? "\r\n" : "\n"
+        var lines = contents.isEmpty ? [] : contents.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n").map { line in
+            line.unicodeScalars.last == "\r" ? String(line.dropLast()) : line
+        }
         if lines.last == "" { lines.removeLast() }
 
         var changes: [GhosttyConfigPatch.Change] = []
@@ -58,8 +62,8 @@ public struct GhosttyConfigPatcher: Sendable {
             lines.append("# \(header)")
             lines.append(contentsOf: appended)
         }
-        let body = lines.joined(separator: "\n")
-        return GhosttyConfigPatch(contents: body.isEmpty ? "" : body + "\n", changes: changes)
+        let body = lines.joined(separator: lineEnding)
+        return GhosttyConfigPatch(contents: body.isEmpty ? "" : body + lineEnding, changes: changes)
     }
 
     /// The key and value of an active `key = value` line, or `nil` for comments and blanks.

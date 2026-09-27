@@ -10,7 +10,7 @@ enum ConfigValue: Equatable {
     var string: String? {
         switch self {
         case .string(let value): return value
-        case .number(let value): return value == value.rounded() ? String(Int(value)) : String(value)
+        case .number(let value): return Int(exactly: value).map { String($0) } ?? String(value)
         case .bool(let value): return value ? "true" : "false"
         case .list: return nil
         }
@@ -18,7 +18,7 @@ enum ConfigValue: Equatable {
 
     var number: Double? {
         switch self {
-        case .number(let value): return value
+        case .number(let value): return value.isFinite ? value : nil
         case .string(let value): return Self.decimal(value.trimmingCharacters(in: .whitespaces))
         default: return nil
         }
@@ -50,8 +50,21 @@ enum ConfigValue: Equatable {
 
     /// A plain decimal number. `Double(_:)` also accepts hex (`0x1d1f21`), `inf` and `nan`,
     /// which would turn Alacritty's bare hex colors into numbers.
+    /// Overflowing input such as `1e999` is rejected rather than read as infinity.
     static func decimal(_ text: String) -> Double? {
-        guard !text.isEmpty, text.allSatisfy({ "0123456789.+-eE".contains($0) }) else { return nil }
-        return Double(text)
+        guard !text.isEmpty, text.allSatisfy({ "0123456789.+-eE".contains($0) }),
+              let value = Double(text), value.isFinite else { return nil }
+        return value
+    }
+
+    /// The largest magnitude a config number keeps before it is clamped.
+    static let integerLimit = 1_000_000_000_000_000.0
+
+    /// A config number as an `Int`, rounded and clamped so hostile values can't trap.
+    ///
+    /// - Returns: `nil` for NaN and infinity; otherwise the rounded value, clamped to ±``integerLimit``.
+    static func int(_ value: Double) -> Int? {
+        guard value.isFinite else { return nil }
+        return Int(min(max(value.rounded(), -integerLimit), integerLimit))
     }
 }

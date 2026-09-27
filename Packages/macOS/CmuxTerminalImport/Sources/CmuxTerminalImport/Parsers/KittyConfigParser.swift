@@ -113,13 +113,13 @@ public struct KittyConfigParser: Sendable {
         }
         settings.backgroundOpacity = values["background_opacity"].flatMap { ConfigValue.decimal($0) }
         if let blur = values["background_blur"].flatMap({ ConfigValue.decimal($0) }) {
-            settings.backgroundBlur = Int(blur)
+            settings.backgroundBlur = ConfigValue.int(blur)
         }
         if let lines = values["scrollback_lines"].flatMap({ ConfigValue.decimal($0) }) {
             if lines < 0 {
                 settings.unlimitedScrollback = true
             } else {
-                settings.scrollbackLines = Int(lines)
+                settings.scrollbackLines = ConfigValue.int(lines)
             }
         }
 

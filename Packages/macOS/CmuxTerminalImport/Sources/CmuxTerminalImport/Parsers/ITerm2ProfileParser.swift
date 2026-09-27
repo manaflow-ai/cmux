@@ -38,7 +38,7 @@ public struct ITerm2ProfileParser: Sendable {
 
         if let font = profile["Normal Font"] as? String {
             let parts = font.split(separator: " ")
-            if parts.count >= 2, let size = Double(parts[parts.count - 1]) {
+            if parts.count >= 2, let size = ConfigValue.decimal(String(parts[parts.count - 1])) {
                 settings.fontName = parts.dropLast().joined(separator: " ")
                 settings.fontSize = size
             } else {
@@ -87,7 +87,7 @@ public struct ITerm2ProfileParser: Sendable {
             settings.backgroundOpacity = 1 - transparency
         }
         if let blur = profile["Blur"] as? Bool {
-            settings.backgroundBlur = blur ? Int((Self.double(profile["Blur Radius"]) ?? 2).rounded()) : 0
+            settings.backgroundBlur = blur ? ConfigValue.int(Self.double(profile["Blur Radius"]) ?? 2) : 0
         }
 
         if (profile["Unlimited Scrollback"] as? Bool) == true {
@@ -141,13 +141,17 @@ public struct ITerm2ProfileParser: Sendable {
         return TerminalColor(red: red, green: green, blue: blue, space: space)
     }
 
+    /// A finite number from a plist value; NaN, infinity and non-numeric text read as absent.
     static func double(_ value: Any?) -> Double? {
-        if let number = value as? NSNumber { return number.doubleValue }
-        if let string = value as? String { return Double(string) }
+        if let number = value as? NSNumber {
+            let double = number.doubleValue
+            return double.isFinite ? double : nil
+        }
+        if let string = value as? String { return ConfigValue.decimal(string) }
         return nil
     }
 
     static func int(_ value: Any?) -> Int? {
-        double(value).map { Int($0) }
+        double(value).flatMap(ConfigValue.int)
     }
 }

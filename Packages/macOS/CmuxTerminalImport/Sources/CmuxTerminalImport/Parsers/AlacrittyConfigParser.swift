@@ -99,7 +99,7 @@ public struct AlacrittyConfigParser: Sendable {
             settings.backgroundBlur = blur ? 20 : 0
         }
         if let history = values["scrolling.history"]?.number {
-            settings.scrollbackLines = Int(history)
+            settings.scrollbackLines = ConfigValue.int(history)
         }
 
         if values["font.offset.y"] != nil || values["font.offset.x"] != nil {

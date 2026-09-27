@@ -76,10 +76,10 @@ public struct WezTermConfigParser: Sendable {
         }
         settings.backgroundOpacity = values["window_background_opacity"]?.number
         if let blur = values["macos_window_background_blur"]?.number {
-            settings.backgroundBlur = Int(blur)
+            settings.backgroundBlur = ConfigValue.int(blur)
         }
         if let lines = values["scrollback_lines"]?.number {
-            settings.scrollbackLines = Int(lines)
+            settings.scrollbackLines = ConfigValue.int(lines)
         }
         if values["line_height"] != nil {
             settings.unmapped.append("line_height is not imported (see Ghostty's adjust-cell-height).")
