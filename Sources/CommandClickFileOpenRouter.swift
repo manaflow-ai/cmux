@@ -71,6 +71,29 @@ enum CommandClickFileOpenRouter {
         )
     }
 
+    /// Executes configured file handlers for a batch in the config registry's
+    /// precedence order, returning one handled flag per input path.
+    @MainActor
+    static func openConfiguredFileActions(workspace: Workspace, filePaths: [String]) -> [Bool] {
+        guard let context = configContext(for: workspace) else {
+            return Array(repeating: false, count: filePaths.count)
+        }
+        let actions = context.configStore.fileActions(for: filePaths)
+        return zip(filePaths, actions).map { filePath, action in
+            guard let action else { return false }
+            return CmuxConfigExecutor.executeFileAction(
+                action: action,
+                filePath: filePath,
+                commands: context.configStore.loadedCommands,
+                commandSourcePaths: context.configStore.commandSourcePaths,
+                tabManager: context.tabManager,
+                baseCwd: workspace.currentDirectory,
+                globalConfigPath: context.configStore.globalConfigPath,
+                presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(workspace.id)
+            )
+        }
+    }
+
     @MainActor
     private static func configuredFileAction(
         workspace: Workspace,

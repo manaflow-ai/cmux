@@ -1823,6 +1823,11 @@ final class CmuxConfigStore: ObservableObject {
         let filePatternsSourcePath: String?
     }
 
+    private struct FileActionEntry {
+        let action: CmuxResolvedConfigAction
+        let matcher: CmuxFilePatternMatcher
+    }
+
     private struct ResolvedSurfaceTabBarButtonEntry {
         let button: CmuxSurfaceTabBarButton
         let terminalCommandSourcePath: String?
@@ -1878,6 +1883,7 @@ final class CmuxConfigStore: ObservableObject {
     }
 
     private var surfaceTabBarWorkspaceCommands: [String: CmuxResolvedCommand] = [:]
+    private var fileActionEntries: [FileActionEntry] = []
     private var resolvedNewWorkspaceCommandCache: CmuxResolvedCommand?
     private var resolvedNewWorkspaceActionCache: CmuxResolvedConfigAction?
     private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
@@ -2262,6 +2268,15 @@ final class CmuxConfigStore: ObservableObject {
         )
         loadedCommands = commands
         loadedActions = resolvedActions
+        fileActionEntries = resolvedActions.compactMap { action in
+            guard action.terminalCommand != nil,
+                  let filePatterns = action.filePatterns,
+                  !filePatterns.isEmpty else { return nil }
+            return FileActionEntry(
+                action: action,
+                matcher: CmuxFilePatternMatcher(patterns: filePatterns)
+            )
+        }
         commandSourcePaths = sourcePaths
         actionLookup = resolvedActionLookup
         newWorkspaceActionID = configuredNewWorkspaceActionID
@@ -2843,12 +2858,29 @@ final class CmuxConfigStore: ObservableObject {
     /// Actions are already resolved in their deterministic registry order, so
     /// the first match also gives project/local configuration precedence.
     func fileAction(for filePath: String) -> CmuxResolvedConfigAction? {
-        loadedActions.first { action in
-            guard action.terminalCommand != nil,
-                  let filePatterns = action.filePatterns,
-                  !filePatterns.isEmpty else { return false }
-            return CmuxFilePatternMatcher(patterns: filePatterns).matches(path: filePath)
+        guard FileRouteSettingsStore().isReadableRegularFile(path: filePath) else {
+            return nil
         }
+        return fileActionEntries.first { entry in
+            entry.matcher.matches(path: filePath)
+        }?.action
+    }
+
+    /// Resolves configured file actions for a batch while reusing the
+    /// pre-normalized matcher list and preserving action precedence.
+    func fileActions(for filePaths: [String]) -> [CmuxResolvedConfigAction?] {
+        guard !filePaths.isEmpty else { return [] }
+        let settings = FileRouteSettingsStore()
+        let readable = filePaths.map { settings.isReadableRegularFile(path: $0) }
+        var matches = Array<CmuxResolvedConfigAction?>(repeating: nil, count: filePaths.count)
+        for entry in fileActionEntries {
+            for index in filePaths.indices where readable[index] && matches[index] == nil {
+                if entry.matcher.matches(path: filePaths[index]) {
+                    matches[index] = entry.action
+                }
+            }
+        }
+        return matches
     }
 
     func paletteCustomActions() -> [CmuxResolvedConfigAction] {

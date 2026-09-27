@@ -29,19 +29,81 @@ struct CmuxFilePatternMatcher: Sendable, Hashable {
 struct CmuxFileActionCommand: Sendable, Hashable {
     let command: String
 
-    /// Replaces `{file}` with one shell-safe argument, including when the
-    /// placeholder is surrounded by a pair of shell quotes in the config.
+    /// Replaces `{file}` with a shell-safe value that respects the quote
+    /// context around the placeholder in the configured command.
     func substituting(filePath: String) -> String {
-        let quotedPath = Self.singleQuoted(filePath)
-        var substituted = command
-            .replacingOccurrences(of: "\"{file}\"", with: quotedPath)
-            .replacingOccurrences(of: "'{file}'", with: quotedPath)
-        substituted = substituted.replacingOccurrences(of: "{file}", with: quotedPath)
-        return substituted
+        enum QuoteContext {
+            case unquoted
+            case single
+            case double
+        }
+
+        let characters = Array(command)
+        var result = ""
+        var quoteContext = QuoteContext.unquoted
+        var escaped = false
+        var index = 0
+
+        while index < characters.count {
+            if !escaped,
+               index + 5 < characters.count,
+               characters[index] == "{",
+               characters[index + 1] == "f",
+               characters[index + 2] == "i",
+               characters[index + 3] == "l",
+               characters[index + 4] == "e",
+               characters[index + 5] == "}" {
+                switch quoteContext {
+                case .unquoted:
+                    result += Self.singleQuoted(filePath)
+                case .single:
+                    // Close and reopen the surrounding single-quoted text so
+                    // the path's own single quotes can be represented safely.
+                    result += "'" + Self.singleQuoted(filePath) + "'"
+                case .double:
+                    result += Self.doubleQuoted(filePath)
+                }
+                index += 6
+                continue
+            }
+
+            let character = characters[index]
+            result.append(character)
+            if escaped {
+                escaped = false
+            } else if character == "\\" && quoteContext != .single {
+                escaped = true
+            } else {
+                switch (quoteContext, character) {
+                case (.unquoted, "'"):
+                    quoteContext = .single
+                case (.single, "'"):
+                    quoteContext = .unquoted
+                case (.unquoted, "\""):
+                    quoteContext = .double
+                case (.double, "\""):
+                    quoteContext = .unquoted
+                default:
+                    break
+                }
+            }
+            index += 1
+        }
+
+        return result
     }
 
     private static func singleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func doubleQuoted(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "$", with: "\\$")
+            .replacingOccurrences(of: "`", with: "\\`")
+            .replacingOccurrences(of: "!", with: "\\!")
     }
 }
 

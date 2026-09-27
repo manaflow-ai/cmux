@@ -93,7 +93,25 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         XCTAssertEqual(
             command.substituting(filePath: "/tmp/diagram with 'quote'.excalidraw"),
-            "cmux-excalidraw '/tmp/diagram with '\\''quote'\\''.excalidraw' --label '/tmp/diagram with '\\''quote'\\''.excalidraw'"
+            "cmux-excalidraw \"/tmp/diagram with 'quote'.excalidraw\" --label '/tmp/diagram with '\\''quote'\\''.excalidraw'"
+        )
+    }
+
+    func testFileActionCommandSubstitutionEscapesEmbeddedDoubleQuotedMetacharacters() {
+        let command = CmuxFileActionCommand(command: "preview \"before-{file}-after\"")
+
+        XCTAssertEqual(
+            command.substituting(filePath: "/tmp/$(touch /tmp/pwned)-$HOME.txt"),
+            "preview \"before-/tmp/\\$(touch /tmp/pwned)-\\$HOME.txt-after\""
+        )
+    }
+
+    func testFileActionCommandSubstitutionEscapesEmbeddedSingleQuotedPaths() {
+        let command = CmuxFileActionCommand(command: "preview 'before-{file}-after'")
+
+        XCTAssertEqual(
+            command.substituting(filePath: "/tmp/diagram with 'quote'.excalidraw"),
+            "preview 'before''/tmp/diagram with '\\''quote'.excalidraw''-after'"
         )
     }
 
@@ -1750,6 +1768,13 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(action.actionSourcePath, globalConfigURL.path)
         XCTAssertEqual(action.filePatternsSourcePath, localConfigURL.path)
         XCTAssertEqual(action.filePatterns, ["*.excalidraw"])
+
+        let regularFileURL = root.appendingPathComponent("drawing.excalidraw")
+        XCTAssertTrue(FileManager.default.createFile(atPath: regularFileURL.path, contents: Data()))
+        let matchingDirectoryURL = root.appendingPathComponent("directory.excalidraw", isDirectory: true)
+        try FileManager.default.createDirectory(at: matchingDirectoryURL, withIntermediateDirectories: false)
+        XCTAssertEqual(store.fileAction(for: regularFileURL.path)?.id, "diagram.preview")
+        XCTAssertNil(store.fileAction(for: matchingDirectoryURL.path))
     }
 
     @MainActor

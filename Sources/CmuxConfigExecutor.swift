@@ -154,8 +154,7 @@ struct CmuxConfigExecutor {
         tabManager: TabManager,
         baseCwd: String,
         globalConfigPath: String,
-        presentingWindow: NSWindow? = nil,
-        onExecuted: (() -> Void)? = nil
+        presentingWindow: NSWindow? = nil
     ) -> Bool {
         guard let command = action.terminalCommand else { return false }
         let expandedPath = NSString(string: filePath).expandingTildeInPath
@@ -172,8 +171,7 @@ struct CmuxConfigExecutor {
             tabManager: tabManager,
             baseCwd: baseCwd,
             globalConfigPath: globalConfigPath,
-            presentingWindow: presentingWindow,
-            onExecuted: onExecuted
+            presentingWindow: presentingWindow
         )
     }
 

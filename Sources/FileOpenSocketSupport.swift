@@ -135,11 +135,12 @@ extension TerminalController {
 
             var defaultFilePaths: [String] = []
             var configuredActionCount = 0
-            for filePath in filePaths {
-                if CommandClickFileOpenRouter.openConfiguredFileAction(
-                    workspace: ws,
-                    filePath: filePath
-                ) {
+            let configuredActions = CommandClickFileOpenRouter.openConfiguredFileActions(
+                workspace: ws,
+                filePaths: filePaths
+            )
+            for (filePath, handled) in zip(filePaths, configuredActions) {
+                if handled {
                     configuredActionCount += 1
                 } else {
                     defaultFilePaths.append(filePath)
