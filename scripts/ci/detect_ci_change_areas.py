@@ -154,6 +154,7 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
     "scripts/ci/compile-app-host-test-product.sh",
     "scripts/ci/product_input_identity.py",
     "scripts/ci/peer_product_source.py",
+    "scripts/ci/relocate_package_framework_rpaths.py",
     "scripts/ci/restore-app-host-test-product.sh",
     "scripts/ci/reuse_app_host_products.py",
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
@@ -550,7 +551,10 @@ def _python_names(text: str, token: str, *, imports_only: bool = False) -> Optio
     for node in ast.walk(tree):
         if isinstance(node, ast.Import) and any(alias.name.split(".")[-1] == token for alias in node.names):
             return True
-        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[-1] == token:
+        # `from scripts.ci import helper` and `from . import helper` import helper too.
+        if isinstance(node, ast.ImportFrom) and (
+            (node.module or "").split(".")[-1] == token or any(alias.name == token for alias in node.names)
+        ):
             return True
         if (not imports_only and isinstance(node, ast.Constant) and isinstance(node.value, str)
                 and id(node) not in docstrings and whole_name.search(node.value)):
@@ -868,6 +872,7 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     # What restore-app-host-test-product.sh itself runs.
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/canonical-build-root.sh",
+    "scripts/ci/relocate_package_framework_rpaths.py",
     # Seeds the checkout of compile admission and cli-product-tests.
     "scripts/ci/git-seed.sh",
 })
@@ -897,11 +902,11 @@ CLI_LANE_INPUT_PREFIXES = (
 # deliberate on both sides:
 #
 #   * select_package_tests.py fails open, so an unrecognized path (or an edit
-#     to the lane's own workflow) selects all 33 packages. On main that is
+#     to the lane's own workflow) selects every package. On main that is
 #     right, because the lane is running regardless and only its list is in
 #     question. Routing a pull request that way would be the 30-minute sweep
 #     under another name: over the last 200 merged pull requests it would have
-#     queued 34 full 33-package runs. Those changes keep their existing
+#     queued 34 full package sweeps. Those changes keep their existing
 #     coverage from the push to main.
 #   * A package outside the job's own list selects nothing, so the lane would
 #     start, check out submodules, and test zero packages. Asking the selector

@@ -41,7 +41,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.isFirstRow == rhs.isFirstRow &&
             lhs.isBeingDragged == rhs.isBeingDragged &&
             lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
-            lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible
+            lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible &&
+            lhs.notificationBadgeColorHex == rhs.notificationBadgeColorHex
     }
 
     let groupId: UUID
@@ -75,6 +76,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
+    /// Notification Badge color setting; nil falls back to the cmux accent.
+    let notificationBadgeColorHex: String?
     /// Shared group-header actions used by both the lazy SwiftUI row and the
     /// retained AppKit table cell.
     let actions: SidebarGroupHeaderRowActions
@@ -82,6 +85,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onContextMenuDisappear: () -> Void
 
     @State private var contextMenuVisible = false
+    @Environment(\.colorScheme) private var colorScheme
 
 #if DEBUG
     // Plain-value environment probe set only by SidebarLazyLayoutScaleTests;
@@ -176,7 +180,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                         .foregroundStyle(.white)
                         .padding(.horizontal, metrics.unreadHorizontalPadding)
                         .padding(.vertical, metrics.unreadVerticalPadding)
-                        .background(Capsule().fill(Color.accentColor))
+                        .background(Capsule().fill(Color(nsColor: cmuxNotificationBadgeNSColor(
+                            hex: notificationBadgeColorHex,
+                            fallback: cmuxAccentNSColor(for: colorScheme)
+                        ))))
                         .accessibilityLabel(Text(String.localizedStringWithFormat(
                             String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
                             anchorUnreadCount

@@ -21,7 +21,7 @@ extension ShortcutAction {
              .nextSidebarTab, .prevSidebarTab,
              .nextSidebarTabInGroup, .prevSidebarTabInGroup,
              .moveWorkspaceUp, .moveWorkspaceDown,
-             .focusHistoryBack, .focusHistoryForward, .selectWorkspaceByNumber,
+             .focusHistoryBack, .focusHistoryForward, .focusHistoryLast, .selectWorkspaceByNumber,
              .renameTab, .renameWorkspace, .editWorkspaceDescription,
              .markWorkspaceDone, .cycleWorkspaceStatus, .toggleChecklistItemComplete,
              .closeTab, .closeOtherTabsInPane, .closeWorkspace,

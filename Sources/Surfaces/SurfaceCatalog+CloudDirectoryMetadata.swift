@@ -9,7 +9,7 @@ extension SurfaceCatalog {
     /// provider, or a resource whose identity disappeared cannot become a displayed path.
     private func acceptedStaleCloudDirectory(for resource: SurfaceResource) -> String? {
         guard resource.kind == .terminal,
-              resource.machine.cloudMachineID != nil,
+              resource.machine.tuiMachineID != nil,
               cloudStateObservations[resource.machine]?.freshness == .stale,
               let directory = cloudStates[resource.machine]?.lookupIndex.terminal(id: resource.id.key)?.cwd else {
             return nil
@@ -25,7 +25,7 @@ extension SurfaceCatalog {
         // Cloud VM freshness is tracked in `cloudStateObservations`; device
         // mirrors receive their directory from the synced workspace record and
         // intentionally have no CloudVM observation to consult.
-        guard resource.kind == .terminal, resource.machine.cloudMachineID != nil else { return resource }
+        guard resource.kind == .terminal, resource.machine.tuiMachineID != nil else { return resource }
         guard cloudStateObservations[resource.machine]?.freshness != .current else { return resource }
         var result = resource
         result.detail = acceptedStaleCloudDirectory(for: resource)
@@ -46,7 +46,7 @@ extension SurfaceCatalog {
             return
         }
         for workspace in cloudWorkspaceRenameService.environment.workspaces()
-            where (machine.cloudMachineID != nil && workspace.cloudVMID == machine.cloudMachineID) || projectedWorkspaceIDs.contains(workspace.id)
+            where (machine.tuiMachineID != nil && workspace.cloudVMBinding?.vmID == machine.tuiMachineID) || projectedWorkspaceIDs.contains(workspace.id)
                 || workspace.cloudBindingState.projectedResources.values.contains(where: { $0.machine == machine }) {
             updateCloudDirectoryMetadata(in: workspace)
         }

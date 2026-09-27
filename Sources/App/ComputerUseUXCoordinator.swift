@@ -323,6 +323,7 @@ final class ComputerUseUXCoordinator {
             return onboardingCoordinator
         }
         let coordinator = ComputerUseOnboardingCoordinator(
+            runtimeService: runtimeService,
             presenter: { [weak self] startingPoint in
                 self?.presentOnboardingWindow(startingAt: startingPoint)
             }
@@ -367,9 +368,7 @@ final class ComputerUseUXCoordinator {
             // Authenticated hook ingress has already established ownership of a
             // live local terminal. Agent process indexing may lag the first
             // hook, so it is used only for session bookkeeping below.
-            if runtimeService.requestAutomaticOnboarding() {
-                _ = ensureOnboardingCoordinator().requestFromToolInvocation()
-            }
+            _ = ensureOnboardingCoordinator().requestFromToolInvocation()
         }
         if isFunctionalInvocation,
            ownsLocalSurface,

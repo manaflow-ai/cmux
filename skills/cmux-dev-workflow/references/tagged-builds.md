@@ -13,6 +13,16 @@ Use `--build-only` only for an explicit compile/validation pass. It leaves the r
 
 Other local variants: `reloadp.sh` (Release), `reloads.sh` (isolated Release staging) and `reload2.sh --tag <tag>` (both).
 
+`reloadp.sh` builds with the stable bundle id `com.cmuxterm.app`, the same id as the user's installed cmux. It refuses to run while another stable-id cmux is running, and `reload.sh --bundle-id` accepts only `com.cmuxterm.app.debug.*` ids in that namespace. Don't work around either: quitting, killing, relaunching or profiling the user's running cmux drops their live agent sessions. Use a tag, and profile by attaching to the tagged pid.
+
+## The user's running cmux
+
+The installed cmux (`/Applications/cmux.app`, bundle id `com.cmuxterm.app`, process `cmux`) holds the user's live agent sessions. Never quit, kill (`pkill -x cmux`, `killall cmux`), relaunch or profile it with `xctrace --launch` or Instruments, and never launch a locally built Release app or any other bundle that uses `com.cmuxterm.app` while it runs. To reproduce the user's state, copy their session into the tagged build instead of touching the running app. Profile only by attaching to a tagged build's pid.
+
+A different bundle with the stable id exits instead of replacing the running app (`SingleInstanceConflictPolicy`). `CMUX_ALLOW_REPLACING_RUNNING_CMUX=1` overrides that, and only the user sets it.
+
+## Prebuilt GhosttyKit
+
 For prebuilt GhosttyKit, run `./scripts/download-prebuilt-ghosttykit.sh` (it verifies the pinned artifact), then use `CMUX_GHOSTTYKIT_PREPROVISIONED=1` with the tagged reload.
 
 ## Compile-only checks
@@ -31,7 +41,7 @@ cd ghostty && zig build -Demit-xcframework=true -Dxcframework-target=universal -
 
 ## App path links
 
-`reload.sh` prints an `App path:` line with the absolute path to the built `.app`. Use it to confirm the tag built, but link the build in chat as `http://127.0.0.1:17320/<tag>` through the local Tag Opener. Never put a `file://` URL, a raw `.app` or DerivedData path, or a `/tmp/cmux-<tag>/...` link in chat output.
+`reload.sh` prints an `App path:` line with the absolute path to the built `.app`. Use it to confirm the tag built. Never put a `file://` URL, a raw `.app` or DerivedData path, or a `/tmp/cmux-<tag>/...` link in chat output.
 
 ## Tagged CLI and socket
 

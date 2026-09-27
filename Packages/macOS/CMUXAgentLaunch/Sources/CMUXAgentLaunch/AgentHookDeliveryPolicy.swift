@@ -51,6 +51,12 @@ public struct AgentHookDeliveryPolicy: Sendable {
         "amp": ["title-update", "lifecycle"],
         "claude": ["pre-tool-use", "push-notification", "feed"],
         "codex": ["pre-tool-use", "post-tool-use"],
+        // OMP and Pi run subagents headless inside the parent's process, so a
+        // child has no live bound process of its own. These lifecycle-only
+        // events attribute to the existing parent record and never affect the
+        // agent's next decision.
+        "omp": ["subagent-start", "subagent-stop"],
+        "pi": ["subagent-start", "subagent-stop"],
     ]
 
     /// Creates the shared queued-delivery policy.

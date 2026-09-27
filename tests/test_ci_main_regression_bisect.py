@@ -127,14 +127,16 @@ class StateMachineTests(unittest.TestCase):
         self.assertNotIn("culprit", state["items"][0])
 
     def test_a_commit_without_the_test_counts_as_passing(self):
-        # The test was added at C[2] and broken at C[5].
+        # The test was added at C[4] and broken at C[5]; the first midpoint,
+        # C[2], lacks it, so the bisection must read absent as passing.
         def outcome(sha):
-            if sha in C and C.index(sha) < 2:
+            if sha in C and C.index(sha) < 4:
                 return "absent"
             return "fail" if sha == HEAD or (sha in C and C.index(sha) >= 5) else "pass"
         harness = Harness(outcome)
         state, runs = MODULE.empty_state(), {7: data()}
         drive(harness, state, runs, steps=20)
+        self.assertIn(C[2], [sha for _, sha in harness.dispatched])
         self.assertEqual(state["items"][0]["culprit"]["sha"], C[5])
 
     def test_a_missing_test_at_the_head_is_an_error(self):
@@ -276,7 +278,41 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(MODULE.classify(failed, steps(["Run selected tests"])), "fail")
         self.assertEqual(MODULE.classify(failed, steps(["Build the app-host and UI test product"])), "error")
         self.assertEqual(MODULE.classify(failed, steps(["Resolve selectors against the built tests"])), "absent")
+        # test-e2e.yml's action fails both steps when a selector does not resolve.
+        self.assertEqual(MODULE.classify(failed, steps(["Run selected tests", "Resolve selectors against the built tests"])), "absent")
         self.assertEqual(MODULE.classify({"status": "completed", "conclusion": "cancelled"}, steps([])), "error")
+        # The Mac failed the test step before any test started: not a reproduction.
+        machine = lambda: "Failed to initialize for UI testing: Timed out while enabling automation mode.\n"  # noqa: E731
+        self.assertEqual(MODULE.classify(failed, steps(["Run selected tests"]), machine), "error")
+
+    def test_a_hung_gh_call_reads_as_a_pending_run(self):
+        from unittest import mock
+        import subprocess
+        seen = {}
+
+        def hang(command, **kwargs):
+            seen["timeout"] = kwargs.get("timeout")
+            raise subprocess.TimeoutExpired(command, kwargs.get("timeout"))
+
+        with mock.patch.object(MODULE.subprocess, "run", side_effect=hang):
+            self.assertEqual(MODULE.poll_run("o/r", 7), "pending")
+        self.assertEqual(seen["timeout"], MODULE.GH_TIMEOUT_SECONDS)
+
+    def test_every_e2e_job_that_runs_tests_names_both_steps(self):
+        # The jobs API lists only top-level steps, never an action's own.
+        import yaml
+        jobs = yaml.safe_load((ROOT / ".github/workflows/test-e2e.yml").read_text())["jobs"]
+        action = yaml.safe_load((ROOT / ".github/actions/e2e-run-tests/action.yml").read_text())
+        for job in ("build", "test"):
+            with self.subTest(job=job):
+                steps = {step.get("name"): step for step in jobs[job]["steps"]}
+                self.assertEqual(steps[MODULE.TEST_STEP]["uses"], "./.e2e-workflow/.github/actions/e2e-run-tests")
+                self.assertEqual(steps[MODULE.TEST_STEP]["id"], "tests")
+                resolve = steps[MODULE.RESOLVE_STEP]
+                self.assertIn("steps.tests.outcome == 'failure'", resolve["if"])
+                self.assertIn("cmux-e2e-selectors-unresolved", resolve["run"])
+        marker = next(step for step in action["runs"]["steps"] if "cmux-e2e-selectors-unresolved" in str(step.get("run")))
+        self.assertIn("steps.resolve-selectors.outcome == 'failure'", marker["if"])
 
 
 class MarkerTests(unittest.TestCase):
