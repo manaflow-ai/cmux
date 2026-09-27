@@ -69,12 +69,12 @@ extension CmuxTuiSurfaceProvider {
         #endif
     }
     // MARK: Agent hooks
-    /// Replays the daemon's agent roster into the local hook queue so an agent
-    /// in a `cmux ssh` pane drives the sidebar (status, Needs input, resume
-    /// session id) like a local one. Runs with every accepted state and every
-    /// catalog change, so a transition whose pane was not open yet is caught
-    /// up when it opens. Visible notifications stay with the daemon's durable
-    /// rows (`syncNotifications`); the replayed hooks only mutate state.
+    /// Replays the session identity of Claude agents in `cmux ssh` panes into
+    /// the local hook queue, so the Mac's hook pipeline knows the remote
+    /// agent's session. Runs with every accepted state and every catalog
+    /// change, so a session whose pane was not open yet is caught up when it
+    /// opens. Sidebar status comes from the roster projection, and visible
+    /// notifications from the daemon's durable rows (`syncNotifications`).
     func syncAgentHooks(from state: CloudVMState) {
         guard machine.isSSH else { return }
         let machine = self.machine

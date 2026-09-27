@@ -725,42 +725,48 @@ struct AgentHookDeliveryQueueTests {
         #expect(directEnvironment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == nil)
     }
 
-    @Test("Mirrored cmux-tui agent hooks replay relay-backed to the local pane without banners")
+    @Test("Mirrored cmux-tui session hooks replay relay-backed to the local pane")
     func mirroredAgentHookEvent() throws {
         let workspaceID = UUID()
         let surfaceID = UUID()
-        let event = try #require(AgentHookDeliveryEvent.mirrored(
+        let process = AgentHookDeliveryProcess(executableURLProvider: { nil })
+        let start = try #require(AgentHookDeliveryEvent.mirrored(
             agent: "claude",
-            subcommand: "notification",
-            payload: #"{"hook_event_name":"Notification","notification_type":"permission_prompt","session_id":"s1"}"#,
+            subcommand: "session-start",
+            payload: #"{"hook_event_name":"SessionStart","session_id":"s1"}"#,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             deliverySocketPath: "/tmp/cmux-local.sock"
         ))
-        #expect(event.relayBacked)
-        #expect(event.sessionID == "s1")
-        #expect(event.deliveryArguments == ["hooks", "claude", "notification"])
-        #expect(event.orderingKey == "/tmp/cmux-local.sock\0surface\0\(surfaceID.uuidString)")
-
-        let environment = AgentHookDeliveryProcess(executableURLProvider: { nil }).deliveryEnvironment(
-            event: event,
+        #expect(start.relayBacked)
+        #expect(start.sessionID == "s1")
+        #expect(start.deliveryArguments == ["hooks", "claude", "session-start"])
+        #expect(start.orderingKey == "/tmp/cmux-local.sock\0surface\0\(surfaceID.uuidString)")
+        let startEnvironment = process.deliveryEnvironment(
+            event: start,
             executableURL: URL(fileURLWithPath: "/bin/true")
         )
-        #expect(environment["CMUX_WORKSPACE_ID"] == workspaceID.uuidString)
-        #expect(environment["CMUX_SURFACE_ID"] == surfaceID.uuidString)
-        #expect(environment["CMUX_AGENT_HOOK_SUPPRESS_NOTIFICATIONS"] == "1")
-        #expect(environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] == nil)
-        #expect(environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == "1")
+        #expect(startEnvironment["CMUX_WORKSPACE_ID"] == workspaceID.uuidString)
+        #expect(startEnvironment["CMUX_SURFACE_ID"] == surfaceID.uuidString)
+        #expect(startEnvironment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == "1")
+        #expect(startEnvironment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] == nil)
 
-        // Decision hooks never take the queued path, mirrored or not.
-        #expect(AgentHookDeliveryEvent.mirrored(
+        // Session end keeps the record/journal cleanup but not the visible
+        // status and notification cleanup owned by the roster projection.
+        let end = try #require(AgentHookDeliveryEvent.mirrored(
             agent: "claude",
-            subcommand: "permission-request",
-            payload: "{}",
+            subcommand: "session-end",
+            payload: #"{"hook_event_name":"SessionEnd","session_id":"s1"}"#,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             deliverySocketPath: "/tmp/cmux-local.sock"
-        ) == nil)
+        ))
+        let endEnvironment = process.deliveryEnvironment(
+            event: end,
+            executableURL: URL(fileURLWithPath: "/bin/true")
+        )
+        #expect(endEnvironment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] == "1")
+        #expect(end.orderingKey == start.orderingKey)
     }
 
     @Test("Oversized optional launch metadata does not discard lifecycle routing")

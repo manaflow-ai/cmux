@@ -26,8 +26,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// change, not a daemon state; it re-runs the fold so rows that had no
     /// local target get delivered.
     var notificationPlacementObserver: NSObjectProtocol?
-    /// What this machine's agent roster last replayed into the local hook
-    /// queue, so repeated snapshots do not replay the same transition.
+    /// The agent sessions this machine's roster last replayed into the local
+    /// hook queue, so repeated snapshots do not replay the same session.
     var agentHookMirror = CloudVMAgentHookMirror()
     let links: any RemoteTuiLinkManaging
     unowned let catalog: SurfaceCatalog

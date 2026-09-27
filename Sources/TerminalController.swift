@@ -456,7 +456,7 @@ class TerminalController {
         weak var controller: TerminalController?
     }
 
-    /// Queues a hook the app observed for a remote agent (the cmux-tui agent
+    /// Queues a session hook the app observed for a remote agent (the cmux-tui agent
     /// roster of a `cmux ssh` machine) through the same relay-backed delivery
     /// lane as `agent.hook.enqueue`, routed to the local pane showing it.
     /// - Returns: `false` when the socket is not listening, the event is

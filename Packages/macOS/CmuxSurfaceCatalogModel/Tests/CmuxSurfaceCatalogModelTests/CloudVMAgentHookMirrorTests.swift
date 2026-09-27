@@ -22,33 +22,25 @@ struct CloudVMAgentHookMirrorTests {
         events.map(\.kind)
     }
 
-    @Test("A new agent replays its session start before its state")
-    func newAgentReplaysSessionThenState() {
+    @Test("A new agent with a session id replays one session start")
+    func newAgentReplaysSessionStart() {
         var mirror = CloudVMAgentHookMirror()
         let events = mirror.reconcile(agents: [claude(state: "working")], routableTerminalIDs: ["term_1"])
-        #expect(kinds(events) == [.sessionStart, .promptSubmit])
-        #expect(events.allSatisfy { $0.agent == "claude" && $0.agentSessionID == "claude-session-a" })
+        #expect(kinds(events) == [.sessionStart])
+        #expect(events.first?.agent == "claude")
+        #expect(events.first?.agentSessionID == "claude-session-a")
     }
 
-    @Test("Each daemon state maps to its hook transition")
-    func stateTransitions() {
+    @Test("State changes and repeated snapshots replay nothing")
+    func stateChangesAreNotReplayed() {
         var mirror = CloudVMAgentHookMirror()
         _ = mirror.reconcile(agents: [claude(state: "working")], routableTerminalIDs: ["term_1"])
-        #expect(kinds(mirror.reconcile(agents: [claude(state: "blocked")], routableTerminalIDs: ["term_1"])) == [.needsInput])
-        #expect(kinds(mirror.reconcile(agents: [claude(state: "working")], routableTerminalIDs: ["term_1"])) == [.promptSubmit])
-        #expect(kinds(mirror.reconcile(agents: [claude(state: "idle")], routableTerminalIDs: ["term_1"])) == [.stop])
-        #expect(mirror.reconcile(agents: [claude(state: "unknown")], routableTerminalIDs: ["term_1"]).isEmpty)
+        for state in ["blocked", "idle", "working", "idle", "unknown"] {
+            #expect(mirror.reconcile(agents: [claude(state: state)], routableTerminalIDs: ["term_1"]).isEmpty)
+        }
     }
 
-    @Test("Repeated snapshots of the same roster emit nothing")
-    func repeatedSnapshotsAreDeduped() {
-        var mirror = CloudVMAgentHookMirror()
-        _ = mirror.reconcile(agents: [claude(state: "idle")], routableTerminalIDs: ["term_1"])
-        #expect(mirror.reconcile(agents: [claude(state: "idle")], routableTerminalIDs: ["term_1"]).isEmpty)
-        #expect(mirror.reconcile(agents: [claude(state: "idle")], routableTerminalIDs: ["term_1"]).isEmpty)
-    }
-
-    @Test("A changed session id starts the new session and reasserts state")
+    @Test("A changed session id starts the new session")
     func sessionChange() {
         var mirror = CloudVMAgentHookMirror()
         _ = mirror.reconcile(agents: [claude(state: "idle")], routableTerminalIDs: ["term_1"])
@@ -56,22 +48,21 @@ struct CloudVMAgentHookMirrorTests {
             agents: [claude(state: "idle", session: "claude-session-b")],
             routableTerminalIDs: ["term_1"]
         )
-        #expect(kinds(events) == [.sessionStart, .stop])
-        #expect(events.allSatisfy { $0.agentSessionID == "claude-session-b" })
+        #expect(kinds(events) == [.sessionStart])
+        #expect(events.first?.agentSessionID == "claude-session-b")
     }
 
-    @Test("Without a session id, status still flows and no session start is sent")
+    @Test("An agent without a session id replays nothing until the id arrives")
     func missingSessionID() {
         var mirror = CloudVMAgentHookMirror()
-        let first = mirror.reconcile(agents: [claude(state: "working", session: nil)], routableTerminalIDs: ["term_1"])
-        #expect(kinds(first) == [.promptSubmit])
-        #expect(first.first?.agentSessionID == nil)
-        #expect(!first[0].payload.contains("session_id"))
-
-        // The id arriving later is a session start; losing it again is not a change.
-        let second = mirror.reconcile(agents: [claude(state: "working")], routableTerminalIDs: ["term_1"])
-        #expect(kinds(second) == [.sessionStart, .promptSubmit])
         #expect(mirror.reconcile(agents: [claude(state: "working", session: nil)], routableTerminalIDs: ["term_1"]).isEmpty)
+        // Leaving the roster without a known session has nothing to end.
+        #expect(mirror.reconcile(agents: [], routableTerminalIDs: []).isEmpty)
+
+        #expect(kinds(mirror.reconcile(agents: [claude(state: "working")], routableTerminalIDs: ["term_1"])) == [.sessionStart])
+        // Losing the id again is not a session change or an end.
+        #expect(mirror.reconcile(agents: [claude(state: "working", session: nil)], routableTerminalIDs: ["term_1"]).isEmpty)
+        #expect(kinds(mirror.reconcile(agents: [], routableTerminalIDs: [])) == [.sessionEnd])
     }
 
     @Test("An agent leaving the roster ends its session once")
@@ -89,8 +80,8 @@ struct CloudVMAgentHookMirrorTests {
     func unknownAgentSkipped() {
         var mirror = CloudVMAgentHookMirror()
         let agents = [
-            CloudVMAgentState(terminalID: "term_1", state: "working", source: "hook", agent: "opencode"),
-            CloudVMAgentState(terminalID: "term_2", state: "working", source: "socket", agent: nil),
+            CloudVMAgentState(terminalID: "term_1", state: "working", source: "hook", agent: "opencode", agentSessionID: "s1"),
+            CloudVMAgentState(terminalID: "term_2", state: "working", source: "socket", agent: nil, agentSessionID: "s2"),
         ]
         #expect(mirror.reconcile(agents: agents, routableTerminalIDs: ["term_1", "term_2"]).isEmpty)
         #expect(mirror.reconcile(agents: [], routableTerminalIDs: []).isEmpty)
@@ -99,7 +90,13 @@ struct CloudVMAgentHookMirrorTests {
     @Test("Claude Code adapter ids map to the claude hook agent")
     func claudeCodeAdapterID() {
         var mirror = CloudVMAgentHookMirror()
-        let agent = CloudVMAgentState(terminalID: "term_1", state: "idle", source: "hook", agent: "claude-code")
+        let agent = CloudVMAgentState(
+            terminalID: "term_1",
+            state: "idle",
+            source: "hook",
+            agent: "claude-code",
+            agentSessionID: "s1"
+        )
         let events = mirror.reconcile(agents: [agent], routableTerminalIDs: ["term_1"])
         #expect(events.map(\.agent) == ["claude"])
     }
@@ -108,27 +105,21 @@ struct CloudVMAgentHookMirrorTests {
     func unroutableAgentCatchesUp() {
         var mirror = CloudVMAgentHookMirror()
         #expect(mirror.reconcile(agents: [claude(state: "working")], routableTerminalIDs: []).isEmpty)
-        #expect(kinds(mirror.reconcile(agents: [claude(state: "blocked")], routableTerminalIDs: ["term_1"])) == [.sessionStart, .needsInput])
+        #expect(kinds(mirror.reconcile(agents: [claude(state: "working")], routableTerminalIDs: ["term_1"])) == [.sessionStart])
 
-        // Losing the pane does not end the session or replay anything.
+        // Losing the pane neither ends the session nor replays it again.
         #expect(mirror.reconcile(agents: [claude(state: "idle")], routableTerminalIDs: []).isEmpty)
-        #expect(kinds(mirror.reconcile(agents: [claude(state: "idle")], routableTerminalIDs: ["term_1"])) == [.stop])
+        #expect(mirror.reconcile(agents: [claude(state: "idle")], routableTerminalIDs: ["term_1"]).isEmpty)
     }
 
-    @Test("Payloads carry only the session id, event name, and notification type")
-    func payloadShape() throws {
-        let event = CloudVMAgentHookEvent(terminalID: "term_1", agent: "claude", kind: .needsInput, agentSessionID: "s1")
-        #expect(event.subcommand == "notification")
-        let object = try #require(
-            try JSONSerialization.jsonObject(with: Data(event.payload.utf8)) as? [String: String]
-        )
-        #expect(object == [
-            "session_id": "s1",
-            "hook_event_name": "Notification",
-            "notification_type": "permission_prompt",
-        ])
-        let stop = CloudVMAgentHookEvent(terminalID: "term_1", agent: "claude", kind: .stop, agentSessionID: nil)
-        #expect(stop.payload == #"{"hook_event_name":"Stop"}"#)
+    @Test("Payloads carry only the session id and event name")
+    func payloadShape() {
+        let start = CloudVMAgentHookEvent(terminalID: "term_1", agent: "claude", kind: .sessionStart, agentSessionID: "s1")
+        #expect(start.subcommand == "session-start")
+        #expect(start.payload == #"{"hook_event_name":"SessionStart","session_id":"s1"}"#)
+        let end = CloudVMAgentHookEvent(terminalID: "term_1", agent: "claude", kind: .sessionEnd, agentSessionID: "s1")
+        #expect(end.subcommand == "session-end")
+        #expect(end.payload == #"{"hook_event_name":"SessionEnd","session_id":"s1"}"#)
     }
 
     @Test("Snapshots and upsert deltas parse extra.agent_session_id")

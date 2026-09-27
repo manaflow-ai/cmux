@@ -30,7 +30,6 @@ struct AgentHookDeliveryEvent: Sendable {
     private static let allowedHookDataEnvironmentKeys: Set<String> = [
         "PWD",
         "CMUX_AGENT_HOOK_STATE_DIR", "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
-        "CMUX_AGENT_HOOK_SUPPRESS_NOTIFICATIONS",
         AgentHookDeliveryPolicy.routeSnapshotEnvironmentKey,
         "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD",
         "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_KIND",
@@ -122,14 +121,15 @@ struct AgentHookDeliveryEvent: Sendable {
         self.queueAdmissionInstant = nil
     }
 
-    /// Builds a relay-backed event for an agent the Mac observes through a
-    /// remote daemon's agent roster instead of a hook call (the cmux-tui path
-    /// of `cmux ssh`).
+    /// Builds a relay-backed session event for an agent the Mac observes
+    /// through a remote daemon's agent roster instead of a hook call (the
+    /// cmux-tui path of `cmux ssh`).
     ///
-    /// The route is the local pane showing the remote terminal. The daemon
-    /// already posts durable notification rows for these transitions, so the
-    /// replay suppresses the hook CLI's own banners and keeps only its status,
-    /// lifecycle, and resume-binding mutations.
+    /// The route is the local pane showing the remote terminal. A mirrored
+    /// `session-end` suppresses the hook CLI's visible cleanup (status row,
+    /// agent PID, pane notifications): the pane's status is projected from the
+    /// roster, and its notifications belong to the daemon's durable rows. The
+    /// session record and journal still end.
     static func mirrored(
         agent: String,
         subcommand: String,
@@ -138,17 +138,20 @@ struct AgentHookDeliveryEvent: Sendable {
         surfaceID: UUID,
         deliverySocketPath: String
     ) -> Self? {
-        Self(
+        var environment = [
+            "CMUX_WORKSPACE_ID": workspaceID.uuidString,
+            "CMUX_SURFACE_ID": surfaceID.uuidString,
+        ]
+        if subcommand == "session-end" {
+            environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "1"
+        }
+        return Self(
             params: [
                 "agent": agent,
                 "subcommand": subcommand,
                 "payload": payload,
                 "relay_backed": true,
-                "environment": [
-                    "CMUX_WORKSPACE_ID": workspaceID.uuidString,
-                    "CMUX_SURFACE_ID": surfaceID.uuidString,
-                    "CMUX_AGENT_HOOK_SUPPRESS_NOTIFICATIONS": "1",
-                ],
+                "environment": environment,
             ],
             deliverySocketPath: deliverySocketPath
         )
