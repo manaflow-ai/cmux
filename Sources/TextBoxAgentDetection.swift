@@ -46,6 +46,15 @@ enum TextBoxAgentDetection: CaseIterable {
             .contains { matches(metadataLine: String($0)) }
     }
 
+    /// Whether this agent's live process is attached to the pane (an
+    /// `agentPIDKey:` line from its hooks), ignoring launch commands and
+    /// restored snapshots that outlive the process.
+    func matchesActive(context: String) -> Bool {
+        context
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .contains { matchesActive(metadataLine: String($0)) }
+    }
+
     static func supportsAgentPrefixes(context: String) -> Bool {
         allCases.contains { $0.matches(context: context) }
     }

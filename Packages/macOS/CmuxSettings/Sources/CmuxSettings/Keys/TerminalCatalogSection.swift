@@ -62,6 +62,16 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.confirmUnsafePaste"
     )
 
+    /// Whether Cmd+V with only an image on the clipboard sends Ctrl+V to a
+    /// running Claude Code or Codex in a local pane, so the agent reads the
+    /// image from the clipboard itself, instead of pasting a temporary file
+    /// path. Off by default; other panes always get the file path.
+    public let agentImagePasteSendsCtrlV = DefaultsKey<Bool>(
+        id: "terminal.agentImagePasteSendsCtrlV",
+        defaultValue: false,
+        userDefaultsKey: "terminal.agentImagePasteSendsCtrlV"
+    )
+
     /// Whether macOS text-editing gestures are replayed as their line-editor
     /// equivalents: Command and Option arrow motion, and the Command and Option
     /// deletion chords. Off by default, because the mode claims chords the

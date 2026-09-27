@@ -214,6 +214,14 @@ extension Array where Element == CuratedSettingEntry {
             ),
             .init(
                 section: .terminal,
+                id: "agent-image-paste-ctrl-v",
+                title: String(localized: "settings.terminal.agentImagePasteSendsCtrlV", defaultValue: "Paste Images into Agents with Ctrl+V"),
+                detailText: String(localized: "settings.terminal.agentImagePasteSendsCtrlV.subtitleOff", defaultValue: "Pasting an image saves it to a temporary file and pastes the file path."),
+                paths: ["terminal.agentImagePasteSendsCtrlV"],
+                synonyms: "terminal.agentImagePasteSendsCtrlV agent image paste ctrl+v control v clipboard screenshot picture claude code codex attach"
+            ),
+            .init(
+                section: .terminal,
                 id: "password-input-indicator",
                 title: String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"),
                 detailText: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Shows a lock badge in the terminal corner while a program such as sudo or ssh reads a password with echo off. Only local prompts are detected: ssh's own password prompt counts, but sudo inside an ssh session does not."),

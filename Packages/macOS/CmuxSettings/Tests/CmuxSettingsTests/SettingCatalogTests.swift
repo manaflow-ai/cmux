@@ -143,6 +143,10 @@ struct SettingCatalogTests {
         #expect(!SettingCatalog().terminal.confirmUnsafePaste.defaultValue)
     }
 
+    @Test func agentImagePasteSendsCtrlVDefaultsOff() {
+        #expect(!SettingCatalog().terminal.agentImagePasteSendsCtrlV.defaultValue)
+    }
+
     @Test func keyIdsMatchTheirSectionPrefix() {
         // Each key's dotted id must start with its section's prefix; this is
         // the convention that lets the JSON store use `id` as the JSON path.

@@ -25,6 +25,7 @@ public struct TerminalSection: View {
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var reflowHardWrapOnCopy: DefaultsValueModel<Bool>
     @State private var confirmUnsafePaste: DefaultsValueModel<Bool>
+    @State private var agentImagePasteSendsCtrlV: DefaultsValueModel<Bool>
     @State private var textEditingGestures: DefaultsValueModel<Bool>
     @State private var textEditingCommandMovesByWord: DefaultsValueModel<Bool>
     @State private var textEditingGesturesInFullScreenApps: DefaultsValueModel<Bool>
@@ -58,6 +59,7 @@ public struct TerminalSection: View {
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
         _reflowHardWrapOnCopy = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.reflowHardWrapOnCopy))
         _confirmUnsafePaste = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.confirmUnsafePaste))
+        _agentImagePasteSendsCtrlV = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentImagePasteSendsCtrlV))
         _textEditingGestures = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGestures))
         _textEditingCommandMovesByWord = State(
             initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingCommandMovesByWord)
@@ -99,6 +101,7 @@ public struct TerminalSection: View {
             copyOnSelect,
             reflowHardWrapOnCopy,
             confirmUnsafePaste,
+            agentImagePasteSendsCtrlV,
             textEditingGestures,
             textEditingCommandMovesByWord,
             textEditingGesturesInFullScreenApps,
@@ -424,6 +427,19 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalConfirmUnsafePasteToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.agentImagePasteSendsCtrlV"),
+                String(localized: "settings.terminal.agentImagePasteSendsCtrlV", defaultValue: "Paste Images into Agents with Ctrl+V"),
+                subtitle: agentImagePasteSendsCtrlV.current
+                    ? String(localized: "settings.terminal.agentImagePasteSendsCtrlV.subtitleOn", defaultValue: "When Claude Code or Codex is running in a local pane, pasting an image sends Ctrl+V so the agent attaches it from the clipboard. Other panes still get a file path.")
+                    : String(localized: "settings.terminal.agentImagePasteSendsCtrlV.subtitleOff", defaultValue: "Pasting an image saves it to a temporary file and pastes the file path.")
+            ) {
+                Toggle("", isOn: Binding(get: { agentImagePasteSendsCtrlV.current }, set: { agentImagePasteSendsCtrlV.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalAgentImagePasteSendsCtrlVToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(

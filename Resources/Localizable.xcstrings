@@ -586106,7 +586106,243 @@
           }
         }
       }
+    },
+    "settings.terminal.agentImagePasteSendsCtrlV": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لصق الصور في الوكلاء باستخدام Ctrl+V"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilder mit Ctrl+V in Agenten einfügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste Images into Agents with Ctrl+V"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pegar imágenes en agentes con Ctrl+V"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coller les images dans les agents avec Ctrl+V"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ctrl+V でエージェントに画像を貼り付け"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ctrl+V로 에이전트에 이미지 붙여넣기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 Ctrl+V 将图片粘贴到代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 Ctrl+V 將圖片貼到代理"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentImagePasteSendsCtrlV.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما يعمل Claude Code أو Codex في جزء محلي، يؤدي لصق صورة إلى إرسال Ctrl+V ليرفقها الوكيل من الحافظة. تظل الأجزاء الأخرى تتلقى مسار ملف."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läuft Claude Code oder Codex in einem lokalen Bereich, sendet das Einfügen eines Bildes Ctrl+V, damit der Agent es aus der Zwischenablage anhängt. Andere Bereiche erhalten weiterhin einen Dateipfad."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When Claude Code or Codex is running in a local pane, pasting an image sends Ctrl+V so the agent attaches it from the clipboard. Other panes still get a file path."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando Claude Code o Codex se ejecuta en un panel local, pegar una imagen envía Ctrl+V para que el agente la adjunte desde el portapapeles. Los demás paneles siguen recibiendo una ruta de archivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand Claude Code ou Codex s’exécute dans un panneau local, coller une image envoie Ctrl+V pour que l’agent la joigne depuis le presse-papiers. Les autres panneaux reçoivent toujours un chemin de fichier."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルのペインで Claude Code または Codex が実行中の場合、画像を貼り付けると Ctrl+V を送信し、エージェントがクリップボードから画像を添付します。その他のペインには引き続きファイルパスが貼り付けられます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 창에서 Claude Code 또는 Codex가 실행 중이면 이미지를 붙여넣을 때 Ctrl+V를 보내 에이전트가 클립보드에서 이미지를 첨부합니다. 다른 창에는 여전히 파일 경로가 붙여넣어집니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当 Claude Code 或 Codex 在本地窗格中运行时，粘贴图片会发送 Ctrl+V，让代理从剪贴板附加图片。其他窗格仍会收到文件路径。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當 Claude Code 或 Codex 在本機窗格中執行時，貼上圖片會送出 Ctrl+V，讓代理從剪貼簿附加圖片。其他窗格仍會收到檔案路徑。"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentImagePasteSendsCtrlV.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يؤدي لصق صورة إلى حفظها في ملف مؤقت ولصق مسار الملف."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Einfügen eines Bildes wird es in einer temporären Datei gespeichert und der Dateipfad eingefügt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasting an image saves it to a temporary file and pastes the file path."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al pegar una imagen, se guarda en un archivo temporal y se pega la ruta del archivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coller une image l’enregistre dans un fichier temporaire et colle le chemin du fichier."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像を貼り付けると一時ファイルに保存し、そのファイルパスを貼り付けます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미지를 붙여넣으면 임시 파일로 저장하고 파일 경로를 붙여넣습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴图片时会将其保存为临时文件，并粘贴文件路径。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "貼上圖片時會將其儲存為暫存檔，並貼上檔案路徑。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.agent-image-paste-ctrl-v": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.agentImagePasteSendsCtrlV agent image paste ctrl+v control v clipboard screenshot picture claude code codex attach وكيل صورة لصق حافظة لقطة شاشة إرفاق"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.agentImagePasteSendsCtrlV agent image paste ctrl+v control v clipboard screenshot picture claude code codex attach Agent Bild einfügen Zwischenablage Bildschirmfoto anhängen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.agentImagePasteSendsCtrlV agent image paste ctrl+v control v clipboard screenshot picture claude code codex attach"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.agentImagePasteSendsCtrlV agent image paste ctrl+v control v clipboard screenshot picture claude code codex attach agente imagen pegar portapapeles captura de pantalla adjuntar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.agentImagePasteSendsCtrlV agent image paste ctrl+v control v clipboard screenshot picture claude code codex attach agent image coller presse-papiers capture d’écran joindre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.agentImagePasteSendsCtrlV agent image paste ctrl+v control v clipboard screenshot picture claude code codex attach エージェント 画像 貼り付け クリップボード スクリーンショット 添付"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.agentImagePasteSendsCtrlV agent image paste ctrl+v control v clipboard screenshot picture claude code codex attach 에이전트 이미지 붙여넣기 클립보드 스크린샷 첨부"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.agentImagePasteSendsCtrlV agent image paste ctrl+v control v clipboard screenshot picture claude code codex attach 代理 图片 粘贴 剪贴板 截图 附加"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.agentImagePasteSendsCtrlV agent image paste ctrl+v control v clipboard screenshot picture claude code codex attach 代理 圖片 貼上 剪貼簿 截圖 附加"
+          }
+        }
+      }
     }
   },
- "version": "1.0"
+  "version": "1.0"
 }
