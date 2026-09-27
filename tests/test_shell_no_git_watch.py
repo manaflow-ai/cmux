@@ -179,7 +179,10 @@ _cmux_report_git_branch_for_path "$PWD"
                         names.append("_CMUX_GIT_HEAD_WATCH_PID")
                     for name in names:
                         jobs[name] = subprocess.Popen(["/bin/sleep", "60"], start_new_session=True)
-                    body = "\n".join(f"{name}={job.pid}" for name, job in jobs.items())
+                    # Observe only prompt-time shutdown. zsh's normal exit hook
+                    # could otherwise stop these jobs after a broken prompt.
+                    body = "add-zsh-hook -d zshexit _cmux_zshexit\n" if shell == "zsh" else ""
+                    body += "\n".join(f"{name}={job.pid}" for name, job in jobs.items())
                     body += "\nexport CMUX_NO_GIT_WATCH=1\n_test_prompt\n"
                     self.run_shell(shell, body, value=None)
                     for name, job in jobs.items():
