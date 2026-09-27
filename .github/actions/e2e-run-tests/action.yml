@@ -329,8 +329,10 @@ runs:
       run: |
         defaults write com.apple.CrashReporter DialogType none 2>/dev/null || true
         uid="$(id -u)"
+        # SIGKILL: a SecurityAgent showing a prompt ignores SIGTERM (cmux12s,
+        # 2026-09-27: pkill "succeeded" and the 7 h old prompt stayed).
         for process in UserNotificationCenter SecurityAgent; do
-          if pkill -x -u "$uid" "$process" 2>/dev/null; then
+          if pkill -KILL -x -u "$uid" "$process" 2>/dev/null; then
             echo "Closed $process (its dialogs are cancelled; launchd restarts it on demand)"
           fi
         done
@@ -685,49 +687,31 @@ runs:
         if-no-files-found: warn
         retention-days: 7
 
-    # The screenshots UI tests attach, under their attachment names, so a
-    # reviewer reads them without exporting the result bundle by hand.
-    - name: Export UI test screenshots
+    # One labelled frame per test action, plus the action list in the job
+    # summary. The script comes from this workflow's revision (checked out
+    # into .e2e-workflow beside this action), since the tested one may predate it.
+    - name: Build UI test steps
       if: ${{ always() && inputs.target == 'cmuxUITests' }}
       shell: bash
       run: |
-        bundle="$RUNNER_TEMP/cmux-app-host-xcresults/cmuxUITests.xcresult"
-        out="$RUNNER_TEMP/ui-test-screenshots"
-        rm -rf "$out" "$out.raw"
-        [ -d "$bundle" ] || exit 0
-        xcrun xcresulttool export attachments --path "$bundle" --output-path "$out.raw" >/dev/null || exit 0
-        python3 - "$out.raw" "$out" <<'PY'
-        import json, re, shutil, sys
-        from pathlib import Path
-        raw, out = Path(sys.argv[1]), Path(sys.argv[2])
-        count = 0
-        for test in json.loads((raw / 'manifest.json').read_text()):
-            case = re.sub(r'[^A-Za-z0-9_.-]+', '_', test.get('testIdentifier', 'unknown')).strip('_')
-            for item in test.get('attachments', []):
-                source = raw / item['exportedFileName']
-                if source.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.heic'):
-                    continue
-                name = re.sub(r'_\d+_[0-9A-F-]{36}(\.\w+)?$', '', item.get('suggestedHumanReadableName', source.stem))
-                name = re.sub(r'[/:]+', '-', name).strip() or source.stem
-                target = out / case / f'{name}{source.suffix}'
-                n = 2
-                while target.exists():
-                    target = out / case / f'{name} ({n}){source.suffix}'
-                    n += 1
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, target)
-                count += 1
-        print(f'Exported {count} UI test screenshot(s).')
-        PY
+        script="$GITHUB_WORKSPACE/.e2e-workflow/scripts/ci/e2e-frames.py"
+        results="$RUNNER_TEMP/cmux-app-host-xcresults"
+        if [ ! -f "$script" ] || [ ! -d "$results" ]; then
+          echo "No UI test results or frames script; skipping."
+          exit 0
+        fi
+        python3 "$script" "$results" --out "$RUNNER_TEMP/ui-frames" --summary "$GITHUB_STEP_SUMMARY" || true
 
-    - name: Upload UI test screenshots
+    - name: Upload UI test steps
+      # No hashFiles gate: it ignores paths outside the workspace, and
+      # runner.temp is outside it. if-no-files-found covers an empty build.
       if: ${{ always() && inputs.target == 'cmuxUITests' }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
-        name: ui-test-screenshots
-        path: ${{ runner.temp }}/ui-test-screenshots
+        name: ui-frames
+        path: ${{ runner.temp }}/ui-frames
         if-no-files-found: ignore
-        retention-days: 30
+        retention-days: 14
 
     - name: Publish test summary
       if: always()

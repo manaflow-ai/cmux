@@ -138,7 +138,12 @@ elif args[:2] == ["run", "list"]:
 elif args[:2] == ["run", "watch"]:
     sys.exit(int(os.environ.get("LAUNCHER_WATCH_STATUS", "0")))
 elif args[:2] == ["run", "view"]:
-    print("failure")
+    if "--log-failed" in args:
+        if os.environ.get("LAUNCHER_FAILED_LOG_FAIL"):
+            sys.exit(1)
+        print(os.environ.get("LAUNCHER_FAILED_LOG", ""))
+    else:
+        print("failure")
 else:
     sys.exit(2)
 '''
@@ -644,14 +649,15 @@ class FocusedLauncherTests(unittest.TestCase):
                 self.assertNotEqual(self.launch("ExampleTests", *args).returncode, 0)
         self.assertFalse((self.root / "dispatch.json").exists())
     def _prior(self, conclusion, *, selector="cmuxTests/ExampleTests", commit=HEAD, runner="mac",
-               workflow_ref="main"):
+               workflow_ref="main", count=1):
         return json.dumps([{
+            "databaseId": 555,
             "displayTitle": f"{selector} on {runner} @ {commit} [deadbeef]",
             "headBranch": workflow_ref,
             "conclusion": conclusion,
             "status": "completed",
             "url": "https://github.com/manaflow-ai/cmux/actions/runs/555",
-        }])
+        }] * count)
 
     def _live(self, *, selector="cmuxTests/ExampleTests", commit=HEAD,
               runner=DEFAULT_RUNNER, status="in_progress", workflow_ref="main"):
@@ -717,6 +723,58 @@ class FocusedLauncherTests(unittest.TestCase):
         # title prefix would let batching bypass the guard entirely.
         prior = self._prior("failure", selector="cmuxTests/AlphaTests,cmuxTests/ExampleTests")
         result = self.launch("cmuxTests/ExampleTests", LAUNCHER_PRIOR_RUNS=prior)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already failed", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    MACHINE_LOG = (
+        "build\tRun selected tests\t2026-09-27T10:45:36Z cmuxUITests-Runner[39090] Failed to initialize "
+        "for UI testing: \"Timed out while enabling automation mode.\"\n"
+        "build\tRun selected tests\t2026-09-27T10:45:40Z ** TEST EXECUTE FAILED **\n"
+    )
+
+    def test_a_machine_failure_is_dispatched_again_without_force(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure"), LAUNCHER_FAILED_LOG=self.MACHINE_LOG,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("before any test started", result.stdout)
+        self.assertIn("Automation Mode", result.stdout)
+        self.assertEqual(self.dispatch()["test_filter"], "cmuxTests/ExampleTests")
+
+    def test_a_failure_where_a_test_started_is_still_refused(self):
+        log = self.MACHINE_LOG + "Test Case '-[cmuxTests.ExampleTests testA]' started.\n"
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure"), LAUNCHER_FAILED_LOG=log,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already failed", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_two_machine_failures_are_still_redispatched(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure", count=2), LAUNCHER_FAILED_LOG=self.MACHINE_LOG,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("before any test started", result.stdout)
+
+    def test_an_unreadable_log_is_refused(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure"), LAUNCHER_FAILED_LOG_FAIL="1",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already failed", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_repeated_machine_failures_stop_redispatching(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure", count=3), LAUNCHER_FAILED_LOG=self.MACHINE_LOG,
+        )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("already failed", result.stderr)
         self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
