@@ -37,13 +37,12 @@ final class RemoteTmuxBrowserProxyRegistry {
     private var entriesByConnectionHash: [String: Entry] = [:]
     private let loopbackPortAllocator = LoopbackPortAllocator()
 
-    /// Set once by `RemoteTmuxController` right after construction (a plain
-    /// `init` parameter would need `self` before it exists, since the
-    /// provider calls back into the controller's own transport registry).
-    /// Force-unwrapped deliberately: every real code path sets this before
-    /// `acquire` can be called. Creates a transport if none exists yet — only
-    /// safe for `start()`, which is establishing a genuinely new forward.
-    var transportProvider: ((RemoteTmuxHost) -> RemoteTmuxSSHTransport)!
+    /// Set once by `RemoteTmuxController` right after construction — a plain
+    /// `init` parameter would need `self` before it exists, since the provider
+    /// calls back into the controller's own transport registry. Implicitly
+    /// unwrapped because every real path sets it before `acquire` can run.
+    /// Creates a transport if none exists, so only `start()` may use it.
+    var transportProvider: ((RemoteTmuxHost) -> any RemoteTmuxBrowserProxyTransport)!
 
     /// Existing-transport-only lookup, for teardown. Never creates: `releaseHost`
     /// can run after the host's transport was already removed (it's wired from
@@ -51,7 +50,7 @@ final class RemoteTmuxBrowserProxyRegistry {
     /// there would silently recreate — and leave registered — a transport for a
     /// host whose ControlMaster is already gone. `nil` means "nothing left to
     /// cancel through," which `releaseHost` treats as a no-op, not an error.
-    var existingTransport: ((RemoteTmuxHost) -> RemoteTmuxSSHTransport?)!
+    var existingTransport: ((RemoteTmuxHost) -> (any RemoteTmuxBrowserProxyTransport)?)!
 
     /// Fired once an endpoint is ready or a host's proxy fails/is torn down
     /// (`nil` endpoint), so every retaining workspace can republish
