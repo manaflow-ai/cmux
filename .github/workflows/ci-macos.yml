@@ -3398,16 +3398,19 @@ jobs:
             cargo build --manifest-path Native/CommandPaletteNucleoFFI/Cargo.toml --release
             export CMUX_NUCLEO_FFI_LIB="$PWD/Native/CommandPaletteNucleoFFI/target/release/libcmux_command_palette_nucleo_ffi.dylib"
           fi
-          while IFS= read -r pkg; do
-            [ -n "$pkg" ] || continue
+          # Every selected package runs even after another one fails, so one
+          # broken or hung package cannot hide the results of the packages
+          # after it. test_package returns the package's status instead of
+          # exiting; the summary at the end fails the step.
+          test_package() {
+            local pkg="$1" pkgdir
             # Packages live under group folders (Packages/{Shared,iOS,macOS}/);
             # resolve the actual directory so this list stays group-agnostic.
             pkgdir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$pkg" -print -quit)"
             if [ -z "$pkgdir" ]; then
-              echo "::error::package '$pkg' not found under Packages/*/ (renamed or moved?)"
-              exit 1
+              echo "package '$pkg' not found under Packages/*/ (renamed or moved?)"
+              return 1
             fi
-            echo "::group::swift test $pkgdir"
             swift_test_args=(--package-path "$pkgdir")
             # Preserve the notification workflow's warning gate without a
             # second package build or changing the existing startup retry.
@@ -3421,7 +3424,7 @@ jobs:
             # fixtures share global process resources; run each suite in its
             # own Swift Testing process just like the auth/transport suites.
             CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxIrxTransport)
-              ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
+              ./scripts/ci/run-swift-testing-suites.sh "$pkgdir" || return $?
               ;;
             CmuxTerminal|CmuxTerminalCore|CmuxCloudTui)
               run_swift_test
@@ -3434,10 +3437,10 @@ jobs:
                   && ! grep -Eq '(^|[^a-zA-Z])error:' <<<"$(grep -v 'unexpected binary' "$log")"; then
                   echo "Tolerated cosmetic GhosttyKit binaryTarget diagnostic; all tests passed."
                 else
-                  exit "$test_status"
+                  return "$test_status"
                 fi
               else
-                python3 scripts/ci/require_swift_test_execution.py --log "$log"
+                python3 scripts/ci/require_swift_test_execution.py --log "$log" || return $?
               fi
               ;;
             *)
@@ -3455,13 +3458,53 @@ jobs:
                 run_swift_test
               fi
               if [ "$test_status" -ne 0 ]; then
-                exit "$test_status"
+                return "$test_status"
               fi
-              python3 scripts/ci/require_swift_test_execution.py --log "$log"
+              python3 scripts/ci/require_swift_test_execution.py --log "$log" || return $?
               ;;
             esac
+          }
+
+          summary=()
+          failed=0
+          first_failure_status=0
+          while IFS= read -r pkg; do
+            [ -n "$pkg" ] || continue
+            echo "::group::swift test $pkg"
+            started=$SECONDS
+            package_status=0
+            test_package "$pkg" < /dev/null || package_status=$?
             echo "::endgroup::"
+            seconds=$((SECONDS - started))
+            if [ "$package_status" -eq 0 ]; then
+              result=passed
+            else
+              failed=$((failed + 1))
+              [ "$first_failure_status" -ne 0 ] || first_failure_status="$package_status"
+              if [ "$package_status" -eq 124 ]; then
+                # The watchdog already annotated the stall with the tests it
+                # stopped; one annotation per package is enough.
+                result=stalled
+              else
+                result="failed (exit $package_status)"
+                echo "::error title=Swift package tests failed::$pkg failed with exit status $package_status after ${seconds}s"
+              fi
+            fi
+            summary+=("$(printf '%-34s %-18s %6ss' "$pkg" "$result" "$seconds")")
           done < "$selected"
+
+          table="$(
+            printf '%-34s %-18s %7s\n' package result time
+            printf '%s\n' ${summary[@]+"${summary[@]}"}
+          )"
+          printf 'Swift package test results:\n%s\n' "$table"
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            printf '### Swift package tests\n\n```\n%s\n```\n' "$table" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "$failed" -ne 0 ]; then
+            echo "$failed of ${#summary[@]} Swift packages failed."
+            exit "$first_failure_status"
+          fi
 
       # A package test runner that dies on a signal prints one line from
       # SwiftPM ("Exited with unexpected signal code N") and nothing else: no
