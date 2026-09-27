@@ -21,7 +21,12 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
 
     /// (workspace title, socket commands for it; `{tab}` is its workspace id)
     private let scenarios: [(title: String, commands: [String])] = [
-        ("needs input", ["set_agent_lifecycle claude_code needsInput --tab={tab}"]),
+        // Like the Claude hook: a lifecycle report plus the status entry that
+        // draws the row with compact status off.
+        ("needs input", [
+            "set_agent_lifecycle claude_code needsInput --tab={tab}",
+            "set_status claude_code \"Needs input\" --icon=bell.fill --color=#4C8DFF --tab={tab}",
+        ]),
         ("running", ["set_agent_lifecycle claude_code running --tab={tab}"]),
         ("open PR", [
             "set_agent_lifecycle codex idle --tab={tab}",
