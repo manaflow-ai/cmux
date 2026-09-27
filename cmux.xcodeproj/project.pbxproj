@@ -2850,6 +2850,7 @@
 		D10000000000000000A00012 /* SettingsAppBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00013 /* SettingsAppBehaviorUITests.swift */; };
 		D10000000000000000A00018 /* SettingsAutomationBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00019 /* SettingsAutomationBehaviorUITests.swift */; };
 		D10000000000000000A0001A /* SettingsBrowserBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A0001B /* SettingsBrowserBehaviorUITests.swift */; };
+		20F2B44223BBBA9A4ED185C4 /* SettingsComputersBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83418958EF0A36762FBB8A36 /* SettingsComputersBehaviorUITests.swift */; };
 		D9CCF002D9CCF002D9CCF002 /* SettingsLazyLoadHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9CCF001D9CCF001D9CCF001 /* SettingsLazyLoadHelpers.swift */; };
 		D5671401D5671401D5671401 /* SettingsNavigation+TerminalScrollSpeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671402D5671402D5671402 /* SettingsNavigation+TerminalScrollSpeed.swift */; };
 		A50019A0 /* SettingsNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019A1 /* SettingsNavigation.swift */; };
@@ -2903,6 +2904,7 @@
 		9BE45B94B05D471FA386203D /* SidebarCloudWorkspaceBadgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CA5C526315D4C2B88B1CA55 /* SidebarCloudWorkspaceBadgeTests.swift */; };
 		71ABCB8E029B4E69997C8EB4 /* SidebarCloudWorkspaceBadgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69EF4F23B8E9406D9821E930 /* SidebarCloudWorkspaceBadgeView.swift */; };
 		5EB96EEB7197F4186489176F /* SidebarCompactAgentStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECB5DF435EAE2705BA8C46AC /* SidebarCompactAgentStatusTests.swift */; };
+		6C5DBAE06100A599005206C9 /* SidebarCompactAgentStatusUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94600B483EE4B6BC3F7506DA /* SidebarCompactAgentStatusUITests.swift */; };
 		71D6C8FB21FA9335AC60ECD2 /* SidebarCompactStatusGlyph+Resolve.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2558AE4F66A522BE42F1802 /* SidebarCompactStatusGlyph+Resolve.swift */; };
 		7CB5B5D87E4CCA04CACEAEB0 /* SidebarCompactStatusGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28A56F37BE9679A42D1CA606 /* SidebarCompactStatusGlyph.swift */; };
 		4653DE3101390738A2CF02E0 /* SidebarCompactStatusGlyphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF059E045A7A63F7202EE198 /* SidebarCompactStatusGlyphView.swift */; };
@@ -6849,6 +6851,7 @@
 		D10000000000000000A00013 /* SettingsAppBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAppBehaviorUITests.swift; sourceTree = "<group>"; };
 		D10000000000000000A00019 /* SettingsAutomationBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAutomationBehaviorUITests.swift; sourceTree = "<group>"; };
 		D10000000000000000A0001B /* SettingsBrowserBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsBrowserBehaviorUITests.swift; sourceTree = "<group>"; };
+		83418958EF0A36762FBB8A36 /* SettingsComputersBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsComputersBehaviorUITests.swift; sourceTree = "<group>"; };
 		D9CCF001D9CCF001D9CCF001 /* SettingsLazyLoadHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsLazyLoadHelpers.swift; sourceTree = "<group>"; };
 		D5671402D5671402D5671402 /* SettingsNavigation+TerminalScrollSpeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsNavigation+TerminalScrollSpeed.swift"; sourceTree = "<group>"; };
 		A50019A1 /* SettingsNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsNavigation.swift; sourceTree = "<group>"; };
@@ -6903,6 +6906,7 @@
 		9CA5C526315D4C2B88B1CA55 /* SidebarCloudWorkspaceBadgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarCloudWorkspaceBadgeTests.swift"; sourceTree = "<group>"; };
 		69EF4F23B8E9406D9821E930 /* SidebarCloudWorkspaceBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarCloudWorkspaceBadgeView.swift"; sourceTree = "<group>"; };
 		ECB5DF435EAE2705BA8C46AC /* SidebarCompactAgentStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarCompactAgentStatusTests.swift"; sourceTree = "<group>"; };
+		94600B483EE4B6BC3F7506DA /* SidebarCompactAgentStatusUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarCompactAgentStatusUITests.swift; sourceTree = "<group>"; };
 		E2558AE4F66A522BE42F1802 /* SidebarCompactStatusGlyph+Resolve.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/SidebarCompactStatusGlyph+Resolve.swift"; sourceTree = "<group>"; };
 		28A56F37BE9679A42D1CA606 /* SidebarCompactStatusGlyph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarCompactStatusGlyph.swift; sourceTree = "<group>"; };
 		EF059E045A7A63F7202EE198 /* SidebarCompactStatusGlyphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarCompactStatusGlyphView.swift; sourceTree = "<group>"; };
@@ -8437,6 +8441,8 @@
 				A14327000000000000000005 /* CloudTeamPickerPlacementUITests.swift */,
 				AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */,
 				340AACC8DD8772A000EA1971 /* VaultRefreshUITests.swift */,
+				83418958EF0A36762FBB8A36 /* SettingsComputersBehaviorUITests.swift */,
+				94600B483EE4B6BC3F7506DA /* SidebarCompactAgentStatusUITests.swift */,
 			);
 			path = cmuxUITests;
 			sourceTree = "<group>";
@@ -15697,12 +15703,14 @@
 				D10000000000000000A00012 /* SettingsAppBehaviorUITests.swift in Sources */,
 				D10000000000000000A00018 /* SettingsAutomationBehaviorUITests.swift in Sources */,
 				D10000000000000000A0001A /* SettingsBrowserBehaviorUITests.swift in Sources */,
+				20F2B44223BBBA9A4ED185C4 /* SettingsComputersBehaviorUITests.swift in Sources */,
 				D10000000000000000A00022 /* SettingsNetworkingBehaviorUITests.swift in Sources */,
 				D10000000000000000A0001C /* SettingsShortcutsBehaviorUITests.swift in Sources */,
 				D10000000000000000A00016 /* SettingsSidebarBetaBehaviorUITests.swift in Sources */,
 				D10000000000000000A00014 /* SettingsTerminalBehaviorUITests.swift in Sources */,
 				D10000000000000000A00010 /* SettingsUITestSupport.swift in Sources */,
 				D10000000000000000A0001E /* SettingsWorkspaceColorsBehaviorUITests.swift in Sources */,
+				6C5DBAE06100A599005206C9 /* SidebarCompactAgentStatusUITests.swift in Sources */,
 				A1B2C3D410248001A1B2C3D4E5F60718 /* SidebarEmptyAreaDoubleClickUITests.swift in Sources */,
 				B8F266246A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift in Sources */,
 				B9000130A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift in Sources */,
