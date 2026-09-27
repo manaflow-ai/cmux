@@ -19,6 +19,7 @@ public final class EvalEnvironment {
     private var functions: [String: FunctionDeclSyntax]
     private let parent: EvalEnvironment?
     private let externalResolver: ((String) -> SwiftValue?)?
+    private var unresolvedNameObserver: ((String) -> Void)?
     /// Shared across the whole scope chain; bounds interpreter recursion so
     /// pathological authored source can't overflow the stack.
     let budget: RecursionBudget
@@ -47,7 +48,26 @@ public final class EvalEnvironment {
     /// Looks up `name`, walking up the scope chain, then asking the root's
     /// external resolver.
     public func lookup(_ name: String) -> SwiftValue? {
-        values[name] ?? (parent?.lookup(name) ?? externalResolver?(name))
+        if let value = values[name] { return value }
+        if let parent { return parent.lookup(name) }
+        if let value = externalResolver?(name) { return value }
+        unresolvedNameObserver?(name)
+        return nil
+    }
+
+    /// Detects unresolved declared names while evaluating one root-scope initializer.
+    func trackingUnresolvedNames<T>(
+        _ names: Set<String>,
+        evaluate: () -> T
+    ) -> (value: T, readUnresolvedName: Bool) {
+        var readUnresolvedName = false
+        let previousObserver = unresolvedNameObserver
+        unresolvedNameObserver = { name in
+            if names.contains(name) { readUnresolvedName = true }
+        }
+        defer { unresolvedNameObserver = previousObserver }
+        let value = evaluate()
+        return (value, readUnresolvedName)
     }
 
     /// Defines or overwrites `name` in this scope.

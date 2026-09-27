@@ -115,13 +115,30 @@ public struct SwiftViewInterpreter: Sendable {
         }
     }
 
-    /// Binds file-scope variables into the root environment so user functions
-    /// can resolve constants declared outside their bodies.
+    /// Binds file-scope variables, retrying forward references until no binding resolves.
     private func bindTopLevelVariables(_ items: CodeBlockItemListSyntax, _ env: EvalEnvironment) {
-        for item in items {
-            if let decl = item.item.as(VariableDeclSyntax.self) {
-                applyBinding(decl, env)
+        var pending = items.compactMap { $0.item.as(VariableDeclSyntax.self) }
+            .flatMap { Array($0.bindings) }
+        while !pending.isEmpty {
+            let previousCount = pending.count
+            let pendingNames = Set(pending.compactMap {
+                $0.pattern.as(IdentifierPatternSyntax.self)?.identifier.text
+            })
+            pending.removeAll { binding in
+                guard let name = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text,
+                      let initializer = binding.initializer else { return true }
+                // Interpolation and helper branches can produce a fallback value
+                // after a missing lookup; wait for declared dependencies anyway.
+                let result = env.trackingUnresolvedNames(pendingNames) {
+                    expressions.eval(initializer.value, env)
+                }
+                guard !result.readUnresolvedName, let value = result.value else { return false }
+                env.define(name, value)
+                return true
             }
+            // Cycles and missing names remain unresolved; successful initializers
+            // are removed so retrying their dependents cannot evaluate them twice.
+            if pending.count == previousCount { break }
         }
     }
 
