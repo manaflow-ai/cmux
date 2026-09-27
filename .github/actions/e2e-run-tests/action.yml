@@ -301,6 +301,10 @@ runs:
       shell: bash
       run: touch "$RUNNER_TEMP/cmux-e2e-selectors-unresolved"
 
+    - name: Close leftover system dialogs
+      shell: bash
+      run: scripts/ci/clear-console-blockers.sh
+
     - name: Run selected tests
       id: tests
       env:

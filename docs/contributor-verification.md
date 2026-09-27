@@ -178,7 +178,9 @@ python3 scripts/ci/dispatch-focused-test.py cmuxTests/SessionPersistenceTests --
 
 Replace the selector with the regression; UI selectors use
 `cmuxUITests/ClassName[/methodName]`. The dispatcher validates the revision/selector
-and prints the run URL. This path needs authenticated `gh` access to the upstream
+and prints the run URL. Add `--frames` to get each test's screenshots and
+contact sheets when it finishes ([guide](../skills/cmux-testing/references/ui-test-frames.md)).
+This path needs authenticated `gh` access to the upstream
 workflow and its runner capacity. It does not grant access to contributors or
 replace the PR's required checks. Preserve the selected-test count, run URL,
 revision, failures, cancellations and retries in the verification record.
