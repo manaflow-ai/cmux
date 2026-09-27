@@ -135,6 +135,15 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
                 XCTAssertFalse(line.exists, "Expected no \(detail) line under the title in compact mode")
             }
         }
+        if !compact {
+            let agentStatusRow = sidebar.descendants(matching: .any)
+                .matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "Needs input", "Needs input"))
+                .firstMatch
+            XCTAssertTrue(
+                agentStatusRow.waitForExistence(timeout: 5.0),
+                "Expected an agent-status row when compact mode is disabled"
+            )
+        }
         // The custom (non-agent) status keeps its row in both modes.
         let customRow = sidebar.descendants(matching: .any)
             .matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "green", "green")).firstMatch
