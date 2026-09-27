@@ -68,7 +68,6 @@ final class DogfoodScenarioUITests: XCTestCase {
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
-        app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
@@ -79,7 +78,7 @@ final class DogfoodScenarioUITests: XCTestCase {
         }
         defer { app.terminate() }
 
-        app.launch()
+        launchAllowingHeadlessBackground(app)
         if !app.wait(for: .runningForeground, timeout: 20) {
             app.activate()
             _ = app.wait(for: .runningForeground, timeout: 10)
@@ -90,6 +89,7 @@ final class DogfoodScenarioUITests: XCTestCase {
         }
         if scenario.usesSocket, !waitForSocket(timeout: 30) {
             record(failure: "control socket never answered ping at \(socketCandidates().joined(separator: ", "))")
+            attachSocketDiagnostics(app: app)
         }
         shot("00-launched", app: app)
 
@@ -108,6 +108,27 @@ final class DogfoodScenarioUITests: XCTestCase {
         attachText(log.joined(separator: "\n"), name: "steps.log")
         if !failures.isEmpty {
             XCTFail("Dogfood steps failed:\n" + failures.joined(separator: "\n"))
+        }
+    }
+
+    /// Blacksmith's headless displays can leave a fresh launch in the
+    /// background, and XCUITest then records "Failed to activate application"
+    /// and ends the test. Absorb only that issue, as AutomationSocketUITests
+    /// does, and activate explicitly afterwards; the result then reads
+    /// Expected Failure, which steps.log explains.
+    private func launchAllowingHeadlessBackground(_ app: XCUIApplication) {
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        options.issueMatcher = { issue in
+            let text = [issue.compactDescription, issue.detailedDescription ?? ""].joined(separator: "\n")
+            return text.contains("Failed to activate application") && text.contains("Running Background")
+        }
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+        }
+        if app.state == .runningBackground {
+            log.append("launch: app started in the background; activating")
+            app.activate()
         }
     }
 
@@ -279,6 +300,25 @@ final class DogfoodScenarioUITests: XCTestCase {
             socketPath = resolved
         }
         return ready
+    }
+
+    /// What the next attempt needs when the socket stays silent: the app's
+    /// own socket diagnostics, the socket files that exist, and the launch env.
+    private func attachSocketDiagnostics(app: XCUIApplication) {
+        let diagnostics = (try? String(contentsOfFile: diagnosticsPath, encoding: .utf8))
+            ?? "missing: \(diagnosticsPath)"
+        let sockets = ((try? FileManager.default.contentsOfDirectory(atPath: "/tmp")) ?? [])
+            .filter { $0.hasPrefix("cmux") && $0.hasSuffix(".sock") }
+            .sorted()
+            .joined(separator: "\n")
+        let environment = app.launchEnvironment
+            .map { "\($0.key)=\($0.value)" }
+            .sorted()
+            .joined(separator: "\n")
+        attachText(
+            "diagnostics:\n\(diagnostics)\n\n/tmp sockets:\n\(sockets)\n\nlaunch environment:\n\(environment)\n\nlaunch arguments:\n\(app.launchArguments.joined(separator: " "))",
+            name: "socket-diagnostics.txt"
+        )
     }
 
     private func socketCandidates() -> [String] {
