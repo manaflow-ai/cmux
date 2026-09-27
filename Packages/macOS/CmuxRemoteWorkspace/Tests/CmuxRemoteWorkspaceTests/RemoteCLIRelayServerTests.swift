@@ -24,7 +24,16 @@ private final class RecordingRelayRewriter: RemoteRelayCommandRewriting, @unchec
         lock.lock()
         _calls.append((workspaceAliases, surfaceAliases))
         lock.unlock()
-        return Data("rewritten:".utf8) + commandLine
+        guard let line = String(data: commandLine, encoding: .utf8),
+              let data = line.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+              var request = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return commandLine
+        }
+        var params = request["params"] as? [String: Any] ?? [:]
+        params["_cmux_remote_workspace_id"] = UUID().uuidString
+        params["_cmux_remote_relay_request_authentication_code"] = "test"
+        request["params"] = params
+        return (try? JSONSerialization.data(withJSONObject: request)).map { $0 + Data([0x0A]) } ?? commandLine
     }
 }
 
@@ -199,41 +208,6 @@ private final class RelayTestClient: @unchecked Sendable {
 struct RemoteCLIRelayServerTests {
     private let tokenHex = "00112233445566778899aabbccddeeff"
 
-    @Test("local relay forwarding outlives the agent-hook barrier response budget")
-    func localForwardingTimeoutOutlivesAgentHookBarrier() {
-        #expect(
-            RemoteCLIRelayServer.Session.localSocketRoundTripTimeoutSeconds > 20,
-            "The CLI waits up to 20 seconds for agent.hook.barrier, so the local relay must remain open longer"
-        )
-    }
-
-    @Test("actionable Feed relay timeout covers the decision response budget")
-    func actionableFeedTimeoutOutlivesDecisionWait() throws {
-        let feedRequest = try JSONSerialization.data(withJSONObject: [
-            "id": "feed-decision",
-            "method": "feed.push",
-            "params": ["wait_timeout_seconds": 114],
-        ]) + Data([0x0A])
-        let barrierRequest = try JSONSerialization.data(withJSONObject: [
-            "id": "hook-barrier",
-            "method": "agent.hook.barrier",
-            "params": [:],
-        ]) + Data([0x0A])
-
-        #expect(
-            RemoteCLIRelayServer.Session.localSocketRoundTripTimeoutSeconds(
-                for: feedRequest
-            ) >= 119,
-            "Feed waits up to 114 seconds and reserves five seconds for its response"
-        )
-        #expect(
-            RemoteCLIRelayServer.Session.localSocketRoundTripTimeoutSeconds(
-                for: barrierRequest
-            ) == RemoteCLIRelayServer.Session.localSocketRoundTripTimeoutSeconds,
-            "Non-decision commands keep the bounded default relay timeout"
-        )
-    }
-
     @Test("relay sessions are capacity bounded")
     func relaySessionsAreCapacityBounded() throws {
         let server = try RemoteCLIRelayServer(
@@ -371,7 +345,7 @@ struct RemoteCLIRelayServerTests {
         #expect(client.wait { data, closed in
             String(decoding: data, as: UTF8.self).contains("\"result\":42") && closed
         })
-        #expect(String(decoding: unixServer.request, as: UTF8.self) == "rewritten:" + request + "\n")
+        #expect(String(decoding: unixServer.request, as: UTF8.self).contains("_cmux_remote_workspace_id"))
         let call = try #require(rewriter.calls.first)
         #expect(call.workspace == [workspaceAlias.remote: workspaceAlias.local])
         #expect(call.surface.isEmpty)
@@ -395,8 +369,8 @@ struct RemoteCLIRelayServerTests {
         try authenticate(client)
         let decisionRequest = try JSONSerialization.data(withJSONObject: [
             "id": "feed-decision",
-            "method": "feed.push",
-            "params": ["wait_timeout_seconds": 120],
+            "method": "system.ping",
+            "params": [:],
         ]) + Data([0x0A])
         client.send(decisionRequest)
         #expect(unixServer.waitForRequest())

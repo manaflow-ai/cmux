@@ -264,7 +264,7 @@ final class SSHPTYAttachReconnectInputFilter {
             } else if count == 0 {
                 finishStdin()
                 return
-            } else if errno != EINTR {
+            } else if errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK {
                 finishStdin()
                 return
             }

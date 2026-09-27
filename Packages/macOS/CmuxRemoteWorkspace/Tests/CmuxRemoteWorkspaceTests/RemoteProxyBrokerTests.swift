@@ -119,7 +119,7 @@ final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
             token: "tok",
             sessionID: sessionID,
             lifecycleID: lifecycleID,
-            attachmentID: attachmentID
+            attachmentID: attachmentID, daemonVersion: nil
         )
     }
 

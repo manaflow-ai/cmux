@@ -11,6 +11,10 @@ import Observation
 @MainActor
 @Observable
 public final class MobileFeatureFlags {
+    public static let terminalLatencyFlag = ClientConfigFlag<Bool>.iosTerminalLatencyEnabled
+    @ObservationIgnored private let onTerminalLatencyChanged: (@MainActor (Bool) -> Void)?
+    private static let terminalLatencyCacheKey = "cmux.mobile.flags.remote.ios-terminal-latency-enabled"
+
     /// The remote kill switch for the fully integrated terminal Files chip.
     public static let terminalFilesChipFlag =
         ClientConfigFlag<Bool>.iosArtifactChipEnabledRelease
@@ -65,8 +69,11 @@ public final class MobileFeatureFlags {
         loader: any ClientConfigLoading,
         request: ClientConfigRequest,
         defaults: UserDefaults = .standard,
-        refreshClock: any Clock<Duration> = ContinuousClock()
+        refreshClock: any Clock<Duration> = ContinuousClock(),
+        onTerminalLatencyChanged: (@MainActor (Bool) -> Void)? = nil
     ) {
+        self.onTerminalLatencyChanged = onTerminalLatencyChanged
+        onTerminalLatencyChanged?(Self.storedBool(forKey: Self.terminalLatencyCacheKey, defaults: defaults) ?? Self.terminalLatencyFlag.defaultValue)
         self.loader = loader
         self.request = request
         self.defaults = defaults
@@ -162,6 +169,10 @@ public final class MobileFeatureFlags {
               let config,
               !Task.isCancelled,
               !config.errorsWhileComputingFlags else { return }
+
+        let latencyEnabled = config.value(Self.terminalLatencyFlag)
+        defaults.set(latencyEnabled, forKey: Self.terminalLatencyCacheKey)
+        onTerminalLatencyChanged?(latencyEnabled)
 
         let enabled = config.value(Self.terminalFilesChipFlag)
         if terminalFilesChipEnabled != enabled {

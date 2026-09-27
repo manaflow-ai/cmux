@@ -148,7 +148,7 @@ actor MobileTerminalLaneCoordinator {
         launch(key: key, id: entry.id)
     }
 
-    func sendInput(_ input: String, surfaceID: String) async -> InputResult {
+    func sendInput(_ input: String, surfaceID: String, sequence: UInt64? = nil) async -> InputResult {
         guard let key = focusedKeyBySurfaceID[surfaceID],
               let entry = entriesByKey[key],
               entry.phase == .active,
@@ -157,7 +157,7 @@ actor MobileTerminalLaneCoordinator {
             return .unavailable
         }
         do {
-            try await lane.sendInput(input)
+            try await lane.sendInput(input, sequence: sequence)
             guard let current = entriesByKey[key], current.id == entry.id else {
                 return .failed
             }

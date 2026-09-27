@@ -5,6 +5,21 @@ import Testing
 
 @Suite("Remote relay authorization policy")
 struct RemoteRelayAuthorizationPolicyTests {
+    @Test("An SSH peer cannot start another local SSH workspace", arguments: [false, true])
+    func sshWorkspaceCreationRemainsLocalOnly(withCommand: Bool) {
+        let owner = UUID()
+        var parameters: [String: Any] = ["workspace_id": owner.uuidString, "destination": "another-host"]
+        if withCommand { parameters["initial_command"] = "echo remote-command" }
+        let decision = RemoteRelayAuthorizationPolicy().validate(
+            method: "workspace.ssh.open", parameters: parameters,
+            ownerWorkspaceID: owner, surfaceIDs: []
+        )
+        guard case .denied = decision else {
+            Issue.record("workspace.ssh.open must remain unavailable to remote relay callers")
+            return
+        }
+    }
+
     @Test("tmux surface mutations require exact in-workspace selectors")
     func tmuxSurfaceSelectors() {
         let policy = RemoteRelayAuthorizationPolicy()
@@ -48,6 +63,91 @@ struct RemoteRelayAuthorizationPolicyTests {
             code: "remote_relay_workspace_denied",
             message: "Relay request targets a different workspace"
         ))
+    }
+
+    @Test("authorization requires handler-owned selector keys and rejects local shell options")
+    func rejectsFallbackAndLocalExecutionInputs() {
+        let policy = RemoteRelayAuthorizationPolicy()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+
+        #expect(policy.validate(
+            method: "surface.read_text",
+            parameters: [
+                "workspace_id": workspaceID.uuidString,
+                "panel_id": surfaceID.uuidString,
+            ],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        ) == .denied(
+            code: "remote_relay_surface_denied",
+            message: "Relay method requires an explicit surface selector"
+        ))
+
+        #expect(policy.validate(
+            method: "surface.send_text",
+            parameters: [
+                "workspace_id": workspaceID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "remote_context": "local",
+            ],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        ) == .denied(
+            code: "remote_relay_method_denied",
+            message: "Relay parameter 'remote_context' is not permitted"
+        ))
+
+        #expect(policy.validate(
+            method: "surface.send_text",
+            parameters: [
+                "workspace_id": workspaceID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "initial_input": "touch /tmp/pwned",
+            ],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        ) == .denied(
+            code: "remote_relay_method_denied",
+            message: "Relay parameter 'initial_input' is not permitted"
+        ))
+    }
+
+    @Test("workspace.current requires an exact owner selector")
+    func currentRequiresWorkspaceID() {
+        let policy = RemoteRelayAuthorizationPolicy()
+        let owner = UUID()
+        #expect(policy.validate(
+            method: "workspace.current",
+            parameters: ["preferred_workspace_id": owner.uuidString],
+            ownerWorkspaceID: owner,
+            surfaceIDs: []
+        ) == .denied(
+            code: "remote_relay_workspace_denied",
+            message: "Relay method requires an explicit workspace selector"
+        ))
+    }
+
+    @Test("relay notification delivery is confined to the targeted method")
+    func notificationCreateCannotUseRehomingPath() {
+        let policy = RemoteRelayAuthorizationPolicy()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        #expect(policy.validate(
+            method: "notification.create",
+            parameters: ["workspace_id": workspaceID.uuidString, "surface_id": surfaceID.uuidString],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        ) == .denied(
+            code: "remote_relay_method_denied",
+            message: "Relay method is not permitted"
+        ))
+        #expect(policy.validate(
+            method: "notification.create_for_target",
+            parameters: ["workspace_id": workspaceID.uuidString, "surface_id": surfaceID.uuidString],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        ) == .allowed)
     }
 
     @Test("respawn planner quotes remote directories and classifies transports")

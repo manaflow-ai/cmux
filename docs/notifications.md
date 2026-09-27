@@ -99,7 +99,7 @@ Inside a machine:
 
 Use `Cmd+Shift+U` to jump to the latest unread notification. Use `Ctrl+Cmd+U` to mark the current item as oldest unread and jump to the next latest unread. Both shortcuts are configurable in Settings > Keyboard Shortcuts and in `~/.config/cmux/cmux.json`.
 
-Focusing a pane marks that pane's notifications read. A notification posted without a surface belongs to the workspace instead of to a pane (cmux's own memory-pressure warning is one), so the same focus marks the workspace's own notifications read. The other panes in that workspace keep their unread state. "Mark Workspace as Read" in the workspace context menu still clears everything in the workspace at once.
+Focusing a pane marks that pane's notifications read. A notification posted without a surface belongs to the workspace instead of to a pane (cmux's own memory-pressure warning is one), so switching to the workspace marks the workspace's own notifications read. The other panes in that workspace keep their notifications and any manual or restored unread markers. "Mark Workspace as Read" in the workspace context menu still clears everything in the workspace at once.
 
 ## Suppress only the focused surface
 

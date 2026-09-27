@@ -40,6 +40,45 @@ function harness(result: ClickHouseInsertResult = { ok: true }) {
 }
 
 describe("CodeRouter usage ledger rows", () => {
+  test("keeps the opaque API key id on usage rows without storing the key", () => {
+    const row = usageEventRow({
+      requestId: "request-api-key",
+      teamId: "team-1",
+      stackUserId: "stack-user-1",
+      apiKeyId: "00000000-0000-4000-8000-000000000001",
+      vmId: null,
+      provider: "codex",
+      agent: "codex",
+      model: "gpt-5",
+      inputTokens: 2,
+      cachedInputTokens: 0,
+      outputTokens: 3,
+      totalTokens: 5,
+      status: 200,
+    }, now());
+    expect(row?.api_key_id).toBe("00000000-0000-4000-8000-000000000001");
+    expect(JSON.stringify(row)).not.toContain("crk_");
+  });
+
+  test("rejects a secret-shaped API key value in the ledger id field", () => {
+    const row = usageEventRow({
+      requestId: "request-api-key-secret",
+      teamId: "team-1",
+      stackUserId: "stack-user-1",
+      apiKeyId: `crk_${"A".repeat(43)}`,
+      vmId: null,
+      provider: "codex",
+      agent: "codex",
+      model: "gpt-5",
+      inputTokens: 1,
+      cachedInputTokens: 0,
+      outputTokens: 1,
+      totalTokens: 2,
+      status: 200,
+    }, now());
+    expect(row?.api_key_id ?? null).toBeNull();
+    expect(JSON.stringify(row)).not.toContain("crk_");
+  });
   test("formats event_time as a UTC DateTime64(3) literal", () => {
     expect(clickHouseDateTime(now())).toBe("2026-09-02 10:20:30.456");
   });

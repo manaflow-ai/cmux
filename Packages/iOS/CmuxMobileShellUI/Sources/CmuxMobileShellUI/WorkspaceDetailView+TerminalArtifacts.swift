@@ -22,6 +22,9 @@ extension WorkspaceDetailView {
         workspaceID: workspace.id.rawValue,
         surfaceID: terminalID,
         store: store,
+        terminalWorkPopulation: .init(
+            population: .workspace, workspaceCount: 1, surfaceCount: workspace.surfaces.count
+        ),
         fontSize: MobileTerminalFontPreference.defaultSize,
         terminalPresentationIsActive: scenePhase == .active,
         // Do not let a terminal reattach steal focus while the
@@ -42,6 +45,7 @@ extension WorkspaceDetailView {
         terminalFolderTapEnabled: terminalFolderTapEnabled,
         terminalFilesChipEnabled: isTerminalFilesChipEnabled,
         showMissingFiles: showMissingFiles,
+        useLegacyTerminalSizing: displaySettings.useLegacyTerminalSizing,
         sessionArtifactCountEnabled: store.supportsChatArtifactGallery,
         visibleArtifactCount: visibleArtifactCount,
         onArtifactFilesRequested: { anchor in

@@ -237,12 +237,14 @@ public final class NativeSSHConnectionBroker {
     func reapInheritedControlMaster(
         for configuration: WorkspaceRemoteConfiguration,
         resolvedControlPath: String,
-        metadataProbeCommand: String
+        metadataProbeCommand: String,
+        metadataProbeStdin: Data? = nil
     ) async -> NativeSSHControlMasterReapOutcome {
         await inheritedMasterReapCoordinator.reap(
             for: configuration,
             resolvedControlPath: resolvedControlPath,
-            metadataProbeCommand: metadataProbeCommand
+            metadataProbeCommand: metadataProbeCommand,
+            metadataProbeStdin: metadataProbeStdin
         )
     }
 

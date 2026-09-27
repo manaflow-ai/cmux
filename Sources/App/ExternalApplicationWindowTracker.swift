@@ -285,13 +285,14 @@ final class ExternalApplicationWindowTracker {
         processIdentifier: pid_t,
         primaryScreenMaxY: CGFloat
     ) -> Snapshot? {
-        // CGWindowListCreateDescriptionFromArray returns an empty result for a
-        // valid external window on macOS 26. The including-window query uses
-        // the same public metadata and returns the requested record reliably.
-        guard let windowInfo = CGWindowListCopyWindowInfo(
-            [.optionIncludingWindow, .excludeDesktopElements],
-            windowID
-        ) as? [[String: Any]] else {
+        // This API expects pointer-sized window IDs, not boxed CFNumbers.
+        // Query the tracked ID directly so ordered-out windows retain their
+        // identity without scanning every window on each sample.
+        guard windowID != kCGNullWindowID else { return nil }
+        var rawWindowID = UnsafeRawPointer(bitPattern: UInt(windowID))
+        guard let windowIDs = CFArrayCreate(kCFAllocatorDefault, &rawWindowID, 1, nil),
+              let windowInfo = CGWindowListCreateDescriptionFromArray(windowIDs) as? [[String: Any]]
+        else {
             return nil
         }
         return windowInfo.compactMap {
@@ -304,7 +305,7 @@ final class ExternalApplicationWindowTracker {
         }.first
     }
 
-    private nonisolated static func snapshot(
+    nonisolated static func snapshot(
         from entry: [String: Any],
         expectedWindowID: CGWindowID?,
         processIdentifier: pid_t,
@@ -333,7 +334,9 @@ final class ExternalApplicationWindowTracker {
                 width: quartzFrame.width,
                 height: quartzFrame.height
             ),
-            isOnScreen: (entry[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue ?? true
+            // Missing visibility metadata is ambiguous. Suppress companion
+            // presentation until WindowServer confirms that the window is on screen.
+            isOnScreen: (entry[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue ?? false
         )
     }
 }

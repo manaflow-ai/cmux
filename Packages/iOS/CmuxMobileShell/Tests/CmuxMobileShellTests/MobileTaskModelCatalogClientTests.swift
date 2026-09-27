@@ -407,6 +407,7 @@ struct MobileTaskModelCatalogClientTests {
         await store.refreshTaskModels(
             provider: .claude,
             macDeviceID: "mac-a",
+            instanceTag: "stable",
             hostResult: MobileTaskModelListResult(
                 models: [
                     MobileTaskAgentModel(
@@ -431,6 +432,7 @@ struct MobileTaskModelCatalogClientTests {
         await store.refreshTaskModels(
             provider: .claude,
             macDeviceID: "mac-a",
+            instanceTag: "stable",
             hostResult: nil
         )
 

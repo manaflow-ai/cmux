@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxIrxTransport
 import Foundation
 import Testing
 
@@ -11,6 +12,26 @@ import Testing
 /// Pure-projection coverage for the irx-backed Settings Networking snapshot
 /// (`MobileHostIrxRuntime+SettingsControl`).
 struct MobileHostIrxSettingsMappingTests {
+    @Test func forgetRecoveryRestartsOnceAndWaitsForRestoredEnrollment() {
+        let identity = V2Identity(appNamespace: "cmux", buildTag: "test", deviceID: "mac",
+            environment: "test", projectID: "project", teamID: "team", userID: "owner")
+        let active = V2CachedState(identity: identity)
+        var forgotten = active
+        forgotten.authorityRevoked = true
+        forgotten.authorityRevocationRecoverable = true
+        #expect(MobileHostIrxRuntime.revocationAction(previous: active, current: forgotten, status: .ready) == .restart)
+        // A replacement restores this state before its signed enrollment. It
+        // must survive every connecting/backoff publication to finish recovery.
+        for status in [V2ControlSnapshot.Status.connecting, .backingOff] {
+            #expect(MobileHostIrxRuntime.revocationAction(previous: forgotten, current: forgotten, status: status) == .awaitRecovery)
+        }
+        #expect(MobileHostIrxRuntime.revocationAction(previous: forgotten, current: forgotten, status: .stopped) == .stop)
+        #expect(MobileHostIrxRuntime.revocationAction(previous: forgotten, current: active, status: .ready) == .none)
+        #expect(MobileHostIrxRuntime.revocationAction(previous: active, current: forgotten, status: .stopped) == .restart)
+        forgotten.authorityRevocationRecoverable = false
+        #expect(MobileHostIrxRuntime.revocationAction(previous: active, current: forgotten, status: .ready) == .stop)
+    }
+
     private let homeRelay = "https://use4.relay.cmux.dev./"
     private let fleet = [
         "https://use4.relay.cmux.dev/",
@@ -149,6 +170,36 @@ struct MobileHostIrxSettingsMappingTests {
         #expect(snapshot.failureDescription != nil)
     }
 
+    @MainActor @Test func relayFailureReachesSettingsAndClearsWhenReady() async {
+        let message = "Relay connection to relay.example.test failed: UnknownIssuer."
+        let runtime = MobileHostIrxRuntime()
+        runtime.setSettingsPhase(.failed, error: IrxEndpointError.bindFailed(message))
+        let snapshot = await runtime.irohSettingsSnapshot()
+        #expect(snapshot.failureDescription == message)
+        #expect(runtime.settingsPhase == .failed)
+        let updated = "Relay connection to relay.example.test failed: HostnameMismatch."
+        runtime.setSettingsPhase(.failed, error: IrxEndpointError.bindFailed(updated))
+        #expect(await runtime.irohSettingsSnapshot().failureDescription == updated)
+        runtime.setSettingsPhase(.activating)
+        #expect(await runtime.irohSettingsSnapshot().failureDescription == updated)
+        runtime.setSettingsPhase(.failed)
+        #expect(await runtime.irohSettingsSnapshot().failureDescription == updated)
+        runtime.setSettingsPhase(.active)
+        #expect(await runtime.irohSettingsSnapshot().failureDescription == nil)
+    }
+
+    @MainActor @Test func unrelatedErrorsCannotExposeRawCredentialsInSettings() async {
+        let runtime = MobileHostIrxRuntime()
+        runtime.setSettingsPhase(.failed, error: IrxEndpointError.bindFailed("UnknownIssuer"))
+        runtime.setSettingsPhase(.failed, error: NSError(domain: "example", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "https://user:secret@relay.example/path?token=secret",
+        ]))
+        #expect(runtime.relayFailureDescription == nil)
+        let snapshot = await runtime.irohSettingsSnapshot()
+        #expect(snapshot.failureDescription?.contains("secret") == false)
+        #expect(snapshot.failureDescription?.contains("UnknownIssuer") == false)
+    }
+
     @Test func unsupportedMutationsThrowExplicitly() async {
         let runtime = await MainActor.run { MobileHostIrxRuntime.shared }
         await #expect(throws: MobileHostIrxSettingsUnsupportedError.self) {
@@ -205,5 +256,70 @@ struct MobileHostIrxActivationRetryTests {
             jitterUnitInterval: 1
         )
         #expect(delay == 75)
+    }
+}
+
+@MainActor
+struct MobileHostV2ConfigurationTests {
+    @Test func emptyPackagedOverridesUseTheBuiltInWorker() throws {
+        try withBlankReleaseBundle { bundle, defaults in
+            let configuration = try MobileHostV2Configuration.current(
+                values: [:], defaults: defaults, bundle: bundle
+            )
+            #if DEBUG
+            #expect(configuration.environment == "development")
+            #expect(configuration.baseURL.absoluteString == "https://cmux-iroh-v2-development.debussy.workers.dev")
+            #else
+            #expect(configuration.environment == "production")
+            #expect(configuration.baseURL.absoluteString == "https://cmux-iroh-v2.debussy.workers.dev")
+            #endif
+        }
+    }
+
+    @Test func blankOverridesDoNotMaskTheProductionEnvironment() throws {
+        try withBlankReleaseBundle { bundle, defaults in
+            defaults.set("production", forKey: "cmux.iroh.v2.config.CMUX_IROH_V2_ENVIRONMENT")
+            let configuration = try MobileHostV2Configuration.current(
+                values: ["CMUX_IROH_V2_ENVIRONMENT": " \n", "CMUX_IROH_V2_BASE_URL": ""],
+                defaults: defaults,
+                bundle: bundle
+            )
+            #expect(configuration.environment == "production")
+            #expect(configuration.baseURL.absoluteString == "https://cmux-iroh-v2.debussy.workers.dev")
+        }
+    }
+
+    @Test func unknownEnvironmentCannotSelectTheDevelopmentWorker() throws {
+        try withBlankReleaseBundle { bundle, defaults in
+            #expect(throws: V2ControlFailure.scopeMismatch) {
+                try MobileHostV2Configuration.current(
+                    values: ["CMUX_IROH_V2_ENVIRONMENT": "produciton"],
+                    defaults: defaults,
+                    bundle: bundle
+                )
+            }
+        }
+    }
+
+    private func withBlankReleaseBundle(
+        _ body: (Bundle, UserDefaults) throws -> Void
+    ) throws {
+        let identifier = "com.cmuxterm.configuration-test.\(UUID().uuidString)"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(identifier + ".bundle")
+        let defaults = try #require(UserDefaults(suiteName: identifier))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            defaults.removePersistentDomain(forName: identifier)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let info: [String: String] = [
+            "CFBundleIdentifier": "com.cmuxterm.app.nightly",
+            "CMUX_IROH_V2_ENVIRONMENT": "",
+            "CMUX_IROH_V2_BASE_URL": ""
+        ]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: directory.appendingPathComponent("Info.plist"))
+        let bundle = try #require(Bundle(url: directory))
+        try body(bundle, defaults)
     }
 }

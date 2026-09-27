@@ -31,6 +31,7 @@ pub mod secure_directory;
 pub mod service;
 pub mod services;
 pub mod session;
+mod ssh_artifacts;
 pub mod ssh_bootstrap;
 #[cfg(unix)]
 mod unix_socket;

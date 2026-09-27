@@ -83,9 +83,15 @@
 import { Freestyle } from "freestyle";
 import { fileURLToPath } from "node:url";
 import { VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile, vmGuestModelPlaneEnv } from "../services/coderouter/vmGuestEnv";
+import { guestResourceReporterInstallCommand } from "../services/vms/guestResourceReporter";
+import { guestBrowserInstallCommand } from "../services/vms/guestBrowser";
+import { guestCliDistributionCommand } from "../services/vms/guestCliDistribution";
+import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../services/vms/guestCli";
 import {
   CMUX_TUI_LAYOUT_MARKER_PATH,
   CMUX_TUI_SESSION,
+  CMUX_TUI_HOOK_PROVIDERS,
+  cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
   cmuxTuiPinCheckCommand,
   cmuxTuiRunCommand,
@@ -108,6 +114,9 @@ import {
   devboxIdentityInstallCommand,
   devboxJournalResetCommand,
   devboxParkDaemonCommand,
+  devboxSettleBeforeSnapshotCommand,
+  devboxPrepareTemplateTerminalCommand,
+  devboxSnapshotClockCommand,
   devboxWaitForDaemonCommand,
   cmuxTuiWebsocketSmokeCommand,
   emitBakeResult,
@@ -251,6 +260,10 @@ const interactiveShellProbe = (run: number): string =>
   `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L probe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L probe${run} capture-pane -pt login)"; tmux -L probe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "λ" || { printf "%s\\n" "$pane"; echo "no cmux prompt"; exit 1; }'`;
 
 try {
+  // TSC offsets can change across resized memory snapshots. Use the
+  // hypervisor clock before snapshots so monotonic deadlines and auth time
+  // survive migration; wall-clock resynchronization cannot repair timers.
+  await step("snapshot-clock", devboxSnapshotClockCommand);
   await step(
     "base-inventory",
     `node --version && npm --version && bun --version && python3 --version && uv --version && docker --version && test -L /usr/local/bin/node && readlink /usr/local/bin/node | grep -q /usr/local/nvm/ && echo base-ok`,
@@ -338,6 +351,8 @@ try {
   // Cache seeds cover root and the work user (uid 1000).
   await step("cmux-etc", "mkdir -p /etc/cmux /etc/skel");
   await put("cmux-bashrc", "/etc/cmux/bashrc");
+  await put("cmux-prompt.bash", "/etc/cmux/prompt.bash");
+  await step("prompt-default-name", "echo cmux > /etc/cmux/vm-name");
   await put("seed-history", "/etc/cmux/seed-history");
   await put("cmux-terminfo.sh", "/etc/profile.d/cmux-terminfo.sh");
   await put("cmux-terminfo.src", "/etc/cmux/terminfo.src");
@@ -348,6 +363,8 @@ try {
   );
 
   await put("agent-config.sh", "/etc/cmux/agent-config.sh");
+  await put("cmux-opencode", "/etc/cmux/opencode", 0o755);
+  await step("opencode-launcher", 'mkdir -p /usr/local/libexec && ln -s "$(readlink -f /usr/local/bin/opencode)" /usr/local/libexec/cmux-opencode-real && rm -f /usr/local/bin/opencode && chmod 755 /etc/cmux/opencode && ln -s /etc/cmux/opencode /usr/local/bin/opencode');
   await step(
     "agent-config",
     `bash -n /etc/cmux/agent-config.sh && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh && ${rcFiles.map((rc) => `echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> ${rc}`).join(" && ")} && rm -rf /tmp/agent-config-check && mkdir -p /tmp/agent-config-check && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -lc 'true' && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml && grep -q 'wire_api = "responses"' /tmp/agent-config-check/.codex/config.toml && grep -q 'supports_websockets = false' /tmp/agent-config-check/.codex/config.toml && grep -q "export OPENAI_API_KEY='cmux-vm-edge-placeholder'" /tmp/agent-config-check/.config/cmux/model-plane.env && grep -q "export ANTHROPIC_BASE_URL='https://example.invalid'" /tmp/agent-config-check/.config/cmux/model-plane.env && grep -q "export CMUX_VM_ID='vm-check'" /tmp/agent-config-check/.config/cmux/model-plane.env && [ "$(stat -c %a /tmp/agent-config-check/.config/cmux/model-plane.env)" = "600" ] && grep -qF '"apiKey": "e30.' /tmp/agent-config-check/.pi/agent/models.json && ! grep -q x-coderouter-route-token /tmp/agent-config-check/.pi/agent/models.json && ! grep -q crt_ /tmp/agent-config-check/.pi/agent/models.json && test ! -e /tmp/agent-config-check/.config/opencode/opencode.json && node -e 'const j = JSON.parse(require("fs").readFileSync("/tmp/agent-config-check/.claude.json","utf8")); if (!(j.hasCompletedOnboarding === true && j.bypassPermissionsModeAccepted === true && j.projects["/"].hasTrustDialogAccepted === true && Array.isArray(j.customApiKeyResponses.approved) && j.customApiKeyResponses.approved.includes("-vm-edge-placeholder"))) process.exit(1)' && [ "$(stat -c %a /tmp/agent-config-check/.claude.json)" = "600" ] && [ "$(bash -lc 'echo $CLAUDE_CODE_SANDBOXED:$IS_SANDBOX:$DISABLE_AUTOUPDATER')" = "1:1:1" ] && rm -rf /tmp/agent-config-check && test ! -e /root/.codex/config.toml && test ! -e /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json && test ! -e ${WORK_HOME}/.codex/config.toml`,
@@ -465,6 +482,43 @@ try {
     `${cmuxTuiPinCheckCommand(cmuxTuiSource)} && mkdir -p /etc/cmux && printf '%s %s\n' ${cmuxTuiSource.sha256} ${cmuxTuiSource.commit} > /etc/cmux/cmux-tui-pin && cat /etc/cmux/cmux-tui-pin`,
   );
 
+  // The runtime VM path must not upload or install guest integration. These
+  // files are immutable image assets: create only allocates the image, while
+  // the boot supervisor starts the daemon and the reporter unit.
+  await step("guest-cli-directory", "mkdir -p /usr/local/libexec");
+  await vm.fs.writeFile(GUEST_CMUX_SHIM_PATH, GUEST_CMUX_SHIM, { mode: 0o755 });
+  await step(
+    "guest-cli-integration",
+    `mkdir -p /usr/local/libexec && ${guestBrowserInstallCommand()} && ${guestCliDistributionCommand()} && chmod 0755 ${GUEST_CMUX_SHIM_PATH} && test -x ${GUEST_CMUX_SHIM_PATH} && ${guestCliDistributionCommand(true)} && echo guest-cli-integration-ok`,
+  );
+  await step("guest-resource-reporter", guestResourceReporterInstallCommand());
+
+  // The install above also wrote the work user's Claude Code and Codex hooks
+  // (cmux-tui agent hook install), so a Stop, permission request, or question
+  // in either agent reaches the daemon journal and the owner's Mac as a
+  // notification with no per-machine setup. Prove the four artifacts and that
+  // the daemon user's own status verb agrees; then prove the two writers of
+  // ~/.codex/config.toml compose: hooks first (bake), then the provider block
+  // agent-config.sh adds at the first login that sees a boot env, with the
+  // trust state intact and the result still one TOML document.
+  await step(
+    "agent-hooks",
+    [
+      cmuxTuiHooksReadyCommand(),
+      `${cmuxTuiRunCommand(`--json agent hook status ${CMUX_TUI_HOOK_PROVIDERS.join(" ")}`)} > /tmp/hook-status.json`,
+      `node -e 'const r = JSON.parse(require("fs").readFileSync("/tmp/hook-status.json","utf8")); const rows = r.providers || []; const by = Object.fromEntries(rows.map((p) => [p.provider, p])); for (const id of ${JSON.stringify([...CMUX_TUI_HOOK_PROVIDERS])}) { if (!by[id] || by[id].state !== "installed") { console.error(id, by[id]); process.exit(1); } }'`,
+      `test "$(stat -c %U ${WORK_HOME}/.claude/settings.json ${WORK_HOME}/.codex/hooks.json ${WORK_HOME}/.codex/config.toml | sort -u)" = ${WORK_USER}`,
+      `! grep -q '^model_provider = ' ${WORK_HOME}/.codex/config.toml`,
+      `rm -rf /tmp/hook-merge-check && mkdir -p /tmp/hook-merge-check/.codex && cp ${WORK_HOME}/.codex/config.toml /tmp/hook-merge-check/.codex/config.toml`,
+      `env HOME=/tmp/hook-merge-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid bash -lc 'true'`,
+      `head -c 200 /tmp/hook-merge-check/.codex/config.toml | grep -q '^model_provider = "cmux"'`,
+      `grep -q '^\\[hooks' /tmp/hook-merge-check/.codex/config.toml && grep -q '^\\[model_providers.cmux\\]' /tmp/hook-merge-check/.codex/config.toml`,
+      `python3 -c 'import tomllib,sys; d = tomllib.load(open("/tmp/hook-merge-check/.codex/config.toml","rb")); assert d["model_provider"] == "cmux" and "hooks" in d and d["history"]["persistence"] == "save-all", d'`,
+      `rm -rf /tmp/hook-merge-check /tmp/hook-status.json`,
+      "echo agent-hooks-ok",
+    ].join(" && "),
+  );
+
   // The Ghostty generation panes announce as TERM_PROGRAM_VERSION (the
   // supervisor exports it next to TERM_PROGRAM=ghostty; see cmux-devbox-boot).
   await step(
@@ -498,10 +552,52 @@ try {
     "WantedBy=multi-user.target",
   ].join("\n");
   await put("cmux-devbox-boot", "/usr/local/bin/cmux-devbox-boot", 0o755);
+  await put("cmux-prompt-sync", "/usr/local/bin/cmux-prompt-sync", 0o755);
   await vm.fs.writeFile("/etc/systemd/system/cmux-tui-daemon.service", `${service}\n`, { mode: 0o644 });
+  await vm.fs.writeFile(
+    "/etc/systemd/system/cmux-prompt-sync.service",
+    [
+      "[Unit]",
+      "Description=cmux Cloud prompt identity sync",
+      "After=network-online.target cmux-tui-daemon.service",
+      "Wants=network-online.target",
+      "",
+      "[Service]",
+      "Type=simple",
+      "ExecStart=/usr/local/bin/cmux-prompt-sync",
+      "Restart=on-failure",
+      "RestartSec=2",
+      "",
+      "[Install]",
+      "WantedBy=multi-user.target",
+    ].join("\n") + "\n",
+    { mode: 0o644 },
+  );
+  // Quiet resume. Every machine is a memory-snapshot clone whose monotonic
+  // clock jumps by the snapshot's age on resume, and the kernel would spend
+  // the clone's first second (the New Machine critical path) printing a
+  // workqueue-lockup report. The switch is runtime state, which the memory
+  // snapshot carries into every clone and derived size; the tmpfiles line
+  // re-applies it on a cold boot. Service watchdogs and housekeeping timers
+  // are handled by cmux-devbox-boot's park branch, right before the snapshot.
+  await step("snapshot-resume-dirs", "mkdir -p /etc/tmpfiles.d");
+  await vm.fs.writeFile(
+    "/etc/tmpfiles.d/cmux-snapshot-resume.conf",
+    "# Clones resume with a monotonic clock jump; do not report a workqueue lockup.\nw- /sys/module/workqueue/parameters/watchdog_thresh - - - - 0\n",
+    { mode: 0o644 },
+  );
+  await step(
+    "snapshot-resume-quiet",
+    "{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && " +
+      "echo snapshot-resume-quiet-ok",
+  );
   await step(
     "cmux-tui-daemon-unit",
     "sh -n /usr/local/bin/cmux-devbox-boot && rm -f /etc/cmux/bake-instance-id && mkdir -p /etc/systemd/system/multi-user.target.wants && ln -sf /etc/systemd/system/cmux-tui-daemon.service /etc/systemd/system/multi-user.target.wants/cmux-tui-daemon.service && systemctl daemon-reload && systemctl enable cmux-tui-daemon && systemctl restart cmux-tui-daemon && systemctl is-active cmux-tui-daemon",
+  );
+  await step(
+    "cmux-prompt-sync-unit",
+    "python3 -m py_compile /usr/local/bin/cmux-prompt-sync && systemctl daemon-reload && systemctl enable cmux-prompt-sync && systemctl is-enabled cmux-prompt-sync",
   );
   // Prove the daemon contract on the builder: the supervisor started the
   // daemon on its own, the session answers, and the listener is dual-stack.
@@ -513,9 +609,17 @@ try {
   // WebSocket/Noise/RPC/PTY path before this machine can become a snapshot.
   await step("cmux-tui-ready", devboxWaitForDaemonCommand());
   await step("cmux-tui-websocket-smoke", cmuxTuiWebsocketSmokeCommand());
+  // Create the warm template terminal the snapshot carries: one armed shell,
+  // fully initialized and waiting at its first prompt. A clone's daemon adopts
+  // its host process with fresh identity, so New Machine gets a live shell
+  // without creating a workspace, terminal or PTY on its critical path.
+  await step("cmux-tui-template-terminal", devboxPrepareTemplateTerminalCommand());
+  // Let the daemon, first PTY and desktop settle before the memory snapshot.
+  // Freestyle resumes the snapshot rather than replaying these startup steps.
+  await step("cmux-tui-settle-before-snapshot", "sleep 30");
   // Park it (devboxParkDaemonCommand): the supervisor stops the daemon while
-  // the machine's id equals the recorded bake id, its identity and session
-  // state are wiped, and a clone (different id) starts fresh within one tick.
+  // the machine's id equals the recorded bake id, and every per-machine file
+  // is wiped except the template terminal's host record.
   await step("cmux-tui-daemon-park", devboxParkDaemonCommand());
 
   await step(
@@ -560,6 +664,8 @@ try {
   // is the same bytes on every machine and stays; the verifier checks it.)
   await step("clean", `rm -rf /var/lib/apt/lists/* /root/.npm/_cacache ${WORK_HOME}/.npm/_cacache 2>/dev/null; rm -f /root/.claude.json ${WORK_HOME}/.claude.json; ${devboxJournalResetCommand}; sync; true`);
   await step("no-stale-claude-seed", `test ! -e /root/.claude.json && test ! -e ${WORK_HOME}/.claude.json && echo no-stale-claude-seed`);
+  // Last guest step before the snapshot; see devboxSettleBeforeSnapshotCommand.
+  await step("settle-before-snapshot", devboxSettleBeforeSnapshotCommand());
 } catch (error) {
   console.error(`bake failed: ${String(error)}`);
   await deleteBuilder();

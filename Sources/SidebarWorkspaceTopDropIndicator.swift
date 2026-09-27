@@ -25,14 +25,14 @@ struct SidebarWorkspaceTopDropIndicator: View {
         if isVisible {
             Rectangle()
                 .fill(cmuxAccentColor())
-                .frame(height: 2)
+                .frame(height: SidebarReorderIndicatorView.thickness)
                 .padding(.leading, Self.horizontalPadding + max(leadingInset, 0))
                 .padding(.trailing, Self.horizontalPadding)
                 .offset(y: indicatorOffset)
         }
     }
 
-    private static let horizontalPadding: CGFloat = 8
+    private static let horizontalPadding = SidebarReorderIndicatorView.horizontalInset
 
     private var indicatorOffset: CGFloat {
         isBottomEdge ? rowSpacing / 2 : (isFirstRow ? 0 : -(rowSpacing / 2))

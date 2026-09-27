@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -26,7 +27,11 @@ extension WorkspaceListView {
     }
 
     @discardableResult
+    @MainActor
     func selectWorkspaceFromList(_ id: CmuxMobileShellModel.MobileWorkspacePreview.ID) -> Task<Void, Never>? {
+        #if os(iOS) && DEBUG
+        releaseGateUIProbe?.record(.workspaceSelectionTapped)
+        #endif
         invalidateDeferredWorkspaceSelection()
         let selectionGeneration = deferredWorkspaceSelectionGeneration
         guard let cancelTask = prepareWorkspaceSelectionFromList() else {

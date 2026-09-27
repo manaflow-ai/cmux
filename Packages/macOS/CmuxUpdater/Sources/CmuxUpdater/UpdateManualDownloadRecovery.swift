@@ -19,6 +19,7 @@ private let sparkleInstallationWriteNoPermissionErrorCode = 4012
 public struct UpdateManualDownloadRecovery: Sendable {
     private let stableDownloadURLString: String
     private let nightlyDownloadURLString: String
+    private let rcDownloadURLString: String
 
     /// Creates a recovery resolver.
     ///
@@ -26,20 +27,30 @@ public struct UpdateManualDownloadRecovery: Sendable {
     ///   - stableDownloadURLString: Direct DMG URL for the stable channel.
     ///   - nightlyDownloadURLString: Direct DMG URL for the nightly channel. Defaults to the
     ///     nightly DMG for `hostArchitecture`, since nightly ships one DMG per architecture.
-    ///   - hostArchitecture: The architecture whose nightly DMG is offered by default.
+    ///   - rcDownloadURLString: Direct DMG URL for the RC channel. Defaults to the RC DMG for
+    ///     `hostArchitecture`, since RC ships one DMG per architecture like nightly.
+    ///   - hostArchitecture: The architecture whose nightly and RC DMGs are offered by default.
     public init(
         stableDownloadURLString: String = "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg",
         nightlyDownloadURLString: String? = nil,
+        rcDownloadURLString: String? = nil,
         hostArchitecture: UpdateHostArchitecture = .current
     ) {
         self.stableDownloadURLString = stableDownloadURLString
         self.nightlyDownloadURLString = nightlyDownloadURLString
             ?? Self.nightlyDownloadURLString(for: hostArchitecture)
+        self.rcDownloadURLString = rcDownloadURLString
+            ?? Self.rcDownloadURLString(for: hostArchitecture)
     }
 
     /// The direct nightly DMG URL for `architecture`.
     public static func nightlyDownloadURLString(for architecture: UpdateHostArchitecture) -> String {
         "https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-\(architecture.rawValue).dmg"
+    }
+
+    /// The direct RC DMG URL for `architecture`.
+    public static func rcDownloadURLString(for architecture: UpdateHostArchitecture) -> String {
+        "https://github.com/manaflow-ai/cmux/releases/download/rc/cmux-rc-macos-\(architecture.rawValue).dmg"
     }
 
     /// Returns a direct download URL when manually downloading is a sensible recovery for
@@ -51,8 +62,8 @@ public struct UpdateManualDownloadRecovery: Sendable {
     /// where a manual download would not help or could be unsafe.
     ///
     /// - Parameter feedURLString: The feed URL in effect at failure time, used to route recovery
-    ///   to the failing build's own channel. A NIGHTLY build must be pointed at nightly recovery,
-    ///   not the latest stable DMG.
+    ///   to the failing build's own channel. A NIGHTLY or RC build must be pointed at its own
+    ///   channel's recovery DMG, not the latest stable DMG.
     public func url(for error: any Swift.Error, feedURLString: String? = nil) -> URL? {
         let nsError = error as NSError
         if nsError.domain == UpdateStateModel.updateErrorDomain,
@@ -80,9 +91,13 @@ public struct UpdateManualDownloadRecovery: Sendable {
     }
 
     private func channelURL(feedURLString: String?) -> URL? {
-        if let feedURLString, feedURLString.contains("/nightly/") {
+        switch UpdateFeedResolver.Channel.classify(feedURL: feedURLString ?? "") {
+        case .nightly:
             return URL(string: nightlyDownloadURLString)
+        case .rc:
+            return URL(string: rcDownloadURLString)
+        case .stable:
+            return URL(string: stableDownloadURLString)
         }
-        return URL(string: stableDownloadURLString)
     }
 }

@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxIrxTransport
 import Foundation
@@ -14,14 +15,18 @@ enum MobileHostIrxTerminalLaneServer {
         static let invalidInput: UInt64 = 5
     }
 
-    private static let maximumInputFrameByteCount = 16 * 1_024
     private static let maximumInputBufferByteCount = 64 * 1_024
+
+    /// Called with the surface that received input, so the host can schedule
+    /// that surface's output stream first (keystroke echo).
+    typealias InteractiveSurfaceObserver = @Sendable (UUID) async -> Void
 
     static func serve(
         resourceID: String,
         cursor: UInt64?,
         stream: CmxIrohBidirectionalStream,
-        journal: IrxJournal
+        journal: IrxJournal,
+        onInteractiveSurface: @escaping InteractiveSurfaceObserver = { _ in }
     ) async {
         guard let surfaceID = terminalSurfaceID(resourceID),
             await MainActor.run(body: {
@@ -45,7 +50,11 @@ enum MobileHostIrxTerminalLaneServer {
                 return true
             }
             group.addTask {
-                await receiveInput(surfaceID: surfaceID, stream: stream)
+                await receiveInput(
+                    surfaceID: surfaceID,
+                    stream: stream,
+                    onInteractiveSurface: onInteractiveSurface
+                )
             }
             if await group.next() == true {
                 group.cancelAll()
@@ -64,7 +73,8 @@ enum MobileHostIrxTerminalLaneServer {
     static func serveInputOnly(
         resourceID: String,
         stream: CmxIrohBidirectionalStream,
-        journal: IrxJournal
+        journal: IrxJournal,
+        onInteractiveSurface: @escaping InteractiveSurfaceObserver = { _ in }
     ) async {
         guard let surfaceID = terminalSurfaceID(resourceID),
             await MainActor.run(body: {
@@ -88,9 +98,12 @@ enum MobileHostIrxTerminalLaneServer {
             try await stream.sendStream.send(
                 CmxIrohTerminalOutputEnvelopeCodec().encode(baseline)
             )
+            // The phone keeps an input lane for the terminal it shows.
+            await onInteractiveSurface(surfaceID)
             _ = await receiveInput(
                 surfaceID: surfaceID,
-                stream: stream
+                stream: stream,
+                onInteractiveSurface: onInteractiveSurface
             )
         } catch is CancellationError {
             await stream.sendStream.reset(errorCode: 0)
@@ -206,7 +219,8 @@ enum MobileHostIrxTerminalLaneServer {
     /// on a clean input-side finish (output-only lanes stay open).
     private static func receiveInput(
         surfaceID: UUID,
-        stream: CmxIrohBidirectionalStream
+        stream: CmxIrohBidirectionalStream,
+        onInteractiveSurface: InteractiveSurfaceObserver
     ) async -> Bool {
         var buffer = Data()
         do {
@@ -221,9 +235,9 @@ enum MobileHostIrxTerminalLaneServer {
                     await reject(stream, errorCode: ErrorCode.invalidInput)
                     return true
                 }
-                for input in try MobileHostIrohApplicationLaneRouter
-                    .decodeTerminalInputFrames(from: &buffer)
+                for input in try MobileTerminalInputFrame.decode(from: &buffer)
                 {
+                    await onInteractiveSurface(surfaceID)
                     guard await deliverInput(
                         input,
                         surfaceID: surfaceID
@@ -247,15 +261,23 @@ enum MobileHostIrxTerminalLaneServer {
     }
 
     private static func deliverInput(
-        _ input: String,
+        _ input: MobileTerminalInputFrame,
         surfaceID: UUID
     ) async -> Bool {
-        await MainActor.run {
+        // Stamped before the main-actor hop so the Mac's receive-to-accept
+        // stage includes any queueing behind other main-actor work.
+        let receivedAtMicros = MobileTerminalByteTee.uptimeMicros()
+        return await MainActor.run {
             guard
                 let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(
                     id: surfaceID)
             else { return false }
-            switch surface.sendInputResult(input) {
+            let result = MobileTerminalByteTee.shared.performMobileInput(
+                surfaceID: surfaceID,
+                sequence: input.sequence,
+                receivedAtMicros: receivedAtMicros
+            ) { surface.sendInputResult(input.text) }
+            switch result {
             case .sent:
                 // PTY output is observed by MobileTerminalByteTee, which
                 // schedules the normal render tick. A refresh here would

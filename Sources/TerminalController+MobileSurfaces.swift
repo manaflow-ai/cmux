@@ -42,8 +42,6 @@ extension TerminalController {
             return MobileSurfaceKind(rawValue: "mobilePairing")
         case .accountSignIn:
             return MobileSurfaceKind(rawValue: "accountSignIn")
-        case .cloudVPNSetup:
-            return MobileSurfaceKind(rawValue: "cloud_vpn_setup")
         }
     }
 
