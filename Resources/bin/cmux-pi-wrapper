@@ -35,7 +35,8 @@ resolve_pi() {
 
 cmux_pi="$(resolve_pi 2>/dev/null || true)"
 if [ -z "$cmux_pi" ]; then
-    cmux_pi="pi"
+    echo "cmux-pi-wrapper: pi executable not found on PATH" >&2
+    exit 127
 fi
 
 if [ "${CMUX_PI_HOOKS_DISABLED:-0}" = "1" ]; then

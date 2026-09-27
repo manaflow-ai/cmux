@@ -215,12 +215,16 @@ const ctx = {
 };
 await Promise.resolve(handlers.get("session_start")({}, ctx));
 await Promise.resolve(handlers.get("before_agent_start")({ prompt: "hello" }, ctx));
-    await Promise.resolve(handlers.get("tool_execution_end")({
-      toolCallId: "ui-lifecycle-tool",
-      toolName: "bash",
-      args: { command: "gh pr create --title parity" },
-      result: { content: [{ type: "text", text: "done" }] },
-      isError: false
+await Promise.resolve(handlers.get("tool_execution_start")({
+  toolCallId: "ui-lifecycle-tool",
+  toolName: "bash",
+  args: { command: "gh pr create --title parity" }
+}, ctx));
+await Promise.resolve(handlers.get("tool_execution_end")({
+  toolCallId: "ui-lifecycle-tool",
+  toolName: "bash",
+  result: { content: [{ type: "text", text: "done" }] },
+  isError: false
 }, ctx));
 await Promise.resolve(handlers.get("agent_end")({
   messages: [{ role: "assistant", content: "done" }],
@@ -268,6 +272,7 @@ while (performance.now() < deadline) {
     expected = [
         "hooks pi session-start",
         "hooks pi prompt-submit",
+        "hooks feed --source pi --event PreToolUse",
         "hooks feed --source pi --event PostToolUse",
         "hooks pi notification",
         "hooks pi stop",
@@ -336,6 +341,7 @@ const ctx = {
   sessionManager: { getSessionId() { return "pi-dialog-session"; } },
 };
 await handlers.get("session_start")({}, ctx);
+await ctx.ui.confirm("Idle command", "Run this extension action?");
 await handlers.get("before_agent_start")({ prompt: "ask me" }, ctx);
 await ctx.ui.confirm("Choose", "Which option should I use?");
 await handlers.get("session_shutdown")({ reason: "dialog test" }, ctx);
@@ -354,7 +360,15 @@ await handlers.get("session_shutdown")({ reason: "dialog test" }, ctx);
     calls = dialog_log.read_text(encoding="utf-8").splitlines()
     question = [line for line in calls if "hooks pi notification" in line and "questionAsked" in line]
     response = [line for line in calls if "hooks pi approval-response" in line]
-    if len(question) != 1 or len(response) != 1 or calls.index(question[0]) > calls.index(response[0]):
+    question_payloads = [json.loads(line.split("|", 1)[1]) for line in question]
+    response_payload = json.loads(response[0].split("|", 1)[1]) if len(response) == 1 else {}
+    if (
+        len(question) != 2
+        or len(response) != 1
+        or calls.index(question[1]) > calls.index(response[0])
+        or question_payloads[1].get("turn_id") != response_payload.get("turn_id")
+        or question_payloads[0].get("turn_id") == response_payload.get("turn_id")
+    ):
         print(f"FAIL: Pi UI dialog did not bracket a needs-input lifecycle: {calls!r}")
         return 1
     return 0
@@ -525,7 +539,7 @@ const ctx = {
 };
 handlers.get("before_agent_start")({ prompt: "first" }, ctx);
 handlers.get("agent_end")({
-  messages: [{ role: "assistant", content: "first done" }],
+  messages: [{ role: "assistant", content: "The docs now explain which version to choose." }],
   stopReason: "completed"
 }, ctx);
 handlers.get("before_agent_start")({ prompt: "second" }, ctx);
@@ -568,6 +582,13 @@ await handlers.get("session_shutdown")({ reason: "test complete" }, ctx);
     )
     if first_stop is None or second_prompt is None or first_stop > second_prompt:
         print(f"FAIL: previous Pi completion raced the next prompt: {calls!r}")
+        return 1
+    first_notification = next(
+        (line for line in calls if "hooks pi notification" in line and '"turn_id":"pi-turn-transition-session:turn-1"' in line),
+        "",
+    )
+    if '"type":"question"' in first_notification:
+        print(f"FAIL: declarative Pi completion was classified as a question: {calls!r}")
         return 1
     return 0
 

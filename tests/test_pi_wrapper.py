@@ -82,6 +82,30 @@ def main() -> int:
         if "-e" in disabled["args"] or disabled["extension_exists"]:
             raise AssertionError(f"Pi hooks disabled still injected extension: {disabled}")
 
+    with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-missing-") as directory:
+        root = Path(directory)
+        shim_dir = root / "shim-bin"
+        shim_dir.mkdir()
+        shim = shim_dir / "pi"
+        shim.symlink_to(WRAPPER)
+        result = subprocess.run(
+            [str(shim), "--print", "hello"],
+            env={
+                "PATH": str(shim_dir),
+                "HOME": str(root / "home"),
+                "TMPDIR": str(root / "tmp"),
+                "CMUX_PI_HOOKS_DISABLED": "1",
+            },
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if result.returncode != 127 or "not found" not in result.stderr:
+            raise AssertionError(
+                f"missing Pi executable recursed or returned the wrong error: "
+                f"status={result.returncode} stderr={result.stderr!r}"
+            )
+
     print("PASS: Pi wrapper injects one bundled extension and honors global/disabled cases")
     return 0
 

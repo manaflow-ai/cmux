@@ -5,8 +5,17 @@ extension CMUXCLI {
     /// a question or approval notification.
     static func stopPreservesNeedsInput(
         mapped: ClaudeHookSessionRecord?,
-        inputTurnID: String?
+        inputTurnID: String?,
+        terminationReason: String? = nil
     ) -> Bool {
+        if let terminationReason {
+            let normalizedReason = terminationReason.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if normalizedReason.contains("cancel")
+                || normalizedReason.contains("abort")
+                || normalizedReason.contains("interrupt") {
+                return false
+            }
+        }
         guard mapped?.runtimeStatus == .needsInput else { return false }
         let normalizedInput: String?
         if let inputTurnID {

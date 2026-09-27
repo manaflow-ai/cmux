@@ -13,7 +13,6 @@ import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 type HookExtra = Record<string, unknown>;
-
 interface PendingCompletion {
   lastAssistantMessage?: string;
   notificationType: string;
@@ -26,8 +25,8 @@ interface SessionState {
   pendingCompletion?: PendingCompletion;
   feedDeliveryFailed: boolean;
   stopped: boolean;
+  toolCommands: Map<string, string>;
 }
-
 interface CommandResult {
   ok: boolean;
   status: number | null;
@@ -475,6 +474,7 @@ function stateFor(sessionStates: Map<string, SessionState>, sessionId: string): 
     state = {
       feedDeliveryFailed: false,
       stopped: false,
+      toolCommands: new Map(),
     };
     sessionStates.set(sessionId, state);
   }

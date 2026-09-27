@@ -315,6 +315,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
       state.pendingCompletion = undefined;
       state.feedDeliveryFailed = false;
       state.stopped = false;
+      state.toolCommands.clear();
     }
     restorePiUIDialogHooks?.();
     restorePiUIDialogHooks = installPiUIDialogHooks(
@@ -371,6 +372,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   };
 
   pi.on("tool_execution_start", (event, ctx) => {
+    const context = snapshotContext(ctx);
+    const sessionId = context.sessionId;
+    const toolCallId = firstString(objectValue(event, ["toolCallId", "tool_call_id", "id"]));
+    const command = piToolCommand(event);
+    if (sessionId && toolCallId && command) {
+      stateFor(sessionStates, sessionId).toolCommands.set(toolCallId, command);
+    }
     enqueueFeed(isSubagentTool(event) ? "SubagentStart" : "PreToolUse", event, ctx);
   });
 
@@ -378,7 +386,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     enqueueFeed(isSubagentTool(event) ? "SubagentStop" : "PostToolUse", event, ctx);
     const context = snapshotContext(ctx);
     const sessionId = context.sessionId;
-    const command = piToolCommand(event);
+    const toolCallId = firstString(objectValue(event, ["toolCallId", "tool_call_id", "id"]));
+    const state = sessionId ? stateFor(sessionStates, sessionId) : undefined;
+    const command = piToolCommand(event)
+      || (toolCallId ? state?.toolCommands.get(toolCallId) : undefined);
+    if (toolCallId) state?.toolCommands.delete(toolCallId);
     if (sessionId && command && piGitMetadataCommand(command)) {
       const action = piPullRequestAction(command);
       enqueueLifecycleTask(sessionId, context, async () => {

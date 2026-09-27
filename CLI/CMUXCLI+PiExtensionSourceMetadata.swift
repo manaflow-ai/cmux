@@ -33,10 +33,15 @@ function piGitMetadataCommand(command: string): boolean {
   return /\b(?:git\s+(?:checkout|switch|branch|commit|pull|rebase|reset)|gh\s+pr\s+)/i.test(command);
 }
 
+function piSidebarTargetArgs(dispatcher: PiCmuxCommandDispatcher, sessionId: string): string[] | null {
+  const target = surfaceTargetArgs(dispatcher, sessionId);
+  if (!target) return null;
+  return target.map((value) => value === "--surface" ? "--panel" : value);
+}
+
 function piQuestionLike(value: string | undefined): boolean {
   if (!value) return false;
-  return /\?\s*$/.test(value.trim())
-    || /\b(?:which|what|where|when|how|whether)\b.*\b(?:choose|use|select|prefer|take)\b/i.test(value);
+  return /[?？]\s*$/.test(value.trim());
 }
 
 async function publishPiWorkspaceMetadata(
@@ -45,7 +50,7 @@ async function publishPiWorkspaceMetadata(
   sessionId: string,
 ): Promise<void> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
-  const target = surfaceTargetArgs(dispatcher, sessionId);
+  const target = piSidebarTargetArgs(dispatcher, sessionId);
   if (!target) return;
 
   await dispatcher.run(
@@ -71,7 +76,7 @@ async function publishPiPullRequestHint(
   action: string,
 ): Promise<void> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
-  const target = surfaceTargetArgs(dispatcher, sessionId);
+  const target = piSidebarTargetArgs(dispatcher, sessionId);
   if (!target) return;
   await dispatcher.run(
     ["report_pr_action", action, ...target],
@@ -83,9 +88,9 @@ async function publishPiPullRequestHint(
 
 async function publishPiQuestion(
   dispatcher: PiCmuxCommandDispatcher,
-  sessionStates: Map<string, SessionState>,
   context: PiExtensionContextSnapshot,
   message: string,
+  turnId: string,
 ): Promise<void> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
   const sessionId = context.sessionId;
@@ -95,21 +100,26 @@ async function publishPiQuestion(
     event: "questionAsked",
     message: utf8Prefix(message, 512) || "Pi is waiting for input",
     notification: { type: "question" },
-    turn_id: currentTurnId(sessionStates, sessionId, {}),
+    turn_id: turnId,
   });
 }
 
 async function publishPiApprovalResponse(
   dispatcher: PiCmuxCommandDispatcher,
-  sessionStates: Map<string, SessionState>,
   context: PiExtensionContextSnapshot,
+  turnId: string,
 ): Promise<void> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
   const sessionId = context.sessionId;
   if (!sessionId) return;
   await sendHook(dispatcher, "approval-response", context, {
-    turn_id: currentTurnId(sessionStates, sessionId, {}),
+    turn_id: turnId,
   });
+}
+
+interface PiUIDialogLifecycle {
+  turnId: string;
+  resolveTurn: boolean;
 }
 
 function installPiUIDialogHooks(
@@ -131,46 +141,50 @@ function installPiUIDialogHooks(
   const originalSelect = ui.select.bind(ui);
   const originalInput = ui.input.bind(ui);
   const snapshot = () => snapshotContext(context);
-  const signal = (message: string) => {
+  const signal = (message: string): PiUIDialogLifecycle | undefined => {
     const current = snapshot();
     const sessionId = current.sessionId;
-    if (!sessionId) return;
+    if (!sessionId) return undefined;
+    const state = stateFor(sessionStates, sessionId);
+    const activeTurnId = state.activeTurnId;
+    const turnId = activeTurnId || randomUUID();
     void enqueueLifecycleTask(sessionId, current, () => publishPiQuestion(
       dispatcher,
-      sessionStates,
       current,
       message,
+      turnId,
     ));
+    return { turnId, resolveTurn: activeTurnId !== undefined };
   };
-  const resolved = () => {
+  const resolved = (dialog: PiUIDialogLifecycle | undefined) => {
     const current = snapshot();
     const sessionId = current.sessionId;
-    if (!sessionId) return;
+    if (!sessionId || !dialog?.resolveTurn) return;
     void enqueueLifecycleTask(sessionId, current, () => publishPiApprovalResponse(
       dispatcher,
-      sessionStates,
       current,
+      dialog.turnId,
     ));
   };
 
   ui.confirm = (title: string, message: string, options?: unknown) => {
-    signal([title, message].filter(Boolean).join(": "));
+    const dialog = signal([title, message].filter(Boolean).join(": "));
     return originalConfirm(title, message, options).then((value: boolean) => {
-      resolved();
+      resolved(dialog);
       return value;
     });
   };
   ui.select = (title: string, options: string[], dialogOptions?: unknown) => {
-    signal([title, ...(options || []).slice(0, 4)].filter(Boolean).join(" — "));
+    const dialog = signal([title, ...(options || []).slice(0, 4)].filter(Boolean).join(" — "));
     return originalSelect(title, options, dialogOptions).then((value: string | undefined) => {
-      resolved();
+      resolved(dialog);
       return value;
     });
   };
   ui.input = (title: string, placeholder?: string, options?: unknown) => {
-    signal([title, placeholder].filter(Boolean).join(": "));
+    const dialog = signal([title, placeholder].filter(Boolean).join(": "));
     return originalInput(title, placeholder, options).then((value: string | undefined) => {
-      resolved();
+      resolved(dialog);
       return value;
     });
   };

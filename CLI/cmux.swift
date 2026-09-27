@@ -7790,7 +7790,6 @@ struct CMUXCLI {
                 let payload = try client.sendV2(method: "notification.dismiss", params: ["all_read": true])
                 printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
             }
-
         case "mark-notification-read":
             let id = optionValue(commandArgs, name: "--id").map(normalizedNotificationIDArgument)
             let workspaceArg = optionValue(commandArgs, name: "--workspace")
@@ -7820,14 +7819,12 @@ struct CMUXCLI {
             }
             let payload = try client.sendV2(method: "notification.mark_read", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
-
         case "open-notification":
             guard let id = optionValue(commandArgs, name: "--id").map(normalizedNotificationIDArgument) else {
                 throw CLIError(message: String(localized: "cli.error.openNotificationRequiresId", defaultValue: "open-notification requires --id"))
             }
             let payload = try client.sendV2(method: "notification.open", params: ["id": id])
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
-
         case "jump-to-unread":
             let payload = try client.sendV2(method: "notification.jump_to_unread")
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
@@ -7882,6 +7879,8 @@ struct CMUXCLI {
             )
             print(response)
 
+        case "report_pwd", "report_git_branch", "report_pr_action":
+            print(try forwardSidebarMetadataCommand(command, commandArgs: commandArgs, client: client, windowOverride: windowId))
         case "clear-status":
             let response = try forwardSidebarMetadataCommand(
                 "clear_status",
@@ -7890,7 +7889,6 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
-
         case "list-status":
             let response = try forwardSidebarMetadataCommand(
                 "list_status",
@@ -7899,7 +7897,6 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
-
         case "set-progress":
             let response = try forwardSidebarMetadataCommand(
                 "set_progress",
@@ -7908,7 +7905,6 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
-
         case "clear-progress":
             let response = try forwardSidebarMetadataCommand(
                 "clear_progress",
@@ -7917,7 +7913,6 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
-
         case "log":
             let response = try forwardSidebarMetadataCommand(
                 "log",
@@ -36648,7 +36643,12 @@ export default CMUXSessionRestore;
                 )
             let antigravityHasActiveBackgroundWork = hasActiveAntigravityBackgroundWork()
             var hasActiveBackgroundWork = antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork
-            let sameTurnNeedsInput = Self.stopPreservesNeedsInput(mapped: mapped, inputTurnID: input.turnId)
+            let stopTerminationReason = firstString(in: input.rawObject, keys: ["terminationReason", "reason", "type", "kind"])
+            let sameTurnNeedsInput = Self.stopPreservesNeedsInput(
+                mapped: mapped,
+                inputTurnID: input.turnId,
+                terminationReason: stopTerminationReason
+            )
             let stopNotificationStatus: AgentHookNotificationStatus = codexFailure != nil || antigravityFailure != nil
                 ? .error
                 : (sameTurnNeedsInput ? .needsInput : .idle)
