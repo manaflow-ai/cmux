@@ -167,6 +167,14 @@ The relay shell bootstrap writes `~/.cmux/relay/<port>.shell/bin/cmux-claude-wra
 
 Each hook runs `cmux claude-hook <event>`, which always prints `{}` and exits 0. It sends `agent.hook.enqueue` with the surface from `CMUX_WORKSPACE_ID`/`CMUX_SURFACE_ID`, the Claude process TTY, and a payload of at most 6 KiB without `cwd` or transcript paths. `CMUX_CLAUDE_HOOKS_DISABLED=1` turns both off.
 
+The shim only sees launches from a shell that cmux started. A Claude session whose shell never saw cmux, such as one inside a tmux server that was running before cmux attached to it, or one a supervisor restarted, has no `CMUX_*` variables and no shim on `PATH`. For those, run `~/.cmux/bin/cmux claude-hook install` once on the host. It adds the same hook events to Claude's user settings (`$CLAUDE_CONFIG_DIR/settings.json`, else `~/.claude/settings.json`; `--settings-file <path>` picks another file), keeps every other setting, and can be repeated; `cmux claude-hook uninstall` removes only these entries. Launchers that merge the user's `~/.claude/settings.json` into their own `--settings` pick the hooks up too. The installed commands, `cmux claude-hook --user-settings <event>`:
+
+- do nothing outside cmux, and when the CLI is missing;
+- step aside when the shim already added hooks to the session (the wrapper's marker variable), and for a Claude process that has another Claude process above it, such as `claude -p` run by an agent's tool call;
+- inside tmux, when a cmux client is attached to the hook's tmux session, route to that client: they ask tmux for the session's clients and read the most recently active client's `CMUX_SOCKET_PATH`, `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID` from `/proc/<pid>/environ` (Linux; same user only), and send the client's TTY as `caller_tty`. Otherwise they use their own environment, like the shim's hooks.
+
+Claude reads hooks when a session starts, so sessions that were already running pick them up only after a restart (for example `claude --resume <id>`, or the launcher's own resume).
+
 ### Protocol and flags
 
 All relay commands use v2 JSON-RPC. Flags map to JSON params via `flagToParamKey` (e.g. `--workspace` → `workspace_id`). Boolean flags (`--focus`) accept `true`/`false`/`1`/`0`/`yes`/`no` and are sent as JSON booleans.
