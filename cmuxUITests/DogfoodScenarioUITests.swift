@@ -19,7 +19,6 @@ final class DogfoodScenarioUITests: XCTestCase {
     private var socketPath = ""
     private var lastSocketError = "no attempt"
     private var diagnosticsPath = ""
-    private var launchTag = ""
     private var saved: [String: Any] = [:]
     private var log: [String] = []
     private var failures: [String] = []
@@ -28,16 +27,19 @@ final class DogfoodScenarioUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = true
         let id = UUID().uuidString.prefix(8).lowercased()
-        launchTag = "ui-tests-dogfood-\(id)"
-        socketPath = "/tmp/cmux-debug-dogfood-\(id).sock"
+        // The runner is sandboxed: connect(2) to a socket in /tmp fails with
+        // EPERM. Its own temporary directory is reachable from both sides,
+        // as in HookPromptLengthUITests. Short name: sun_path is 104 bytes.
+        socketPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("d\(id.prefix(6)).sock").path
         diagnosticsPath = "/tmp/cmux-ui-test-dogfood-\(id).json"
-        for path in [socketPath, diagnosticsPath, taggedSocketPath()] {
+        for path in [socketPath, diagnosticsPath] {
             try? FileManager.default.removeItem(atPath: path)
         }
     }
 
     override func tearDown() {
-        for path in [socketPath, diagnosticsPath, taggedSocketPath()] {
+        for path in [socketPath, diagnosticsPath] {
             try? FileManager.default.removeItem(atPath: path)
         }
         super.tearDown()
@@ -279,9 +281,8 @@ final class DogfoodScenarioUITests: XCTestCase {
         }
     }
 
-    /// The listener may bind the requested path, the tag-derived path, or the
-    /// path the app reports in its diagnostics, as AutomationSocketUITests
-    /// resolves it; the first one that answers wins.
+    /// The listener may bind the requested path or the path the app reports
+    /// in its diagnostics; the first one that answers wins.
     private func waitForSocket(timeout: TimeInterval) -> Bool {
         var resolved: String?
         let ready = waitForControlSocketReady(
@@ -308,8 +309,9 @@ final class DogfoodScenarioUITests: XCTestCase {
     private func attachSocketDiagnostics(app: XCUIApplication) {
         let diagnostics = (try? String(contentsOfFile: diagnosticsPath, encoding: .utf8))
             ?? "missing: \(diagnosticsPath)"
-        let sockets = ((try? FileManager.default.contentsOfDirectory(atPath: "/tmp")) ?? [])
-            .filter { $0.hasPrefix("cmux") && $0.hasSuffix(".sock") }
+        let socketDirectory = (socketPath as NSString).deletingLastPathComponent
+        let sockets = ((try? FileManager.default.contentsOfDirectory(atPath: socketDirectory)) ?? [])
+            .filter { $0.hasSuffix(".sock") }
             .sorted()
             .joined(separator: "\n")
         let environment = app.launchEnvironment
@@ -317,13 +319,13 @@ final class DogfoodScenarioUITests: XCTestCase {
             .sorted()
             .joined(separator: "\n")
         attachText(
-            "diagnostics:\n\(diagnostics)\n\n/tmp sockets:\n\(sockets)\n\nlaunch environment:\n\(environment)\n\nlaunch arguments:\n\(app.launchArguments.joined(separator: " "))",
+            "diagnostics:\n\(diagnostics)\n\nsockets in \(socketDirectory):\n\(sockets)\n\nlaunch environment:\n\(environment)\n\nlaunch arguments:\n\(app.launchArguments.joined(separator: " "))",
             name: "socket-diagnostics.txt"
         )
     }
 
     private func socketCandidates() -> [String] {
-        var candidates = [socketPath, taggedSocketPath()]
+        var candidates = [socketPath]
         if let data = try? Data(contentsOf: URL(fileURLWithPath: diagnosticsPath)),
            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let expected = object["socketExpectedPath"] as? String, !expected.isEmpty {
@@ -331,15 +333,6 @@ final class DogfoodScenarioUITests: XCTestCase {
         }
         var seen = Set<String>()
         return candidates.filter { seen.insert($0).inserted }
-    }
-
-    private func taggedSocketPath() -> String {
-        let slug = launchTag
-            .lowercased()
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-            .joined(separator: "-")
-        return "/tmp/cmux-debug-\(slug).sock"
     }
 
     private func socketRequest(method: String, params: Any) -> [String: Any]? {
@@ -353,19 +346,13 @@ final class DogfoodScenarioUITests: XCTestCase {
         return (try? JSONSerialization.jsonObject(with: replyData)) as? [String: Any]
     }
 
-    /// Direct connect first, then `nc -U` the way the other socket UI tests
-    /// fall back; `lastSocketError` keeps why the direct attempt failed.
+    /// `lastSocketError` keeps why the last attempt failed for the step log.
     private func socketLine(_ line: String, path: String, timeout: TimeInterval) -> String? {
         let client = DogfoodSocketClient(path: path, responseTimeout: timeout)
-        if let reply = client.sendLine(line) {
-            return reply
-        }
-        lastSocketError = client.lastError ?? "no reply"
-        guard let reply = controlSocketCommandViaNetcat(line, socketPath: path, responseTimeout: timeout) else {
-            lastSocketError += "; nc -U: no reply"
+        guard let reply = client.sendLine(line) else {
+            lastSocketError = client.lastError ?? "no reply"
             return nil
         }
-        lastSocketError += "; nc -U answered"
         return reply
     }
 
