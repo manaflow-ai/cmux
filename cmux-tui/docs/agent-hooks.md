@@ -16,8 +16,8 @@ cmux agent hook status
 
 Claude Code started in a cmux-tui terminal gets the session's hooks even when
 `agent hook install claude` never ran, or when a launcher points it at another
-config directory (for example `sr claude proxy --account <name>`, which also
-passes its own `--settings`).
+config directory and passes its own `--settings` (for example a proxy or
+account-switching launcher).
 
 At startup the server writes a `claude` shim to
 `$XDG_DATA_HOME/cmux-tui/shims/claude` (default

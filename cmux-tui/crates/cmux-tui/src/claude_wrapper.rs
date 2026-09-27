@@ -2,8 +2,8 @@
 //! cmux-tui's agent hooks.
 //!
 //! Panes put a `claude` shim first on PATH that execs this verb, so launchers
-//! that resolve `claude` from PATH (for example `sr claude proxy`, which also
-//! sets its own CLAUDE_CONFIG_DIR) are covered too. The hooks travel in
+//! that resolve `claude` from PATH and set their own CLAUDE_CONFIG_DIR are
+//! covered too. The hooks travel in
 //! `--settings`, which applies under any config directory. Claude Code honors
 //! only the last `--settings` flag, so every `--settings` value is folded into
 //! one private file that also carries the hooks. Any failure starts Claude
@@ -668,15 +668,15 @@ mod tests {
         serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
     }
 
-    /// An sr-style `--settings` file and an inline `--settings` fold into one private file that keeps both.
+    /// A launcher's `--settings` file and an inline `--settings` fold into one private file that keeps both.
     #[test]
     fn claude_wrapper_merges_launcher_settings_with_the_hooks() {
         let root = tempfile::tempdir().unwrap();
-        // `sr claude proxy` prepends its own --settings file.
-        let launcher = root.path().join("sr-settings.json");
+        // A launcher prepends its own --settings file.
+        let launcher = root.path().join("launcher-settings.json");
         fs::write(
             &launcher,
-            r#"{"apiKeyHelper":"sr-helper","env":{"A":"1"},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"user-stop"}]}]}}"#,
+            r#"{"apiKeyHelper":"launcher-helper","env":{"A":"1"},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"user-stop"}]}]}}"#,
         )
         .unwrap();
         let args = os(&[
@@ -699,7 +699,7 @@ mod tests {
         assert_eq!(mode(&path), 0o600);
         assert_eq!(mode(&cache), 0o700);
         let settings = read_json(&path);
-        assert_eq!(settings["apiKeyHelper"], "sr-helper");
+        assert_eq!(settings["apiKeyHelper"], "launcher-helper");
         assert_eq!(settings["theme"], "dark");
         assert_eq!(settings["env"], serde_json::json!({"A":"1","B":"2"}));
         assert_eq!(settings["preferredNotifChannel"], "notifications_disabled");
