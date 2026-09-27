@@ -393,8 +393,9 @@ def unpark(store: Path, number: object, fingerprint: str) -> bool:
     current = read_stamp(store)
     if pr_key(current.get("pr")) == pr_key(number) and (store / DERIVED).is_dir():
         return False  # the kept build is this pull request's already
-    # A current main build (no pull request) stays, and so does one a park refused for disk: the job
-    # starts from it instead. A kept build no router can read (stale or missing stamp) is replaced.
+    # A current main build (no pull request) stays, and so does one park() could not move: the job
+    # starts from it instead. (If another root's eviction removes the slot after the park, the rename
+    # below fails, check reports it, and the job starts cold with its kept build parked.) A kept build no router can read (stale or missing stamp) is replaced.
     kept_current = str(current.get("fingerprint") or "").endswith(f"-{STATE_VERSION}")
     if (store / DERIVED).exists() and kept_current and not park(store):
         return False
@@ -559,15 +560,19 @@ def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr
     sweep_discarded(store)
     incoming = store / f".{DERIVED}.incoming"
     try:
-        clone(derived, incoming)
-    except OSError as error:
-        # Out of space: parked builds go first (oldest first), then the clone gets one more try.
-        # copytree's shutil.Error carries its per-file errors as text, without an errno.
-        full = error.errno == errno.ENOSPC or "No space left on device" in str(error)
-        if not full or not evict_parked(store):
-            raise
-        remove(incoming)
-        clone(derived, incoming)
+        try:
+            clone(derived, incoming)
+        except OSError as error:
+            # Out of space: parked builds go first (oldest first), then the clone gets one more try.
+            # copytree's shutil.Error carries its per-file errors as text, without an errno.
+            full = error.errno == errno.ENOSPC or "No space left on device" in str(error)
+            if not full or not evict_parked(store):
+                raise
+            remove(incoming)
+            clone(derived, incoming)
+    except OSError:
+        remove(incoming)  # a partial clone would hold its space until the next keep
+        raise
     # A seed's record is never replayed here (adopt reads RECORD only).
     for name in (*UNREAD, seed.MANIFEST):
         remove(incoming / name)
@@ -1013,8 +1018,8 @@ def package_store(argv: list[str]) -> Path | None:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) in (3, 4) and argv[1] == "evict-parked":
-        count = int(argv[3]) if len(argv) == 4 and argv[3].isdigit() else None
+    if (len(argv) == 3 or len(argv) == 4 and argv[3].isdigit()) and argv[1] == "evict-parked":
+        count = int(argv[3]) if len(argv) == 4 else None
         for path in evict_parked(Path(argv[2]), count):
             print(f"evicted {path}")
         return 0
