@@ -19,8 +19,10 @@ public struct AgentJournalSessionTail: Equatable, Sendable {
 
 extension AgentJournalStore {
     /// One tail per top-level agent session with an event at or after
-    /// `occurredAtOrAfterMs`. Used after an unclean exit to find the sessions
-    /// that were still running when the app died.
+    /// `occurredAtOrAfterMs`. Start and end are read from the session's whole
+    /// history, so a stray late event cannot revive an ended session. Used
+    /// after an unclean exit to find the sessions that were still running
+    /// when the app died.
     ///
     /// - Parameter occurredAtOrAfterMs: Lower bound on event time, in ms.
     /// - Returns: Session tails in no particular order.
@@ -49,12 +51,20 @@ public struct AgentJournalSessionTailReader: Sendable {
     static func query(_ database: AgentJournalDatabase, occurredAtOrAfterMs: Int64) throws -> [AgentJournalSessionTail] {
         let statement = try database.prepare(
             """
-            SELECT session_id, MAX(source), MAX(occurred_at_ms),
-                   MAX(CASE WHEN kind = 'agent.session.ended' THEN sequence END),
-                   MAX(CASE WHEN kind = 'agent.session.started' THEN sequence END)
-            FROM agent_journal
-            WHERE session_id IS NOT NULL AND COALESCE(is_subagent, 0) = 0 AND occurred_at_ms >= ?1
-            GROUP BY session_id;
+            SELECT j.session_id,
+                   COALESCE(
+                       (SELECT s.source FROM agent_journal s
+                        WHERE s.session_id = j.session_id AND s.kind = 'agent.session.started'
+                        ORDER BY s.sequence DESC LIMIT 1),
+                       MAX(j.source)
+                   ),
+                   MAX(j.occurred_at_ms),
+                   MAX(CASE WHEN j.kind = 'agent.session.ended' THEN j.sequence END),
+                   MAX(CASE WHEN j.kind = 'agent.session.started' THEN j.sequence END)
+            FROM agent_journal j
+            WHERE j.session_id IS NOT NULL AND COALESCE(j.is_subagent, 0) = 0
+            GROUP BY j.session_id
+            HAVING MAX(j.occurred_at_ms) >= ?1;
             """
         )
         defer { sqlite3_finalize(statement) }

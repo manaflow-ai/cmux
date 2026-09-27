@@ -36,13 +36,18 @@ struct AgentJournalSessionTailTests {
         try append(.sessionStarted, "resumed", at: 1_000)
         try append(.sessionEnded, "resumed", at: 1_100)
         try append(.sessionStarted, "resumed", at: 1_200)
+        // Ended before the window; a stray late event must not revive it.
+        try append(.sessionStarted, "stray", at: 100)
+        try append(.sessionEnded, "stray", at: 200)
+        try append(.idleObserved, "stray", at: 2_500)
         // Subagent rows and old rows are ignored.
         try append(.turnStarted, "sub", at: 2_000, subagent: true)
         try append(.turnStarted, "old", at: 10)
 
         let tails = try store.sessionTails(occurredAtOrAfterMs: 500)
         let byId = Dictionary(uniqueKeysWithValues: tails.map { ($0.sessionId, $0) })
-        #expect(Set(byId.keys) == ["lost", "done", "resumed"])
+        #expect(Set(byId.keys) == ["lost", "done", "resumed", "stray"])
+        #expect(byId["stray"]?.hasEnded == true)
         #expect(byId["lost"]?.hasEnded == false)
         #expect(byId["lost"]?.lastOccurredAtMs == 2_000)
         #expect(byId["done"]?.hasEnded == true)
