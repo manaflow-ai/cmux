@@ -415,8 +415,10 @@ struct ClaudeBackgroundWorkNotifyTests {
         // Exactly one turn-complete ping, and it carries the parent's own last
         // assistant message: asserting mere presence would be satisfied by the
         // subagent's ping, which is the thing this fix removes.
-        let notifyLines = (snapshot.compactMap(AgentHookTestNotificationPipeline.candidatePresentation) + snapshot)
-            .filter { $0.hasPrefix("notify_target_async ") && $0.contains("c=turn-complete") }
+        // Count delivered effects only: the fixture already appends each
+        // admitted notification to the snapshot, so adding candidate
+        // presentations would count the same ping twice.
+        let notifyLines = snapshot.filter { $0.hasPrefix("notify_target_async ") && $0.contains("c=turn-complete") }
         #expect(notifyLines.count == 1,
                 "Only the parent Stop may ping for this turn; saw \(notifyLines)")
         #expect(notifyLines.first?.contains("|ok|c=turn-complete;p=0") == true,
