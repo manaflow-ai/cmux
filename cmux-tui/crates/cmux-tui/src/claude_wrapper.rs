@@ -128,8 +128,9 @@ fn prepare_hooks(args: &[OsString]) -> anyhow::Result<(Vec<OsString>, Option<Pat
     Ok((args_with_hooks(args, hooks, &cache)?, helper))
 }
 
-/// The detached `cmux-tui-hook` helper: the one `agent hook install` placed,
-/// else the one shipped beside this binary. The installed hook commands run
+/// The detached `cmux-tui-hook` helper: the one `agent hook install` placed
+/// (the same path a remote host's hook install writes), else the one shipped
+/// beside this binary. The installed hook commands run
 /// `$CMUX_TUI_HOOK`, which the wrapper points at this absolute path.
 fn hook_helper(executable: &Path) -> Option<PathBuf> {
     agent_hook_install::runtime_helper_path()
@@ -212,7 +213,7 @@ fn merge_settings(target: &mut Map<String, Value>, source: Map<String, Value>) {
         };
         match (existing, value) {
             (Value::Object(existing), Value::Object(incoming)) => {
-                merge_settings(existing, incoming)
+                merge_settings(existing, incoming);
             }
             (Value::Array(existing), Value::Array(incoming)) => existing.extend(incoming),
             (existing, value) => *existing = value,
@@ -606,9 +607,7 @@ mod launch_classification {
         if argument.contains('=') {
             return Some(1);
         }
-        if next.is_none() {
-            return None;
-        }
+        next?;
         if VARIADIC.contains(&name) {
             let values =
                 args[index + 1..].iter().take_while(|value| !value.starts_with('-')).count();
