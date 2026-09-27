@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 import unittest.mock
+import urllib.error
 from pathlib import Path
 
 import yaml
@@ -1068,6 +1069,54 @@ class Nightly(unittest.TestCase):
         # The pickers never hand it out: it is not a pull request pool.
         self.assertFalse(rescue.persistent(TRUSTED))
 
+    def test_the_marker_listing_pages_past_the_window_by_the_id_order_skew(self):
+        api = rescue.GitHub("token", "manaflow-ai/cmux")
+        start = dt.datetime(2026, 9, 27, 12, 0, tzinfo=dt.timezone.utc)
+        oldest = start - dt.timedelta(minutes=150)
+
+        def marker(run_id, minutes_ago):
+            return {"workflow_run": {"id": run_id},
+                    "created_at": (start - dt.timedelta(minutes=minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")}
+
+        # Ordered by id, not upload time: page two ends past the window but
+        # under the skew, and page three still holds a marker inside it (run
+        # 7, like run 36322763980 listed behind markers 78 minutes older).
+        pages = {1: [marker(1, 0), marker(2, 60)], 2: [marker(3, 120), marker(4, 170)],
+                 3: [marker(5, 200), marker(7, 140)], 4: [marker(8, 260), marker(9, 300)],
+                 5: [marker(10, 330)]}
+        paths, logs = [], []
+
+        def request(method, path, **_):
+            paths.append(path)
+            page = int(path.rsplit("page=", 1)[1])
+            if page in failing:
+                raise urllib.error.URLError("down")
+            return {"artifacts": pages[page]}
+
+        failing = set()
+        api.request = request
+        found = [run_id for run_id, _ in api.marked_runs("owned-pool-watch", 2, oldest, 5, log=logs.append)]
+        # Page four ends 90 minutes past the window, so the listing stops there.
+        self.assertIn(7, found)
+        self.assertEqual(found, [1, 2, 3, 4, 5, 7, 8, 9])
+        self.assertEqual(len(paths), 4)
+        # No window reads one page, as before.
+        paths.clear()
+        self.assertEqual(len(api.marked_runs("owned-pool-watch", 2)), 2)
+        self.assertEqual(len(paths), 1)
+        # A later page that cannot be read keeps the pages before it, and says so.
+        failing = {3}
+        self.assertEqual([r for r, _ in api.marked_runs("owned-pool-watch", 2, oldest, 5, log=logs.append)],
+                         [1, 2, 3, 4])
+        self.assertIn("could not read page 3", logs[-1])
+        failing = {1}
+        with self.assertRaises(urllib.error.URLError):
+            api.marked_runs("owned-pool-watch", 2, oldest, 5)
+        # Reaching the page cap short of the window is logged.
+        failing = set()
+        api.marked_runs("owned-pool-watch", 2, oldest, 2, log=logs.append)
+        self.assertIn("without reaching", logs[-1])
+
     def test_newer_unfinished_runs_reads_one_page_of_main_s_nightly_runs(self):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
         seen = []
@@ -1353,8 +1402,8 @@ class SweepAPI:
     def jobs(self, run_id, attempt):
         return self.attempt_jobs.get(run_id, [])
 
-    def marked_runs(self, name, count):
-        return [(run_id, START + dt.timedelta(seconds=self.created)) for run_id in self.marked[name]][:count]
+    def marked_runs(self, name, count, oldest=None, pages=1, log=None):
+        return [(run_id, START + dt.timedelta(seconds=self.created)) for run_id in self.marked[name]][:count * pages]
 
     def run(self, run_id):
         self.reads.append(run_id)

@@ -637,10 +637,15 @@ def building_producer(commit: str) -> dict | None:
 
 
 def skips_macos(run_id: int) -> bool:
-    """Whether a CI run decided not to compile for macOS, so it will leave no products."""
+    """Whether a CI run decided not to compile for macOS, so it will leave no products.
+
+    A skipped `macos` caller (an earlier run's compile admission reused) lists
+    no admission job at all, only itself as skipped.
+    """
     listing = rerun.gh_api(f"repos/{REPO}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
     return any(
-        job.get("name", "").endswith(rerun.ADMISSION_JOB) and job.get("conclusion") == "skipped"
+        (job.get("name", "").endswith(rerun.ADMISSION_JOB) or job.get("name") == "macos")
+        and job.get("conclusion") == "skipped"
         for job in listing.get("jobs", [])
     )
 
@@ -1182,6 +1187,18 @@ def main() -> int:
         elif not (runner and pool.pr_runner_pool.persistent(runner) and runner in OVERFLOW_POOLS):
             runner = family
         print(f"Runner: {runner}, the pool family that compiled {commit}'s products", flush=True)
+    if not pinned:
+        # Last, over the family too: a Blacksmith product the owned Macs cannot
+        # adopt only costs a compile, while Blacksmith cannot run UI tests.
+        runner = pool.ui_owned_runner(
+            runner, test_filter=test_filter,
+            owned=repository_variable(pool.OWNED_VARIABLE, OWNED_ENV),
+            owned_ui=repository_variable(pool.OWNED_UI_VARIABLE, OWNED_UI_ENV),
+            order=repository_variable(pool.ORDER_VARIABLE, ORDER_ENV),
+            owned_slots=repository_variable(pool.SLOTS_VARIABLE, SLOTS_ENV),
+            pr_xcode_app=repository_variable(pool.PR_XCODE_VARIABLE, PR_XCODE_ENV),
+            log=lambda message: print(f"Runner pool: {message}", file=sys.stderr, flush=True),
+        )
     dispatch_id = uuid.uuid4().hex
     video = not args.no_video and test_target != "cmuxTests"
     fields = {

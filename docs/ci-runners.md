@@ -467,13 +467,13 @@ helper holds 12 machines at peak (`MAX_RUN_JOBS`).
 
 The side lanes (`claude-wrapper`, `remote-daemon`, `swift-package-tests`)
 prefer the light minis. On attempt 1 of a same-repository pull request whose
-pick is an owned pool, when at least as many light side runners
-(`glaeda-side-light-xcode-<version>`) are idle as the run has side lanes,
-`pr_side_runner` names the light side label, and the picked pool counts
-only admission and what follows it (`pr_runner_pool.light_side_lanes()`).
-Otherwise they take the picked pool's side label as before. Giving the light
-pool no machines beyond its root runners in `CI_OWNED_POOL_SLOTS` turns this
-off.
+pick is an owned pool, one side lane per light side runner
+(`glaeda-side-light-xcode-<version>`) idle now takes the light side label
+(`macos_pr_light_side_runner`, for the lanes in `macos_pr_light_side_jobs`),
+and the picked pool counts the rest beside admission and what follows it
+(`pr_runner_pool.light_side_lanes()`). The other lanes take the picked
+pool's side label as before. Giving the light pool no machines beyond its
+root runners in `CI_OWNED_POOL_SLOTS` turns this off.
 
 | Variable | Default | Effect |
 | --- | --- | --- |

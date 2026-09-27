@@ -73,6 +73,12 @@ enum SettingsSearchIndex {
         ),
         setting(
             .app,
+            "warn-before-closing-workspace",
+            String(localized: "settings.app.warnBeforeClosingWorkspace", defaultValue: "Warn Before Closing Workspace"),
+            "cmd shift w close workspace confirmation running process"
+        ),
+        setting(
+            .app,
             "hide-tab-close-button",
             String(localized: "settings.app.hideTabCloseButton", defaultValue: "Hide Tab Close Button"),
             "hide x button close tab"
@@ -250,6 +256,7 @@ enum SettingsSearchIndex {
         "app.warnBeforeQuit": settingID(for: .app, idSuffix: "warn-before-quit"),
         "app.warnBeforeClosingTab": settingID(for: .app, idSuffix: "warn-before-closing-tab"),
         "app.warnBeforeClosingTabXButton": settingID(for: .app, idSuffix: "warn-before-closing-tab-x-button"),
+        "app.warnBeforeClosingWorkspace": settingID(for: .app, idSuffix: "warn-before-closing-workspace"),
         "app.hideTabCloseButton": settingID(for: .app, idSuffix: "hide-tab-close-button"),
         "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),
         "app.commandPaletteSearchesAllSurfaces": settingID(for: .app, idSuffix: "palette-search-all"),

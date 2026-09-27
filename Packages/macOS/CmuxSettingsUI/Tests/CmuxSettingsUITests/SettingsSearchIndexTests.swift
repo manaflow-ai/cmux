@@ -61,6 +61,7 @@ struct SettingsSearchIndexTests {
         let index = SettingsSearchIndex(catalog: catalog)
         let keys = [
             catalog.app.warnBeforeClosingTab,
+            catalog.app.warnBeforeClosingWorkspace,
             catalog.app.hideTabCloseButton,
             catalog.app.renameSelectsExistingName,
         ]

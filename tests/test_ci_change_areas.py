@@ -4411,6 +4411,46 @@ def test_a_cmux_tests_diff_selects_the_unit_tests_without_a_label() -> None:
     # An unreadable diff runs the unit tests rather than guessing.
     assert wants_unit_suite("pull_request", "compile-only", [], None) is True
 
+
+def test_a_cmux_ui_tests_diff_runs_its_classes_without_a_label() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import MAX_UI_SELECTORS, changed_ui_selectors, coverage_gap
+    with tempfile.TemporaryDirectory() as temp:
+        tmp_path = Path(temp)
+        ui = tmp_path / "cmuxUITests"
+        ui.mkdir()
+        (ui / "LaunchUITests.swift").write_text("import XCTest\n\nfinal class LaunchUITests: XCTestCase {}\n")
+        (ui / "Pair.swift").write_text("class AUITests: XCTestCase {}\nclass BUITests : XCTestCase {}\n")
+        (ui / "Helpers.swift").write_text("extension XCUIApplication {}\n")
+        # ci.yml's ui-tests job runs the classes a diff changes; a deleted file adds nothing.
+        assert changed_ui_selectors(tmp_path, ["cmuxUITests/LaunchUITests.swift", "cmuxUITests/Gone.swift",
+                                               "Sources/A.swift"]) == ["cmuxUITests/LaunchUITests"]
+        assert changed_ui_selectors(tmp_path, ["cmuxUITests/Pair.swift"]) == ["cmuxUITests/AUITests",
+                                                                             "cmuxUITests/BUITests"]
+        assert changed_ui_selectors(tmp_path, ["Sources/A.swift"]) == []
+        # A helper any class may use maps to no class, so it stays a gap.
+        assert changed_ui_selectors(tmp_path, ["cmuxUITests/Helpers.swift"]) is None
+        # A base class selects the test classes inheriting it, not itself; an
+        # extension selects the class it extends; one of XCTestCase is a helper.
+        (ui / "Base.swift").write_text("@MainActor class SocketTestCase: XCTestCase {}\n"
+                                       "final class SocketUITests: SocketTestCase {}\n")
+        (ui / "More.swift").write_text("final class MoreSocketUITests: SocketTestCase {}\n")
+        (ui / "Launch+Lab.swift").write_text("extension LaunchUITests { func testLab() {} }\n"
+                                             "private extension XCTestCase { func wait() {} }\n")
+        assert changed_ui_selectors(tmp_path, ["cmuxUITests/Base.swift"]) == [
+            "cmuxUITests/MoreSocketUITests", "cmuxUITests/SocketUITests"]
+        assert changed_ui_selectors(tmp_path, ["cmuxUITests/Launch+Lab.swift"]) == ["cmuxUITests/LaunchUITests"]
+        many = "".join(f"class C{index}UITests: XCTestCase {{}}\n" for index in range(MAX_UI_SELECTORS + 1))
+        (ui / "Many.swift").write_text(many)
+        assert changed_ui_selectors(tmp_path, ["cmuxUITests/Many.swift"]) is None
+
+        ui_diff = ["cmuxUITests/LaunchUITests.swift"]
+        assert coverage_gap("pull_request", False, ui_diff, [], ui_suite=True) is False
+        # The full suite never runs cmuxUITests/, so full-ci does not close that gap.
+        assert coverage_gap("pull_request", True, ui_diff, []) is True
+        assert coverage_gap("pull_request", True, ui_diff, [], ui_suite=True) is False
+
+
 def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
     from choose_ci_suite import changed_unit_selectors, strict_steps
@@ -5472,9 +5512,17 @@ def test_merge_groups_stop_at_the_first_failure() -> None:
     assert '.conclusion != null and .conclusion != "success" and .conclusion != "skipped"' in watcher
     assert "permissions: {}" in watcher and "actions: write" in watcher
     assert "uses:" not in watcher
-    # ci.yml holds no actions: write: the owned-pool rescue sweeper finds its
-    # runs by marker (ci-owned-pool-rescue.yml).
-    assert "actions: write" not in CI_WORKFLOW.read_text(encoding="utf-8")
+    # ci.yml holds no actions: write but for ui-tests, which dispatches
+    # test-e2e.yml for a same-repository pull request's changed UI test
+    # classes: the owned-pool rescue sweeper finds CI runs by marker
+    # (ci-owned-pool-rescue.yml).
+    jobs = _ci_jobs()
+    writers = sorted(key for key, job in jobs.items() if (job.get("permissions") or {}).get("actions") == "write")
+    assert writers == ["ui-tests"], writers
+    assert (yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8")).get("permissions") or {}).get("actions") != "write"
+    fork_guard = jobs["ui-tests"]["steps"][0]
+    assert fork_guard["if"] == "github.event.pull_request.head.repo.full_name != github.repository"
+    assert "exit 1" in fork_guard["run"]
 
 
 def test_macos_compile_admission_precedes_expensive_shards() -> None:
