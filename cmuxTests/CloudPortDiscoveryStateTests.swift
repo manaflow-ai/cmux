@@ -114,6 +114,13 @@ struct CloudPortDiscoveryStateTests {
         #expect(discovery.state == .unavailable(.machineAsleep) && !discovery.mayScan)
     }
 
+    @Test("A routine link failure before any demand keeps Ports not checked yet")
+    func linkFailureWithoutDemandKeepsNotRequested() {
+        var discovery = readyDiscovery()
+        discovery.linkFailed()
+        #expect(discovery.state == .notRequested && !discovery.mayScan)
+    }
+
     @Test("Address withdrawal and retirement reject stale results")
     func staleScanCannotPublish() {
         var discovery = readyDiscovery()
