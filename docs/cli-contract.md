@@ -79,6 +79,7 @@ Environment:
 | `feedback` | Open feedback UI or submit feedback with `--email`, `--body`, and repeated `--image`. |
 | `feed` | Open the keyboard-first Feed TUI or manage persisted Feed workstream history. |
 | `themes` | List, set, clear, or interactively pick Ghostty themes. |
+| `import` | Import font, colors, cursor, Option-as-Alt, padding, opacity/blur and scrollback from iTerm2, Terminal, Alacritty, Kitty, WezTerm or a Warp theme into cmux's own Ghostty config and a generated theme. With no terminal, lists detected terminals (and prompts in a TTY). `--dry-run` prints the diff without writing; writing asks for confirmation in a TTY and otherwise (scripts, pipes, `--json`) requires `--yes`; `--path <file>` overrides detection; `--json` prints the plan. Never writes `~/.config/ghostty/config` or the source terminal's files. Works without a running app. |
 | `claude-teams` | Launch Claude Code with cmux/tmux-style agent team integration. |
 | `codex-teams` | Launch Codex with cmux-managed subagent panes. |
 | `omo` | Launch OpenCode with oh-my-openagent integration. |
@@ -156,7 +157,7 @@ Environment:
 | `current-workspace` | Print current workspace information. |
 | `read-selection` | Read the active selection from a terminal, file preview, Markdown, or browser surface. Plain output includes available source context; `--json` returns the complete socket response. |
 | `read-screen` | Read terminal text from a surface. `--selection` is a text-only compatibility alias for `read-selection`. |
-| `send` | Send text to a terminal surface. |
+| `send` | Send text to a terminal surface as keystrokes (`surface.send_text`). `--paste`, before the text, sends it unchanged through the Cmd+V paste path (`terminal.paste`) instead, like `cmux paste`. Without `--paste`, large multi-line text prints a hint on stderr recommending it. |
 | `send-key` | Send one key to a terminal surface. |
 | `paste` | Paste text from an argument or stdin into a terminal surface through the Cmd+V paste path (`terminal.paste`). The CLI sends the text unchanged; Ghostty brackets it when the program enabled bracketed paste (otherwise newlines become Enter) and replaces unsafe control bytes with spaces. `--submit` presses the agent-aware submit key afterwards. Local socket only: `terminal.paste` is not on the `cmux ssh` relay allowlist. |
 | `send-panel` | Send text to a panel/surface. |
@@ -867,6 +868,7 @@ the expected text without connecting to a cmux socket.
 - `cmux hooks --help` -> `Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]`
 - `cmux codex --help` -> `Usage: cmux codex <install-hooks|uninstall-hooks>`
 - `cmux themes --help` -> `Usage: cmux themes`
+- `cmux import --help` -> `Usage: cmux import`
 - `cmux omo --help` -> `Usage: cmux omo [opencode-args...]`
 - `cmux omx --help` -> `Usage: cmux omx [omx-args...]`
 - `cmux omc --help` -> `Usage: cmux omc [omc-args...]`

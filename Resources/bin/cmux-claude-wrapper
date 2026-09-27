@@ -1598,6 +1598,8 @@ fi
 # Export the wrapper's PID. Because we exec claude below, this PID becomes
 # the actual claude process PID, which hooks use for stale-session detection.
 export CMUX_CLAUDE_PID=$$
+# A parent session's hook spool belongs to that session; this launch starts its own below.
+unset CMUX_CLAUDE_HOOK_SPOOL_DIR
 export CMUX_CLAUDE_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
 
 claude_launch_has_subrouter_private_settings() {
@@ -2080,6 +2082,28 @@ fi
 CMUX_COMPUTER_USE_CONFIG="$(cmux_computer_use_config "$@")" || CMUX_COMPUTER_USE_CONFIG=""
 if [[ -n "$CMUX_COMPUTER_USE_CONFIG" ]]; then
     set -- "--mcp-config=$CMUX_COMPUTER_USE_CONFIG" "$@"
+fi
+
+# One private hook spool and forwarder per session. Queued hooks then publish
+# events with zsh builtins instead of launching the cmux CLI for every event;
+# the forwarder admits them over one socket connection. The exec below keeps
+# this PID, so the forwarder is Claude's child and exits after Claude does.
+# Remote relays and settings without the spool path keep the CLI transport.
+if [[ -n "$CMUX_SETTINGS_PATH" && "$OSTYPE" == darwin* && -x /bin/zsh
+      && "$CMUX_CLAUDE_HOOKS_DISABLED" != "1"
+      && -x "$CMUX_CLAUDE_HOOK_CMUX_BIN" && "$CMUX_CLAUDE_HOOK_CMUX_BIN" == /*
+      && "${CMUX_SOCKET_PATH:-/}" == /* && -z "${CMUX_RELAY_ID:-}"
+      && "$HOOKS_JSON" == *CMUX_CLAUDE_HOOK_SPOOL_DIR* ]]; then
+    cmux_claude_hook_spool_dir="$(umask 077; mktemp -d "${TMPDIR:-/tmp}/cmux-claude-hooks.XXXXXXXX" 2>/dev/null)" \
+        || cmux_claude_hook_spool_dir=""
+    if [[ -n "$cmux_claude_hook_spool_dir" ]]; then
+        export CMUX_CLAUDE_HOOK_SPOOL_DIR="$cmux_claude_hook_spool_dir"
+        # Signals for Claude's process group must not end the forwarder before
+        # its final drain; it exits on its own when Claude exits.
+        ( trap '' HUP INT QUIT TERM; exec "$CMUX_CLAUDE_HOOK_CMUX_BIN" hooks claude spool-forwarder ) \
+            </dev/null >/dev/null 2>&1 &
+    fi
+    unset cmux_claude_hook_spool_dir
 fi
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
