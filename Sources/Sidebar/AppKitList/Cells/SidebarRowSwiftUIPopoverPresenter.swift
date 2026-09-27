@@ -46,6 +46,17 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
     /// must know whether a close already began check this as well.
     private(set) var isClosing = false
 
+    /// - Parameter closeCompletionClock: Drives the close-completion
+    ///   fallback's deadline. Tests pass a clock they advance by hand.
+    init(closeCompletionClock: any Clock<Duration> = ContinuousClock()) {
+        super.init()
+    }
+
+#if DEBUG
+    /// The current popover's `animates`, or nil when none is presented.
+    var animatesForTesting: Bool? { popover?.animates }
+#endif
+
     func present(
         _ root: AnyView,
         relativeTo rect: NSRect,
