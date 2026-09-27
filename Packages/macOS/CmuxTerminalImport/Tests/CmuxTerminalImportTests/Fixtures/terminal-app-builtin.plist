@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Default Window Settings</key>
+	<string>Basic</string>
+	<key>Window Settings</key>
+	<dict>
+		<key>Basic</key>
+		<dict>
+			<key>ProfileCurrentVersion</key>
+			<real>2.09</real>
+			<key>name</key>
+			<string>Basic</string>
+			<key>type</key>
+			<string>Window Settings</string>
+		</dict>
+	</dict>
+</dict>
+</plist>
