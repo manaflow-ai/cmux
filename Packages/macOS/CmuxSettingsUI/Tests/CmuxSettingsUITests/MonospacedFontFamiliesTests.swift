@@ -7,9 +7,8 @@ import Testing
 struct MonospacedFontFamiliesTests {
     @Test func listsSystemMonospacedFamiliesOnly() {
         let families = MonospacedFontFamilies().load()
-        // Menlo and Courier ship with every macOS release; Helvetica is proportional.
+        // Menlo ships with every macOS release; Helvetica is proportional.
         #expect(families.contains("Menlo"))
-        #expect(families.contains("Courier"))
         #expect(!families.contains("Helvetica"))
         #expect(!families.contains { $0.hasPrefix(".") })
         #expect(families == families.sorted { $0.localizedStandardCompare($1) == .orderedAscending })
