@@ -147,6 +147,31 @@ final class CmuxEventSubscription: @unchecked Sendable {
 
 // Sendable safety: event state is protected by `lock`; disk appends are delegated to `CmuxEventLogWriter`.
 final class CmuxEventBus: @unchecked Sendable {
+    private struct PendingPublish {
+        let name: String
+        let category: String
+        let source: String
+        let occurredAt: String
+        let workspaceId: String?
+        let surfaceId: String?
+        let paneId: String?
+        let windowId: String?
+        let payload: Any
+        let automationOrigin: Any?
+    }
+
+    private struct PendingSubscription {
+        let subscription: CmuxEventSubscription
+        let afterSequence: Int64?
+        let liveOnly: Bool
+    }
+
+    private struct EventPublication {
+        let event: [String: Any]
+        let encodedLine: String?
+        let subscriptions: [CmuxEventSubscription]
+    }
+
     static let shared = CmuxEventBus(eventLogURL: defaultEventLogURL())
     static let protocolName = "cmux-events"
     static let protocolVersion = 1
@@ -169,9 +194,14 @@ final class CmuxEventBus: @unchecked Sendable {
     private let maxPendingEventsPerSubscription: Int
     private let eventLogWriter: CmuxEventLogWriter?
     private let bootId = UUID().uuidString
+    private var restorePending: Bool
+    private var restoreGap = false
+    private var restoreTask: Task<Void, Never>?
     private var nextSequence: Int64 = 1
     private var retained: [[String: Any]] = []
     private var subscriptions: [UUID: CmuxEventSubscription] = [:]
+    private var pendingPublishes: [PendingPublish] = []
+    private var pendingSubscriptions: [UUID: PendingSubscription] = [:]
 
     init(
         retainedEventLimit: Int = CmuxEventBus.defaultRetainedEventLimit,
@@ -184,6 +214,8 @@ final class CmuxEventBus: @unchecked Sendable {
         self.retainedEventLimit = max(1, retainedEventLimit)
         self.maxEventLineBytes = max(1, maxEventLineBytes)
         self.maxPendingEventsPerSubscription = max(1, maxPendingEventsPerSubscription)
+        self.restorePending = eventLogURL != nil
+        self.restoreTask = nil
         self.eventLogWriter = eventLogURL.map {
             CmuxEventLogWriter(
                 eventLogURL: $0,
@@ -193,14 +225,24 @@ final class CmuxEventBus: @unchecked Sendable {
         }
 
         if let eventLogURL {
-            let restored = Self.loadPersistedEvents(
-                eventLogURL: eventLogURL,
-                maxEventLogBytes: maxEventLogBytes,
-                retainedEventLimit: self.retainedEventLimit
-            )
-            self.retained = restored.events
-            self.nextSequence = restored.nextSequence
+            self.restoreTask = Task.detached(priority: .utility) { [weak self] in
+                let restored = Self.loadPersistedEvents(
+                    eventLogURL: eventLogURL,
+                    maxEventLogBytes: maxEventLogBytes,
+                    retainedEventLimit: retainedEventLimit
+                )
+                self?.completeRestore(restored)
+            }
         }
+    }
+
+    deinit {
+        restoreTask?.cancel()
+    }
+
+    /// Waits for the initial durable event restore, if one was scheduled.
+    func waitUntilRestored() async {
+        await restoreTask?.value
     }
 
     var latestSequence: Int64 {
@@ -221,8 +263,39 @@ final class CmuxEventBus: @unchecked Sendable {
     ) {
         let occurredAt = Self.isoTimestamp(Date())
         let cleanPayload = Self.sanitizedJSONValue(payload)
+        let pending = PendingPublish(
+            name: name,
+            category: category,
+            source: source,
+            occurredAt: occurredAt,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            paneId: paneId,
+            windowId: windowId,
+            payload: cleanPayload,
+            automationOrigin: CmuxAutomationInvocationContext.eventOrigin?.foundationObject
+        )
 
         lock.lock()
+        if restorePending {
+            pendingPublishes.append(pending)
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+
+        publish(pending)
+    }
+
+    private func publish(_ pending: PendingPublish) {
+        lock.lock()
+        let publication = appendEventLocked(pending)
+        lock.unlock()
+        deliver(publication)
+    }
+
+    /// The caller must hold ``lock`` while appending the event.
+    private func appendEventLocked(_ pending: PendingPublish) -> EventPublication {
         let sequence = nextSequence
         nextSequence += 1
 
@@ -233,18 +306,18 @@ final class CmuxEventBus: @unchecked Sendable {
             "boot_id": bootId,
             "seq": sequence,
             "id": "\(bootId)-\(sequence)",
-            "name": name,
-            "category": category,
-            "source": source,
-            "occurred_at": occurredAt,
-            "workspace_id": workspaceId ?? NSNull(),
-            "surface_id": surfaceId ?? NSNull(),
-            "pane_id": paneId ?? NSNull(),
-            "window_id": windowId ?? NSNull(),
-            "payload": cleanPayload
+            "name": pending.name,
+            "category": pending.category,
+            "source": pending.source,
+            "occurred_at": pending.occurredAt,
+            "workspace_id": pending.workspaceId ?? NSNull(),
+            "surface_id": pending.surfaceId ?? NSNull(),
+            "pane_id": pending.paneId ?? NSNull(),
+            "window_id": pending.windowId ?? NSNull(),
+            "payload": pending.payload
         ]
-        if let automationOrigin = CmuxAutomationInvocationContext.eventOrigin {
-            event["automation_origin"] = automationOrigin.foundationObject
+        if let automationOrigin = pending.automationOrigin {
+            event["automation_origin"] = automationOrigin
         }
 
         event = Self.eventByApplyingEncodedByteLimit(event, maxBytes: maxEventLineBytes)
@@ -254,12 +327,14 @@ final class CmuxEventBus: @unchecked Sendable {
         }
         let encodedLine = Self.encodeLine(event)
         let liveSubscriptions = Array(subscriptions.values)
-        lock.unlock()
+        return EventPublication(event: event, encodedLine: encodedLine, subscriptions: liveSubscriptions)
+    }
 
-        if let encodedLine { eventLogWriter?.enqueue(encodedLine) }
+    private func deliver(_ publication: EventPublication) {
+        if let encodedLine = publication.encodedLine { eventLogWriter?.enqueue(encodedLine) }
 
-        for subscription in liveSubscriptions where subscription.accepts(event) {
-            if !subscription.enqueue(event) {
+        for subscription in publication.subscriptions where subscription.accepts(publication.event) {
+            if !subscription.enqueue(publication.event) {
                 removeSubscriptionIfStillActive(subscription)
             }
         }
@@ -277,6 +352,43 @@ final class CmuxEventBus: @unchecked Sendable {
         )
 
         lock.lock()
+        if restorePending {
+            subscriptions[subscription.id] = subscription
+            pendingSubscriptions[subscription.id] = PendingSubscription(
+                subscription: subscription,
+                afterSequence: afterSequence,
+                liveOnly: afterSequence == nil
+            )
+            let latestSequence = nextSequence - 1
+            lock.unlock()
+
+            let resume: [String: Any] = [
+                "after_seq": afterSequence.map { NSNumber(value: $0) } ?? NSNull(),
+                "requested_after_seq": NSNumber(value: afterSequence ?? latestSequence),
+                "oldest_seq": NSNumber(value: latestSequence + 1),
+                "latest_seq": NSNumber(value: latestSequence),
+                "next_seq": NSNumber(value: latestSequence + 1),
+                "gap": true,
+                "gap_reason": "durable event restore is still in progress",
+                "restore_pending": true,
+                "restore_gap": false
+            ]
+            let ack: [String: Any] = [
+                "type": "ack",
+                "protocol": Self.protocolName,
+                "version": Self.protocolVersion,
+                "boot_id": bootId,
+                "subscription_id": subscription.id.uuidString,
+                "heartbeat_interval_seconds": NSNumber(value: Self.defaultHeartbeatIntervalSeconds),
+                "replay_count": 0,
+                "resume": resume,
+                "filters": [
+                    "names": Array(names).sorted(),
+                    "categories": Array(categories).sorted()
+                ]
+            ]
+            return CmuxEventSubscriptionSnapshot(subscription: subscription, replay: [], ack: ack)
+        }
         let oldestSequence = Self.int64(retained.first?["seq"]) ?? nextSequence
         let latestSequence = nextSequence - 1
         let replay = retained.filter { event in
@@ -295,6 +407,7 @@ final class CmuxEventBus: @unchecked Sendable {
             return nil
         }
         let gap = gapReason != nil
+        let hasRestoreGap = restoreGap
         subscriptions[subscription.id] = subscription
         lock.unlock()
 
@@ -304,10 +417,13 @@ final class CmuxEventBus: @unchecked Sendable {
             "oldest_seq": NSNumber(value: oldestSequence),
             "latest_seq": NSNumber(value: latestSequence),
             "next_seq": NSNumber(value: latestSequence + 1),
-            "gap": gap
+            "gap": gap || (hasRestoreGap && afterSequence != nil),
+            "restore_gap": hasRestoreGap
         ]
         if let gapReason {
             resume["gap_reason"] = gapReason
+        } else if hasRestoreGap, afterSequence != nil {
+            resume["gap_reason"] = "durable event log contains unreadable records"
         }
 
         let ack: [String: Any] = [
@@ -326,6 +442,53 @@ final class CmuxEventBus: @unchecked Sendable {
         ]
 
         return CmuxEventSubscriptionSnapshot(subscription: subscription, replay: replay, ack: ack)
+    }
+
+    private func completeRestore(
+        _ restored: (events: [[String: Any]], nextSequence: Int64, gap: Bool)
+    ) {
+        lock.lock()
+        guard restorePending else {
+            lock.unlock()
+            return
+        }
+        retained = restored.events
+        nextSequence = restored.nextSequence
+        restoreGap = restored.gap
+        lock.unlock()
+
+        while true {
+            lock.lock()
+            let subscriptionsToReplay = Array(pendingSubscriptions.values)
+            pendingSubscriptions.removeAll()
+            let publishesToFlush = pendingPublishes
+            pendingPublishes.removeAll()
+            let publicationsToFlush = publishesToFlush.map { appendEventLocked($0) }
+            if subscriptionsToReplay.isEmpty, publicationsToFlush.isEmpty {
+                restorePending = false
+                lock.unlock()
+                break
+            }
+            lock.unlock()
+
+            for pending in subscriptionsToReplay {
+                let afterSequence = pending.liveOnly
+                    ? restored.nextSequence - 1
+                    : (pending.afterSequence ?? restored.nextSequence - 1)
+                let replay = restored.events.filter { event in
+                    let sequence = Self.int64(event["seq"]) ?? 0
+                    return sequence > afterSequence && pending.subscription.accepts(event)
+                }
+                for event in replay where !pending.subscription.enqueue(event) {
+                    removeSubscriptionIfStillActive(pending.subscription)
+                    break
+                }
+            }
+
+            for publication in publicationsToFlush {
+                deliver(publication)
+            }
+        }
     }
 
     func unsubscribe(_ subscription: CmuxEventSubscription) {
@@ -363,11 +526,16 @@ final class CmuxEventBus: @unchecked Sendable {
 
     #if DEBUG
     func resetForTesting() {
+        restoreTask?.cancel()
         lock.lock()
+        restorePending = false
+        restoreGap = false
         nextSequence = 1
         retained.removeAll()
         let active = Array(subscriptions.values)
         subscriptions.removeAll()
+        pendingPublishes.removeAll()
+        pendingSubscriptions.removeAll()
         lock.unlock()
         active.forEach { $0.close() }
         eventLogWriter?.resetForTesting()
@@ -402,16 +570,21 @@ final class CmuxEventBus: @unchecked Sendable {
         eventLogURL: URL,
         maxEventLogBytes: UInt64,
         retainedEventLimit: Int
-    ) -> (events: [[String: Any]], nextSequence: Int64) {
+    ) -> (events: [[String: Any]], nextSequence: Int64, gap: Bool) {
         let rotatedURL = eventLogURL.appendingPathExtension("1")
         var loaded: [[String: Any]] = []
+        var gap = false
 
         for url in [rotatedURL, eventLogURL] {
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                continue
+            }
             guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
                   let size = attributes[.size] as? NSNumber,
                   size.uint64Value <= maxEventLogBytes,
                   let data = try? Data(contentsOf: url),
                   let text = String(data: data, encoding: .utf8) else {
+                gap = true
                 continue
             }
 
@@ -419,7 +592,9 @@ final class CmuxEventBus: @unchecked Sendable {
                 guard let lineData = String(line).data(using: .utf8),
                       let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
                       object["type"] as? String == "event",
-                      int64(object["seq"]) != nil else {
+                      let sequence = int64(object["seq"]),
+                      sequence > 0 else {
+                    gap = true
                     continue
                 }
                 loaded.append(object)
@@ -441,7 +616,8 @@ final class CmuxEventBus: @unchecked Sendable {
 
         return (
             Array(loaded.suffix(max(1, retainedEventLimit))),
-            highestSequence + 1
+            highestSequence + 1,
+            gap
         )
     }
 
