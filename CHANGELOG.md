@@ -10,6 +10,7 @@ All notable changes to cmux are documented here.
 - `cmux resize-window --window <handle> --width <w> --height <h>` resizes a window from the CLI or socket, keeping its top-left corner in place ([#9826](https://github.com/manaflow-ai/cmux/pull/9826)) -- thanks @ejc3!
 
 ### Changed
+- The sidebar's selected workspace is a soft tint of your accent color instead of a solid blue block, turns neutral grey while the window is inactive, and gets a stronger fill with an edge under Increase Contrast ([#14890](https://github.com/manaflow-ai/cmux/pull/14890))
 - The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
 
 ### Fixed
