@@ -438,7 +438,7 @@ command  display-message  aliases=-
   arg  --print  kind=flag  completion=-
   arg  text  kind=argument  completion=-
 command  docs  aliases=-
-  arg  arguments  kind=argument  completion=list(agents,all,api,browser,completion,dock,list,managed-policies,settings,shortcuts,sidebars)
+  arg  arguments  kind=argument  completion=list(agents,all,api,browser,completion,dock,list,managed-policies,settings,shortcuts,sidebars,workflows)
 command  drag-surface-to-split  aliases=-
   arg  --focus  kind=option  completion=-
   arg  --panel  kind=option  completion=custom-deprecated
@@ -769,6 +769,12 @@ command  open-browser  aliases=-
 command  open-notification  aliases=-
   arg  --id  kind=option  completion=-
   arg  arguments  kind=argument  completion=-
+command  paste  aliases=-
+  arg  --submit  kind=flag  completion=-
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  text  kind=argument  completion=-
 command  paste-buffer  aliases=-
   arg  --name  kind=option  completion=-
   arg  --surface  kind=option  completion=custom-deprecated
@@ -870,6 +876,11 @@ command  resize-pane  aliases=-
   arg  -L  kind=flag  completion=-
   arg  -R  kind=flag  completion=-
   arg  -U  kind=flag  completion=-
+  arg  arguments  kind=argument  completion=-
+command  resize-window  aliases=-
+  arg  --height  kind=option  completion=-
+  arg  --width  kind=option  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  respawn-pane  aliases=-
   arg  --command  kind=option  completion=-

@@ -182,6 +182,15 @@ struct SendCommand: SharedLegacyFacadeCommand {
     static let configuration = CommandConfiguration(commandName: "send", helpNames: [])
 }
 
+struct PasteCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
+    @Option(name: .customLong("surface"), completion: surfaceCompletion) var surfaceID: String?
+    @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
+    @Flag(name: .customLong("submit")) var submit = false
+    @Argument(parsing: .allUnrecognized) var text: [String] = []
+    static let configuration = CommandConfiguration(commandName: "paste", helpNames: [])
+}
+
 struct SendKeyCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
     @Option(name: .customLong("surface"), completion: surfaceCompletion) var surfaceID: String?

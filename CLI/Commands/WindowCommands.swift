@@ -28,6 +28,15 @@ struct CloseWindowCommand: SharedLegacyFacadeCommand {
     static let configuration = CommandConfiguration(commandName: "close-window", helpNames: [])
 }
 
+struct ResizeWindowCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("window"), completion: windowCompletion) var target: String?
+    // Strings, not Double: the legacy parser owns the positive-number check.
+    @Option(name: .customLong("width")) var width: String?
+    @Option(name: .customLong("height")) var height: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "resize-window", helpNames: [])
+}
+
 struct FindWindowCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("window"), completion: windowCompletion) var target: String?
     @Flag(name: .customLong("content")) var content = false
