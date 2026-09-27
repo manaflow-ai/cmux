@@ -13,6 +13,7 @@ All notable changes to cmux are documented here.
 - The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
 
 ### Fixed
+- In a split, a pane you switch to no longer shows a dimmed frame before it brightens; the unfocused-pane dim now changes in the same frame as focus ([#14892](https://github.com/manaflow-ai/cmux/pull/14892)).
 - Context-menu submenus built with `Menu` in custom sidebars appear instead of being dropped ([#14808](https://github.com/manaflow-ai/cmux/pull/14808)) -- thanks @aliyansajid!
 - Closing the last workspace no longer unfolds a collapsed sidebar group above it ([#10169](https://github.com/manaflow-ai/cmux/pull/10169)) -- thanks @AvoChang!
 - The focused pane border follows a zoomed terminal or browser pane instead of remaining at its pre-zoom split size, including when window chrome changes the overlay reference coordinates ([#14646](https://github.com/manaflow-ai/cmux/pull/14646)).
