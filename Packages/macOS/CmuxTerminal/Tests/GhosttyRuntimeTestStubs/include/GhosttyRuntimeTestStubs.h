@@ -76,6 +76,8 @@ void ghostty_surface_mouse_pos(void);
 void ghostty_surface_mouse_scroll(void);
 bool ghostty_surface_needs_confirm_quit(void *surface);
 void ghostty_surface_new(void);
+void ghostty_surface_prompt_input(void);
+void ghostty_surface_select_prompt_input(void);
 bool ghostty_surface_process_exited(void *surface);
 void ghostty_surface_process_output(void *surface, const char *data, uintptr_t len);
 void ghostty_surface_quicklook_font(void);

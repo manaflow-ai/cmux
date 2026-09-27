@@ -57,6 +57,28 @@ GHOSTTY_RUNTIME_TEST_STUB_WEAK bool ghostty_surface_clear_selection(void *surfac
     return false;
 }
 
+GHOSTTY_RUNTIME_TEST_STUB_WEAK bool ghostty_surface_has_selection(void *surface) {
+    (void)surface;
+    return false;
+}
+
+GHOSTTY_RUNTIME_TEST_STUB_WEAK bool ghostty_surface_prompt_input(void *surface, void *result) {
+    (void)surface;
+    (void)result;
+    return false;
+}
+
+GHOSTTY_RUNTIME_TEST_STUB_WEAK bool ghostty_surface_select_prompt_input(
+    void *surface,
+    uint32_t start,
+    uint32_t end
+) {
+    (void)surface;
+    (void)start;
+    (void)end;
+    return false;
+}
+
 GHOSTTY_RUNTIME_TEST_STUB_WEAK float ghostty_surface_font_size(void *surface) {
     (void)surface;
     return 0;
