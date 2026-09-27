@@ -260,6 +260,30 @@ import Testing
         #expect(HdiutilDiskImageMounter.mountPoint(fromAttachPlist: data)?.path == "/Volumes/cmux NIGHTLY")
         #expect(HdiutilDiskImageMounter.mountPoint(fromAttachPlist: Data("nope".utf8)) == nil)
     }
+
+    @Test func deviceEntryIsTheWholeDisk() throws {
+        let plist: [String: Any] = [
+            "system-entities": [
+                ["dev-entry": "/dev/disk9s1"],
+                ["dev-entry": "/dev/disk9"],
+            ],
+        ]
+        let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        #expect(HdiutilDiskImageMounter.deviceEntry(fromAttachPlist: data) == "/dev/disk9")
+    }
+
+    /// A download started from an already-cancelled task must end, not wait forever.
+    @Test func liveDownloaderEndsWhenStartedCancelled() async throws {
+        let root = try TemporaryDirectory()
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            try await URLSessionAppChannelDownloader().download(
+                from: URL(string: "https://127.0.0.1:9/never.dmg")!,
+                to: root.url.appendingPathComponent("never.dmg")
+            ) { _ in }
+        }
+        await #expect(throws: (any Error).self) { try await task.value }
+    }
 }
 
 // MARK: - Test doubles

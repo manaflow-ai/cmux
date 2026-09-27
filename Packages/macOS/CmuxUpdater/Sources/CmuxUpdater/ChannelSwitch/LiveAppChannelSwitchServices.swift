@@ -87,6 +87,10 @@ public struct HdiutilDiskImageMounter: DiskImageMounting {
         let result = try await Self.run(["attach", "-nobrowse", "-readonly", "-noautoopen", "-plist", image.path])
         guard result.status == 0 else { throw AttachError(status: result.status) }
         guard let mountPoint = Self.mountPoint(fromAttachPlist: result.output) else {
+            // Attached but unusable: detach whatever device it created before failing.
+            if let device = Self.deviceEntry(fromAttachPlist: result.output) {
+                _ = try? await Self.run(["detach", "-force", device])
+            }
             throw AttachError(status: -1)
         }
         return mountPoint
@@ -110,6 +114,14 @@ public struct HdiutilDiskImageMounter: DiskImageMounting {
             }
         }
         return nil
+    }
+
+    /// The whole-disk `dev-entry` in `hdiutil attach -plist` output (the shortest one).
+    static func deviceEntry(fromAttachPlist data: Data) -> String? {
+        guard let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let entities = plist["system-entities"] as? [[String: Any]]
+        else { return nil }
+        return entities.compactMap { $0["dev-entry"] as? String }.min { $0.count < $1.count }
     }
 
     private static func run(_ arguments: [String]) async throws -> (status: Int32, output: Data) {
@@ -149,6 +161,7 @@ public struct URLSessionAppChannelDownloader: AppChannelDownloading {
         let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         let task = session.downloadTask(with: url)
+        try Task.checkCancellation()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 delegate.setContinuation(continuation)
@@ -168,6 +181,9 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unc
     private let progress: @Sendable (Double?) -> Void
     private var continuation: CheckedContinuation<Void, any Error>?
     private var moveError: (any Error)?
+    /// Set when the task completes before the continuation is installed (a cancel that
+    /// raced the start), so ``setContinuation(_:)`` can resume it immediately.
+    private var completion: Result<Void, any Error>?
 
     init(destination: URL, progress: @escaping @Sendable (Double?) -> Void) {
         self.destination = destination
@@ -175,7 +191,12 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unc
     }
 
     func setContinuation(_ continuation: CheckedContinuation<Void, any Error>) {
-        lock.withLock { self.continuation = continuation }
+        let early: Result<Void, any Error>? = lock.withLock {
+            if let completion { return completion }
+            self.continuation = continuation
+            return nil
+        }
+        if let early { continuation.resume(with: early) }
     }
 
     func urlSession(
@@ -206,15 +227,18 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unc
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
-        let (continuation, moveError) = lock.withLock {
-            let pending = (self.continuation, self.moveError)
+        let (continuation, result): (CheckedContinuation<Void, any Error>?, Result<Void, any Error>) = lock.withLock {
+            let result: Result<Void, any Error>
+            if let failure = error ?? moveError {
+                result = .failure(failure)
+            } else {
+                result = .success(())
+            }
+            completion = result
+            let pending = self.continuation
             self.continuation = nil
-            return pending
+            return (pending, result)
         }
-        if let error = error ?? moveError {
-            continuation?.resume(throwing: error)
-        } else {
-            continuation?.resume()
-        }
+        continuation?.resume(with: result)
     }
 }

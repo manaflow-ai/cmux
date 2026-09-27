@@ -31,8 +31,8 @@ struct AppChannelSwitchCard: View {
 
     private func title(for target: SettingsAppChannelSwitchTarget) -> String {
         switch target {
-        case .nightly: String(localized: "settings.app.channelSwitch.nightly.title", defaultValue: "Nightly Build")
-        case .stable: String(localized: "settings.app.channelSwitch.stable.title", defaultValue: "Stable Release")
+        case .nightly: String(localized: "settings.app.channelSwitch.nightly.title", defaultValue: "Nightly Build", bundle: .module)
+        case .stable: String(localized: "settings.app.channelSwitch.stable.title", defaultValue: "Stable Release", bundle: .module)
         }
     }
 
@@ -41,20 +41,20 @@ struct AppChannelSwitchCard: View {
         case .nightly:
             String(
                 localized: "settings.app.channelSwitch.nightly.subtitle",
-                defaultValue: "Open cmux NIGHTLY, built daily from the latest code. It installs next to this app and updates separately."
+                defaultValue: "Open cmux NIGHTLY, built daily from the latest code. It installs next to this app and updates separately.", bundle: .module
             )
         case .stable:
             String(
                 localized: "settings.app.channelSwitch.stable.subtitle",
-                defaultValue: "Open the stable cmux app. It installs next to this one if it is missing."
+                defaultValue: "Open the stable cmux app. It installs next to this one if it is missing.", bundle: .module
             )
         }
     }
 
     private func buttonTitle(for target: SettingsAppChannelSwitchTarget) -> String {
         switch target {
-        case .nightly: String(localized: "settings.app.channelSwitch.nightly.button", defaultValue: "Switch to Nightly")
-        case .stable: String(localized: "settings.app.channelSwitch.stable.button", defaultValue: "Switch to Stable")
+        case .nightly: String(localized: "settings.app.channelSwitch.nightly.button", defaultValue: "Switch to Nightly", bundle: .module)
+        case .stable: String(localized: "settings.app.channelSwitch.stable.button", defaultValue: "Switch to Stable", bundle: .module)
         }
     }
 }

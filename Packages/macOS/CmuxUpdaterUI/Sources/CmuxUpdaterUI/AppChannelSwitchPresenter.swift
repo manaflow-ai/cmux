@@ -68,9 +68,11 @@ public final class AppChannelSwitchPresenter {
         task = Task { [weak self] in
             let result: Result<AppChannelSwitchOutcome, any Error>
             do {
+                let throttle = AppChannelSwitchPhaseThrottle()
                 let outcome = try await switcher.switchTo(target) { phase in
+                    guard throttle.shouldPublish(phase) else { return }
                     Task { @MainActor in
-                        model.phase = phase
+                        model.apply(phase)
                         self?.showPanelIfNeeded()
                     }
                 }
@@ -109,6 +111,7 @@ public final class AppChannelSwitchPresenter {
         )
         panel.title = model.title
         panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
         panel.contentViewController = NSHostingController(
             rootView: AppChannelSwitchProgressView(model: model) { [weak self] in self?.cancel() }
         )
@@ -118,6 +121,8 @@ public final class AppChannelSwitchPresenter {
     }
 
     private func offerToQuit(target: AppChannelSwitchTarget) {
+        // The other app was just activated; bring this one back so the question is visible.
+        NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = String(
             format: String(localized: "appChannelSwitch.opened.title", defaultValue: "%@ is open"),
@@ -229,6 +234,21 @@ final class AppChannelSwitchProgressModel {
         }
     }
 
+    /// Applies `phase` unless it would move backwards (a late download hop after verifying).
+    func apply(_ phase: AppChannelSwitchPhase) {
+        guard Self.rank(phase) >= Self.rank(self.phase) else { return }
+        self.phase = phase
+    }
+
+    private static func rank(_ phase: AppChannelSwitchPhase) -> Int {
+        switch phase {
+        case .downloading: 0
+        case .verifying: 1
+        case .installing: 2
+        case .launching: 3
+        }
+    }
+
     func reset(appName: String) {
         self.appName = appName
         phase = .downloading(fractionCompleted: nil)
@@ -258,5 +278,28 @@ struct AppChannelSwitchProgressView: View {
         }
         .padding(20)
         .frame(width: 380)
+    }
+}
+
+/// Drops download progress updates that don't change the whole percent, so a large DMG
+/// doesn't schedule one main-actor hop per network chunk.
+final class AppChannelSwitchPhaseThrottle: @unchecked Sendable {
+    // Justification for @unchecked Sendable: `lastPercent` is guarded by `lock`.
+    private let lock = NSLock()
+    private var lastPercent: Int?
+    private var sawIndeterminate = false
+
+    func shouldPublish(_ phase: AppChannelSwitchPhase) -> Bool {
+        guard case .downloading(let fraction) = phase else { return true }
+        return lock.withLock {
+            guard let fraction else {
+                defer { sawIndeterminate = true }
+                return !sawIndeterminate
+            }
+            let percent = Int(fraction * 100)
+            guard percent != lastPercent else { return false }
+            lastPercent = percent
+            return true
+        }
     }
 }
