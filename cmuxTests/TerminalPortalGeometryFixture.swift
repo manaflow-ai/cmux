@@ -113,14 +113,14 @@ final class TerminalPortalGeometryFixture {
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
         repeat {
             if let scrollbar = hosted.surfaceView.scrollbar, scrollbar.total > scrollbar.len {
-                NSLog("CMUXDIAG scroll.ok elapsed=\(ContinuousClock.now - start)")
+                NSLog("CMUXDIAG scroll.ok elapsed=\(ContinuousClock.now - start) occlusionVisible=\(window.occlusionState.contains(.visible)) displayAsleep=\(CGDisplayIsAsleep(CGMainDisplayID()))")
                 return
             }
             await flushLayout()
         } while ContinuousClock.now < deadline && !Task.isCancelled
         let hasScrollback = false
         let text = surface.visibleText() ?? "nil"
-        NSLog("CMUXDIAG scroll.fail scrollbar=\(String(describing: hosted.surfaceView.scrollbar)) text=\(text)")
+        NSLog("CMUXDIAG scroll.fail active=\(NSApplication.shared.isActive) occlusionVisible=\(window.occlusionState.contains(.visible)) displayAsleep=\(CGDisplayIsAsleep(CGMainDisplayID())) scrollbar=\(String(describing: hosted.surfaceView.scrollbar)) text=\(text)")
         try #require(hasScrollback, "Expected shell output to create real scrollback; scrollbar=\(String(describing: hosted.surfaceView.scrollbar)) text=\(text)", sourceLocation: sourceLocation)
     }
 

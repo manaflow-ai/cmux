@@ -348,7 +348,7 @@ struct SidebarWorkspaceRowSuspensionTests {
                 !existingWindowIds.contains(ObjectIdentifier($0)) && $0.isVisible
             }
         }
-        NSLog("CMUXDIAG test.end iteration=\(iteration) rePresented=\(rePresented) changes=\(presentationChanges)")
+        NSLog("CMUXDIAG test.end iteration=\(iteration) rePresented=\(rePresented) changes=\(presentationChanges) active=\(application.isActive) occlusionVisible=\(window.occlusionState.contains(.visible)) displayAsleep=\(CGDisplayIsAsleep(CGMainDisplayID())) screens=\(NSScreen.screens.count)")
         #expect(rePresented, "Checklist popover should re-present after a transient anchor reparent")
         #expect(presentationChanges.isEmpty)
         #expect(tokenConsumptions == 0)
