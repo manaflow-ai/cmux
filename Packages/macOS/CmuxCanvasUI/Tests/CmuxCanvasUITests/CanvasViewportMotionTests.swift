@@ -106,6 +106,62 @@ struct CanvasViewportMotionTests {
         #expect(animations == [CanvasRootView.paneFrameAnimationDuration])
     }
 
+    @Test func reduceMotionTogglesOverviewImmediately() throws {
+        let panelA = UUID()
+        let panelB = UUID()
+        let root = makeRoot(panels: [panelA, panelB], frames: farApartFrames(panelA, panelB), focused: panelA)
+        defer { root.teardown() }
+        root.shouldReduceMotion = { true }
+        var animations: [TimeInterval] = []
+        root.onMotionAnimationStarted = { animations.append($0) }
+        let magnificationBefore = root.currentMagnification
+
+        root.toggleOverview()
+
+        let paneB = try #require(root.model.frame(of: panelB))
+        #expect(root.currentMagnification < magnificationBefore)
+        #expect(visibleRect(root).contains(root.documentRect(fromCanvas: paneB)))
+
+        root.toggleOverview()
+
+        #expect(abs(root.currentMagnification - magnificationBefore) < 0.0001)
+        #expect(animations.isEmpty)
+    }
+
+    @Test func overviewAnimatesWhenMotionIsAllowed() throws {
+        let panelA = UUID()
+        let panelB = UUID()
+        let root = makeRoot(panels: [panelA, panelB], frames: farApartFrames(panelA, panelB), focused: panelA)
+        defer { root.teardown() }
+        root.shouldReduceMotion = { false }
+        var animations: [TimeInterval] = []
+        root.onMotionAnimationStarted = { animations.append($0) }
+
+        root.toggleOverview()
+
+        #expect(animations == [CanvasRootView.overviewAnimationDuration])
+    }
+
+    @Test func unanimatedOverviewAndZoomSkipAnimationWhenMotionIsAllowed() throws {
+        let panelA = UUID()
+        let panelB = UUID()
+        let root = makeRoot(panels: [panelA, panelB], frames: farApartFrames(panelA, panelB), focused: panelA)
+        defer { root.teardown() }
+        root.shouldReduceMotion = { false }
+        var animations: [TimeInterval] = []
+        root.onMotionAnimationStarted = { animations.append($0) }
+        let magnificationBefore = root.currentMagnification
+
+        root.toggleOverview(animated: false)
+        #expect(root.currentMagnification < magnificationBefore)
+        root.toggleOverview(animated: false)
+        root.zoom(by: 0.8, animated: false)
+
+        #expect(abs(root.currentMagnification - magnificationBefore * 0.8) < 0.0001)
+        #expect(!root.isDiscreteZoomAnimationActive)
+        #expect(animations.isEmpty)
+    }
+
     // MARK: Helpers
 
     private func farApartFrames(_ first: UUID, _ second: UUID) -> [UUID: CGRect] {

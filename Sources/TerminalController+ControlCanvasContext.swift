@@ -105,7 +105,7 @@ extension TerminalController: ControlCanvasContext {
             return .workspaceNotFound
         }
         guard ws.layoutMode == .canvas else { return .notCanvasMode }
-        CanvasActionExecutor(workspace: ws).perform(.alignment(command.alignmentCommand))
+        CanvasActionExecutor(workspace: ws).perform(.alignment(command.alignmentCommand), animated: false)
         return .ok(mode: ws.layoutMode.rawValue)
     }
 
@@ -134,7 +134,7 @@ extension TerminalController: ControlCanvasContext {
             return .workspaceNotFound
         }
         guard ws.layoutMode == .canvas else { return .notCanvasMode }
-        ws.canvasModel.viewport?.toggleOverview()
+        ws.canvasModel.viewport?.toggleOverview(animated: false)
         return .ok(mode: ws.layoutMode.rawValue)
     }
 
@@ -149,11 +149,11 @@ extension TerminalController: ControlCanvasContext {
         let executor = CanvasActionExecutor(workspace: ws)
         switch direction {
         case .zoomIn:
-            executor.perform(.zoomIn)
+            executor.perform(.zoomIn, animated: false)
         case .zoomOut:
-            executor.perform(.zoomOut)
+            executor.perform(.zoomOut, animated: false)
         case .reset:
-            executor.perform(.zoomReset)
+            executor.perform(.zoomReset, animated: false)
         }
         return .ok(mode: ws.layoutMode.rawValue)
     }
