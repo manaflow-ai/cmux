@@ -30,6 +30,7 @@ struct SurfaceSearchOverlay: View {
     @State private var dragOffset: CGSize = .zero
     @State private var barSize: CGSize = .zero
     @State private var isSearchFieldFocused: Bool = true
+    @State private var isSearchFieldEditing: Bool = false
 
     private let padding: CGFloat = 8
 
@@ -44,6 +45,7 @@ struct SurfaceSearchOverlay: View {
                     canApplyFocusRequest: canApplyFocusRequest,
                     onTextChanged: onSearchTextChanged,
                     onFieldDidFocus: onFieldDidFocus,
+                    onEditingChanged: { isSearchFieldEditing = $0 },
                     onEscape: {
                         #if DEBUG
                         cmuxDebugLog("find.nativeField.escape surface=\(surfaceId.uuidString.prefix(5)) needleEmpty=\(searchState.needle.isEmpty)")
@@ -61,6 +63,10 @@ struct SurfaceSearchOverlay: View {
                 .padding(.vertical, 6)
                 .background(Color.primary.opacity(0.1))
                 .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(isSearchFieldEditing ? cmuxAccentColor() : Color.clear, lineWidth: 1)
+                )
                 .overlay(alignment: .trailing) {
                     if let selected = searchState.selected {
                         let totalText = searchState.total.map { String($0) } ?? "?"
@@ -231,6 +237,9 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
     let canApplyFocusRequest: () -> Bool
     let onTextChanged: () -> Void
     let onFieldDidFocus: () -> Void
+    /// Actual editing state, reported by the field itself. `isFocused` is only
+    /// the focus request and can stay true when focus never lands.
+    let onEditingChanged: (Bool) -> Void
     let onEscape: () -> Void
     let onReturn: (_ isShift: Bool) -> Void
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
@@ -356,6 +365,13 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         field.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
         field.placeholderString = String(localized: "search.placeholder", defaultValue: "Search")
         field.setAccessibilityIdentifier("TerminalFindSearchTextField")
+        field.cmuxOnEditingChanged = { [weak coordinator = context.coordinator] isEditing in
+            // Deferred like the isFocused writes: AppKit can report this while
+            // SwiftUI is updating the view.
+            DispatchQueue.main.async {
+                coordinator?.parent.onEditingChanged(isEditing)
+            }
+        }
         field.delegate = context.coordinator
         field.cmuxSelectionOwner = selectionOwner
         field.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }
