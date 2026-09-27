@@ -49,8 +49,12 @@ The wrapper leaves Claude unchanged when:
 - a `--settings` argument cannot be read. It prints one line and starts
   Claude without the hooks.
 
-With `agent hook install claude` also in place, both copies use the same
-command, and Claude Code runs it once.
+With `agent hook install claude` also in place and its `cmux-tui-hook`
+helper present, both copies use the same command, and Claude Code runs it
+once. When the wrapper finds no helper (neither the installed copy nor one
+beside the cmux-tui binary), its hooks call `cmux-tui agent hook emit`
+instead. If `CMUX_TUI_HOOK` still names a working helper in that case, the
+installed hooks run as well and each event is delivered twice.
 
 ### Shell startup files can bypass the shim
 

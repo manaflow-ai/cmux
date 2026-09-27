@@ -1216,7 +1216,7 @@ static ENGLISH: Catalog = Catalog {
     japanese: false,
     agent_wrapper: AgentWrapperMessages {
         hooks_unavailable: "cmux: starting the agent without cmux status updates",
-        agent_not_found: "cmux: the agent executable was not found on PATH",
+        agent_not_found: "cmux: the agent executable was not found",
         agent_start_failed: "cmux: the agent could not be started",
     },
     startup: StartupMessages {
@@ -1912,7 +1912,7 @@ static JAPANESE: Catalog = Catalog {
     japanese: true,
     agent_wrapper: AgentWrapperMessages {
         hooks_unavailable: "cmux: cmux のステータス更新なしでエージェントを起動します",
-        agent_not_found: "cmux: PATH にエージェントの実行ファイルが見つかりません",
+        agent_not_found: "cmux: エージェントの実行ファイルが見つかりません",
         agent_start_failed: "cmux: エージェントを起動できませんでした",
     },
     startup: StartupMessages {
