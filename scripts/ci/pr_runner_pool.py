@@ -181,6 +181,22 @@ writes a runner label at job time, so the routing App needs only
 the queue leaves admission waiting on its label, and
 ci-owned-pool-rescue.yml moves it to Blacksmith.
 
+Distance routing (`vars.CI_OWNED_WARM_DISTANCE`, on unless '0'): the exact
+keys above miss most warm starts (on 2026-09-26/27 a near kept build sat on
+another, free mini for about a quarter of admissions). With it on, each
+admission artifact also carries its mini's root stamps (`roots`:
+merged_onto, pr and the pull request's own app Swift files), the builds kept
+since the snapshot are folded in live (owned_warm_state.live_warm(), at most
+1 + 2 * LIVE_MAX_NEW requests), and warm_distance.picker_distance_route()
+scores every free root on every mini with glaeda's hook's near/far/rebuild
+tiers (main's diff from each kept merge base, from one blobless shallow
+fetch, plus the kept and this pull request's own files). The root label
+costs the mean of the idle root runners' costs (where GitHub would put it);
+the cheapest runner is pinned when it beats that by ROUTE_MARGIN_SECONDS,
+ties broken by cost, then the less loaded mini, then the name. The
+`admission_route` output carries the candidates, the pick and its predicted
+seconds (warm_distance.route_record()), which admission records.
+
 Spread-first admission (`vars.CI_OWNED_SPREAD == '1'`, off by default): a
 std mini has two root runners and a compile takes either free root, so two
 compiles (8 to 10 of the mini's 14 cores each) can share a mini while another
@@ -1133,6 +1149,12 @@ def warm_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, merge
     """
     name = idle_warm_runner(runners, root, warm_tiers(merged_onto, warm, pr_number))
     return pinned_admission(root, name) if name else ""
+
+
+def distance_routing(env: Mapping[str, str]) -> bool:
+    """Whether admission's pin scores every mini's kept builds by distance (warm_distance.distance_route())
+    rather than exact keys (route_admission()): vars.CI_OWNED_WARM_DISTANCE, on unless '0'."""
+    return (env.get("OWNED_WARM_DISTANCE") or "").strip() != "0"
 
 
 def runner_member(name: str) -> str:
@@ -2146,6 +2168,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # (see "Warm affinity" above). Attempt 1 only: only it is placed, and
     # ci-macos.yml reads both outputs on attempt 1 only.
     admission_runner = ""
+    admission_route = ""
     admission_warm: list[list[str]] = []
     # CI_OWNED_WARM off ignores the snapshot's `warm`, so the switch alone
     # turns affinity off.
@@ -2162,14 +2185,31 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             sys.path.insert(0, str(Path(__file__).resolve().parent))
             import warm_distance  # noqa: PLC0415
             try:
-                admission_runner, route = warm_distance.picker_route(
-                    live_runners, choice.root_runner, merged_onto=env.get("MERGED_ONTO"),
-                    pr_number=env.get("PR_NUMBER"), snapshot=snapshot, workspace=Path.cwd(),
-                    queue_rounds=parse_queue_rounds(env.get("POOL_QUEUE_ROUNDS")), now=now,
-                    warm_key=warm_key, runner_label=runner_label)
+                if distance_routing(env):
+                    # Every mini's kept builds by the hook's near/far/rebuild distance, with the
+                    # builds kept since the snapshot folded in live (owned_warm_state.live_warm()).
+                    import owned_warm_state  # noqa: PLC0415
+                    warm = snapshot.get("warm") if isinstance(snapshot.get("warm"), Mapping) else {}
+                    if token and repo and not args.snapshot:
+                        warm = owned_warm_state.live_warm(
+                            client(), warm, now, generated_at=parse_time(str(snapshot.get("generated_at") or "")))
+                    admission_runner, route = warm_distance.picker_distance_route(
+                        live_runners, choice.root_runner, merged_onto=env.get("MERGED_ONTO"),
+                        pr_number=env.get("PR_NUMBER"), snapshot={**snapshot, "warm": warm}, workspace=Path.cwd(),
+                        queue_rounds=parse_queue_rounds(env.get("POOL_QUEUE_ROUNDS")), now=now,
+                        warm_key=warm_key, runner_label=runner_label, member=runner_member)
+                    route["live"] = warm.get("live")
+                else:
+                    admission_runner, route = warm_distance.picker_route(
+                        live_runners, choice.root_runner, merged_onto=env.get("MERGED_ONTO"),
+                        pr_number=env.get("PR_NUMBER"), snapshot=snapshot, workspace=Path.cwd(),
+                        queue_rounds=parse_queue_rounds(env.get("POOL_QUEUE_ROUNDS")), now=now,
+                        warm_key=warm_key, runner_label=runner_label)
                 print(f"warm routing: {route.get('why')} {json.dumps(route, sort_keys=True)}")
+                admission_route = json.dumps(warm_distance.route_record(route), separators=(",", ":"),
+                                             sort_keys=True)
             except Exception as error:  # noqa: BLE001 - a routing hint never costs the pool pick
-                admission_runner = ""
+                admission_runner = admission_route = ""
                 print(f"::warning title=warm routing::{type(error).__name__}: {error}"[:300])
     side = side_runner(choice, owned_slots)
     text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,
@@ -2204,6 +2244,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          # and the static label of the runner warm for this
                          # run's merge base, or "".
                          f"admission_runner={admission_runner}\n"
+                         # The picker's costs behind it (warm_distance.route_record()), JSON or "":
+                         # admission records them for ci-dash's Estimates view.
+                         f"admission_route={admission_route}\n"
                          # JSON tiers of the names of the root runners warm for
                          # this run's merge base, then its pull request, or ""
                          # (admission_placement.py).

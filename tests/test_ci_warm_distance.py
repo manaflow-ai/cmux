@@ -197,7 +197,9 @@ class Admission(unittest.TestCase):
                    "CMUX_WARM_DISTANCE_START": str(start), "CMUX_WARM_START_STAMP": str(store / "stamp.json"),
                    "OWNED_ADOPT_HIT": "true", "KEPT": "true", "COMPILE_OUTCOME": "success", "METRICS": str(metrics),
                    "BUILD_LOGS": str(logs), "RUNNER_NAME": "cmux14-glaeda-1", "GITHUB_RUN_ID": "1",
-                   "ADMISSION_RUNNER": json.dumps([ROOT_LABEL, label("cmux14-glaeda-1")])}
+                   "ADMISSION_RUNNER": json.dumps([ROOT_LABEL, label("cmux14-glaeda-1")]),
+                   "PICKER_ROUTE": json.dumps({"mode": "distance", "chosen": "cmux14-glaeda-1", "predicted": 140.0,
+                                               "baseline": 266.5, "candidates": []})}
             model = {**MODEL, "tiers_by_start": {"rebuild": {"kept": {"n": 5, "p50": 350.0}}}}
             with unittest.mock.patch.object(wd, "load_model", return_value=model):
                 record = wd.admission(store, env, repo, lambda: NOW)
@@ -213,6 +215,8 @@ class Admission(unittest.TestCase):
             self.assertEqual((record["swift_units_total"], record["app_rebuilt"], record["compile_seconds"]),
                              (1200, True, 401.5))
             self.assertEqual(record["own"]["app_swift_files"], 2)
+            self.assertEqual(record["route"]["picker"]["chosen"], "cmux14-glaeda-1")
+            self.assertEqual(record["route"]["picker"]["predicted"], 140.0)
             stamp = json.loads((store / "stamp.json").read_text())
             self.assertEqual(stamp["pr_app_swift_files"], ["Packages/macOS/X/Sources/X/X.swift", "Sources/A.swift"])
             self.assertIs(stamp["pr_package_interface"], True)
@@ -290,6 +294,185 @@ class Routing(unittest.TestCase):
 
     def test_the_wait_limit_follows_the_queue_rounds(self):
         self.assertEqual([wd.routed_wait_limit(rounds) for rounds in (0, 1, 2, None)], [0, 600, 600, 0])
+
+
+HOOK_BASE = "b" * 40
+HOOK_MODEL = {"near_app_swift_files": 5, "hot_files": ["Sources/Hot.swift"],
+              "tiers": {"near": {"p50": 140.0}, "far": {"p50": 266.5}, "rebuild": {"p50": 400.7}},
+              "start_classes": {"none": {"expected": 309.7}},
+              # near's kept cell prices kept starts; far's is too sparse and rebuild's malformed: their tier p50s.
+              "tiers_by_start": {"near": {"kept": {"n": 44, "p50": 91.1}, "seed": {"n": 54, "p50": 156.5}},
+                                 "far": {"kept": {"n": 3, "p50": 120.9}},
+                                 "rebuild": {"kept": {"n": 76, "p50": True}}}}
+
+
+def swift(*numbers: int) -> set[str]:
+    return {f"Sources/F{number}.swift" for number in numbers}
+
+
+PACKAGE = "Packages/macOS/X/Sources/X/X.swift"
+# (main's changes, the root's stamp, the job's pull request) -> what glaeda's hook (warm_root_costs())
+# answered for that root on 2026-09-27 (teamleaderleo/glaeda ccca1453, kept cells since #1304).
+HOOK_CASES = [
+    ((None, None, 7), (401.7, "cold", -1)),
+    (((swift(1), False), {"merged_onto": HOOK_BASE, "pr": 5}, 7), (309.7, "unknown", -1)),
+    (((swift(1, 2), False), {"merged_onto": HOOK_BASE, "pr": 7}, 7), (91.1, "near", 2)),
+    ((None, {"merged_onto": HOOK_BASE, "pr": 5, "pr_app_swift_files": []}, 7), (309.7, "unknown", -1)),
+    (((swift(1, 2, 3), False), {"merged_onto": HOOK_BASE, "pr": 5, "pr_app_swift_files": sorted(swift(3, 4, 5)),
+                                "pr_app_swift_total": 3, "pr_package_interface": False}, 7), (91.1, "near", 5)),
+    (((swift(1, 2, 3, 4, 5, 6), False), {"merged_onto": HOOK_BASE}, 7), (266.5, "far", 6)),
+    (((swift(1), True), {"merged_onto": HOOK_BASE, "pr": 5, "pr_app_swift_files": [], "pr_app_swift_total": 0,
+                         "pr_package_interface": False}, 7), (400.7, "rebuild", 1)),
+    (((swift(1), False), {"merged_onto": HOOK_BASE, "pr": 5, "pr_app_swift_files": [PACKAGE], "pr_app_swift_total": 1,
+                          "pr_package_interface": None}, 7), (400.7, "rebuild", 2)),
+    (((swift(1), False), {"merged_onto": HOOK_BASE, "pr": 5, "pr_app_swift_files": [PACKAGE], "pr_app_swift_total": 1,
+                          "pr_package_interface": False}, 7), (91.1, "near", 2)),
+    (((swift(1), False), {"merged_onto": HOOK_BASE, "pr": 5, "pr_app_swift_files": sorted(swift(9)),
+                          "pr_app_swift_total": 3, "pr_package_interface": False}, 7), (91.1, "near", 4)),
+    (((swift(1), False), {"merged_onto": HOOK_BASE, "pr": 5, "pr_app_swift_files": sorted(swift(9)),
+                          "pr_app_swift_total": 3}, 7), (400.7, "rebuild", 4)),
+    ((({"Sources/Hot.swift"}, False), {"merged_onto": HOOK_BASE}, 7), (400.7, "rebuild", 1)),
+    (((set(), False), {"merged_onto": HOOK_BASE, "pr": 5, "pr_app_swift_files": ["Sources/Hot.swift", "cmuxTests/T.swift"],
+                       "pr_app_swift_total": 1, "pr_package_interface": False}, None), (400.7, "rebuild", 1)),
+]
+
+
+def glaeda_hook():
+    """glaeda's hook module, from GLAEDA_HOOK or a glaeda checkout beside this one, or None."""
+    import importlib.machinery
+    import importlib.util
+    candidates = [os.environ.get("GLAEDA_HOOK") or "", str(ROOT.parent / "glaeda/scripts/glaeda-cmux-runner-hook"),
+                  str(ROOT.parent.parent / "glaeda/scripts/glaeda-cmux-runner-hook")]
+    path = next((candidate for candidate in candidates if candidate and Path(candidate).is_file()), None)
+    if path is None:
+        return None
+    loader = importlib.machinery.SourceFileLoader("glaeda_cmux_runner_hook", path)
+    module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(module)
+    return module if hasattr(module, "warm_root_costs") else None
+
+
+class HookParity(unittest.TestCase):
+    """hook_root_cost(), hook_model() and hook_changes() answer as glaeda's hook does."""
+
+    def test_the_recorded_answers(self):
+        model = wd.hook_model(HOOK_MODEL)
+        for (changes, stamp, number), expected in HOOK_CASES:
+            seconds, name, files = wd.hook_root_cost(changes, stamp, number, model)
+            self.assertEqual((round(seconds, 1), name, files), expected, stamp)
+
+    def test_the_job_own_files_join_the_distance(self):
+        model = wd.hook_model(HOOK_MODEL)
+        stamp = {"merged_onto": HOOK_BASE, "pr": 5, "pr_app_swift_files": [], "pr_app_swift_total": 0,
+                 "pr_package_interface": False}
+        own = {"paths": sorted(swift(10, 11, 12, 13)), "package_swift_files": 0, "package_interface": False}
+        self.assertEqual(wd.hook_root_cost((swift(1, 2), False), stamp, 7, model, own), (266.5, "far", 6))
+        package = {"paths": [PACKAGE], "package_swift_files": 1, "package_interface": None}
+        self.assertEqual(wd.hook_root_cost((set(), False), stamp, 7, model, package)[1], "rebuild")
+
+    def test_model_and_changes(self):
+        self.assertEqual(wd.hook_model(HOOK_MODEL), {"near_app_swift_files": 5, "hot_files": ["Sources/Hot.swift"],
+                                                     "tiers": {"near": 140.0, "far": 266.5, "rebuild": 400.7},
+                                                     "kept": {"near": 91.1}, "unknown": 309.7})
+        self.assertEqual(wd.hook_model({"tiers": {}}), wd.HOOK_DEFAULT_MODEL)
+        raw = ("\0".join([":100644 100644 a b M", "Sources/A.swift", ":100644 100644 a b M", "cmuxTests/T.swift",
+                           ":160000 160000 a b M", "vendor/ghostty", ":100644 100644 a b M", "README.md"]) + "\0")
+        self.assertEqual(wd.hook_changes(raw), ({"Sources/A.swift"}, True))
+        self.assertEqual(wd.hook_changes(":100644 100644 a b M\0Packages/macOS/X/Sources/X/X.swift\0"),
+                         ({"Packages/macOS/X/Sources/X/X.swift"}, True))
+
+    def test_against_the_hook_itself_when_at_hand(self):
+        hook = glaeda_hook()
+        if hook is None:
+            self.skipTest("no glaeda checkout (set GLAEDA_HOOK to scripts/glaeda-cmux-runner-hook)")
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / ".prefetch/cmux.git").mkdir(parents=True)
+            (Path(tmp) / ".prefetch/cmux.git/HEAD").write_text("ref: refs/heads/main\n")
+            (Path(tmp) / "warm-distance-model.json").write_text(json.dumps(HOOK_MODEL))
+            self.assertEqual(hook.read_warm_model(tmp), wd.hook_model(HOOK_MODEL))
+            for (changes, stamp, number), _ in HOOK_CASES:
+                # A second, comparable root, so the hook never falls back to the exact keys.
+                stamps = [stamp, {"merged_onto": "c" * 40}]
+                with unittest.mock.patch.object(hook, "root_stamp", lambda k, _dir="": stamps[k - 1]), \
+                        unittest.mock.patch.object(hook, "main_changes", lambda _mirror, old, _new: changes
+                                                   if old == HOOK_BASE else (set(), False)):
+                    _, predicted = hook.warm_root_costs([0, 1], "d" * 40, number, tmp)
+                ours = wd.hook_root_cost(changes, stamp, number, wd.hook_model(HOOK_MODEL))
+                self.assertEqual((predicted["root-1"]["seconds"], predicted["root-1"]["tier"],
+                                  predicted["root-1"]["app_swift_files"]), (round(ours[0], 1), ours[1], ours[2]))
+            raw = ":100644 100644 a b M\0Sources/A.swift\0:160000 160000 a b M\0vendor/ghostty\0"
+            done = subprocess.CompletedProcess([], 0, stdout=raw.encode(), stderr=b"")
+            with unittest.mock.patch.object(hook.subprocess, "run", return_value=done):
+                self.assertEqual(hook.main_changes(Path(tmp), "a" * 40, "b" * 40), wd.hook_changes(raw))
+
+
+def distance_runner(name: str, busy: bool = False) -> dict:
+    return runner(name, busy)
+
+
+class DistanceRouting(unittest.TestCase):
+    MODEL = {**MODEL, "hot_files": [], "start_classes": {"none": {"expected": 309.7}}}
+
+    def route(self, runners, minis, changes, *, own=None, legacy=None, running=None, max_wait=600.0):
+        member = lambda name: name.split("-glaeda")[0]  # noqa: E731
+        return wd.distance_route(runners, ROOT_LABEL, minis=minis, changes=lambda onto: changes.get(onto),
+                                 pr_number=7, own=own, legacy=legacy or {}, running=running or {},
+                                 model=self.MODEL, now=NOW, max_wait=max_wait, runner_label=label, member=member)
+
+    def stamp(self, onto, root=1):
+        return {"root": root, "merged_onto": onto, "pr": 3, "pr_app_swift_files": [], "pr_app_swift_total": 0,
+                "pr_package_interface": False}
+
+    def test_the_nearest_mini_beats_the_root_labels_mean(self):
+        minis = {"m1": [self.stamp("1" * 40)], "m2": [self.stamp("2" * 40), {"root": 2}]}
+        changes = {"1" * 40: (swift(*range(8)), False), "2" * 40: (swift(1), False)}
+        name, decision = self.route([runner("m1-glaeda"), runner("m2-glaeda")], minis, changes)
+        self.assertEqual(name, "m2-glaeda")
+        self.assertEqual((decision["predicted"], decision["baseline"]), (140.0, 205.0))
+        self.assertEqual(decision["candidates"][0]["root"], "root-1")
+
+    def test_a_busy_root_runner_holds_the_minis_nearest_root(self):
+        # m2's second runner is busy and holds a root: its idle runner gets the next one, cold.
+        minis = {"m1": [self.stamp("1" * 40)], "m2": [self.stamp("2" * 40), {"root": 2}]}
+        changes = {"1" * 40: (swift(*range(8)), False), "2" * 40: (swift(1), False)}
+        runners = [runner("m1-glaeda"), runner("m2-glaeda"), runner("m2-glaeda-1", busy=True)]
+        name, decision = self.route(runners, minis, changes)
+        costs = {row["runner"]: (row["tier"], row["compile"]) for row in decision["candidates"]}
+        self.assertEqual(costs["m2-glaeda"], ("cold", 401.0))
+        self.assertEqual(costs["m1-glaeda"], ("far", 270.0))
+        # The far build beats GitHub's pick between the two (335.5 s) by more than the margin.
+        self.assertEqual((name, decision["baseline"]), ("m1-glaeda", 335.5))
+
+    def test_equal_costs_do_not_pin_and_ties_are_deterministic(self):
+        minis = {"m1": [self.stamp("1" * 40)], "m2": [self.stamp("1" * 40)]}
+        changes = {"1" * 40: (swift(1), False)}
+        name, decision = self.route([runner("m2-glaeda"), runner("m1-glaeda")], minis, changes)
+        self.assertEqual(name, "")
+        self.assertEqual([row["runner"] for row in decision["candidates"]], ["m1-glaeda", "m2-glaeda"])
+
+    def test_a_mini_without_stamps_costs_its_exact_key_or_the_unknown_start(self):
+        minis = {"m2": [self.stamp("2" * 40)]}
+        changes = {"2" * 40: (swift(*range(8)), False)}
+        name, decision = self.route([runner("m1-glaeda"), runner("m2-glaeda"), runner("m3-glaeda")], minis, changes,
+                                    legacy={"m1-glaeda": 120.0})
+        costs = {row["runner"]: (row["tier"], row["compile"]) for row in decision["candidates"]}
+        self.assertEqual(costs, {"m1-glaeda": ("key", 120.0), "m2-glaeda": ("far", 270.0),
+                                 "m3-glaeda": ("unknown", 309.7)})
+        self.assertEqual(name, "m1-glaeda")
+
+    def test_record_is_bounded_and_reads_either_mode(self):
+        minis = {"m1": [self.stamp("1" * 40)]}
+        _, decision = self.route([runner("m1-glaeda")], minis, {"1" * 40: (swift(1), False)})
+        record = wd.route_record(decision)
+        self.assertEqual((record["mode"], record["chosen"], record["predicted"]), ("distance", "", 140.0))
+        _, legacy = wd.route_admission([runner("a"), runner("b")], ROOT_LABEL, base_warm={"b"}, pr_warm=(), running={},
+                                       job_tier="near", model=MODEL, now=NOW, max_wait=600, runner_label=label)
+        record = wd.route_record(legacy)
+        self.assertEqual((record["mode"], record["chosen"], record["predicted"], record["baseline"]),
+                         ("key", "b", 120.0, 350.0))
+        self.assertEqual(wd.picker_route_record(json.dumps(record)), record)
+        self.assertIsNone(wd.picker_route_record("not json"))
+        self.assertIsNone(wd.picker_route_record(""))
 
 
 def row(files: int, seconds: float, rebuilt: bool, *, package: bool = False, paths=(), at="2026-09-25T13:00:00Z",
