@@ -60,9 +60,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var lastStatusPopoverModel: SidebarWorkspaceStatusPopoverModel?
 
     private var model: SidebarWorkspaceRowModel?
-    /// Model whose selection state is currently painted; differs from `model`
-    /// while an optimistic press/deselect paint is showing.
-    private var paintedSelectionModel: SidebarWorkspaceRowModel?
     private var selectionChromeObservers: [NSObjectProtocol] = []
     private var workspaceSelectionChromeObserver: NSObjectProtocol?
     private var actions: SidebarAppKitRowActions?
@@ -115,7 +112,30 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     func applyRebuiltModel(_ model: SidebarWorkspaceRowModel) {
         guard self.model != model else { return }
         self.model = model
-        applyModel(model)
+        applyModel(paintedModel(model))
+        needsLayout = true
+    }
+
+    /// Selection flags painted ahead of the authoritative apply. Hover and
+    /// pump repaints layer it over the stored model; before this they
+    /// repainted the stored model, so moving the pointer off a just-clicked
+    /// row snapped its highlight off until the selection render landed.
+    /// Cleared only by restoreStoredModelPaint (authoritative apply or the
+    /// preview bailout), a different workspace, or reuse.
+    private var optimisticSelection: (isActive: Bool, isMultiSelected: Bool)?
+
+    private func paintedModel(_ model: SidebarWorkspaceRowModel) -> SidebarWorkspaceRowModel {
+        guard let optimisticSelection else { return model }
+        var painted = model
+        painted.isActive = optimisticSelection.isActive
+        painted.isMultiSelected = optimisticSelection.isMultiSelected
+        return painted
+    }
+
+    private func paintOptimisticSelection(isActive: Bool, isMultiSelected: Bool) {
+        guard let model else { return }
+        optimisticSelection = (isActive, isMultiSelected)
+        applyModel(paintedModel(model))
         needsLayout = true
     }
 
@@ -128,12 +148,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// swap. The stored model stays authoritative; the next configure()
     /// reconciles (or reverts if the selection did not land).
     func showOptimisticSelectionHighlight() {
-        guard let model, !model.isActive else { return }
-        var optimistic = model
-        optimistic.isActive = true
-        optimistic.isMultiSelected = false
-        applyModel(optimistic)
-        needsLayout = true
+        guard let model else { return }
+        let painted = paintedModel(model)
+        guard !painted.isActive else { return }
+        paintOptimisticSelection(isActive: true, isMultiSelected: false)
     }
 
     /// Counterpart for the row selection is LEAVING: applies the full
@@ -141,12 +159,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// together while the authoritative render sits behind the terminal-view
     /// swap. configure() reconciles right after.
     func showOptimisticDeselection() {
-        guard let model, model.isActive || model.isMultiSelected else { return }
-        var optimistic = model
-        optimistic.isActive = false
-        optimistic.isMultiSelected = false
-        applyModel(optimistic)
-        needsLayout = true
+        // Checks the painted state, not the stored model: a row that is only
+        // optimistically highlighted (rapid clicks) must peel too.
+        guard let model else { return }
+        let painted = paintedModel(model)
+        guard painted.isActive || painted.isMultiSelected else { return }
+        paintOptimisticSelection(isActive: false, isMultiSelected: false)
     }
 
     /// Modifier-click preview: a cmd/shift press JOINS the multi-selection,
@@ -154,21 +172,25 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// treatment made every cmd-click flash bright blue and then settle
     /// dim once the authoritative state landed.
     func showOptimisticMultiSelection() {
-        guard let model, !model.isActive, !model.isMultiSelected else { return }
-        var optimistic = model
-        optimistic.isMultiSelected = true
-        applyModel(optimistic)
-        needsLayout = true
+        guard let model else { return }
+        let painted = paintedModel(model)
+        guard !painted.isActive, !painted.isMultiSelected else { return }
+        paintOptimisticSelection(isActive: false, isMultiSelected: true)
     }
 
     /// Restores the stored (authoritative) model's paint, undoing any
     /// optimistic treatment. Used by the preview bailout when no
     /// authoritative apply arrives to reconcile.
     func restoreStoredModelPaint() {
+        optimisticSelection = nil
         guard let model else { return }
         applyModel(model)
         needsLayout = true
     }
+
+#if DEBUG
+    var hasOptimisticSelectionForTesting: Bool { optimisticSelection != nil }
+#endif
 
     /// True when a press at this view should not repaint selection (the
     /// close button closes without selecting; the status glyph and checklist
@@ -218,11 +240,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     private func repaintSelectionChrome() {
-        guard let paintedSelectionModel,
-              paintedSelectionModel.isActive || paintedSelectionModel.isMultiSelected else { return }
+        guard let model else { return }
+        let painted = paintedModel(model)
+        guard painted.isActive || painted.isMultiSelected else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        applySelectionChrome(paintedSelectionModel)
+        applySelectionChrome(painted)
         CATransaction.commit()
     }
 
@@ -337,7 +360,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             action()
         }
         model = nil
-        paintedSelectionModel = nil
+        optimisticSelection = nil
         // The recycled cell may have been the hovered row (often the one just
         // closed). Snap its close button hidden so it cannot fade out on
         // whichever row AppKit hands this cell to next.
@@ -399,10 +422,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         suspendPresentation()
         guard previous != model else { return }
         if previous?.workspaceId != model.workspaceId {
+            optimisticSelection = nil
             invalidateLinkAccessibility()
         }
         self.model = model
-        applyModel(model)
+        applyModel(paintedModel(model))
         needsLayout = true
     }
 
@@ -431,6 +455,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let hoverChanged = self.isPointerHovering != isPointerHovering
         self.isPointerHovering = isPointerHovering
         if previous?.workspaceId != model.workspaceId {
+            optimisticSelection = nil
             invalidateLinkAccessibility()
             cancelInlineRename()
             if statusPopoverPresenter.isShown {
@@ -440,7 +465,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
         guard requiresFullApply || previous != model || hoverChanged else { return }
         self.model = model
-        applyModel(model)
+        applyModel(paintedModel(model))
         needsLayout = true
     }
 
@@ -472,7 +497,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let settings = model.settings
 
         // Chrome
-        paintedSelectionModel = model
         applySelectionChrome(model)
         let railColor = sidebarWorkspaceRowExplicitRailNSColor(
             activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
@@ -808,7 +832,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         // trailing badge and spinner hide while the close button shows), and
         // re-deriving that subset here would drift from applyModel.
         if let model {
-            applyModel(model)
+            applyModel(paintedModel(model))
             needsLayout = true
         } else {
             updateCloseVisibility()
