@@ -96,6 +96,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.splitDown`
 - `shortcuts.bindings.splitRight`
 - `shortcuts.bindings.toggleSplitZoom`
+- `shortcuts.bindings.toggleSurfacePip`
 - `shortcuts.bindings.toggleTerminalCopyMode`
 
 ## Canvas
