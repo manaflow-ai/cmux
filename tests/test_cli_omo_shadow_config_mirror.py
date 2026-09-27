@@ -108,6 +108,31 @@ def check_user_plugins_load_beside_the_session_plugin(cli_path: str, failures: l
             failures.append("cmux wrote its session plugin into the user's plugins dir")
 
 
+def check_removed_user_entries_do_not_leave_dangling_links(cli_path: str, failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-omo-prune-") as td:
+        root = Path(td)
+        user_dir = make_user_config(root)
+        (user_dir / "plugins").mkdir()
+        (user_dir / "plugins" / "notify.js").write_text("export const Notify = async () => ({})\n", encoding="utf-8")
+        run_omo(cli_path, root)
+        shadow = root / ".cmuxterm" / "omo-config"
+
+        # The user removes a folder and a plugin, then launches omo again.
+        for path in (user_dir / "agents").iterdir():
+            path.unlink()
+        (user_dir / "agents").rmdir()
+        (user_dir / "plugins" / "notify.js").unlink()
+        run = run_omo(cli_path, root)
+
+        for relative in ["agents", "plugins/notify.js"]:
+            if os.path.lexists(shadow / relative):
+                failures.append(f"shadow {relative} still exists after the user removed it; exit={run.returncode}")
+        if not (shadow / "plugins" / "cmux-session.js").exists():
+            failures.append("pruning removed the cmux session plugin")
+        if not (shadow / "prompts" / "chief.md").exists():
+            failures.append("pruning removed a link whose target still exists")
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -118,6 +143,7 @@ def main() -> int:
     failures: list[str] = []
     check_user_config_is_mirrored(cli_path, failures)
     check_user_plugins_load_beside_the_session_plugin(cli_path, failures)
+    check_removed_user_entries_do_not_leave_dangling_links(cli_path, failures)
 
     if failures:
         for failure in failures:
