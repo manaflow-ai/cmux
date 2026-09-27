@@ -161,7 +161,7 @@ class AdoptAndSave(Fixture):
         result = run(state.save, self.store, self.packages, self.workspace)
         self.assertEqual(result["packages"], "true")
         self.assertTrue((self.store / "source-packages" / "checkouts" / "new").is_file())
-        self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [])
+        self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [".keep.lock"])
 
     def test_a_job_without_packages_leaves_the_kept_ones(self):
         self.keep()
@@ -194,7 +194,7 @@ class AdoptAndSave(Fixture):
         with unittest.mock.patch.object(Path, "rename", racing):
             result = run(state.save, self.store / "cmux-ci-2", self.packages, self.workspace, self.store)
         self.assertEqual(result["packages"], "false")
-        self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [])
+        self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [".keep.lock"])
         self.assertFalse((self.store / "cmux-ci-2" / "source-packages").exists())
 
     def test_a_save_leaves_another_slots_save_in_flight(self):
@@ -224,7 +224,7 @@ class AdoptAndSave(Fixture):
         self.assertEqual(sorted(path.name for path in (kept / "Build").iterdir()), ["new.o"])
         self.assertFalse((kept / "derived-data-compile-admission").exists())
         self.assertEqual(json.loads((self.store / "stamp.json").read_text())["fingerprint"], "fp2-owned-rec1")
-        self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [])
+        self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [".keep.lock"])
 
     def test_clear_refuses_to_leave_anything_behind(self):
         target = self.store / "x"

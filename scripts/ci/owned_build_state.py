@@ -395,6 +395,8 @@ def holds_last_main(store: Path, fingerprint: str = "") -> bool:
     for everyone once that pull request changed a package interface (09-27: 100 of 108 picker candidates
     were rebuild). glaeda-idle-warm keeps it at main's head."""
     others = other_root_stores(store)
+    # Another root's fingerprint includes its root, so its main build is checked by STATE_VERSION only
+    # (as stamp_keys does): a main build from an older Xcode there still counts, until its next keep.
     return bool(others) and main_build(store, fingerprint) and not any(main_build(other) for other in others)
 
 
@@ -632,7 +634,9 @@ def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr
     for name in (*UNREAD, seed.MANIFEST):
         remove(incoming / name)
     with mini_keep_lock(store):
-        return keep_locked(store, incoming, fingerprint, merged_onto, pr_number)
+        result = keep_locked(store, incoming, fingerprint, merged_onto, pr_number)
+    sweep_discarded(store)
+    return result
 
 
 def keep_locked(store: Path, incoming: Path, fingerprint: str, merged_onto: str, pr_number: str) -> dict[str, str]:
@@ -678,7 +682,10 @@ def keep_locked(store: Path, incoming: Path, fingerprint: str, merged_onto: str,
     for field in ("pr_app_swift_files", "pr_app_swift_total", "pr_package_interface", "pr_hot_files"):
         stamp.pop(field, None)
     write_stamp(store, stamp)
-    clear(store / DERIVED)
+    # Set the old build aside only: its delete (12 to 40 GB) runs after the lock (`keep`, sweep_discarded).
+    old = store / DERIVED
+    if old.exists() or old.is_symlink():
+        old.rename(store / f".{DERIVED}.discard-{os.getpid()}")
     incoming.rename(store / DERIVED)
     stamp["fingerprint"] = stamped(fingerprint)
     if warm_key(merged_onto):
