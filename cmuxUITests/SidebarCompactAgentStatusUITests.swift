@@ -40,11 +40,13 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
 
     private func runScenario(compact: Bool) {
         let app = XCUIApplication.cmuxTestApplication()
-        let token = UUID().uuidString.prefix(8)
-        let socketPath = "/tmp/cmux-ui-compact-status-\(token).sock"
+        let token = UUID().uuidString
+        let socketPath = "/tmp/cmux-debug-\(token).sock"
+        let diagnosticsPath = "/tmp/cmux-ui-compact-status-\(token).json"
         defer {
             app.terminate()
             try? FileManager.default.removeItem(atPath: socketPath)
+            try? FileManager.default.removeItem(atPath: diagnosticsPath)
         }
 
         app.launchArguments += ["-newWorkspacePlacement", "end"]
@@ -56,13 +58,24 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
-        app.launchEnvironment["CMUX_TAG"] = "ui-compact-status-\(token)"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
+        app.launchEnvironment["CMUX_TAG"] = "ui-compact-status-\(token.prefix(8))"
 
         launchAndEnsureRunning(app)
-        XCTAssertTrue(
-            pollUntil(timeout: 10.0) { self.sendSocketLine("ping", to: socketPath) == "PONG" },
-            "Expected the isolated control socket to become ready"
-        )
+        let socketReady = pollUntil(timeout: 20.0) { self.sendSocketLine("ping", to: socketPath) == "PONG" }
+        if !socketReady {
+            let diagnostics = (try? String(contentsOfFile: diagnosticsPath, encoding: .utf8)) ?? "no diagnostics file"
+            let attachment = XCTAttachment(string: diagnostics)
+            attachment.name = "socket-diagnostics"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            let screen = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            screen.name = "socket-not-ready"
+            screen.lifetime = .keepAlways
+            add(screen)
+        }
+        XCTAssertTrue(socketReady, "Expected the isolated control socket to become ready")
 
         for scenario in scenarios {
             let reply = sendSocketLine("new_workspace \(scenario.title)", to: socketPath)
