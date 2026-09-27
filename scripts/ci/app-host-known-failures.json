@@ -35,10 +35,6 @@
       "classification": "host/display dependency",
       "issue": 13948
     },
-    "TerminalNotificationDirectInteractionTests/testKeyDownRecoveryDoesNotReplayFocusAfterResponderMovesAway()": {
-      "classification": "host/display dependency",
-      "issue": 13948
-    },
     "WorkspaceTerminalFocusRecoveryTests/testTerminalFirstResponderFeedbackPreservesActiveFocusTransaction()": {
       "classification": "host/display dependency",
       "issue": 13948

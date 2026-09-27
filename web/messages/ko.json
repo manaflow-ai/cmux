@@ -1782,6 +1782,7 @@
       "metaTitle": "변경 내역",
       "versionTitle": "cmux {version} · 변경 내역",
       "releaseNavLabel": "cmux {version} 전후 릴리스",
+      "tryIt": "사용해 보기",
       "sections": {
         "added": "추가",
         "changed": "변경",

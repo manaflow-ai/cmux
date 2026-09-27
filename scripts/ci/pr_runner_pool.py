@@ -423,7 +423,10 @@ CI_WORKFLOW = "ci.yml"
 MAX_SNAPSHOT_MINUTES = 45
 PAGE_SIZE = 100
 # The marker ci.yml's changes job uploads when it puts a run on an owned pool.
-OWNED_MARKER = re.compile(r"macos-pool-persistent-(?P<run>[0-9]+)-(?P<attempt>[0-9]+)-(?P<jobs>[0-9]+)-(?P<pool>.+)")
+# Its name is ...-<jobs>p<placed>-<pool> (queue_janitor.py reads <placed>); the
+# E2E and iOS markers, and older ones, omit p<placed>.
+OWNED_MARKER = re.compile(r"macos-pool-persistent-(?P<run>[0-9]+)-(?P<attempt>[0-9]+)-(?P<jobs>[0-9]+)"
+                          r"(?:p(?P<placed>[0-9]+))?-(?P<pool>.+)")
 # The job that runs this picker; once it finishes, a run without a marker is off the owned pools.
 ROUTING_JOB = "changes"
 # The changes job step that is skipped exactly when the pick was not an owned pool.
@@ -865,6 +868,9 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
         return {}, [f"{SLOTS_VARIABLE} is not a JSON object or a whole number"]
     match = XCODE_APP.search(pr_xcode_app or "")
     counted, by_class, problems = {}, {}, []
+    # A full label is more specific than its class, even when its own count is
+    # invalid: that entry is reported, never replaced by the class count.
+    explicit = {str(label) for label in data if persistent(str(label))}
     for label, count in data.items():
         label = str(label)
         if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
@@ -879,7 +885,9 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
             counted[label] = count
         elif OWNED_LABEL.fullmatch(f"glaeda-{label}-xcode-0"):
             if match:
-                by_class[f"glaeda-{label}-xcode-{match.group(1)}"] = count
+                full = f"glaeda-{label}-xcode-{match.group(1)}"
+                if full not in explicit:
+                    by_class[full] = count
             else:
                 problems.append(f"{SLOTS_VARIABLE} entry {label!r} names a class, but {PR_XCODE_VARIABLE} "
                                 "names no Xcode version to pair it with")
@@ -1317,9 +1325,11 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
         rooms[label] = Pick(label, "owned", room, root_room, limit, whole if best and queue_rounds else None)
     reserve = max(0, reserve)
     fits = [label for label, room in rooms.items() if room.room >= max(1, jobs) + reserve
-            and (room.root_room is None or room.root_room >= root_jobs + reserve)]
+            and (room.root_room is None or root_jobs <= 0 or room.root_room >= root_jobs + reserve)]
     if split and not reserve and not fits and rooms and max(room.room for room in rooms.values()) >= 1:
-        fits = [max(rooms, key=lambda label: rooms[label].room)]
+        # A pool with a root runner free first, when the run needs one.
+        fits = [max(rooms, key=lambda label: (not root_jobs or rooms[label].root_room is None
+                                              or rooms[label].root_room >= 1, rooms[label].room))]
     for label in usable:
         if label in fits:
             return rooms[label]
@@ -2173,6 +2183,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             handle.write(f"runner={choice.runner}\nxcode_app={choice.xcode_app}\n"
                          f"persistent={'true' if persistent(choice.runner) else 'false'}\n"
                          f"retry_runner={choice.retry_runner}\njobs={held}\n"
+                         # The owned jobs placed, which may exceed the machines
+                         # held: the jobs after admission reuse its machine.
+                         f"placed={len(owned_jobs)}\n"
                          f"shard_runner={choice.shard_runner}\n"
                          # Attempt 2 of an owned job the fleet refused tries it
                          # once more: a re-run of failed jobs reuses these outputs.
