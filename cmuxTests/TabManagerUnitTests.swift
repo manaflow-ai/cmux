@@ -1814,6 +1814,7 @@ final class TabManagerCloseDontAskAgainTests: XCTestCase {
     func testPinnedWorkspacePromptNeverOffersDontAskAgain() {
         let manager = makeManager()
         let workspace = manager.tabs[1]
+        let unpinned = manager.tabs[2]
         manager.setPinned(workspace, pinned: true)
 
         var promptCount = 0
@@ -1828,10 +1829,11 @@ final class TabManagerCloseDontAskAgainTests: XCTestCase {
         }
 
         XCTAssertFalse(manager.closeWorkspaceWithConfirmation(workspace))
-        manager.closeWorkspacesWithConfirmation([manager.tabs[0].id, workspace.id], allowPinned: true)
+        manager.closeWorkspacesWithConfirmation([unpinned.id, workspace.id], allowPinned: true)
 
         XCTAssertEqual(promptCount, 2)
         XCTAssertEqual(offerCount, 0)
+        XCTAssertEqual(manager.tabs.count, 3, "Both prompts were cancelled")
     }
 }
 

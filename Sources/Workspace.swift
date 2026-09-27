@@ -13957,13 +13957,17 @@ extension Workspace: BonsplitDelegate {
                     }
                 }
 
-                // The X-button warning asks even when nothing is running.
+                // The X-button warning asks even when nothing is running; the
+                // cached activity adds the running-process warning when busy.
+                let cached = remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId)
                 let unconditionalWarningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
                     requiresConfirmation: false, source: confirmationSource
                 )
                 if !unconditionalWarningKinds.isEmpty {
-                    let cached = remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId)
-                    presentConfirmation(cached?.activeCommandName, unconditionalWarningKinds)
+                    let promptWarningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
+                        requiresConfirmation: cached?.hasActiveCommand ?? false, source: confirmationSource
+                    )
+                    presentConfirmation(cached?.activeCommandName, promptWarningKinds)
                     return false
                 }
 
