@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import run_ci_guards  # noqa: E402
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 FAST_WORKFLOW = ROOT / ".github/workflows/ci-fast-guards.yml"
 

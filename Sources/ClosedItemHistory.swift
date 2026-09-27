@@ -1,4 +1,5 @@
 import CmuxSurfaceCatalogModel
+import CmuxWorkspaces
 import Foundation
 import Combine
 import Bonsplit
@@ -683,11 +684,16 @@ final class ClosedItemHistoryStore: ObservableObject {
     nonisolated fileprivate static func loadRecords(fileURL: URL) -> [ClosedItemHistoryRecord] {
         guard let data = try? Data(contentsOf: fileURL) else { return [] }
         let decoder = JSONDecoder()
-        if let snapshot = try? decoder.decode(ClosedItemHistoryPersistenceSnapshot.self, from: data),
-           snapshot.version == ClosedItemHistoryPersistenceSnapshot.currentVersion {
+        // Records carry workspace layout trees; decode on a main-sized stack
+        // because this runs on a 512 KB concurrency pool thread (#4656).
+        if let snapshot = try? SessionSnapshotCodingStack().run({
+            try decoder.decode(ClosedItemHistoryPersistenceSnapshot.self, from: data)
+        }), snapshot.version == ClosedItemHistoryPersistenceSnapshot.currentVersion {
             return snapshot.records
         }
-        return (try? decoder.decode([ClosedItemHistoryRecord].self, from: data)) ?? []
+        return (try? SessionSnapshotCodingStack().run {
+            try decoder.decode([ClosedItemHistoryRecord].self, from: data)
+        }) ?? []
     }
 
     nonisolated fileprivate static func saveRecords(_ records: [ClosedItemHistoryRecord], fileURL: URL) {
@@ -713,7 +719,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             let snapshot = ClosedItemHistoryPersistenceSnapshot(records: records)
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
-            let data = try encoder.encode(snapshot)
+            let data = try SessionSnapshotCodingStack().run { try encoder.encode(snapshot) }
             if let existingData = try? Data(contentsOf: fileURL), existingData == data {
                 return
             }
