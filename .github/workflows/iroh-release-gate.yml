@@ -84,9 +84,9 @@ jobs:
       CMUX_SWIFT_FRONTEND_WORKAROUND: "1"
     strategy:
       fail-fast: false
-      # The three app-backed modes share one staging account. Serial execution
-      # prevents one mode's zero-touch registration from replacing another
-      # mode's active Mac route while its authenticated RPC probe is running.
+      # The app-backed modes share one temporary account per environment.
+      # Serial execution prevents one mode's zero-touch registration from
+      # replacing another mode's active Mac route during its RPC probe.
       max-parallel: 1
       matrix:
         mode: ${{ fromJSON(inputs.mode == 'all' && '["automatic","relay-only","relay-expiry","direct-only","private-path"]' || format('["{0}"]', inputs.mode)) }}
@@ -155,7 +155,7 @@ jobs:
           EOF
           chmod 600 "$production_env"
 
-      - name: Run staging Iroh gate
+      - name: Run Iroh gate
         env:
           # The hosted runner does not have cmuxterm-hq's tagged-backend
           # helper. The explicit Worker origin remains the app's API and v2
