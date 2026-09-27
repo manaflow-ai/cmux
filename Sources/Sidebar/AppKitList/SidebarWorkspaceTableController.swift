@@ -2101,16 +2101,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         setHoveredRowId(nil)
     }
 
-    func recomputeHoveredRow() {
+    /// `windowPoint` is the location an event just delivered; recomputes
+    /// without one read the live pointer.
+    func recomputeHoveredRow(windowPoint: NSPoint? = nil) {
         guard contextMenuRowId == nil,
               let table = containerView?.tableView else {
             return
         }
         let row = SidebarWorkspaceTableHoverResolver().hoveredRow(
-            windowPoint: table.lastPointerWindowLocation,
+            windowPoint: windowPoint ?? table.livePointerWindowLocation,
             convertToTable: { table.convert($0, from: nil) },
             rowAtPoint: { table.row(at: $0) },
-            rowCount: rows.count
+            rowCount: rows.count,
+            visibleRect: table.visibleRect
         )
         setHoveredRowId(row.map { rows[$0].id })
     }
