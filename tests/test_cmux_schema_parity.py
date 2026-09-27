@@ -63,7 +63,6 @@ NOT_IN_CMUX_JSON = frozenset({
     "app.systemWideHotkeyEnabled",
     "app.titlebarControlsStyle",
     "app.workspaceButtonFade",
-    "app.workspaceTitlebarVisibility",
     # Browser runtime state.
     "browser.disabled",
     "browser.importHintDismissed",
