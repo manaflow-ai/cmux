@@ -921,6 +921,22 @@ export const vmWorkflowErrorResponders = {
       details: { operation: error.operation },
     });
   },
+  VmEnvProviderUnsupportedError: (error) =>
+    vmErrorResponse({
+      error: "env_provider_unsupported",
+      status: 400,
+      message: `Cloud VM env layers are not supported on the ${error.provider} provider yet.`,
+      action: "Use the freestyle provider for `cmux vm env` builds.",
+      details: { provider: error.provider },
+    }),
+  VmEnvLayerOwnershipError: (error) =>
+    vmErrorResponse({
+      error: "env_layer_snapshot_not_owned",
+      status: 404,
+      message: "That snapshot does not belong to this account, so it cannot be registered as an env layer.",
+      action: "Re-run `cmux vm env build`; layers must reference snapshots created by this team.",
+      details: { snapshotId: error.snapshotId },
+    }),
   VmBillingError: (error) =>
     vmErrorResponse({
       error: "vm_billing_unavailable",

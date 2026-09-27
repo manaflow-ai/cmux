@@ -504,6 +504,8 @@ export interface VMProvider {
    * rather than deleting across machines.
    */
   deleteSnapshot?(vmId: string, snapshotId: string): Promise<void>;
+  /** Delete a snapshot by its provider-global id. Used by env-layer retention after the source VM may be gone. */
+  deleteSnapshotById?(snapshotId: string): Promise<void>;
   /**
    * Boot a new machine from a snapshot. `options.network` places it on the
    * owner's private network exactly as `create` does — a restored machine is a
