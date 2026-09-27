@@ -117,7 +117,11 @@ def build_sheets(frames: Path, test_dir: Path) -> list[Path]:
         for index, frame in enumerate(sorted(frames.glob("*.png")), start=1):
             os.symlink(frame.resolve(), Path(tmp) / f"{index:04d}.png")
         pattern = str(Path(tmp) / "%04d.png")
-        scale = f"scale={SHEET_TILE_WIDTH}:-2:force_original_aspect_ratio=decrease,pad={SHEET_TILE_WIDTH}:{SHEET_TILE_WIDTH * 9 // 16}:-1:-1:color=0x202020"
+        tile_height = SHEET_TILE_WIDTH * 9 // 16
+        # Fit inside the tile both ways: a taller-than-16:9 capture would
+        # otherwise overflow the pad and ffmpeg would write nothing.
+        scale = (f"scale={SHEET_TILE_WIDTH}:{tile_height}:force_original_aspect_ratio=decrease,"
+                 f"pad={SHEET_TILE_WIDTH}:{tile_height}:-1:-1:color=0x202020")
         subprocess.run(
             [ffmpeg, "-loglevel", "error", "-y", "-framerate", "1", "-i", pattern,
              "-vf", f"{scale},tile={SHEET_COLUMNS}x{SHEET_ROWS}:padding=4:color=0x000000",
@@ -126,7 +130,7 @@ def build_sheets(frames: Path, test_dir: Path) -> list[Path]:
         )
         subprocess.run(
             [ffmpeg, "-loglevel", "error", "-y", "-framerate", "2", "-i", pattern,
-             "-vf", "scale=1280:-2:force_original_aspect_ratio=decrease,pad=1280:720:-1:-1:color=0x202020,format=yuv420p",
+             "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:-1:-1:color=0x202020,format=yuv420p",
              str(test_dir / "steps.mp4")],
             check=False,
         )
@@ -157,11 +161,17 @@ def main() -> int:
 
     summary = []
     for xcresult in xcresults:
-        results = test_results(xcresult)
-        exported = out / "attachments" / xcresult.stem
-        if not (exported / "manifest.json").exists():
-            exported.mkdir(parents=True, exist_ok=True)
-            run(["xcrun", "xcresulttool", "export", "attachments", "--path", str(xcresult), "--output-path", str(exported)])
+        # Retried shards upload one bundle per attempt; keep them apart.
+        root = out / xcresult.stem if len(xcresults) > 1 else out
+        try:
+            results = test_results(xcresult)
+            exported = out / "attachments" / xcresult.stem
+            if not (exported / "manifest.json").exists():
+                exported.mkdir(parents=True, exist_ok=True)
+                run(["xcrun", "xcresulttool", "export", "attachments", "--path", str(xcresult), "--output-path", str(exported)])
+        except subprocess.CalledProcessError as error:
+            print(f"skipped {xcresult}: xcresulttool failed ({(error.stderr or '').strip()[:200]})", file=sys.stderr)
+            continue
         manifest = json.loads((exported / "manifest.json").read_text())
         with_attachments = {entry.get("testIdentifier") for entry in manifest}
         for identifier, outcome in results.items():
@@ -179,10 +189,10 @@ def main() -> int:
             if args.test and args.test not in identifier:
                 continue
             class_name, _, method = identifier.partition("/")
-            test_dir = out / class_name / (method.rstrip("()") or "test")
+            test_dir = root / class_name / (method.rstrip("()") or "test")
             frames = test_dir / "frames"
-            if frames.exists():
-                shutil.rmtree(frames)
+            if test_dir.exists():  # no sheets or slideshow left from an earlier extraction
+                shutil.rmtree(test_dir)
             frames.mkdir(parents=True)
 
             images = sorted(
@@ -194,7 +204,11 @@ def main() -> int:
             for index, attachment in enumerate(images, start=1):
                 name = attachment.get("suggestedHumanReadableName", "")
                 frame = frames / f"{index:03d}-{label_for(name)}.png"
-                to_png(exported / attachment["exportedFileName"], frame)
+                try:
+                    to_png(exported / attachment["exportedFileName"], frame)
+                except subprocess.CalledProcessError:
+                    print(f"skipped unreadable image {attachment['exportedFileName']} ({identifier})", file=sys.stderr)
+                    continue
                 if not name.startswith("Screenshot "):
                     captures.append(str(frame))
                 if attachment.get("isAssociatedWithFailure") and failure_frame is None:

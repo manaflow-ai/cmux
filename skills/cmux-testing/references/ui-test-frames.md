@@ -45,4 +45,4 @@ Under `$TMPDIR/cmux-e2e-frames/<run>/<Class>/<method>/`:
   is nothing to extract; its log explains why.
 - Look at the whole frame. Leftover system dialogs (crash reports, keychain
   prompts) over the app explain activation and focus failures;
-  `scripts/ci/clear-console-blockers.sh` closes them before each run.
+  the "Close leftover system dialogs" step in `.github/actions/e2e-run-tests` closes them before each run.

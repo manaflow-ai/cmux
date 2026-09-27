@@ -1068,6 +1068,8 @@ def main() -> int:
     if test_target == "cmuxTests" and not pinned and not args.full_build:
         status = reuse_ci_products(commit, args.test_filter, args.workflow_ref, args.wait)
         if status is not None:
+            if args.frames:
+                print("--frames: cmuxTests attach no screenshots, so there are no frames to extract", flush=True)
             return status
 
     if ui_source is not None and not ui_source["ready"]:
@@ -1132,7 +1134,7 @@ def main() -> int:
 def watch_and_extract(run_id: int, frames: bool) -> int:
     """Watch the run; with --frames, then print where its per-test frames are."""
     status = watch_run(run_id)
-    if frames:
+    if frames and status != 130:  # not after an interrupt
         subprocess.run(
             [sys.executable, str(Path(__file__).resolve().parent / "e2e-frames.py"), str(run_id)],
             cwd=ROOT,
