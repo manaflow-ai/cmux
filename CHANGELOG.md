@@ -12,6 +12,7 @@ All notable changes to cmux are documented here.
 - Global search finds text in the scrollback of open terminals, and Return on a terminal hit opens that pane's find bar on the match ([#11665](https://github.com/manaflow-ai/cmux/pull/11665)) -- thanks @smoreg!
 
 ### Changed
+- Shortcut hint pills, titlebar controls and chrome button hover highlights appear instantly and only fade out, the tab drop-zone overlay snaps between zones, the browser downloads button no longer bounces, and canvas focus moves no longer pan when the target pane is already on screen ([#14984](https://github.com/manaflow-ai/cmux/pull/14984)).
 - The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
 
 ### Fixed
