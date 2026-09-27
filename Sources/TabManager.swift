@@ -505,6 +505,10 @@ class TabManager: ObservableObject {
     /// share this injected invalidation pipeline.
     let fileContentChangeCoordinator: FileContentChangeCoordinator
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
+    /// Test seam for the "Don't ask again" checkbox next to
+    /// `confirmCloseHandler`: receives the warnings the dialog offers to turn
+    /// off and returns whether the checkbox was ticked.
+    var confirmCloseDontAskAgainHandler: ((CloseWarningKinds) -> Bool)?
     private var agentPIDSweepTimer: DispatchSourceTimer?
 #if DEBUG
     private var debugWorkspaceSwitchCounter: UInt64 = 0
@@ -2683,13 +2687,16 @@ class TabManager: ObservableObject {
         guard !closeConfirmationInFlight else { return }
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
 
-        if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(requiresConfirmation: true, source: .shortcut) {
+        let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults)
+            .warningKinds(requiresConfirmation: true, source: .shortcut)
+        if !warningKinds.isEmpty {
             let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
             guard confirmClose(
                 title: prompt.title,
                 message: prompt.message,
                 scrollableDetails: prompt.details,
-                acceptCmdD: false
+                acceptCmdD: false,
+                dontAskAgain: warningKinds
             ) else { return }
         }
 
@@ -2795,22 +2802,30 @@ class TabManager: ObservableObject {
         // Members close below without their own prompts, so a batch holding a
         // pinned workspace keeps the pinned gate instead of the workspace one.
         // Closing every workspace closes the window, so that "Close window?"
-        // variant follows the window setting.
+        // variant follows the window setting. Pinned workspaces never offer
+        // "Don't ask again": no setting may silence the protection pinning
+        // asked for.
+        let containsPinned = plan.workspaces.contains(where: \.isPinned)
         let showsBatchConfirmation: Bool
-        if plan.workspaces.contains(where: \.isPinned) {
+        let dontAskAgain: CloseWarningKinds
+        if containsPinned {
             showsBatchConfirmation = shouldConfirmClose(requiresConfirmation: true, source: .tabClose)
+            dontAskAgain = []
         } else if plan.willCloseWindow {
             showsBatchConfirmation = CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWindow
                 && shouldConfirmClose(requiresConfirmation: true, source: .tabClose)
+            dontAskAgain = .window
         } else {
             showsBatchConfirmation = shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose)
+            dontAskAgain = .workspace
         }
         if showsBatchConfirmation {
             guard confirmClose(
                 title: plan.title,
                 message: plan.message,
                 scrollableDetails: plan.details,
-                acceptCmdD: plan.willCloseWindow
+                acceptCmdD: plan.willCloseWindow,
+                dontAskAgain: dontAskAgain
             ) else { return }
             closeAlreadyConfirmed = true
         }
@@ -2882,7 +2897,8 @@ class TabManager: ObservableObject {
         title: String,
         message: String,
         scrollableDetails: String? = nil,
-        acceptCmdD: Bool
+        acceptCmdD: Bool,
+        dontAskAgain: CloseWarningKinds = []
     ) -> Bool {
         guard beginCloseConfirmationSession() else { return false }
         defer { endCloseConfirmationSession() }
@@ -2891,7 +2907,11 @@ class TabManager: ObservableObject {
             CmuxAlertContent(flattenedText: message, separatingScrollableDetails: $0)
         } ?? CmuxAlertContent(informativeText: message)
         if let confirmCloseHandler {
-            return confirmCloseHandler(title, content.flattenedText, acceptCmdD)
+            let accepted = confirmCloseHandler(title, content.flattenedText, acceptCmdD)
+            if !dontAskAgain.isEmpty, confirmCloseDontAskAgainHandler?(dontAskAgain) == true {
+                CloseTabWarningStore(defaults: closeTabWarningDefaults).disableWarnings(dontAskAgain)
+            }
+            return accepted
         }
         _ = acceptCmdD
 
@@ -2918,7 +2938,10 @@ class TabManager: ObservableObject {
         ])
         #endif
 
-        return runCloseConfirmationAlert(alert, content: content) == .alertFirstButtonReturn
+        CloseDontAskAgainCheckbox.add(to: alert, offering: dontAskAgain)
+        let accepted = runCloseConfirmationAlert(alert, content: content) == .alertFirstButtonReturn
+        CloseDontAskAgainCheckbox.apply(from: alert, offering: dontAskAgain, defaults: closeTabWarningDefaults)
+        return accepted
     }
 
     private func runCloseConfirmationAlert(
@@ -3087,7 +3110,8 @@ class TabManager: ObservableObject {
            !confirmClose(
                title: String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
                message: String(localized: "dialog.closeWorkspace.message", defaultValue: "This will close the workspace and all of its panels."),
-               acceptCmdD: willCloseWindow
+               acceptCmdD: willCloseWindow,
+               dontAskAgain: .workspace
            ) {
             return false
         }
@@ -3290,14 +3314,16 @@ class TabManager: ObservableObject {
             requiresConfirmation = false
         }
 
-        if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+        let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
             requiresConfirmation: requiresConfirmation,
             source: .shortcut
-        ) {
+        )
+        if !warningKinds.isEmpty {
             guard confirmClose(
                 title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
                 message: String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab."),
-                acceptCmdD: false
+                acceptCmdD: false,
+                dontAskAgain: warningKinds
             ) else { return }
         }
 
@@ -7167,5 +7193,24 @@ enum WelcomeBannerDelivery: Equatable {
         } catch {
             return (.typedCommand, [:])
         }
+    }
+}
+
+/// The "Don't ask again" checkbox shared by the close confirmation dialogs.
+/// Ticking it turns off the warnings that made the dialog appear, whichever
+/// button closes the dialog, like the Cmd+Q warning's checkbox.
+enum CloseDontAskAgainCheckbox {
+    static func add(to alert: NSAlert, offering kinds: CloseWarningKinds) {
+        guard !kinds.isEmpty else { return }
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = String(
+            localized: "dialog.close.dontAskAgain",
+            defaultValue: "Don’t ask again"
+        )
+    }
+
+    static func apply(from alert: NSAlert, offering kinds: CloseWarningKinds, defaults: UserDefaults) {
+        guard !kinds.isEmpty, alert.suppressionButton?.state == .on else { return }
+        CloseTabWarningStore(defaults: defaults).disableWarnings(kinds)
     }
 }

@@ -1,8 +1,9 @@
 import Foundation
 
-/// Repository for the close-tab warning settings, persisted in
-/// `UserDefaults` under the catalog's `app.warnBeforeClosingTab`,
-/// `app.warnBeforeClosingTabXButton`, `app.warnBeforeClosingWindow`, and
+/// Repository for the close warning settings, persisted in `UserDefaults`
+/// under the catalog's `app.warnBeforeClosingTab`,
+/// `app.warnBeforeClosingTabXButton`, `app.warnBeforeClosingWorkspace`,
+/// `app.warnBeforeClosingWindow`, and
 /// `app.hideTabCloseButton` keys.
 ///
 /// Isolation: a stateless `Sendable` struct, not an actor. Every reader is
@@ -46,5 +47,26 @@ public struct CloseTabWarningStore: CloseTabWarningReading {
     /// Enables or disables the close-shortcut warning.
     public func setWarnsBeforeClosingTab(_ isEnabled: Bool) {
         keys.warnBeforeClosingTab.set(isEnabled, in: defaults)
+    }
+
+    /// Whether "Close workspace?" prompts are enabled.
+    public var warnsBeforeClosingWorkspace: Bool {
+        keys.warnBeforeClosingWorkspace.value(in: defaults)
+    }
+
+    /// Turns off the given warnings, for a dialog's "Don't ask again" checkbox.
+    public func disableWarnings(_ kinds: CloseWarningKinds) {
+        if kinds.contains(.tab) {
+            keys.warnBeforeClosingTab.set(false, in: defaults)
+        }
+        if kinds.contains(.tabCloseButton) {
+            keys.warnBeforeClosingTabXButton.set(false, in: defaults)
+        }
+        if kinds.contains(.workspace) {
+            keys.warnBeforeClosingWorkspace.set(false, in: defaults)
+        }
+        if kinds.contains(.window) {
+            keys.warnBeforeClosingWindow.set(false, in: defaults)
+        }
     }
 }

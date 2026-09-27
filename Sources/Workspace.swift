@@ -9530,10 +9530,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 defer { self.pendingRemoteTmuxPaneCloseIds.remove(tmuxPaneId) }
                 guard let windowMirror else { return }
                 let state = states?[tmuxPaneId] ?? windowMirror.paneForegroundState(tmuxPaneId)
-                if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+                let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
                     requiresConfirmation: state?.hasActiveCommand ?? false,
                     source: .tabCloseButton
-                ) {
+                )
+                if !warningKinds.isEmpty {
                     // No manager → no way to ask → refuse the destructive kill rather
                     // than falling through to an unconfirmed one (only reachable in
                     // teardown states where the pane header shouldn't be clickable).
@@ -9549,7 +9550,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     guard manager.confirmClose(
                         title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
                         message: message,
-                        acceptCmdD: false
+                        acceptCmdD: false,
+                        dontAskAgain: warningKinds
                     ) else { return }
                 }
                 windowMirror.requestKillPane(tmuxPaneId)
@@ -13336,7 +13338,11 @@ extension Workspace: BonsplitDelegate {
     ///   the tab's own title (tmux's window name) only catches up to the
     ///   automatic-rename a beat later, which otherwise reads like the dialog is
     ///   naming a different tab.
-    private func confirmClosePanel(for tabId: TabID, nameOverride: String? = nil) async -> Bool {
+    private func confirmClosePanel(
+        for tabId: TabID,
+        nameOverride: String? = nil,
+        dontAskAgain: CloseWarningKinds
+    ) async -> Bool {
         let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
         let panelName: String? = {
             if let nameOverride, !nameOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -13362,12 +13368,15 @@ extension Workspace: BonsplitDelegate {
             message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
         }
 
-        if let confirmCloseHandler = (
-            owningTabManager
+        let confirmationManager = owningTabManager
             ?? AppDelegate.shared?.tabManagerFor(tabId: id)
             ?? AppDelegate.shared?.tabManager
-        )?.confirmCloseHandler {
-            return confirmCloseHandler(title, message, false)
+        if let confirmCloseHandler = confirmationManager?.confirmCloseHandler {
+            let accepted = confirmCloseHandler(title, message, false)
+            if !dontAskAgain.isEmpty, confirmationManager?.confirmCloseDontAskAgainHandler?(dontAskAgain) == true {
+                CloseTabWarningStore(defaults: closeTabWarningDefaults).disableWarnings(dontAskAgain)
+            }
+            return accepted
         }
 
         let alert = NSAlert()
@@ -13387,6 +13396,8 @@ extension Workspace: BonsplitDelegate {
             cancelButton.keyEquivalent = "\u{1b}"
         }
 
+        CloseDontAskAgainCheckbox.add(to: alert, offering: dontAskAgain)
+        let warningDefaults = closeTabWarningDefaults
         let content = CmuxAlertContent(informativeText: message)
         // Prefer a sheet if we can find a window, otherwise fall back to modal.
         if let window = NSApp.cmuxMainWindowForModalPresentation(),
@@ -13394,13 +13405,16 @@ extension Workspace: BonsplitDelegate {
             content.apply(to: alert, presentingWindow: window)
             return await withCheckedContinuation { continuation in
                 alert.beginSheetModal(for: window) { response in
+                    CloseDontAskAgainCheckbox.apply(from: alert, offering: dontAskAgain, defaults: warningDefaults)
                     continuation.resume(returning: response == .alertFirstButtonReturn)
                 }
             }
         }
 
         content.apply(to: alert, presentingWindow: nil)
-        return alert.runModal() == .alertFirstButtonReturn
+        let accepted = alert.runModal() == .alertFirstButtonReturn
+        CloseDontAskAgainCheckbox.apply(from: alert, offering: dontAskAgain, defaults: warningDefaults)
+        return accepted
     }
 
     /// Apply the side-effects of selecting a tab (unfocus others, focus this panel, update state).
@@ -13893,9 +13907,10 @@ extension Workspace: BonsplitDelegate {
            remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId) != nil {
             let confirmationSource: CloseTabCloseSource =
                 tabCloseButtonClose == true ? .tabCloseButton : .shortcut
-            if !CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+            let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
                 requiresConfirmation: true, source: confirmationSource
-            ) {
+            )
+            if warningKinds.isEmpty {
                 let routed = remoteTmuxController.handleMirrorTabCloseRequested(workspaceId: id, panelId: panelId)
                 recordRemoteTmuxWorkspaceCloseAfterWindowClose(routed: routed, tabId: tab.id, panelId: panelId, explicitUserClose: explicitUserClose, tabStripClose: tabStripClose, tabCloseButton: tabCloseButtonClose == true)
                 return false
@@ -13914,7 +13929,7 @@ extension Workspace: BonsplitDelegate {
                 pendingCloseConfirmTabIds.insert(tab.id)
                 let tabId = tab.id
 
-                let presentConfirmation: @MainActor (String?) -> Void = { [weak self] commandName in
+                let presentConfirmation: @MainActor (String?, CloseWarningKinds) -> Void = { [weak self] commandName, promptWarningKinds in
                     guard let self else { return }
                     if let confirmationManager, !confirmationManager.beginCloseConfirmationSession() {
                         self.pendingCloseConfirmTabIds.remove(tabId)
@@ -13932,7 +13947,11 @@ extension Workspace: BonsplitDelegate {
                             self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
                             return
                         }
-                        let confirmed = await self.confirmClosePanel(for: tabId, nameOverride: commandName)
+                        let confirmed = await self.confirmClosePanel(
+                            for: tabId,
+                            nameOverride: commandName,
+                            dontAskAgain: promptWarningKinds
+                        )
                         guard confirmed else {
                             self.clearRemoteTmuxWorkspaceCloseIntent(tabId: tabId)
                             self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
@@ -13945,11 +13964,17 @@ extension Workspace: BonsplitDelegate {
                     }
                 }
 
-                if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+                // The X-button warning asks even when nothing is running; the
+                // cached activity adds the running-process warning when busy.
+                let cached = remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId)
+                let unconditionalWarningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
                     requiresConfirmation: false, source: confirmationSource
-                ) {
-                    let cached = remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId)
-                    presentConfirmation(cached?.activeCommandName)
+                )
+                if !unconditionalWarningKinds.isEmpty {
+                    let promptWarningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
+                        requiresConfirmation: cached?.hasActiveCommand ?? false, source: confirmationSource
+                    )
+                    presentConfirmation(cached?.activeCommandName, promptWarningKinds)
                     return false
                 }
 
@@ -13971,7 +13996,7 @@ extension Workspace: BonsplitDelegate {
                         self.recordRemoteTmuxWorkspaceCloseAfterWindowClose(routed: routed, tabId: tabId, panelId: panelId, explicitUserClose: explicitUserClose, tabStripClose: tabStripClose, tabCloseButton: tabCloseButtonClose == true)
                         return
                     }
-                    presentConfirmation(activity.activeCommandName)
+                    presentConfirmation(activity.activeCommandName, warningKinds)
                 }
                 return false
             }
@@ -14029,10 +14054,11 @@ extension Workspace: BonsplitDelegate {
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
         let confirmationSource: CloseTabCloseSource = tabCloseButtonClose == true ? .tabCloseButton : .shortcut
-        if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+        let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
             requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
             source: confirmationSource
-        ) {
+        )
+        if !warningKinds.isEmpty {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             if pendingCloseConfirmTabIds.contains(tab.id) {
                 return false
@@ -14059,7 +14085,7 @@ extension Workspace: BonsplitDelegate {
                     // If the tab disappeared while we were scheduling, do nothing.
                     guard self.panelIdFromSurfaceId(tabId) != nil else { return }
 
-                    let confirmed = await self.confirmClosePanel(for: tabId)
+                    let confirmed = await self.confirmClosePanel(for: tabId, dontAskAgain: warningKinds)
                     guard confirmed else {
                         self.clearCloseHistoryEligibility(tabId: tabId)
                         return
