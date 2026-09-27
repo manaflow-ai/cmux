@@ -1725,6 +1725,29 @@ struct SidebarWorkspaceTableTests {
         #expect(resolvedId() == "c")
     }
 
+    /// row(at:) matches on y alone. A pointer beside the sidebar (over the
+    /// terminal, where a context menu item left it) must not hover the row
+    /// at the same height.
+    @Test
+    func hoverIgnoresPointerOutsideVisibleTableRect() {
+        let resolver = SidebarWorkspaceTableHoverResolver()
+        let visibleRect = NSRect(x: 0, y: 0, width: 200, height: 80)
+
+        func resolvedRow(_ point: NSPoint) -> Int? {
+            resolver.hoveredRow(
+                windowPoint: point,
+                convertToTable: { $0 },
+                rowAtPoint: { Int(floor($0.y / 20)) },
+                rowCount: 4,
+                visibleRect: visibleRect
+            )
+        }
+
+        #expect(resolvedRow(NSPoint(x: 20, y: 25)) == 1)
+        #expect(resolvedRow(NSPoint(x: 260, y: 25)) == nil)
+        #expect(resolvedRow(NSPoint(x: 20, y: 95)) == nil)
+    }
+
     @MainActor
     private func makeRowConfiguration(
         workspaceId: UUID = UUID(),

@@ -94,3 +94,26 @@ test("cross-environment setup never reaches Stack or a team object", async () =>
   expect(result.status).toBe(403);
   expect(calls).toEqual({ stack: 0, open: 0, team: 0 });
 });
+
+test("control failures record the route, stage, operation and an unclassified cause", async () => {
+  const { dependencies } = fixture();
+  const events: Record<string, unknown>[] = [];
+  const ticket = await issueTicket(device, "test", key, 99);
+  const reset = Object.assign(new Error("Durable Object reset because its code was updated."), { retryable: true });
+  const result = await routeControl(new Request("https://api.example/v2/requests", {
+    method: "POST", headers: { "content-type": "application/json", authorization: "IrohTicket " + ticket.token, [SETUP_HEADER]: encodedSetup },
+    body: JSON.stringify({ schemaId: "directory.request.v1", requestId: "request" }),
+  }), { ...dependencies, observe: event => events.push(event), dispatchTeam: async () => { throw reset; } });
+  expect(result.status).toBe(500);
+  expect(events).toEqual([expect.objectContaining({
+    event: "iroh.control.failure", code: "internal_error", route: "request", stage: "dispatch",
+    operation: "directory.request", cause: "Error:do_code_updated+retryable",
+  })]);
+  expect(JSON.stringify(events)).not.toContain("code was updated");
+
+  events.length = 0;
+  await routeControl(new Request("https://api.example/v2/control/session", {
+    method: "POST", headers: { "content-type": "application/json", authorization: "Bearer stack-token" }, body: JSON.stringify(setup),
+  }), { ...dependencies, observe: event => events.push(event), stack: { verify: async () => { throw new Error("private upstream detail"); } } });
+  expect(events).toEqual([expect.objectContaining({ route: "session", stage: "authenticate", operation: "none", cause: "Error" })]);
+});
