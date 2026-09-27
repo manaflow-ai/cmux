@@ -491,6 +491,9 @@ class GhosttyApp {
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
+    /// Diagnostics from the most recent full load of the user's Ghostty
+    /// config (launch or reload), read by the config-error notice.
+    private(set) var lastLoadedConfigDiagnosticMessages: [String] = []
 #if DEBUG
     /// Installs `newConfig` as the app config and returns the previous one,
     /// which the caller then owns. Tests change a setting on a clone through
@@ -949,6 +952,7 @@ class GhosttyApp {
             primaryConfig,
             preferredColorScheme: initialColorScheme
         )
+        lastLoadedConfigDiagnosticMessages = Self.configDiagnosticMessages(primaryConfig)
         updateDefaultBackground(
             from: primaryConfig,
             source: "initialize.primaryConfig",
@@ -2207,6 +2211,7 @@ class GhosttyApp {
             newConfig,
             preferredColorScheme: reloadColorScheme
         )
+        lastLoadedConfigDiagnosticMessages = Self.configDiagnosticMessages(newConfig)
         let stagedBaselineAppearance =
             defaultBackgroundValues(from: newConfig)
         GhosttyConfig.invalidateLoadCache()
