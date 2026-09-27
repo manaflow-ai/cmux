@@ -300,6 +300,34 @@ struct SessionSnapshotTransferTests {
 
     // MARK: - Newer schema side files
 
+    @Test("a newer-schema backup survives when side-file preservation fails")
+    func newerSchemaBackupSurvivesPreservationFailure() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let repository = makeRepository(appSupport: dir, bundleIdentifier: "com.cmuxterm.app")
+        let primaryURL = try #require(repository.defaultSnapshotFileURL())
+        let backupURL = try #require(repository.manualRestoreSnapshotFileURL())
+        let newerText = #"{"version":2,"windows":[{"name":"future"}]}"#
+        try FileManager.default.createDirectory(
+            at: backupURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try write(newerText, to: backupURL)
+        try? FileManager.default.removeItem(at: primaryURL)
+
+        let sideURL = SessionSnapshotFileLocation.newerSchemaSideFileURL(
+            for: backupURL,
+            schemaVersion: 2
+        )
+        // A directory at the exact side-file path makes the atomic write fail.
+        try FileManager.default.createDirectory(at: sideURL, withIntermediateDirectories: true)
+
+        repository.syncManualRestoreSnapshotCache()
+
+        #expect(FileManager.default.fileExists(atPath: backupURL.path))
+        #expect(try String(contentsOf: backupURL, encoding: .utf8) == newerText)
+    }
+
     @Test("a newer-schema snapshot is copied to a schema side file that can be imported later")
     func newerSchemaSideFile() throws {
         let dir = try makeTempDirectory()

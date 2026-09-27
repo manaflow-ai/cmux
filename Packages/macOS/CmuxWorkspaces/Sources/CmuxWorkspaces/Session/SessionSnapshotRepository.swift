@@ -94,8 +94,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     // MARK: - Moving snapshots between installs
 
     public func snapshotFileURL(bundleIdentifier: String) -> URL? {
-        guard let appSupport = resolvedAppSupportDirectory() else { return nil }
-        return SessionSnapshotFileLocation(appSupportDirectory: appSupport).primaryFileURL(
+        SessionSnapshotFileLocation(appSupportDirectory: resolvedAppSupportDirectory()).primaryFileURL(
             bundleIdentifier: bundleIdentifier
         )
     }
@@ -141,8 +140,6 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         bundleIdentifier: String
     ) -> Result<SessionSnapshotImport<SnapshotValue>, SessionSnapshotImportError> {
         let appSupport = resolvedAppSupportDirectory()
-            ?? fileManager.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support", isDirectory: true)
         let primaryURL = SessionSnapshotFileLocation(appSupportDirectory: appSupport).primaryFileURL(
             bundleIdentifier: bundleIdentifier
         )
@@ -228,28 +225,44 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         (try? fileManager.attributesOfItem(atPath: url.path)) != nil
     }
 
-    @discardableResult
-    public func preserveNewerSchemaSnapshot(fileURL: URL) -> URL? {
+    private enum NewerSchemaPreservation {
+        case notNeeded
+        case preserved(URL)
+        case failed
+    }
+
+    private func preserveNewerSchemaSnapshotOutcome(fileURL: URL) -> NewerSchemaPreservation {
         guard let data = try? Data(contentsOf: fileURL),
               let version = probedSchemaVersion(of: data),
               version > schemaVersion else {
-            return nil
+            return .notNeeded
         }
-        let sideURL = SessionSnapshotFileLocation.newerSchemaSideFileURL(for: fileURL, schemaVersion: version)
+        let sideURL = SessionSnapshotFileLocation.newerSchemaSideFileURL(
+            for: fileURL,
+            schemaVersion: version
+        )
         if let existing = try? Data(contentsOf: sideURL), existing == data {
-            return sideURL
+            return .preserved(sideURL)
         }
         do {
             try data.write(to: sideURL, options: .atomic)
         } catch {
-            return nil
+            return .failed
         }
 #if DEBUG
         CMUXDebugLog.logDebugEvent(
             "session.snapshot.newerSchemaPreserved version=\(version) path=\(sideURL.path)"
         )
 #endif
-        return sideURL
+        return .preserved(sideURL)
+    }
+
+    @discardableResult
+    public func preserveNewerSchemaSnapshot(fileURL: URL) -> URL? {
+        guard case .preserved(let url) = preserveNewerSchemaSnapshotOutcome(fileURL: fileURL) else {
+            return nil
+        }
+        return url
     }
 
     public func load(fileURL: URL? = nil) -> SnapshotValue? {
@@ -300,8 +313,14 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         case .loaded(let snapshot):
             _ = save(snapshot, fileURL: backupURL)
         case .missing:
-            preserveNewerSchemaSnapshot(fileURL: backupURL)
-            removeSnapshot(fileURL: backupURL)
+            switch preserveNewerSchemaSnapshotOutcome(fileURL: backupURL) {
+            case .notNeeded, .preserved:
+                removeSnapshot(fileURL: backupURL)
+            case .failed:
+                // The backup may be the only copy a newer build can read.
+                // Keep it when copying to the schema side file fails.
+                break
+            }
         case .unusable:
             // The primary snapshot exists but cannot be restored. Keep the
             // backup: it is the only remaining recovery path for the user's
@@ -341,15 +360,16 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     }
 
     private func snapshotFileURL(suffix: String) -> URL? {
-        guard let appSupport = resolvedAppSupportDirectory() else { return nil }
-        return SessionSnapshotFileLocation(appSupportDirectory: appSupport).fileURL(
+        SessionSnapshotFileLocation(appSupportDirectory: resolvedAppSupportDirectory()).fileURL(
             bundleIdentifier: bundleIdentifier,
             suffix: suffix
         )
     }
 
-    private func resolvedAppSupportDirectory() -> URL? {
+    private func resolvedAppSupportDirectory() -> URL {
         appSupportDirectory
             ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
     }
 }

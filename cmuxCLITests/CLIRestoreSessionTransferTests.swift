@@ -73,6 +73,27 @@ final class CLIRestoreSessionTransferTests {
         #expect(params?["source"] == nil)
     }
 
+    @Test func existingBareFilenameSendsAbsolutePath() throws {
+        let (result, payloads) = try runAgainstMockServer(
+            label: "from-bare",
+            arguments: ["restore-session", "--from", "moved-session"],
+            reply: [
+                "restored": true,
+                "source_path": "/x/moved-session",
+                "window_count": 1,
+            ],
+            prepareWorkDirectory: { directory in
+                try Data("{}".utf8).write(to: directory.appendingPathComponent("moved-session"))
+            }
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let params = payloads.first?["params"] as? [String: Any]
+        let path = try #require(params?["path"] as? String)
+        #expect(path.hasSuffix("/moved-session"))
+        #expect(params?["source"] == nil)
+    }
+
     @Test func exportSendsSessionExportWithForce() throws {
         let (result, payloads) = try runAgainstMockServer(
             label: "export",
@@ -127,13 +148,15 @@ final class CLIRestoreSessionTransferTests {
         label: String,
         arguments: [String],
         reply: [String: Any]? = nil,
-        error: [String: Any]? = nil
+        error: [String: Any]? = nil,
+        prepareWorkDirectory: ((URL) throws -> Void)? = nil
     ) throws -> (ProcessRunResult, [[String: Any]]) {
         let socketPath = makeSocketPath(label)
         let listenerFD = try bindUnixSocket(at: socketPath)
         let workDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-restore-session-cli-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
+        try prepareWorkDirectory?(workDirectory)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)

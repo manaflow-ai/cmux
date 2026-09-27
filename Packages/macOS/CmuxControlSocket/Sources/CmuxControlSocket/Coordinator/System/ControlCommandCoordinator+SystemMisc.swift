@@ -39,7 +39,14 @@ extension ControlCommandCoordinator {
             guard path.hasPrefix("/") else {
                 return .err(
                     code: "invalid_params",
-                    message: "session.import params.path must be an absolute path",
+                    message: String(
+                        format: String(
+                            localized: "socket.sessionTransfer.absolutePathRequired",
+                            defaultValue: "%@ must be an absolute path.",
+                            bundle: .module
+                        ),
+                        "session.import params.path"
+                    ),
                     data: .object(["path": .string(path)])
                 )
             }
@@ -49,12 +56,24 @@ extension ControlCommandCoordinator {
         default:
             return .err(
                 code: "invalid_params",
-                message: "session.import requires exactly one of params.source or params.path",
+                message: String(
+                    localized: "socket.sessionTransfer.importSelectorRequired",
+                    defaultValue: "session.import requires exactly one of params.source or params.path.",
+                    bundle: .module
+                ),
                 data: nil
             )
         }
         guard let systemContext else {
-            return .err(code: "unavailable", message: "Session context not attached", data: nil)
+            return .err(
+                code: "unavailable",
+                message: String(
+                    localized: "socket.sessionTransfer.contextUnavailable",
+                    defaultValue: "Session context is unavailable.",
+                    bundle: .module
+                ),
+                data: nil
+            )
         }
         switch systemContext.controlSessionImport(source: source) {
         case let .restored(sourcePath, windowCount, heldBackResumeCount, droppedRemoteWorkspaceCount):
@@ -75,17 +94,40 @@ extension ControlCommandCoordinator {
     /// absolute `path`; `force` allows replacing an existing file.
     func sessionExport(_ params: [String: JSONValue]) -> ControlCallResult {
         guard let path = string(params, "path") else {
-            return .err(code: "invalid_params", message: "session.export requires params.path", data: nil)
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sessionTransfer.exportPathRequired",
+                    defaultValue: "session.export requires params.path.",
+                    bundle: .module
+                ),
+                data: nil
+            )
         }
         guard path.hasPrefix("/") else {
             return .err(
                 code: "invalid_params",
-                message: "session.export params.path must be an absolute path",
+                message: String(
+                    format: String(
+                        localized: "socket.sessionTransfer.absolutePathRequired",
+                        defaultValue: "%@ must be an absolute path.",
+                        bundle: .module
+                    ),
+                    "session.export params.path"
+                ),
                 data: .object(["path": .string(path)])
             )
         }
         guard let systemContext else {
-            return .err(code: "unavailable", message: "Session context not attached", data: nil)
+            return .err(
+                code: "unavailable",
+                message: String(
+                    localized: "socket.sessionTransfer.contextUnavailable",
+                    defaultValue: "Session context is unavailable.",
+                    bundle: .module
+                ),
+                data: nil
+            )
         }
         switch systemContext.controlSessionExport(path: path, overwrite: bool(params, "force") ?? false) {
         case let .exported(exportedPath, sourcePath):

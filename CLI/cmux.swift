@@ -8682,12 +8682,14 @@ struct CMUXCLI {
         guard !value.isEmpty else {
             throw CLIError(message: "restore-session: --from requires a channel or a file path")
         }
+        let resolvedPath = resolvePath(value)
         let looksLikePath = value.contains("/")
             || value.hasPrefix("~")
             || value.hasPrefix(".")
             || value.lowercased().hasSuffix(".json")
+            || FileManager.default.fileExists(atPath: resolvedPath)
         if looksLikePath {
-            return ["path": resolvePath(value)]
+            return ["path": resolvedPath]
         }
         return ["source": value]
     }
