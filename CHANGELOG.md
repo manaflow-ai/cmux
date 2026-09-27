@@ -13,6 +13,7 @@ All notable changes to cmux are documented here.
 - Global search finds text in the scrollback of open terminals, and Return on a terminal hit opens that pane's find bar on the match ([#11665](https://github.com/manaflow-ai/cmux/pull/11665)) -- thanks @smoreg!
 
 ### Changed
+- Each Settings toggle and picker row shows one fixed subtitle instead of text that changes with the selected value, and localized Settings titles and Feed, Dock, and Cloud Machines labels use corrected wording ([#14883](https://github.com/manaflow-ai/cmux/pull/14883)) -- thanks @agoodkind!
 - The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
 
 ### Fixed
