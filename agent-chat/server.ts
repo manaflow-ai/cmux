@@ -631,15 +631,27 @@ function ensureTranscriptSession(source: TranscriptSource): Session {
   const id = transcriptSessionId(source);
   const existing = sessions.get(id);
   if (existing?.transcript?.path === source.path) return existing;
-  if (existing) {
+  if (existing?.transcript) {
+    // The agent's transcript moved (for example a resolved fallback path):
+    // re-point the same session so open pages stay subscribed.
     existing.adapter.dispose(existing);
-    sessions.delete(id);
+    existing.events.length = 0;
+    delete existing.internal.eventGenerations;
+    existing.transcript.path = source.path;
+    startTranscriptTail(existing, source);
+    broadcastSessionHistory(existing);
+    return existing;
   }
   const sess = createSession(source.agent, source.cwd ?? DEFAULT_CWD, false, transcriptTitle(source), {}, {}, {
     id,
     adapter: transcriptAdapter,
   });
   sess.transcript = { agent: source.agent, path: source.path };
+  startTranscriptTail(sess, source);
+  return sess;
+}
+
+function startTranscriptTail(sess: Session, source: TranscriptSource) {
   attachTranscript(sess, source.agent, source.path, (title) => {
     if (sess.title === title) return;
     sess.title = title;
@@ -647,7 +659,6 @@ function ensureTranscriptSession(source: TranscriptSource): Session {
     const payload = JSON.stringify({ kind: "session-title", sessionId: sess.id, title });
     for (const ws of sess.sockets) ws.send(payload);
   });
-  return sess;
 }
 
 function resolveTranscriptSessionById(id: string): Session | undefined {

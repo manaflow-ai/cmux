@@ -2,7 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseTranscriptText, TranscriptTail, transcriptLooksRunning, toolDetail } from "../adapters/transcript";
+import { attachTranscript, parseTranscriptText, transcriptAdapter, TranscriptTail, transcriptLooksRunning, toolDetail } from "../adapters/transcript";
+import { utimesSync } from "node:fs";
+import type { SessionCtx, SessionStatus } from "../types";
 import { claudeProjectSlug, resolveSessionTranscript, resolveSurfaceTranscript } from "../transcript-sources";
 import type { AgentEvent } from "../types";
 
@@ -56,8 +58,40 @@ describe("Claude transcript parser", () => {
       { kind: "status", text: "Set model to opus" },
       { kind: "status", text: "Background task: Build finished" },
       { kind: "status", text: "Interrupted" },
+      { kind: "done" },
       { kind: "error", message: "API Error: overloaded" },
       { kind: "status", text: "Conversation compacted" },
+    ] satisfies AgentEvent[]);
+  });
+
+  test("keeps a typed prompt stored after injected reminder blocks", () => {
+    const { events } = parseTranscriptText("claude", jsonl(
+      { type: "user", uuid: "p1", origin: { kind: "human" }, message: { role: "user", content: [
+        { type: "text", text: "<system-reminder>context</system-reminder>" },
+        { type: "text", text: "ship it" },
+      ] } },
+    ));
+    expect(events).toEqual([{ kind: "user", text: "ship it" }]);
+  });
+
+  test("ends a turn at the final message's stop reason, once", () => {
+    const { events } = parseTranscriptText("claude", jsonl(
+      { type: "user", uuid: "p1", message: { role: "user", content: "hi" } },
+      { type: "assistant", uuid: "x1", message: { id: "m1", stop_reason: "end_turn", content: [{ type: "thinking", thinking: "greet" }] } },
+      { type: "assistant", uuid: "x2", message: { id: "m1", stop_reason: "end_turn", content: [{ type: "text", text: "Hello." }] } },
+      { type: "system", uuid: "x3", subtype: "turn_duration", durationMs: 900 },
+      { type: "user", uuid: "p2", message: { role: "user", content: "again" } },
+      { type: "assistant", uuid: "x4", message: { id: "m2", stop_reason: "tool_use", content: [{ type: "text", text: "Checking." }] } },
+      { type: "system", uuid: "x5", subtype: "turn_duration", durationMs: 1500 },
+    ));
+    expect(events).toEqual([
+      { kind: "user", text: "hi" },
+      { kind: "thinking", text: "greet" },
+      { kind: "assistant", text: "Hello." },
+      { kind: "done" },
+      { kind: "user", text: "again" },
+      { kind: "assistant", text: "Checking." },
+      { kind: "done", stats: "1.5s" },
     ] satisfies AgentEvent[]);
   });
 
@@ -145,6 +179,26 @@ test("running state follows the last turn boundary and recent writes", () => {
   expect(transcriptLooksRunning(turn, now - 1_000, now)).toBe(true);
   expect(transcriptLooksRunning([...turn, { kind: "done" }], now - 1_000, now)).toBe(false);
   expect(transcriptLooksRunning(turn, now - 120_000, now)).toBe(false);
+});
+
+test("an old transcript opens idle even when its last turn has no end", async () => {
+  const path = join(tempDir(), "old.jsonl");
+  writeFileSync(path, jsonl({ type: "user", uuid: "p1", message: { role: "user", content: "hi" } }));
+  const dayAgo = (Date.now() - 86_400_000) / 1000;
+  utimesSync(path, dayAgo, dayAgo);
+  const statuses: SessionStatus[] = [];
+  const sess = {
+    events: [] as AgentEvent[],
+    internal: {} as Record<string, unknown>,
+    emit(evt: AgentEvent) { this.events.push(evt); },
+    setStatus(status: SessionStatus) { statuses.push(status); },
+  } as unknown as SessionCtx;
+  const tail = attachTranscript(sess, "claude", path);
+  await tail.poll();
+  await new Promise((r) => setTimeout(r, 20));
+  transcriptAdapter.dispose(sess);
+  expect(sess.events).toEqual([{ kind: "user", text: "hi" }]);
+  expect(statuses).not.toContain("running");
 });
 
 describe("transcript sources", () => {

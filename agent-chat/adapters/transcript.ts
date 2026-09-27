@@ -77,8 +77,25 @@ class ClaudeTranscriptParser implements TranscriptParser {
   title?: string;
   cwd?: string;
   private seen = new Set<string>();
+  private turnOpen = false;
+  private endedMessageIds = new Set<string>();
 
   parse(line: string): AgentEvent[] {
+    const events = this.parseLine(line);
+    for (const evt of events) {
+      if (evt.kind === "done") this.turnOpen = false;
+      else if (evt.kind !== "status") this.turnOpen = true;
+    }
+    return events;
+  }
+
+  /** Appends a turn end unless the turn already ended. */
+  private endTurn(events: AgentEvent[], stats?: string): AgentEvent[] {
+    const open = this.turnOpen || events.some((e) => e.kind !== "status");
+    return open ? [...events, stats ? { kind: "done", stats } : { kind: "done" }] : events;
+  }
+
+  private parseLine(line: string): AgentEvent[] {
     const ev = tryParse(line);
     if (!ev || typeof ev !== "object") return [];
     if (ev.isSidechain) return [];
@@ -124,7 +141,10 @@ class ClaudeTranscriptParser implements TranscriptParser {
         const result = textOf(block.content);
         out.push({ kind: "tool-end", toolId: String(block.tool_use_id ?? ""), ok: !block.is_error, detail: truncate(result, 400) });
       }
-      const prompt = content.filter((b: any) => b?.type === "text" || b?.type === "image");
+      // Claude often stores a typed prompt after injected reminder blocks in
+      // the same message, so hidden blocks are dropped one by one.
+      const prompt = content.filter((b: any) =>
+        b?.type === "image" || (b?.type === "text" && typeof b.text === "string" && !CLAUDE_HIDDEN_USER_TAGS.test(b.text.trim())));
       if (prompt.length) out.push(...this.prompt(textOf(prompt)));
       return out;
     }
@@ -135,7 +155,7 @@ class ClaudeTranscriptParser implements TranscriptParser {
   private prompt(raw: string): AgentEvent[] {
     const text = raw.trim();
     if (!text) return [];
-    if (text.startsWith("[Request interrupted by user")) return [{ kind: "status", text: "Interrupted" }];
+    if (text.startsWith("[Request interrupted by user")) return this.endTurn([{ kind: "status", text: "Interrupted" }]);
     if (CLAUDE_HIDDEN_USER_TAGS.test(text)) return [];
     const command = tagValue(text, "command-name");
     if (command) {
@@ -160,8 +180,27 @@ class ClaudeTranscriptParser implements TranscriptParser {
       const message = textOf(content);
       return message ? [{ kind: "error", message: truncate(message, 400) }] : [];
     }
-    if (typeof content === "string") return content.trim() ? [{ kind: "assistant", text: content }] : [];
-    if (!Array.isArray(content)) return out;
+    if (typeof content === "string") {
+      if (content.trim()) out.push({ kind: "assistant", text: content });
+    } else if (Array.isArray(content)) {
+      out.push(...this.assistantBlocks(content));
+    }
+    // `turn_duration` is only written for some turns; the final assistant
+    // message's stop reason marks the end of every turn. Each content block
+    // is its own line carrying the message's stop reason, and thinking comes
+    // before the text, so the turn ends at the message's first text line.
+    const stop = ev.message?.stop_reason;
+    const messageId = String(ev.message?.id ?? ev.uuid ?? "");
+    const hasText = out.some((e) => e.kind === "assistant");
+    if ((stop === "end_turn" || stop === "stop_sequence") && hasText && !this.endedMessageIds.has(messageId)) {
+      this.endedMessageIds.add(messageId);
+      return this.endTurn(out);
+    }
+    return out;
+  }
+
+  private assistantBlocks(content: any[]): AgentEvent[] {
+    const out: AgentEvent[] = [];
     for (const block of content) {
       if (block?.type === "text" && typeof block.text === "string" && block.text.trim()) {
         out.push({ kind: "assistant", text: block.text });
@@ -178,7 +217,7 @@ class ClaudeTranscriptParser implements TranscriptParser {
     switch (ev.subtype) {
       case "turn_duration": {
         const ms = Number(ev.durationMs);
-        return [{ kind: "done", stats: Number.isFinite(ms) && ms > 0 ? `${(ms / 1000).toFixed(1)}s` : undefined }];
+        return this.endTurn([], Number.isFinite(ms) && ms > 0 ? `${(ms / 1000).toFixed(1)}s` : undefined);
       }
       case "compact_boundary":
         return [{ kind: "status", text: "Conversation compacted" }];
@@ -308,7 +347,7 @@ export class TranscriptTail {
 
   constructor(
     readonly path: string,
-    private readonly onLines: (lines: string[]) => void,
+    private readonly onLines: (lines: string[], mtimeMs: number) => void,
     private readonly opts: { pollMs?: number; initialWindowBytes?: number } = {},
   ) {}
 
@@ -360,7 +399,7 @@ export class TranscriptTail {
           if (lastNl < 0) continue;
           const lines = this.pending.slice(0, lastNl).split("\n").filter((l) => l.trim());
           this.pending = this.pending.slice(lastNl + 1);
-          if (lines.length) this.onLines(lines);
+          if (lines.length) this.onLines(lines, info.mtimeMs);
         }
       } finally {
         await handle.close();
@@ -413,9 +452,11 @@ export function attachTranscript(
     if (!st) return;
     sess.setStatus(transcriptLooksRunning(sess.events, st.lastWriteMs) ? "running" : "idle");
   };
-  const tail = new TranscriptTail(path, (lines) => {
+  const tail = new TranscriptTail(path, (lines, mtimeMs) => {
     const st = transcriptState(sess);
-    if (st) st.lastWriteMs = Date.now();
+    // Activity comes from the file's own write time, so a transcript that
+    // went idle long ago does not look busy when its history first loads.
+    if (st) st.lastWriteMs = mtimeMs;
     const title = parser.title;
     for (const line of lines) {
       for (const evt of parser.parse(line)) sess.emit(evt);
@@ -431,11 +472,6 @@ export function attachTranscript(
   };
   sess.internal.transcript = state;
   sess.internal.transcriptPath = path;
-  // Seed the write time from the file so a session that is mid-turn right
-  // now renders as running on first paint.
-  stat(path).then((info) => {
-    if (transcriptState(sess) === state && !state.lastWriteMs) state.lastWriteMs = info.mtimeMs;
-  }, () => {});
   tail.start();
   return tail;
 }

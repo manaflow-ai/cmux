@@ -30,12 +30,22 @@ const SESSION_ID = /^[\w-]{8,128}$/;
 
 export interface TranscriptSourceEnv {
   home?: string;
+  /** Directory holding `<agent>-hook-sessions.json` (cmux's CMUX_AGENT_HOOK_STATE_DIR). */
+  hookStateDir?: string;
+  /** Claude store override (cmux's CMUX_CLAUDE_HOOK_STATE_PATH). */
+  claudeHookStatePath?: string;
   claudeConfigDir?: string;
   codexHome?: string;
 }
 
-function readStore(home: string, agent: TranscriptAgent): { entries: HookEntry[]; activeBySurface: Map<string, string> } {
-  const file = join(home, ".cmuxterm", `${agent}-hook-sessions.json`);
+function expandHome(path: string, home: string): string {
+  return path === "~" || path.startsWith("~/") ? join(home, path.slice(1)) : path;
+}
+
+function readStore(env: Required<TranscriptSourceEnv>, agent: TranscriptAgent): { entries: HookEntry[]; activeBySurface: Map<string, string> } {
+  const file = agent === "claude" && env.claudeHookStatePath
+    ? env.claudeHookStatePath
+    : join(env.hookStateDir, `${agent}-hook-sessions.json`);
   const activeBySurface = new Map<string, string>();
   let root: any;
   try {
@@ -125,8 +135,11 @@ function transcriptPathFor(entry: HookEntry, env: Required<TranscriptSourceEnv>)
 
 function resolvedEnv(env: TranscriptSourceEnv): Required<TranscriptSourceEnv> {
   const home = env.home ?? homedir();
+  const nonEmpty = (v: string | undefined) => (v?.trim() ? expandHome(v.trim(), home) : undefined);
   return {
     home,
+    hookStateDir: env.hookStateDir ?? nonEmpty(process.env.CMUX_AGENT_HOOK_STATE_DIR) ?? join(home, ".cmuxterm"),
+    claudeHookStatePath: env.claudeHookStatePath ?? nonEmpty(process.env.CMUX_CLAUDE_HOOK_STATE_PATH) ?? "",
     claudeConfigDir: env.claudeConfigDir ?? process.env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"),
     codexHome: env.codexHome ?? process.env.CODEX_HOME ?? join(home, ".codex"),
   };
@@ -148,7 +161,7 @@ export function resolveSurfaceTranscript(surfaceId: string, env: TranscriptSourc
   if (!surface) return null;
   const candidates: { entry: HookEntry; active: boolean }[] = [];
   for (const agent of AGENTS) {
-    const store = readStore(resolved.home, agent);
+    const store = readStore(resolved, agent);
     const activeId = store.activeBySurface.get(surface);
     for (const entry of store.entries) {
       const active = entry.sessionId === activeId;
@@ -163,13 +176,26 @@ export function resolveSurfaceTranscript(surfaceId: string, env: TranscriptSourc
   return null;
 }
 
+// Misses are remembered briefly: page reconnects retry unknown ids, and a
+// Codex miss walks the sessions tree synchronously.
+const MISS_TTL_MS = 30_000;
+const misses = new Map<string, number>();
+
 /** The transcript for a known agent session id, from either hook store. */
-export function resolveSessionTranscript(sessionId: string, env: TranscriptSourceEnv = {}): TranscriptSource | null {
+export function resolveSessionTranscript(sessionId: string, env: TranscriptSourceEnv = {}, now = Date.now()): TranscriptSource | null {
   if (!SESSION_ID.test(sessionId)) return null;
+  const missedAt = misses.get(sessionId);
+  if (missedAt !== undefined && now - missedAt < MISS_TTL_MS) return null;
   const resolved = resolvedEnv(env);
   for (const agent of AGENTS) {
-    const entry = readStore(resolved.home, agent).entries.find((e) => e.sessionId === sessionId);
-    if (entry) return toSource(entry, resolved);
+    const entry = readStore(resolved, agent).entries.find((e) => e.sessionId === sessionId);
+    const source = entry ? toSource(entry, resolved) : null;
+    if (source) {
+      misses.delete(sessionId);
+      return source;
+    }
   }
+  if (misses.size > 256) misses.clear();
+  misses.set(sessionId, now);
   return null;
 }
