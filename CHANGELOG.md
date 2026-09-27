@@ -17,7 +17,6 @@ All notable changes to cmux are documented here.
 - The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
 
 ### Fixed
-- SSH workspaces that 0.64.25 saved with a tmux profile (`cmux ssh` or `cmux mosh-tmux --transport ssh` with a tmux session) reattach that tmux session after upgrading, instead of restoring as an unsupported error pane ([#14938](https://github.com/manaflow-ai/cmux/pull/14938)).
 - VoiceOver no longer reads a symbol name such as "gearshape" or "Mostly Cloudy" before each Settings sidebar entry ([#14989](https://github.com/manaflow-ai/cmux/pull/14989))
 - VoiceOver now names the browser toolbar's Back, Forward, Reload/Stop, Developer Tools, Profile, and Theme buttons and the notification clear buttons, no longer reads internal command ids on command palette rows, and the Xcode project panel's reload, dismiss, picker, and status text is localized ([#14926](https://github.com/manaflow-ai/cmux/pull/14926)).
 - The Settings notification sound preview button has a tooltip and VoiceOver label, and German, French, Spanish, Arabic, Korean, and Chinese menus and buttons no longer show the wrong sense of Clear, Open, Back, Refresh, Preview, Rename, Stop, or Fork (for example German "Klar" instead of "Löschen", or Spanish "Abierto" instead of "Abrir") ([#14983](https://github.com/manaflow-ai/cmux/pull/14983)).
