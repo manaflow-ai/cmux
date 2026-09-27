@@ -15758,10 +15758,11 @@ struct TabItemView: View, Equatable {
     // percent here and applying a primitive `.font(...)` keeps magnification
     // working while dropping those per-label modifier bodies.
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
-    // Key-window state only: the selection wash dims to neutral when the
-    // window is inactive, like Finder. Changes on window activation, not
-    // per keystroke.
+    // Window activation and Increase Contrast only: the selection wash dims to
+    // neutral when the window is inactive, like Finder. Neither changes per
+    // keystroke.
     @Environment(\.controlActiveState) private var controlActiveState
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 #if DEBUG
     // Plain-value environment probe (closure struct, not an object reference):
     // set only by SidebarLazyLayoutScaleTests, default no-op, excluded from ==
@@ -16599,7 +16600,8 @@ struct TabItemView: View, Equatable {
             customColorHex: workspaceSnapshot.customColorHex,
             colorScheme: colorScheme,
             sidebarSelectionColorHex: sidebarSelectionColorHex,
-            isEmphasized: controlActiveState != .inactive
+            isEmphasized: controlActiveState != .inactive,
+            increasesContrast: colorSchemeContrast == .increased
         )
     }
 

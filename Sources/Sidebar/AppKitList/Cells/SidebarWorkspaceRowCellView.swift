@@ -201,7 +201,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             customColorHex: model.snapshot.customColorHex,
             colorScheme: palette.colorScheme,
             sidebarSelectionColorHex: settings.selectionColorHex,
-            isEmphasized: window?.isKeyWindow ?? true
+            // Key or main, like SwiftUI's controlActiveState: cmux's own
+            // popovers and child panels taking key must not grey the row.
+            isEmphasized: window.map { $0.isKeyWindow || $0.isMainWindow } ?? true
         )
         applyBackgroundStyle(style)
         if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
@@ -240,6 +242,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             ),
             NotificationCenter.default.addObserver(
                 forName: NSWindow.didResignKeyNotification, object: window, queue: .main, using: repaint
+            ),
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeMainNotification, object: window, queue: .main, using: repaint
+            ),
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignMainNotification, object: window, queue: .main, using: repaint
             ),
             NotificationCenter.default.addObserver(
                 forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main, using: repaint
@@ -328,6 +336,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             action()
         }
         model = nil
+        paintedSelectionModel = nil
         hintPill.resetForReuse()
     }
 
