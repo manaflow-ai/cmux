@@ -98,4 +98,13 @@ import Testing
         """)
         #expect(node?.children.map(\.text) == ["ready"])
     }
+    @Test func forwardTopLevelBindingShadowsSeededState() {
+        let node = interp.evaluate("""
+        let TITLE = PREFIX
+        let PREFIX = "local"
+        VStack { Text(TITLE) }
+        """, state: ["PREFIX": .string("external")])
+        #expect(node?.children.map(\.text) == ["local"])
+    }
+
 }
