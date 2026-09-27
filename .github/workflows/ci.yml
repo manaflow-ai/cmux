@@ -1567,11 +1567,18 @@ jobs:
   # compiles for the merge, waiting for it, so this costs a test run, not a
   # second compile, and routes to an owned Mac (e2e_runner_pool.py). A fork
   # cannot dispatch it, so its run fails here until a maintainer runs the
-  # classes and adds 'no-full-ci'.
+  # classes and adds 'no-full-ci'. It waits for the admission gate: the gate
+  # holds the compile it adopts, so the gate must not wait for it, and a fast
+  # Linux failure spends no test run.
+  #
+  # The one job in this workflow with actions: write, which dispatching takes.
+  # Only a same-repository pull request reaches the dispatch, and its author
+  # can already dispatch any workflow; a fork's token is read-only regardless.
   ui-tests:
     needs:
       - changes
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.ui_selectors != '' }}
+      - macos-admission-gate
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.macos-admission-gate.result == 'success' && needs.changes.outputs.ui_selectors != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A compile wait of up to 50 minutes, then the tests.
     timeout-minutes: 120
@@ -1599,6 +1606,17 @@ jobs:
           SELECTORS: ${{ needs.changes.outputs.ui_selectors }}
           # A re-run of this job dispatches again, even past a failure at this head.
           FORCE: ${{ github.run_attempt > 1 && '--force' || '' }}
+          # A job token cannot list repository variables (HTTP 403), so the
+          # dispatcher reads its routing inputs from these instead.
+          CMUX_MACOS_RUNNER_TESTS: ${{ vars.MACOS_RUNNER_TESTS }}
+          CMUX_CI_E2E_LARGE_POOL_OVERFLOW: ${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}
+          CMUX_CI_PR_POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          CMUX_CI_PR_POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          CMUX_CI_PR_POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
+          CMUX_CI_PR_POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          CMUX_CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          CMUX_CMUX_CI_XCODE_APP_PR: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          CMUX_CI_E2E_OWNED_UI: ${{ vars.CI_E2E_OWNED_UI }}
         run: |
           set -euo pipefail
           # shellcheck disable=SC2086
