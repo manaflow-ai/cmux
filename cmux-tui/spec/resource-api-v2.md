@@ -211,9 +211,10 @@ so historical reports cannot resurrect it.
 
 An agent value's `extra.agent` names the hook adapter (`claude`, `codex`, ...)
 when one has claimed the terminal. `extra.agent_session_id` is the agent's own
-session id from its hook events (Claude's `session_id`), so a client can resume
-that session. Both the `agent` upsert change and the snapshot and `agent.list`
-values carry it, and it is persisted with the projection, so it survives a
+session id from its hook events (Claude's `session_id`). It is opaque metadata
+that a client can pass to the agent's own resume path (for Claude,
+`claude --resume <id>`); this API does not define a resume operation. Both the
+`agent` upsert change and the snapshot and `agent.list` values carry it, and it is persisted with the projection, so it survives a
 restart. A later hook session on the same terminal (for example after `/clear`
 or a resume) replaces it. It is absent for socket, plugin, and screen-detected
 agents and for hook adapters that report no session id. The id is opaque
