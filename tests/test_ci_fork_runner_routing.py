@@ -101,7 +101,9 @@ FORK_PULL_REQUEST_LABEL = re.compile(
 # Nothing keeps them hosted except their current values, so they are gated too.
 # Context names are case-insensitive, and `vars['X']` reads the same value as
 # `vars.X`; _refs normalizes the index form before matching.
-OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER)"
+# CI_SIDE_LANE_RUNNER and CI_LIGHT_LANE_RUNNER name owned side labels outright
+# (runner_label_policy.side_lane_reason), so every read of them is gated too.
+OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER)"
 OWNED_RUNNER_VARIABLE = re.compile(
     rf"\bvars(?:\.{OWNED_RUNNER_NAME}\b|\[\s*'{OWNED_RUNNER_NAME}'\s*\])", re.IGNORECASE
 )
@@ -123,6 +125,11 @@ FORK_GATE_EXEMPT = {
         "ios_runner_pool.py's input: for a fork head (--fork) the picker returns "
         "its hosted 6vcpu pool without reading this default, and every runs-on "
         "reads its output"
+    ),
+    ("ci.yml", "CMUX_MACOS_RUNNER_TESTS: ${{ vars.MACOS_RUNNER_TESTS }}"): (
+        "dispatch-focused-test.py's input in the ui-tests job, which runs on "
+        "Linux and whose first step fails a fork pull request before any step "
+        "reads it; the test-e2e.yml run it dispatches picks its own runner"
     ),
 }
 

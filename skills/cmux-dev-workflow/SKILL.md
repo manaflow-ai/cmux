@@ -32,6 +32,8 @@ Reload builds without launching; add `--launch` when live verification is needed
 Never use bare `xcodebuild` or open an untagged `cmux DEV.app`: tags isolate bundle
 IDs, sockets and build output from other sessions. Do not use `/tmp/cmux-cli`,
 which follows the most recently reloaded app. See [tagged builds](references/tagged-builds.md).
+Never quit, kill, relaunch or `xctrace --launch` the user's running cmux
+(`com.cmuxterm.app`); it holds their live agent sessions.
 
 An app build does not establish test-target compilation or execution. Follow
 [the test guide](../cmux-testing/references/local-vs-ci-validation.md) for those claims.
@@ -40,7 +42,8 @@ An app build does not establish test-target compilation or execution. Follow
 
 `.xcode-version` owns the Xcode major; `cmux.xcodeproj/project.pbxproj` currently
 uses objectVersion 60. The Intel/macOS 14 fallback uses Xcode 16.2/Swift 6.0;
-keep app-linked code compatible as specified in root `AGENTS.md`.
+keep app-linked code compatible as specified in
+[Swift 6.0 compatibility](../cmux-architecture/references/swift-6-0-compatibility.md).
 
 The installed pre-commit hook normalizes staged project files and registers new
 Python tests in `tests/test-execution.toml`. Preserve it and

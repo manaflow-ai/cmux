@@ -148,6 +148,8 @@ Give a million developers composable primitives and they'll collectively find th
 
 For more info on how to configure cmux, [head over to our docs](https://cmux.com/docs/getting-started?utm_source=readme).
 
+To theme cmux (colors, fonts, transparency, sidebar, and more), see [Customizing cmux's look](docs/customizing-appearance.md).
+
 ## Keyboard Shortcuts
 
 ### Workspaces

@@ -49,6 +49,8 @@ public actor MobileIrxRuntimeComposition {
     var expectedDeviceIDByPeer: [String: String] = [:]
     var controlLaneClaims = MobileIrxControlLaneClaims()
     var claimedEventSessions: [String: String] = [:]
+    /// One server-event lane acceptor per admitted session, keyed by peer.
+    var eventLaneHubs: [String: (sessionID: String, hub: IrxServerEventLaneHub)] = [:]
     var changeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
     var launchTime = Date()
     var backgroundTime: Date?
