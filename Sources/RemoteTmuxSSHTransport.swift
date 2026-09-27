@@ -1,5 +1,15 @@
 import Foundation
 
+/// The narrow ControlMaster surface used by the ssh-tmux browser proxy.
+/// Keeping the proxy independent from tmux commands makes its lifecycle
+/// testable without a live remote server and prevents preview setup from
+/// acquiring session ownership.
+protocol RemoteTmuxBrowserProxyTransport: AnyObject {
+    func ensureMasterReady() async throws -> Bool
+    func openDynamicForward(localPort: Int) async throws -> RemoteTmuxCommandResult
+    func cancelDynamicForward(localPort: Int) async
+}
+
 /// Runs commands against a remote host's tmux server over a shared SSH
 /// ControlMaster connection.
 ///
@@ -13,7 +23,7 @@ import Foundation
 ///
 /// Modeled as an `actor` because it owns the per-host connection lifecycle and
 /// serializes process launches; reads/writes are `async`.
-actor RemoteTmuxSSHTransport {
+actor RemoteTmuxSSHTransport: RemoteTmuxBrowserProxyTransport {
     private static let maxCapturedOutputBytes = 1_048_576
 
     /// The host this transport talks to.
