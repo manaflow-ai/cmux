@@ -768,7 +768,7 @@ def distance_route(runners: Sequence[Mapping[str, Any]], root: str, *,
 
     Every online `root` runner is a candidate. Its mini's roots (MINIS, the
     stamps admission publishes) each cost hook_root_cost() with the job's OWN
-    files, or its parked build of this pull request when that costs less. The hook hands the job the cheapest free root and each busy root
+    files, or by its parked build of this pull request, which admission swaps in. The hook hands the job the cheapest free root and each busy root
     runner of the mini holds one, so a runner costs the root ranked after the
     busy ones (the cheapest on an idle mini; for a busy runner, the one its
     job frees). A mini without stamps costs LEGACY[runner] (route_admission()'s
@@ -804,10 +804,12 @@ def distance_route(runners: Sequence[Mapping[str, Any]], root: str, *,
             stamp = entry if entry.get("merged_onto") or entry.get("pr") else None
             cost = hook_root_cost(changes(str(entry.get("merged_onto") or "")) if stamp else None, stamp,
                                   pr_number, hook, own)
-            # This pull request's build parked beside the root: admission's `check` swaps it in.
-            for parked in own_parked(entry, pr_number):
-                cost = min(cost, hook_root_cost(changes(str(parked.get("merged_onto") or "")), parked,
-                                                pr_number, hook, own), key=lambda item: (item[0], item[2]))
+            # This pull request's build parked beside the root: admission's `check` swaps it in (and the
+            # hook ranks the root by it) unless the kept build is a main build, which `check` never parks.
+            parked = own_parked(entry, pr_number)
+            if parked and (stamp is None or entry.get("pr")):
+                cost = hook_root_cost(changes(str(parked[0].get("merged_onto") or "")), parked[0], pr_number,
+                                      hook, own)
             costs.append((*cost, number if isinstance(number, int) and not isinstance(number, bool) else 0))
         ranked[mini] = sorted(costs, key=lambda item: (item[0], item[2], item[3]))
     rows: list[dict[str, Any]] = []

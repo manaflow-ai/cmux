@@ -334,7 +334,7 @@ class WarmKeys(Fixture):
             self.assertEqual(json.loads((slot / "stamp.json").read_text())["pr"], 7)
             # warm-keys lists the parked build's pull request and publishes its stamp for the picker.
             listed = self.keys(cache=False)
-            self.assertEqual(listed["keys"], ["b" * 12, "pr-9", "pr-7"])
+            self.assertEqual(listed["keys"], ["b" * 12, "pr-9"])  # parked builds ride in `roots` only
             self.assertEqual(listed["roots"], [{"root": 1, "merged_onto": B, "pr": 9,
                                                 "parked": [{"merged_onto": A, "pr": 7}]}])
             # Pull request 7's next push swaps its build back in and parks 9's.
@@ -347,6 +347,37 @@ class WarmKeys(Fixture):
             # A re-push of the kept pull request replaces its build in place, parking nothing.
             self.build("seven again")
             self.assertEqual(self.kept(merged_onto=A, pr="7"), {"kept": "true"})
+
+    def test_check_never_drops_a_main_build_for_a_parked_one(self):
+        with unittest.mock.patch("owned_build_state.free_gib", return_value=500.0):
+            self.build("seven")
+            self.kept(pr="7")
+            self.build("main")
+            self.kept(pr="")  # idle warming keeps main: 7 stays parked, main cannot be
+            result = run(state.check, self.store, "fp", self.workspace, None, "7")
+        self.assertEqual(result["reason"], "kept DerivedData matches")
+        self.assertEqual(self.kept_marker(), "main")
+        self.assertTrue((self.store / "pr-builds" / "pr-7" / "derived-data").is_dir())
+
+    def test_keep_drops_a_stale_parked_build_of_its_own_pull_request(self):
+        with unittest.mock.patch("owned_build_state.free_gib", return_value=500.0):
+            self.build("seven")
+            self.kept(pr="7")
+            self.build("nine")
+            self.kept(pr="9")
+            self.build("seven, cold")
+            self.kept(pr="7")  # say its check could not unpark: the new build supersedes the parked one
+        self.assertFalse((self.store / "pr-builds" / "pr-7").exists())
+        self.assertEqual(self.kept_marker(), "seven, cold")
+
+    def test_a_park_killed_after_its_stamp_is_finished(self):
+        whole = self.store / "pr-builds" / ".pr-5.incoming-999999999"
+        (whole / "derived-data").mkdir(parents=True)
+        (whole / "stamp.json").write_text(json.dumps({"pr": 5}))
+        torn = self.store / "pr-builds" / ".pr-6.incoming-999999998"
+        torn.mkdir()
+        state.prune_pr_slots(self.store)
+        self.assertEqual(sorted(path.name for path in (self.store / "pr-builds").iterdir()), ["pr-5"])
 
     def test_check_leaves_a_parked_build_of_another_fingerprint(self):
         with unittest.mock.patch("owned_build_state.free_gib", return_value=500.0):

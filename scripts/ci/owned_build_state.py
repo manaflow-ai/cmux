@@ -308,8 +308,18 @@ def prune_pr_slots(store: Path, now: float | None = None) -> None:
     for path in entries:  # a park or clear a killed job left half done
         if (path.name.startswith(".pr-") and (".incoming-" in path.name or ".discard-" in path.name)
                 and not owned_by_live_process(path)):
+            slot = store / PR_BUILDS / path.name[1:].split(".", 1)[0]
             with contextlib.suppress(OSError, RuntimeError):
-                clear(path)
+                # A park killed after its stamp was written is whole: finish it rather than lose the build.
+                if (".incoming-" in path.name and (path / DERIVED).is_dir() and not slot.exists()
+                        and pr_key(read_stamp(path).get("pr")) == slot.name):
+                    path.rename(slot)
+                else:
+                    clear(path)
+    try:
+        entries = list((store / PR_BUILDS).iterdir())
+    except OSError:
+        return
     slots = [path for path in entries if path.name.startswith("pr-")]
     dated = []
     for path in slots:
@@ -335,8 +345,9 @@ def park(store: Path) -> str:
     incoming = slot.with_name(f".{slot.name}.incoming-{os.getpid()}")
     remove(incoming)
     incoming.mkdir(parents=True)
-    (store / DERIVED).rename(incoming / DERIVED)
     write_stamp(incoming, stamp)
+    write_stamp(store, {})  # the store no longer holds that build, whatever happens next
+    (store / DERIVED).rename(incoming / DERIVED)
     clear(slot)
     incoming.rename(slot)
     os.utime(slot)
@@ -354,7 +365,9 @@ def unpark(store: Path, number: object, fingerprint: str) -> bool:
     current = read_stamp(store)
     if pr_key(current.get("pr")) == pr_key(number) and (store / DERIVED).is_dir():
         return False  # the kept build is this pull request's already
-    park(store)
+    # A main build (no pull request) or a park refused for disk stays: the job starts from it instead.
+    if (store / DERIVED).exists() and not park(store):
+        return False
     if (store / DERIVED).exists():
         clear(store / DERIVED)
     (slot / DERIVED).rename(store / DERIVED)
@@ -364,14 +377,15 @@ def unpark(store: Path, number: object, fingerprint: str) -> bool:
     return True
 
 
-def parked_stamps(store: Path) -> list[dict[str, object]]:
-    """The current (STATE_VERSION) stamps of the builds parked beside STORE, newest first."""
+def parked_stamps(store: Path, now: float | None = None) -> list[dict[str, object]]:
+    """The current (STATE_VERSION, under PR_SLOT_HOURS) stamps of the builds parked beside STORE, newest first."""
+    now = time.time() if now is None else now
     try:
-        slots = sorted((path for path in (store / PR_BUILDS).iterdir()
-                        if path.name.startswith("pr-") and (path / DERIVED).is_dir()),
-                       key=lambda path: path.stat().st_mtime, reverse=True)
+        dated = sorted(((path.stat().st_mtime, path) for path in (store / PR_BUILDS).iterdir()
+                        if path.name.startswith("pr-") and (path / DERIVED).is_dir()), reverse=True)
     except OSError:
         return []
+    slots = [path for moment, path in dated if now - moment <= PR_SLOT_HOURS * 3600]
     found = []
     for slot in slots:
         stamp = read_stamp(slot)
@@ -525,6 +539,10 @@ def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr
             parked = park(store)
         except (OSError, RuntimeError):
             parked = ""
+    own_slot = pr_slot(store, pr_number)
+    if own_slot is not None:  # this build supersedes any parked build of the same pull request
+        with contextlib.suppress(OSError, RuntimeError):
+            clear(own_slot)
     prune_pr_slots(store)
     stamp = read_stamp(store)
     stamp.pop("fingerprint", None)
@@ -562,11 +580,7 @@ def stamp_keys(store: Path, fingerprint: str) -> list[str]:
         return []
     if fingerprint and kept != stamped(fingerprint):
         return []
-    keys = [warm_key(str(stamp.get("merged_onto") or "")), pr_key(stamp.get("pr"))]
-    # Parked pull request builds come back for their next push (`check` unparks them).
-    keys.extend(pr_key(parked.get("pr")) for parked in parked_stamps(store)
-                if not fingerprint or parked.get("fingerprint") == stamped(fingerprint))
-    return keys
+    return [warm_key(str(stamp.get("merged_onto") or "")), pr_key(stamp.get("pr"))]
 
 
 def other_root_stores(store: Path) -> list[Path]:
