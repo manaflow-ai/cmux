@@ -71,6 +71,9 @@ has the full sequence.
 - Default shortcuts: new workspace ⌘N, split right ⌘D, split down ⇧⌘D, command
   palette ⇧⌘P, toggle sidebar ⌘B, Settings ⌘,. Read `KeyboardShortcutSettings.swift`
   for the rest.
+- Give `workspace.create` shell text as `initial_input` (`"echo hi\n"`).
+  `initial_command` replaces the shell, so a command that exits within
+  Ghostty's 250 ms threshold shows the red "failed to launch" screen.
 - Add `{"wait": 0.5}` before a `shot` after anything animated; hover reveals fade
   in over about 120 ms.
 - Keep reusable tours in `dogfood/scenarios/`. A tour is a look, not a test: when

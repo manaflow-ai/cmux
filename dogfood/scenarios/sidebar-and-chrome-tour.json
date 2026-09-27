@@ -1,7 +1,7 @@
 {
   "steps": [
-    {"socket": "workspace.create", "params": {"title": "Build", "initial_command": "echo building; ls", "focus": false}, "save": "build"},
-    {"socket": "workspace.create", "params": {"title": "Agents", "initial_command": "echo agents", "focus": true}, "save": "agents"},
+    {"socket": "workspace.create", "params": {"title": "Build", "initial_input": "echo building; ls\n", "focus": false}, "save": "build"},
+    {"socket": "workspace.create", "params": {"title": "Agents", "initial_input": "echo agents\n", "focus": true}, "save": "agents"},
     {"wait": 1},
     {"shot": "three-workspaces"},
     {"hoverAt": {"x": 0.08, "y": 0.12}},
