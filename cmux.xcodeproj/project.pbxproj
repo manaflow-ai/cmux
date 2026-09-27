@@ -3902,6 +3902,7 @@
 		C0DE71450000000000000001 /* WorkspaceCreateWorkingDirectoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE71450000000000000002 /* WorkspaceCreateWorkingDirectoryTests.swift */; };
 		C0DE00000000000000000D34 /* WorkspaceCreateWorkingDirectoryValidationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000D33 /* WorkspaceCreateWorkingDirectoryValidationServiceTests.swift */; };
 		E60812C95246E275F29D3C1B /* WorkspaceCreationWorkingDirectorySpawnPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D3084DF49224DFF2DF4C376 /* WorkspaceCreationWorkingDirectorySpawnPolicyTests.swift */; };
+		C4F0C0100000000000000A01 /* WorkspaceCustomColorPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F0C0100000000000000A02 /* WorkspaceCustomColorPrompt.swift */; };
 		901000010000000000000001 /* WorkspaceCustomLayoutOrderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901000010000000000000002 /* WorkspaceCustomLayoutOrderTests.swift */; };
 		281F3AEA52379AF45C5C1189 /* WorkspaceCustomSidebarPullRequestContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE74DFAC5946F9C2EEDBE577 /* WorkspaceCustomSidebarPullRequestContextTests.swift */; };
 		E6FA9084A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6FA9085A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift */; };
@@ -7866,6 +7867,7 @@
 		C0DE71450000000000000002 /* WorkspaceCreateWorkingDirectoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCreateWorkingDirectoryTests.swift; sourceTree = "<group>"; };
 		C0DE00000000000000000D33 /* WorkspaceCreateWorkingDirectoryValidationServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCreateWorkingDirectoryValidationServiceTests.swift; sourceTree = "<group>"; };
 		9D3084DF49224DFF2DF4C376 /* WorkspaceCreationWorkingDirectorySpawnPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCreationWorkingDirectorySpawnPolicyTests.swift; sourceTree = "<group>"; };
+		C4F0C0100000000000000A02 /* WorkspaceCustomColorPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCustomColorPrompt.swift; sourceTree = "<group>"; };
 		901000010000000000000002 /* WorkspaceCustomLayoutOrderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCustomLayoutOrderTests.swift; sourceTree = "<group>"; };
 		CE74DFAC5946F9C2EEDBE577 /* WorkspaceCustomSidebarPullRequestContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCustomSidebarPullRequestContextTests.swift; sourceTree = "<group>"; };
 		E6FA9085A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDescriptionUITests.swift; sourceTree = "<group>"; };
@@ -9323,6 +9325,7 @@
 				9164B0029164B0029164B002 /* TabManager+NumberedWorkspaceSelection.swift */,
 				604500100000000000000008 /* TabManager+WindowTitle.swift */,
 				E30750000000000000000001 /* WorkspaceTabColorResolution.swift */,
+				C4F0C0100000000000000A02 /* WorkspaceCustomColorPrompt.swift */,
 				E3B7A4000000000000000002 /* WorkspaceTabColorSettings.swift */,
 				E3B7A4000000000000000004 /* WorkspaceTabColorEntry.swift */,
 				E3B7A4000000000000000022 /* PaneChromeSettings.swift */,
@@ -15224,6 +15227,7 @@
 					5732A0045732A0045732A004 /* WorkspaceContentMinimalModeSafeAreaModifier.swift in Sources */,
 				DFAAE6D5B2C449C4BC3AC238 /* WorkspaceContentView+PanelVisibility.swift in Sources */,
 				A5001407 /* WorkspaceContentView.swift in Sources */,
+				C4F0C0100000000000000A01 /* WorkspaceCustomColorPrompt.swift in Sources */,
 				C0DE36230000000000000001 /* WorkspaceFinderDirectoryResolver.swift in Sources */,
 				F0ACC0DE000000000000000B /* WorkspaceForkAgentConversationAvailability.swift in Sources */,
 				C9A57203C9A57203C9A57203 /* WorkspaceGroupMenuSnapshot.swift in Sources */,
