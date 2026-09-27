@@ -49,6 +49,18 @@ struct CanvasViewportMathTests {
         #expect(origin == CanvasPoint(x: -74, y: -44))
     }
 
+    @Test func targetThatFitsOnlyWithoutMarginEndsUpFullyVisible() {
+        // 780 wide in an 800 viewport: the 24 pt margin cannot fit on both
+        // sides, so the margin shrinks and the far edge stays on screen.
+        let origin = math.originToReveal(
+            CanvasRect(x: 780, y: 100, width: 780, height: 200),
+            viewportOrigin: CanvasPoint(x: 0, y: 0),
+            viewportSize: viewportSize,
+            margin: 24
+        )
+        #expect(origin == CanvasPoint(x: 1560 - 800, y: 0))
+    }
+
     @Test func targetBeyondRightBottomScrollsMinimally() {
         let origin = math.originToReveal(
             CanvasRect(x: 900, y: 700, width: 200, height: 100),

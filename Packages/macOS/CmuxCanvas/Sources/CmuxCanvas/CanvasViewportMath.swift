@@ -80,15 +80,17 @@ public struct CanvasViewportMath: Sendable {
         }
         let paddedMin = targetMin - margin
         let paddedMax = targetMax + margin
-        if paddedMax - paddedMin >= viewportLength {
-            return paddedMin
+        let origin: Double
+        if paddedMax - paddedMin >= viewportLength || paddedMin < viewportMin {
+            origin = paddedMin
+        } else if paddedMax > viewportMin + viewportLength {
+            origin = paddedMax - viewportLength
+        } else {
+            origin = viewportMin
         }
-        if paddedMin < viewportMin {
-            return paddedMin
-        }
-        if paddedMax > viewportMin + viewportLength {
-            return paddedMax - viewportLength
-        }
-        return viewportMin
+        // A target that fits without its margin still ends up fully on
+        // screen; the margin shrinks instead.
+        guard targetMax - targetMin <= viewportLength else { return origin }
+        return min(max(origin, targetMax - viewportLength), targetMin)
     }
 }

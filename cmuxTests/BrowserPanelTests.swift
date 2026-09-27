@@ -3277,7 +3277,18 @@ final class WindowBrowserSlotViewTests: XCTestCase {
     }
 
     func testRetargetingDropZoneOverlaySnapsFrame() {
+        // Hosted in a window so a layer-backed `animator().frame` would
+        // install live geometry animations.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        container.wantsLayer = true
+        window.contentView = container
         let slot = WindowBrowserSlotView(frame: container.bounds)
         container.addSubview(slot)
 
@@ -3294,6 +3305,14 @@ final class WindowBrowserSlotViewTests: XCTestCase {
 
         XCTAssertEqual(overlay.frame.origin.x, 4, accuracy: 0.5, "Retargeting should not slide the overlay")
         XCTAssertEqual(overlay.frame.size.width, 96, accuracy: 0.5)
+        let geometryKeys: Set<String> = ["frameOrigin", "frameSize", "position", "bounds", "bounds.origin", "bounds.size"]
+        let layerAnimationKeys = Set(overlay.layer?.animationKeys() ?? [])
+        let geometryAnimations = (overlay.layer?.animationKeys() ?? []).filter { key in
+            if geometryKeys.contains(key) { return true }
+            guard let keyPath = (overlay.layer?.animation(forKey: key) as? CAPropertyAnimation)?.keyPath else { return false }
+            return geometryKeys.contains(keyPath)
+        }
+        XCTAssertTrue(geometryAnimations.isEmpty, "Retargeting should not animate the overlay frame: \(layerAnimationKeys)")
     }
 }
 
