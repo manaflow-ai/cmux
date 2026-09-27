@@ -25557,23 +25557,41 @@ struct CMUXCLI {
             .appendingPathComponent("omo-config", isDirectory: true)
     }
 
-    /// Top-level names in the shadow config dir that cmux writes itself, so they
-    /// are never replaced by links to the user's copies. `plugins` also holds
-    /// the cmux session plugin.
-    static let omoShadowOwnedConfigEntries: Set<String> = [
+    /// Top-level names of the user's OpenCode config dir that are never linked
+    /// into the shadow dir:
+    /// - files cmux writes there itself;
+    /// - dirs OpenCode already scans in the user's real config dir, which would
+    ///   otherwise load twice (every plugin would register its hooks twice);
+    /// - files OpenCode writes into each config dir, which would otherwise be
+    ///   rewritten through the link (its npm install saves package-lock.json).
+    static let omoShadowUnlinkedConfigEntries: Set<String> = [
         "opencode.json",
         "opencode.jsonc",
         "config.json",
         "node_modules",
         "package.json",
+        "package-lock.json",
+        "npm-shrinkwrap.json",
         "bun.lock",
         "bun.lockb",
+        ".gitignore",
+        "agent",
+        "agents",
+        "command",
+        "commands",
+        "mode",
+        "modes",
+        "plugin",
         "plugins",
+        "tool",
+        "tools",
+        "skill",
+        "skills",
         ".DS_Store"
     ]
 
-    /// Links each entry of a user OpenCode config dir into the matching shadow
-    /// dir, skipping `excluded` names. Existing links are repointed; real files
+    /// Links each entry of the user's OpenCode config dir into the shadow dir,
+    /// skipping `excluded` names. Existing links are repointed; real files
     /// cmux created in the shadow dir are left alone. Best effort: a failure only
     /// means that entry is missing under `cmux omo`, as before.
     private func omoLinkEntries(of userDir: URL, into shadowDir: URL, excluding excluded: Set<String>) {
@@ -25842,16 +25860,10 @@ struct CMUXCLI {
 
         try writeOpenCodeSessionPlugin(in: shadowDir)
 
-        // Agents, commands, and prompt files referenced as {file:./...} live next
-        // to opencode.json; expose them from the shadow dir so they still load.
-        omoLinkEntries(of: userDir, into: shadowDir, excluding: Self.omoShadowOwnedConfigEntries)
-        // plugins/ also holds the cmux session plugin, so link the user's plugins
-        // one by one instead of pointing the whole dir at the user's copy.
-        omoLinkEntries(
-            of: userDir.appendingPathComponent("plugins", isDirectory: true),
-            into: shadowDir.appendingPathComponent("plugins", isDirectory: true),
-            excluding: [Self.openCodeSessionPluginFilename, ".DS_Store"]
-        )
+        // The shadow opencode.json resolves relative refs such as
+        // {file:./prompts/chief.md} against the shadow dir, so expose the files
+        // they name there.
+        omoLinkEntries(of: userDir, into: shadowDir, excluding: Self.omoShadowUnlinkedConfigEntries)
 
         // Copy oh-my-openagent plugin config (jsonc) if the user has one.
         // Keep legacy filenames visible in the shadow dir so existing setups still load.
