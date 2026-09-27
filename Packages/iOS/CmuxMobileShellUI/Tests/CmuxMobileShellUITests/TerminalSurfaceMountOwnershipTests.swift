@@ -86,11 +86,11 @@ struct TerminalSurfaceMountOwnershipTests {
 
         surfaceView.frame = host.view.bounds
         host.view.addSubview(surfaceView)
-        for _ in 0..<20 {
-            await Task.yield()
-        }
+        #expect(await waitUntil { surfaceView.window != nil })
+        coordinator.attach(surfaceView: surfaceView)
         #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] == nil)
 
+        let firstReportID = surfaceView.requestViewportReportForMount()
         coordinator.ghosttySurfaceView(
             surfaceView,
             didResize: TerminalGridSize(
@@ -99,7 +99,7 @@ struct TerminalSurfaceMountOwnershipTests {
                 pixelWidth: 1_296,
                 pixelHeight: 2_135
             ),
-            reportID: 1
+            reportID: firstReportID
         )
         let mounted = await waitUntil {
             store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil
@@ -126,11 +126,11 @@ struct TerminalSurfaceMountOwnershipTests {
         ))
 
         host.view.addSubview(surfaceView)
-        for _ in 0..<20 {
-            await Task.yield()
-        }
+        #expect(await waitUntil { surfaceView.window != nil })
+        coordinator.attach(surfaceView: surfaceView)
         #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] == nil)
 
+        let remountReportID = surfaceView.requestViewportReportForMount()
         coordinator.ghosttySurfaceView(
             surfaceView,
             didResize: TerminalGridSize(
@@ -139,7 +139,7 @@ struct TerminalSurfaceMountOwnershipTests {
                 pixelWidth: 1_296,
                 pixelHeight: 2_135
             ),
-            reportID: 2
+            reportID: remountReportID
         )
         let remounted = await waitUntil {
             guard let token = store.terminalOutputStreamTokensBySurfaceID[surfaceID] else { return false }
