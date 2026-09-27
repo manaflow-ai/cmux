@@ -12091,6 +12091,14 @@ struct VerticalTabsSidebar: View, Equatable {
             guard isPresented else { return }
             scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
         }
+        // The compact status tooltip reads agent profiles from the live index,
+        // which is not observable; rebuild the rows it reports as changed.
+        .onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
+            guard isPresented, renderContext.tabItemSettings.compactsAgentStatus else { return }
+            for workspaceId in SidebarAgentProfileLabel.changedWorkspaceIds(notification.userInfo, allWorkspaceIds: renderContext.workspaceIds) {
+                scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+            }
+        }
         .onAppear {
             if isPresented {
                 refreshWorkspaceSnapshots()

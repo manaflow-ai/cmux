@@ -26,7 +26,14 @@ extension SidebarCompactStatusGlyph {
         var directory: String?
         /// `sidebar.compactStatusIcons`, already validated.
         var iconOverrides: [String: String] = [:]
+        /// Config profiles the workspace's agents launched under, e.g. "outlook".
+        var profiles: [String] = []
     }
+
+    private static let profileLabel = String(
+        localized: "sidebar.compactStatus.profile",
+        defaultValue: "Profile"
+    )
 
     static func resolve(_ input: Input) -> SidebarCompactStatusGlyph {
         let kind: Kind
@@ -67,6 +74,9 @@ extension SidebarCompactStatusGlyph {
         // name the state so the tooltip and VoiceOver label are never empty.
         if lines.isEmpty, let state = lifecycleText(input.lifecycleStates) {
             lines.append(state)
+        }
+        if !input.profiles.isEmpty {
+            lines.append(line(profileLabel, input.profiles.joined(separator: ", ")))
         }
         lines += input.pullRequests.map {
             line("\($0.label) #\($0.number)", pullRequestStatusText($0.status))
