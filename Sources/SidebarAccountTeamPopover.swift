@@ -119,13 +119,14 @@ struct SidebarFooterMenuButton: View {
         .buttonStyle(SidebarFooterIconButtonStyle())
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(SidebarFooterMenuAnchorView(anchor: menuAnchor))
-        .popover(isPresented: $isShortcutsPopoverPresented, arrowEdge: .top) {
-            AllShortcutsPopover()
-        }
         .safeHelp(buttonTitle)
         .accessibilityLabel(buttonTitle)
         .accessibilityValue(identity.map(chipName(for:)) ?? "")
         .accessibilityIdentifier("SidebarAccountMenuButton")
+        // Outermost, so the identifier above stays on the button itself.
+        .popover(isPresented: $isShortcutsPopoverPresented, arrowEdge: .top) {
+            AllShortcutsPopover()
+        }
     }
 
     @ViewBuilder

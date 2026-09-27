@@ -232,6 +232,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
         // while the account button flag is off).
         return [
             app.buttons["SidebarAccountMenuButton"],
+            app.buttons["Account"],
             app.buttons["Help"],
             sidebar.buttons["SidebarAccountMenuButton"],
             sidebar.buttons["Help"],
