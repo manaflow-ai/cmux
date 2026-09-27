@@ -67,12 +67,20 @@ enum UILab {
             data = rep.representation(using: .png, properties: [:])
         }
         let url = outputDirectory.appendingPathComponent(file)
+        guard let data else {
+            fail("could not encode \(url.path) as PNG")
+        }
         do {
-            try data?.write(to: url)
+            try data.write(to: url)
             print(url.path)
         } catch {
-            FileHandle.standardError.write("ui-lab: could not write \(url.path): \(error)\n".data(using: .utf8)!)
+            fail("could not write \(url.path): \(error)")
         }
+    }
+
+    private static func fail(_ message: String) -> Never {
+        FileHandle.standardError.write("ui-lab: \(message)\n".data(using: .utf8)!)
+        exit(1)
     }
 
     @MainActor
