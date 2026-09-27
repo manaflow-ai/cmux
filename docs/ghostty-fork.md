@@ -35,11 +35,11 @@ When we change the fork, update this document and the parent submodule SHA.
   deleted text by writing spaces.
 - Coverage: eleven `Screen: promptInput ...` Zig tests, run by
   `build-ghosttykit.yml` before packaging (`-Dtest-filter="promptInput"`).
-  Hosted run RUNURL passed 84 tests with this filter at `b93ab4222` (74 with
+  Hosted [run 36319683313](https://github.com/manaflow-ai/cmux/actions/runs/36319683313) passed 84 tests with this filter at `b93ab4222` (74 with
   the single-test pacer filter, so all eleven ran) and published GhosttyKit.
 - Artifact:
   https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b93ab422284ad3ae982bf7e2fc7651a55ddf1e4f-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-- SHA-256 `CHECKSUM`
+- SHA-256 `6aadd3e2ae583ef323212a95aeacd73eed1056d7dae51b0f76ade1c3dfaaaedb`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 - Conflict note: everything lives in new functions (`Screen.promptInput`,
   `Screen.promptInputSelection`, `Surface.promptInput`,
