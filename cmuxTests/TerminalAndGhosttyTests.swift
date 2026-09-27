@@ -3176,7 +3176,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         }
 
         let hostedView = terminalPanel.hostedView
-        defer { terminalPanel.surface.releaseHostedSurfaceForTesting() }
+        defer { manager.closeWorkspacesForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -3247,7 +3247,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         }
 
         let hostedView = terminalPanel.hostedView
-        defer { terminalPanel.surface.releaseHostedSurfaceForTesting() }
+        defer { manager.closeWorkspacesForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)

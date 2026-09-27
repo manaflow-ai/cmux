@@ -230,17 +230,11 @@ extension AppDelegate {
         guard let workspace = manager.selectedWorkspace else { return nil }
         let windowId = registerMainWindowContextForTesting(tabManager: manager)
         return (workspace.id, { [self] in
-            // The manager's own workspace hosts a terminal whose shell was
-            // spawned moments ago. Closing it through the product path hands
-            // the free to the teardown coordinator, where it waits out
-            // Ghostty's 12 s SIGHUP grace and runs into later tests; free it
-            // here instead.
-            for terminalPanel in manager.tabs.flatMap({ $0.panels.values.compactMap { $0 as? TerminalPanel } }) {
-                terminalPanel.surface.releaseHostedSurfaceForTesting()
-            }
             unregisterMainWindowContextForTesting(windowId: windowId)
             forgetRecoverableMainWindowRoute(windowId: windowId)
-            manager.finalizeAllWorkspacesForWindowClose()
+            // Kill the workspace terminals' shells first so their frees do
+            // not wait out Ghostty's 12 s SIGHUP grace into later tests.
+            manager.closeWorkspacesForTesting()
         })
     }
 }
