@@ -112,6 +112,11 @@ struct SidebarCompactStatusGlyph: Equatable {
         var lines = input.agentEntries.map {
             line(agentDisplayName(forStatusKey: $0.key), $0.value)
         }
+        // A lifecycle report can arrive before (or without) a status entry;
+        // name the state so the tooltip and VoiceOver label are never empty.
+        if lines.isEmpty, let state = lifecycleText(input.lifecycleStates) {
+            lines.append(state)
+        }
         if !input.profiles.isEmpty {
             lines.append(line(profileLabel, input.profiles.joined(separator: ", ")))
         }
@@ -126,6 +131,19 @@ struct SidebarCompactStatusGlyph: Equatable {
 
     private static func line(_ name: String, _ value: String) -> String {
         String(format: tooltipFormat, locale: .current, name, value)
+    }
+
+    private static func lifecycleText(_ states: [AgentHibernationLifecycleState]) -> String? {
+        if states.contains(.needsInput) {
+            return String(localized: "feed.status.needsInput", defaultValue: "Needs input")
+        }
+        if states.contains(.running) {
+            return String(localized: "agent.generic.status.running", defaultValue: "Running")
+        }
+        if states.contains(.idle) {
+            return String(localized: "agentSession.web.status.idle", defaultValue: "Idle")
+        }
+        return nil
     }
 
     private static func pullRequestStatusText(_ status: SidebarPullRequestStatus) -> String {

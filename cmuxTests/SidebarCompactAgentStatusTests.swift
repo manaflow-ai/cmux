@@ -123,6 +123,15 @@ struct SidebarCompactAgentStatusTests {
     }
 
     @Test
+    func lifecycleOnlyGlyphsStillNameTheirState() throws {
+        let attention = try #require(Glyph.resolve(.init(lifecycleStates: [.needsInput])))
+        let idle = try #require(Glyph.resolve(.init(lifecycleStates: [.idle], branch: "main")))
+
+        #expect(attention.tooltip == "Needs input")
+        #expect(idle.tooltip.split(separator: "\n").map(String.init) == ["Idle", "main"])
+    }
+
+    @Test
     func colorsFollowTheStateAndFlattenWhenSelected() throws {
         let selected = NSColor.white
         let secondary = NSColor.gray
