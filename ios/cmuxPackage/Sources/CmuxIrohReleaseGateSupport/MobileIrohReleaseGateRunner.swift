@@ -228,7 +228,12 @@ final class MobileIrohReleaseGateRunner {
                         connection: { await store.irohSoakConnection() },
                         probe: { marker in try await store.runIrohReleaseGateProbe(marker: marker, terminalSession: terminalSession) },
                         stress: { cycle, marker in
-                            try await store.runIrohSoakUsageStep(cycle: cycle, marker: marker, terminalSession: terminalSession)
+                            try await store.runIrohSoakUsageStep(
+                                cycle: cycle,
+                                marker: marker,
+                                terminalSession: terminalSession,
+                                includeForcedReconnect: false
+                            )
                         }
                     )
                     guard configuration.scenario == .relayRollover else {

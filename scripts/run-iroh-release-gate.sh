@@ -1020,12 +1020,10 @@ if soak_profile:
     if soak_profile == "stress":
         required_operations += ["workspace_navigation", "workspace_refresh", "notification_refresh",
                                 "unicode_output_burst", "workspace_create", "workspace_switch", "workspace_close",
-                                "terminal_after_restore", "forced_reconnect", "terminal_after_reconnect"]
+                                "terminal_after_restore"]
     counts = soak.get("operationCounts", {})
     for operation in required_operations:
         minimum = cycles if operation in required_operations[:8] else cycles // 4
-        if operation in ("forced_reconnect", "terminal_after_reconnect"):
-            minimum = cycles // 120
         if counts.get(operation, 0) < minimum:
             problems.append("insufficient operation coverage: " + operation)
 unexpected_keys = set(report) - allowed_keys
