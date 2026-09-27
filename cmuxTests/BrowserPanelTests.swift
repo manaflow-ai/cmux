@@ -3275,6 +3275,26 @@ final class WindowBrowserSlotViewTests: XCTestCase {
         advanceAnimations()
         XCTAssertEqual(slot.layer?.masksToBounds, true)
     }
+
+    func testRetargetingDropZoneOverlaySnapsFrame() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let slot = WindowBrowserSlotView(frame: container.bounds)
+        container.addSubview(slot)
+
+        slot.setDropZoneOverlay(zone: .right)
+        advanceAnimations()
+        slot.setDropZoneOverlay(zone: .left)
+
+        guard let overlay = container.subviews.first(where: {
+            String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
+        }) else {
+            XCTFail("Expected browser slot drop-zone overlay")
+            return
+        }
+
+        XCTAssertEqual(overlay.frame.origin.x, 4, accuracy: 0.5, "Retargeting should not slide the overlay")
+        XCTAssertEqual(overlay.frame.size.width, 96, accuracy: 0.5)
+    }
 }
 
 
