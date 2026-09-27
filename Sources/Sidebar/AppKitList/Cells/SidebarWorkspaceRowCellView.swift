@@ -210,9 +210,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             .withAlphaComponent((style.color == nil ? 0 : style.opacity) * ((style.color?.alphaComponent) ?? 1)).cgColor
     }
 
-    /// Paints the selection fill and edge for `model`. Split from applyModel
-    /// so window activation, Increase Contrast, and accent changes repaint
-    /// only this layer.
+    /// Paints the selection fill and edge for `model`.
     private func applySelectionChrome(_ model: SidebarWorkspaceRowModel) {
         let palette = palette(model)
         let settings = model.settings
@@ -243,6 +241,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         guard let model else { return }
         let painted = paintedModel(model)
         guard painted.isActive || painted.isMultiSelected else { return }
+        // Only the subtle left-rail treatment depends on window activation and
+        // Increase Contrast; the default solid fill never changes here.
+        let settings = painted.settings
+        guard settings.subtleSelection,
+              settings.activeTabIndicatorStyle != .solidFill,
+              settings.selectionColorHex.flatMap({ NSColor(hex: $0) }) == nil else { return }
         // Selection-derived foregrounds must resolve from the same window and
         // accessibility state as the fill. These notifications are rare, so
         // repaint the row from its existing model instead of leaving text
