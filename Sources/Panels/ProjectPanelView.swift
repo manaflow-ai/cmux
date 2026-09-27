@@ -44,13 +44,17 @@ struct ProjectPanelView: View {
                         .cmuxFont(size: 11, weight: .semibold)
                 }
                 .buttonStyle(.plain)
-                .help("Reload project")
+                .safeHelp(String(localized: "projectPanel.reload", defaultValue: "Reload Project"))
+                .accessibilityLabel(String(localized: "projectPanel.reload", defaultValue: "Reload Project"))
             }
             if let error = panel.lastLoadError, case .loaded = panel.loadState {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .cmuxFont(size: 10)
-                    Text("Reload returned errors: \(error)")
+                    Text(String(
+                        format: String(localized: "projectPanel.reloadErrors", defaultValue: "Reload returned errors: %@"),
+                        error
+                    ))
                         .cmuxFont(size: 10)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -62,6 +66,8 @@ struct ProjectPanelView: View {
                             .cmuxFont(size: 9)
                     }
                     .buttonStyle(.plain)
+                    .safeHelp(String(localized: "projectPanel.dismissReloadErrors", defaultValue: "Dismiss Errors"))
+                    .accessibilityLabel(String(localized: "projectPanel.dismissReloadErrors", defaultValue: "Dismiss Errors"))
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
@@ -105,7 +111,7 @@ struct ProjectPanelView: View {
         let schemes = allSchemes
         if !schemes.isEmpty {
             Picker(
-                "Scheme",
+                String(localized: "projectPanel.scheme", defaultValue: "Scheme"),
                 selection: Binding(
                     get: { panel.selectedSchemeName ?? schemes.first?.name ?? "" },
                     set: { panel.selectedSchemeName = $0 }
@@ -125,7 +131,7 @@ struct ProjectPanelView: View {
         let names = allConfigurationNames
         if !names.isEmpty {
             Picker(
-                "Configuration",
+                String(localized: "projectPanel.configuration", defaultValue: "Configuration"),
                 selection: Binding(
                     get: { panel.selectedConfigurationName ?? names.first ?? "" },
                     set: { panel.selectedConfigurationName = $0 }
@@ -172,9 +178,19 @@ struct ProjectPanelView: View {
     private var content: some View {
         switch panel.loadState {
         case .idle, .loading:
-            ProjectPanelStatusView(message: "Loading \(panel.displayTitle)")
+            ProjectPanelStatusView(
+                message: String(
+                    format: String(localized: "projectPanel.loadingFormat", defaultValue: "Loading %@"),
+                    panel.displayTitle
+                )
+            )
         case let .failed(reason):
-            ProjectPanelStatusView(message: "Failed: \(reason)")
+            ProjectPanelStatusView(
+                message: String(
+                    format: String(localized: "projectPanel.failedFormat", defaultValue: "Failed: %@"),
+                    reason
+                )
+            )
         case let .loaded(model):
             tabContent(for: model)
         }

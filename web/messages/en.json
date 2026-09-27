@@ -3324,7 +3324,7 @@
       "shadowConfig": "Shadow config",
       "shadowConfigDesc": "cmux omo uses a shadow config directory so your original OpenCode setup is unaffected:",
       "shadowStep1": "Copies your ~/.config/opencode/opencode.json with oh-my-opencode added to the plugin array",
-      "shadowStep2": "Symlinks node_modules, package.json, and bun.lock from the original directory",
+      "shadowStep2": "Links the other files in ~/.config/opencode that your opencode.json references, such as prompt files, and reuses your node_modules (agents, commands, and plugins already load from the original directory)",
       "shadowStep3": "Writes oh-my-opencode.json with tmux.enabled set to true",
       "shadowStep4": "Sets OPENCODE_CONFIG_DIR to the shadow directory before launching opencode",
       "envVars": "Environment variables",
