@@ -41,10 +41,10 @@ extension GhosttyNSView {
         }
         let shouldSend = TerminalAgentImagePasteRouting.shouldSendAgentPasteKey(
             isEnabled: isEnabled,
-            agentContext: {
-                WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
-            },
+            workspace: workspace,
+            panel: panel,
             pasteboardTypes: { NSPasteboard.general.types ?? [] },
+            foregroundProcessGroupID: { terminalSurface.foregroundProcessID() },
             resolveTarget: {
                 terminalSurface.resolvedImageTransferTarget(mode: .paste, in: workspace)
             }

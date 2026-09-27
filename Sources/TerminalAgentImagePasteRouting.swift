@@ -12,11 +12,17 @@ import UniformTypeIdentifiers
 ///
 /// - the setting is on;
 /// - an agent that reads clipboard images on Ctrl+V (Claude Code or Codex) is
-///   running in the pane right now, as reported by its agent hooks. Launch
-///   commands and restored snapshots alone don't count, because Ctrl+V sent
-///   to a shell after the agent exits would lose the image;
+///   running in the pane right now, as reported by its agent hooks after
+///   stale PIDs are pruned. Launch commands and restored snapshots alone don't
+///   count, because Ctrl+V sent to a shell after the agent exits would lose
+///   the image;
 /// - the clipboard holds image data and nothing the paste path would insert
 ///   instead: no text, rich text, URL or file reference;
+/// - that agent's process group is the terminal's foreground process group.
+///   A suspended agent (Ctrl+Z), or one running in another tmux window, is
+///   alive but isn't reading the keyboard, so the shell or tmux would get ^V.
+///   A child the agent runs in its own process group, such as its external
+///   editor, shares that group and still counts as the agent;
 /// - the pane is local. For `cmux ssh`, detected SSH and Cloud panes the agent
 ///   reads a different machine's clipboard, so the upload path stays.
 ///
@@ -30,14 +36,86 @@ enum TerminalAgentImagePasteRouting {
         isEnabled: Bool,
         agentContext: () -> String,
         pasteboardTypes: () -> [NSPasteboard.PasteboardType],
+        agentOwnsForeground: () -> Bool,
         resolveTarget: () -> TerminalImageTransferTarget
     ) -> Bool {
         guard isEnabled,
               agentReadsClipboardImageOnCtrlV(agentContext: agentContext()),
-              clipboardHoldsOnlyImageData(pasteboardTypes()) else {
+              clipboardHoldsOnlyImageData(pasteboardTypes()),
+              agentOwnsForeground() else {
             return false
         }
         return resolveTarget() == .local
+    }
+
+    /// The decision for `panel`, read from `workspace`'s hook-registered agent
+    /// PIDs. Stale PIDs, whose process exited without a hook, are pruned first,
+    /// as the TextBox submit-action cycle does. Nothing here runs when
+    /// `isEnabled` is false.
+    @MainActor
+    static func shouldSendAgentPasteKey(
+        isEnabled: Bool,
+        workspace: Workspace,
+        panel: TerminalPanel,
+        pasteboardTypes: () -> [NSPasteboard.PasteboardType],
+        foregroundProcessGroupID: () -> Int?,
+        processGroupID: (pid_t) -> pid_t = { getpgid($0) },
+        refreshPortsAfterPrune: Bool = true,
+        resolveTarget: () -> TerminalImageTransferTarget
+    ) -> Bool {
+        Self.shouldSendAgentPasteKey(
+            isEnabled: isEnabled,
+            agentContext: {
+                workspace.clearStaleAgentPIDs(panelId: panel.id, refreshPorts: refreshPortsAfterPrune)
+                return WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
+            },
+            pasteboardTypes: pasteboardTypes,
+            agentOwnsForeground: {
+                Self.agentOwnsForeground(
+                    recordedAgentPIDs: Self.clipboardImageAgentPIDs(
+                        panelAgentPIDKeys: workspace.agentPIDKeysByPanelId[panel.id] ?? [],
+                        agentPIDs: workspace.agentPIDs
+                    ),
+                    foregroundProcessGroupID: foregroundProcessGroupID(),
+                    processGroupID: processGroupID
+                )
+            },
+            resolveTarget: resolveTarget
+        )
+    }
+
+    /// The recorded PIDs of the pane's Claude Code and Codex processes, from
+    /// the workspace's hook-registered `agentPIDKeysByPanelId`/`agentPIDs`.
+    static func clipboardImageAgentPIDs(
+        panelAgentPIDKeys: Set<String>,
+        agentPIDs: [String: pid_t]
+    ) -> [pid_t] {
+        panelAgentPIDKeys.sorted().compactMap { key in
+            guard agentReadsClipboardImageOnCtrlV(agentContext: "agentPIDKey:\(key)") else {
+                return nil
+            }
+            return agentPIDs[key]
+        }
+    }
+
+    /// Whether one of `recordedAgentPIDs` belongs to the terminal's foreground
+    /// process group (`tcgetpgrp`, which is what Ghostty reports as the
+    /// surface's foreground PID). The agent may lead the group or run inside a
+    /// wrapper's group; both share the group ID the terminal reads keys for.
+    static func agentOwnsForeground(
+        recordedAgentPIDs: [pid_t],
+        foregroundProcessGroupID: Int?,
+        processGroupID: (pid_t) -> pid_t
+    ) -> Bool {
+        guard let foregroundProcessGroupID, foregroundProcessGroupID > 0 else {
+            return false
+        }
+        return recordedAgentPIDs.contains { pid in
+            guard pid > 0 else { return false }
+            if Int(pid) == foregroundProcessGroupID { return true }
+            let group = processGroupID(pid)
+            return group > 0 && Int(group) == foregroundProcessGroupID
+        }
     }
 
     /// Whether a live Claude Code or Codex process is attached to the pane,
