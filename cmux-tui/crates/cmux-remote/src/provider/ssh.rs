@@ -27,6 +27,9 @@ pub struct SshProviderConfig {
     pub remote_state_dir: Option<String>,
     pub extra_args: Vec<String>,
     pub maximum_frame_bytes: usize,
+    /// Coding-agent providers whose hooks `remote-link` installs on the host
+    /// before it attaches (`cmux-tui agent hook install <provider>...`).
+    pub agent_hooks: Vec<String>,
 }
 
 impl Default for SshProviderConfig {
@@ -38,6 +41,7 @@ impl Default for SshProviderConfig {
             remote_state_dir: None,
             extra_args: Vec::new(),
             maximum_frame_bytes: 65_535,
+            agent_hooks: Vec::new(),
         }
     }
 }
@@ -53,6 +57,9 @@ impl SshProvider {
         validate_remote_word(&config.remote_session)?;
         if let Some(state_dir) = &config.remote_state_dir {
             validate_remote_word(state_dir)?;
+        }
+        for provider in &config.agent_hooks {
+            validate_agent_hook_provider(provider)?;
         }
         Ok(Self { config })
     }
@@ -173,16 +180,7 @@ impl LinkGroup for SshLinkGroup {
             command.arg("-p").arg(port.to_string());
         }
         command.args(&self.config.extra_args);
-        command
-            .arg(&self.destination)
-            .arg(&self.config.remote_binary)
-            .arg("remote-link")
-            .arg("--stdio")
-            .arg("--session")
-            .arg(&self.config.remote_session);
-        if let Some(state_dir) = &self.config.remote_state_dir {
-            command.arg("--state-dir").arg(state_dir);
-        }
+        command.arg(&self.destination).args(remote_link_command(&self.config));
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -259,6 +257,37 @@ impl FrameLink for SshProcessLink {
     }
 }
 
+/// The remote command line for one link: `<binary> remote-link --stdio ...`.
+fn remote_link_command(config: &SshProviderConfig) -> Vec<String> {
+    let mut command = vec![
+        config.remote_binary.clone(),
+        "remote-link".into(),
+        "--stdio".into(),
+        "--session".into(),
+        config.remote_session.clone(),
+    ];
+    if let Some(state_dir) = &config.remote_state_dir {
+        command.extend(["--state-dir".into(), state_dir.clone()]);
+    }
+    if !config.agent_hooks.is_empty() {
+        command.extend(["--agent-hooks".into(), config.agent_hooks.join(",")]);
+    }
+    command
+}
+
+/// Provider ids travel inside the remote shell command, so they stay plain words.
+fn validate_agent_hook_provider(value: &str) -> Result<(), ProviderError> {
+    if value.is_empty()
+        || value.len() > 64
+        || !value.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    {
+        return Err(ProviderError::Configuration(
+            "agent hook provider must be a plain provider id".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_remote_word(value: &str) -> Result<(), ProviderError> {
     if value.is_empty()
         || !value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_./~:-".contains(&byte))
@@ -298,6 +327,49 @@ mod tests {
         link.close().await.unwrap();
 
         assert_eq!(std::fs::read_to_string(outcome).unwrap(), "graceful");
+    }
+
+    #[test]
+    fn remote_link_command_requests_agent_hooks_only_when_configured() {
+        let mut config = SshProviderConfig::default();
+        assert_eq!(
+            remote_link_command(&config),
+            ["~/.local/bin/cmux-tui", "remote-link", "--stdio", "--session", "main"]
+        );
+        config.remote_state_dir = Some("~/state".into());
+        config.agent_hooks = vec!["claude".into(), "codex".into()];
+        assert_eq!(
+            remote_link_command(&config),
+            [
+                "~/.local/bin/cmux-tui",
+                "remote-link",
+                "--stdio",
+                "--session",
+                "main",
+                "--state-dir",
+                "~/state",
+                "--agent-hooks",
+                "claude,codex",
+            ]
+        );
+    }
+
+    #[test]
+    fn agent_hook_providers_must_be_plain_words() {
+        for provider in ["claude", "codex", "hermes-agent"] {
+            let config = SshProviderConfig {
+                agent_hooks: vec![provider.into()],
+                ..SshProviderConfig::default()
+            };
+            assert!(SshProvider::new(config).is_ok(), "{provider}");
+        }
+        for provider in ["", "a,b", "claude;rm", "$(x)", "a b"] {
+            let config = SshProviderConfig {
+                agent_hooks: vec![provider.into()],
+                ..SshProviderConfig::default()
+            };
+            assert!(SshProvider::new(config).is_err(), "{provider:?}");
+        }
     }
 
     #[test]

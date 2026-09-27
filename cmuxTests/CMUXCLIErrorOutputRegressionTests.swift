@@ -366,6 +366,78 @@ import Testing
         #expect(directResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == directCommand)
     }
 
+    @Test func testSurfaceListJSONRedactsCustomCodexPathPerSurface() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-list-private-\(UUID().uuidString.prefix(8)).sock"
+        let routedRecord: [String: Any] = [
+            "kind": "codex",
+            "launch_command": [
+                "arguments": ["/private/custom/codex"],
+                "environment": [
+                    "SUBROUTER_CODEX_SERVER": "private-server",
+                    "CMUX_CUSTOM_CODEX_PATH": "/private/custom/codex",
+                ],
+            ],
+        ]
+        let ordinaryRecord: [String: Any] = [
+            "kind": "codex",
+            "launch_command": [
+                "arguments": ["/opt/ordinary/codex"],
+                "environment": [
+                    "CMUX_CUSTOM_CODEX_PATH": "/opt/ordinary/codex",
+                ],
+            ],
+        ]
+        let listResponse = try jsonResponse(result: [
+            "surfaces": [
+                [
+                    "id": UUID().uuidString.lowercased(),
+                    "ref": "surface:1",
+                    "type": "terminal",
+                    "restore_record": routedRecord,
+                ],
+                [
+                    "id": UUID().uuidString.lowercased(),
+                    "ref": "surface:2",
+                    "type": "terminal",
+                    "restore_record": ordinaryRecord,
+                ],
+            ],
+        ])
+        let responder = try UnixSocketResponder(path: socketPath, responses: [listResponse])
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["list-panels", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+        #expect(result.combinedOutput.contains("SUBROUTER_CODEX_") == false)
+        #expect(result.combinedOutput.contains("/private/custom/codex") == false)
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let surfaces = try #require(payload["surfaces"] as? [[String: Any]])
+        try #require(surfaces.count == 2)
+        let ordinary = surfaces[1]
+        let ordinaryLaunch = try #require(
+            (ordinary["restore_record"] as? [String: Any])?["launch_command"] as? [String: Any]
+        )
+        let ordinaryEnvironment = try #require(ordinaryLaunch["environment"] as? [String: Any])
+        #expect(ordinaryEnvironment["CMUX_CUSTOM_CODEX_PATH"] as? String == "/opt/ordinary/codex")
+        #expect(ordinaryLaunch["arguments"] as? [String] == ["/opt/ordinary/codex"])
+    }
+
     @Test func testIOSContextFromTerminalFallsBackToWorkspaceSimulator() throws {
         let cliPath = try bundledCLIPath()
         let workspaceID = UUID().uuidString.lowercased()
