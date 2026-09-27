@@ -1341,7 +1341,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_claude_hook_spool.py"
-lane = "macos-cli-no-socket"
+lane = "macos-cli-product"
 requirements = ["cmux-cli"]
 
 [[test]]

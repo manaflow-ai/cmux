@@ -869,6 +869,11 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     "scripts/ci/restore-app-host-test-product.sh",
     "scripts/ci/run-and-capture.sh",
     "scripts/ci/require_selected_test_execution.sh",
+    # The Python product lane consumes these alongside the host-free bundle.
+    "scripts/ci/run_python_test_lane.py",
+    "scripts/ci/test_execution_registry.py",
+    "tests/test_claude_hook_spool.py",
+    "tests/claude_teams_test_utils.py",
     # What restore-app-host-test-product.sh itself runs.
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/canonical-build-root.sh",
