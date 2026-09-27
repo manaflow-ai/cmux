@@ -127,6 +127,23 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(replay.replay.compactMap { CmuxEventBus.int64($0["seq"]) }, [1, 2, 3])
         XCTAssertEqual(CmuxEventBus.int64(replay.replay[2]["legacy_seq"]), 1)
         XCTAssertEqual(bus.latestSequence, 3)
+
+        let persistedSequences = try String(contentsOf: logURL, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line -> Int64? in
+                guard let data = String(line).data(using: .utf8),
+                      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    return nil
+                }
+                return CmuxEventBus.int64(object["seq"])
+            }
+        XCTAssertEqual(persistedSequences, [1, 2, 3])
+
+        let secondBus = CmuxEventBus(retainedEventLimit: 4, eventLogURL: logURL)
+        await secondBus.waitUntilRestored()
+        let secondReplay = secondBus.subscribe(afterSequence: 0, names: [], categories: [])
+        defer { secondBus.unsubscribe(secondReplay.subscription) }
+        XCTAssertEqual(secondReplay.replay.compactMap { CmuxEventBus.int64($0["seq"]) }, [1, 2, 3])
     }
 
     func testDurableReplayReportsUnreadableRecordsAsAGap() async throws {
@@ -184,6 +201,57 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertTrue(snapshot.subscription.isClosed)
         XCTAssertEqual(snapshot.subscription.closeReason, "pending event buffer exceeded 2 events")
         XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
+    }
+
+    func testRestoredReplayDoesNotUseLivePendingLimit() {
+        let subscription = CmuxEventSubscription(names: [], categories: [], maxPendingEvents: 1)
+        defer { subscription.close() }
+        let events = (1...3).map { sequence in
+            ["type": "event", "seq": sequence, "name": "event", "category": "test"] as [String: Any]
+        }
+
+        for event in events {
+            XCTAssertTrue(subscription.enqueueReplay(event))
+        }
+        XCTAssertFalse(subscription.isClosed)
+        let received = (1...3).compactMap { _ in
+            subscription.next(timeout: 0.05).flatMap { CmuxEventBus.int64($0["seq"]) }
+        }
+        XCTAssertEqual(received, [1, 2, 3])
+    }
+
+    func testUnreadableSegmentUsesPersistedSequenceHighWater() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-replay-high-water-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let older = [
+            "type": "event", "seq": 1, "id": "old-1",
+            "name": "old", "category": "test", "source": "test", "payload": [:]
+        ] as [String: Any]
+        let olderLine = try XCTUnwrap(CmuxEventBus.encodeLine(older))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try olderLine.appending("\n").write(
+            to: logURL.appendingPathExtension("1"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try Data(repeating: 0x78, count: 512).write(to: logURL)
+        try "100\n".write(
+            to: logURL.appendingPathExtension("seq"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let bus = CmuxEventBus(retainedEventLimit: 4, eventLogURL: logURL, maxEventLogBytes: 256)
+        await bus.waitUntilRestored()
+        bus.publish(name: "new", category: "test", source: "test")
+
+        XCTAssertEqual(bus.latestSequence, 101)
+        let snapshot = bus.subscribe(afterSequence: 100, names: [], categories: [])
+        defer { bus.unsubscribe(snapshot.subscription) }
+        XCTAssertEqual(snapshot.replay.compactMap { CmuxEventBus.int64($0["seq"]) }, [101])
     }
 
     func testEventEncodingIsSingleLineJSON() throws {

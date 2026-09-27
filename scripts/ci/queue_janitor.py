@@ -400,18 +400,20 @@ OWNED_MARKER = re.compile(r"macos-pool-persistent-(?P<run>[0-9]+)-(?P<attempt>[0
 
 
 def owned_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str, int, int] | None:
-    """(pool, peak jobs, placed jobs) from this attempt's owned-pool marker, or None.
+    """(pool, peak jobs, placed jobs) from the newest owned-pool marker up to this attempt, or None.
 
-    A marker without a placed count places as many jobs as its peak.
+    A re-run of failed jobs does not re-run the picker, so it holds the pool of the attempt that last
+    picked. A marker without a placed count places as many jobs as its peak.
     """
+    best: tuple[int, str, int, int] | None = None
     for name in names:
         match = OWNED_MARKER.fullmatch(str(name))
-        if (match and int(match["run"]) == run.get("id") and int(match["attempt"]) == (run.get("run_attempt") or 1)
-                and owned_pool(match["pool"])):
+        if (match and int(match["run"]) == run.get("id") and int(match["attempt"]) <= (run.get("run_attempt") or 1)
+                and owned_pool(match["pool"]) and (best is None or int(match["attempt"]) > best[0])):
             peak = min(int(match["jobs"]), MAX_RUN_JOBS)
             placed = min(int(match["placed"]), MAX_RUN_JOBS) if match["placed"] is not None else peak
-            return match["pool"], peak, placed
-    return None
+            best = int(match["attempt"]), match["pool"], peak, placed
+    return best[1:] if best else None
 
 
 def capability_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str, int] | None:
@@ -441,15 +443,20 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
     rescue's full re-run picks again and may take the light tier
     (pr_runner_pool.LIGHT_RETRY_ATTEMPT), publishing its own marker. A re-run
     of failed jobs publishes none, so with the variable off attempt 2 costs
-    no listing. Later attempts never hold one. Its other macOS jobs say nothing:
+    no listing. A pull request run's re-run someone other than
+    github-actions[bot] started follows a code failure and picks like attempt
+    1 (pr_runner_pool.host_fault_retry()), so any attempt of it can too; the
+    bot's later attempts never hold one. Its other macOS jobs say nothing:
     swift-package-tests usually runs on a Blacksmith pool beside a run on an
     owned one (only a run that builds no Release helper places it there).
     """
-    if (run.get("run_attempt") or 1) > (2 if light_retry else 1):
+    path = str(run.get("path") or "")
+    code_retry = (run.get("event") == "pull_request" and path.endswith("/ci.yml")
+                  and str((run.get("triggering_actor") or {}).get("login") or "") != "github-actions[bot]")
+    if (run.get("run_attempt") or 1) > (2 if light_retry else 1) and not code_retry:
         return False
     if (run.get("head_repository") or {}).get("id") != (run.get("repository") or {}).get("id"):
         return False
-    path = str(run.get("path") or "")
     if run.get("event") == "workflow_dispatch":
         return path.endswith(OWNED_DISPATCH_WORKFLOWS) or (
             path.endswith("/ci.yml") and run.get("head_branch") == "main")

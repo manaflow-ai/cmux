@@ -1405,6 +1405,10 @@ class SweepAPI:
     def marked_runs(self, name, count, oldest=None, pages=1, log=None):
         return [(run_id, START + dt.timedelta(seconds=self.created)) for run_id in self.marked[name]][:count * pages]
 
+    def person_reruns(self, count):
+        return [(run["id"], int(run["run_attempt"])) for run in self.runs.values()
+                if run.get("status") != "completed" and rescue.person_rerun(run)][:count]
+
     def run(self, run_id):
         self.reads.append(run_id)
         return self.runs[run_id]
@@ -1447,9 +1451,18 @@ class Sweeper(unittest.TestCase):
         # A run the picker marked is watched the ordinary way even when late placement moved jobs too.
         self.assertEqual(self.sweep(api)[0], [(1, 1, False), (2, 1, True)])
 
+    def test_watches_a_persons_re_run_on_any_attempt(self):
+        # A person's re-run of failed jobs goes back to the minis with no marker of its own.
+        person, bot = {"login": "teamleaderleo"}, {"login": rescue.RESCUE_ACTOR}
+        api = SweepAPI([listed(1, run_attempt=3, triggering_actor=person),
+                        listed(2, run_attempt=3, triggering_actor=bot),
+                        listed(3, run_attempt=2, triggering_actor=person, status="completed", conclusion="success")])
+        self.assertEqual(self.sweep(api, ticks=1)[0], [(1, 3, False)])
+
     def test_resumes_the_attempt_a_rescue_re_ran(self):
-        api = SweepAPI([listed(1, run_attempt=2), listed(2, run_attempt=3)], picker=[1, 2])
-        # Attempt 3 and later always take Blacksmith: nothing to watch.
+        api = SweepAPI([listed(1, run_attempt=2), listed(2, run_attempt=3, triggering_actor={"login": rescue.RESCUE_ACTOR})],
+                       picker=[1, 2])
+        # The bot's attempt 3 and later take Blacksmith: nothing to watch.
         self.assertEqual(self.sweep(api)[0], [(1, 2, False)])
 
     def test_a_finished_run_only_when_it_failed_since_the_last_sweeper(self):

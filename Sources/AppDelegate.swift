@@ -19268,7 +19268,9 @@ private extension AppDelegate {
             self.reloadGhosttyConfigurationForCmuxThemeSource(source)
         }
     }
+}
 
+extension AppDelegate {
     func reloadGhosttyConfigurationForCmuxThemeSource(_ source: String) {
         if GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(source: source) {
             cmuxThemePreviewReloadScheduler.schedule(

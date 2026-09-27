@@ -238,6 +238,11 @@ def have_commit(workspace: Path, sha: str) -> bool:
     return bool(sha) and git(workspace, "cat-file", "-e", f"{sha}^{{commit}}") is not None
 
 
+def have_tree(workspace: Path, sha: str) -> bool:
+    """SHA's commit and its root tree are in the checkout (a --filter=tree:0 history has the commit only)."""
+    return have_commit(workspace, sha) and git(workspace, "cat-file", "-e", f"{sha}^{{tree}}") is not None
+
+
 def ensure_commit(workspace: Path, sha: str) -> bool:
     """SHA's commit and trees in the checkout, fetched shallow (public, no credentials) when missing."""
     if not re.fullmatch(r"[0-9a-f]{40}", sha or ""):
@@ -726,7 +731,11 @@ def fetch_bases(workspace: Path, shas: Iterable[str]) -> dict[str, Any]:
     every mini then cost the unknown start, so distance routing never pinned. A second attempt takes
     what the first left missing. Returns what happened, for the decision record: the bases missing,
     the seconds, and the last failure's stderr tail."""
-    missing = sorted({sha for sha in shas if WARM_SHA.fullmatch(sha) and not have_commit(workspace, sha)})
+    # The tree, not only the commit: the changes job's delta_since_green.py fetches main's history with
+    # --filter=tree:0, so most kept bases were present as bare commits, never fetched, and their diffs
+    # failed (09-27 18Z: 13 of 15 bases uncomparable on #15003's run). --refetch makes the server send
+    # the trees of a commit the checkout already has.
+    missing = sorted({sha for sha in shas if WARM_SHA.fullmatch(sha) and not have_tree(workspace, sha)})
     report: dict[str, Any] = {"missing": len(missing), "attempts": 0}
     started = time.monotonic()
     env = {**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"}
@@ -741,7 +750,8 @@ def fetch_bases(workspace: Path, shas: Iterable[str]) -> dict[str, Any]:
         report["attempts"] += 1
         try:
             result = subprocess.run(["git", "-C", str(workspace), "fetch", "--quiet", "--no-tags",
-                                     "--no-write-fetch-head", "--depth=1", "--filter=blob:none", "origin", *missing],
+                                     "--no-write-fetch-head", "--refetch", "--depth=1", "--filter=blob:none",
+                                     "origin", *missing],
                                     capture_output=True, text=True, timeout=timeout, env=env)
             if result.returncode != 0:
                 report["error"] = f"exit {result.returncode}: {result.stderr.strip()[-300:]}"
@@ -751,7 +761,7 @@ def fetch_bases(workspace: Path, shas: Iterable[str]) -> dict[str, Any]:
             report["error"] = f"timed out after {timeout:.0f} s"
         except OSError as error:
             report["error"] = f"{type(error).__name__}: {error}"[:300]
-        missing = [sha for sha in missing if not have_commit(workspace, sha)]
+        missing = [sha for sha in missing if not have_tree(workspace, sha)]
     report["left"] = len(missing)
     report["seconds"] = round(time.monotonic() - started, 1)
     return report
