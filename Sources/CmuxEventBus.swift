@@ -191,6 +191,16 @@ final class CmuxEventBus: @unchecked Sendable {
                 maxPendingLines: maxPendingEventLogLines
             )
         }
+
+        if let eventLogURL {
+            let restored = Self.loadPersistedEvents(
+                eventLogURL: eventLogURL,
+                maxEventLogBytes: maxEventLogBytes,
+                retainedEventLimit: self.retainedEventLimit
+            )
+            self.retained = restored.events
+            self.nextSequence = restored.nextSequence
+        }
     }
 
     var latestSequence: Int64 {
@@ -380,6 +390,59 @@ final class CmuxEventBus: @unchecked Sendable {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("events.jsonl")
+    }
+
+    /// Restores the most recent event window from the append-only log.
+    ///
+    /// The original stream used a per-process sequence counter. When an old
+    /// segment starts again at one, rebase that segment onto the last restored
+    /// sequence so a cursor can continue across a restart. Keep the original
+    /// sequence for diagnostics without changing the event's stable id.
+    private static func loadPersistedEvents(
+        eventLogURL: URL,
+        maxEventLogBytes: UInt64,
+        retainedEventLimit: Int
+    ) -> (events: [[String: Any]], nextSequence: Int64) {
+        let rotatedURL = eventLogURL.appendingPathExtension("1")
+        var loaded: [[String: Any]] = []
+
+        for url in [rotatedURL, eventLogURL] {
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+                  let size = attributes[.size] as? NSNumber,
+                  size.uint64Value <= maxEventLogBytes,
+                  let data = try? Data(contentsOf: url),
+                  let text = String(data: data, encoding: .utf8) else {
+                continue
+            }
+
+            for line in text.split(whereSeparator: \.isNewline) {
+                guard let lineData = line.data(using: .utf8),
+                      let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                      object["type"] as? String == "event",
+                      int64(object["seq"]) != nil else {
+                    continue
+                }
+                loaded.append(object)
+            }
+        }
+
+        var highestSequence: Int64 = 0
+        for index in loaded.indices {
+            guard let originalSequence = int64(loaded[index]["seq"]) else { continue }
+            let normalizedSequence = originalSequence > highestSequence
+                ? originalSequence
+                : highestSequence + 1
+            if normalizedSequence != originalSequence {
+                loaded[index]["legacy_seq"] = NSNumber(value: originalSequence)
+                loaded[index]["seq"] = NSNumber(value: normalizedSequence)
+            }
+            highestSequence = normalizedSequence
+        }
+
+        return (
+            Array(loaded.suffix(max(1, retainedEventLimit))),
+            highestSequence + 1
+        )
     }
 
     static func encodeLine(_ object: [String: Any]) -> String? {
