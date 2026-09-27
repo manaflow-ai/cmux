@@ -7982,6 +7982,7 @@ struct ContentView: View {
             panelSubtitle: panelSubtitle
         )
         appendSavedLayoutCommandContributions(to: &contributions, workspaceSubtitle: workspaceSubtitle)
+        appendKeymapPresetCommandContributions(to: &contributions)
 
         contributions.append(
             CommandPaletteCommandContribution(
@@ -8923,6 +8924,7 @@ struct ContentView: View {
         registerCloudCommandHandlers(&registry)
         registerComputerUseCommandPaletteHandlers(&registry)
         registerSavedLayoutCommandHandlers(&registry)
+        registerKeymapPresetCommandHandlers(&registry)
         registry.register(commandId: "palette.showNotifications") {
             AppDelegate.shared?.toggleNotificationsPopover(animated: false)
         }
