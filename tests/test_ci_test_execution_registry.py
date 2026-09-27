@@ -352,6 +352,8 @@ while name.startswith("test_par") and time.monotonic() < deadline:
 with log.open("a") as stream:
     stream.write(f"end {name}\\n")
 print(f"output from {name}")
+if name.endswith("hang"):
+    time.sleep(60)
 sys.exit(3 if name.endswith("fail") else 0)
 """
 
@@ -415,6 +417,17 @@ class LaneRunnerTests(unittest.TestCase):
         self.assertEqual(sum(line.startswith("end") for line in log), 3, log)
         self.assertIn("FAILED: tests/test_par_fail.py (exit 3)", output)
         self.assertIn("FAILED: tests/test_par_other_fail.py (exit 3)", output)
+
+    def test_a_hung_test_is_killed_and_reported(self) -> None:
+        names = ["test_par_hang", "test_par_ok"]
+        registry = "version = 1\n" + "".join(self.entry(name, "lane-a") for name in names)
+        code, log, output = self.run_lane(
+            registry, names, "--lane", "lane-a", "--jobs", "2", "--timeout", "1", peers=2
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("killed after 1s timeout", output)
+        self.assertIn("FAILED: tests/test_par_hang.py (exit 124)", output)
+        self.assertIn("output from test_par_ok", output)
 
     def test_serial_parses_as_a_toml_boolean(self) -> None:
         entries = runner.load_registry.__globals__["parse_registry"](

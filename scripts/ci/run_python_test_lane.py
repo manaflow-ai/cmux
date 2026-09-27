@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -32,6 +33,10 @@ SUPPORTED_REQUIREMENTS = {"cmux-cli", "fish"}
 # Short on purpose: tests bind Unix sockets under TMPDIR, and macOS caps a
 # socket path at 104 bytes.
 TMP_BASE = "/tmp"
+# A hung test must fail on its own rather than hold every later test's
+# output until the job times out.
+DEFAULT_TIMEOUT_SECONDS = 900
+TIMEOUT_EXIT = 124
 
 
 @dataclass
@@ -65,25 +70,40 @@ def environment_for(entry: dict[str, object]) -> dict[str, str]:
     return env
 
 
-def run_one(path: str, env: dict[str, str], tmpdir: Path) -> Result:
+def run_one(path: str, env: dict[str, str], tmpdir: Path, timeout: float) -> Result:
     tmpdir.mkdir()
     env = {**env, "TMPDIR": f"{tmpdir}/"}
+    # Output goes to a file, not a pipe: a background process the test leaves
+    # behind cannot hold the runner open by keeping the pipe's write end.
+    log_path = tmpdir.with_suffix(".log")
     started = time.monotonic()
     try:
-        completed = subprocess.run(
-            [sys.executable, str(ROOT / path)],
-            cwd=ROOT,
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            errors="replace",
-            check=False,
-        )
+        with log_path.open("wb") as log:
+            process = subprocess.Popen(
+                [sys.executable, str(ROOT / path)],
+                cwd=ROOT,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            try:
+                returncode = process.wait(timeout=timeout)
+                note = ""
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait()
+                returncode = TIMEOUT_EXIT
+                note = f"\nrun_python_test_lane: killed after {timeout:.0f}s timeout\n"
+        output = log_path.read_text(encoding="utf-8", errors="replace") + note
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
-    return Result(path, completed.returncode, time.monotonic() - started, completed.stdout)
+        log_path.unlink(missing_ok=True)
+    return Result(path, returncode, time.monotonic() - started, output)
 
 
 def report(result: Result) -> None:
@@ -99,6 +119,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--lane", action="append", required=True, help="lane to run; repeat to run several together")
     parser.add_argument("--jobs", type=int, default=1, help="tests to run at once (serial entries always run alone)")
+    parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS, help="seconds before one test is killed")
     parser.add_argument("--list", action="store_true", help="print lane members without executing them")
     args = parser.parse_args(argv)
     if args.jobs < 1:
@@ -146,12 +167,12 @@ def main(argv: list[str]) -> int:
             return base / f"{index:03d}"
 
         for path, env, _ in serial:
-            result = run_one(path, env, slot())
+            result = run_one(path, env, slot(), args.timeout)
             report(result)
             results.append(result)
 
         with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-            futures = [pool.submit(run_one, path, env, slot()) for path, env, _ in concurrent]
+            futures = [pool.submit(run_one, path, env, slot(), args.timeout) for path, env, _ in concurrent]
             # Print in registry order so logs stay comparable between runs;
             # a slow early test only delays printing, not the others' work.
             for future in futures:
