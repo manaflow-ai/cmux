@@ -135,7 +135,6 @@ struct AgentIntegrationSettingsStoreTests {
     @Test func defaultsMatchLegacyRuntimeBehavior() {
         let store = AgentIntegrationSettingsStore(defaults: makeScratchDefaults())
         #expect(store.claudeCodeHooksEnabled == true)
-        #expect(store.piHooksEnabled == true)
         #expect(store.cursorHooksEnabled == true)
         #expect(store.geminiHooksEnabled == true)
         #expect(store.kiroHooksEnabled == true)
@@ -148,7 +147,6 @@ struct AgentIntegrationSettingsStoreTests {
     @Test func readsStoredOverridesUnderLegacyKeys() {
         let defaults = makeScratchDefaults()
         defaults.set(false, forKey: "claudeCodeHooksEnabled")
-        defaults.set(false, forKey: "piHooksEnabled")
         defaults.set(false, forKey: "cursorHooksEnabled")
         defaults.set(false, forKey: "geminiHooksEnabled")
         defaults.set(false, forKey: "kiroHooksEnabled")
@@ -156,7 +154,6 @@ struct AgentIntegrationSettingsStoreTests {
         defaults.set(false, forKey: "suppressSubagentNotifications")
         let store = AgentIntegrationSettingsStore(defaults: defaults)
         #expect(store.claudeCodeHooksEnabled == false)
-        #expect(store.piHooksEnabled == false)
         #expect(store.cursorHooksEnabled == false)
         #expect(store.geminiHooksEnabled == false)
         #expect(store.kiroHooksEnabled == false)
