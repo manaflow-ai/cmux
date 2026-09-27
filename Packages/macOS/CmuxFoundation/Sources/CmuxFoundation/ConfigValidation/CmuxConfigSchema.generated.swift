@@ -2032,6 +2032,7 @@ enum CmuxEmbeddedConfigSchema {
               "reopenClosedWorkspace",
               "reopenClosedBrowserPanel",
               "newSurface",
+              "toggleSurfacePip",
               "toggleTerminalCopyMode",
               "focusTextBoxInput",
               "cycleTextBoxSubmitAction",
