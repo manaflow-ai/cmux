@@ -14,14 +14,14 @@ import Foundation
 @MainActor
 final class SSHTuiAgentStatusProjector {
     private let catalog: SurfaceCatalog
-    private let workspaceLookup: (UUID) -> Workspace?
+    private let workspaceLookup: @MainActor (UUID) -> Workspace?
     private var observer: NSObjectProtocol?
     /// Lifecycle slots this projector set, per workspace and panel.
     private var appliedLifecycles: [UUID: [UUID: String]] = [:]
     /// Workspaces holding a status entry this projector wrote.
     private var workspacesWithStatus: Set<UUID> = []
 
-    init(catalog: SurfaceCatalog, workspaceLookup: @escaping (UUID) -> Workspace? = SSHTuiAgentStatusProjector.workspace(id:)) {
+    init(catalog: SurfaceCatalog, workspaceLookup: @escaping @MainActor (UUID) -> Workspace? = SSHTuiAgentStatusProjector.workspace(id:)) {
         self.catalog = catalog
         self.workspaceLookup = workspaceLookup
         observer = NotificationCenter.default.addObserver(
