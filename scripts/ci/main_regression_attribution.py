@@ -43,7 +43,7 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -461,7 +461,28 @@ def comment_plan(
             others = [other.number for other in suspects if other.number != pr.number]
             if others:
                 entry[3][test] = others
-    return list(by_pr.values())[:MAX_COMMENTED_PRS]
+    return list(by_pr.values())
+
+
+def untold(
+    plan: Iterable[tuple[PullRequest, list[str], dict[str, str], dict[str, list[int]]]],
+    told: Callable[[PullRequest, list[str]], bool],
+) -> list[tuple[PullRequest, list[str], dict[str, str], dict[str, list[int]]]]:
+    """The first MAX_COMMENTED_PRS planned comments whose pull request was not told yet.
+
+    The cap counts comments this report posts, so suspects told by an earlier report do
+    not use it up and crowd out one that has not heard.
+    """
+    chosen = []
+    for entry in plan:
+        if len(chosen) >= MAX_COMMENTED_PRS:
+            break
+        pr, tests = entry[0], entry[1]
+        if told(pr, tests):
+            print(f"#{pr.number} already told about these tests.")
+            continue
+        chosen.append(entry)
+    return chosen
 
 
 # ---- I/O ---------------------------------------------------------------------------------
@@ -693,10 +714,10 @@ def command_report(args: argparse.Namespace) -> int:
     if args.section_output:
         Path(args.section_output).write_text(section + "\n", encoding="utf-8")
 
-    for pr, tests, how, others in comment_plan(failures, attributions):
-        if already_told(pr_comment_bodies(args.repo, pr.number), pr.number, tests, commit_range(previous, run)):
-            print(f"#{pr.number} already told about these tests.")
-            continue
+    def told(pr: PullRequest, tests: list[str]) -> bool:
+        return already_told(pr_comment_bodies(args.repo, pr.number), pr.number, tests, commit_range(previous, run))
+
+    for pr, tests, how, others in untold(comment_plan(failures, attributions), told):
         body = pr_comment(
             repo=args.repo, pr=pr, tests=tests, how=how, run=run, previous=previous,
             failures=failures, others=others,

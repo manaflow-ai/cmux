@@ -785,8 +785,8 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          # The janitor reads the run's peak and pool from the name.
-          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.macos-pool.outputs.jobs }}-${{ steps.macos-pool.outputs.runner }}
+          # The janitor reads the run's peak, placed jobs and pool from the name.
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.macos-pool.outputs.jobs }}p${{ steps.macos-pool.outputs.placed }}-${{ steps.macos-pool.outputs.runner }}
           path: ${{ steps.macos-pool-marker.outputs.path }}
           if-no-files-found: error
           retention-days: 1
