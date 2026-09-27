@@ -2514,6 +2514,9 @@ class Wiring(unittest.TestCase):
         self.assertEqual(job["runs-on"], (
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && "
             "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || "
+            # The opt-in build-fleet gateway (hq#794), which builds no helper.
+            "vars.CI_SWIFT_PACKAGE_TESTS_VIA_STEP == '1' && github.event_name == 'pull_request' && "
+            "!(inputs.full_suite == 'true' && inputs.release_build == 'true') && 'glaeda-ci' || "
             f"{owned} || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || "
             "'blacksmith-6vcpu-macos-15') }}"))
         # The Xcode follows the same condition: the lane pin on the owned
