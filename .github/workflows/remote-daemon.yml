@@ -1,0 +1,137 @@
+name: SSH remote daemon
+
+on:
+  workflow_call:
+    inputs:
+      native_tests:
+        description: Exercise native Go behavior when daemon inputs changed
+        type: boolean
+        default: true
+      # The pool ci.yml's `changes` job chose for this pull request run with
+      # scripts/ci/pr_runner_pool.py. Empty, which is every other event and
+      # every caller that predates it, keeps the MACOS_RUNNER_PR route.
+      pr_runner:
+        required: false
+        default: ""
+        type: string
+      # Set only when pr_runner is persistent (an owned Mac pool): the
+      # Blacksmith pool on the same Xcode that a re-run of failed jobs takes,
+      # because such a re-run reuses attempt 1's pick (pr_runner_pool.py).
+      pr_retry_runner:
+        required: false
+        default: ""
+        type: string
+      # Set only when pr_runner is persistent: the owned label again, for
+      # attempt 2 of a job in pr_owned_jobs. ci-owned-pool-rescue.yml re-runs
+      # the failed jobs of a run whose owned job was refused, and that re-run
+      # reuses attempt 1's outputs, so it tries the fleet once more before
+      # Blacksmith. A full re-run (a stuck job) picks again and gets none.
+      pr_refused_retry_runner:
+        required: false
+        default: ""
+        type: string
+      # Set only when pr_runner is persistent: the jobs of attempt 1 that take
+      # it, as " <key> <key> ". Every other job takes pr_retry_runner, so a
+      # run can use the owned machines that are free and overflow the rest
+      # (pr_runner_pool.py, CI_PR_POOL_OWNED_SPLIT).
+      pr_owned_jobs:
+        required: false
+        default: ""
+        type: string
+      # Set only when pr_runner is persistent with a root count and machines
+      # beyond its root runners: the pool's side label
+      # (glaeda-side-<class>-xcode-<version>). The macOS tests take it in
+      # place of pr_runner, so they never hold a mini's root runner.
+      pr_side_runner:
+        required: false
+        default: ""
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - daemon/remote/**
+      - scripts/*remote_daemon*
+      - scripts/release_asset_guard*
+      - tests/*remote_daemon*
+      - .github/workflows/remote-daemon.yml
+      - .github/workflows/release.yml
+      - .github/workflows/nightly.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: remote-daemon-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  remote-daemon-admission:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Reject stale pull request rerun
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          current_head="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha' 2>/dev/null || true)"
+          # An API error (rate limit, outage) prints its body on stdout; only a SHA is a head.
+          [[ "$current_head" =~ ^[0-9a-f]{40}$ ]] || current_head=""
+          if [ -z "$RUN_HEAD_SHA" ] || [ -z "$current_head" ]; then
+            echo "Could not resolve run/PR head identity; continuing with normal CI."
+            exit 0
+          fi
+          if [ "$current_head" != "$RUN_HEAD_SHA" ]; then
+            echo "Refusing stale PR run: run head $RUN_HEAD_SHA; current head $current_head." >&2
+            exit 1
+          fi
+
+  remote-daemon-tests:
+    needs: remote-daemon-admission
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - name: Verify complete release assets
+        run: node scripts/release_asset_guard.test.js
+      - name: Reject broken app bundles and daemon artifacts
+        run: python3 tests/test_remote_daemon_release_verification.py
+      - name: Build and exercise stable and nightly daemon artifacts
+        run: python3 tests/test_remote_daemon_release_assets.py
+      - name: Test daemon behavior with the race detector
+        run: go -C daemon/remote test -race ./...
+
+  remote-daemon-macos-tests:
+    # Direct pushes/manual runs retain their full coverage; PR callers can
+    # request only Linux packaging validation for publishing-only changes.
+    if: ${{ github.event_name != 'pull_request' || inputs.native_tests }}
+    needs: remote-daemon-admission
+    # Plain `go test` with no Xcode or GUI: any Mac will do. Follow the same
+    # lanes as the other pull-request macOS jobs instead of pinning the
+    # contended macOS 26 pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && (github.run_attempt == 2 && contains(inputs.pr_owned_jobs, ' remote-daemon ') && (inputs.pr_side_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' remote-daemon ')) && inputs.pr_retry_runner || inputs.pr_side_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - name: Test native macOS daemon behavior
+        run: go -C daemon/remote test ./...
+      - name: Test native macOS daemon behavior with the race detector
+        run: go -C daemon/remote test -race ./...

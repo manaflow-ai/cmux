@@ -1,19 +1,25 @@
-// Shared route-token authentication for every coderouter data-plane surface
+// Shared credential authentication for every coderouter data-plane surface
 // (codex responses/models, opencode config/proxy, the Claude messages leg).
 //
-// A route token may be bound to one Cloud VM (`coderouter_route_tokens.vm_id`).
-// Such a token is only ever delivered by the Freestyle edge, which injects
-// both `x-coderouter-route-token` and `x-cmux-vm-id` into the guest's session
-// (the guest itself never holds the token). The database binding is the
-// authority: a bound token whose request carries a different or missing
-// `x-cmux-vm-id` is rejected, so a rule that was mis-provisioned for another
-// machine, or a guest that forges the header, cannot spend a token that is
-// not its own. Unbound tokens (the `cr` CLI) ignore the header.
-import { authenticateRouteToken } from "./repository";
+// VM credentials arrive only in x-cmux-authorization. Their verified claims
+// supply identity; the repository checks revocation and current ownership.
+// Unbound CLI sessions and user API keys keep their existing authentication.
+import {
+  authenticateApiKey,
+  authenticateRouteToken,
+  type RouteTokenPrincipal,
+} from "./repository";
+import {
+  VM_AUTHORIZATION_HEADER,
+  type VmAuthorizationClaims,
+  verifyVmAuthorization,
+} from "./vmAuthorization";
 import { recordCoderouterIdentity, recordCoderouterSpan } from "./requestTelemetry";
+import { CHATMUX_VM_AUTHORIZATION_HEADER, verifyChatmuxVmToken } from "./chatmuxVmToken";
 
 export const ROUTE_TOKEN_HEADER = "x-coderouter-route-token";
 export const VM_ID_HEADER = "x-cmux-vm-id";
+export { VM_AUTHORIZATION_HEADER };
 
 /**
  * The public, non-secret value a VM-wired harness sends as its API key. It
@@ -30,6 +36,11 @@ export type RouteTokenIdentity = {
   /** The Cloud VM this token is bound to, or null for an unbound (CLI) token. */
   readonly vmId: string | null;
   readonly token: string;
+  /** Opaque database id for a long-lived API key, or null for route tokens. */
+  readonly apiKeyId?: string | null;
+  readonly poolId?: string | null;
+  /** A chatmux machine: team-shared accounts only (accountAccess.ts). */
+  readonly machine?: "chatmux";
 };
 
 export type RouteTokenAuthFailure =
@@ -47,6 +58,9 @@ export type RouteTokenAuthResult =
  * `x-api-key` (Anthropic-style clients). A placeholder is never a credential.
  */
 export function routeTokenFromRequest(request: Request): string | null {
+  if (request.headers.has(VM_AUTHORIZATION_HEADER)) {
+    return /^Bearer[ \t]+([^\s,]+)$/i.exec(request.headers.get(VM_AUTHORIZATION_HEADER)?.trim() ?? "")?.[1] ?? null;
+  }
   const routed = request.headers.get(ROUTE_TOKEN_HEADER)?.trim();
   if (routed) return routed;
   const authorization = request.headers.get("authorization")?.trim() ?? "";
@@ -59,11 +73,17 @@ export function routeTokenFromRequest(request: Request): string | null {
 
 type Authenticate = (
   token: string,
-) => Promise<{ teamId: string; stackUserId: string; vmId?: string | null } | null>;
+) => Promise<{
+  readonly teamId: string;
+  readonly stackUserId: string;
+  readonly vmId?: string | null;
+  readonly apiKeyId?: string | null;
+  readonly poolId?: string | null;
+} | null>;
 
 export async function authenticateRequestRouteToken(
   request: Request,
-  authenticate: Authenticate = authenticateRouteToken,
+  authenticate: Authenticate = authenticateCoderouterCredential,
 ): Promise<RouteTokenAuthResult> {
   const startedAt = performance.now();
   const result = await authenticateUnobserved(request, authenticate);
@@ -71,27 +91,84 @@ export async function authenticateRequestRouteToken(
     name: "auth",
     startedAt,
     ...(result.ok ? {} : { error: result.reason }),
-    attributes: { outcome: result.ok ? "accepted" : result.reason },
+    attributes: {
+      outcome: result.ok ? "accepted" : result.reason,
+      ...(result.ok ? { auth_mode: result.identity.apiKeyId ? "api_key" : "route_token" } : {}),
+    },
   });
   if (result.ok) recordCoderouterIdentity(result.identity);
   return result;
+}
+
+/**
+ * A chatmux VM token (chatmuxVmToken.ts). When its header is present it is
+ * the only credential considered: no fallback to another header, no database
+ * lookup, and a bad token fails closed.
+ */
+async function authenticateChatmuxMachine(request: Request): Promise<RouteTokenAuthResult> {
+  const value = request.headers.get(CHATMUX_VM_AUTHORIZATION_HEADER)?.trim() ?? "";
+  const token = /^Bearer[ \t]+([^\s,]+)$/i.exec(value)?.[1];
+  const claims = token ? await verifyChatmuxVmToken(token) : null;
+  if (!token || !claims) return { ok: false, reason: "invalid_route_token" };
+  return {
+    ok: true,
+    identity: {
+      teamId: claims.team_id,
+      stackUserId: claims.owner_id,
+      vmId: `chatmux:${claims.sub.slice("vm:".length)}`,
+      token,
+      machine: "chatmux",
+    },
+  };
 }
 
 async function authenticateUnobserved(
   request: Request,
   authenticate: Authenticate,
 ): Promise<RouteTokenAuthResult> {
+  if (request.headers.has(CHATMUX_VM_AUTHORIZATION_HEADER)) return await authenticateChatmuxMachine(request);
+  const signedHeader = request.headers.has(VM_AUTHORIZATION_HEADER);
   const token = routeTokenFromRequest(request);
-  if (!token) return { ok: false, reason: "missing_route_token" };
+  if (!token) return { ok: false, reason: signedHeader ? "invalid_route_token" : "missing_route_token" };
+  const claims = signedHeader ? await verifyVmAuthorization(token) : null;
+  if (signedHeader && !claims) return { ok: false, reason: "invalid_route_token" };
   const identity = await authenticate(token);
   if (!identity) return { ok: false, reason: "invalid_route_token" };
-  const vmId = identity.vmId ?? null;
-  if (vmId !== null) {
-    const claimed = request.headers.get(VM_ID_HEADER)?.trim() ?? "";
-    if (claimed !== vmId) return { ok: false, reason: "vm_mismatch" };
-  }
+  if (!validVmBinding(request, identity, claims)) return { ok: false, reason: "vm_mismatch" };
+  const legacyVmId = identity.vmId ?? null;
+  const vmId = claims?.vm_id ?? legacyVmId;
   return {
     ok: true,
-    identity: { teamId: identity.teamId, stackUserId: identity.stackUserId, vmId, token },
+    identity: {
+      teamId: claims?.team_id ?? identity.teamId,
+      stackUserId: claims?.owner_id ?? identity.stackUserId,
+      vmId,
+      token,
+      ...(identity.poolId ? { poolId: identity.poolId } : {}),
+      ...(identity.apiKeyId ? { apiKeyId: identity.apiKeyId } : {}),
+    },
   };
+}
+
+/** Authenticate either a short-lived route token or a user API key. */
+export async function authenticateCoderouterCredential(
+  token: string,
+): Promise<RouteTokenPrincipal | null> {
+  if (token.startsWith("crk_")) return await authenticateApiKey(token);
+  return await authenticateRouteToken(token);
+}
+
+function matchesVmClaims(identity: Awaited<ReturnType<Authenticate>> & {}, claims: VmAuthorizationClaims): boolean {
+  return identity.vmId === claims.vm_id && identity.teamId === claims.team_id && identity.stackUserId === claims.owner_id;
+}
+
+function validVmBinding(
+  request: Request,
+  identity: Awaited<ReturnType<Authenticate>> & {},
+  claims: VmAuthorizationClaims | null,
+): boolean {
+  if (claims) return matchesVmClaims(identity, claims);
+  const vmId = identity.vmId ?? null;
+  if (vmId === null) return !request.headers.has(VM_ID_HEADER);
+  return request.headers.get(VM_ID_HEADER)?.trim() === vmId;
 }

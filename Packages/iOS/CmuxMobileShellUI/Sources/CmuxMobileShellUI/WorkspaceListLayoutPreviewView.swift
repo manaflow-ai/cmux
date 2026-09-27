@@ -7,8 +7,8 @@ import Observation
 import SwiftUI
 
 /// Owns the mutable rows and live-update stimulus for the DEBUG preview.
-@MainActor
 @Observable
+@MainActor
 private final class WorkspaceListLayoutPreviewModel {
     /// The continuous update feed's payload shape
     /// (`CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES`).
@@ -30,6 +30,23 @@ private final class WorkspaceListLayoutPreviewModel {
     var workspaces: [MobileWorkspacePreview]
     var groups: [MobileWorkspaceGroupPreview]
     private let liveUpdateMode: LiveUpdateMode
+    private let refreshGate = WorkspaceListPreviewRefreshGate()
+    var refreshIsWaiting = false
+
+    func waitForRefreshReleaseIfNeeded() async {
+        guard ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_HOLD_REFRESH"
+        ] == "1" else { return }
+        refreshIsWaiting = true
+        await refreshGate.wait()
+        refreshIsWaiting = false
+    }
+
+    func finishRefresh() {
+        refreshIsWaiting = false
+        let refreshGate = refreshGate
+        Task { await refreshGate.finish() }
+    }
 
     /// Creates a preview model with an optional continuous update feed.
     init(
@@ -146,7 +163,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         _filterState = State(
             initialValue: WorkspaceListFilterState(filter: initialFilter)
         )
-        let seedCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT"].flatMap(Int.init) ?? 0
+        let seedCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT"].flatMap(Int.init)
         let reorderEnabled = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER"] == "1"
         let usesMixedGroupFixture = environment[
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_MIXED_GROUPS"
@@ -155,7 +172,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         let initialGroups: [MobileWorkspaceGroupPreview]
         if usesMixedGroupFixture {
             (initialWorkspaces, initialGroups) = Self.mixedGroupFixture()
-        } else if seedCount > 0 {
+        } else if let seedCount, seedCount >= 0 {
             let groupCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS"].flatMap(Int.init) ?? 0
             (initialWorkspaces, initialGroups) = Self.seeded(
                 count: seedCount,
@@ -659,10 +676,13 @@ public struct WorkspaceListLayoutPreviewView: View {
             createWorkspaceGroup: reorderEnabled ? {} : nil,
             macSelection: $macSelection,
             refresh: {
+                await model.waitForRefreshReleaseIfNeeded()
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     performPreviewRefresh()
                 }
             },
+            isRecoveringWorkspaceList: model.refreshIsWaiting,
             renameWorkspace: reorderEnabled ? { id, newName in
                 if let index = model.workspaces.firstIndex(where: { $0.id == id }) {
                     model.workspaces[index].name = newName
@@ -744,7 +764,9 @@ public struct WorkspaceListLayoutPreviewView: View {
 
     public var body: some View {
         Group {
-            if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
+            if UITestConfig.workspaceDetailDisconnectedPreviewEnabled {
+                WorkspaceDetailDisconnectedPreviewView()
+            } else if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
                 WorkspaceDetailCreateDelayedTerminalPreviewView()
             } else if UITestConfig.workspaceDetailRefreshingTerminalMenuPreviewEnabled {
                 WorkspaceDetailDelayedTerminalPreviewView()
@@ -830,6 +852,18 @@ public struct WorkspaceListLayoutPreviewView: View {
         }
         .overlay(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
+                if model.refreshIsWaiting {
+                    Button {
+                        model.finishRefresh()
+                    } label: {
+                        Rectangle()
+                            .fill(Color.primary.opacity(0.01))
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .offset(x: 60)
+                    .accessibilityIdentifier("MobileWorkspaceListPreviewFinishRefresh")
+                }
                 Color.clear
                     .frame(width: 1, height: 1)
                     .offset(x: 2)
@@ -897,7 +931,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                 .foregroundStyle(.secondary)
         }
         .accessibilityIdentifier("FixtureWorkspaceDetail")
-        .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
+        .mobileToolbarVisibility(.hidden, for: .tabBar, .bottomBar)
     }
 }
 

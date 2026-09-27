@@ -2,6 +2,12 @@ name: Build GhosttyKit
 
 on:
   workflow_dispatch:
+    inputs:
+      verify_build:
+        description: "Build and package even when the release already exists (never re-uploads)"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -9,8 +15,11 @@ concurrency:
 
 jobs:
   build-ghosttykit:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: 35
+    # Background lane: dispatch-only and off the PR critical path, so it runs
+    # on free GitHub-hosted capacity instead of the shared paid macOS pool.
+    # See docs/ci-runners.md "Background lane".
+    runs-on: ${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
+    timeout-minutes: 60
     env:
       GHOSTTYKIT_CRASH_REPORT_SUBDIR: cmux/crash
       GHOSTTYKIT_BUILD_FLAVOR: crashsubdir-cmux-crash-sentry-off-noi18n-v2
@@ -98,8 +107,30 @@ jobs:
             -Dsentry=false \
             -Dtest-filter="open stderr reader exits"
 
+      - name: Test Ghostty CJK fallback sizing
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="ideograph fallback sizing fills two primary cells" \
+            --summary all
+
+      - name: Test Ghostty unfocused render pacing
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="unfocused render pacer spaces unfocused frames" \
+            --summary all
+
       - name: Build GhosttyKit.xcframework
-        if: steps.check-release.outputs.exists == 'false'
+        if: steps.check-release.outputs.exists == 'false' || inputs.verify_build
         run: |
           set -euo pipefail
           # -Di18n=false matches scripts/ensure-ghosttykit.sh: compiling the
@@ -108,7 +139,7 @@ jobs:
           cd ghostty && zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Dsentry=false -Di18n=false -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
 
       - name: Package xcframework
-        if: steps.check-release.outputs.exists == 'false'
+        if: steps.check-release.outputs.exists == 'false' || inputs.verify_build
         run: |
           set -euo pipefail
           rm -rf GhosttyKit.xcframework

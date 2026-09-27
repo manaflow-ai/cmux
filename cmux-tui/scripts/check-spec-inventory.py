@@ -808,6 +808,10 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
         "classification": "direct",
         "route": "browser-activate",
     },
+    "MoveTabToWorkspace": {
+        "classification": "direct",
+        "route": "move-tab-to-workspace",
+    },
     "RenameSurface": {
         "classification": "composite",
         "route": "frontend prompt + rename-surface",

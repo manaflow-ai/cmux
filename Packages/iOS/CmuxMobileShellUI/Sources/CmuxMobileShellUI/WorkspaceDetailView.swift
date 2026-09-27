@@ -18,6 +18,9 @@ import AppKit
 #endif
 
 struct WorkspaceDetailView: View {
+    #if os(iOS) && DEBUG
+    @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    #endif
     /// A connected session may still have stale output. Offer manual repair
     /// unless an active reconnect or reauthentication already owns recovery.
     static func canReconnectFromTitleMenu(
@@ -231,10 +234,7 @@ struct WorkspaceDetailView: View {
             // area, with the same theme as the terminal surface below it. A
             // plain view background only covers the content bounds, leaving
             // the split view's top safe area on the default system color.
-            .containerBackground(
-                store.activeTerminalTheme.terminalBackgroundColor,
-                for: .navigation
-            )
+            .mobileNavigationContainerBackground(store.activeTerminalTheme.terminalBackgroundColor)
             // The browser and chat surfaces scroll; without this the system
             // minimizes the whole bar into a floating "…" pill, unlike the
             // terminal surface, which has no system scroll view.
@@ -269,7 +269,12 @@ struct WorkspaceDetailView: View {
             .onChange(of: altScreenNoticeIsVisible) { _, isVisible in
                 if !isVisible { trailingToolbarItemWidths["altscreen-notice"] = nil }
             }
-            .onAppear { refreshWorkspaceChangesHint() }
+            .onAppear {
+                #if os(iOS) && DEBUG
+                releaseGateUIProbe?.record(.workspaceDetailVisible)
+                #endif
+                refreshWorkspaceChangesHint()
+            }
             .onChange(of: workspaceChangesHintEligibilityKey) { _, _ in
                 refreshWorkspaceChangesHint()
             }

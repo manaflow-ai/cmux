@@ -1,12 +1,14 @@
+import CmuxCloud
 import CmuxCore
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
     /// Builds the one canonical group for a daemon workspace. A resource is
     /// repeated once for every tab placement, so opening a workspace cannot
     /// collapse two tabs that point at the same terminal. Order matches the
-    /// Cloud sidebar: panes in layout order, the shown tab before that pane's
-    /// hidden tabs, then pane-less resources in kind order.
+    /// Cloud sidebar: panes in layout order, tabs in their stable pane order,
+    /// then pane-less resources in kind order.
     func remoteWorkspaceGroup(
         machine: SurfaceMachineID,
         workspaceID: String
@@ -55,11 +57,11 @@ extension SurfaceCatalog {
             }
         }
 
-        for member in SurfaceProjection.localDisplayMembers(resources: resources, projections: machineSnapshot.projections)
+        for member in SurfaceProjection.localWorkspaceMembers(resources: resources, projections: machineSnapshot.projections)
             where member.workspaceID == workspaceID {
             candidates.append(Candidate(
                 placement: SurfaceResourcePlacement(resource: member.resource.id, remoteWorkspaceID: workspaceID),
-                layout: RemoteWorkspacePlacement(kindOrder: 2)
+                layout: RemoteWorkspacePlacement(kindOrder: member.resource.kind == .browser ? 1 : 2)
             ))
         }
 
@@ -74,13 +76,12 @@ extension SurfaceCatalog {
             )
         }
         let layout = RemoteWorkspaceLayout(placements: candidates.map(\.layout))
-        let placements = layout.rows.flatMap { row in
-            [candidates[row.shownIndex].placement] + row.hiddenIndices.map { candidates[$0].placement }
-        }
+        let placements = layout.flatPlacementIndices.map { candidates[$0].placement }
         return SurfaceResourceGroup(
             title: workspace.name,
             placements: placements,
-            remoteWorkspaceID: workspaceID
+            remoteWorkspaceID: workspaceID,
+            representsWorkspace: true
         )
     }
 }

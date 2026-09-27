@@ -1,18 +1,34 @@
 #!/usr/bin/env bash
-# Select the newest Xcode for CI compile/test gates.
+# Select the Xcode for a CI compile/test gate and export DEVELOPER_DIR.
 #
-# The runner images ship multiple Xcodes (16.x with the macOS 15 SDK / Swift 6.1
-# and 26.x with the macOS 26 SDK / Swift 6.3), but `/Applications/Xcode.app` is
-# symlinked to an old 16.x. The previous "prefer /Applications/Xcode.app" logic
-# therefore pinned the test/compile gate to Swift 6.1, while nightly and release
-# already build on 26.x (see select-nightly-xcodes.sh). That divergence let code
-# that compiles locally (6.3) and ships (6.3) fail only on the 6.1 test gate
-# (e.g. `isolated deinit`, region-based isolation differences).
+# Resolution, in order:
+#   1. An explicit pin: CMUX_CI_DEVELOPER_DIR, else CMUX_CI_XCODE_APP. A pinned
+#      path that is not installed fails; it never falls back.
+#   2. The pool pin: the Xcode version scripts/ci/xcode-pins.txt names for this
+#      runner's macOS major. A job that sets no pin therefore gets the same Xcode
+#      as every other job on its pool, never the image's /Applications/Xcode.app
+#      default (16.4 on GitHub's macos-15 image).
+#   3. A scan for the newest stable Xcode, only with
+#      CMUX_CI_XCODE_ALLOW_BELOW_FLOOR=1. The SDK 15 Ghostty CLI helper in
+#      ci-macos.yml's swift-package-tests is the one caller; it needs an Xcode
+#      below the floor and is not a Swift build.
+#      A fork running CI in its own repository (GITHUB_REPOSITORY_OWNER is not
+#      manaflow-ai) also scans, with a warning, when its hosted image lacks the
+#      pool pin: a newer image Xcode costs a fork cache misses, never a failed
+#      job (docs/ci-runners.md, fork contract). The floor still applies.
 #
-# Pick the highest macOS SDK Xcode so the test gate matches what ships. Fall back
-# to the newest available if no 26+ is installed, so this never hard-fails a
-# runner that lacks the newer Xcode. Exports DEVELOPER_DIR to GITHUB_ENV.
+# Whatever is selected must be at least the Xcode major in .xcode-version, or
+# the script stops with one ::error:: naming the found and required versions
+# (CMUX_CI_XCODE_ALLOW_BELOW_FLOOR=1 lifts this too). Without the floor, a job
+# on the wrong image compiles with the old Swift and reports hundreds of
+# unrelated compile errors instead.
 set -euo pipefail
+
+SELECT_XCODE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SELECT_XCODE_REPO_ROOT="$(dirname "$SELECT_XCODE_SCRIPT_DIR")"
+XCODE_VERSION_FILE="${CMUX_XCODE_VERSION_FILE:-$SELECT_XCODE_REPO_ROOT/.xcode-version}"
+XCODE_PINS_FILE="${CMUX_CI_XCODE_PINS_FILE:-$SELECT_XCODE_REPO_ROOT/scripts/ci/xcode-pins.txt}"
+ALLOW_BELOW_FLOOR="${CMUX_CI_XCODE_ALLOW_BELOW_FLOOR:-0}"
 
 APPLICATIONS_DIR="${CMUX_XCODE_APPLICATIONS_DIR:-/Applications}"
 REQUIRED_SDK_MAJOR="${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:-}"
@@ -30,6 +46,94 @@ sdk_major() {
   maj="${v%%.*}"
   case "$maj" in ''|*[!0-9]*) return 1 ;; esac
   printf '%s' "$maj"
+}
+
+# Prints the Xcode version (e.g. 26.3) of a developer dir, or nothing.
+xcode_version_of() {
+  local line
+  line="$(DEVELOPER_DIR="$1" xcodebuild -version 2>/dev/null | head -n 1 || true)"
+  case "$line" in
+    "Xcode "*) printf '%s' "${line#Xcode }" ;;
+  esac
+}
+
+required_xcode_major() {
+  local version major
+  if [ ! -f "$XCODE_VERSION_FILE" ]; then
+    echo "::error::Cannot read the required Xcode version: $XCODE_VERSION_FILE is missing" >&2
+    exit 1
+  fi
+  version="$(tr -d '[:space:]' < "$XCODE_VERSION_FILE")"
+  major="${version%%.*}"
+  case "$major" in ''|*[!0-9]*)
+    echo "::error::.xcode-version must start with a numeric Xcode major, got: $version" >&2
+    exit 1
+    ;;
+  esac
+  printf '%s' "$major"
+}
+
+# Stops unless the selected Xcode is at least the .xcode-version major.
+check_xcode_floor() {
+  local selected_dir="$1" found found_major required
+  [ "$ALLOW_BELOW_FLOOR" = "1" ] && return 0
+  required="$(required_xcode_major)"
+  found="$(xcode_version_of "$selected_dir")"
+  found_major="${found%%.*}"
+  case "$found_major" in ''|*[!0-9]*)
+    echo "::error::Could not read the Xcode version of $selected_dir (xcodebuild -version); cmux requires Xcode $required (.xcode-version)" >&2
+    exit 1
+    ;;
+  esac
+  if [ "$found_major" -lt "$required" ]; then
+    echo "::error::Found Xcode $found at $selected_dir; cmux requires Xcode $required (.xcode-version). This runner's image does not carry the Xcode pinned for its pool in scripts/ci/xcode-pins.txt." >&2
+    exit 1
+  fi
+}
+
+runner_macos_major() {
+  local version
+  version="$(sw_vers -productVersion 2>/dev/null || true)"
+  version="${version%%.*}"
+  case "$version" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s' "$version"
+}
+
+# Prints the Xcode version pinned for a macOS major, or nothing.
+pool_pin_for() {
+  [ -f "$XCODE_PINS_FILE" ] || return 0
+  awk -v major="$1" '$1 !~ /^#/ && NF >= 2 && $1 == major { print $2; exit }' "$XCODE_PINS_FILE"
+}
+
+# Prints the developer dir of an installed Xcode whose version is exactly $1.
+# Xcode_<version>.app is tried first; other names (a fleet Mac's Xcode.app, a
+# point-release suffix) match by what xcodebuild reports, not by path.
+find_xcode_version() {
+  local want="$1" app dev
+  while IFS= read -r app; do
+    [ -n "$app" ] || continue
+    dev="$app/Contents/Developer"
+    [ -d "$dev" ] || continue
+    if [ "$(xcode_version_of "$dev")" = "$want" ]; then
+      printf '%s' "$dev"
+      return 0
+    fi
+  done < <(
+    [ -d "$APPLICATIONS_DIR/Xcode_$want.app" ] && printf '%s\n' "$APPLICATIONS_DIR/Xcode_$want.app"
+    find "$APPLICATIONS_DIR" -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null | sort
+  )
+  return 1
+}
+
+installed_xcodes() {
+  local app dev listed=""
+  while IFS= read -r app; do
+    [ -n "$app" ] || continue
+    dev="$app/Contents/Developer"
+    [ -d "$dev" ] || continue
+    listed="$listed $(basename "$app")=$(xcode_version_of "$dev")"
+  done < <(find "$APPLICATIONS_DIR" -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null | sort)
+  printf '%s' "${listed# }"
 }
 
 validate_sdk_constraints() {
@@ -59,6 +163,7 @@ validate_sdk_constraints() {
 select_developer_dir() {
   local selected_dir="$1" sdk_version="$2" label="$3"
 
+  check_xcode_floor "$selected_dir"
   validate_sdk_constraints "$selected_dir" "$sdk_version"
   echo "$label (DEVELOPER_DIR): $selected_dir (macOS SDK $sdk_version)"
   if [ -n "${GITHUB_ENV:-}" ]; then
@@ -66,17 +171,12 @@ select_developer_dir() {
   fi
   export DEVELOPER_DIR="$selected_dir"
 
-  # Also point the *system* xcode-select default at the selected toolchain. Tools
-  # that ignore DEVELOPER_DIR resolve `xcodebuild` via the xcode-select default,
-  # notably Apple's `/usr/bin/git` shim (`xcodebuild -find git`). The xctest host
-  # spawns git subprocesses that do NOT inherit our DEVELOPER_DIR, so on runner VMs
-  # whose default is the old Xcode symlink, `git` runs the old `xcodebuild`, which
-  # dlopen()s a libxcodebuildLoader ABI-incompatible with the newer-Xcode-built test
-  # host and crashes ("Symbol not found"), failing git-shell-out tests
-  # (e.g. ExtensionWorktreePrototypeTests) before they can assert - nondeterministic
-  # per which VM a shard lands on. Aligning the default removes that divergence.
-  # Best-effort: never hard-fail a runner that disallows the switch.
-  if xcode-select -s "$selected_dir" 2>/dev/null; then
+  # Ordinary CI also aligns the system xcode-select default because some app-host
+  # subprocesses ignore DEVELOPER_DIR. Shared-machine semantic workloads must not
+  # mutate that host-global selector, so their reviewed environment sets the skip.
+  if [[ "${CMUX_CI_SKIP_XCODE_SELECT:-0}" == "1" ]]; then
+    echo "Skipping host-global xcode-select update; DEVELOPER_DIR is pinned for this workload"
+  elif xcode-select -s "$selected_dir" 2>/dev/null; then
     echo "xcode-select default -> $selected_dir"
   elif command -v sudo >/dev/null 2>&1 && sudo -n xcode-select -s "$selected_dir" 2>/dev/null; then
     echo "xcode-select default (via sudo) -> $selected_dir"
@@ -108,6 +208,54 @@ if [ -n "$PINNED_DEVELOPER_DIR" ]; then
     exit 1
   fi
   select_developer_dir "$PINNED_DEVELOPER_DIR" "$PINNED_SDK_VER" "Selected pinned Xcode"
+  if [ "$ALLOW_BELOW_FLOOR" != "1" ] && POOL_MAJOR="$(runner_macos_major)"; then
+    POOL_VERSION="$(pool_pin_for "$POOL_MAJOR")"
+    PINNED_VERSION="$(xcode_version_of "$PINNED_DEVELOPER_DIR")"
+    if [ -n "$POOL_VERSION" ] && [ "$PINNED_VERSION" != "$POOL_VERSION" ]; then
+      echo "::warning::This job pins Xcode $PINNED_VERSION, but scripts/ci/xcode-pins.txt pins Xcode $POOL_VERSION for macOS $POOL_MAJOR runners. Jobs on one pool with different Xcodes cannot share compilation caches or products."
+    fi
+  fi
+  exit 0
+fi
+
+# A fork's own CI runs on GitHub-hosted images whose Xcodes move without
+# notice. It keeps working on the newest stable Xcode instead of failing.
+runs_in_fork_repository() {
+  [ -n "${GITHUB_REPOSITORY_OWNER:-}" ] && [ "$GITHUB_REPOSITORY_OWNER" != "manaflow-ai" ]
+}
+
+POOL_DEVELOPER_DIR=""
+if [ "$ALLOW_BELOW_FLOOR" != "1" ]; then
+  if ! POOL_MAJOR="$(runner_macos_major)"; then
+    echo "::error::Could not read this runner's macOS version (sw_vers), so no Xcode can be chosen from scripts/ci/xcode-pins.txt" >&2
+    exit 1
+  fi
+  POOL_VERSION="$(pool_pin_for "$POOL_MAJOR")"
+  if [ -z "$POOL_VERSION" ]; then
+    if runs_in_fork_repository; then
+      echo "::warning::No Xcode is pinned for macOS $POOL_MAJOR runners in scripts/ci/xcode-pins.txt; this fork uses the newest stable Xcode on its image instead."
+    else
+      echo "::error::No Xcode is pinned for macOS $POOL_MAJOR runners. Add a line to scripts/ci/xcode-pins.txt, or pin CMUX_CI_XCODE_APP for this job." >&2
+      exit 1
+    fi
+  elif ! POOL_DEVELOPER_DIR="$(find_xcode_version "$POOL_VERSION")"; then
+    POOL_DEVELOPER_DIR=""
+    if runs_in_fork_repository; then
+      echo "::warning::This macOS $POOL_MAJOR runner has no Xcode $POOL_VERSION, the version scripts/ci/xcode-pins.txt pins for its pool; this fork uses the newest stable Xcode on its image instead, so it cannot reuse main's compilation caches. Installed: $(installed_xcodes)"
+    else
+      echo "::error::This macOS $POOL_MAJOR runner has no Xcode $POOL_VERSION, the version scripts/ci/xcode-pins.txt pins for its pool. Installed: $(installed_xcodes)" >&2
+      exit 1
+    fi
+  fi
+fi
+
+if [ "$ALLOW_BELOW_FLOOR" != "1" ] && [ -n "$POOL_DEVELOPER_DIR" ]; then
+  POOL_SDK_VER="$(DEVELOPER_DIR="$POOL_DEVELOPER_DIR" xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
+  if [ -z "$POOL_SDK_VER" ]; then
+    echo "::error::Pool Xcode developer dir has no usable macOS SDK: $POOL_DEVELOPER_DIR" >&2
+    exit 1
+  fi
+  select_developer_dir "$POOL_DEVELOPER_DIR" "$POOL_SDK_VER" "Selected Xcode $POOL_VERSION pinned for macOS $POOL_MAJOR runners"
   exit 0
 fi
 

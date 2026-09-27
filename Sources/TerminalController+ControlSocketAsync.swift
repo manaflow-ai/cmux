@@ -132,7 +132,6 @@ extension TerminalController {
                 }
             }
         }
-
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
         guard let commandToken = parts.first else {
             return await v2MainAsync {
@@ -153,10 +152,16 @@ extension TerminalController {
                 // The existing worker implementation is already nonisolated
                 // for telemetry/diagnostic/remote work. It remains serial
                 // within this connection task, preserving v1 FIFO semantics.
-                let worker = self.socketWorkerV1ResponseIfHandled(
-                    cmd: commandName,
-                    args: args
-                )
+                // read_screen can wait for a cold surface to start (#1472), so
+                // it blocks a GCD thread instead of a cooperative-pool thread.
+                let worker: (handled: Bool, response: String?)
+                if commandName == "read_screen" {
+                    worker = await self.runBlockingSocketBody {
+                        self.socketWorkerV1ResponseIfHandled(cmd: commandName, args: args)
+                    }
+                } else {
+                    worker = self.socketWorkerV1ResponseIfHandled(cmd: commandName, args: args)
+                }
                 if worker.handled { return worker.response }
             }
             return await self.v2MainAsync {
@@ -164,7 +169,6 @@ extension TerminalController {
             }
         }
     }
-
     /// Handles a v2 worker request. Snapshot hits are entirely off-main;
     /// topology misses use the coordinator's typed result seam once and cache
     /// that result for subsequent polls. Legacy worker methods remain on their
@@ -172,10 +176,14 @@ extension TerminalController {
     private nonisolated func socketWorkerV2ResponseAsync(
         _ request: ControlRequest
     ) async -> String? {
+        if request.method == "auth.team.list"
+            || request.method == "auth.team.use"
+            || request.method == "auth.team.create" {
+            return await v2AuthTeamResponseAsync(request)
+        }
         if request.method == "surface.read_selection" {
             return await socketSurfaceSelectionResponseAsync(request)
         }
-
         if request.method == "feed.jump" {
             guard let result = await controlCommandCoordinator
                 .handleSocketWorkerFeedAsync(request, context: self) else {
@@ -191,14 +199,14 @@ extension TerminalController {
             }
             return Self.v2Encoder.response(id: request.id, result)
         }
-
         if request.method == "agent.restore.admit" {
             return await agentRestoreAdmissionResponse(request)
         }
         if request.method == "agent.restore.release" {
             return await agentRestoreAdmissionReleaseResponse(request)
         }
-        if ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
+        if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] == nil,
+           ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
            let snapshotResult = socketReadSnapshotStore.response(
                 method: request.method,
                 params: request.params,
@@ -208,7 +216,6 @@ extension TerminalController {
            ) {
             return Self.v2Encoder.response(id: request.id, snapshotResult)
         }
-
         if ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
            let coordinatorResult = await v2MainAsync({
                self.controlCommandCoordinator.handleSocketWorkerV2(
@@ -245,13 +252,25 @@ extension TerminalController {
             }
             return response
         }
+        if request.method == "system.memory" {
+            let result = await v2SystemMemory(params: request.params.mapValues(\.foundationObject))
+            let typedResult = Self.controlCallResult(fromLegacy: result)
+            socketReadSnapshotStore.publishResponse(
+                method: request.method,
+                params: request.params,
+                result: typedResult
+            )
+            return Self.v2Encoder.response(id: request.id, typedResult)
+        }
 
-        if request.method == "system.memory" || request.method == "surface.read_text" {
-            // These legacy bodies still return Foundation-shaped values. Run
-            // the miss on the main actor only when no published snapshot exists;
-            // steady-state polling takes the branch above and never enters
-            // this fallback.
-            let response = await v2MainAsync {
+        if request.method == "surface.read_text" {
+            // Steady-state polling takes the snapshot branch above and never
+            // enters this fallback. The body takes its own main-actor hop and,
+            // for a terminal that was never shown, waits off-main for its
+            // surface to start (#1472), so run it on a GCD thread: not on the
+            // main actor, where the start could not run while it waits, and
+            // not on a cooperative-pool thread.
+            let response = await runBlockingSocketBody {
                 self.socketWorkerV2Response(
                     handling: ControlRequest(
                         id: request.id,
@@ -395,72 +414,6 @@ extension TerminalController {
         )
     }
 
-    private nonisolated func v2SystemTopAsync(_ request: ControlRequest) async -> String {
-        let base = await v2MainAsync {
-            let foundationParams = request.params.mapValues(\.foundationObject)
-            return Self.controlCallResult(
-                fromLegacy: self.v2SystemTopBasePayload(params: foundationParams)
-            )
-        }
-        guard case .ok(let basePayload) = base,
-              case .object(let baseObject) = basePayload,
-              case .bool(let includeProcesses)? = baseObject["include_processes"],
-              case .array(let rawWindows)? = baseObject["windows"] else {
-            return Self.v2Encoder.response(id: request.id, base)
-        }
-        guard let windowsObject = JSONValue.array(rawWindows).foundationObject as? [[String: Any]] else {
-            return Self.v2Encoder.error(
-                id: request.id,
-                code: "internal_error",
-                message: "Invalid system.top payload"
-            )
-        }
-
-        let processSnapshot = CmuxTopProcessSnapshot.capture(
-            includeProcessDetails: includeProcesses
-        )
-        var windows = windowsObject
-        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windows)
-        let totalPIDs = v2AnnotateTopWindows(
-            &windows,
-            processSnapshot: processSnapshot,
-            browserPIDOccurrences: browserPIDOccurrences,
-            includeProcesses: includeProcesses
-        )
-        let aggregates = processAggregates(
-            from: processSnapshot,
-            totalPIDs: totalPIDs
-        )
-        let memoryDiagnostic = v2TopMemoryDiagnosticPayload(
-            processSnapshot: processSnapshot,
-            annotatedWindows: windows
-        )
-
-        var payload = baseObject
-        payload["sample"] = JSONValue(
-            foundationObject: processSnapshot.samplePayload()
-        ) ?? .object([:])
-        payload["totals"] = JSONValue(
-            foundationObject: processSnapshot.summaryPayload(for: totalPIDs)
-        ) ?? .object([:])
-        payload["memory_diagnostic"] = JSONValue(
-            foundationObject: memoryDiagnostic
-        ) ?? .object([:])
-        payload["program_totals"] = JSONValue(
-            foundationObject: aggregates.programs
-        ) ?? .array([])
-        payload["coding_agents"] = JSONValue(
-            foundationObject: aggregates.codingAgents
-        ) ?? .array([])
-        payload["windows"] = JSONValue(
-            foundationObject: windows
-        ) ?? .array([])
-        return Self.v2Encoder.response(
-            id: request.id,
-            .ok(.object(payload))
-        )
-    }
-
     private nonisolated func processParsedV2CommandAsync(
         _ request: ControlRequest
     ) async -> String {
@@ -515,6 +468,20 @@ extension TerminalController {
         return await MainActor.run {
             Self.withSocketCommandPolicyStack(policyStack) {
                 body()
+            }
+        }
+    }
+
+    /// Runs a blocking socket body on a GCD thread with the caller's
+    /// focus-policy stack, so a body that sleeps between main-actor hops parks
+    /// neither the main actor nor a cooperative-pool thread.
+    private nonisolated func runBlockingSocketBody<T: Sendable>(
+        _ body: @escaping @Sendable () -> T
+    ) async -> T {
+        let policyStack = Self.currentSocketCommandFocusAllowanceStack()
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: Self.withSocketCommandPolicyStack(policyStack) { body() })
             }
         }
     }
@@ -619,7 +586,7 @@ extension TerminalController {
         )
     }
 
-    private nonisolated static func controlCallResult(
+    nonisolated static func controlCallResult(
         fromLegacy result: V2CallResult
     ) -> ControlCallResult {
         switch result {

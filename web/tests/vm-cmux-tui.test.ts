@@ -7,7 +7,6 @@ import {
   CMUX_TUI_DAEMON_TERMINAL_ENV,
   CMUX_TUI_LAYOUT_MARKER_PATH,
   cmuxTuiDaemonCommand,
-  cmuxTuiAgentHooksInstallCommand,
   cmuxTuiAsDaemonUser,
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
@@ -74,7 +73,7 @@ describe("cmux-tui daemon source", () => {
     const both = { "cmux-tui-x86_64-unknown-linux-musl": SHA, "cmux-tui-hook-x86_64-unknown-linux-musl": HOOK_SHA };
     expect(() => parseCmuxTuiManifest(MANIFEST, { binaries: both })).toThrow(/commit/);
     expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-gnu": SHA, "cmux-tui-hook-x86_64-unknown-linux-musl": HOOK_SHA } })).toThrow(/musl/);
-    expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-musl": SHA } })).toThrow(/cmux-tui-hook/);
+    expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-musl": SHA } })).toThrow(/vm_artifact_unavailable/);
     expect(() => parseCmuxTuiManifest(MANIFEST, "nonsense")).toThrow();
   });
 
@@ -96,7 +95,7 @@ describe("cmux-tui install and daemon commands", () => {
     // Skip the download when the installed copy already matches the pin.
     expect(command).toContain(`'${SHA}' "$CMUX_TUI_BIN" | sha256sum -c >/dev/null 2>&1; then :; else`);
     // The download is verified against the same pin before it replaces anything.
-    expect(command).toContain(`curl -fsSL --retry 3 --retry-delay 2 -o "$CMUX_TUI_TMP" '${URL}'`);
+    expect(command).toContain(`curl -fsSL --retry 3 -o "$CMUX_TUI_TMP" '${URL}'`);
     expect(command).toContain(`wget -q -O "$CMUX_TUI_TMP" '${URL}'`);
     expect(command).toContain(`'${SHA}' "$CMUX_TUI_TMP" | sha256sum -c >/dev/null 2>&1 && chmod 755`);
     expect(command).toContain('ln -sfn "$CMUX_TUI_BIN" /usr/local/bin/cmux-tui');
@@ -112,7 +111,7 @@ describe("cmux-tui install and daemon commands", () => {
     // Beside the binary: the one place `agent hook install` finds it without a PATH search.
     expect(command).toContain('CMUX_TUI_HOOK_BIN="$(dirname "$CMUX_TUI_BIN")/cmux-tui-hook"');
     expect(command).toContain(`'${HOOK_SHA}' "$CMUX_TUI_HOOK_BIN" | sha256sum -c >/dev/null 2>&1; then :; else`);
-    expect(command).toContain(`curl -fsSL --retry 3 --retry-delay 2 -o "$CMUX_TUI_HOOK_TMP" '${HOOK_URL}'`);
+    expect(command).toContain(`curl -fsSL --retry 3 -o "$CMUX_TUI_HOOK_TMP" '${HOOK_URL}'`);
     expect(command).toContain(`'${HOOK_SHA}' "$CMUX_TUI_HOOK_TMP" | sha256sum -c >/dev/null 2>&1 && chmod 755`);
     expect(command).toContain('"$CMUX_TUI_BIN" "$CMUX_TUI_HOOK_BIN" 2>/dev/null || true');
     // The hooks are the daemon user's (HOME=/home/cmux), never root's: root's
@@ -139,15 +138,7 @@ describe("cmux-tui install and daemon commands", () => {
       expect(() => cmuxTuiPinnedManifestUrl(COMMIT)).toThrow(/manifest\.json/));
   });
 
-  test("the hooks-only install never touches the daemon binary", () => {
-    const source = { url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: HOOK_URL, hookSha256: HOOK_SHA };
-    const command = cmuxTuiAgentHooksInstallCommand(source);
-    expect(command).toContain(cmuxTuiLayoutSelector());
-    expect(command).toContain(HOOK_URL);
-    expect(command).not.toContain(URL);
-    expect(command).not.toContain("ln -sfn");
-    expect(command).not.toContain("--version");
-    expect(command).toContain("agent hook install claude codex");
+  test("the hooks-ready check runs as the daemon layout and checks the installed helper", () => {
     expect(cmuxTuiHooksReadyCommand()).toContain(cmuxTuiLayoutSelector());
     expect(cmuxTuiHooksReadyCommand()).toContain('test -x "$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"');
   });

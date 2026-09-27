@@ -275,12 +275,9 @@ public struct IrohNetworkingSection: View {
                 isMutating: model.isMutating,
                 clear: { await model.clearDiagnosticReport() }
             )
-            if !model.snapshot.staleRelayIDs.isEmpty || model.snapshot.failureDescription != nil {
-                SettingsCardNote(String(
-                    localized: "settings.networking.attention",
-                    defaultValue: "Your saved relay choice needs attention. Direct Iroh remains available, but cmux will not substitute an unselected relay."
-                ))
-            }
+            IrohNetworkingAttentionNote(
+                failureDescription: model.snapshot.failureDescription,
+                hasStaleRelayIDs: !model.snapshot.staleRelayIDs.isEmpty)
         }
     }
 

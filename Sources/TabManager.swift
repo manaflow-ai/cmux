@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAgentChat
+import CmuxCloudMachines
 import CmuxFoundation
 import CmuxTerminalCore
 import SwiftUI
@@ -222,6 +223,7 @@ class TabManager: ObservableObject {
         (windowDockTitleRoutingStores.objectEnumerator()?.allObjects as? [DockSplitStore]) ?? []
     }
     let workspaceSwitchCoordinator = WorkspaceSwitchCoordinator()
+    let cloudWorkspaceSelection: CloudWorkspaceSelectionState
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
@@ -285,6 +287,7 @@ class TabManager: ObservableObject {
     /// Legacy `@Published selectedTabId` willSet; `selectedTabId` still
     /// reads the old value here, exactly like the original property observer.
     func selectedWorkspaceIdWillChange(to newValue: UUID?) {
+        recordCloudWorkspaceSelection()
         if !isRestoringSessionSnapshot {
             let terminalTarget = newValue
                 .flatMap { workspacesById[$0] }
@@ -335,6 +338,7 @@ class TabManager: ObservableObject {
     /// chain, run synchronously after storage changed.
     func selectedWorkspaceIdDidChange(from oldValue: UUID?) {
             guard selectedTabId != oldValue else { return }
+            recordCloudWorkspaceSelection()
             defer {
                 workspaceSwitchCoordinator.selectionDidCommit(
                     from: oldValue,
@@ -435,6 +439,9 @@ class TabManager: ObservableObject {
     }
     private struct PendingPanelTitleUpdate {
         let title: String
+        /// `title` with any spinner frame removed. Carried alongside so the
+        /// flush can tell an advancing spinner from a changed label.
+        let stableTitle: String
         weak var sourceSurface: TerminalSurface?
         let sourceTerminalLifecycleId: UUID
     }
@@ -535,6 +542,19 @@ class TabManager: ObservableObject {
 
     private let managedDevicePolicy: ManagedDevicePolicy
 
+    /// Picks how the automatic first-launch welcome reaches the new terminal.
+    /// Tests replace it to exercise each delivery without depending on the host shell.
+    var welcomeBannerDeliveryResolver: @MainActor () -> WelcomeBannerDelivery = { WelcomeBannerDelivery.current() }
+    /// Types the welcome fallback into `workspace` once its terminal is ready.
+    /// Tests replace it to observe the typed-fallback path.
+    lazy var typedWelcomeSender: @MainActor (Workspace) -> Void = { [weak self] workspace in
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.sendWelcomeCommandWhenReady(to: workspace, markShownOnSend: true)
+        } else {
+            self?.sendWelcomeWhenReady(to: workspace)
+        }
+    }
+
     init(
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
@@ -565,10 +585,12 @@ class TabManager: ObservableObject {
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         closeTabWarningDefaults: UserDefaults = .standard,
         managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy(),
-        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil
+        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
+        cloudWorkspaceSelection: CloudWorkspaceSelectionState? = nil
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.managedDevicePolicy = managedDevicePolicy
+        self.cloudWorkspaceSelection = cloudWorkspaceSelection ?? CloudWorkspaceSelectionState(scopeProvider: { nil })
         self.settings = settings
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
         self.workspaceCustomizationStore = workspaceCustomizationStore ?? WorkspaceCustomizationStore()
@@ -726,11 +748,7 @@ class TabManager: ObservableObject {
         })
 
         startAgentPIDSweepTimer()
-        observers.append(NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        observers.append(NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             MainActor.assumeIsolated { [weak self] in
                 self?.sidebarMetadataSettingsDidChange()
                 self?.focusHistoryScopeSettingsDidChange()
@@ -744,22 +762,6 @@ class TabManager: ObservableObject {
         setupChildExitSplitUITestIfNeeded()
         setupChildExitKeyboardUITestIfNeeded()
 #endif
-    }
-
-    /// Creates the process-level command-routing fallback used before AppKit
-    /// registers a real per-window manager.
-    ///
-    /// This bootstrap owner must remain terminal-free because SwiftUI may
-    /// initialize the app value more than once during launch.
-    static func makeAppBootstrap(
-        workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
-        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
-    ) -> TabManager {
-        TabManager(
-            createInitialWorkspace: false,
-            workspaceCustomizationStore: workspaceCustomizationStore,
-            nativeSSHConnectionBroker: nativeSSHConnectionBroker
-        )
     }
 
     deinit {
@@ -854,8 +856,8 @@ class TabManager: ObservableObject {
     }
 
     func gitProbeDirectory(for workspace: Workspace, panelId: UUID) -> String? {
-        // Match the sidebar directory fallback chain so hidden/background panels can
-        // still probe git metadata before OSC 7 has reported a live cwd.
+        // Cloud cwd belongs to another machine and is never a local git/gh probe target.
+        if workspace.cloudDirectoryProvenanceRequired(panelId: panelId) { return nil }
         if let directory = workspace.reportedPanelDirectory(panelId: panelId) { return normalizedWorkingDirectory(directory) }
         guard workspace.allowsLocalDirectoryFallback(panelId: panelId) else { return nil }
         let rawDirectory = workspace.terminalPanel(for: panelId)?.requestedWorkingDirectory ?? (!workspace.usesRemoteDirectoryProvenance && workspace.focusedPanelId == panelId ? workspace.currentDirectory : nil)
@@ -1385,6 +1387,24 @@ class TabManager: ObservableObject {
             // boots terminal state. The ssh/new-workspace path can otherwise crash while
             // reading @Published placement state from existing workspaces mid-creation.
             let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
+            var welcomeDelivery: WelcomeBannerDelivery?
+            var resolvedInitialTerminalEnvironment = initialTerminalEnvironment
+            // An explicit command runs via `shell -lc`, which never loads cmux's
+            // interactive shell integration, so it could not print the banner.
+            let hasInitialTerminalCommand = !(initialTerminalCommand?
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            if autoWelcomeIfNeeded && select && initialSurface == .terminal
+                && !hasInitialTerminalCommand
+                && !UserDefaults.standard.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey) {
+                let launch = WelcomeBannerDelivery.prepareLaunch(welcomeBannerDeliveryResolver())
+                welcomeDelivery = launch.delivery
+                if launch.delivery == .shellStartup {
+                    resolvedInitialTerminalEnvironment.merge(launch.environment, uniquingKeysWith: { current, _ in current })
+                    // The token file makes shell-startup delivery at most once,
+                    // so mark it shown now; the typed fallback marks on send.
+                    UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
+                }
+            }
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
             let defaultTitle: String
@@ -1409,7 +1429,7 @@ class TabManager: ObservableObject {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
-                initialTerminalEnvironment: initialTerminalEnvironment,
+                initialTerminalEnvironment: resolvedInitialTerminalEnvironment,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
@@ -1481,13 +1501,8 @@ class TabManager: ObservableObject {
                 "selectedTabId": select ? newWorkspace.id.uuidString : (snapshot.selectedTabId?.uuidString ?? "")
             ])
 #endif
-            if autoWelcomeIfNeeded && select && initialSurface == .terminal
-                && !UserDefaults.standard.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey) {
-                if let appDelegate = AppDelegate.shared {
-                    appDelegate.sendWelcomeCommandWhenReady(to: newWorkspace, markShownOnSend: true)
-                } else {
-                    sendWelcomeWhenReady(to: newWorkspace)
-                }
+            if welcomeDelivery == .typedCommand {
+                typedWelcomeSender(newWorkspace)
             }
             return newWorkspace
         }
@@ -1499,7 +1514,7 @@ class TabManager: ObservableObject {
            terminalPanel.surface.surface != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
-                terminalPanel.sendText("cmux welcome\n")
+                terminalPanel.sendText(WelcomeBannerDelivery.typedCommandText)
             }
             return
         }
@@ -1519,7 +1534,7 @@ class TabManager: ObservableObject {
             panelsCancellable?.cancel()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
-                terminalPanel.sendText("cmux welcome\n")
+                terminalPanel.sendText(WelcomeBannerDelivery.typedCommandText)
             }
         }
 
@@ -2429,12 +2444,11 @@ class TabManager: ObservableObject {
 
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         guard tabs.count > 1 else { return }
-        // Only this manager's own workspaces close here. The teardown below frees
-        // Ghostty surfaces, which SIGHUPs the child processes, empties `panels`, and
-        // publishes a workspace-closed event, so running it for a workspace that
-        // lives in another window or was already detached kills terminals nobody
-        // asked to close and announces a close that did not happen.
+        // Teardown SIGHUPs child processes and publishes a closed event. Only this
+        // manager may close its own live workspaces; stale or foreign objects must
+        // never tear down terminals or publish a second close.
         guard tabs.contains(where: { $0.id == workspace.id }) else { return }
+        MachineCreateCoordinator.shared.cancelOperations(forPresentationWorkspace: workspace.id)
         panelTitleUpdateCoalescer.flushNow()
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         // Closing a mirrored remote tmux workspace DETACHES from the remote session,
@@ -2477,12 +2491,11 @@ class TabManager: ObservableObject {
             // fixup.
             let promotedAnchorIds = workspaces.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
 
-            if selectedTabId == workspace.id {
-                // Keep the "focused index" stable when possible:
-                // - If we closed workspace i and there is still a workspace at index i, focus it (the one that moved up).
-                // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
-                let newIndex = min(index, max(0, tabs.count - 1))
-                selectedTabId = tabs[newIndex].id
+            if selectedTabId == workspace.id,
+               let nextSelectedId = workspaces.selectionTargetAfterClose(closedIndex: index) {
+                // Keep the "focused row position" stable when possible; see
+                // WorkspacesModel.selectionTargetAfterClose for the rule.
+                selectedTabId = nextSelectedId
             }
 
             // A promoted anchor's resolved display title switches from its own
@@ -2510,6 +2523,7 @@ class TabManager: ObservableObject {
         panelTitleUpdateCoalescer.flushNow()
         sidebarGitMetadataService.resetAllWorkspaceGitProbeTracking()
 
+        MachineCreateCoordinator.shared.cancelOperations(forPresentationWorkspaces: Set(closingWorkspaces.map(\.id)))
         for workspace in closingWorkspaces {
             finalizeWorkspaceForRemoval(workspace, clearsWorkspaceGitProbes: false)
         }
@@ -2845,7 +2859,7 @@ class TabManager: ObservableObject {
         alert.messageText = title
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
-        alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
 
         if let closeButton = alert.buttons.first {
             closeButton.keyEquivalent = "\r"
@@ -3587,12 +3601,12 @@ class TabManager: ObservableObject {
     }
 
     func applyWindowBackdropModeForAllTabs(reason: String) {
-        let backgroundColor = GhosttyApp.shared.defaultBackgroundColor
-        let backgroundOpacity = GhosttyApp.shared.defaultBackgroundOpacity
+        let config = WorkspaceContentView.resolveGhosttyAppearanceConfig(
+            reason: reason
+        )
         for tab in tabs {
             tab.applyGhosttyChrome(
-                backgroundColor: backgroundColor,
-                backgroundOpacity: backgroundOpacity,
+                from: config,
                 reason: reason
             )
         }
@@ -3810,8 +3824,8 @@ class TabManager: ObservableObject {
         notificationDismissal.dismissNotificationOnTerminalInteraction(workspaceId: tabId, surfaceId: surfaceId)
     }
     private func enqueuePanelTitleUpdate(_ change: GhosttyTitleChange, sourceSurface: TerminalSurface) {
-        let trimmed = change.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        let trimmed = AutomaticTerminalTitle(change.title)?.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else { return }
         guard workspacesById[change.tabId]?.terminalPanel(for: change.surfaceId)?.surface === sourceSurface else { return }
 #if DEBUG
         if PanelTitleUpdateCoalescingSettings.diagnosticsEnabled(settings: settings) {
@@ -3821,9 +3835,11 @@ class TabManager: ObservableObject {
             )
         }
 #endif
+        let trimmedStable = change.stableTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let key = PanelTitleUpdateKey(tabId: change.tabId, panelId: change.surfaceId)
         pendingPanelTitleUpdates[key] = PendingPanelTitleUpdate(
             title: trimmed,
+            stableTitle: trimmedStable.isEmpty ? trimmed : trimmedStable,
             sourceSurface: sourceSurface,
             sourceTerminalLifecycleId: sourceSurface.terminalLifecycleId
         )
@@ -3847,19 +3863,44 @@ class TabManager: ObservableObject {
                   sourceSurface.terminalLifecycleId == update.sourceTerminalLifecycleId else {
                 continue
             }
-            updatePanelTitle(tabId: key.tabId, panelId: key.panelId, title: update.title, sourceSurface: sourceSurface)
+            updatePanelTitle(
+                tabId: key.tabId,
+                panelId: key.panelId,
+                title: update.title,
+                stableTitle: update.stableTitle,
+                sourceSurface: sourceSurface
+            )
         }
     }
     func flushPendingPanelTitleUpdatesForWorkspaceSnapshot() {
         panelTitleUpdateCoalescer.flushNow()
     }
-
     @discardableResult
     func updatePanelTitle(tabId: UUID, panelId: UUID, title: String) -> Bool {
+        applyPanelTitle(tabId: tabId, panelId: panelId, title: title, stableTitle: nil, sourceSurface: nil)
+    }
+
+    @discardableResult
+    private func applyPanelTitle(
+        tabId: UUID,
+        panelId: UUID,
+        title: String,
+        stableTitle: String?,
+        sourceSurface: TerminalSurface?
+    ) -> Bool {
         guard let tab = workspacesById[tabId] else { return false }
+        if let sourceSurface {
+            // Batched flush path: the queued surface must still own the panel.
+            guard let terminalPanel = tab.terminalPanel(for: panelId),
+                  terminalPanel.surface === sourceSurface else { return false }
+        }
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
-        let applied = tab.updatePanelTitle(panelId: panelId, title: title)
+        let applied = tab.updatePanelTitle(panelId: panelId, title: title, stableTitle: stableTitle)
         guard !tab.isRemoteTmuxMirror else { return applied }
+        // A spinner-only frame has already refreshed the AppKit tab label inside
+        // `tab.updatePanelTitle`. Nothing below it can produce a different result,
+        // so stop before the window title and the display-title comparison.
+        guard applied else { return false }
         if tab.focusedPanelId == panelId, selectedTabId == tabId {
             updateWindowTitle(for: tab)
         }
@@ -3877,11 +3918,14 @@ class TabManager: ObservableObject {
         return applied
     }
 
-    private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String, sourceSurface: TerminalSurface) {
-        guard let tab = workspacesById[tabId],
-              let terminalPanel = tab.terminalPanel(for: panelId),
-              terminalPanel.surface === sourceSurface else { return }
-        _ = updatePanelTitle(tabId: tabId, panelId: panelId, title: title)
+    private func updatePanelTitle(
+        tabId: UUID,
+        panelId: UUID,
+        title: String,
+        stableTitle: String,
+        sourceSurface: TerminalSurface
+    ) {
+        applyPanelTitle(tabId: tabId, panelId: panelId, title: title, stableTitle: stableTitle, sourceSurface: sourceSurface)
     }
 
     func shouldScheduleRawTitleRefresh(forWorkspaceId workspaceId: UUID?) -> Bool { workspaceId == selectedTabId && !PanelTitleUpdateCoalescingSettings.isEnabled(settings: settings) }
@@ -4220,20 +4264,13 @@ class TabManager: ObservableObject {
     /// Create a new split in the current tab
     @discardableResult
     func createSplit(direction: SplitDirection) -> UUID? {
-        guard let selectedTabId,
-              let tab = tabs.first(where: { $0.id == selectedTabId }),
-              let focusedPanelId = tab.focusedPanelId else { return nil }
-        return createSplit(tabId: selectedTabId, surfaceId: focusedPanelId, direction: direction)
+        createSplitOutcome(direction: direction).panel?.id
     }
 
     /// Create a new split from an explicit source panel.
     @discardableResult
     func createSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection, focus: Bool = true) -> UUID? {
-        guard let tab = tabs.first(where: { $0.id == tabId }),
-              tab.panels[surfaceId] != nil else { return nil }
-        tab.clearSplitZoom()
-        sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
-        return newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction, focus: focus)
+        createSplitOutcome(tabId: tabId, surfaceId: surfaceId, direction: direction, focus: focus).panel?.id
     }
 
     /// Create a new browser split from the currently focused panel.
@@ -4349,6 +4386,12 @@ class TabManager: ObservableObject {
         focusHistoryNavigation.navigateForward()
     }
 
+    /// Toggles focus back to the position it most recently left.
+    @discardableResult
+    func navigateToLastFocused() -> Bool {
+        focusHistoryNavigation.navigateToLastFocused()
+    }
+
     var canNavigateBack: Bool {
         focusHistoryNavigation.canNavigateBack
     }
@@ -4386,7 +4429,7 @@ class TabManager: ObservableObject {
         remotePTYSessionID: String? = nil
     ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newTerminalSplit(
+        guard let panel = tab.newTerminalSplit(
             from: surfaceId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
@@ -4397,14 +4440,18 @@ class TabManager: ObservableObject {
             startupEnvironment: startupEnvironment,
             initialDividerPosition: initialDividerPosition,
             remotePTYSessionID: remotePTYSessionID
-        )?.id
+        ) else { return nil }
+        // An explicit divider position wins over equalize-on-create.
+        if initialDividerPosition == nil {
+            tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
+        }
+        return panel.id
     }
 
     /// Move focus in the specified direction
     func moveSplitFocus(tabId: UUID, surfaceId: UUID, direction: NavigationDirection) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
-        tab.moveFocus(direction: direction)
-        return true
+        return tab.moveFocus(direction: direction)
     }
 
     /// Cycle focus to the next or previous pane in tree order, wrapping at the ends.
@@ -4426,26 +4473,6 @@ class TabManager: ObservableObject {
         )
 #endif
         return moved
-    }
-
-    /// Resize split - not directly supported by bonsplit, but we can adjust divider positions
-    func resizeSplit(tabId: UUID, surfaceId: UUID, direction: ResizeDirection, amount: UInt16) -> Bool {
-        guard amount > 0,
-              let tab = tabs.first(where: { $0.id == tabId }),
-              let paneId = tab.paneId(forPanelId: surfaceId) else { return false }
-
-        let paneUUID = paneId.id
-        guard tab.bonsplitController.allPaneIds.contains(where: { $0.id == paneUUID }) else {
-            return false
-        }
-
-        return paneLayout.resizeSplit(
-            in: tab.bonsplitController.treeSnapshot(),
-            targetPaneId: paneUUID.uuidString,
-            direction: direction,
-            amountPixels: amount,
-            controller: tab.bonsplitController
-        )
     }
 
     /// Toggle zoom on a panel.
@@ -4495,7 +4522,7 @@ class TabManager: ObservableObject {
     ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newBrowserSplit(
+        guard let panel = tab.newBrowserSplit(
             from: fromPanelId,
             orientation: orientation,
             insertFirst: insertFirst,
@@ -4503,7 +4530,12 @@ class TabManager: ObservableObject {
             preferredProfileID: preferredProfileID,
             focus: focus,
             initialDividerPosition: initialDividerPosition
-        )?.id
+        ) else { return nil }
+        // An explicit divider position wins over equalize-on-create.
+        if initialDividerPosition == nil {
+            tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
+        }
+        return panel.id
     }
 
     /// Create a new browser surface in a pane
@@ -6337,6 +6369,7 @@ extension TabManager {
 
         hasher.combine(true)
         hashOptionalString(launchCommand.launcher, into: &hasher)
+        hashOptionalString(launchCommand.externalLauncher, into: &hasher)
         hashOptionalString(launchCommand.executablePath, into: &hasher)
         hasher.combine(launchCommand.arguments)
         hashOptionalString(launchCommand.workingDirectory, into: &hasher)
@@ -6948,14 +6981,14 @@ extension Notification.Name {
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
     static let ghosttyDidBecomeFirstResponderSurface = Notification.Name("ghosttyDidBecomeFirstResponderSurface")
-    static let browserDidBecomeFirstResponderWebView = Notification.Name("browserDidBecomeFirstResponderWebView")
+    static let browserDidBecomeFirstResponderWebView = CmuxWebView.didBecomeFirstResponderNotification
     static let browserFocusAddressBar = Notification.Name("browserFocusAddressBar")
     static let browserMoveOmnibarSelection = Notification.Name("browserMoveOmnibarSelection")
     static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")
     static let browserDidFocusAddressBar = Notification.Name("browserDidFocusAddressBar")
     static let browserDidBlurAddressBar = Notification.Name("browserDidBlurAddressBar")
     static let browserFocusModeStateDidChange = Notification.Name("cmux.browserFocusModeStateDidChange")
-    static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
+    static let webViewDidReceiveClick = CmuxWebView.didReceiveClickNotification
     static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
     static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")
     static let workspaceOrderDidChange = Notification.Name("cmux.workspaceOrderDidChange")
@@ -6972,5 +7005,75 @@ extension Notification.Name {
 }
 
 enum BrowserFirstResponderNotificationUserInfoKey {
-    static let pointerInitiated = "pointerInitiated"
+    static let pointerInitiated = CmuxWebView.firstResponderPointerInitiatedUserInfoKey
+}
+
+/// How the first-launch welcome banner reaches the new workspace's terminal.
+///
+/// cmux shell integration prints the banner from inside the shell's startup
+/// when ``environmentKey`` names a one-shot token file, so no command is typed
+/// and nothing lands in the user's shell history. Typing ``typedCommandText``
+/// is the fallback for shells that do not load cmux shell integration.
+///
+/// Delivery is at most once: every integration unsets the variable, skips
+/// printing inside tmux, and prints only when its `rm` of the token file
+/// succeeds, so a child that inherits the variable (for example `exec tmux`
+/// or `exec zsh` from `.bashrc`, before the bash bootstrap runs) cannot print
+/// it a second time. If no integrated shell consumes the token, the banner is
+/// skipped rather than repeated on a later launch.
+enum WelcomeBannerDelivery: Equatable {
+    case shellStartup
+    case typedCommand
+
+    /// Holds the path of the one-shot token file the bundled zsh, bash, fish
+    /// and nushell integrations consume to print `cmux welcome` at startup.
+    static let environmentKey = "CMUX_SHOW_WELCOME_FILE"
+    /// Typed fallback. The leading space keeps it out of history only for zsh
+    /// with HIST_IGNORE_SPACE, bash with HISTCONTROL=ignorespace or ignoreboth,
+    /// and fish; other shells may still record it (best effort).
+    static let typedCommandText = " cmux welcome\n"
+    private static let tokenDirectoryName = "cmux-welcome-banner"
+    private static let integratedShellNames: Set<String> = ["zsh", "bash", "fish", "nu"]
+
+    static func resolve(
+        shellIntegrationEnabled: Bool,
+        resolvedShell: String?,
+        hasUserGhosttyCommand: Bool
+    ) -> WelcomeBannerDelivery {
+        guard shellIntegrationEnabled,
+              !hasUserGhosttyCommand,
+              let resolvedShell,
+              integratedShellNames.contains(URL(fileURLWithPath: resolvedShell).lastPathComponent) else {
+            return .typedCommand
+        }
+        return .shellStartup
+    }
+
+    @MainActor
+    static func current(defaults: UserDefaults = .standard) -> WelcomeBannerDelivery {
+        resolve(
+            shellIntegrationEnabled: defaults.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
+            resolvedShell: GhosttyApp.shared.resolvedUserShell,
+            hasUserGhosttyCommand: GhosttyApp.shared.hasUserGhosttyCommand
+        )
+    }
+
+    /// Resolves the startup environment for `delivery`. Shell startup writes a
+    /// fresh token file and returns its path under ``environmentKey``; if the
+    /// token cannot be written the launch falls back to ``typedCommand``.
+    static func prepareLaunch(
+        _ delivery: WelcomeBannerDelivery,
+        tempDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> (delivery: WelcomeBannerDelivery, environment: [String: String]) {
+        guard delivery == .shellStartup else { return (.typedCommand, [:]) }
+        let directory = tempDirectory.appendingPathComponent(tokenDirectoryName, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let token = directory.appendingPathComponent(UUID().uuidString, isDirectory: false)
+            try Data().write(to: token, options: .atomic)
+            return (.shellStartup, [environmentKey: token.path])
+        } catch {
+            return (.typedCommand, [:])
+        }
+    }
 }

@@ -136,7 +136,7 @@ struct TitlebarNewWorkspaceSplitButton: View {
             }
         }
         .contentShape(Rectangle())
-        .animation(.easeInOut(duration: 0.12), value: hoveredSegment)
+        .chromeRevealAnimation(isVisible: hoveredSegment != nil, fadeOut: .easeOut(duration: 0.12))
         .background(TitlebarChromeGeometryReporter(keyPrefix: "titlebarControl_newTabSplit"))
         .titlebarInteractiveControl()
     }
