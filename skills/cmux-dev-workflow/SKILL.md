@@ -42,7 +42,8 @@ An app build does not establish test-target compilation or execution. Follow
 
 `.xcode-version` owns the Xcode major; `cmux.xcodeproj/project.pbxproj` currently
 uses objectVersion 60. The Intel/macOS 14 fallback uses Xcode 16.2/Swift 6.0;
-keep app-linked code compatible as specified in root `AGENTS.md`.
+keep app-linked code compatible as specified in
+[Swift 6.0 compatibility](../cmux-architecture/references/swift-6-0-compatibility.md).
 
 The installed pre-commit hook normalizes staged project files and registers new
 Python tests in `tests/test-execution.toml`. Preserve it and

@@ -94,7 +94,7 @@ describe("client config env validation", () => {
         [name]: "price_grandfathered",
       });
 
-      expect(result.exitCode).not.toBe(0);
+      expectRejected(result);
       expect(result.stderr).toContain(`${name} is retired; use ${replacement}`);
     }
   });
@@ -247,7 +247,7 @@ describe("client config env validation", () => {
       ...requiredSubrouterDeploymentEnv,
     });
 
-    expect(result.exitCode).not.toBe(0);
+    expectRejected(result);
     expect(result.stderr).toContain("CMUX_IROH_GRANT_SIGNING_KEY_P8 is required");
     expect(result.stderr).not.toContain("CMUX_IROH_MINT_HMAC_SECRET_B64 is required");
   });
@@ -263,7 +263,7 @@ describe("client config env validation", () => {
       ...requiredSubrouterDeploymentEnv,
     });
 
-    expect(result.exitCode).not.toBe(0);
+    expectRejected(result);
     expect(result.stderr).toContain("Self-hosted relay runtime configuration is incomplete");
     expect(result.stderr).not.toContain("CMUX_RELAY_JWT_PRIVATE_KEY_PEM");
     expect(result.stderr).not.toContain("CMUX_RELAY_POLICY_KEY_ID");
@@ -301,7 +301,10 @@ describe("client config env validation", () => {
       CMUX_IROH_MINT_URL: "http://192.168.1.10:49152/api/relay-token",
     });
 
-    expect(result.exitCode).not.toBe(0);
+    expectRejected(
+      result,
+      "CMUX_IROH_MINT_URL must use HTTPS, except for an opted-in local loopback development minter",
+    );
   });
 
   test("rejects the insecure loopback opt-in in Vercel preview and production", async () => {
@@ -313,7 +316,7 @@ describe("client config env validation", () => {
       CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: "1",
       CMUX_IROH_MINT_URL: "http://localhost:49152/api/relay-token",
     });
-    expect(preview.exitCode).not.toBe(0);
+    expectRejected(preview, 'component: "relay_minter"');
 
     const production = await inspectIrohMinterUrl({
       ...requiredEnv,
@@ -328,12 +331,30 @@ describe("client config env validation", () => {
       CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: "1",
       CMUX_IROH_MINT_URL: "http://localhost:49152/api/relay-token",
     });
-    expect(production.exitCode).not.toBe(0);
+    expectRejected(production);
     expect(production.stderr).toContain(
       "CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER is only allowed in local development",
     );
   });
 });
+
+interface ChildResult {
+  exitCode: number;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+}
+
+// A rejection must be the validation failure itself: a clean nonzero exit with
+// the expected diagnostic. A child killed by the spawn timeout or a signal also
+// exits nonzero, so it must never count as the rejection under test.
+function expectRejected(result: ChildResult, ...diagnostics: string[]): void {
+  expect(result.signal).toBeNull();
+  expect(result.exitCode).not.toBe(0);
+  for (const diagnostic of diagnostics) {
+    expect(result.stderr).toContain(diagnostic);
+  }
+}
 
 // Async spawn rather than spawnSync: on Blacksmith runners Bun 1.3's spawnSync
 // sometimes never observes the child's exit and spins the test process at 100%
@@ -342,7 +363,7 @@ describe("client config env validation", () => {
 function runChild(
   args: string[],
   env: Record<string, string>,
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+): Promise<ChildResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["--no-env-file", ...args], {
       env: env as NodeJS.ProcessEnv,
@@ -354,18 +375,17 @@ function runChild(
     child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
     child.stderr.setEncoding("utf8").on("data", (chunk: string) => (stderr += chunk));
     child.on("error", reject);
-    child.on("close", (code) => resolve({ exitCode: code ?? 1, stdout, stderr }));
+    child.on("close", (code, signal) => resolve({ exitCode: code ?? 1, signal, stdout, stderr }));
   });
 }
 
-async function importEnv(env: Record<string, string>): Promise<{ exitCode: number; stderr: string }> {
-  const { exitCode, stderr } = await runChild(["-e", "await import('./app/env')"], env);
-  return { exitCode, stderr };
+async function importEnv(env: Record<string, string>): Promise<ChildResult> {
+  return runChild(["-e", "await import('./app/env')"], env);
 }
 
 async function inspectIrohMinterUrl(
   env: Record<string, string>,
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+): Promise<ChildResult> {
   const result = await runChild(["-e", `
         const { irohTrustBrokerConfigFromEnv } = await import('./services/iroh/config');
         const { parseMinterUrl } = await import('./services/iroh/relayMinter');
