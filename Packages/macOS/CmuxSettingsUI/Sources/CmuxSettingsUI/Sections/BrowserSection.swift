@@ -139,9 +139,7 @@ public struct BrowserSection: View {
                 String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"),
                 subtitle: browserManagedByPolicy
                     ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
-                    : !disabled.current
-                    ? String(localized: "settings.browser.enabled.subtitleOn", defaultValue: "Browser tabs, terminal link clicks, and intercepted open commands can use the embedded browser.")
-                    : String(localized: "settings.browser.enabled.subtitleOff", defaultValue: "Browser tabs and link interception are disabled. Links open in your default browser.")
+                    : String(localized: "settings.browser.enabled.subtitle", defaultValue: "Opens browser tabs and links from terminals in the cmux browser.")
             ) {
                 Toggle(
                     "",
@@ -212,7 +210,7 @@ public struct BrowserSection: View {
             SettingsCardRow(
                 configurationReview: .json("browser.theme"),
                 String(localized: "settings.browser.theme", defaultValue: "Browser Theme"),
-                subtitle: browserThemeSubtitle(theme.current),
+                subtitle: String(localized: "settings.browser.theme.subtitle", defaultValue: "Choose light or dark pages for sites that support both. System matches the app appearance."),
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(get: { theme.current }, set: { theme.set($0) })) {
@@ -256,9 +254,7 @@ public struct BrowserSection: View {
             SettingsCardRow(
                 configurationReview: .json("browser.discardHiddenWebViews"),
                 String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Browser Memory Saver"),
-                subtitle: discardEnabled.current
-                    ? String(localized: "settings.browser.hiddenWebViewDiscard.subtitleOn", defaultValue: "Hidden browser tabs release page memory after the delay below, then restore when shown again.")
-                    : String(localized: "settings.browser.hiddenWebViewDiscard.subtitleOff", defaultValue: "Hidden browser tabs keep page memory until closed.")
+                subtitle: String(localized: "settings.browser.hiddenWebViewDiscard.subtitle", defaultValue: "Frees memory from browser tabs hidden longer than the delay. They reload when shown again.")
             ) {
                 Toggle("", isOn: Binding(get: { discardEnabled.current }, set: { discardEnabled.set($0) }))
                     .labelsHidden()
@@ -751,14 +747,6 @@ public struct BrowserSection: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .accessibilityIdentifier("SettingsBrowserImportSection")
-    }
-
-    private func browserThemeSubtitle(_ mode: BrowserThemeMode) -> String {
-        if mode == .system {
-            return String(localized: "settings.browser.theme.subtitleSystem", defaultValue: "System follows app and macOS appearance.")
-        }
-        let name = themeDisplayName(mode)
-        return String(localized: "settings.browser.theme.subtitleForced", defaultValue: "\(name) forces that color scheme for compatible pages.")
     }
 
     private func themeDisplayName(_ mode: BrowserThemeMode) -> String {
