@@ -12,6 +12,29 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Startup input keeps its bytes
+
+- Branch: `issue-12915-hex-escape-bytes` ([manaflow-ai/ghostty#239](https://github.com/manaflow-ai/ghostty/pull/239))
+- Commits: `a78e21739` (cherry-pick of upstream `29b82dd80c46`,
+  ghostty-org/ghostty#13855), `e168fd31c` (round-trip test)
+- Summary: the embedded apprt escapes `initial_input` with
+  `std.zig.stringEscape`, which writes each non-ASCII byte as `\xNN`, and
+  `config/string.zig` then encoded each `\xNN` as a UTF-8 codepoint. Text cmux
+  typed as startup input, such as a `cmux workspace create --command` that
+  prints a Korean OSC title, reached the shell as mojibake
+  ([#12915](https://github.com/manaflow-ai/cmux/issues/12915)). `\xNN` is now
+  one byte, as in Zig. A `text:` keybind with `\xNN` at or above `0x80` now
+  sends that byte too; `\u{...}` still sends a codepoint.
+- Coverage: the Ghostty tests `parse: hex escapes are bytes` and
+  `cloneParsed restores Zig-escaped bytes`, run by `build-ghosttykit.yml`
+  before packaging, and the cmux test `GhosttyStartupInputUTF8Tests`.
+- Artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e168fd31c0fc5893cdac933dc665307b3a760554-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: upstream carries the same `string.zig` change, so a future
+  upstream merge resolves it by taking either side. Keep the round-trip test
+  in `config/io.zig`; it covers the embedded escape and parse pair together.
+
 ### Unfocused surface frame pacing
 
 - Branch: `perf/unfocused-draw-cap` ([manaflow-ai/ghostty#234](https://github.com/manaflow-ai/ghostty/pull/234))
