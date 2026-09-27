@@ -190,6 +190,10 @@ enum AppSettingsFileMapping {
             defaultsKey: app.warnBeforeClosingTabXButton.userDefaultsKey
         ),
         .init(
+            jsonKey: "warnBeforeClosingWorkspace",
+            defaultsKey: app.warnBeforeClosingWorkspace.userDefaultsKey
+        ),
+        .init(
             jsonKey: "hideTabCloseButton",
             defaultsKey: app.hideTabCloseButton.userDefaultsKey
         ),
@@ -262,6 +266,11 @@ enum TerminalSettingsFileMapping {
             jsonKey: "reflowHardWrapOnCopy",
             defaultsKey: terminal.reflowHardWrapOnCopy.userDefaultsKey,
             invalidPath: terminal.reflowHardWrapOnCopy.id
+        ),
+        .init(
+            jsonKey: "confirmUnsafePaste",
+            defaultsKey: terminal.confirmUnsafePaste.userDefaultsKey,
+            invalidPath: terminal.confirmUnsafePaste.id
         ),
         .init(
             jsonKey: "showPasswordInputIndicator",

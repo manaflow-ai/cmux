@@ -1394,6 +1394,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
     private struct TabStripPassThroughFixture {
         let host: WindowBrowserHostView
         let pointInHost: NSPoint
+        let pointInWindow: NSPoint
     }
 
     private func installTabStripPassThroughFixture(in window: NSWindow) -> TabStripPassThroughFixture? {
@@ -1430,7 +1431,30 @@ final class WindowBrowserHostViewTests: XCTestCase {
         )
         let pointInWindow = contentView.convert(pointInContent, to: nil)
         let pointInHost = host.convert(pointInWindow, from: nil)
-        return TabStripPassThroughFixture(host: host, pointInHost: pointInHost)
+        return TabStripPassThroughFixture(host: host, pointInHost: pointInHost, pointInWindow: pointInWindow)
+    }
+
+    /// Leaves a hover event for another window as `NSApp.currentEvent`, the
+    /// state earlier suites leave behind when a real mouseEntered for one of
+    /// their windows was the last event AppKit dequeued.
+    private func leaveStaleHoverEventAsCurrentEvent(for window: NSWindow) {
+        guard let staleHover = NSEvent.enterExitEvent(
+            with: .mouseEntered,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            trackingNumber: 0,
+            userData: nil
+        ) else {
+            XCTFail("Failed to create a mouseEntered event")
+            return
+        }
+        NSApp.postEvent(staleHover, atStart: true)
+        _ = NSApp.nextEvent(matching: .any, until: .distantPast, inMode: .default, dequeue: true)
+        XCTAssertEqual(NSApp.currentEvent?.type, .mouseEntered)
     }
 
     func testHostViewPassesThroughUnderlyingTabStripInSecondWindowBelowTitlebarBand() {
@@ -1459,12 +1483,43 @@ final class WindowBrowserHostViewTests: XCTestCase {
             return
         }
 
+        let otherWindow = NSWindow(
+            contentRect: NSRect(x: 64, y: 64, width: 200, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { otherWindow.orderOut(nil) }
+        leaveStaleHoverEventAsCurrentEvent(for: otherWindow)
+
+        // `hitTest(_:)` would route on that stale hover, and hover events
+        // deliberately skip this unregistered tab-strip fallback. The
+        // regression is about clicks, so hit-test with the click itself.
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
         XCTAssertNil(
-            firstFixture.host.hitTest(firstFixture.pointInHost),
+            firstFixture.host.performHitTest(
+                at: firstFixture.pointInHost,
+                currentEvent: makeMouseEvent(
+                    type: .leftMouseDown,
+                    location: firstFixture.pointInWindow,
+                    window: firstWindow
+                ),
+                dragPasteboard: pasteboard
+            ),
             "Browser portal should defer to the minimal tab strip in the original window just below the titlebar interaction band"
         )
         XCTAssertNil(
-            secondFixture.host.hitTest(secondFixture.pointInHost),
+            secondFixture.host.performHitTest(
+                at: secondFixture.pointInHost,
+                currentEvent: makeMouseEvent(
+                    type: .leftMouseDown,
+                    location: secondFixture.pointInWindow,
+                    window: secondWindow
+                ),
+                dragPasteboard: pasteboard
+            ),
             "Browser portal should defer to the minimal tab strip in later-created windows just below the titlebar interaction band"
         )
     }

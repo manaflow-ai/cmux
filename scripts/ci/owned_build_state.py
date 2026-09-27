@@ -8,6 +8,7 @@
     owned_build_state.py save STORE SOURCE_PACKAGES WORKSPACE [PACKAGE_STORE]
     owned_build_state.py prefer STORE WORKSPACE PREFIX REVISION [MAX_DISTANCE]
     owned_build_state.py warm-keys STORE RUNNER POOL [FINGERPRINT]
+    owned_build_state.py evict-parked STORE [COUNT]
 
 An owned Mac (a `glaeda-<class>-xcode-<version>` runner, pr_runner_pool.py)
 outlives the job, but ci-macos.yml compile admission was written for
@@ -157,12 +158,14 @@ requests never reach an owned pool.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import seed_derived_data as seed  # noqa: E402
@@ -268,9 +271,170 @@ def sweep_discarded(store: Path) -> None:
         remove(stale)
 
 
-def check(store: Path, fingerprint: str, workspace: Path, package_store: Path | None = None) -> dict[str, str]:
+# Pull request build slots. A root's kept DerivedData is replaced by the next admission on it, so a
+# pull request's build was usually gone when its next push arrived: of 290 owned admissions on
+# 2026-09-26/27, 69 re-pushes rebuilt the app because of their own package or app changes, 53 of them
+# on another mini than their previous push and 16 on the same one after another pull request's build
+# replaced it. A start from the same pull request's build skipped the app rebuild 11 times in 19.
+# When `keep` replaces the kept build of another pull request, it parks that build in
+# STORE/pr-builds/pr-<n> (a rename, no copy), and `check` for pull request n swaps it back in before
+# anything else reads the kept state. glaeda's hook reads the parked stamp when it ranks roots, and
+# `warm-keys` publishes it (`parked`) for pr_runner_pool.py's distance routing. A root keeps at most
+# PR_SLOTS parked builds, each for PR_SLOT_HOURS. There is no free-disk floor: parked builds are the
+# first thing given up when space runs out. `keep` that hits ENOSPC evicts every parked build on the
+# mini, oldest first, and retries, and `evict-parked` does the same for disk tooling (glaeda-disk).
+# A main build is never parked, so eviction never touches one.
+PR_BUILDS = "pr-builds"
+PR_SLOTS = 2
+PR_SLOT_HOURS = 6
+
+
+def pr_slot(store: Path, number: object) -> Path | None:
+    key = pr_key(number)
+    return store / PR_BUILDS / key if key else None
+
+
+def parked_slots(store: Path) -> list[Path]:
+    """Every parked build on STORE's mini (all canonical roots), oldest first."""
+    dated = []
+    for root in (store, *other_root_stores(store)):
+        try:
+            entries = list((root / PR_BUILDS).iterdir())
+        except OSError:
+            continue
+        for path in entries:
+            if path.name.startswith("pr-"):
+                with contextlib.suppress(OSError):
+                    dated.append((path.stat().st_mtime, str(path), path))
+    return [path for _, _, path in sorted(dated)]
+
+
+def evict_parked(store: Path, count: int | None = None) -> list[str]:
+    """Remove the COUNT oldest parked builds on STORE's mini (all when None); returns what was removed."""
+    removed = []
+    for path in parked_slots(store)[:count]:
+        with contextlib.suppress(OSError, RuntimeError):
+            clear(path)
+            removed.append(str(path))
+    return removed
+
+
+def prune_pr_slots(store: Path, now: float | None = None) -> None:
+    """Drop parked builds past PR_SLOT_HOURS, then all but the newest PR_SLOTS."""
+    now = time.time() if now is None else now
+    try:
+        entries = list((store / PR_BUILDS).iterdir())
+    except OSError:
+        return
+    for path in entries:  # a park or clear a killed job left half done
+        if (path.name.startswith(".pr-") and (".incoming-" in path.name or ".discard-" in path.name)
+                and not owned_by_live_process(path)):
+            slot = store / PR_BUILDS / path.name[1:].split(".", 1)[0]
+            with contextlib.suppress(OSError, RuntimeError):
+                # A park killed after its stamp was written is whole: finish it rather than lose the build.
+                if (".incoming-" in path.name and (path / DERIVED).is_dir() and not slot.exists()
+                        and pr_key(read_stamp(path).get("pr")) == slot.name):
+                    path.rename(slot)
+                else:
+                    clear(path)
+    try:
+        entries = list((store / PR_BUILDS).iterdir())
+    except OSError:
+        return
+    slots = [path for path in entries if path.name.startswith("pr-")]
+    dated = []
+    for path in slots:
+        try:
+            dated.append((path.stat().st_mtime, path))
+        except OSError:
+            continue
+    dated.sort(reverse=True)
+    for index, (moment, path) in enumerate(dated):
+        if index >= PR_SLOTS or now - moment > PR_SLOT_HOURS * 3600:
+            with contextlib.suppress(OSError, RuntimeError):
+                clear(path)
+
+
+def park(store: Path) -> str:
+    """Move the kept build of a pull request into its slot; returns the slot name or ""."""
+    stamp = read_stamp(store)
+    slot = pr_slot(store, stamp.get("pr"))
+    if slot is None or not (store / DERIVED).is_dir() or not str(stamp.get("fingerprint") or "").endswith(STATE_VERSION):
+        return ""
+    incoming = slot.with_name(f".{slot.name}.incoming-{os.getpid()}")
+    remove(incoming)
+    incoming.mkdir(parents=True)
+    write_stamp(incoming, stamp)
+    write_stamp(store, {})  # the store no longer holds that build, whatever happens next
+    try:
+        (store / DERIVED).rename(incoming / DERIVED)
+    except OSError:
+        write_stamp(store, stamp)
+        raise
+    clear(slot)
+    incoming.rename(slot)
+    os.utime(slot)
+    return slot.name
+
+
+def unpark(store: Path, number: object, fingerprint: str) -> bool:
+    """Swap pull request NUMBER's parked build in as the kept one, parking the current kept build first."""
+    slot = pr_slot(store, number)
+    if slot is None or not (slot / DERIVED).is_dir():
+        return False
+    try:
+        if time.time() - slot.stat().st_mtime > PR_SLOT_HOURS * 3600:
+            return False  # expired: neither published nor routed to
+    except OSError:
+        return False
+    stamp = read_stamp(slot)
+    if not fingerprint or stamp.get("fingerprint") != stamped(fingerprint):
+        return False
+    current = read_stamp(store)
+    if pr_key(current.get("pr")) == pr_key(number) and (store / DERIVED).is_dir():
+        return False  # the kept build is this pull request's already
+    # A current main build (no pull request) stays, and so does one park() could not move: the job
+    # starts from it instead. (If another root's eviction removes the slot after the park, the rename
+    # below fails, check reports it, and the job starts cold with its kept build parked.) A kept build no router can read (stale or missing stamp) is replaced.
+    kept_current = str(current.get("fingerprint") or "").endswith(f"-{STATE_VERSION}")
+    if (store / DERIVED).exists() and kept_current and not park(store):
+        return False
+    if (store / DERIVED).exists():
+        clear(store / DERIVED)
+    (slot / DERIVED).rename(store / DERIVED)
+    write_stamp(store, stamp)
+    with contextlib.suppress(OSError, RuntimeError):
+        clear(slot)
+    return True
+
+
+def parked_stamps(store: Path, now: float | None = None) -> list[dict[str, object]]:
+    """The current (STATE_VERSION, under PR_SLOT_HOURS) stamps of the builds parked beside STORE, newest first."""
+    now = time.time() if now is None else now
+    try:
+        dated = sorted(((path.stat().st_mtime, path) for path in (store / PR_BUILDS).iterdir()
+                        if path.name.startswith("pr-") and (path / DERIVED).is_dir()), reverse=True)
+    except OSError:
+        return []
+    slots = [path for moment, path in dated if now - moment <= PR_SLOT_HOURS * 3600]
+    found = []
+    for slot in slots:
+        stamp = read_stamp(slot)
+        if str(stamp.get("fingerprint") or "").endswith(f"-{STATE_VERSION}") and pr_key(stamp.get("pr")) == slot.name:
+            found.append(stamp)
+    return found
+
+
+def check(store: Path, fingerprint: str, workspace: Path, package_store: Path | None = None,
+          pr_number: str = "") -> dict[str, str]:
     store.mkdir(parents=True, exist_ok=True)
     sweep_discarded(store)
+    unparked = False
+    if pr_number:
+        try:
+            unparked = unpark(store, pr_number, fingerprint)
+        except (OSError, RuntimeError):
+            unparked = False
     if fingerprint and os.environ.get("RUNNER_OS") and os.environ.get("RUNNER_ARCH"):
         # Which seeds this root adopts, for seed_derived_data.py `prefetch`
         # to fetch ahead while the Mac is idle. Best effort.
@@ -302,7 +466,7 @@ def check(store: Path, fingerprint: str, workspace: Path, package_store: Path | 
             result["reason"] = f"kept DerivedData grew to {size} bytes"
         else:
             result["warm"] = "true"
-            result["reason"] = "kept DerivedData matches"
+            result["reason"] = "this pull request's parked build" if unparked else "kept DerivedData matches"
     packages = (package_store or store) / PACKAGES
     if packages.is_dir():
         destination = workspace / ".ci-source-packages"
@@ -395,10 +559,35 @@ def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr
     store.mkdir(parents=True, exist_ok=True)
     sweep_discarded(store)
     incoming = store / f".{DERIVED}.incoming"
-    clone(derived, incoming)
+    try:
+        try:
+            clone(derived, incoming)
+        except OSError as error:
+            # Out of space: parked builds go first (oldest first), then the clone gets one more try.
+            # copytree's shutil.Error carries its per-file errors as text, without an errno.
+            full = error.errno == errno.ENOSPC or "No space left on device" in str(error)
+            if not full or not evict_parked(store):
+                raise
+            remove(incoming)
+            clone(derived, incoming)
+    except OSError:
+        remove(incoming)  # a partial clone would hold its space until the next keep
+        raise
     # A seed's record is never replayed here (adopt reads RECORD only).
     for name in (*UNREAD, seed.MANIFEST):
         remove(incoming / name)
+    # Another pull request's build is parked, not dropped: its next push may come back to it.
+    parked = ""
+    if pr_key(read_stamp(store).get("pr")) != pr_key(pr_number):
+        try:
+            parked = park(store)
+        except (OSError, RuntimeError):
+            parked = ""
+    own_slot = pr_slot(store, pr_number)
+    if own_slot is not None:  # this build supersedes any parked build of the same pull request
+        with contextlib.suppress(OSError, RuntimeError):
+            clear(own_slot)
+    prune_pr_slots(store)
     stamp = read_stamp(store)
     stamp.pop("fingerprint", None)
     stamp.pop("merged_onto", None)
@@ -415,7 +604,7 @@ def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr
     if pr_key(pr_number):
         stamp["pr"] = int(pr_number.strip())
     write_stamp(store, stamp)
-    return {"kept": "true"}
+    return {"kept": "true", **({"parked": parked} if parked else {})}
 
 
 def pr_key(number: object) -> str:
@@ -462,14 +651,18 @@ def root_number(store: Path, first: Path) -> int:
 
 
 def root_summary(store: Path, number: int) -> dict[str, object]:
-    """What glaeda's hook reads from root NUMBER's stamp, when it keeps a current build; else the number alone."""
+    """What glaeda's hook reads from root NUMBER's stamp, when it keeps a current build, and from its parked
+    pull request builds (`parked`); else the number alone."""
     stamp = read_stamp(store)
-    if not (store / DERIVED).is_dir() or not str(stamp.get("fingerprint") or "").endswith(f"-{STATE_VERSION}"):
-        return {"root": number}
     summary: dict[str, object] = {"root": number}
-    for field in ROOT_FIELDS:
-        if field in stamp:
-            summary[field] = stamp[field]
+    if (store / DERIVED).is_dir() and str(stamp.get("fingerprint") or "").endswith(f"-{STATE_VERSION}"):
+        for field in ROOT_FIELDS:
+            if field in stamp:
+                summary[field] = stamp[field]
+    # The pull request builds parked beside it (PR slots), which `check` swaps in for their next push.
+    parked = [{field: slot[field] for field in ROOT_FIELDS if field in slot} for slot in parked_stamps(store)]
+    if parked:
+        summary["parked"] = parked[:PR_SLOTS]
     return summary
 
 
@@ -825,8 +1018,14 @@ def package_store(argv: list[str]) -> Path | None:
 
 
 def main(argv: list[str]) -> int:
+    if (len(argv) == 3 or len(argv) == 4 and argv[3].isdigit()) and argv[1] == "evict-parked":
+        count = int(argv[3]) if len(argv) == 4 else None
+        for path in evict_parked(Path(argv[2]), count):
+            print(f"evicted {path}")
+        return 0
     if len(argv) in (5, 6) and argv[1] == "check":
-        write_outputs(check(Path(argv[2]), argv[3], Path(argv[4]), package_store(argv)))
+        write_outputs(check(Path(argv[2]), argv[3], Path(argv[4]), package_store(argv),
+                            os.environ.get("CMUX_OWNED_PR", "")))
         return 0
     if len(argv) == 5 and argv[1] == "adopt":
         write_outputs(adopt(Path(argv[2]), Path(argv[3]), Path(argv[4]).resolve()))

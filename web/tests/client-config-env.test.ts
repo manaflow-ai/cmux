@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { spawn } from "node:child_process";
+import { type ChildResult, runChild } from "./helpers/run-child";
 
 const requiredEnv = {
   PATH: process.env.PATH ?? "",
@@ -44,7 +44,7 @@ describe("client config env validation", () => {
       VERCEL_PREVIEW_COMMENTS_ENABLED: "0",
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stderr).not.toContain("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID is required");
   });
 
@@ -59,7 +59,7 @@ describe("client config env validation", () => {
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
     });
-    expect(without.exitCode).toBe(0);
+    expect(without.status).toBe(0);
     expect(without.stderr).not.toContain("CODEROUTER_HOSTED_PRO_REQUIRED");
     expect(without.stderr).not.toContain("SUBROUTER_ENFORCE_STACK_PERMISSIONS");
     expect(without.stderr).not.toContain("SUBROUTER_ALLOWED_TEAM_IDS");
@@ -75,7 +75,7 @@ describe("client config env validation", () => {
       SUBROUTER_ENFORCE_STACK_PERMISSIONS: "1",
       SUBROUTER_ALLOWED_TEAM_IDS: "team-a",
     });
-    expect(withStale.exitCode).toBe(0);
+    expect(withStale.status).toBe(0);
   });
 
   test("rejects every retired Stripe price override at startup", async () => {
@@ -108,7 +108,7 @@ describe("client config env validation", () => {
       STRIPE_TEAM_YEARLY_576_PRICE_ID: "price_team_576",
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
   });
 
   test("allows explicit Vercel production deployments with all rate-limit ids unset", async () => {
@@ -125,7 +125,7 @@ describe("client config env validation", () => {
       ...relayEnv,
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stderr).not.toContain("RATE_LIMIT_ID");
   });
 
@@ -141,7 +141,7 @@ describe("client config env validation", () => {
       ...requiredRelayProductionEnv,
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
   });
 
   test("allows hosted-only production after the temporary legacy admin token is retired", async () => {
@@ -156,7 +156,7 @@ describe("client config env validation", () => {
       ...requiredRelayProductionEnv,
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stderr).not.toContain("SUBROUTER_ADMIN_TOKEN");
   });
 
@@ -169,7 +169,7 @@ describe("client config env validation", () => {
       CMUX_DOCS_CHANNEL: "nightly",
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
   });
 
   test("allows explicit Vercel production deployments without the analytics limiter id", async () => {
@@ -183,7 +183,7 @@ describe("client config env validation", () => {
       ...requiredRelayProductionEnv,
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stderr).not.toContain("CMUX_ANALYTICS_RATE_LIMIT_ID");
   });
 
@@ -198,7 +198,7 @@ describe("client config env validation", () => {
       ...requiredRelayProductionEnv,
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
   });
   test("accepts the self-hosted relay path without the legacy hosted minter", async () => {
     const result = await importEnv({
@@ -217,7 +217,7 @@ describe("client config env validation", () => {
       ...requiredRelayProductionEnv,
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
   });
 
   test("allows explicit Vercel production without the optional Iroh limiter id", async () => {
@@ -232,7 +232,7 @@ describe("client config env validation", () => {
       ...requiredSubrouterDeploymentEnv,
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stderr).not.toContain("CMUX_IROH_RATE_LIMIT_ID is required");
   });
 
@@ -278,7 +278,7 @@ describe("client config env validation", () => {
       VERCEL_ENV: "preview",
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
   });
 
   test("allows an explicitly opted-in loopback HTTP relay minter only in local development", async () => {
@@ -289,7 +289,7 @@ describe("client config env validation", () => {
       CMUX_IROH_MINT_URL: "http://localhost:49152/api/relay-token",
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stdout).toBe("http://localhost:49152/api/relay-token");
   });
 
@@ -338,55 +338,32 @@ describe("client config env validation", () => {
   });
 });
 
-interface ChildResult {
-  exitCode: number;
-  signal: NodeJS.Signals | null;
-  stdout: string;
-  stderr: string;
-}
-
 // A rejection must be the validation failure itself: a clean nonzero exit with
 // the expected diagnostic. A child killed by the spawn timeout or a signal also
 // exits nonzero, so it must never count as the rejection under test.
 function expectRejected(result: ChildResult, ...diagnostics: string[]): void {
   expect(result.signal).toBeNull();
-  expect(result.exitCode).not.toBe(0);
+  expect(result.status).not.toBe(0);
   for (const diagnostic of diagnostics) {
     expect(result.stderr).toContain(diagnostic);
   }
 }
 
-// Async spawn rather than spawnSync: on Blacksmith runners Bun 1.3's spawnSync
-// sometimes never observes the child's exit and spins the test process at 100%
-// CPU until the job times out (manaflow-ai/cmux#14876). The async spawn waits
-// through the event loop instead.
-function runChild(
-  args: string[],
-  env: Record<string, string>,
-): Promise<ChildResult> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["--no-env-file", ...args], {
-      env: env as NodeJS.ProcessEnv,
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 30_000,
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
-    child.stderr.setEncoding("utf8").on("data", (chunk: string) => (stderr += chunk));
-    child.on("error", reject);
-    child.on("close", (code, signal) => resolve({ exitCode: code ?? 1, signal, stdout, stderr }));
-  });
+/** Runs this Bun binary without .env loading, under exactly the given environment. */
+function runBun(args: string[], env: Record<string, string>): Promise<ChildResult> {
+  return runChild(process.execPath, ["--no-env-file", ...args], { env, timeout: 30_000 });
 }
 
+/** Imports app/env in a fresh Bun process so its startup validation runs. */
 async function importEnv(env: Record<string, string>): Promise<ChildResult> {
-  return runChild(["-e", "await import('./app/env')"], env);
+  return runBun(["-e", "await import('./app/env')"], env);
 }
 
+/** Resolves the relay minter URL in a fresh Bun process and prints its href. */
 async function inspectIrohMinterUrl(
   env: Record<string, string>,
 ): Promise<ChildResult> {
-  const result = await runChild(["-e", `
+  const result = await runBun(["-e", `
         const { irohTrustBrokerConfigFromEnv } = await import('./services/iroh/config');
         const { parseMinterUrl } = await import('./services/iroh/relayMinter');
         const config = irohTrustBrokerConfigFromEnv();

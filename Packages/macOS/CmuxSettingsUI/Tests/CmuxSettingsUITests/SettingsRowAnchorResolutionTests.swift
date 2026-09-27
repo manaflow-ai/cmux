@@ -58,6 +58,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.sendAnonymousTelemetry",
         "app.warnBeforeClosingTab",
         "app.warnBeforeClosingTabXButton",
+        "app.warnBeforeClosingWorkspace",
         "app.workspaceInheritWorkingDirectory",
         "automation.claudeBinaryPath",
         "automation.claudeCodeIntegration",
@@ -142,6 +143,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.autoResumeAgentSessions",
         "terminal.copyOnSelect",
         "terminal.reflowHardWrapOnCopy",
+        "terminal.confirmUnsafePaste",
         "terminal.showPasswordInputIndicator",
         "terminal.showPasswordInputDots",
         "terminal.textEditingGestures",
@@ -157,6 +159,7 @@ struct SettingsRowAnchorResolutionTests {
         "workspaceColors.indicatorStyle",
         "workspaceColors.notificationBadgeColor",
         "workspaceColors.selectionColor",
+        "workspaceColors.subtleSelection",
     ]
 
     /// Searchable rows anchored with an explicit `settingsSearchAnchors`

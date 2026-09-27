@@ -74,6 +74,12 @@ enum SettingsSearchIndex {
         ),
         setting(
             .app,
+            "warn-before-closing-workspace",
+            String(localized: "settings.app.warnBeforeClosingWorkspace", defaultValue: "Warn Before Closing Workspace"),
+            "cmd shift w close workspace confirmation running process"
+        ),
+        setting(
+            .app,
             "hide-tab-close-button",
             String(localized: "settings.app.hideTabCloseButton", defaultValue: "Hide Tab Close Button"),
             "hide x button close tab"
@@ -96,6 +102,7 @@ enum SettingsSearchIndex {
         setting(.terminal, "session-content-alignment", String(localized: "settings.terminal.sessionContentAlignment", defaultValue: "Session Content Alignment"), "terminal.sessionContentAlignment left center right align terminal agent chat"),
         setting(.terminal, "copy-on-select", String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), "terminal.copyOnSelect clipboard selection mouse double click triple click"),
         setting(.terminal, "text-editing-gestures", String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"), "terminal.textEditingGestures text editing gestures option alt word line kill readline emacs keybindings command arrow delete"),
+        setting(.terminal, "confirm-unsafe-paste", String(localized: "settings.terminal.confirmUnsafePaste", defaultValue: "Confirm Unsafe Pastes"), "terminal.confirmUnsafePaste confirm unsafe paste protection warning multi-line newline clipboard sheet"),
         setting(.terminal, "reflow-hard-wrap-on-copy", String(localized: "settings.terminal.reflowHardWrapOnCopy", defaultValue: "Reflow Hard-Wrapped Text on Copy"), "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"),
         setting(.terminal, "password-input-indicator", String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"), "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"),
         setting(.terminal, "password-input-dots", String(localized: "settings.terminal.showPasswordInputDots", defaultValue: "Show Typed Password Dots"), "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"),
@@ -152,8 +159,7 @@ enum SettingsSearchIndex {
             String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"),
             [
                 "automation.workspaceAutoNaming automation.autoNamingAgent workspace auto naming auto name ai naming names rename workspace rename tab title titles generated name agent summarizer summarize conversation",
-                String(localized: "settings.automation.workspaceAutoNaming.subtitleOn", defaultValue: "Workspaces and tabs are named from agent conversations."),
-                String(localized: "settings.automation.workspaceAutoNaming.subtitleOff", defaultValue: "Workspace and tab names are never generated."),
+                String(localized: "settings.automation.workspaceAutoNaming.subtitle", defaultValue: "Generates workspace and tab titles from agent conversations."),
                 String(localized: "settings.automation.workspaceAutoNaming.note", defaultValue: "When enabled, cmux summarizes supported agent sessions into short workspace and tab names using each agent's own binary, refreshed as the topic shifts. Manual renames always win and stop auto-naming for that workspace or tab. Uses your agent account for the short summarization calls."),
                 String(localized: "settings.automation.autoNamingAgent", defaultValue: "Naming Agent"),
                 String(localized: "settings.automation.autoNamingAgent.auto", defaultValue: "Automatic")
@@ -192,6 +198,7 @@ enum SettingsSearchIndex {
         setting(.keyboardShortcuts, "reset-defaults", String(localized: "settings.shortcuts.resetDefaults", defaultValue: "Reset Default Shortcuts"), "restore built in builtin defaults keybindings hotkeys chords commands"),
         setting(.keyboardShortcuts, "shortcuts", String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"), "keybindings commands"),
         setting(.workspaceColors, "indicator", String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"), "tab color indicator"),
+        setting(.workspaceColors, "subtle-selection", String(localized: "settings.workspaceColors.subtleSelection", defaultValue: "Subtle Selection Highlight"), "calm selected workspace tint"),
         setting(.workspaceColors, "selection", String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), "selected workspace background"),
         setting(.workspaceColors, "badge", String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"), "unread notification color"),
         setting(.workspaceColors, "palette", String(localized: "settings.workspaceColors.resetPalette", defaultValue: "Reset Palette"), "named colors palette"),
@@ -251,6 +258,7 @@ enum SettingsSearchIndex {
         "app.warnBeforeQuit": settingID(for: .app, idSuffix: "warn-before-quit"),
         "app.warnBeforeClosingTab": settingID(for: .app, idSuffix: "warn-before-closing-tab"),
         "app.warnBeforeClosingTabXButton": settingID(for: .app, idSuffix: "warn-before-closing-tab-x-button"),
+        "app.warnBeforeClosingWorkspace": settingID(for: .app, idSuffix: "warn-before-closing-workspace"),
         "app.hideTabCloseButton": settingID(for: .app, idSuffix: "hide-tab-close-button"),
         "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),
         "app.commandPaletteSearchesAllSurfaces": settingID(for: .app, idSuffix: "palette-search-all"),
@@ -293,6 +301,7 @@ enum SettingsSearchIndex {
         "terminal.copyOnSelect": settingID(for: .terminal, idSuffix: "copy-on-select"),
         "terminal.textEditingGestures": settingID(for: .terminal, idSuffix: "text-editing-gestures"),
         "terminal.reflowHardWrapOnCopy": settingID(for: .terminal, idSuffix: "reflow-hard-wrap-on-copy"),
+        "terminal.confirmUnsafePaste": settingID(for: .terminal, idSuffix: "confirm-unsafe-paste"),
         "terminal.showPasswordInputIndicator": settingID(for: .terminal, idSuffix: "password-input-indicator"),
         "terminal.showPasswordInputDots": settingID(for: .terminal, idSuffix: "password-input-dots"),
         "terminal.sessionContentMaxWidth": settingID(for: .terminal, idSuffix: "session-content-width"),
@@ -306,6 +315,7 @@ enum SettingsSearchIndex {
         "terminal.rendererRealization.maxWarmRenderers": settingID(for: .terminal, idSuffix: "renderer-realization"),
         "workspaceColors.indicatorStyle": settingID(for: .workspaceColors, idSuffix: "indicator"),
         "workspaceColors.selectionColor": settingID(for: .workspaceColors, idSuffix: "selection"),
+        "workspaceColors.subtleSelection": settingID(for: .workspaceColors, idSuffix: "subtle-selection"),
         "workspaceColors.notificationBadgeColor": settingID(for: .workspaceColors, idSuffix: "badge"),
         "sidebarAppearance.matchTerminalBackground": settingID(for: .sidebarAppearance, idSuffix: "match-terminal"),
         "customSidebars.renderer": settingID(for: .customSidebars, idSuffix: "renderer"),
