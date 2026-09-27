@@ -114,7 +114,7 @@ extension CMUXCLI {
           cmux vm prompt [--json]          Install the cmux-cloud skill file and print
                                            the kickoff prompt that points any agent at it.
           cmux vm prompt --open <agent>    Open a local terminal running <agent> with that
-                                           prompt (claude|codex|opencode).
+                                           prompt (claude|codex|opencode|pi).
         """
     }
 
