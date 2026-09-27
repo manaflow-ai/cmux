@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import XCTest
 
@@ -1469,6 +1470,37 @@ final class CmuxConfigDecodingTests: XCTestCase {
             "palette.copyScreen"
         )
         XCTAssertEqual(store.resolvedAction(id: "copyWorkingDirectory")?.id, "cmux.copyWorkingDirectory")
+    }
+
+    /// A copy-action shortcut pressed while a browser (or any non-terminal)
+    /// panel is focused must not claim the keystroke: returning false lets
+    /// the shortcut router pass the key through to that panel instead of
+    /// beeping and swallowing it. Nothing is written to the clipboard.
+    @MainActor
+    func testCopyActionShortcutPassesThroughWhenNoTerminalIsFocused() throws {
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager()
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        let context = try XCTUnwrap(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
+        let workspace = try XCTUnwrap(tabManager.selectedWorkspace)
+        let terminalId = try XCTUnwrap(workspace.focusedPanelId)
+        let browser = try XCTUnwrap(workspace.newBrowserSplit(from: terminalId, orientation: .horizontal))
+        workspace.focusPanel(browser.id)
+        XCTAssertEqual(workspace.focusedPanelId, browser.id)
+
+        let changeCount = NSPasteboard.general.changeCount
+        for builtIn in [
+            CmuxSurfaceTabBarBuiltInAction.copyWorkingDirectory,
+            .copyProjectRoot,
+            .copyScreen,
+        ] {
+            XCTAssertFalse(
+                appDelegate.executeConfiguredCmuxAction(.builtIn(builtIn), context: context),
+                "\(builtIn.configID) claimed a shortcut with a browser panel focused"
+            )
+        }
+        XCTAssertEqual(NSPasteboard.general.changeCount, changeCount)
     }
 
     func testDecodeEmptySurfaceTabBarButtons() throws {
