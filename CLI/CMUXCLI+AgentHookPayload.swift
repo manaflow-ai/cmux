@@ -77,7 +77,7 @@ extension CMUXCLI {
         var compact: [String: Any] = [:]
 
         for key in [
-            "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
+            "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath", "agent_id", "agentId",
             "permission_mode", "permissionMode",
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
             "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
@@ -100,7 +100,7 @@ extension CMUXCLI {
         // reading the compacted payload cannot tell a long prompt from a short
         // one. Carry the submitted length alongside it. An integer exposes no
         // prompt text, so this stays inside the same redaction boundary.
-        for key in Self.hookMessageLengthKeys where compact[key] != nil {
+        for key in Self.hookMessageLengthKeys {
             guard let raw = object[key] as? String else { continue }
             compact["\(key)_length"] = raw.count
         }
@@ -162,6 +162,11 @@ extension CMUXCLI {
             ] {
                 if let value = compactClaudeHookValue(nested[nestedKey], key: nestedKey) {
                     compactNested[nestedKey] = value
+                }
+            }
+            for messageKey in Self.hookMessageLengthKeys {
+                if let raw = nested[messageKey] as? String {
+                    compactNested["\(messageKey)_length"] = raw.count
                 }
             }
             if !compactNested.isEmpty {

@@ -21,7 +21,10 @@ WORKFLOW = ROOT / ".github" / "workflows" / "test-ios.yml"
 def job_block(name: str) -> str:
     text = WORKFLOW.read_text(encoding="utf-8")
     marker = f"  {name}:\n"
-    start = text.index(marker)
+    found = re.search(rf"(?m)^  {re.escape(name)}:\n", text)
+    if found is None:
+        raise ValueError(f"no job {name!r} in {WORKFLOW}")
+    start = found.start()
     match = re.search(r"(?m)^  [A-Za-z0-9_-]+:\n", text[start + len(marker) :])
     if match is None:
         return text[start:]
@@ -38,7 +41,7 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
         self.assertEqual(
             detect["outputs"]["device_families"], "${{ steps.families.outputs.json }}"
         )
-        self.assertEqual(jobs["ios-simulator"]["needs"], ["detect-ios-changes", "ios-simulator-build"])
+        self.assertEqual(jobs["ios-simulator"]["needs"], ["runner", "detect-ios-changes", "ios-simulator-build"])
         self.assertEqual(
             jobs["ios-simulator"]["strategy"]["matrix"]["family"],
             "${{ fromJSON(needs.detect-ios-changes.outputs.device_families) }}",
@@ -110,16 +113,32 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
 
     def test_paid_and_downstream_jobs_checkout_only_the_resolved_sha(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        resolved_ref = "ref: ${{ needs.detect-ios-changes.outputs.target_sha }}"
+        resolved_sha = "${{ needs.detect-ios-changes.outputs.target_sha }}"
+        resolved_ref = f"ref: {resolved_sha}"
 
         self.assertNotIn("ref: ${{ inputs.ref || github.ref", workflow)
         for job in ("package-conventions-lint", "mobile-core-package", "ios-simulator-build", "ios-simulator"):
             with self.subTest(job=job):
                 self.assertIn(resolved_ref, job_block(job))
 
-        # The routing job checks out the workflow revision itself; every other
-        # checkout is pinned to the one resolved 40-character commit SHA.
-        self.assertEqual(workflow.count(resolved_ref), 4)
+        # The routing jobs check out the workflow revision itself; every other
+        # checkout, including the retry after a failed seeded checkout, is
+        # pinned to the one resolved commit SHA.
+        routing = {"runner", "detect-ios-changes"}
+        jobs = yaml.safe_load(workflow)["jobs"]
+        pinned = 0
+        for name, job in jobs.items():
+            for index, step in enumerate(job.get("steps", [])):
+                if not str(step.get("uses", "")).startswith("actions/checkout@"):
+                    continue
+                ref = (step.get("with") or {}).get("ref")
+                with self.subTest(job=name, step=index):
+                    if name in routing:
+                        self.assertNotEqual(ref, resolved_sha)
+                    else:
+                        self.assertEqual(ref, resolved_sha)
+                        pinned += 1
+        self.assertGreaterEqual(pinned, 4)
 
 
 def job_admitted(jobs, name, results, outputs, inputs, *, cancelled=False):
@@ -184,10 +203,10 @@ class IOSNativeLintAdmissionTests(unittest.TestCase):
 
     def admitted(self, job, *, lint="success", should_lint="true", should_run="true",
                  detect="success", producer="success", package="", test_filter="",
-                 cancelled=False, event_name="workflow_dispatch"):
+                 cancelled=False, event_name="workflow_dispatch", runner="success"):
         return job_admitted(
             self.jobs, job,
-            {"detect-ios-changes": detect, "package-conventions-lint": lint,
+            {"runner": runner, "detect-ios-changes": detect, "package-conventions-lint": lint,
              "ios-simulator-build": producer},
             {"detect-ios-changes": {"should_lint": should_lint, "should_run": should_run}},
             {"swift_package": package, "test_filter": test_filter, "event_name": event_name},
@@ -230,6 +249,13 @@ class IOSNativeLintAdmissionTests(unittest.TestCase):
                     self.assertEqual(actual, expected)
         self.assertTrue(self.admitted("mobile-core-package", event_name="pull_request",
                                       test_filter="ignored-on-pr"))
+
+    def test_no_native_work_without_a_picked_pool(self):
+        # runs-on reads the runner job's JSON; without it there is no pool.
+        for job in ("mobile-core-package", "ios-simulator-build", "ios-simulator"):
+            for runner in ("pending", "failure", "cancelled", "skipped"):
+                with self.subTest(job=job, runner=runner):
+                    self.assertFalse(self.admitted(job, runner=runner))
 
     def test_consumers_require_a_completed_successful_producer(self):
         for producer in ("pending", "in_progress", "failure", "cancelled", "skipped"):

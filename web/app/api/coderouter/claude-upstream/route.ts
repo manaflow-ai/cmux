@@ -1,7 +1,7 @@
-import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
+import { coderouterControlRoute, spanned } from "@/services/coderouter/requestTelemetry";
 // Team Claude upstream accounts: list, add, remove all. One account is
-// addressed under ./[accountId]. Any team member may read; `manageAccounts`
-// (every member today) may write. Secrets never leave the server: responses
+// addressed under ./[accountId]. Every team member may read and write
+// (`manageAccounts` is team membership, permissions.ts). Secrets never leave the server: responses
 // carry masked identifiers only.
 import {
   addClaudeAccount,
@@ -44,7 +44,7 @@ export function makeClaudeUpstreamHandlers(
     const resolved = await dependencies.resolveUsageTeam(request);
     if (!resolved.ok) return resolved.response;
     try {
-      const accounts = await dependencies.list(resolved.teamId, resolved.access);
+      const accounts = await spanned("rds", () => dependencies.list(resolved.teamId, resolved.access));
       return Response.json(
         // `upstream` mirrors the first account for clients written against the
         // single-upstream contract; new clients read `accounts`.

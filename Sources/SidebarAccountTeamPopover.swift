@@ -3,12 +3,7 @@ import CmuxAppKitSupportUI
 import CmuxSettingsUI
 import SwiftUI
 
-extension Notification.Name {
-    static let cmuxTeamPickerShortcutRequested = Notification.Name("cmux.teamPicker.shortcutRequested")
-}
-
-/// The existing compact sidebar account button with team management added to
-/// its account popover.
+/// The compact sidebar account button for account-level actions.
 struct SidebarAccountMenuButton: View {
     @EnvironmentObject private var tabManager: TabManager
     private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
@@ -16,7 +11,6 @@ struct SidebarAccountMenuButton: View {
     private let signInTitle = String(localized: "settings.account.signIn", defaultValue: "Sign In…")
     private let buttonSize = SidebarFooterButtonMetrics.buttonSize
     @State private var isPopoverPresented = false
-    @State private var isShowingTeamPicker = false
     @State private var popoverGroup = CmuxPopoverGroup()
 #if DEBUG
     @AppStorage(SidebarFooterProfileIconDebugSettings.sizeKey)
@@ -100,33 +94,18 @@ struct SidebarAccountMenuButton: View {
         ) {
             SidebarAccountPopover(
                 accountFlow: accountFlow,
-                dismiss: { popoverGroup.dismissAll() },
-                isShowingTeamPicker: $isShowingTeamPicker,
-                popoverGroup: popoverGroup
+                dismiss: { popoverGroup.dismissAll() }
             )
         })
         .safeHelp(buttonTitle)
         .accessibilityLabel(buttonTitle)
         .accessibilityIdentifier("SidebarAccountMenuButton")
-        .task {
-            for await _ in NotificationCenter.default.notifications(named: .cmuxTeamPickerShortcutRequested) {
-                guard !Task.isCancelled else { return }
-                isPopoverPresented = true
-            }
-        }
-        .onChange(of: isPopoverPresented) { _, presented in
-            if !presented {
-                isShowingTeamPicker = false
-            }
-        }
     }
 }
 
 private struct SidebarAccountPopover: View {
     let accountFlow: HostAccountFlow?
     let dismiss: () -> Void
-    @Binding var isShowingTeamPicker: Bool
-    let popoverGroup: CmuxPopoverGroup
     @State private var shortcutObserver = KeyboardShortcutSettingsObserver.shared
 
     private var settingsShortcutHint: String {
@@ -156,15 +135,6 @@ private struct SidebarAccountPopover: View {
                                 .lineLimit(1)
                         }
                     }
-                }
-                Divider()
-                    .padding(.vertical, 4)
-                if let accountFlow {
-                    SidebarAccountTeamPickerRow(
-                        accountFlow: accountFlow,
-                        isPresented: $isShowingTeamPicker,
-                        popoverGroup: popoverGroup
-                    )
                 }
                 settingsRow
             } else {

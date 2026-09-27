@@ -1,0 +1,56 @@
+name: CI failure attribution
+
+# Says whether a red pull request CI run failed because of the machine or the
+# code, and re-runs the failed jobs once when every failure is the machine's
+# (scripts/ci/classify_failures.py has the signatures and the rules). On every
+# completed pull request run of CI:
+#
+#   red or cancelled   each failed job gets a verdict (machine, code, unknown)
+#                      in the job summary and in one comment on the pull
+#                      request, edited in place; when every failed job of a
+#                      failed attempt 1 is machine, the failed jobs are re-run
+#   green              that comment, if any, says it passes now
+#
+# A PR's code never runs here: main's script reads the run's job logs and
+# annotations as data. Everything is event driven: nothing polls.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+env:
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
+
+permissions: {}
+
+concurrency:
+  # One report at a time per branch, never cancelled halfway (between the
+  # re-run and the comment that says so). A report takes seconds, and one for
+  # a head the pull request has moved past writes nothing.
+  group: ci-failure-attribution-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  attribute:
+    name: Attribute
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.event.workflow_run.event == 'pull_request' && contains(fromJSON('["success","failure","cancelled"]'), github.event.workflow_run.conclusion) }}
+    runs-on: ubuntu-24.04 # github-hosted-required: write token; the re-run must follow CI within a minute
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      checks: read
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout main's classifier
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      - name: Attribute failures and re-run machine failures
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/classify_failures.py act

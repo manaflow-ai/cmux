@@ -479,7 +479,7 @@ MANUAL_REF_TARGETS = {
     "reload-build.yml": {
         "build": "ref: ${{ needs.resolve-ref.outputs.sha }}",
     },
-    "test-depot.yml": {
+    "test-macos-suite.yml": {
         "tests": "ref: ${{ needs.resolve-ref.outputs.sha }}",
     },
     "test-e2e.yml": {
@@ -557,7 +557,13 @@ def test_ci_runs_this_guard_in_workflow_guard_tests() -> None:
     match = re.search(r"(?ms)^  workflow-guard-tests:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", text)
     assert match is not None, "workflow-guard-tests job missing from ci-guards.yml"
 
-    assert "run: python3 tests/test_ci_reusable_workflow_permissions.py" in match.group(1), match.group(1)
+    # The ci leg runs it through the cmux.ci.guard workload profile.
+    sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+    import workload_entrypoints
+
+    job = match.group(1)
+    reached = job + "".join(script for _, script in workload_entrypoints.entrypoints(job, ROOT))
+    assert "python3 tests/test_ci_reusable_workflow_permissions.py" in reached, job
 
 
 if __name__ == "__main__":

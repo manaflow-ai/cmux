@@ -321,16 +321,29 @@ struct AgentHookDeliveryQueueTests {
             await probe.deliver(event)
         }
 
-        for index in 1...3 {
+        // Tool telemetry has a single ingress slot, so a second tool event is
+        // admitted only after the drain task has moved the first one into a
+        // lane. Waiting for each delivery to start makes that hand-off
+        // observable instead of racing the drain task. Only two tool
+        // deliveries may run, so the third stays resident behind them.
+        for index in 1...2 {
             #expect(queue.enqueue(try makeEvent(
                 agent: "cursor",
                 subcommand: "shell-exec",
                 payload: "tool-\(index)",
                 surfaceID: "surface-\(index)"
             )))
+            try await probe.waitUntilStarted(count: index)
         }
-        try await probe.waitUntilStarted(count: 2)
+        #expect(queue.enqueue(try makeEvent(
+            agent: "cursor",
+            subcommand: "shell-exec",
+            payload: "tool-3",
+            surfaceID: "surface-3"
+        )))
 
+        // Three outstanding tool events exhaust the best-effort reservation
+        // whether or not tool-3 has left ingress yet.
         #expect(!queue.enqueue(try makeEvent(
             agent: "cursor",
             subcommand: "shell-exec",
@@ -710,6 +723,50 @@ struct AgentHookDeliveryQueueTests {
             executableURL: URL(fileURLWithPath: "/bin/true")
         )
         #expect(directEnvironment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == nil)
+    }
+
+    @Test("Mirrored cmux-tui session hooks replay relay-backed to the local pane")
+    func mirroredAgentHookEvent() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let process = AgentHookDeliveryProcess(executableURLProvider: { nil })
+        let start = try #require(AgentHookDeliveryEvent.mirrored(
+            agent: "claude",
+            subcommand: "session-start",
+            payload: #"{"hook_event_name":"SessionStart","session_id":"s1"}"#,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            deliverySocketPath: "/tmp/cmux-local.sock"
+        ))
+        #expect(start.relayBacked)
+        #expect(start.sessionID == "s1")
+        #expect(start.deliveryArguments == ["hooks", "claude", "session-start"])
+        #expect(start.orderingKey == "/tmp/cmux-local.sock\0surface\0\(surfaceID.uuidString)")
+        let startEnvironment = process.deliveryEnvironment(
+            event: start,
+            executableURL: URL(fileURLWithPath: "/bin/true")
+        )
+        #expect(startEnvironment["CMUX_WORKSPACE_ID"] == workspaceID.uuidString)
+        #expect(startEnvironment["CMUX_SURFACE_ID"] == surfaceID.uuidString)
+        #expect(startEnvironment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == "1")
+        #expect(startEnvironment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] == nil)
+
+        // Session end keeps the record/journal cleanup but not the visible
+        // status and notification cleanup owned by the roster projection.
+        let end = try #require(AgentHookDeliveryEvent.mirrored(
+            agent: "claude",
+            subcommand: "session-end",
+            payload: #"{"hook_event_name":"SessionEnd","session_id":"s1"}"#,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            deliverySocketPath: "/tmp/cmux-local.sock"
+        ))
+        let endEnvironment = process.deliveryEnvironment(
+            event: end,
+            executableURL: URL(fileURLWithPath: "/bin/true")
+        )
+        #expect(endEnvironment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] == "1")
+        #expect(end.orderingKey == start.orderingKey)
     }
 
     @Test("Oversized optional launch metadata does not discard lifecycle routing")

@@ -29,7 +29,11 @@ struct CloudVMLoadingPanelView: View {
     }
 
     private func baseContent(elapsedSeconds: Int) -> some View {
-            VStack(spacing: 14) {
+            // Match semantic text colors to the terminal background, which can
+            // differ from the system appearance.
+            let backgroundColor = GhosttyApp.shared.defaultBackgroundColor
+            let readableScheme = WindowChromeColorResolver().readableColorScheme(for: backgroundColor)
+            return VStack(spacing: 14) {
                 switch panel.phase {
                 case .loading(let loadingHeadline):
                     if let loadingHeadline {
@@ -97,7 +101,8 @@ struct CloudVMLoadingPanelView: View {
             }
             .padding(32)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
+            .background(Color(nsColor: backgroundColor))
+            .environment(\.colorScheme, readableScheme)
     }
 }
 

@@ -1,4 +1,6 @@
+import CmuxCloud
 import CmuxCore
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// A collection of resources that travels as one drag or one "open all": a cmux-tui
@@ -419,7 +421,7 @@ extension SurfaceCatalog {
     private func reservableTerminals(_ group: SurfaceResourceGroup) -> [(SurfaceResourcePlacement, SurfaceResource, SurfaceRemoteView?)]? {
         var members: [(SurfaceResourcePlacement, SurfaceResource, SurfaceRemoteView?)] = []
         for placement in group.placements {
-            guard placement.resource.machine.cloudMachineID != nil,
+            guard placement.resource.machine.tuiMachineID != nil,
                   let resource = resources[placement.resource],
                   resource.kind == .terminal,
                   let remoteView = try? resolveRemoteView(for: placement, fallbackWorkspaceID: group.remoteWorkspaceID) else {

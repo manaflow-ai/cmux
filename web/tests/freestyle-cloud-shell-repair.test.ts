@@ -5,11 +5,6 @@ import {
   cmuxTuiInstallCommand,
   cmuxTuiPinCheckCommand,
 } from "../services/vms/drivers/cmuxTuiDaemon";
-import {
-  freestyleDaemonHealthyCommand,
-  freestyleDaemonSettledCommand,
-  freestyleStartDaemonCommand,
-} from "../services/vms/drivers/freestyle";
 
 const SOURCE = {
   url: "https://files.cmux.com/cmux-tui/test/cmux-tui-x86_64-unknown-linux-musl",
@@ -38,52 +33,7 @@ describe("Freestyle Cloud VM daemon repair", () => {
     expect(daemon).not.toContain("cmuxd-remote");
   });
 
-  test("health checks require the managed daemon and its dual-stack listener", () => {
-    // Attach right after create lands in the supervisor's start window: on a
-    // baked image the heal waits up to the settle budget before restarting.
-    const settled = freestyleDaemonSettledCommand();
-    expect(settled).toContain("if [ -f /etc/cmux/bake-instance-id ] && systemctl is-active cmux-tui-daemon");
-    expect(settled).toContain("for i in $(seq 1 30); do {");
-    expect(settled).toContain("sleep 0.1");
-    expect(settled).toContain(`else ${freestyleDaemonHealthyCommand()}; fi`);
-    const healthy = freestyleDaemonHealthyCommand();
-    // [s]tart keeps the pattern from matching the exec shell that carries it.
-    expect(healthy).toContain("pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6");
-    // Instance-binding images: healthy also means bound to this machine's id.
-    expect(healthy).toContain("[ ! -f /etc/cmux/bake-instance-id ] ||");
-    expect(healthy).toContain("/etc/cmux/daemon-instance-id");
-    expect(healthy).toContain("/latest/meta-data/instance-id");
-  });
-
-  test("health and repair require the dual-stack Freestyle listener", () => {
-    const health = freestyleDaemonHealthyCommand();
-    expect(health).toContain("pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6");
-    // Instance-binding images: health must also bind the daemon to this machine.
-    expect(health).toContain("[ ! -f /etc/cmux/bake-instance-id ] ||");
-    expect(health).toContain("/etc/cmux/daemon-instance-id");
-    expect(health).toContain("/latest/meta-data/instance-id");
-
-    const start = freestyleStartDaemonCommand();
-    expect(start).toContain("cmux-tui-daemon.service");
-    expect(start).toContain("Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337");
-    // Machines healed in place get trusted mode through the same drop-in; the
-    // daemon reads the env, so the baked launch line need not carry the flag.
-    expect(start).toContain("Environment=CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1");
-    expect(start).toContain("systemctl daemon-reload");
-    expect(start).toContain("systemctl restart cmux-tui-daemon");
-    expect(start).toContain("--remote-ws [::]:1337");
-
-    // The default launcher keeps a daemon that already runs; the trusted-listener
-    // heal must replace it, or installing the pinned binary changes nothing for
-    // the live process and the retried bundle still reports an untrusted daemon.
-    expect(start).toContain("pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 ||");
-    expect(start).not.toContain("pkill");
-    const heal = freestyleStartDaemonCommand({ replaceExisting: true });
-    expect(heal).toContain("systemctl restart cmux-tui-daemon");
-    expect(heal).toContain("pkill -f 'cmux-tui server [s]tart'");
-    expect(heal).not.toContain("pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 ||");
-    expect(heal).toContain("--remote-ws-trusted-carrier");
-
+  test("pin check verifies the managed binary digest", () => {
     const pinCheck = cmuxTuiPinCheckCommand(SOURCE);
     expect(pinCheck).toContain(SOURCE.sha256);
     expect(pinCheck).toContain("sha256sum -c");

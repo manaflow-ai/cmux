@@ -69,6 +69,21 @@ fn registry_opens_and_persists_under_a_long_windows_state_root() {
 }
 
 #[test]
+fn journal_plugin_generation_reservation_is_monotonic_and_durable() {
+    let registry = WorkspaceRegistry::in_memory("plugin-generation").unwrap();
+    assert_eq!(registry.reserve_journal_plugin_generation().unwrap(), 1);
+    assert_eq!(registry.reserve_journal_plugin_generation().unwrap(), 2);
+    registry
+        .connection
+        .execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'journal_plugin_generation'",
+            [u64::MAX.to_string()],
+        )
+        .unwrap();
+    assert!(registry.reserve_journal_plugin_generation().is_err());
+}
+
+#[test]
 fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publication() {
     let root = temp_root("interrupted-workspace-public-id");
     let key = "018f6e21-7b70-7e70-8000-0000000000aa";
@@ -605,6 +620,7 @@ fn terminal_host_reset_holds_structured_live_marker_lock() {
         supports_clear_history: true,
         supports_terminate_ack: false,
         supports_input_ack: false,
+        supports_terminal_metadata: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -699,6 +715,7 @@ fn terminal_host_reset_checks_legacy_live_marker_as_orphan() {
         supports_clear_history: false,
         supports_terminate_ack: false,
         supports_input_ack: false,
+        supports_terminal_metadata: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -807,6 +824,7 @@ fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
         supports_clear_history: true,
         supports_terminate_ack: false,
         supports_input_ack: false,
+        supports_terminal_metadata: false,
     };
     let record_path = record.record_path(&host_root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);

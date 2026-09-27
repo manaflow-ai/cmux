@@ -88,7 +88,8 @@ struct SettingsSearchIndexTests {
         let sectionCount = result.filter {
             if case .section = $0.kind { return true } else { return false }
         }.count
-        #expect(sectionCount == SettingsSectionID.allCases.count)
+        #expect(sectionCount == SettingsSectionID.allCases.count - 1)
+        #expect(result.contains { $0.id == "section:computers" } == false)
     }
 
     @Test func tokenizedQueryFiltersBothSectionsAndSettings() {
@@ -96,6 +97,36 @@ struct SettingsSearchIndexTests {
         let result = index.match("automation")
         // At minimum the Automation section itself should match.
         #expect(result.contains(where: { $0.title == "Automation" }))
+    }
+
+    @Test func exactComputersSearchTargetsMobileSubsection() throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let result = try #require(index.match("Computers").first)
+
+        #expect(result.id == "section:computers")
+        #expect(result.anchorID == SettingsSectionID.computersSubsectionAnchorID)
+        #expect(result.kind == .section)
+    }
+
+    @Test(arguments: ["devices", "mac", "tailscale", "remote"])
+    func computersSectionAliasesPreserveSearchRanking(query: String) throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let result = try #require(index.match(query).first { $0.kind == .section })
+
+        #expect(result.id == "section:computers")
+        #expect(result.anchorID == SettingsSectionID.computersSubsectionAnchorID)
+    }
+
+    /// `devices` legitimately ranks the phone-push row first because its
+    /// subtitle contains an exact `devices` token. The Computers section
+    /// must still outrank the less-specific Mobile Pairing result.
+    @Test func devicesAliasRanksComputersAboveMobilePairing() throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let results = index.match("devices")
+        let computersIndex = try #require(results.firstIndex { $0.id == "section:computers" })
+        let mobilePairingIndex = try #require(results.firstIndex { $0.id == "setting:mobile:pairDevice" })
+
+        #expect(computersIndex < mobilePairingIndex)
     }
 
     /// Typing an exact section name navigates to that section first.
@@ -113,6 +144,12 @@ struct SettingsSearchIndexTests {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let result = index.match("hotkey hint chips")
         #expect(result.contains { $0.id == "setting:keyboardShortcuts:modifier-hold-hints" })
+    }
+
+    @Test(arguments: ["local tmux", "session persistence", "keep local sessions alive", "reattach"])
+    func localTmuxQueriesFindSessionPersistenceRow(query: String) {
+        let result = SettingsSearchIndex(catalog: SettingCatalog()).match(query)
+        #expect(result.contains { $0.id == "setting:terminal:session-persistence" })
     }
 
     @Test(arguments: ["push", "notifications", "iphone"])

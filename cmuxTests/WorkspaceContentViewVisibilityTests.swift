@@ -264,6 +264,22 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(counts.contentViewBody > 0)
         #expect(counts.workspaceContentBody > 0)
         #expect(counts.verticalTabsSidebarBody > 0)
+        // Setup work keeps publishing after the first render: the selected
+        // workspace's directory reaches the file explorer a few runloop turns
+        // later, and that store change re-evaluates ContentView. On a loaded
+        // runner it landed inside the toggle's window (PR run 36016958288 logged
+        // "ContentView: _fileExplorerStore changed."), so measure only once the
+        // window has gone quiet.
+        var quietRounds = 0
+        for _ in 0..<100 where quietRounds < 3 {
+            counts.reset()
+            await Self.drainMainRunLoop(for: window)
+            let settled = counts.contentViewBody == 0
+                && counts.workspaceContentBody == 0
+                && counts.verticalTabsSidebarBody == 0
+            quietRounds = settled ? quietRounds + 1 : 0
+        }
+        try #require(quietRounds >= 3, "The window must stop re-evaluating chrome bodies before the toggle is measured")
         counts.reset()
         counts.isMeasuringInvalidations = true
         defer { counts.isMeasuringInvalidations = false }
@@ -304,9 +320,19 @@ final class WorkspaceContentViewVisibilityTests {
             forKey: CmuxExtensionSidebarSelection.defaultsKey
         )
 
-        let tabManager = TabManager()
-        let workspaceId = try #require(tabManager.selectedTabId)
+        // Loading-card workspaces, as in the minimal-mode test above. A terminal
+        // workspace starts a login shell and schedules a git metadata probe, and
+        // either can publish a workspace change after `counts.reset()`. That
+        // re-evaluates VerticalTabsSidebar for a reason unrelated to unread
+        // state, so the count below depended on how fast the runner was.
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        let workspaceId = tabManager.addWorkspace(
+            initialSurface: .cloudVMLoading,
+            select: true,
+            autoWelcomeIfNeeded: false
+        ).id
         let unaffectedWorkspace = tabManager.addWorkspace(
+            initialSurface: .cloudVMLoading,
             select: false,
             autoWelcomeIfNeeded: false
         )
@@ -326,6 +352,7 @@ final class WorkspaceContentViewVisibilityTests {
             .environment(
                 \.minimalModeInvalidationProbe,
                 MinimalModeInvalidationProbe(
+                    shouldTraceBodyChanges: { counts.isMeasuringInvalidations },
                     contentViewBody: { counts.contentViewBody += 1 },
                     workspaceContentBody: { counts.workspaceContentBody += 1 },
                     verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
@@ -343,6 +370,7 @@ final class WorkspaceContentViewVisibilityTests {
         window.contentView = MainWindowHostingView(rootView: root)
         defer {
             window.contentView = nil
+            tabManager.finalizeAllWorkspacesForWindowClose()
             window.close()
         }
 
@@ -372,6 +400,8 @@ final class WorkspaceContentViewVisibilityTests {
             unaffectedApplyCount += 1
         }
         counts.reset()
+        counts.isMeasuringInvalidations = true
+        defer { counts.isMeasuringInvalidations = false }
 
         unread.apply(
             totalUnreadCount: 1,
@@ -388,6 +418,7 @@ final class WorkspaceContentViewVisibilityTests {
             manualUnreadWorkspaceIds: []
         )
         await Self.drainMainRunLoop(for: window)
+        counts.isMeasuringInvalidations = false
 
         #expect(
             counts.contentViewBody == 0,
