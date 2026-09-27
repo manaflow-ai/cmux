@@ -160,11 +160,16 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
     /// proves the routed invocation. The captured Claude options that are safe
     /// to replay follow the session id; Subrouter's private `--settings` file is
     /// dropped because the launcher issues a fresh one.
+    ///
+    /// When the record also carries the launcher argv that started Claude
+    /// (`sr claude proxy --account x`), the resume goes through it so options
+    /// such as a pinned account survive; otherwise the pool picks the account.
     public func resumeArguments(
         launcher: String?,
         sessionID: String,
         launchArguments: [String],
-        environment: [String: String]?
+        environment: [String: String]?,
+        launcherPrefix: [String]? = nil
     ) -> [String]? {
         guard provesRoutedLaunch(launcher: launcher, environment: environment),
               let marker = capturedLaunchBoundMarker(in: environment) else {
@@ -174,9 +179,32 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
         guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: tail) else {
             return nil
         }
-        return marker.split(separator: " ").map(String.init)
+        let markerTokens = marker.split(separator: " ").map(String.init)
+        let head = pinnedLauncherArguments(launcherPrefix, markerTokens: markerTokens) ?? markerTokens
+        return head
             + [sessionID]
             + removingPrivateSettingsArguments(from: preserved)
+    }
+
+    /// The captured launcher argv followed by `--resume`, when it is the same
+    /// launcher the marker names and does not already select a session.
+    private func pinnedLauncherArguments(_ launcherPrefix: [String]?, markerTokens: [String]) -> [String]? {
+        guard let launcherPrefix,
+              let executable = launcherPrefix.first,
+              markerTokens.count == 4,
+              launcherPrefix.count >= 3,
+              (executable as NSString).lastPathComponent == markerTokens[0],
+              Array(launcherPrefix[1..<3]) == Array(markerTokens[1..<3]) else {
+            return nil
+        }
+        let sessionSelectors: Set<String> = ["--resume", "-r", "--continue", "-c", "--session-id", "--fork-session"]
+        guard !launcherPrefix.dropFirst().contains(where: { argument in
+            let flag = argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument
+            return sessionSelectors.contains(flag)
+        }) else {
+            return nil
+        }
+        return launcherPrefix + ["--resume"]
     }
 
     /// Whether a `--settings` value names Subrouter's private per-launch file.
