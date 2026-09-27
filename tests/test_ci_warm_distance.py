@@ -369,6 +369,9 @@ class HookParity(unittest.TestCase):
         self.assertEqual(wd.hook_root_cost((swift(1, 2), False), stamp, 7, model, own), (266.5, "far", 6))
         package = {"paths": [PACKAGE], "package_swift_files": 1, "package_interface": None}
         self.assertEqual(wd.hook_root_cost((set(), False), stamp, 7, model, package)[1], "rebuild")
+        # This pull request's own build has its package change already, unless this push touched it again.
+        self.assertEqual(wd.hook_root_cost((set(), False), {**stamp, "pr": 7}, 7, model, package)[1], "far")
+        self.assertEqual(wd.hook_root_cost((set(), True), {**stamp, "pr": 7}, 7, model, package)[1], "rebuild")
 
     def test_model_and_changes(self):
         self.assertEqual(wd.hook_model(HOOK_MODEL), {"near_app_swift_files": 5, "hot_files": ["Sources/Hot.swift"],
@@ -393,7 +396,7 @@ class HookParity(unittest.TestCase):
             for (changes, stamp, number), _ in HOOK_CASES:
                 # A second, comparable root, so the hook never falls back to the exact keys.
                 stamps = [stamp, {"merged_onto": "c" * 40}]
-                with unittest.mock.patch.object(hook, "root_stamp", lambda k, _dir="": stamps[k - 1]), \
+                with unittest.mock.patch.object(hook, "root_stamp", lambda k, *_: stamps[k - 1]), \
                         unittest.mock.patch.object(hook, "main_changes", lambda _mirror, old, _new: changes
                                                    if old == HOOK_BASE else (set(), False)):
                     _, predicted = hook.warm_root_costs([0, 1], "d" * 40, number, tmp)
@@ -459,6 +462,22 @@ class DistanceRouting(unittest.TestCase):
         self.assertEqual(costs, {"m1-glaeda": ("key", 120.0), "m2-glaeda": ("far", 270.0),
                                  "m3-glaeda": ("unknown", 309.7)})
         self.assertEqual(name, "m1-glaeda")
+
+    def test_this_pull_requests_parked_build_draws_its_package_change_to_its_mini(self):
+        # Pull request 7 changes a package interface, so every other build rebuilds the app.
+        own = {"paths": [PACKAGE], "package_swift_files": 1, "package_interface": None}
+        parked = {"merged_onto": "1" * 40, "pr": 7, "pr_app_swift_files": [], "pr_app_swift_total": 0,
+                  "pr_package_interface": True}
+        minis = {"m1": [self.stamp("1" * 40)], "m2": [{**self.stamp("1" * 40), "parked": [parked]}],
+                 "m3": [{**self.stamp("1" * 40), "parked": [{**parked, "pr": 8}]}]}
+        changes = {"1" * 40: (set(), False)}
+        runners = [runner("m1-glaeda"), runner("m2-glaeda"), runner("m3-glaeda")]
+        name, decision = self.route(runners, minis, changes, own=own)
+        costs = {row["runner"]: row["tier"] for row in decision["candidates"]}
+        self.assertEqual(costs, {"m1-glaeda": "rebuild", "m2-glaeda": "far", "m3-glaeda": "rebuild"})
+        self.assertEqual(name, "m2-glaeda")
+        self.assertEqual(wd.own_parked(minis["m2"][0], 7), [parked])
+        self.assertEqual(wd.own_parked(minis["m2"][0], None), [])
 
     def test_record_is_bounded_and_reads_either_mode(self):
         minis = {"m1": [self.stamp("1" * 40)]}
