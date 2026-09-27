@@ -1423,10 +1423,22 @@ impl HookFence {
     }
 }
 
+/// Longest hook session id published for resume. Claude session ids are
+/// UUIDs; longer values are dropped rather than truncated into a wrong id.
+const MAX_PUBLISHED_AGENT_SESSION_ID_BYTES: usize = 256;
+
 /// The hook session id a client may use to resume the agent, or `None` for
-/// the local generation token that session-less adapters receive.
+/// the local generation token that session-less adapters receive and for ids
+/// that are too long or contain anything beyond `[A-Za-z0-9._:-]`. Hook
+/// payloads can come from remote hosts, and clients pass the id to a resume
+/// command.
 fn published_agent_session_id(terminal_id: &TerminalPublicId, session_id: &str) -> Option<String> {
-    (!session_id.is_empty() && !session_id.starts_with(&format!("legacy:{terminal_id}:")))
+    let portable = !session_id.is_empty()
+        && session_id.len() <= MAX_PUBLISHED_AGENT_SESSION_ID_BYTES
+        && session_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'));
+    (portable && !session_id.starts_with(&format!("legacy:{terminal_id}:")))
         .then(|| session_id.to_owned())
 }
 
@@ -24250,6 +24262,38 @@ mod tests {
         assert_eq!(changes[0]["value"]["source"], "hook");
         assert_eq!(changes[0]["value"]["extra"].get("agent_session_id"), None);
         assert_eq!(snapshot_agent(&terminal_id)["extra"].get("agent_session_id"), None);
+
+        // Ids that are too long or not portable are withheld, but the hook
+        // still drives the agent state.
+        let oversized = "a".repeat(257);
+        let unportable = ["x; rm -rf ~", "$(id)", "a b", oversized.as_str()];
+        for (index, session_id) in unportable.iter().enumerate() {
+            let surface = mux.new_workspace(None, None).unwrap();
+            let terminal_id = surface.terminal_public_id().cloned().unwrap();
+            let revision = mux.with_state(|state| state.resource_revision);
+            mux.append_journal_ingress(
+                &claude_hook(
+                    &terminal_id,
+                    "SessionStart",
+                    serde_json::json!({"session_id": session_id}),
+                ),
+                "test",
+                &format!("unportable-hook-{index}"),
+            )
+            .unwrap();
+            let changes = agent_changes_after(&mux, revision);
+            assert_eq!(changes[0]["kind"], "upsert", "{session_id}");
+            assert_eq!(changes[0]["value"]["source"], "hook", "{session_id}");
+            assert_eq!(changes[0]["value"]["extra"].get("agent_session_id"), None, "{session_id}");
+        }
+        assert_eq!(
+            published_agent_session_id(&terminal_id, &"a".repeat(256)),
+            Some("a".repeat(256))
+        );
+        assert_eq!(
+            published_agent_session_id(&terminal_id, "0f8c2a4e-1b3d-4c5e-9f7a-2b4c6d8e0a1b"),
+            Some("0f8c2a4e-1b3d-4c5e-9f7a-2b4c6d8e0a1b".into())
+        );
     }
 
     /// The session id persists with the projection across a registry reopen.

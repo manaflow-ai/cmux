@@ -214,10 +214,13 @@ when one has claimed the terminal. `extra.agent_session_id` is the agent's own
 session id from its hook events (Claude's `session_id`). It is opaque metadata
 that a client can pass to the agent's own resume path (for Claude,
 `claude --resume <id>`); this API does not define a resume operation. Both the
-`agent` upsert change and the snapshot and `agent.list` values carry it, and it is persisted with the projection, so it survives a
-restart. A later hook session on the same terminal (for example after `/clear`
-or a resume) replaces it. It is absent for socket, plugin, and screen-detected
-agents and for hook adapters that report no session id. The id is opaque
+`agent` upsert change and the snapshot and `agent.list` values carry it, and it
+is persisted with the projection, so it survives a restart. A later hook
+session on the same terminal (for example after `/clear` or a resume) replaces
+it. It is absent for socket, plugin, and screen-detected agents, for hook
+adapters that report no session id, and for ids longer than 256 bytes or with
+characters outside `[A-Za-z0-9._:-]`. Clients still pass it as a separate
+argument, never through a shell string. The id is opaque
 metadata at the same level as terminal IDs; remote clients receive it like the
 rest of the agent value. An ended hook session still publishes a `delete`
 change for the agent.
