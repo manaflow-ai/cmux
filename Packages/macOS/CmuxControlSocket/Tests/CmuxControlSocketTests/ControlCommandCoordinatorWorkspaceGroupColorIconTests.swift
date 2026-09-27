@@ -99,7 +99,9 @@ struct ControlCommandCoordinatorWorkspaceGroupColorIconTests {
             Issue.record("rejection did not name the offending parameter")
             return
         }
-        #expect(errData["color"] == .string("Magenta"))
+        #expect(errData["key"] == .string("color"))
+        // The rejected value itself is not echoed back.
+        #expect(errData["color"] == nil)
     }
 
     @Test func malformedHexLengthsAreRejectedNotApplied() {

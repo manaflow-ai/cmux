@@ -367,8 +367,8 @@ extension ControlCommandCoordinator {
         if params["custom_color"] != nil, case .absent = colorParam {
             return .err(
                 code: "invalid_params",
-                message: "unknown key custom_color; set_color accepts hex or color",
-                data: .object(["custom_color": params["custom_color"] ?? .null])
+                message: workspaceGroupStrings().customColorIsNotAnInputKey,
+                data: .object(["key": .string("custom_color")])
             )
         }
         // `hex` is the canonical key and `color` its alias. Accept
@@ -388,15 +388,15 @@ extension ControlCommandCoordinator {
             } else {
                 return .err(
                     code: "invalid_params",
-                    message: "color must be a 6-digit hex color like #FF3EA5 (leading # optional)",
-                    data: .object([params["hex"] != nil ? "hex" : "color": .string(raw)])
+                    message: workspaceGroupStrings().colorMustBeHex,
+                    data: .object(["key": .string(params["hex"] != nil ? "hex" : "color")])
                 )
             }
-        case .typeMismatch(let value):
+        case .typeMismatch:
             return .err(
                 code: "invalid_params",
-                message: "color must be a string holding a hex color",
-                data: .object([params["hex"] != nil ? "hex" : "color": value])
+                message: workspaceGroupStrings().colorMustBeString,
+                data: .object(["key": .string(params["hex"] != nil ? "hex" : "color")])
             )
         }
         guard let ok = context?.controlSetWorkspaceGroupColor(
@@ -421,8 +421,8 @@ extension ControlCommandCoordinator {
         if params["icon_symbol"] != nil, case .absent = symbolParam {
             return .err(
                 code: "invalid_params",
-                message: "unknown key icon_symbol; set_icon accepts symbol or icon",
-                data: .object(["icon_symbol": params["icon_symbol"] ?? .null])
+                message: workspaceGroupStrings().iconSymbolIsNotAnInputKey,
+                data: .object(["key": .string("icon_symbol")])
             )
         }
         let normalized: String?
@@ -432,11 +432,11 @@ extension ControlCommandCoordinator {
         case .supplied(let raw):
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             normalized = trimmed.isEmpty ? nil : trimmed
-        case .typeMismatch(let value):
+        case .typeMismatch:
             return .err(
                 code: "invalid_params",
-                message: "symbol must be a string",
-                data: .object([params["symbol"] != nil ? "symbol" : "icon": value])
+                message: workspaceGroupStrings().symbolMustBeString,
+                data: .object(["key": .string(params["symbol"] != nil ? "symbol" : "icon")])
             )
         }
         guard let result = context?.controlSetWorkspaceGroupIcon(
@@ -500,7 +500,7 @@ extension ControlCommandCoordinator {
     // MARK: - Local helpers
 
     /// How a string-typed RPC parameter (and its alias) was supplied.
-    enum AliasStringParam {
+    enum AliasStringParam: Sendable {
         /// Neither key present, or the winning key is JSON `null` — the
         /// documented spelling for "clear the override".
         case absent
@@ -508,13 +508,13 @@ extension ControlCommandCoordinator {
         case supplied(String)
         /// The winning key holds some other JSON type. Surfacing this as
         /// `invalid_params` keeps a mistyped value from silently clearing.
-        case typeMismatch(JSONValue)
+        case typeMismatch
     }
 
     /// Resolves `canonical` — falling back to `alias` — in `params`. The
     /// canonical key wins whenever it is present, so an alias can never
     /// override an explicit canonical `null` clear.
-    static func aliasStringParam(
+    nonisolated static func aliasStringParam(
         _ params: [String: JSONValue],
         canonical: String,
         alias: String
@@ -527,7 +527,7 @@ extension ControlCommandCoordinator {
             if case .null = value {
                 return .absent
             }
-            return .typeMismatch(value)
+            return .typeMismatch
         }
         return .absent
     }
@@ -538,7 +538,7 @@ extension ControlCommandCoordinator {
     /// leading `#` but only ever displays 6-digit values — so short and alpha
     /// forms are rejected here rather than stored where they would silently
     /// never render.
-    static func normalizeHexColor(_ value: String) -> String? {
+    nonisolated static func normalizeHexColor(_ value: String) -> String? {
         let body = value.hasPrefix("#") ? String(value.dropFirst()) : value
         // ASCII only: `Character.isHexDigit` also accepts fullwidth digits,
         // which the renderer's `UInt64(_:radix:)` parse rejects.
