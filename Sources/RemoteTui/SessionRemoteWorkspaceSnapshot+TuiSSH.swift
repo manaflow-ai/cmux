@@ -10,18 +10,20 @@ extension SessionRemoteWorkspaceSnapshot {
         return configuration
     }
 
-    /// Adopt a pre-cmux-tui persistent SSH snapshot whose terminal ran a named
-    /// tmux session. Its workload lives in the remote tmux server, not in the
-    /// retired cmuxd-remote PTY, and the tmux profile's `new-session -A -s <name>`
-    /// reattaches that same session, so cmux-tui can own it without starting a
-    /// replacement workload. The retired relay and daemon slot are dropped; the
-    /// next save records cmux-tui ownership. Shell-profile legacy snapshots stay
-    /// blocked because their shell only existed inside the daemon PTY.
+    /// Adopts a legacy SSH snapshot whose workload lives in a named tmux session.
+    /// The runtime carrier drops the retired relay and daemon slot and attaches
+    /// only to that exact existing session. Saves retain the original descriptor:
+    /// terminal creation does not prove that the tmux client attached successfully.
+    /// Legacy shell profiles stay blocked because their shell lived in the old PTY.
     func legacyTmuxSSHConfiguration(agentSocketPath: String?) -> WorkspaceRemoteConfiguration? {
         guard sshSessionOwner == nil, isPersistentSSHCarrierShape,
               let terminalProfile, terminalProfile.kind == .tmux,
               terminalProfile.tmuxSessionName != nil else { return nil }
-        return carrierConfiguration(agentSocketPath: agentSocketPath)
+        var configuration = carrierConfiguration(agentSocketPath: agentSocketPath)
+        // Keep subsequent restores attach-only until a future explicit process
+        // acknowledgment can establish durable ownership safely.
+        configuration.restoredSSHSession = self
+        return configuration
     }
 
     private var isPersistentSSHCarrierShape: Bool {
