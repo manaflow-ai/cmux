@@ -6,7 +6,6 @@ import SwiftUI
 enum SidebarAccountChipMetrics {
     static let height: CGFloat = 26
     static let avatarSize: CGFloat = 18
-    static let chevronPointSize: CGFloat = 11
     static let maxNameWidth: CGFloat = 140
 }
 
@@ -18,7 +17,7 @@ struct SidebarAccountMenuButton: View {
     private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
     private let title = String(localized: "settings.section.account", defaultValue: "Account")
     private let signInTitle = String(localized: "settings.account.signIn", defaultValue: "Sign In…")
-    /// False when the footer is too narrow for the name: avatar and chevron only.
+    /// False when the footer is too narrow for the name: avatar only.
     var showsName = true
     @State private var menuAnchor = SidebarFooterMenuAnchor()
 #if DEBUG
@@ -86,11 +85,12 @@ struct SidebarAccountMenuButton: View {
                 )
             }
         } label: {
-            // The whole chip is the target, like the account row in Claude and
-            // ChatGPT desktop: avatar, name, and a chevron that says "this opens
-            // a menu". It hugs its content; when the footer is too narrow for the
-            // name, `SidebarFooterButtons` drops to the avatar alone. Signed out
-            // it reads "Sign In…" with no chevron.
+            // The whole chip is the target, like the account row in ChatGPT and
+            // Codex desktop: avatar and name, no chevron. The avatar and hover
+            // highlight already say "account menu", and the chevron cost width
+            // in a narrow sidebar. It hugs its content; when the footer is too
+            // narrow for the name, `SidebarFooterButtons` drops to the avatar
+            // alone. Signed out it reads "Sign In…".
             HStack(spacing: 5) {
                 SidebarAccountAvatar(
                     avatarURL: identity?.avatarURL,
@@ -108,17 +108,10 @@ struct SidebarAccountMenuButton: View {
                         .truncationMode(.tail)
                         .frame(maxWidth: SidebarAccountChipMetrics.maxNameWidth, alignment: .leading)
                 }
-                if identity != nil {
-                    CmuxSystemSymbolImage(
-                        systemName: "chevron.up.chevron.down",
-                        pointSize: SidebarAccountChipMetrics.chevronPointSize,
-                        weight: .medium,
-                        tint: Color(nsColor: .secondaryLabelColor)
-                    )
-                }
             }
+            // Avatar alone is a 22 pt square, the same as the footer's icons.
             .padding(.leading, 2)
-            .padding(.trailing, 4)
+            .padding(.trailing, showsName || identity == nil ? 6 : 2)
             .frame(height: SidebarAccountChipMetrics.height)
             .contentShape(Rectangle())
         }

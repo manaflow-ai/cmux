@@ -15413,7 +15413,7 @@ struct SidebarFooterButtons: View {
     /// leading edge.
     private func row(showsAccountName: Bool) -> some View {
         HStack(spacing: 4) {
-            // Hover squares touch, as before the chip, so the chevron sits the
+            // Hover squares touch, as before the chip, so the name sits the
             // same distance from ? as ? does from the Pro badge.
             if shows(.account) || shows(.mobileConnect) || shows(.help) {
                 HStack(spacing: 0) {
