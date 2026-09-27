@@ -1839,6 +1839,7 @@ private final class DebugWindowControlsWindowController: ReleasingWindowControll
 }
 
 private struct DebugWindowControlsView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @AppStorage(WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey)
     private var sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var browserDevToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
@@ -2028,7 +2029,7 @@ private struct DebugWindowControlsView: View {
                             Spacer()
                             Image(systemName: selectedDevToolsIconOption.rawValue)
                                 .cmuxFont(size: 12, weight: .medium)
-                                .foregroundStyle(selectedDevToolsColorOption.color)
+                                .foregroundStyle(selectedDevToolsColorOption.color(accent: cmuxAccent))
                         }
 
                         HStack(spacing: 12) {
@@ -3383,6 +3384,7 @@ private struct SidebarFooterHelpIconReference: View {
 #endif
 
 private struct SidebarDebugView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
     @AppStorage("sidebarPreset") private var sidebarPreset = SidebarPresetOption.nativeSidebar.rawValue
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults().opacity
@@ -3424,7 +3426,7 @@ private struct SidebarDebugView: View {
                 if let hex = sidebarSelectionColorHex, let nsColor = NSColor(hex: hex) {
                     return Color(nsColor: nsColor)
                 }
-                return cmuxAccentColor()
+                return cmuxAccent.color
             },
             set: { newColor in
                 let nsColor = NSColor(newColor)

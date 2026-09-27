@@ -426,7 +426,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             isMultiSelected: model.isMultiSelected,
             customColorHex: snapshot.customColorHex,
             colorScheme: palette.colorScheme,
-            sidebarSelectionColorHex: settings.selectionColorHex
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            accent: palette.accent
         )
         applyBackgroundStyle(style)
         if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
@@ -497,7 +498,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     hasOverride: true,
                     usesMonochrome: model.isActive,
                     fontScale: model.fontScale,
-                    colorScheme: palette.colorScheme
+                    colorScheme: palette.colorScheme,
+                    accent: palette.accent
                 ),
                 monochromeColor: palette.secondary(0.8),
                 neutralColor: palette.secondary(0.8)
@@ -625,8 +627,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             emphasis: model.isActive ? 1.0 : 0.9,
             representedIdentity: model.workspaceId
         )
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: palette.colorScheme).cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: palette.colorScheme).cgColor
+        topDropIndicator.accentColor = palette.accent
+        bottomDropIndicator.accentColor = palette.accent
+        topDropIndicator.layer?.backgroundColor = palette.accentColor.cgColor
+        bottomDropIndicator.layer?.backgroundColor = palette.accentColor.cgColor
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
         bottomDropIndicator.isHidden = !model.bottomDropIndicatorVisible
         alphaValue = model.isBeingDragged ? 0.6 : 1
@@ -647,7 +651,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     func paintControllerDropIndicator(top: Bool, bottom: Bool) {
         let colorScheme = model.map { $0.colorSchemeIsDark ? ColorScheme.dark : .light }
             ?? SidebarAppearanceColorResolver().currentColorScheme()
-        let accent = cmuxAccentNSColor(for: colorScheme)
+        let accent = (model?.settings.accentColor ?? CmuxAccentColor()).nsColor(for: colorScheme)
         topDropIndicator.layer?.backgroundColor = accent.cgColor
         bottomDropIndicator.layer?.backgroundColor = accent.cgColor
         topDropIndicator.isHidden = !top
@@ -674,7 +678,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             hex: model.settings.notificationBadgeColorHex,
             fallback: model.isActive
                 ? palette.primaryText.withAlphaComponent(0.25)
-                : cmuxAccentNSColor(for: palette.colorScheme)
+                : palette.accentColor
         )
         let badgeText: NSColor = model.isActive ? palette.primaryText : .white
         let badgeFont = NSFont.systemFont(ofSize: model.scaled(9), weight: .semibold)
@@ -784,7 +788,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             // yields to the selected foreground — otherwise agent-status
             // tints (blue "Running") vanish into the blue selection
             // highlight. Explicit colors only apply on unselected rows.
-            let explicitColor = CmuxAccentColor.statusEntryColor(
+            let explicitColor = palette.accent.statusEntryColor(
                 hex: entry.color,
                 isDark: palette.colorScheme == .dark
             )
@@ -874,7 +878,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     : palette.semantic(.secondaryLabelColor, opacity: 0.2),
                 fillColor: model.isActive
                     ? palette.selectedForeground(0.8)
-                    : cmuxAccentNSColor(for: palette.colorScheme),
+                    : palette.accentColor,
                 labelText: progress.label,
                 labelFont: labelFont,
                 labelColor: palette.secondary(0.6)

@@ -2,6 +2,7 @@ import CmuxFoundation
 import SwiftUI
 
 struct BrowserDesignModeToolbarButton: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let controller: BrowserDesignModeController
     let iconPointSize: CGFloat
     let hitSize: CGFloat
@@ -18,7 +19,7 @@ struct BrowserDesignModeToolbarButton: View {
                 systemName: controller.isActive ? "paintbrush.pointed.fill" : "paintbrush.pointed",
                 pointSize: iconPointSize,
                 weight: .medium,
-                tint: controller.isActive ? CmuxAccentColor.color : inactiveColor
+                tint: controller.isActive ? cmuxAccent.color : inactiveColor
             )
             .frame(width: hitSize, height: hitSize, alignment: .center)
         }

@@ -365,6 +365,7 @@ final class AppearanceSettingsUserDefaultsObserver {
 private struct AppearanceColorSchemeModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
     @State private var systemAppearanceGeneration = 0
+    @State private var accentColor = AppDelegate.shared?.accentColor ?? CmuxAccentColor()
     let rawValue: String?
 
     func body(content: Content) -> some View {
@@ -374,8 +375,14 @@ private struct AppearanceColorSchemeModifier: ViewModifier {
         content
             .environment(\.colorScheme, effective)
             .preferredColorScheme(override)
+            .environment(\.cmuxAccentColor, accentColor)
             .onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in
                 systemAppearanceGeneration &+= 1
+            }
+            .onReceive(NotificationCenter.default.publisher(for: CmuxAccentColor.didChangeNotification)) { notification in
+                if let observer = notification.object as? CmuxAccentColorObserver {
+                    accentColor = observer.current
+                }
             }
     }
 }

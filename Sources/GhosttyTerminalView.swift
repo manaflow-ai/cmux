@@ -4421,7 +4421,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func setupKeyboardCopyModeCursorOverlay() {
         keyboardCopyModeCursorOverlayView.wantsLayer = true
         keyboardCopyModeCursorOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
-        keyboardCopyModeCursorOverlayView.layer?.borderColor = cmuxAccentNSColor().cgColor
+        keyboardCopyModeCursorOverlayView.layer?.borderColor = (AppDelegate.shared?.accentColor ?? CmuxAccentColor()).themeNSColor.cgColor
         keyboardCopyModeCursorOverlayView.layer?.borderWidth = 1
         keyboardCopyModeCursorOverlayView.isHidden = true
         addSubview(keyboardCopyModeCursorOverlayView, positioned: .above, relativeTo: nil)
@@ -10508,8 +10508,7 @@ final class GhosttySurfaceScrollView: NSView {
         inactiveOverlayView.isHidden = true
         addSubview(inactiveOverlayView)
         dropZoneOverlayView.wantsLayer = true
-        dropZoneOverlayView.layer?.backgroundColor = cmuxAccentNSColor().withAlphaComponent(0.25).cgColor
-        dropZoneOverlayView.layer?.borderColor = cmuxAccentNSColor().cgColor
+        applyAccentColor(AppDelegate.shared?.accentColor ?? CmuxAccentColor())
         dropZoneOverlayView.layer?.borderWidth = 2
         dropZoneOverlayView.layer?.cornerRadius = 8
         dropZoneOverlayView.isHidden = true
@@ -10686,7 +10685,7 @@ final class GhosttySurfaceScrollView: NSView {
 
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(cmuxAccentColorDidChange),
+            selector: #selector(cmuxAccentColorDidChange(_:)),
             name: CmuxAccentColor.didChangeNotification,
             object: nil
         )
@@ -11396,11 +11395,16 @@ final class GhosttySurfaceScrollView: NSView {
         applyWorkspaceAttentionNSColor()
     }
 
-    /// Re-applies every cached accent `CGColor` after `app.accentColor` or
-    /// the macOS accent changes. A configured pane flash color still wins.
-    @objc private func cmuxAccentColorDidChange() {
-        applyWorkspaceAttentionNSColor()
-        let accent = cmuxAccentNSColor()
+    /// Re-applies the cached drop-zone and copy-mode accent `CGColor`s after
+    /// the resolved cmux accent changes. The attention ring and flash get
+    /// theirs through ``setWorkspaceAttentionColor(_:)``.
+    @objc private func cmuxAccentColorDidChange(_ notification: Notification) {
+        guard let observer = notification.object as? CmuxAccentColorObserver else { return }
+        applyAccentColor(observer.current)
+    }
+
+    private func applyAccentColor(_ accentColor: CmuxAccentColor) {
+        let accent = accentColor.themeNSColor
         dropZoneOverlayView.layer?.backgroundColor = accent.withAlphaComponent(0.25).cgColor
         dropZoneOverlayView.layer?.borderColor = accent.cgColor
         surfaceView.keyboardCopyModeCursorOverlayView.layer?.borderColor = accent.cgColor

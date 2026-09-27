@@ -1423,7 +1423,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         tableView.cacheDisplay(in: rowRect, to: representation)
         let rowImage = NSImage(size: rowRect.size)
         rowImage.addRepresentation(representation)
-        let badgeColor = cmuxAccentNSColor(for: tableView.effectiveAppearance)
+        let badgeColor = (AppDelegate.shared?.accentColor ?? CmuxAccentColor()).nsColor(for: tableView.effectiveAppearance)
 
         return NSImage(size: size, flipped: false) { bounds in
             rowImage.draw(in: bounds)

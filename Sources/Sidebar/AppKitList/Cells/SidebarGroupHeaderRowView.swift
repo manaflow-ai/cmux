@@ -199,7 +199,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 count: model.anchorUnreadCount,
                 fillColor: cmuxNotificationBadgeNSColor(
                     hex: model.notificationBadgeColorHex,
-                    fallback: cmuxAccentNSColor(for: colorScheme)
+                    fallback: model.accentColor.nsColor(for: colorScheme)
                 ),
                 textColor: .white,
                 font: unreadBadgeFont
@@ -226,7 +226,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             : 4
         backgroundView.layer?.backgroundColor = headerBackgroundColor(for: model).cgColor
 
-        let accent = cmuxAccentNSColor(for: colorScheme)
+        topDropIndicator.accentColor = model.accentColor
+        bottomDropIndicator.accentColor = model.accentColor
+        let accent = model.accentColor.nsColor(for: colorScheme)
         topDropIndicator.layer?.backgroundColor = accent.cgColor
         bottomDropIndicator.layer?.backgroundColor = accent.cgColor
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
@@ -250,7 +252,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     func paintControllerDropIndicator(top: Bool, bottom: Bool) {
         let colorScheme: ColorScheme = model.map { $0.colorSchemeIsDark ? .dark : .light }
             ?? SidebarAppearanceColorResolver().currentColorScheme()
-        let accent = cmuxAccentNSColor(for: colorScheme)
+        let accent = (model?.accentColor ?? CmuxAccentColor()).nsColor(for: colorScheme)
         topDropIndicator.layer?.backgroundColor = accent.cgColor
         bottomDropIndicator.layer?.backgroundColor = accent.cgColor
         topDropIndicator.isHidden = !top

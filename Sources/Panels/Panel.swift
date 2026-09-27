@@ -124,10 +124,10 @@ public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
     case cmuxAccent
 
-    var strokeColor: NSColor {
+    func strokeColor(accent: CmuxAccentColor) -> NSColor {
         switch self {
         case .cmuxAccent:
-            return CmuxAccentColor.dynamicNSColor
+            return accent.dynamicNSColor
         }
     }
 }

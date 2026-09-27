@@ -6,11 +6,13 @@ import Testing
 
 @Suite struct CmuxAccentColorTests {
     @Test func cmuxModeUsesTheCmuxBlues() {
-        #expect(rgbBytes(CmuxAccentColor.nsColor(isDark: false, mode: .cmux)) == [0, 136, 255])
-        #expect(rgbBytes(CmuxAccentColor.nsColor(isDark: true, mode: .cmux)) == [0, 145, 255])
+        let accent = CmuxAccentColor(mode: .cmux)
+        #expect(rgbBytes(accent.nsColor(isDark: false)) == [0, 136, 255])
+        #expect(rgbBytes(accent.nsColor(isDark: true)) == [0, 145, 255])
     }
 
     @Test func systemModeUsesTheResolvedControlAccent() throws {
+        let accent = CmuxAccentColor(mode: .system)
         for isDark in [false, true] {
             let appearance = try #require(NSAppearance(named: isDark ? .darkAqua : .aqua))
             var expected: [Int] = []
@@ -18,7 +20,7 @@ import Testing
                 expected = rgbBytes(NSColor.controlAccentColor)
             }
             #expect(!expected.isEmpty)
-            #expect(rgbBytes(CmuxAccentColor.nsColor(isDark: isDark, mode: .system)) == expected)
+            #expect(rgbBytes(accent.nsColor(isDark: isDark)) == expected)
         }
     }
 
@@ -39,44 +41,47 @@ import Testing
     @Test func appearanceResolvesToMatchingScheme() throws {
         let dark = try #require(NSAppearance(named: .darkAqua))
         let aqua = try #require(NSAppearance(named: .aqua))
-        #expect(rgbBytes(CmuxAccentColor.nsColor(for: dark)) == rgbBytes(CmuxAccentColor.nsColor(isDark: true)))
-        #expect(rgbBytes(CmuxAccentColor.nsColor(for: aqua)) == rgbBytes(CmuxAccentColor.nsColor(isDark: false)))
-        #expect(rgbBytes(CmuxAccentColor.nsColor(for: nil)) == rgbBytes(CmuxAccentColor.nsColor(isDark: false)))
+        for accent in CmuxAccentColorMode.allCases.map(CmuxAccentColor.init(mode:)) {
+            #expect(rgbBytes(accent.nsColor(for: dark)) == rgbBytes(accent.nsColor(isDark: true)))
+            #expect(rgbBytes(accent.nsColor(for: aqua)) == rgbBytes(accent.nsColor(isDark: false)))
+            #expect(rgbBytes(accent.nsColor(for: nil)) == rgbBytes(accent.nsColor(isDark: false)))
+        }
     }
 
     @Test func dynamicColorFollowsDrawingAppearance() throws {
         let dark = try #require(NSAppearance(named: .darkAqua))
         let aqua = try #require(NSAppearance(named: .aqua))
+        let accent = CmuxAccentColor(mode: .cmux)
         var darkBytes: [Int] = []
         var lightBytes: [Int] = []
         dark.performAsCurrentDrawingAppearance {
-            darkBytes = rgbBytes(CmuxAccentColor.dynamicNSColor)
+            darkBytes = rgbBytes(accent.dynamicNSColor)
         }
         aqua.performAsCurrentDrawingAppearance {
-            lightBytes = rgbBytes(CmuxAccentColor.dynamicNSColor)
+            lightBytes = rgbBytes(accent.dynamicNSColor)
         }
-        #expect(darkBytes == rgbBytes(CmuxAccentColor.nsColor(isDark: true)))
-        #expect(lightBytes == rgbBytes(CmuxAccentColor.nsColor(isDark: false)))
+        #expect(darkBytes == [0, 145, 255])
+        #expect(lightBytes == [0, 136, 255])
     }
 
     @Test func builtInAgentStatusBlueResolvesToTheAccent() {
-        for mode in CmuxAccentColorMode.allCases {
+        for accent in CmuxAccentColorMode.allCases.map(CmuxAccentColor.init(mode:)) {
             for hex in ["#4C8DFF", "#4c8dff", " #4C8DFF "] {
-                let color = CmuxAccentColor.statusEntryColor(hex: hex, isDark: true, mode: mode)
-                #expect(color.map(rgbBytes) == rgbBytes(CmuxAccentColor.nsColor(isDark: true, mode: mode)))
+                let color = accent.statusEntryColor(hex: hex, isDark: true)
+                #expect(color.map(rgbBytes) == rgbBytes(accent.nsColor(isDark: true)))
             }
         }
     }
 
     @Test func otherStatusColorsStayAsWritten() {
-        let green = CmuxAccentColor.statusEntryColor(hex: "#00FF00", isDark: false, mode: .system)
-        #expect(green.map(rgbBytes) == [0, 255, 0])
-        #expect(CmuxAccentColor.statusEntryColor(hex: nil, isDark: false, mode: .cmux) == nil)
-        #expect(CmuxAccentColor.statusEntryColor(hex: "not-a-color", isDark: false, mode: .cmux) == nil)
+        let accent = CmuxAccentColor(mode: .system)
+        #expect(accent.statusEntryColor(hex: "#00FF00", isDark: false).map(rgbBytes) == [0, 255, 0])
+        #expect(accent.statusEntryColor(hex: nil, isDark: false) == nil)
+        #expect(accent.statusEntryColor(hex: "not-a-color", isDark: false) == nil)
     }
 
     @MainActor
-    @Test func observerPostsOnlyWhenTheResolvedAccentChanges() throws {
+    @Test func observerResolvesOnceAndPostsOnlyOnChange() throws {
         let suite = "CmuxAccentColorTests.observer.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -88,11 +93,13 @@ import Testing
         defer { center.removeObserver(token) }
 
         let observer = CmuxAccentColorObserver(defaults: defaults, center: center)
-        observer.startObserving()
+        #expect(observer.current.mode == .cmux)
         #expect(observer.refresh() == false)
 
         defaults.set(CmuxAccentColorMode.system.rawValue, forKey: CmuxAccentColorMode.userDefaultsKey)
+        #expect(observer.current.mode == .cmux)
         #expect(observer.refresh() == true)
+        #expect(observer.current.mode == .system)
         #expect(observer.refresh() == false)
 
         defaults.set(CmuxAccentColorMode.cmux.rawValue, forKey: CmuxAccentColorMode.userDefaultsKey)

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 
 /// One user-prompt boundary anchored to Ghostty's current absolute row space.
@@ -56,7 +57,7 @@ private final class TerminalPromptScrollMarkerOverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        cmuxAccentNSColor(for: effectiveAppearance).setFill()
+        (AppDelegate.shared?.accentColor ?? CmuxAccentColor()).nsColor(for: effectiveAppearance).setFill()
         for entry in markerEntries() where entry.rect.intersects(dirtyRect) {
             NSBezierPath(
                 roundedRect: entry.rect,

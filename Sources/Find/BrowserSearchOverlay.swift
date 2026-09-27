@@ -4,6 +4,7 @@ import Bonsplit
 import SwiftUI
 
 struct BrowserSearchOverlay: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let panelId: UUID
     @ObservedObject var searchState: BrowserSearchState
     let focusRequestGeneration: UInt64
@@ -49,7 +50,7 @@ struct BrowserSearchOverlay: View {
                     .cornerRadius(6)
                     .overlay(
                         RoundedRectangle(cornerRadius: 6)
-                            .stroke(isSearchFieldEditing ? cmuxAccentColor() : Color.clear, lineWidth: 1)
+                            .stroke(isSearchFieldEditing ? cmuxAccent.color : Color.clear, lineWidth: 1)
                     )
                     .overlay(alignment: .trailing) {
                     if let selected = searchState.selected {

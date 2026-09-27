@@ -9,6 +9,7 @@ import SwiftUI
 /// and a Reset Palette action.
 @MainActor
 public struct WorkspaceColorsSection: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
     private let errorLog: SettingsErrorLog
@@ -126,7 +127,7 @@ public struct WorkspaceColorsSection: View {
                 resetLabel: String(localized: "settings.workspaceColors.paneFlashColor.reset", defaultValue: "Reset"),
                 model: paneFlashHex,
                 // Matches the runtime's cmux accent fallback.
-                fallback: CmuxAccentColor.color
+                fallback: cmuxAccent.color
             )
             SettingsCardDivider()
 
@@ -165,7 +166,7 @@ public struct WorkspaceColorsSection: View {
     }
 
     @ViewBuilder
-    private func colorRow(title: String, subtitle: String, json: String, resetLabel: String, model: DefaultsValueModel<String>, fallback: Color = CmuxAccentColor.color) -> some View {
+    private func colorRow(title: String, subtitle: String, json: String, resetLabel: String, model: DefaultsValueModel<String>, fallback: Color? = nil) -> some View {
         let isCustom = !model.current.isEmpty
         SettingsCardRow(
             configurationReview: .json(json),
@@ -180,7 +181,7 @@ public struct WorkspaceColorsSection: View {
                 }
                 HexColorPicker(
                     storedHex: model.current,
-                    fallback: fallback,
+                    fallback: fallback ?? cmuxAccent.color,
                     reconcileRevision: model.revision
                 ) { hex in
                     model.set(hex)

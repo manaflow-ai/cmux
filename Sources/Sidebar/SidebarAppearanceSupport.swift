@@ -115,20 +115,17 @@ func titlebarControlForegroundNSColor(opacity: CGFloat, appearance: WindowAppear
     )
 }
 
-func cmuxAccentNSColor(for colorScheme: ColorScheme) -> NSColor {
-    CmuxAccentColor.nsColor(isDark: colorScheme == .dark)
-}
+extension CmuxAccentColor {
+    /// The accent for a SwiftUI color scheme.
+    func nsColor(for colorScheme: ColorScheme) -> NSColor {
+        nsColor(isDark: colorScheme == .dark)
+    }
 
-func cmuxAccentNSColor(for appAppearance: NSAppearance?) -> NSColor {
-    CmuxAccentColor.nsColor(for: appAppearance)
-}
-
-func cmuxAccentNSColor() -> NSColor {
-    cmuxAccentNSColor(for: SidebarAppearanceColorResolver().currentColorScheme())
-}
-
-func cmuxAccentColor() -> Color {
-    Color(nsColor: cmuxAccentNSColor())
+    /// The accent for the scheme chosen by the terminal-theme authority, for
+    /// AppKit chrome that has no view appearance of its own to resolve with.
+    var themeNSColor: NSColor {
+        nsColor(for: SidebarAppearanceColorResolver().currentColorScheme())
+    }
 }
 
 /// Fill for an unread notification badge: the Notification Badge color
@@ -268,13 +265,14 @@ enum SidebarRemoteErrorCopySupport {
 
 func sidebarSelectedWorkspaceBackgroundNSColor(
     for colorScheme: ColorScheme,
-    sidebarSelectionColorHex: String? = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex")
+    sidebarSelectionColorHex: String? = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex"),
+    accent: CmuxAccentColor = CmuxAccentColor()
 ) -> NSColor {
     if let hex = sidebarSelectionColorHex,
        let parsed = NSColor(hex: hex) {
         return parsed
     }
-    return cmuxAccentNSColor(for: colorScheme)
+    return accent.nsColor(for: colorScheme)
 }
 
 func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
@@ -325,13 +323,15 @@ func sidebarWorkspaceRowBackgroundStyle(
     isMultiSelected: Bool,
     customColorHex: String?,
     colorScheme: ColorScheme,
-    sidebarSelectionColorHex: String?
+    sidebarSelectionColorHex: String?,
+    accent: CmuxAccentColor = CmuxAccentColor()
 ) -> SidebarWorkspaceRowBackgroundStyle {
     let selectedBackground = sidebarSelectedWorkspaceBackgroundNSColor(
         for: colorScheme,
-        sidebarSelectionColorHex: sidebarSelectionColorHex
+        sidebarSelectionColorHex: sidebarSelectionColorHex,
+        accent: accent
     )
-    let accentBackground = cmuxAccentNSColor(for: colorScheme)
+    let accentBackground = accent.nsColor(for: colorScheme)
     let customBackground = customColorHex.flatMap {
         WorkspaceTabColorSettings.displayNSColor(
             hex: $0,

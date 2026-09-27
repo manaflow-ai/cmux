@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import CmuxSettings
 import CmuxSidebar
@@ -2295,7 +2296,7 @@ struct SidebarGroupHeaderBadgeColorTests {
 
     @Test
     func groupBadgeFallsBackToCmuxAccentNotSystemAccent() throws {
-        #expect(try Self.badgeFill(notificationBadgeColorHex: nil) == cmuxAccentNSColor(for: .dark).cgColor)
+        #expect(try Self.badgeFill(notificationBadgeColorHex: nil) == CmuxAccentColor().nsColor(isDark: true).cgColor)
     }
 
     @Test

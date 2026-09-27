@@ -772,7 +772,7 @@ enum MenuBarIconRenderer {
         let fontSize: CGFloat = text.count > 1 ? config.multiDigitFontSize : config.singleDigitFontSize
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: fontSize, weight: .bold), // Fixed 18x18 status-item bitmap.
-            .foregroundColor: CmuxAccentColor.dynamicNSColor,
+            .foregroundColor: NSColor.systemBlue,
             .paragraphStyle: paragraph,
         ]
         let yOffset: CGFloat = text.count > 1 ? config.multiDigitYOffset : config.singleDigitYOffset

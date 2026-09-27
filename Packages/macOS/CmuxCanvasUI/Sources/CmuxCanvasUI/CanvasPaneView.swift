@@ -55,6 +55,14 @@ final class CanvasPaneView: NSView {
 
     /// Pane fill behind the content, resolved by the host through
     /// ``CanvasTheme``.
+    /// Accent for the focused border, set by the canvas root.
+    var accentColor = CmuxAccentColor() {
+        didSet {
+            guard accentColor != oldValue else { return }
+            applyChromeColors()
+        }
+    }
+
     var paneBackground: NSColor = .windowBackgroundColor {
         didSet {
             guard paneBackground != oldValue else { return }
@@ -100,16 +108,6 @@ final class CanvasPaneView: NSView {
             contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        applyChromeColors()
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(accentColorDidChange),
-            name: CmuxAccentColor.didChangeNotification,
-            object: nil
-        )
-    }
-
-    @objc private func accentColorDidChange() {
         applyChromeColors()
     }
 
@@ -194,7 +192,7 @@ final class CanvasPaneView: NSView {
 
     private func applyChromeColors() {
         layer?.borderColor = chrome.isFocused
-            ? CmuxAccentColor.nsColor(for: effectiveAppearance).cgColor
+            ? accentColor.nsColor(for: effectiveAppearance).cgColor
             : NSColor.separatorColor.cgColor
         layer?.borderWidth = chrome.isFocused ? 2 : 1
         layer?.backgroundColor = paneBackground.cgColor

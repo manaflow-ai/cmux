@@ -669,7 +669,7 @@ private final class PaneSwapSelectionOverlayView: NSView {
 
         drawHighlight(
             frame: sourceFrame,
-            color: cmuxAccentNSColor(for: effectiveAppearance),
+            color: (AppDelegate.shared?.accentColor ?? CmuxAccentColor()).nsColor(for: effectiveAppearance),
             title: CmuxPaneSwapStrings().source,
             dirtyRect: dirtyRect
         )
