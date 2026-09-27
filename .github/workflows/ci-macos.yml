@@ -3268,6 +3268,7 @@ jobs:
           case "$status" in
             69) echo "::error title=Build fleet unavailable::No build-fleet worker takes ci-steps right now. There is no automatic fallback in phase 1: rerun the job, or clear CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY to run on a runner again." ;;
             75) echo "::error title=Build fleet queue timeout::The step waited in the build-fleet queue past the client's queue timeout and was cancelled. There is no automatic fallback in phase 1: rerun the job, or clear CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY to run on a runner again." ;;
+            124) echo "::error title=Package lane timeout::The package lane timed out, either in the build-fleet client or its hung-test watchdog. Check the streamed lane log to distinguish the cause; there is no automatic fallback in phase 1." ;;
           esac
           exit "$status"
 

@@ -69,8 +69,6 @@ ensure_parent() {
 }
 
 select_packages() {
-  # CmuxSidebarGit is left out until its ProbeSchedulingTests agree with
-  # the first-trusted-remote-directory clearing rule (see the PR notes).
   PACKAGES=(
     CMUXAuthCore
     CmuxBrowser

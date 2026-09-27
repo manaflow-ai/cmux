@@ -6042,8 +6042,10 @@ def test_package_lane_fleet_step_is_opt_in_and_restates_its_runner() -> None:
             assert "--script scripts/ci/package-test-lane.sh --ref \"$GITHUB_SHA\"" in run
             for code in ("69)", "75)"):
                 assert code in run, code
-            # The lane itself exits 124 for a hung test; don't label it a fleet timeout.
-            assert "124)" not in run
+            # Status 124 can mean either a fleet client timeout or the lane's
+            # hung-test watchdog; the streamed log distinguishes them.
+            assert "124)" in run
+            assert "streamed lane log" in run
             assert "no automatic fallback" in run
             assert 'exit "$status"' in run
         elif "PACKAGE_TESTS_VIA_STEP != '1'" not in condition:
