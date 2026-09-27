@@ -336,12 +336,12 @@ function resolveTeamNetwork(input: {
     if (!input.billingTeamId || input.billingTeamId === input.userId) return { network: null, fallbackReason: "solo_team" as const };
     if (!input.teamDirectory) return { network: null, fallbackReason: "no_capability" as const };
     const existing = yield* input.repo.findTeamNetwork(input.billingTeamId, input.provider);
-    if (existing) return { network: existing, fallbackReason: null };
-    const result = yield* listTeamMemberIdsWithTimeout(input.teamDirectory!, input.billingTeamId!, input.directoryTimeoutMs);
+    const result = yield* listTeamMemberIdsWithTimeout(input.teamDirectory, input.billingTeamId, input.directoryTimeoutMs);
     if ("error" in result) return { network: null, fallbackReason: result.error === "timeout" ? "directory_timeout" as const : "directory_error" as const };
     if (result.memberIds === null) return { network: null, fallbackReason: "directory_error" as const };
-    if (result.memberIds.length <= 1) return { network: null, fallbackReason: "solo_team" as const };
     if (!result.memberIds.includes(input.userId)) return { network: null, fallbackReason: "not_member" as const };
+    if (existing) return { network: existing, fallbackReason: null };
+    if (result.memberIds.length <= 1) return { network: null, fallbackReason: "solo_team" as const };
     const slug = networkSlugForTeam(input.billingTeamId);
     const network = yield* input.providers.ensureNetwork(input.provider, {
       slug,
