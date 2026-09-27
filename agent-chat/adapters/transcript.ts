@@ -58,7 +58,7 @@ export function parseTranscriptText(agent: TranscriptAgent, text: string): { eve
 }
 
 // Tool inputs worth showing as the one-line activity detail, in priority order.
-const TOOL_DETAIL_KEYS = ["command", "cmd", "file_path", "path", "pattern", "url", "query", "description", "prompt", "skill"];
+const TOOL_DETAIL_KEYS = ["command", "cmd", "file_path", "pattern", "path", "url", "query", "description", "prompt", "skill"];
 
 export function toolDetail(input: unknown): string {
   if (input == null) return "";

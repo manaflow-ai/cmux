@@ -38,6 +38,11 @@ if (claudeSummary !== "Edited 2 files, read 1 file, searched code, ran 2 command
   throw new Error(`unexpected Claude summary: ${claudeSummary}`);
 }
 
+const claudeLabels = claudeTurn.map((block) => activityRowLabel(block)).join("|");
+if (claudeLabels !== "Searched func runExport|Read /work/Export.swift|Edited /work/Export.swift|Ran swift test --filter ExportTests|Edited /work/Row.swift|Ran swift test --filter ExportTests|Used WebFetch https://example.com") {
+  throw new Error(`unexpected Claude activity labels: ${claudeLabels}`);
+}
+
 const labels = activity.map((block) => activityRowLabel(block));
 if (labels.join("|") !== "Read AGENTS.md|Searched RepositoryPicker|Listed Sources|Edited 2 files") {
   throw new Error(`unexpected activity labels: ${labels.join("|")}`);

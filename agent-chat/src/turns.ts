@@ -79,6 +79,8 @@ const STRUCTURED_TOOLS = new Set([
   "apply_patch", "update_plan", "view_image", "web_search", "spawn_agent",
 ]);
 
+const SHELL_WRAPPER_TOOLS = new Set(["Bash", "bash", "shell", "exec_command", "local_shell"]);
+
 export function isShellCommandTool(name: string): boolean {
   return !STRUCTURED_TOOLS.has(name) && !name.startsWith("mcp__");
 }
@@ -130,7 +132,10 @@ export function activityRowLabel(block: Block): string {
     if (/\b(read|cat|sed|nl|open)\b/.test(lower)) return `Read ${detail.trim() || name}`;
     if (/\b(ls|find|list)\b/.test(lower)) return `Listed ${detail.trim() || name}`;
     if (/\b(edit|write|apply_patch|patch)\b/.test(lower)) return `Edited ${detail.trim() || name}`;
-    return `Ran ${name}${detail}`;
+    // Shell wrappers (Claude's Bash, Codex's exec_command) read better as the
+    // command itself.
+    if (SHELL_WRAPPER_TOOLS.has(name) && block.detail) return `Ran ${block.detail}`;
+    return `${isShellCommandTool(name) ? "Ran" : "Used"} ${name}${detail}`;
   }
   if (block.kind === "files") return `Edited ${plural(block.files.length, "file")}`;
   if (block.kind === "thinking") return "Reasoned";

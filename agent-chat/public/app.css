@@ -613,6 +613,7 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 /* A running turn renders its activity directly in the turn, outside the
    collapsed summary; keep thinking and interim text in the content column. */
 .turn-live-activity { max-width: 760px; margin: 0 auto 10px; padding: 0 24px; }
+.turn-live-activity .turn-thinking-detail { padding-left: 0; padding-right: 0; }
 
 .turn-actions {
   max-width: 760px; margin: -8px auto 18px; padding: 0 24px; display: flex; align-items: center; gap: 6px;
