@@ -66,10 +66,10 @@ and the [validation guide](skills/cmux-testing/references/local-vs-ci-validation
 | Script | Description |
 |--------|-------------|
 | `./scripts/setup.sh` | One-time setup (submodules + xcframework) |
-| `./scripts/reload.sh` | Build Debug app (pass `--launch` to also open it) |
-| `./scripts/reloadp.sh` | Build and launch Release app |
-| `./scripts/reload2.sh` | Reload both Debug and Release |
-| `./scripts/rebuild.sh` | Clean rebuild |
+| `CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <tag>` | Build a tagged Debug app; add `--launch` to open it or `--build-only` for compile-only validation |
+
+See [tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md) for cache
+reuse, Release variants, and restrictions that protect the running app.
 
 <a id="fast-checks-before-building-or-pushing"></a>
 
