@@ -24,13 +24,15 @@ ROOT = Path(__file__).resolve().parents[1]
 INTEGRATION = ROOT / "Resources/shell-integration/cmux-bash-integration.bash"
 
 
-def stop_shell(shell: subprocess.Popen) -> None:
+def stop_shell(shell: subprocess.Popen) -> str:
     if shell.poll() is None:
         try:
-            shell.communicate("stop\n", timeout=10)
+            _, error = shell.communicate("stop\n", timeout=10)
         except subprocess.TimeoutExpired:
             os.killpg(shell.pid, signal.SIGKILL)
-            shell.communicate(timeout=5)
+            _, error = shell.communicate(timeout=5)
+        return error
+    return ""
 
 
 class BashWatcherChurnTests(unittest.TestCase):
@@ -110,8 +112,9 @@ class BashWatcherChurnTests(unittest.TestCase):
             # while Python waits, so the driver adds no shell sleep launches.
             time.sleep(2.2)
             for shell, _ in shells:
-                stop_shell(shell)
+                error = stop_shell(shell)
                 self.assertEqual(shell.returncode, 0)
+                self.assertNotIn("command not found", error)
             counts = []
             sends = []
             for _, home in shells:
