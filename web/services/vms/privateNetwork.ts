@@ -887,7 +887,7 @@ function detachStaleTeamNetwork(input: {
 }): Effect.Effect<boolean, never> {
   const operation = Effect.gen(function* () {
     yield* input.providers.detachTunnelNetwork?.(input.provider, input.tunnel.id, input.attachment.teamNetwork.providerNetworkId) ?? Effect.void;
-    yield* input.repo.deleteTunnelTeamNetwork(input.tunnelId, input.attachment.teamNetworkId, { generation: input.attachment.generation });
+    yield* input.repo.deleteTunnelTeamNetwork(input.tunnelId, input.attachment.teamNetworkId, { writeToken: input.attachment.writeToken });
     return true;
   });
   return operation.pipe(Effect.catchAll((error) =>

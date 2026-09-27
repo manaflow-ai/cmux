@@ -443,7 +443,7 @@ export const cloudVmTunnelTeamNetworks = pgTable(
     addressV4: text("address_v4"),
     addressV6: text("address_v6"),
     attachedAt: timestamp("attached_at", { withTimezone: true }).notNull().defaultNow(),
-    generation: integer("generation").notNull().default(0),
+    writeToken: uuid("write_token").notNull().defaultRandom(),
   },
   (table) => [
     primaryKey({ columns: [table.tunnelId, table.teamNetworkId], name: "cloud_vm_tunnel_team_networks_pkey" }),

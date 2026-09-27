@@ -173,8 +173,8 @@ test("account deletion removes tunnel team attachments but keeps team networks",
     findTeamNetwork: () => Effect.succeed(teamNetwork),
     upsertTeamNetwork: () => Effect.succeed(teamNetwork),
     listTeamNetworks: () => Effect.succeed([teamNetwork]),
-    listTunnelTeamNetworks: () => Effect.succeed([{ tunnelId: tunnel.id, teamNetworkId: teamNetwork.id, addressV4: null, addressV6: null, attachedAt: new Date(), teamNetwork }]),
-    insertTunnelTeamNetwork: () => Effect.succeed({} as never),
+    listTunnelTeamNetworks: () => Effect.succeed([{ tunnelId: tunnel.id, teamNetworkId: teamNetwork.id, addressV4: null, addressV6: null, attachedAt: new Date(), writeToken: "token-account-delete", teamNetwork }]),
+    insertTunnelTeamNetwork: () => Effect.succeed({ writeToken: "token-account-unused" } as never),
     deleteTunnelTeamNetwork: (_tunnelId: string, teamNetworkId: string) => Effect.sync(() => { deletedAttachments.push(teamNetworkId); }),
   } as unknown as VmRepositoryShape;
   const gateway = {

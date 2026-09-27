@@ -980,7 +980,7 @@ describe("VM Effect workflows", () => {
       upsertTeamNetwork: () => Effect.succeed(teamNetwork),
       listTeamNetworks: () => Effect.succeed([teamNetwork]),
       listTunnelTeamNetworks: () => Effect.succeed([]),
-      insertTunnelTeamNetwork: () => Effect.succeed({} as never),
+      insertTunnelTeamNetwork: () => Effect.succeed({ writeToken: "token-restore-unused" } as never),
       deleteTunnelTeamNetwork: () => Effect.void,
     } as unknown as VmRepositoryShape;
     const provider: VmProviderGatewayShape = {
@@ -7385,35 +7385,73 @@ describe("private SCP workflow", () => {
   });
 });
 
+describe("team tunnel attachment repository", () => {
+  dbTest("team attachment deletes match only the current write token", async () => {
+    const database = sql;
+    if (!database) throw new Error("test database not initialized");
+    const networkId = "00000000-0000-4000-8000-0000000000d1";
+    const grantId = "00000000-0000-4000-8000-0000000000d2";
+    const tunnelId = "00000000-0000-4000-8000-0000000000d3";
+    const teamNetworkId = "00000000-0000-4000-8000-0000000000d4";
+    try {
+      await database`delete from cloud_vm_team_networks where id = ${teamNetworkId}`;
+      await database`delete from cloud_vm_networks where id = ${networkId}`;
+      await database`delete from cloud_vm_access_grants where id = ${grantId}`;
+      await database`insert into cloud_vm_networks (id, user_id, provider, provider_network_id) values (${networkId}, 'user-team-token', 'freestyle', 'vpc-home-token')`;
+      await database`insert into cloud_vm_access_grants (id, user_id, device_id) values (${grantId}, 'user-team-token', 'device-team-token')`;
+      await database`insert into cloud_vm_tunnels (id, user_id, network_id, access_grant_id, provider, provider_tunnel_id, device_fingerprint, tunnel_purpose, client_public_key) values (${tunnelId}, 'user-team-token', ${networkId}, ${grantId}, 'freestyle', 'tun-team-token', 'device-team-token', 'browser', 'client-key')`;
+      await database`insert into cloud_vm_team_networks (id, team_id, provider, provider_network_id, created_by_user_id) values (${teamNetworkId}, 'team-token', 'freestyle', 'vpc-team-token', 'user-team-token')`;
+
+      const first = await Effect.runPromise(vmRepositoryLiveShape.insertTunnelTeamNetwork!({ tunnelId, teamNetworkId, addressV4: "10.1.0.2", addressV6: "fd01::2" }));
+      const second = await Effect.runPromise(vmRepositoryLiveShape.insertTunnelTeamNetwork!({ tunnelId, teamNetworkId, addressV4: "10.1.0.3", addressV6: "fd01::3" }));
+      expect(second.writeToken).not.toBe(first.writeToken);
+      await Effect.runPromise(vmRepositoryLiveShape.deleteTunnelTeamNetwork!(tunnelId, teamNetworkId, { writeToken: first.writeToken }));
+      expect((await Effect.runPromise(vmRepositoryLiveShape.listTunnelTeamNetworks!(tunnelId))).length).toBe(1);
+
+      await Effect.runPromise(vmRepositoryLiveShape.deleteTunnelTeamNetwork!(tunnelId, teamNetworkId));
+      const third = await Effect.runPromise(vmRepositoryLiveShape.insertTunnelTeamNetwork!({ tunnelId, teamNetworkId, addressV4: "10.1.0.4", addressV6: "fd01::4" }));
+      expect([first.writeToken, second.writeToken]).not.toContain(third.writeToken);
+      await Effect.runPromise(vmRepositoryLiveShape.deleteTunnelTeamNetwork!(tunnelId, teamNetworkId, { writeToken: second.writeToken }));
+      expect((await Effect.runPromise(vmRepositoryLiveShape.listTunnelTeamNetworks!(tunnelId))).length).toBe(1);
+      await Effect.runPromise(vmRepositoryLiveShape.deleteTunnelTeamNetwork!(tunnelId, teamNetworkId, { writeToken: third.writeToken }));
+      expect((await Effect.runPromise(vmRepositoryLiveShape.listTunnelTeamNetworks!(tunnelId))).length).toBe(0);
+    } finally {
+      await database`delete from cloud_vm_team_networks where id = ${teamNetworkId}`;
+      await database`delete from cloud_vm_networks where id = ${networkId}`;
+      await database`delete from cloud_vm_access_grants where id = ${grantId}`;
+    }
+  });
+});
+
 describe("team tunnel cron reconciliation", () => {
-  test("conditional generation delete preserves a concurrent re-attach for the next pass", async () => {
-    const vm = testCloudVmRow({ providerVmId: "provider-vm-cron-generation" });
-    let generation = 0;
+  test("conditional delete preserves a concurrent re-attach for the next pass", async () => {
+    const vm = testCloudVmRow({ providerVmId: "provider-vm-cron-token" });
+    let writeToken = "token-initial";
     let firstDetach = true;
     const deleted: string[] = [];
     const repo = {
       ...testWorkflowRepo({ vm }),
       listTeamNetworkAttachmentsPage: () => Effect.succeed([{
-        id: "generation-row", teamId: "team-generation", provider: "freestyle" as const,
-        providerNetworkId: "vpc-generation", slug: "generation", cidr: "10.63.0.0/24", cidrV6: "fd63::/64",
+        id: "token-row", teamId: "team-token", provider: "freestyle" as const,
+        providerNetworkId: "vpc-token", slug: "token", cidr: "10.63.0.0/24", cidrV6: "fd63::/64",
         createdByUserId: "user-1", createdAt: new Date(), updatedAt: new Date(),
-        attachments: [{ tunnelId: "tun-generation", providerTunnelId: "tun-generation", userId: "removed", revokedAt: null, generation }],
+        attachments: [{ tunnelId: "tun-token", providerTunnelId: "tun-token", userId: "removed", revokedAt: null, writeToken }],
       }]),
-      deleteTunnelTeamNetwork: (_tunnelId: string, _teamNetworkId: string, options?: { generation?: number }) => Effect.sync(() => {
-        if (options?.generation === generation) deleted.push("generation-row");
+      deleteTunnelTeamNetwork: (_tunnelId: string, _teamNetworkId: string, options?: { writeToken?: string }) => Effect.sync(() => {
+        if (options?.writeToken === writeToken) deleted.push("token-row");
       }),
     } as unknown as VmRepositoryShape;
     const provider = {
       ...testPrivateNetworkProvider(unusedProviderGateway()),
       getStatus: () => Effect.succeed("running" as const),
-      detachTunnelNetwork: () => Effect.sync(() => { if (firstDetach) { firstDetach = false; generation += 1; } }),
+      detachTunnelNetwork: () => Effect.sync(() => { if (firstDetach) { firstDetach = false; writeToken = "token-rejoined"; } }),
     } as VmProviderGatewayShape;
     const directory = { listMemberIds: async () => [] };
     const layer = Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, provider), Layer.succeed(VmBillingGateway, noOpVmBillingGateway()));
     await Effect.runPromise(reconcileVmProviderStatuses({ teamDirectory: directory }).pipe(Effect.provide(layer)));
     expect(deleted).toEqual([]);
     await Effect.runPromise(reconcileVmProviderStatuses({ teamDirectory: directory }).pipe(Effect.provide(layer)));
-    expect(deleted).toEqual(["generation-row"]);
+    expect(deleted).toEqual(["token-row"]);
   });
 
   test("runs status and heal before the bounded team pass and keeps unprocessed attachments", async () => {
@@ -7424,7 +7462,7 @@ describe("team tunnel cron reconciliation", () => {
       id, teamId: id, provider: "freestyle" as const, providerNetworkId: `vpc-${id}`,
       slug: id, cidr: "10.60.0.0/24", cidrV6: "fd60::/64",
       createdByUserId: "user-1", createdAt: new Date(), updatedAt: new Date(),
-      attachments: [{ tunnelId: `tun-${id}`, providerTunnelId: `tun-${id}`, userId: "removed", revokedAt: null, generation: 0 }],
+      attachments: [{ tunnelId: `tun-${id}`, providerTunnelId: `tun-${id}`, userId: "removed", revokedAt: null, writeToken: "token-0" }],
     }));
     let time = 0;
     let pages = 0;
@@ -7482,14 +7520,14 @@ describe("team tunnel cron reconciliation", () => {
       ...testWorkflowRepo({ vm }),
       listTeamNetworkAttachmentsPage: () => Effect.succeed([
         { ...first, attachments: [
-          { tunnelId: "tun-removed", providerTunnelId: "tun-removed", userId: "removed", revokedAt: null, generation: 0 },
-          { tunnelId: "tun-revoked", providerTunnelId: "tun-revoked", userId: "member-1", revokedAt: new Date(), generation: 0 },
+          { tunnelId: "tun-removed", providerTunnelId: "tun-removed", userId: "removed", revokedAt: null, writeToken: "token-0" },
+          { tunnelId: "tun-revoked", providerTunnelId: "tun-revoked", userId: "member-1", revokedAt: new Date(), writeToken: "token-0" },
         ] },
-        { ...gone, attachments: [{ tunnelId: "tun-gone", providerTunnelId: "tun-gone", userId: "member-2", revokedAt: null, generation: 0 }] },
-        { ...error, attachments: [{ tunnelId: "tun-skipped", providerTunnelId: "tun-skipped", userId: "removed", revokedAt: null, generation: 0 }] },
+        { ...gone, attachments: [{ tunnelId: "tun-gone", providerTunnelId: "tun-gone", userId: "member-2", revokedAt: null, writeToken: "token-0" }] },
+        { ...error, attachments: [{ tunnelId: "tun-skipped", providerTunnelId: "tun-skipped", userId: "removed", revokedAt: null, writeToken: "token-0" }] },
         { ...good, attachments: [
-          { tunnelId: "tun-bad", providerTunnelId: "tun-bad", userId: "removed", revokedAt: null, generation: 0 },
-          { tunnelId: "tun-good", providerTunnelId: "tun-good", userId: "removed", revokedAt: null, generation: 0 },
+          { tunnelId: "tun-bad", providerTunnelId: "tun-bad", userId: "removed", revokedAt: null, writeToken: "token-0" },
+          { tunnelId: "tun-good", providerTunnelId: "tun-good", userId: "removed", revokedAt: null, writeToken: "token-0" },
         ] },
       ]),
       deleteTunnelTeamNetwork: (_tunnelId: string, teamNetworkId: string) => Effect.sync(() => { deleted.push(teamNetworkId); }),
@@ -7522,7 +7560,7 @@ describe("team tunnel cron reconciliation", () => {
     const deleted: string[] = [];
     const first = { id: "page-1", teamId: "team-page-1", provider: "freestyle" as const, providerNetworkId: "vpc-page-1", slug: "page-1", cidr: "10.61.0.0/24", cidrV6: "fd61::/64", createdByUserId: "user-1", createdAt: new Date(), updatedAt: new Date() };
     const second = { id: "page-2", teamId: "team-page-2", provider: "freestyle" as const, providerNetworkId: "vpc-page-2", slug: "page-2", cidr: "10.62.0.0/24", cidrV6: "fd62::/64", createdByUserId: "user-1", createdAt: new Date(), updatedAt: new Date() };
-    const repo = { ...testWorkflowRepo({ vm }), listTeamNetworkAttachmentsPage: (input: { afterTeamNetworkId?: string }) => Effect.succeed(input.afterTeamNetworkId === "page-2" ? [] : input.afterTeamNetworkId ? [{ ...second, attachments: [{ tunnelId: "tun-page-2", providerTunnelId: "tun-page-2", userId: "removed", revokedAt: null, generation: 0 }] }] : [{ ...first, attachments: [{ tunnelId: "tun-timeout", providerTunnelId: "tun-timeout", userId: "removed", revokedAt: null, generation: 0 }] }]), deleteTunnelTeamNetwork: (_tunnelId: string, id: string) => Effect.sync(() => { deleted.push(id); }) } as unknown as VmRepositoryShape;
+    const repo = { ...testWorkflowRepo({ vm }), listTeamNetworkAttachmentsPage: (input: { afterTeamNetworkId?: string }) => Effect.succeed(input.afterTeamNetworkId === "page-2" ? [] : input.afterTeamNetworkId ? [{ ...second, attachments: [{ tunnelId: "tun-page-2", providerTunnelId: "tun-page-2", userId: "removed", revokedAt: null, writeToken: "token-0" }] }] : [{ ...first, attachments: [{ tunnelId: "tun-timeout", providerTunnelId: "tun-timeout", userId: "removed", revokedAt: null, writeToken: "token-0" }] }]), deleteTunnelTeamNetwork: (_tunnelId: string, id: string) => Effect.sync(() => { deleted.push(id); }) } as unknown as VmRepositoryShape;
     const provider = { ...testPrivateNetworkProvider(unusedProviderGateway()), getStatus: () => Effect.succeed("running" as const), detachTunnelNetwork: (_provider: string, id: string) => Effect.sync(() => { detached.push(id); }) } as VmProviderGatewayShape;
     const directory = { listMemberIds: async (teamId: string) => teamId === "team-page-1" ? new Promise<readonly string[]>(() => {}) : ["member-1"] };
     await Effect.runPromise(reconcileVmProviderStatuses({ teamDirectory: directory, directoryTimeoutMs: 1, teamNetworkPageSize: 1 }).pipe(Effect.provide(Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, provider), Layer.succeed(VmBillingGateway, noOpVmBillingGateway())))));

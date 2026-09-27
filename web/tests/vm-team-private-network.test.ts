@@ -99,7 +99,7 @@ function enrollmentRepo(calls: { inserts: number; attaches: string[] }): VmRepos
     upsertTeamNetwork: () => Effect.succeed(teamNetwork),
     listTeamNetworks: () => Effect.succeed([teamNetwork]),
     listTunnelTeamNetworks: () => Effect.succeed([]),
-    insertTunnelTeamNetwork: (input: { tunnelId: string; teamNetworkId: string; addressV4?: string | null; addressV6?: string | null }) => Effect.sync(() => { calls.inserts += 1; return { ...input, attachedAt: new Date() } as never; }),
+    insertTunnelTeamNetwork: (input: { tunnelId: string; teamNetworkId: string; addressV4?: string | null; addressV6?: string | null }) => Effect.sync(() => { calls.inserts += 1; return { ...input, attachedAt: new Date(), writeToken: `token-${calls.inserts}` } as never; }),
     deleteTunnelTeamNetwork: () => Effect.void,
     findAccessGrant: () => Effect.succeed({ id: tunnelRow.accessGrantId, userId: "user-1", deviceId: "device-1", reportedName: "Test Mac", displayName: null, modelIdentifier: null, osVersion: null, architecture: null, cmuxVersion: null, cmuxBuild: null, cmuxChannel: null, createdAt: new Date(), updatedAt: new Date(), lastControlPlaneAt: new Date(), mutationLeaseId: null, mutationLeaseExpiresAt: null, revokedAt: null }),
     findBlockingRevokedAccessGrant: () => Effect.succeed(null),
@@ -155,7 +155,7 @@ function createRepo(team: typeof teamNetwork | null = teamNetwork): VmRepository
     upsertTeamNetwork: () => Effect.succeed(team ?? teamNetwork),
     listTeamNetworks: () => Effect.succeed(team ? [team] : []),
     listTunnelTeamNetworks: () => Effect.succeed([]),
-    insertTunnelTeamNetwork: () => Effect.succeed({} as never),
+    insertTunnelTeamNetwork: () => Effect.succeed({ writeToken: "token-create-unused" } as never),
     deleteTunnelTeamNetwork: () => Effect.void,
   } as unknown as VmRepositoryShape;
 }
