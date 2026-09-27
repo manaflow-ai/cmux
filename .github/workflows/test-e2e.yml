@@ -174,7 +174,7 @@ jobs:
             --pr-xcode-app "$PR_XCODE_APP" \
             --test-filter "$TEST_FILTER" \
             --owned-ui "$OWNED_UI")"
-          retry_label="$(python3 scripts/ci/e2e_runner_pool.py --retry-of "$label")"
+          retry_label="$(python3 scripts/ci/e2e_runner_pool.py --retry-of "$label" --test-filter "$TEST_FILTER")"
           {
             echo "label=$label"
             echo "retry_label=$retry_label"

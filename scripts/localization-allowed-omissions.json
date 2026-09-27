@@ -2452,6 +2452,16 @@
     "class": "technical",
     "source": "pt"
   },
+  "settings.terminal.ghostty.scrollbackLimit.unit": {
+    "class": "technical",
+    "source": "MB"
+  },
+  "settings.terminal.ghostty.cursorStyle.block": {
+    "source": "Block",
+    "identityLocales": {
+      "de": "Block is the German word for a block cursor shape and has the same spelling as English."
+    }
+  },
   "settings.terminal.tabBarFontSize.points": {
     "class": "format",
     "source": "%@ pt"

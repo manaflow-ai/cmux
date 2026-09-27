@@ -408,12 +408,22 @@ Blacksmith, which is sound only while both carry the same Xcode build: on
 2026-09-24 the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images all
 reported Xcode 26.6 build 17F113 (jobs 107712770707 and 107710434810).
 
-A refused job never goes back to the fleet. Every owned-eligible `runs-on`
-sends attempt 2 and later to `retry_runner` on Blacksmith, whoever started
-the re-run (this rescue, the failure attribution's machine re-run, or a
-person), so the retry cannot land on the mini that refused or failed it, and
-a refusal costs one re-run, never a loop. Side lanes do the same: attempt 1
-takes a side label, attempt 2 their Blacksmith default.
+Re-runs are routed by cause. `github-actions[bot]` re-runs a pull request
+run only after a host fault on a mini: this rescue after a refusal or a stuck
+queue, and the failure attribution (`classify_failures.py`) when every failed
+job is a machine failure. Every owned-eligible `runs-on` sends such a re-run
+(`github.run_attempt > 1 && github.triggering_actor == 'github-actions[bot]'`)
+to `retry_runner` on Blacksmith, so it cannot land on the mini that refused
+or failed it. Anyone else's re-run follows a code or test failure and goes
+back to the owned label attempt 1 placed the job on (a full re-run picks
+again like attempt 1, without queueing). When a mini fails that re-run, the
+failure attribution re-runs it once more as the bot, onto Blacksmith, so a
+refusal never loops; the rescue sweeper also watches a person's re-run
+(`person_reruns()`), so a job stuck queued there is re-run onto Blacksmith.
+Main's full-suite dispatch has neither, so any retry of it takes Blacksmith. In 7 days to 2026-09-27, 135 of 138 bot re-runs followed
+a host fault, and 139 of 217 other re-runs a code failure only (23 a host
+fault, 55 a Linux or guard failure). Side lanes off ci.yml keep attempt 1 on
+a side label and every retry on their Blacksmith default.
 
 "Re-run failed jobs" is different: `changes` passed, so it is not re-run, and
 the failed jobs read attempt 1's outputs, owned pool included, with no watcher
@@ -421,8 +431,8 @@ the failed jobs read attempt 1's outputs, owned pool included, with no watcher
 `retry_runner`, the Blacksmith pool the same rule picks on the lane's own
 Xcode, which is also the Xcode the owned label names. Every pull request macOS
 `runs-on`, and the app-host shards that otherwise inherit compile admission's
-pool, reads `github.run_attempt > 1 && inputs.pr_retry_runner` first. It is
-empty for a run on Blacksmith, so those re-run where they ran.
+pool, reads `retry_runner` first on the bot's re-run. It is empty for a run
+on Blacksmith, so those re-run where they ran.
 
 Compile admission on an owned Mac keeps its build state between jobs
 (`scripts/ci/owned_build_state.py`) under `/Users/Shared/cmux-build-fleet/ci`:
@@ -467,13 +477,13 @@ helper holds 12 machines at peak (`MAX_RUN_JOBS`).
 
 The side lanes (`claude-wrapper`, `remote-daemon`, `swift-package-tests`)
 prefer the light minis. On attempt 1 of a same-repository pull request whose
-pick is an owned pool, when at least as many light side runners
-(`glaeda-side-light-xcode-<version>`) are idle as the run has side lanes,
-`pr_side_runner` names the light side label, and the picked pool counts
-only admission and what follows it (`pr_runner_pool.light_side_lanes()`).
-Otherwise they take the picked pool's side label as before. Giving the light
-pool no machines beyond its root runners in `CI_OWNED_POOL_SLOTS` turns this
-off.
+pick is an owned pool, one side lane per light side runner
+(`glaeda-side-light-xcode-<version>`) idle now takes the light side label
+(`macos_pr_light_side_runner`, for the lanes in `macos_pr_light_side_jobs`),
+and the picked pool counts the rest beside admission and what follows it
+(`pr_runner_pool.light_side_lanes()`). The other lanes take the picked
+pool's side label as before. Giving the light pool no machines beyond its
+root runners in `CI_OWNED_POOL_SLOTS` turns this off.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
