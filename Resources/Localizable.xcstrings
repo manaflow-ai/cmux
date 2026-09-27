@@ -560695,6 +560695,201 @@
         }
       }
     },
+    "settings.app.warnBeforeClosingWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before Closing Window"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحذير قبل إغلاق النافذة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Schließen eines Fensters warnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advertir antes de cerrar una ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avertir avant de fermer une fenêtre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィンドウを閉じる前に警告"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "윈도우를 닫기 전에 경고"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попереджати перед закриттям вікна"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭窗口前警告"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉視窗前發出警告"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingWindow.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows close immediately without confirmation."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُغلق النوافذ فورًا دون تأكيد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fenster werden sofort und ohne Bestätigung geschlossen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las ventanas se cierran inmediatamente sin confirmación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fenêtres se ferment immédiatement sans confirmation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認なしにすぐウィンドウを閉じます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인 창 없이 윈도우가 즉시 닫힙니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вікна закриваються одразу без підтвердження."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗口会直接关闭，不做确认。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "視窗將立即關閉，無需確認。"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingWindow.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a confirmation before closing a window with a running process, or all of a window's workspaces at once."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار تأكيد قبل إغلاق نافذة بها عملية قيد التشغيل، أو إغلاق جميع مساحات العمل في نافذة دفعة واحدة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Bestätigung anzeigen, bevor ein Fenster mit einem laufenden Prozess oder alle Arbeitsbereiche eines Fensters auf einmal geschlossen werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra una confirmación antes de cerrar una ventana con un proceso en ejecución, o todos los espacios de trabajo de una ventana a la vez."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher une confirmation avant de fermer une fenêtre avec un processus en cours, ou tous les espaces de travail d'une fenêtre à la fois."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のプロセスがあるウィンドウ、またはウィンドウ内のすべてのワークスペースをまとめて閉じる前に確認を表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 프로세스가 있는 윈도우나 윈도우의 모든 워크스페이스를 한 번에 닫기 전에 확인 창을 표시합니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати підтвердження перед закриттям вікна із запущеним процесом або всіх робочих областей вікна одночасно."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭有正在运行进程的窗口，或一次关闭窗口中所有工作区前显示确认。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉有執行中程序的視窗，或一次關閉視窗中所有工作區前顯示確認。"
+          }
+        }
+      }
+    },
     "settings.app.warnBeforeClosingWorkspace": {
       "extractionState": "manual",
       "localizations": {
@@ -560886,6 +561081,71 @@
           "stringUnit": {
             "state": "translated",
             "value": "關閉有執行中程序的工作區，或一次關閉多個工作區前顯示確認。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.warn-before-closing-window": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWindow close window confirmation command-control-w cmd-ctrl-w running process"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWindow close window confirmation command-control-w cmd-ctrl-w running process إغلاق النافذة تأكيد تحذير عملية قيد التشغيل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWindow close window confirmation command-control-w cmd-ctrl-w running process fenster schließen bestätigung warnung laufender prozess"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWindow close window confirmation command-control-w cmd-ctrl-w running process cerrar ventana confirmación advertencia proceso en ejecución"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWindow close window confirmation command-control-w cmd-ctrl-w running process fermer fenêtre confirmation avertissement processus en cours"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWindow close window confirmation command-control-w cmd-ctrl-w running process ウィンドウを閉じる 確認 警告 実行中のプロセス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWindow close window confirmation command-control-w cmd-ctrl-w running process 윈도우 닫기 확인 경고 실행 중인 프로세스"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWindow close window confirmation command-control-w cmd-ctrl-w running process закрити вікно підтвердження попередження запущений процес"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWindow close window confirmation command-control-w cmd-ctrl-w running process 关闭窗口 确认 警告 正在运行的进程"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWindow close window confirmation command-control-w cmd-ctrl-w running process 關閉視窗 確認 警告 執行中的程序"
           }
         }
       }

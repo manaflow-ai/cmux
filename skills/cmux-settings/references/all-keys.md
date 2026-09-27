@@ -41,6 +41,7 @@ General app preferences from Settings > App.
 | `app.confirmQuit` | `"always"` or `"dirty-only"` or `"never"` | `"always"` | Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback. |
 | `app.warnBeforeClosingTabXButton` | boolean | `false` | Show a confirmation before closing a tab with the tab close button. |
 | `app.warnBeforeClosingWorkspace` | boolean | `true` | Show a confirmation before closing a workspace with a running process, or several workspaces at once. Pinned workspaces still ask when this is off. |
+| `app.warnBeforeClosingWindow` | boolean | `true` | Show a confirmation before closing a window with a running process, or all of a window's workspaces at once. |
 | `app.hideTabCloseButton` | boolean | `false` | Hide tab close buttons in the pane tab bar. |
 
 ## terminal

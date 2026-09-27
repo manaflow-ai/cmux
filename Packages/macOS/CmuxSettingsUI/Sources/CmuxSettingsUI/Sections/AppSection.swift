@@ -71,6 +71,7 @@ public struct AppSection: View {
     @State private var warnCloseTab: DefaultsValueModel<Bool>
     @State private var warnCloseX: DefaultsValueModel<Bool>
     @State private var warnCloseWorkspace: DefaultsValueModel<Bool>
+    @State private var warnCloseWindow: DefaultsValueModel<Bool>
     @State private var hideCloseButton: DefaultsValueModel<Bool>
     @State private var renameSelects: DefaultsValueModel<Bool>
     @State private var paletteAllSurfaces: DefaultsValueModel<Bool>
@@ -142,6 +143,7 @@ public struct AppSection: View {
         _warnCloseTab = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTab))
         _warnCloseX = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTabXButton))
         _warnCloseWorkspace = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingWorkspace))
+        _warnCloseWindow = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingWindow))
         _hideCloseButton = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.hideTabCloseButton))
         _renameSelects = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.renameSelectsExistingName))
         _paletteAllSurfaces = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.commandPaletteSearchesAllSurfaces))
@@ -167,7 +169,7 @@ public struct AppSection: View {
             AppChannelSwitchCard(hostActions: hostActions)
         }
         .task {
-            startSettingsObservation([language, appearance, accentColor, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, accentColor, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
             await soundAgentCache.loadIfNeeded { await hostActions.notificationSoundAgentOptions() }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
@@ -902,6 +904,20 @@ public struct AppSection: View {
                     : String(localized: "settings.app.warnBeforeClosingWorkspace.subtitleOff", defaultValue: "Workspaces close immediately without confirmation. Pinned workspaces still ask.")
             ) {
                 Toggle("", isOn: Binding(get: { warnCloseWorkspace.current }, set: { warnCloseWorkspace.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Warn Before Closing Window
+            SettingsCardRow(
+                configurationReview: .json(catalog.app.warnBeforeClosingWindow.id),
+                catalog.app.warnBeforeClosingWindow.userFacing!.title,
+                subtitle: warnCloseWindow.current
+                    ? String(localized: "settings.app.warnBeforeClosingWindow.subtitleOn", defaultValue: "Show a confirmation before closing a window with a running process, or all of a window's workspaces at once.")
+                    : String(localized: "settings.app.warnBeforeClosingWindow.subtitleOff", defaultValue: "Windows close immediately without confirmation.")
+            ) {
+                Toggle("", isOn: Binding(get: { warnCloseWindow.current }, set: { warnCloseWindow.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }
