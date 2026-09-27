@@ -161,10 +161,13 @@ import Testing
         #expect(decision.pendingWorkspaceSnapshot == next)
         #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
-    @Test func contextMenuCompactStatusGlyphUpdatesWithTheSpinner() {
-        // Running agent: the spinner is the indicator, so no glyph.
-        let current = Self.snapshot(latestConversationMessage: "old message", activeCodingAgentCount: 1)
-        // The agent went idle: spinner gone, idle dot takes its place.
+    @Test func contextMenuCompactStatusGlyphUpdatesImmediately() {
+        let current = Self.snapshot(
+            latestConversationMessage: "old message",
+            activeCodingAgentCount: 1,
+            compactStatusGlyph: SidebarCompactStatusGlyph.resolve(.init(hasActiveAgent: true))
+        )
+        // The agent went idle: the idle dot must show even with the menu open.
         let idle = SidebarCompactStatusGlyph.resolve(.init(lifecycleStates: [.idle]))
         let next = Self.snapshot(
             latestConversationMessage: "new message",

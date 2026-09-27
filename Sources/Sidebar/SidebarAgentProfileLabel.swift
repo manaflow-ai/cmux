@@ -6,11 +6,12 @@ import Foundation
 /// tooltip so sessions under different accounts can be told apart.
 ///
 /// - `~/.claude-outlook` -> "outlook"
-/// - `~/.subrouter/codex/claude-proxy/<scope>` -> "sr proxy" (the pooled
-///   account is chosen server side and is not visible here)
+/// - a routed launcher's pooled proxy directory (`claude-proxy/<scope>`)
+///   -> "proxy" (the pooled account is chosen server side and is not
+///   visible here)
 /// - the default `~/.claude` / `~/.codex`, or no override -> nil
 enum SidebarAgentProfileLabel {
-    static let subrouterProxyLabel = "sr proxy"
+    static let routedProxyLabel = "proxy"
 
     /// Workspaces a `.sharedLiveAgentIndexDidChange` notification names, or
     /// every workspace when it names none (a full index reload).
@@ -46,7 +47,7 @@ enum SidebarAgentProfileLabel {
 
         let components = (path as NSString).pathComponents
         if components.contains(".subrouter"), components.contains("claude-proxy") {
-            return subrouterProxyLabel
+            return routedProxyLabel
         }
         let last = (path as NSString).lastPathComponent
         var name = last.hasPrefix(".") ? String(last.dropFirst()) : last

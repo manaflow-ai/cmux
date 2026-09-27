@@ -36,6 +36,21 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
         ("idle agent", ["set_agent_lifecycle claude_code idle --tab={tab}"]),
         ("starting agent", ["set_agent_lifecycle claude_code unknown --tab={tab}"]),
         ("custom status", ["set_status deploy green --icon=checkmark --tab={tab}"]),
+        // Notified below, once another workspace is selected, so it stays unread.
+        ("unseen", ["let unseen"]),
+        ("plain terminal", []),
+    ]
+
+    /// A collapsed group whose hidden members need input and are running:
+    /// its header shows the needs-input glyph, naming both members.
+    private let groupCommands: [String] = [
+        "new_workspace grouped input", "select_workspace {last}", "wait 400", "let groupedInput",
+        "set_agent_lifecycle claude_code needsInput --tab={groupedInput}",
+        "new_workspace grouped running", "select_workspace {last}", "wait 400", "let groupedRunning",
+        "set_agent_lifecycle claude_code running --tab={groupedRunning}",
+        #"{"id":"group","method":"workspace.group.create","params":{"name":"agents","child_workspace_ids":["{groupedInput}","{groupedRunning}"]}}"#,
+        #"{"id":"collapse","method":"workspace.group.collapse","params":{"group_id":"{group}"}}"#,
+        "wait 400",
     ]
 
     private func runScenario(compact: Bool) {
@@ -52,7 +67,11 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
         let commands = scenarios.flatMap { scenario in
             ["new_workspace \(scenario.title)", "select_workspace {last}", "wait 400"]
                 + scenario.commands.map { $0.replacingOccurrences(of: "{tab}", with: "{last}") }
-        }
+        } + [
+            "list_surfaces {unseen}",
+            "notify_target {unseen} {surface} Done|Claude Code|Finished",
+            "wait 400",
+        ] + groupCommands
         app.launchArguments += ["-newWorkspacePlacement", "end"]
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         // Plist syntax: the settings decoder accepts only real booleans, and a
@@ -103,10 +122,17 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
 
         if compact {
             // Glyph accessibility labels carry the tooltip text.
-            for label in ["Needs input", "PR #12: open", "PR #13: merged", "main", "Idle"] {
+            // "Finished" is the unseen workspace's notification, which leads its tooltip.
+            // "grouped input: " is the collapsed group header's roll-up.
+            for label in ["Needs input", "PR #12: open", "PR #13: merged", "main", "Idle", "Finished", "grouped input: "] {
                 let glyph = sidebar.descendants(matching: .any)
                     .matching(NSPredicate(format: "label CONTAINS %@", label)).firstMatch
                 XCTAssertTrue(glyph.waitForExistence(timeout: 5.0), "Expected a compact status glyph labelled \(label)")
+            }
+            // One line per row: branch and PR details live in the tooltip only.
+            for detail in ["feat/sidebar", "feat/done"] {
+                let line = sidebar.staticTexts.matching(NSPredicate(format: "value CONTAINS %@", detail)).firstMatch
+                XCTAssertFalse(line.exists, "Expected no \(detail) line under the title in compact mode")
             }
         }
         // The custom (non-agent) status keeps its row in both modes.

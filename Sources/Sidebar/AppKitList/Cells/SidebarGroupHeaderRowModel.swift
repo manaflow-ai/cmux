@@ -26,6 +26,9 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     var hasLatestNotifications: Bool
     var canMarkAllRead: Bool
     var canMarkAllUnread: Bool
+    /// Compact status mode: the loudest state among the workspaces the header
+    /// stands in for; see ``SidebarCompactStatusGlyph/groupHeader(isCollapsed:anchorId:memberIds:members:unread:)``.
+    var statusGlyph: SidebarCompactStatusGlyph?
     /// Resolved modifier-hold hint (for example "⌘3"); nil hides the pill.
     let shortcutHintText: String?
     let shortcutHintXOffset: Double

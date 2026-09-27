@@ -12,6 +12,12 @@ import Foundation
 ///   returned (`new_workspace`, `new_split`, ...). `wait <ms>` pauses without
 ///   sending anything, e.g. to let a new workspace's terminal panel appear
 ///   before per-panel reports (`set_agent_lifecycle`, `report_git_branch`).
+///   `let <name>` saves the current `{last}` as `{<name>}`, to address that
+///   workspace after others were created. `{surface}` is the surface id the
+///   most recent `list_surfaces` returned (for `notify_target`). A line
+///   starting with `{"` is a v2 JSON request; `{group}` is the group id the
+///   most recent `workspace.group.create` returned, and an `"ok": false`
+///   reply counts as a failure.
 /// - `CMUX_UI_TEST_SOCKET_COMMANDS_RESULT_PATH`: JSON written when done:
 ///   `{"done": "1", "replies": [...], "failed": "0|1"}`; wait on it before
 ///   asserting on the UI.
@@ -37,7 +43,7 @@ struct UITestSocketCommandScript: Equatable {
         _ handle: (String) -> String,
         sleep: (Int) -> Void = { usleep(useconds_t(max(0, $0)) * 1000) }
     ) -> [String] {
-        var last: String?
+        var values: [String: String] = [:]
         var replies: [String] = []
         for command in commands {
             if let milliseconds = Self.waitMilliseconds(command) {
@@ -45,11 +51,22 @@ struct UITestSocketCommandScript: Equatable {
                 replies.append("OK")
                 continue
             }
-            let line = Self.substitute(command, last: last)
+            if let name = Self.letName(command) {
+                values[name] = values["last"]
+                replies.append(values["last"] == nil ? "ERROR: no {last} to save" : "OK")
+                continue
+            }
+            let line = Self.substitute(command, values: values)
             let reply = handle(line)
             replies.append(reply)
             if line.hasPrefix("new_"), let id = Self.lastUUID(in: reply) {
-                last = id
+                values["last"] = id
+            }
+            if line.hasPrefix("list_surfaces"), let id = Self.lastUUID(in: reply) {
+                values["surface"] = id
+            }
+            if let id = Self.createdGroupId(in: reply) {
+                values["group"] = id
             }
         }
         return replies
@@ -61,9 +78,31 @@ struct UITestSocketCommandScript: Equatable {
         return min(value, 10_000)
     }
 
-    static func substitute(_ command: String, last: String?) -> String {
-        guard let last else { return command }
-        return command.replacingOccurrences(of: "{last}", with: last)
+    static func letName(_ command: String) -> String? {
+        let parts = command.split(separator: " ")
+        guard parts.count == 2, parts[0] == "let", !parts[1].contains("{") else { return nil }
+        return String(parts[1])
+    }
+
+    static func substitute(_ command: String, values: [String: String]) -> String {
+        values.reduce(command) { line, value in
+            line.replacingOccurrences(of: "{\(value.key)}", with: value.value)
+        }
+    }
+
+    /// `result.group.id` of a v2 `workspace.group.create` reply.
+    static func createdGroupId(in reply: String) -> String? {
+        let result = v2Reply(reply)?["result"] as? [String: Any]
+        return (result?["group"] as? [String: Any])?["id"] as? String
+    }
+
+    static func isFailure(_ reply: String) -> Bool {
+        reply.isEmpty || reply.hasPrefix("ERROR") || v2Reply(reply)?["ok"] as? Bool == false
+    }
+
+    private static func v2Reply(_ reply: String) -> [String: Any]? {
+        guard reply.hasPrefix("{"), let data = reply.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
     static func lastUUID(in reply: String) -> String? {
@@ -85,7 +124,7 @@ struct UITestSocketCommandScript: Equatable {
             try? await Task.sleep(for: .milliseconds(500))
             let replies = script.run(handle)
             guard let resultPath, !resultPath.isEmpty else { return }
-            let failed = replies.contains { $0.isEmpty || $0.hasPrefix("ERROR") }
+            let failed = replies.contains(where: Self.isFailure)
             let payload: [String: Any] = ["done": "1", "failed": failed ? "1" : "0", "replies": replies]
             if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) {
                 try? data.write(to: URL(fileURLWithPath: resultPath), options: .atomic)
