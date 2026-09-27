@@ -427,6 +427,31 @@ struct CloseTabConfirmationPolicyTests {
         #expect(!bothOff.shouldConfirmClose(requiresConfirmation: false, source: .tabCloseButton))
     }
 
+    @Test func warningKindsNameEveryToggleBehindAPrompt() {
+        let both = FixedWarnings(warnsBeforeClosingTab: true, warnsBeforeClosingTabXButton: true)
+        #expect(both.warningKinds(requiresConfirmation: true, source: .shortcut) == [.tab])
+        #expect(both.warningKinds(requiresConfirmation: false, source: .shortcut) == [])
+        #expect(both.warningKinds(requiresConfirmation: true, source: .tabCloseButton) == [.tab, .tabCloseButton])
+        #expect(both.warningKinds(requiresConfirmation: false, source: .tabCloseButton) == [.tabCloseButton])
+    }
+
+    @Test func disableWarningsTurnsOffOnlyTheGivenToggles() {
+        let defaults = makeScratchDefaults()
+        let store = CloseTabWarningStore(defaults: defaults)
+        defaults.set(true, forKey: "warnBeforeClosingTabXButton")
+
+        store.disableWarnings([.tabCloseButton, .workspace])
+
+        #expect(store.warnsBeforeClosingTab)
+        #expect(!store.warnsBeforeClosingTabXButton)
+        #expect(!store.warnsBeforeClosingWorkspace)
+        #expect(defaults.object(forKey: "warnBeforeClosingWorkspace") as? Bool == false)
+
+        store.disableWarnings([.tab])
+        #expect(!store.warnsBeforeClosingTab)
+        #expect(defaults.object(forKey: "warnBeforeClosingTabShortcut") as? Bool == false)
+    }
+
     @Test func liveStoreReadsTogglesFromDefaults() {
         let defaults = makeScratchDefaults()
         defaults.set(false, forKey: "warnBeforeClosingTabShortcut")
