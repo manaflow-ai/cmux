@@ -310,7 +310,7 @@ runs:
     # Inline, not a scripts/ci file: this action ships from the workflow
     # revision, and the tested revision may predate any new script.
     #
-    # Owned minis keep one GUI session across jobs and reboots. On cmux13s
+    # Owned macOS runners keep one GUI session across jobs and reboots. On one
     # (2026-09-27) a crash report ("Reopen / Ignore / Report...") and
     # Spotlight's password prompt for the cmux-ci test keychain (read while it
     # was still locked after a reboot) sat over every UI test for hours, and
@@ -322,7 +322,7 @@ runs:
       run: |
         defaults write com.apple.CrashReporter DialogType none 2>/dev/null || true
         uid="$(id -u)"
-        # SIGKILL: a SecurityAgent showing a prompt ignores SIGTERM (cmux12s,
+        # SIGKILL: a SecurityAgent showing a prompt ignores SIGTERM (seen
         # 2026-09-27: pkill "succeeded" and the 7 h old prompt stayed).
         for process in UserNotificationCenter SecurityAgent; do
           if pkill -KILL -x -u "$uid" "$process" 2>/dev/null; then
@@ -330,7 +330,7 @@ runs:
           fi
         done
         # Diagnostics Reporter draws "cmux DEV cannot be opened because of a
-        # problem" after a crashed launch; on cmux8s and cmux11s (2026-09-27)
+        # problem" after a crashed launch; on owned macOS runners (2026-09-27)
         # one sat over UI tests from boot. Its name is longer than the 16
         # bytes -x compares, so match the executable path.
         if pkill -KILL -u "$uid" -f "/Diagnostics Reporter.app/Contents/MacOS/" 2>/dev/null; then

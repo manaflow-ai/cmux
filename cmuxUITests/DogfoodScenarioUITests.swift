@@ -176,7 +176,9 @@ final class DogfoodScenarioUITests: XCTestCase {
                 saved[saveAs] = response["result"] ?? [:]
             }
         case .expect(let target, let exists):
-            let found = query(target, in: app).firstMatch.waitForExistence(timeout: exists ? 5 : 0.5)
+            let matches = query(target, in: app)
+            let element = target.index.map { matches.element(boundBy: $0) } ?? matches.firstMatch
+            let found = element.waitForExistence(timeout: exists ? 5 : 0.5)
             if found != exists {
                 throw DogfoodError("expected \(target) to \(exists ? "exist" : "be absent")")
             }
