@@ -1,8 +1,38 @@
 import CmuxCore
 import CmuxRemoteDaemon
 import Darwin
-import Foundation
-import Network
+public import Foundation
+public import Network
+
+/// The cross-module handle for one accepted, authenticated browser-proxy
+/// connection. It lets the ssh-tmux transport reuse the same credentialed
+/// SOCKS5/HTTP-CONNECT parser as the daemon-backed tunnel.
+public protocol RemoteDaemonProxySessionHandling: AnyObject, Sendable {
+    var id: UUID { get }
+    func start()
+    func stop()
+}
+
+/// Creates credentialed browser-proxy sessions for one local connection.
+public struct RemoteDaemonProxySessionFactory: Sendable {
+    public init() {}
+
+    public func makeSession(
+        connection: NWConnection,
+        credential: BrowserProxyCredential,
+        rpcClient: any RemoteProxyStreamOpening,
+        queue: DispatchQueue,
+        onClose: @escaping (UUID) -> Void
+    ) -> any RemoteDaemonProxySessionHandling {
+        RemoteDaemonProxySession(
+            connection: connection,
+            credential: credential,
+            rpcClient: rpcClient,
+            queue: queue,
+            onClose: onClose
+        )
+    }
+}
 
 /// One accepted local proxy connection inside ``RemoteDaemonProxyTunnel``:
 /// parses the SOCKS5 or HTTP CONNECT handshake, opens a matching daemon
@@ -23,7 +53,7 @@ import Network
 /// handshake parsing and close side effects. `@unchecked Sendable` because
 /// the `@Sendable` Network callbacks capture `self`; the queue confinement
 /// above is the safety argument.
-final class RemoteDaemonProxySession: @unchecked Sendable {
+final class RemoteDaemonProxySession: RemoteDaemonProxySessionHandling, @unchecked Sendable {
     private static let maxHandshakeBytes = 64 * 1024
     private static let remoteLoopbackProxyAliasHost = RemoteLoopbackProxyAlias.aliasHost
 
@@ -46,11 +76,11 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
         let consumedBytes: Int
     }
 
-    let id = UUID()
+    public let id = UUID()
 
     private let connection: NWConnection
     private let credential: BrowserProxyCredential
-    private let rpcClient: any RemoteDaemonTunnelRPCClient
+    private let rpcClient: any RemoteProxyStreamOpening
     private let queue: DispatchQueue
     private let onClose: (UUID) -> Void
 
@@ -68,10 +98,10 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
     private var pendingRemoteHTTPHeaderBytes = Data()
     private var hasForwardedRemoteHTTPHeaders = false
 
-    init(
+    public init(
         connection: NWConnection,
         credential: BrowserProxyCredential,
-        rpcClient: any RemoteDaemonTunnelRPCClient,
+        rpcClient: any RemoteProxyStreamOpening,
         queue: DispatchQueue,
         onClose: @escaping (UUID) -> Void
     ) {
@@ -82,7 +112,7 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
         self.onClose = onClose
     }
 
-    func start() {
+    public func start() {
         connection.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             switch state {
@@ -98,7 +128,7 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
         receiveNext()
     }
 
-    func stop() {
+    public func stop() {
         close(reason: nil)
     }
 
