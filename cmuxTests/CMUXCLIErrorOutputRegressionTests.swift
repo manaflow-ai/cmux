@@ -2309,7 +2309,7 @@ import Testing
             sourceCLIPath: cliPath,
             tagSlug: tagSlug
         )
-        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
+        let environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
         // No CMUX_SOCKET_PATH on purpose: where the CLI lands with no override is the
         // whole subject. That stays inside the test because the tag slug is unique per
         // run, so the tagged default socket and the marker file the CLI consults are both
@@ -2414,7 +2414,7 @@ import Testing
             sourceCLIPath: cliPath,
             tagSlug: tagSlug
         )
-        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
+        let environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
 
         let result = runProcess(
             executablePath: fakeCLIPath,
@@ -3113,7 +3113,7 @@ import Testing
             tagSlug: tagSlug,
             nestedIdentifierlessApp: true
         )
-        var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
+        let environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
         // No CMUX_SOCKET_PATH again: resolution from the bundle layout is the subject. The
         // temp home and the unique tag slug keep that resolution inside the test.
 

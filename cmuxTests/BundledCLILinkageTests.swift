@@ -61,7 +61,7 @@ enum BundledCLITestSupport {
     /// Environment for a spawned bundled CLI that cannot see the real user's cmux.
     ///
     /// Every home-derived location (`HOME`, `CFFIXED_USER_HOME`, the XDG base
-    /// directories, `TMPDIR`) points inside `home`; inherited `CMUX_*`/`CMUXTERM_*`
+    /// directories, `TMPDIR`) points inside `home`; inherited `CMUX*`
     /// variables (socket pins, surface/workspace ids, tags) are dropped; and implicit
     /// socket discovery is confined to `home`'s state directory. On a machine where
     /// the user (or a CI runner account) has a live cmux, the CLI would otherwise
@@ -72,7 +72,7 @@ enum BundledCLITestSupport {
     ) -> [String: String] {
         var environment = base
         for key in Array(environment.keys)
-        where key.hasPrefix("CMUX_") || key.hasPrefix("CMUXTERM_") || key.hasPrefix("XDG_") {
+        where key.hasPrefix("CMUX") || key.hasPrefix("XDG_") {
             environment.removeValue(forKey: key)
         }
         let fileManager = FileManager.default
