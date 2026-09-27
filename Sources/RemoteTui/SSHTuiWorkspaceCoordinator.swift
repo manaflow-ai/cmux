@@ -144,8 +144,19 @@ final class SSHTuiWorkspaceCoordinator {
     }
 
     /// The local title an SSH attach publishes to the remote workspace it just created.
+    ///
+    /// Once the workspace is bound, the daemon graph owns its name and
+    /// reconciliation projects that name onto the local title, so a title from
+    /// `--name` or a restored snapshot must reach the daemon first. Attach
+    /// enqueues it as a rename before binding; the pending rename keeps
+    /// reconciliation from painting the daemon default (`workspace-N`) meanwhile.
+    /// Auto titles are derived locally and are not pinned into the daemon, and a
+    /// title over the daemon's 1024-byte workspace-name limit is not sent.
     static func remoteWorkspaceTitleToPublish(for workspace: Workspace) -> String? {
-        nil
+        guard workspace.effectiveCustomTitleSource != .auto,
+              let title = workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty, title.utf8.count <= 1024 else { return nil }
+        return title
     }
 
     /// Replace the local scaffold before yielding so an SSH workspace can never start a local shell.
