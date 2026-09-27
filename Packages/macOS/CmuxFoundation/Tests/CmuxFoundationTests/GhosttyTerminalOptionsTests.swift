@@ -122,6 +122,16 @@ struct GhosttyTerminalOptionsTests {
         #expect(GhosttyWindowPadding(configValue: " 3 , 7 ") == GhosttyWindowPadding(leading: 3, trailing: 7))
     }
 
+    @Test("A slider opacity with float noise still matches the value read back")
+    func opacityWithFloatNoiseReflectsWrittenValue() {
+        let change = GhosttyTerminalOptionChange.backgroundOpacity(0.05 * 7)
+        #expect(change.configValues == ["0.35"])
+        let readBack = GhosttyTerminalOptions(directives: ["background-opacity": change.configValues])
+        #expect(readBack.backgroundOpacity == 0.35)
+        #expect(readBack.reflects(change))
+        #expect(GhosttyTerminalOptions.defaults.applying(change).backgroundOpacity == 0.35)
+    }
+
     @Test("reflects(_:) is false when a later file overrides the written value")
     func reflectsDetectsOverride() {
         let change = GhosttyTerminalOptionChange.fontSize(16)

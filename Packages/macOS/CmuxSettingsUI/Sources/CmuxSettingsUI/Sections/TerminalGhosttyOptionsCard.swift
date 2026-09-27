@@ -362,7 +362,7 @@ struct TerminalGhosttyOptionsCard: View {
             saveFailed = !saved
             let snapshot = await hostActions.terminalGhosttyOptions()
             overriddenKeys[key] = saved && !snapshot.options.reflects(change)
-                ? snapshot.sourcePaths[key] ?? key.rawValue
+                ? snapshot.sourcePaths[key]
                 : nil
             options = pendingChanges.values.reduce(snapshot.options) { $0.applying($1) }
         }

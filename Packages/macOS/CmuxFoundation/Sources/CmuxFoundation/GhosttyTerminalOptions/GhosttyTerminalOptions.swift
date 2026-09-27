@@ -92,12 +92,12 @@ public struct GhosttyTerminalOptions: Equatable, Sendable {
         var updated = self
         switch change {
         case .fontFamilies(let families): updated.fontFamilies = families
-        case .fontSize(let points): updated.fontSize = points
+        case .fontSize(let points): updated.fontSize = Self.hundredths(points)
         case .cursorStyle(let style): updated.cursorStyle = style
         case .cursorBlinks(let blinks): updated.cursorBlinks = blinks
         case .windowPaddingX(let points): updated.windowPaddingX = points
         case .windowPaddingY(let points): updated.windowPaddingY = points
-        case .backgroundOpacity(let opacity): updated.backgroundOpacity = opacity
+        case .backgroundOpacity(let opacity): updated.backgroundOpacity = Self.hundredths(min(max(opacity, 0), 1))
         case .backgroundBlurEnabled(let enabled): updated.backgroundBlurEnabled = enabled
         case .optionAsAlt(let option): updated.optionAsAlt = option
         case .scrollbackLimitBytes(let bytes): updated.scrollbackLimitBytes = bytes
@@ -117,6 +117,12 @@ public struct GhosttyTerminalOptions: Equatable, Sendable {
     public func fontFamiliesChoosing(_ family: String?) -> [String] {
         guard let family, !family.isEmpty else { return [] }
         return [family] + fontFamilies.dropFirst().filter { $0 != family }
+    }
+
+    /// Rounds to the two decimals a change writes, so a slider value such as
+    /// 0.35000000000000003 matches the 0.35 read back after the write.
+    private static func hundredths(_ value: Double) -> Double {
+        (value * 100).rounded() / 100
     }
 
     /// The last valid value, or `nil` when unset or reset by an empty value.
