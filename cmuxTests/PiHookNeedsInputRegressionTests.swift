@@ -66,4 +66,47 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(record["runtimeStatus"] as? String, "needsInput")
         XCTAssertEqual(record["agentLifecycle"] as? String, "needsInput")
     }
+
+    func testPiIdleDialogResolutionReturnsToIdle() throws {
+        let context = try makeClaudeHookContext(name: "pi-idle-dialog")
+        defer { context.cleanup() }
+
+        let sessionId = "pi-idle-dialog-session"
+        startAgentHookMockServerAccepting(context: context)
+        let launchEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: "pi",
+            executable: "/usr/local/bin/pi"
+        )
+        let start = runAgentHook(
+            context: context,
+            agent: "pi",
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let question = runAgentHook(
+            context: context,
+            agent: "pi",
+            subcommand: "notification",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"pi-idle-dialog-id","cwd":"\#(context.root.path)","hook_event_name":"questionAsked","event":"questionAsked","message":"Idle dialog"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertEqual(question.status, 0, question.stderr)
+
+        let resolutionStart = context.state.commands.count
+        let resolution = runAgentHook(
+            context: context,
+            agent: "pi",
+            subcommand: "approval-response",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"pi-idle-dialog-id","cwd":"\#(context.root.path)","hook_event_name":"ApprovalResponse","cmux_pi_idle_dialog":true}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertEqual(resolution.status, 0, resolution.stderr)
+        let commands = Array(context.state.commands.dropFirst(resolutionStart))
+        XCTAssertTrue(commands.contains { $0.contains("set_status pi Idle") }, "Idle Pi dialog resolution must restore Idle, saw \(commands)")
+        XCTAssertFalse(commands.contains { $0.contains("set_status pi Running") }, "Idle Pi dialog resolution must not mark Pi Running, saw \(commands)")
+    }
 }
