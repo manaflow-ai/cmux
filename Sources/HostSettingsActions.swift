@@ -190,18 +190,15 @@ final class HostSettingsActions: SettingsHostActions {
             currentBundleIdentifier: Bundle.main.bundleIdentifier,
             appSupportDirectory: appSupport
         )
-        // Ghostty resolves a theme name in the user's themes directory before
-        // its bundled resources, so the gallery lists them in that order.
-        let themeDirectories = [
-            FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".config/ghostty/themes", isDirectory: true),
-            Bundle.main.resourceURL?
-                .appendingPathComponent("ghostty/themes", isDirectory: true),
-        ].compactMap { $0 }
+        let themeDirectories = GhosttyThemeDirectories(
+            environment: ProcessInfo.processInfo.environment,
+            bundledThemeDirectories: [Bundle.main.resourceURL?.appendingPathComponent("ghostty/themes", isDirectory: true)]
+                .compactMap { $0 }
+        ).urls
         return TerminalThemeGalleryContext(
             configFile: CmuxManagedThemeConfigFile(url: configURL),
             themeDirectories: themeDirectories,
-            currentThemeValue: GhosttyApp.userAppearanceConfigSummary().lastThemeDirective,
+            readCurrentThemeValue: { GhosttyApp.userAppearanceConfigSummary().lastThemeDirective },
             prefersDarkAppearance: NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         )
     }

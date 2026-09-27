@@ -56,8 +56,43 @@ struct GhosttyThemeCatalogTests {
         try "background = #ffffff".write(to: bundled.appendingPathComponent("Nord"), atomically: true, encoding: .utf8)
         try "".write(to: bundled.appendingPathComponent("Atom"), atomically: true, encoding: .utf8)
 
-        let entries = GhosttyThemeCatalog.entries(in: [user, bundled, root.appendingPathComponent("missing")])
+        let entries = GhosttyThemeCatalog(directories: [user, bundled, root.appendingPathComponent("missing")]).entries()
         #expect(entries.map(\.name) == ["Atom", "nord"])
         #expect(entries.last?.url.deletingLastPathComponent().lastPathComponent == "user")
+    }
+}
+
+@Suite("Ghostty theme directories")
+struct GhosttyThemeDirectoriesTests {
+    @Test("Lists existing directories in lookup order, each once")
+    func ordersDirectories() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-theme-dirs-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let resources = root.appendingPathComponent("resources", isDirectory: true)
+        let bundled = root.appendingPathComponent("bundle/ghostty/themes", isDirectory: true)
+        let xdg = root.appendingPathComponent("xdg", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let userThemes = home.appendingPathComponent(".config/ghostty/themes", isDirectory: true)
+        for directory in [resources.appendingPathComponent("themes"), bundled, xdg.appendingPathComponent("ghostty/themes"), userThemes] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+
+        let urls = GhosttyThemeDirectories(
+            environment: [
+                "GHOSTTY_RESOURCES_DIR": resources.path,
+                "XDG_DATA_DIRS": "\(xdg.path)::\(root.appendingPathComponent("missing").path)",
+                "HOME": home.path,
+            ],
+            bundledThemeDirectories: [bundled, bundled, root.appendingPathComponent("absent")]
+        ).urls
+
+        let ours = urls.filter { $0.path.hasPrefix(root.standardizedFileURL.path) }
+        #expect(ours == [
+            resources.appendingPathComponent("themes", isDirectory: true),
+            bundled,
+            xdg.appendingPathComponent("ghostty/themes", isDirectory: true),
+            userThemes,
+        ].map(\.standardizedFileURL))
     }
 }

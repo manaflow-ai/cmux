@@ -6,8 +6,9 @@ import Observation
 ///
 /// Picking a card writes the managed `# cmux themes` block through the same
 /// ``CmuxManagedThemeConfigFile`` writer `cmux themes` uses, then asks the host
-/// to reload so terminals preview it live. The first pick snapshots the config
-/// file; ``revert()`` puts that snapshot back.
+/// to reload so terminals preview it live. The first pick remembers the
+/// block's previous theme value; ``revert()`` writes only that value back, so
+/// other edits to the file made in the meantime survive.
 @MainActor
 @Observable
 final class TerminalThemeGalleryModel {
@@ -30,9 +31,9 @@ final class TerminalThemeGalleryModel {
         let isTruncated: Bool
     }
 
+    /// The managed block's theme before the first pick (`nil`: no block).
     private struct Snapshot {
-        let contents: String?
-        let selection: CmuxTerminalThemePair
+        let managedThemeValue: String?
     }
 
     /// Shown when the search field is empty: light and dark variants of
@@ -52,6 +53,7 @@ final class TerminalThemeGalleryModel {
     @ObservationIgnored private let context: TerminalThemeGalleryContext
     @ObservationIgnored private let reload: @MainActor (TerminalThemeReloadPhase) -> Void
     @ObservationIgnored private var snapshot: Snapshot?
+    @ObservationIgnored private let block = CmuxManagedThemeBlock()
 
     private(set) var themes: [Theme] = []
     private(set) var isLoaded = false
@@ -67,7 +69,7 @@ final class TerminalThemeGalleryModel {
     ) {
         self.context = context
         self.reload = reload
-        selection = CmuxManagedThemeBlock.themePair(fromRawValue: context.currentThemeValue)
+        selection = CmuxManagedThemeBlock().themePair(fromRawValue: context.readCurrentThemeValue())
         slot = context.prefersDarkAppearance ? .dark : .light
     }
 
@@ -95,12 +97,28 @@ final class TerminalThemeGalleryModel {
         }
     }
 
+    /// Re-reads the theme in effect, picking up changes made outside Settings.
+    func refreshSelection() {
+        selection = currentPair()
+    }
+
     /// Uses `name` for the current slot and live-previews it.
     ///
-    /// Ghostty needs both sides of a conditional theme, so an unset opposite
-    /// side takes the same theme.
+    /// The other side comes from the config as it is now, not as it was when
+    /// Settings opened. Ghostty needs both sides of a conditional theme, so an
+    /// unset opposite side takes the same theme.
     func select(_ name: String) {
-        var next = selection
+        let current: CmuxTerminalThemePair
+        let managedValue: String?
+        do {
+            managedValue = try context.configFile.managedThemeValue()
+            current = managedValue.map { block.themePair(fromRawValue: $0) } ?? currentPair()
+        } catch {
+            writeFailed = true
+            return
+        }
+        selection = current
+        var next = current
         switch slot {
         case .light:
             next.light = name
@@ -109,18 +127,18 @@ final class TerminalThemeGalleryModel {
             next.dark = name
             if next.light == nil { next.light = name }
         }
-        guard next != selection,
-              let rawValue = CmuxManagedThemeBlock.encodedThemeValue(light: next.light, dark: next.dark) else {
+        guard next != current,
+              let rawValue = block.encodedThemeValue(light: next.light, dark: next.dark) else {
             return
         }
         do {
-            if snapshot == nil {
-                snapshot = Snapshot(contents: try context.configFile.readContents(), selection: selection)
-            }
             try context.configFile.write(rawThemeValue: rawValue)
         } catch {
             writeFailed = true
             return
+        }
+        if snapshot == nil {
+            snapshot = Snapshot(managedThemeValue: managedValue)
         }
         selection = next
         hasPendingChange = true
@@ -128,24 +146,34 @@ final class TerminalThemeGalleryModel {
         reload(.preview)
     }
 
-    /// Restores the config file as it was before the first pick.
+    /// Puts the managed block's theme back as it was before the first pick,
+    /// removing the block if there was none. The rest of the file is untouched.
     func revert() {
         guard let snapshot else { return }
         do {
-            try context.configFile.restore(snapshot.contents)
+            try context.configFile.setManagedThemeValue(snapshot.managedThemeValue)
         } catch {
             writeFailed = true
             return
         }
-        selection = snapshot.selection
         self.snapshot = nil
+        selection = currentPair()
         hasPendingChange = false
         writeFailed = false
         reload(.final)
     }
 
+    /// The effective theme: the managed block when present, otherwise
+    /// whatever the loaded Ghostty config sets.
+    private func currentPair() -> CmuxTerminalThemePair {
+        if let managedValue = try? context.configFile.managedThemeValue() {
+            return block.themePair(fromRawValue: managedValue)
+        }
+        return block.themePair(fromRawValue: context.readCurrentThemeValue())
+    }
+
     nonisolated static func loadThemes(in directories: [URL]) -> [Theme] {
-        GhosttyThemeCatalog.entries(in: directories).compactMap { entry in
+        GhosttyThemeCatalog(directories: directories).entries().compactMap { entry in
             guard let contents = try? String(contentsOf: entry.url, encoding: .utf8) else { return nil }
             return Theme(name: entry.name, colors: GhosttyThemeColors(parsing: contents))
         }

@@ -53,6 +53,7 @@ struct TerminalThemeSettingsRows: View {
             let galleryModel: TerminalThemeGalleryModel
             if let model {
                 galleryModel = model
+                galleryModel.refreshSelection()
             } else {
                 // Built on first appearance, not in init: the context reads config files.
                 guard let context = hostActions.terminalThemeGalleryContext() else { return }
@@ -241,8 +242,35 @@ private struct TerminalThemeCard: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(verbatim: theme.name))
+        .accessibilityValue(accessibilityValue)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .help(Text(verbatim: theme.name))
+    }
+
+    /// Says which appearances use this theme, or nothing when neither does.
+    private var accessibilityValue: String {
+        switch (usedInLight, usedInDark) {
+        case (true, true):
+            String(
+                localized: "settings.terminal.themeGallery.card.lightAndDark",
+                defaultValue: "Current light and dark theme",
+                bundle: .module
+            )
+        case (true, false):
+            String(
+                localized: "settings.terminal.themeGallery.card.light",
+                defaultValue: "Current light theme",
+                bundle: .module
+            )
+        case (false, true):
+            String(
+                localized: "settings.terminal.themeGallery.card.dark",
+                defaultValue: "Current dark theme",
+                bundle: .module
+            )
+        case (false, false):
+            ""
+        }
     }
 
     private func swatchRow(colors: GhosttyThemeColors, range: Range<Int>) -> some View {

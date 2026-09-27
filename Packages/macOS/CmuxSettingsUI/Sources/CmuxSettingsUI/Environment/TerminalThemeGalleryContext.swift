@@ -9,20 +9,28 @@ public struct TerminalThemeGalleryContext: Sendable {
     public let configFile: CmuxManagedThemeConfigFile
     /// Directories searched for theme files. Earlier directories win on a name clash.
     public let themeDirectories: [URL]
-    /// The last `theme = ...` value across the loaded Ghostty config files.
-    public let currentThemeValue: String?
+    /// Reads the last `theme = ...` value across the loaded Ghostty config
+    /// files. Called again before each pick so a change made meanwhile (for
+    /// example by `cmux themes`) is not overwritten with a stale value.
+    public let readCurrentThemeValue: @MainActor @Sendable () -> String?
     /// Whether the app currently renders in dark appearance.
     public let prefersDarkAppearance: Bool
 
+    /// Creates a context.
+    /// - Parameters:
+    ///   - configFile: The managed config file both writers share.
+    ///   - themeDirectories: Usually ``GhosttyThemeDirectories/urls``.
+    ///   - readCurrentThemeValue: Returns the effective `theme` value now.
+    ///   - prefersDarkAppearance: Picks the slot the gallery opens on.
     public init(
         configFile: CmuxManagedThemeConfigFile,
         themeDirectories: [URL],
-        currentThemeValue: String?,
+        readCurrentThemeValue: @escaping @MainActor @Sendable () -> String?,
         prefersDarkAppearance: Bool
     ) {
         self.configFile = configFile
         self.themeDirectories = themeDirectories
-        self.currentThemeValue = currentThemeValue
+        self.readCurrentThemeValue = readCurrentThemeValue
         self.prefersDarkAppearance = prefersDarkAppearance
     }
 }
@@ -31,6 +39,6 @@ public struct TerminalThemeGalleryContext: Sendable {
 public enum TerminalThemeReloadPhase: Sendable {
     /// A card was picked; rapid picks can coalesce into one reload.
     case preview
-    /// The previous config was restored; reload now.
+    /// The previous theme was restored; reload now.
     case final
 }

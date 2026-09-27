@@ -21,13 +21,16 @@ struct TerminalThemeGalleryModelTests {
         prefersDark: Bool = false
     ) throws -> (TerminalThemeGalleryModel, CmuxManagedThemeConfigFile, ReloadLog) {
         let file = CmuxManagedThemeConfigFile(url: root.appendingPathComponent("config.ghostty"))
-        try file.restore(existingConfig)
+        if let existingConfig {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try existingConfig.write(to: file.url, atomically: true, encoding: .utf8)
+        }
         let log = ReloadLog()
         let model = TerminalThemeGalleryModel(
             context: TerminalThemeGalleryContext(
                 configFile: file,
                 themeDirectories: [],
-                currentThemeValue: currentThemeValue,
+                readCurrentThemeValue: { currentThemeValue },
                 prefersDarkAppearance: prefersDark
             ),
             reload: { log.phases.append($0) }
@@ -83,10 +86,10 @@ struct TerminalThemeGalleryModelTests {
         #expect(!model.hasPendingChange)
     }
 
-    @Test("Revert restores the file as it was before the first of several picks")
+    @Test("Revert restores the theme from before the first of several picks")
     func revertRestoresSnapshot() throws {
         defer { try? FileManager.default.removeItem(at: root) }
-        let original = "font-size = 13\n# cmux themes start\ntheme = Nord\n# cmux themes end\n"
+        let original = "font-size = 13\n\n# cmux themes start\ntheme = Nord\n# cmux themes end\n"
         let (model, file, log) = try makeModel(existingConfig: original, currentThemeValue: "Nord")
 
         model.select("Rose Pine Dawn")
@@ -98,6 +101,34 @@ struct TerminalThemeGalleryModelTests {
         #expect(model.selection == CmuxTerminalThemePair(light: "Nord", dark: "Nord"))
         #expect(!model.hasPendingChange)
         #expect(log.phases == [.preview, .preview, .final])
+    }
+
+    @Test("Revert only touches the theme block, keeping edits made since the pick")
+    func revertKeepsLaterEdits() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (model, file, _) = try makeModel(existingConfig: "font-size = 13\n", currentThemeValue: nil)
+
+        model.select("Nord")
+        try (try file.readContents()! + "cursor-style = bar\n").write(to: file.url, atomically: true, encoding: .utf8)
+        model.revert()
+
+        #expect(try file.readContents() == "font-size = 13\n\ncursor-style = bar\n")
+    }
+
+    @Test("A pick keeps the other side as cmux themes changed it after Settings opened")
+    func pickReadsCurrentBlock() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (model, file, _) = try makeModel(
+            existingConfig: nil,
+            currentThemeValue: "light:Catppuccin Latte,dark:Catppuccin Mocha"
+        )
+
+        // `cmux themes set --dark Dracula` from a terminal while Settings is open.
+        try file.write(rawThemeValue: "light:Catppuccin Latte,dark:Dracula")
+        model.select("Nord Light")
+
+        #expect(try file.managedThemeValue() == "light:Nord Light,dark:Dracula")
+        #expect(model.selection == CmuxTerminalThemePair(light: "Nord Light", dark: "Dracula"))
     }
 
     @Test("Revert removes a config file the gallery created")

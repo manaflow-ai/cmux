@@ -3,89 +3,46 @@ import CmuxFoundation
 
 extension CMUXCLI {
     func availableThemeNames() -> [String] {
-        GhosttyThemeCatalog.entries(in: themeDirectoryURLs()).map(\.name)
+        GhosttyThemeCatalog(directories: themeDirectoryURLs()).entries().map(\.name)
     }
 
     func themeDirectoryURLs() -> [URL] {
+        GhosttyThemeDirectories(
+            environment: ProcessInfo.processInfo.environment,
+            bundledThemeDirectories: bundledThemeDirectoryURLs()
+        ).urls
+    }
+
+    /// Theme directories inside this CLI's app bundle, or the repo checkout
+    /// when running a development build.
+    private func bundledThemeDirectoryURLs() -> [URL] {
         let fileManager = FileManager.default
-        let processEnv = ProcessInfo.processInfo.environment
         var urls: [URL] = []
-        var seen: Set<String> = []
+        if let resourceURL = Bundle.main.resourceURL {
+            urls.append(resourceURL.appendingPathComponent("ghostty/themes", isDirectory: true))
+        }
+        guard let executableURL = resolvedExecutableURL() else { return urls }
 
-        func appendIfExisting(_ url: URL?) {
-            guard let url else { return }
-            let standardized = url.standardizedFileURL
-            guard fileManager.fileExists(atPath: standardized.path) else { return }
-            if seen.insert(standardized.path).inserted {
-                urls.append(standardized)
+        var current = executableURL.deletingLastPathComponent().standardizedFileURL
+        while true {
+            if current.lastPathComponent == "Resources" {
+                urls.append(current.appendingPathComponent("ghostty/themes", isDirectory: true))
             }
-        }
-
-        if let resourcesDir = processEnv["GHOSTTY_RESOURCES_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !resourcesDir.isEmpty {
-            appendIfExisting(URL(fileURLWithPath: resourcesDir, isDirectory: true).appendingPathComponent("themes", isDirectory: true))
-        }
-
-        appendIfExisting(
-            Bundle.main.resourceURL?
-                .appendingPathComponent("ghostty", isDirectory: true)
-                .appendingPathComponent("themes", isDirectory: true)
-        )
-
-        if let executableURL = resolvedExecutableURL() {
-            var current = executableURL.deletingLastPathComponent().standardizedFileURL
-            while true {
-                if current.lastPathComponent == "Resources" {
-                    appendIfExisting(
-                        current
-                            .appendingPathComponent("ghostty", isDirectory: true)
-                            .appendingPathComponent("themes", isDirectory: true)
-                    )
-                }
-                if current.lastPathComponent == "Contents" {
-                    appendIfExisting(
-                        current
-                            .appendingPathComponent("Resources", isDirectory: true)
-                            .appendingPathComponent("ghostty", isDirectory: true)
-                            .appendingPathComponent("themes", isDirectory: true)
-                    )
-                }
-
-                let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj", isDirectory: false)
-                let repoThemes = current.appendingPathComponent("Resources/ghostty/themes", isDirectory: true)
-                if fileManager.fileExists(atPath: projectMarker.path),
-                   fileManager.fileExists(atPath: repoThemes.path) {
-                    appendIfExisting(repoThemes)
-                    break
-                }
-
-                guard let parent = parentSearchURL(for: current) else { break }
-                current = parent
+            if current.lastPathComponent == "Contents" {
+                urls.append(current.appendingPathComponent("Resources/ghostty/themes", isDirectory: true))
             }
-        }
 
-        if let xdgDataDirs = processEnv["XDG_DATA_DIRS"] {
-            for dataDir in xdgDataDirs.split(separator: ":").map(String.init).filter({ !$0.isEmpty }) {
-                appendIfExisting(
-                    homeExpandedURL(dataDir, isDirectory: true)
-                        .appendingPathComponent("ghostty/themes", isDirectory: true)
-                )
+            let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj", isDirectory: false)
+            let repoThemes = current.appendingPathComponent("Resources/ghostty/themes", isDirectory: true)
+            if fileManager.fileExists(atPath: projectMarker.path),
+               fileManager.fileExists(atPath: repoThemes.path) {
+                urls.append(repoThemes)
+                break
             }
-        }
 
-        appendIfExisting(URL(fileURLWithPath: "/Applications/Ghostty.app/Contents/Resources/ghostty/themes", isDirectory: true))
-        appendIfExisting(homeExpandedURL("~/.config/ghostty/themes", isDirectory: true))
-        for appSupportDirectory in CmuxApplicationSupportDirectories(environment: processEnv).userDirectories {
-            appendIfExisting(
-                appSupportDirectory
-                    .appendingPathComponent(Self.cmuxThemeOverrideBundleIdentifier, isDirectory: true)
-                    .appendingPathComponent("themes", isDirectory: true)
-            )
+            guard let parent = parentSearchURL(for: current) else { break }
+            current = parent
         }
-        appendIfExisting(
-            homeExpandedURL("~/Library/Application Support/com.mitchellh.ghostty/themes", isDirectory: true)
-        )
-
         return urls
     }
 
