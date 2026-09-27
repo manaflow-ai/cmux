@@ -93,6 +93,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "warn-before-quit", title: String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), synonyms: "Warn Before Quit app.confirmQuit quit confirmation command-q cmd-q exit close app"),
             .init(userFacing: catalog.app.warnBeforeClosingTab),
             .init(section: .app, id: "warn-before-closing-tab-x-button", title: String(localized: "settings.app.warnBeforeClosingTabXButton", defaultValue: "Warn Before Tab Close Button"), synonyms: "Warn Before Tab Close Button app.warnBeforeClosingTabXButton x button close tab confirmation terminal surface"),
+            .init(userFacing: catalog.app.warnBeforeClosingWorkspace),
             .init(userFacing: catalog.app.hideTabCloseButton),
             .init(userFacing: catalog.app.renameSelectsExistingName),
             .init(section: .app, id: "palette-search-all", title: String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), synonyms: "Command Palette Searches All Surfaces app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
@@ -496,6 +497,7 @@ extension Array where Element == CuratedSettingEntry {
 
             // Workspace colors
             .init(section: .workspaceColors, id: "indicator", title: String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"), synonyms: "Workspace Color Indicator workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
+            .init(section: .workspaceColors, id: "subtle-selection", title: String(localized: "settings.workspaceColors.subtleSelection", defaultValue: "Subtle Selection Highlight"), synonyms: "Subtle Selection Highlight workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent"),
             .init(section: .workspaceColors, id: "selection", title: String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), synonyms: "Selection Highlight workspaceColors.selectionColor selected workspace color highlight background active tab"),
             .init(section: .workspaceColors, id: "badge", title: String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"), synonyms: "Notification Badge workspaceColors.notificationBadgeColor unread notification badge color dot count"),
             .init(

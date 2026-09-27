@@ -83,6 +83,7 @@ extension CmuxSettingsFileStore {
                     "confirmQuit": AppCatalogSection().confirmQuitMode.defaultValue.rawValue,
                     "warnBeforeClosingTab": AppCatalogSection().warnBeforeClosingTab.defaultValue,
                     "warnBeforeClosingTabXButton": AppCatalogSection().warnBeforeClosingTabXButton.defaultValue,
+                    "warnBeforeClosingWorkspace": AppCatalogSection().warnBeforeClosingWorkspace.defaultValue,
                     "hideTabCloseButton": AppCatalogSection().hideTabCloseButton.defaultValue,
                     "renameSelectsExistingName": AppCatalogSection().renameSelectsExistingName.defaultValue,
                     "commandPaletteSearchesAllSurfaces": AppCatalogSection().commandPaletteSearchesAllSurfaces.defaultValue,
@@ -172,6 +173,7 @@ extension CmuxSettingsFileStore {
                 "workspaceColors": [
                     "indicatorStyle": SettingCatalog().workspaceColors.indicatorStyle.defaultValue.rawValue,
                     "selectionColor": NSNull(),
+                    "subtleSelection": SettingCatalog().workspaceColors.subtleSelection.defaultValue,
                     "notificationBadgeColor": NSNull(),
                     "colors": Dictionary(
                         uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }

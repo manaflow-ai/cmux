@@ -39,6 +39,7 @@ General app preferences from Settings > App.
 | `app.globalFontMagnification` | integer | `100` | Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded. |
 | `app.confirmQuit` | `"always"` or `"dirty-only"` or `"never"` | `"always"` | Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback. |
 | `app.warnBeforeClosingTabXButton` | boolean | `false` | Show a confirmation before closing a tab with the tab close button. |
+| `app.warnBeforeClosingWorkspace` | boolean | `true` | Show a confirmation before closing a workspace with a running process, or several workspaces at once. Pinned workspaces still ask when this is off. |
 | `app.hideTabCloseButton` | boolean | `false` | Hide tab close buttons in the pane tab bar. |
 
 ## terminal
@@ -131,6 +132,7 @@ Workspace tab and badge colors from Settings > Workspace Colors.
 |---|---|---|---|
 | `workspaceColors.indicatorStyle` | `"leftRail"` or `"solidFill"` or `"rail"` or `"border"` or `"wash"` or `"lift"` or `"typography"` or `"washRail"` or `"blueWashColorRail"` | `"leftRail"` | Active workspace indicator style. Legacy aliases are accepted and normalized. |
 | `workspaceColors.selectionColor` | colorHexOrNull | `null` | Override the selected workspace background color. |
+| `workspaceColors.subtleSelection` | boolean | `false` | Show the selected workspace as a faint accent tint with a thin edge instead of a solid fill. |
 | `workspaceColors.notificationBadgeColor` | colorHexOrNull | `null` | Override the unread notification badge color. |
 | `workspaceColors.colors` | object | `{"Red": "#C0392B", "Crimson": "#922B21", "Orange": "#A04000", "Amber": "#7D6608", "Olive": "#4A5C18", "Green": "#196F3D", "Teal": "#006B6B", "Aqua": "#0E6B8C", "Blue": "#1565C0", "Navy": "#1A5276", "Indigo": "#283593", "Purple": "#6A1B9A", "Magenta": "#AD1457", "Rose": "#880E4F", "Brown": "#7B3F00", "Charcoal": "#3E4B5E"}` | Full named workspace color palette. Include built-in entries you want to keep, remove keys to remove colors, and add more named entries to extend the picker. |
 | `workspaceColors.paletteOverrides` | object | `{}` | Legacy workspace color overrides for built-in palette names. Prefer workspaceColors.colors for new configs. |

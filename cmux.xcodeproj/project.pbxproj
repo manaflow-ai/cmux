@@ -1716,6 +1716,7 @@
 		904090409040904090409041 /* DockUnreadPanelProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 904090409040904090409042 /* DockUnreadPanelProjection.swift */; };
 		904090409040904090409045 /* DockUnreadProjectionContextBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 904090409040904090409046 /* DockUnreadProjectionContextBridge.swift */; };
 		D86860000000000000000001 /* DockWorkingDirectoryInheritanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86860000000000000000002 /* DockWorkingDirectoryInheritanceTests.swift */; };
+		D0F00D01A1B2C3D4E5F60719 /* DogfoodScenarioUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F00D00A1B2C3D4E5F60719 /* DogfoodScenarioUITests.swift */; };
 		D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */; };
 		D10799040000000000000001 /* DragPasteboardCapabilityCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10799030000000000000001 /* DragPasteboardCapabilityCleaner.swift */; };
 		0BD2AA506F906B6A5382A280 /* DuplicateInstanceHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5647CF47CFF9FE064EB0A704 /* DuplicateInstanceHandlerTests.swift */; };
@@ -1905,6 +1906,7 @@
 		F17F00000000000000000003 /* FullWidthTabCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17F00000000000000000004 /* FullWidthTabCommandTests.swift */; };
 		F17F00000000000000000001 /* FullWidthTabPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17F00000000000000000002 /* FullWidthTabPersistenceTests.swift */; };
 		85510001A1B2C3D4E5F60001 /* GhosttyApp+ChildExitPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85510002A1B2C3D4E5F60001 /* GhosttyApp+ChildExitPolicy.swift */; };
+		C0F16D1A0000000000000001 /* GhosttyApp+ConfigDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F16D1A0000000000000002 /* GhosttyApp+ConfigDiagnostics.swift */; };
 		A10557070000000000000001 /* GhosttyApp+ConfigurationApply.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10557070000000000000002 /* GhosttyApp+ConfigurationApply.swift */; };
 		D11495000000000000000002 /* GhosttyApp+CopyAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11495000000000000000001 /* GhosttyApp+CopyAction.swift */; };
 		B88357000000000000000011 /* GhosttyApp+RuntimeClipboardRead.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000012 /* GhosttyApp+RuntimeClipboardRead.swift */; };
@@ -1914,6 +1916,8 @@
 		1718C0DE1718C0DE17180002 /* GhosttyCommandShiftForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1718C0DE1718C0DE17180001 /* GhosttyCommandShiftForwardingTests.swift */; };
 		A7206D010000000000000001 /* GhosttyConfig+AppearanceSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206D020000000000000001 /* GhosttyConfig+AppearanceSync.swift */; };
 		A5001004 /* GhosttyConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001014 /* GhosttyConfig.swift */; };
+		C0F16D1A0000000000000003 /* GhosttyConfigDiagnosticsNoticePresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F16D1A0000000000000004 /* GhosttyConfigDiagnosticsNoticePresenter.swift */; };
+		C0F16D1A0000000000000005 /* GhosttyConfigDiagnosticsNoticeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F16D1A0000000000000006 /* GhosttyConfigDiagnosticsNoticeView.swift */; };
 		A11EB0000000000000000000 /* GhosttyConfigPathResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EB0000000000000000001 /* GhosttyConfigPathResolverTests.swift */; };
 		F4000000A1B2C3D4E5F60718 /* GhosttyConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */; };
 		D11495000000000000000003 /* GhosttyCopyActionResolverAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11495000000000000000004 /* GhosttyCopyActionResolverAppTests.swift */; };
@@ -5721,6 +5725,7 @@
 		904090409040904090409042 /* DockUnreadPanelProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockUnreadPanelProjection.swift; sourceTree = "<group>"; };
 		904090409040904090409046 /* DockUnreadProjectionContextBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockUnreadProjectionContextBridge.swift; sourceTree = "<group>"; };
 		D86860000000000000000002 /* DockWorkingDirectoryInheritanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockWorkingDirectoryInheritanceTests.swift; sourceTree = "<group>"; };
+		D0F00D00A1B2C3D4E5F60719 /* DogfoodScenarioUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DogfoodScenarioUITests.swift; sourceTree = "<group>"; };
 		D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOverlayRoutingPolicy.swift; sourceTree = "<group>"; };
 		D10799030000000000000001 /* DragPasteboardCapabilityCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragPasteboardCapabilityCleaner.swift; sourceTree = "<group>"; };
 		5647CF47CFF9FE064EB0A704 /* DuplicateInstanceHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DuplicateInstanceHandlerTests.swift"; sourceTree = "<group>"; };
@@ -5910,6 +5915,7 @@
 		F17F00000000000000000002 /* FullWidthTabPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullWidthTabPersistenceTests.swift; sourceTree = "<group>"; };
 		A5001017 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
 		85510002A1B2C3D4E5F60001 /* GhosttyApp+ChildExitPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyApp+ChildExitPolicy.swift"; sourceTree = "<group>"; };
+		C0F16D1A0000000000000002 /* GhosttyApp+ConfigDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyApp+ConfigDiagnostics.swift"; sourceTree = "<group>"; };
 		A10557070000000000000002 /* GhosttyApp+ConfigurationApply.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyApp+ConfigurationApply.swift"; sourceTree = "<group>"; };
 		D11495000000000000000001 /* GhosttyApp+CopyAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyApp+CopyAction.swift"; sourceTree = "<group>"; };
 		B88357000000000000000012 /* GhosttyApp+RuntimeClipboardRead.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyApp+RuntimeClipboardRead.swift"; sourceTree = "<group>"; };
@@ -5919,6 +5925,8 @@
 		1718C0DE1718C0DE17180001 /* GhosttyCommandShiftForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyCommandShiftForwardingTests.swift; sourceTree = "<group>"; };
 		A7206D020000000000000001 /* GhosttyConfig+AppearanceSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyConfig+AppearanceSync.swift"; sourceTree = "<group>"; };
 		A5001014 /* GhosttyConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfig.swift; sourceTree = "<group>"; };
+		C0F16D1A0000000000000004 /* GhosttyConfigDiagnosticsNoticePresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyConfigDiagnosticsNoticePresenter.swift"; sourceTree = "<group>"; };
+		C0F16D1A0000000000000006 /* GhosttyConfigDiagnosticsNoticeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyConfigDiagnosticsNoticeView.swift"; sourceTree = "<group>"; };
 		A11EB0000000000000000001 /* GhosttyConfigPathResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfigPathResolverTests.swift; sourceTree = "<group>"; };
 		F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfigTests.swift; sourceTree = "<group>"; };
 		D11495000000000000000004 /* GhosttyCopyActionResolverAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyCopyActionResolverAppTests.swift; sourceTree = "<group>"; };
@@ -8352,6 +8360,7 @@
 			isa = PBXGroup;
 			children = (
 				B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */,
+				D0F00D00A1B2C3D4E5F60719 /* DogfoodScenarioUITests.swift */,
 				FEED0000000000000000F008 /* FeedSidebarUITests.swift */,
 				140240000000000000000001 /* HookPromptLengthUITests.swift */,
 				B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */,
@@ -9673,6 +9682,9 @@
 				C75200010000000000000002 /* GhosttyNSView+RevealInFinder.swift */,
 				D0B1000BA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift */,
 				D0B10013A1B2C3D4E5F60001 /* GhosttyApp+SurfaceConfigurationReload.swift */,
+				C0F16D1A0000000000000002 /* GhosttyApp+ConfigDiagnostics.swift */,
+				C0F16D1A0000000000000004 /* GhosttyConfigDiagnosticsNoticePresenter.swift */,
+				C0F16D1A0000000000000006 /* GhosttyConfigDiagnosticsNoticeView.swift */,
 				D3571001A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift */,
 				EC010D02 /* GhosttyApp+TerminalCustomUpload.swift */,
 				85510004A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift */,
@@ -13895,6 +13907,7 @@
 					C0DEFB100000000000000001 /* FocusSurfaceBroadcaster.swift in Sources */,
 				AA5269A0C0DE0002FACE0002 /* ForeignFirstResponderPolicy.swift in Sources */,
 				85510001A1B2C3D4E5F60001 /* GhosttyApp+ChildExitPolicy.swift in Sources */,
+				C0F16D1A0000000000000001 /* GhosttyApp+ConfigDiagnostics.swift in Sources */,
 				A10557070000000000000001 /* GhosttyApp+ConfigurationApply.swift in Sources */,
 				D11495000000000000000002 /* GhosttyApp+CopyAction.swift in Sources */,
 				B88357000000000000000011 /* GhosttyApp+RuntimeClipboardRead.swift in Sources */,
@@ -13902,6 +13915,8 @@
 				EC010D01 /* GhosttyApp+TerminalCustomUpload.swift in Sources */,
 				A7206D010000000000000001 /* GhosttyConfig+AppearanceSync.swift in Sources */,
 				A5001004 /* GhosttyConfig.swift in Sources */,
+				C0F16D1A0000000000000003 /* GhosttyConfigDiagnosticsNoticePresenter.swift in Sources */,
+				C0F16D1A0000000000000005 /* GhosttyConfigDiagnosticsNoticeView.swift in Sources */,
 				C3873001C3873001C3873001 /* GhosttyCrashBreadcrumb.swift in Sources */,
 				C3873003C3873003C3873003 /* GhosttyCrashReportMetadata.swift in Sources */,
 				D78975000000000000000001 /* GhosttyCurrentDirectoryAction.swift in Sources */,
@@ -15632,6 +15647,7 @@
 				C0DE32470000000000000005 /* CommandPaletteIdentifierClipboardUITests.swift in Sources */,
 				D10000000000000000B00000 /* ControlSocketReadinessUITestSupport.swift in Sources */,
 				B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */,
+				D0F00D01A1B2C3D4E5F60719 /* DogfoodScenarioUITests.swift in Sources */,
 				FEED0000000000000000F009 /* FeedSidebarUITests.swift in Sources */,
 				D0E0F0B4A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift in Sources */,
 				FE00AA10C1B2C3D4E5F60718 /* FocusHistoryShortcutUITests.swift in Sources */,

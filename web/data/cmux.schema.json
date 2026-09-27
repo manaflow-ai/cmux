@@ -679,6 +679,11 @@
           "descriptionKey": "schemaDescriptions.app.warnBeforeClosingTabXButton",
           "description": "Show a confirmation before closing a tab with the tab close button."
         },
+        "warnBeforeClosingWorkspace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a confirmation before closing a workspace with a running process, or several workspaces at once. Pinned workspaces still ask when this is off."
+        },
         "hideTabCloseButton": {
           "type": "boolean",
           "default": false,
@@ -1417,6 +1422,11 @@
           "$ref": "#/$defs/colorHexOrNull",
           "default": null,
           "description": "Override the selected workspace background color."
+        },
+        "subtleSelection": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the selected workspace as a faint accent tint with a thin edge instead of a solid fill. A custom selectionColor still uses a solid fill."
         },
         "notificationBadgeColor": {
           "$ref": "#/$defs/colorHexOrNull",
