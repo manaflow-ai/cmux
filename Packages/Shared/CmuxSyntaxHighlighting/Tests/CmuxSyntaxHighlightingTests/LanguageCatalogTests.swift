@@ -16,6 +16,14 @@ struct LanguageCatalogTests {
         #expect(catalog.language(forExtension: ".py") == "python")
     }
 
+    @Test("Maps BEAM source extensions to highlight.js ids")
+    func mapsBeamExtensions() {
+        #expect(catalog.language(forExtension: "ex") == "elixir")
+        #expect(catalog.language(forExtension: "exs") == "elixir")
+        #expect(catalog.language(forExtension: "erl") == "erlang")
+        #expect(catalog.language(forExtension: "hrl") == "erlang")
+    }
+
     @Test("Unknown extensions return nil")
     func unknownExtensionIsNil() {
         #expect(catalog.language(forExtension: "bin") == nil)

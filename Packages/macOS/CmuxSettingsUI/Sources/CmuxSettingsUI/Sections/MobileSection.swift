@@ -151,15 +151,7 @@ public struct MobileSection: View {
                 localized: "settings.mobile.phonePush.forwarding",
                 defaultValue: "Forward Notifications to iPhone"
             ),
-            subtitle: phonePush.current.forwardingEnabled
-                ? String(
-                    localized: "settings.mobile.phonePush.forwarding.subtitleOn",
-                    defaultValue: "Sends local agent alerts from this Mac to cmux on your iPhone and iPad."
-                )
-                : String(
-                    localized: "settings.mobile.phonePush.forwarding.subtitleOff",
-                    defaultValue: "Stops this Mac from sending local agent alerts to mobile devices."
-                )
+            subtitle: String(localized: "settings.mobile.phonePush.forwarding.subtitle", defaultValue: "Sends agent notifications from this Mac to cmux on iPhone and iPad.")
         ) {
             Toggle(
                 "",
@@ -271,9 +263,7 @@ public struct MobileSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:mobile:iOSPairingHost",
             String(localized: "settings.mobile.iOSPairingHost", defaultValue: "Enable iOS pairing"),
-            subtitle: iOSPairingHost.current
-                ? String(localized: "settings.mobile.iOSPairingHost.subtitleOn", defaultValue: "Allows iOS pairing and Iroh networking for this Mac.")
-                : String(localized: "settings.mobile.iOSPairingHost.subtitleOff", defaultValue: "Keeps iOS pairing and Iroh networking off until you enable it here.")
+            subtitle: String(localized: "settings.mobile.iOSPairingHost.subtitle", defaultValue: "Lets iPhone and iPad pair with and connect to this Mac.")
         ) {
             Toggle("", isOn: Binding(get: { iOSPairingHost.current }, set: { iOSPairingHost.set($0) }))
                 .labelsHidden()
@@ -465,18 +455,10 @@ public struct MobileSection: View {
     }
 
     private var artifactFolderAccessSubtitle: String {
-        switch artifactFolderAccess.current {
-        case .subtree:
-            String(
-                localized: "settings.mobile.artifactFolderAccess.subtitleSubtree",
-                defaultValue: "Lets iOS browse any item inside a folder referenced by chat or visible in a terminal."
-            )
-        case .oneLevel:
-            String(
-                localized: "settings.mobile.artifactFolderAccess.subtitleOneLevel",
-                defaultValue: "Limits iOS to immediate children of referenced or visible folders."
-            )
-        }
+        String(
+            localized: "settings.mobile.artifactFolderAccess.subtitle",
+            defaultValue: "Choose how much of a folder iPhone and iPad can browse. One Level shows only the items directly inside it."
+        )
     }
 
     /// Read-only connection count and the reachable routes the phone can use.

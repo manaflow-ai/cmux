@@ -8,7 +8,8 @@ import CmuxComputerUse
 @MainActor
 final class ComputerUseOnboardingCoordinator {
     typealias StartingPoint = ComputerUseOnboardingWindowController.StartingPoint
-    typealias Presenter = @MainActor (StartingPoint) -> Void
+    typealias Origin = ComputerUseOnboardingWindowController.PresentationOrigin
+    typealias Presenter = @MainActor (StartingPoint, Origin) -> Void
 
     private let runtimeService: ComputerUseRuntimeService
     private let presenter: Presenter
@@ -24,17 +25,19 @@ final class ComputerUseOnboardingCoordinator {
     @discardableResult
     func requestFromSettings(startingAt startingPoint: StartingPoint) -> Bool {
         runtimeService.onboardingWasPresented()
-        presenter(startingPoint)
+        presenter(startingPoint, .userAction)
         return true
     }
 
     /// Claims and presents first-use setup atomically on the main actor. A ready
     /// helper or an already claimed flow stays quiet, including after dismissal.
     /// Call only for authenticated, locally owned functional CUA requests.
+    /// An agent's tool call is not a user action, so the window must not take
+    /// focus from the app the user is working in.
     @discardableResult
     func requestFromToolInvocation() -> Bool {
         guard runtimeService.requestAutomaticOnboarding() else { return false }
-        presenter(.overview)
+        presenter(.overview, .toolInvocation)
         return true
     }
 }
