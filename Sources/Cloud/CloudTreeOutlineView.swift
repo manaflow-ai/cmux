@@ -31,6 +31,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
     var source: CloudTreeMachineSource = .cloud
     var devicesSection: CloudTreeDevicesSection = .init()
+    /// Shows the Cloud Machines header's New Machine "+".
+    var canCreateCloudMachine: Bool = false
     var reveal: CloudTreeRevealRequest? = nil
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
@@ -73,7 +75,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             unreadTerminalIDs: unreadTerminalIDs,
             pinnedMachineIDs: Set(machines.filter(\.isPinned).map(\.id)),
             source: source,
-            devicesSection: devicesSection
+            devicesSection: devicesSection,
+            canCreateCloudMachine: canCreateCloudMachine
         ))
         context.coordinator.reveal(reveal)
     }
