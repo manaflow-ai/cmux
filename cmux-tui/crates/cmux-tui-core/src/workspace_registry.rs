@@ -60,6 +60,7 @@ pub(crate) use journal_extensions::{
 pub use public_projection_store::RegistryPublicProjections;
 #[cfg(test)]
 pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
+pub(crate) use public_projection_store::agent_projection_extra;
 #[cfg(test)]
 pub(crate) use resource_store::AGENT_HOOK_MAX_ATTEMPTS;
 pub(crate) use resource_store::validate_registry_screen_projection;
