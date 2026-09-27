@@ -8,17 +8,28 @@ extension SidebarSection {
             String(localized: "settings.sidebar.density", defaultValue: "Sidebar Density"),
             subtitle: String(localized: "settings.sidebar.density.subtitle", defaultValue: "Sets which workspace details show by default. Detail toggles you change below keep your choice.")
         ) {
-            Picker("", selection: Binding(get: { density.current }, set: { density.set($0) })) {
-                ForEach(SidebarDensity.allCases, id: \.self) { value in
-                    Text(Self.densityLabel(value)).tag(value)
+            HStack(spacing: 8) {
+                Picker("", selection: Binding(get: { density.current }, set: { density.set($0) })) {
+                    ForEach(SidebarDensity.allCases, id: \.self) { value in
+                        Text(Self.densityLabel(value)).tag(value)
+                    }
                 }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .fixedSize()
+                .accessibilityIdentifier("SettingsSidebarDensityPicker")
+
+                // Clears explicit detail toggles so every one follows the
+                // density again.
+                Button(String(localized: "settings.sidebar.density.followDensity", defaultValue: "Follow Density")) {
+                    resetDensityGovernedOverrides()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!hasDensityGovernedOverrides)
+                .accessibilityIdentifier("SettingsSidebarDensityFollowButton")
             }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .fixedSize()
-            .accessibilityIdentifier("SettingsSidebarDensityPicker")
         }
-        .disabled(hideAll.current)
     }
 
     /// The value a detail toggle shows: its own stored value, or the density

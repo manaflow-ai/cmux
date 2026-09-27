@@ -79,12 +79,7 @@ public struct SidebarSection: View {
             rightSidebarTabsCard
         }
         .task { startObservingSettings() }
-        // Debounced onto the main queue: a cmux.json reload writes many keys
-        // at once, and defaults writes can post this from any thread.
-        .onReceive(
-            NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
-                .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
-        ) { _ in
+        .onReceive(Self.defaultsDidChange) { _ in
             refreshDensityGovernedPresence()
         }
         .task {
@@ -94,11 +89,38 @@ public struct SidebarSection: View {
         }
     }
 
+    /// UserDefaults changes, throttled onto the main queue: a cmux.json reload
+    /// writes many keys at once, and defaults writes can post from any thread.
+    private static let defaultsDidChange = NotificationCenter.default
+        .publisher(for: UserDefaults.didChangeNotification)
+        .throttle(for: .milliseconds(50), scheduler: DispatchQueue.main, latest: true)
+
+    /// The detail toggles whose unset value follows `sidebar.density`.
+    private var densityGovernedToggles: [DefaultsValueModel<Bool>] {
+        [showDesc, showNotification, showBranchDir, showPR, showSSH, showPorts, showLog, showProgress, showMetadata]
+    }
+
+    /// Whether any density-governed setting holds an explicit value.
+    var hasDensityGovernedOverrides: Bool {
+        densityGovernedToggles.contains { $0.hasStoredValue } || notificationMessageLineLimit.hasStoredValue
+    }
+
+    /// Removes the explicit values of every density-governed setting, so each
+    /// follows the density again.
+    func resetDensityGovernedOverrides() {
+        for model in densityGovernedToggles where model.hasStoredValue {
+            model.reset()
+        }
+        if notificationMessageLineLimit.hasStoredValue {
+            notificationMessageLineLimit.reset()
+        }
+    }
+
     /// Re-reads whether each density-governed setting has an explicit value.
     /// A `cmux.json` reload can add or remove a key without changing its
     /// value, which the per-key value streams do not report.
     private func refreshDensityGovernedPresence() {
-        for model in [showDesc, showNotification, showBranchDir, showPR, showSSH, showPorts, showLog, showProgress, showMetadata] {
+        for model in densityGovernedToggles {
             model.refreshStoredPresence()
         }
         notificationMessageLineLimit.refreshStoredPresence()

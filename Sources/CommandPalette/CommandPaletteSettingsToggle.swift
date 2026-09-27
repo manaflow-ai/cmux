@@ -51,11 +51,15 @@ struct CommandPaletteSettingToggleDescriptor: Sendable {
         self.sectionTitle = sectionTitle
         self.keywords = keywords
         self.isOn = { defaults in
+            if SidebarDensity.governedSettingIDs.contains(settingsKey) {
+                // Sidebar detail toggles resolve like the sidebar does: an
+                // explicit value, else the `sidebar.density` preset.
+                return UserDefaultsSettingsClient(defaults: defaults).sidebarDetailValue(
+                    for: DefaultsKey(id: settingsKey, defaultValue: defaultValue, userDefaultsKey: defaultsKey)
+                )
+            }
             if defaults.object(forKey: defaultsKey) == nil {
-                // Unset sidebar detail toggles follow `sidebar.density`.
-                guard SidebarDensity.governedSettingIDs.contains(settingsKey) else { return defaultValue }
-                let density = UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().density)
-                return density.presetValue(forSettingID: settingsKey) ?? defaultValue
+                return defaultValue
             }
             return defaults.bool(forKey: defaultsKey)
         }

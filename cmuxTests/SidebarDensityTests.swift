@@ -1,5 +1,6 @@
 import CmuxSettings
 import CmuxSidebar
+import CmuxSidebarGit
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -105,6 +106,36 @@ final class SidebarDensityTests: XCTestCase {
 
             defaults.set(true, forKey: sidebar.showPorts.userDefaultsKey)
             XCTAssertTrue(Workspace.remotePortScanningEnabledFromSettings(defaults: defaults))
+        }
+    }
+
+    func testGitAndPullRequestPollingFollowDensityUnlessSetExplicitly() throws {
+        try withSuiteDefaults { defaults in
+            XCTAssertEqual(SidebarWorkspaceDetailDefaults.gitMetadataActivity(defaults: defaults), .activePolling)
+            XCTAssertEqual(SidebarWorkspaceDetailDefaults.pullRequestActivity(defaults: defaults), .activePolling)
+
+            // Quiet hides branch/directory and PRs, so nothing needs active polling.
+            defaults.set(SidebarDensity.quiet.rawValue, forKey: sidebar.density.userDefaultsKey)
+            XCTAssertEqual(SidebarWorkspaceDetailDefaults.gitMetadataActivity(defaults: defaults), .passiveReportsOnly)
+            XCTAssertEqual(SidebarWorkspaceDetailDefaults.pullRequestActivity(defaults: defaults), .passiveReportsOnly)
+
+            // An explicit PR toggle keeps PR polling (and the git metadata it needs) on.
+            defaults.set(true, forKey: sidebar.showPullRequests.userDefaultsKey)
+            XCTAssertEqual(SidebarWorkspaceDetailDefaults.gitMetadataActivity(defaults: defaults), .activePolling)
+            XCTAssertEqual(SidebarWorkspaceDetailDefaults.pullRequestActivity(defaults: defaults), .activePolling)
+        }
+    }
+
+    func testPaletteToggleTreatsAnUndecodableStoredValueLikeTheSidebar() throws {
+        try withSuiteDefaults { defaults in
+            let showPorts = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(commandId: "palette.toggleSetting.showPortsInSidebar")
+            )
+            defaults.set(SidebarDensity.quiet.rawValue, forKey: sidebar.density.userDefaultsKey)
+            // A value that does not decode as a Bool is not an explicit choice.
+            defaults.set("sometimes", forKey: sidebar.showPorts.userDefaultsKey)
+            XCTAssertFalse(SidebarTabItemSettingsSnapshot(defaults: defaults).visibleAuxiliaryDetails.showsPorts)
+            XCTAssertFalse(showPorts.isOn(defaults))
         }
     }
 
