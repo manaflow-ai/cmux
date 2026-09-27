@@ -2,7 +2,8 @@ import Foundation
 
 /// Repository for the close-tab warning settings, persisted in
 /// `UserDefaults` under the catalog's `app.warnBeforeClosingTab`,
-/// `app.warnBeforeClosingTabXButton`, and `app.hideTabCloseButton` keys.
+/// `app.warnBeforeClosingTabXButton`, `app.warnBeforeClosingWindow`, and
+/// `app.hideTabCloseButton` keys.
 ///
 /// Isolation: a stateless `Sendable` struct, not an actor. Every reader is
 /// synchronous code that cannot await (close-shortcut handling, tab chrome
@@ -28,6 +29,18 @@ public struct CloseTabWarningStore: CloseTabWarningReading {
 
     public var hidesTabCloseButton: Bool {
         keys.hideTabCloseButton.value(in: defaults)
+    }
+
+    public var warnsBeforeClosingWindow: Bool {
+        keys.warnBeforeClosingWindow.value(in: defaults)
+    }
+
+    /// Whether closing a whole window should show "Close window?". It asks only
+    /// when the window setting is on and something would be lost, meaning some
+    /// panel in the window needs close confirmation (the same per-panel check
+    /// tab and workspace closes use).
+    public func shouldConfirmWindowClose(anyPanelNeedsConfirmation: Bool) -> Bool {
+        anyPanelNeedsConfirmation && warnsBeforeClosingWindow
     }
 
     /// Enables or disables the close-shortcut warning.

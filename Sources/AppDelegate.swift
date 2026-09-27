@@ -6751,6 +6751,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.performClose(nil)
             return true
         }
+        // Ask only when something would be lost. A close that skips the dialog
+        // is not preconfirmed, so the last-window quit policy still applies.
+        // Without a manager there is no way to tell, so only the setting decides.
+        let shouldConfirm = mainWindowContext(forExactWindowIdentity: window)?.tabManager.shouldConfirmWindowClose()
+            ?? CloseTabWarningStore(defaults: .standard).shouldConfirmWindowClose(anyPanelNeedsConfirmation: true)
+        guard shouldConfirm else {
+            window.performClose(nil)
+            return true
+        }
         guard confirmCloseMainWindow(window) else { return true }
         performPreconfirmedMainWindowClose(window)
         return true

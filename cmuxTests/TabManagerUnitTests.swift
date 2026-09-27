@@ -1696,6 +1696,48 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
         XCTAssertEqual(Set(manager.tabs.map(\.id)), Set(originalIds))
     }
 
+    func testWindowCloseAsksOnlyWhenAWorkspaceWouldLoseAProcess() {
+        let manager = makeManager(warnBeforeClosingWorkspace: nil)
+        for workspace in manager.tabs {
+            for panelId in workspace.panels.keys {
+                workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+            }
+        }
+        XCTAssertFalse(manager.shouldConfirmWindowClose(), "An idle window has nothing to lose")
+
+        let busy = manager.tabs[2]
+        guard let busyPanelId = busy.focusedPanelId else {
+            XCTFail("Expected a focused panel")
+            return
+        }
+        busy.updatePanelShellActivityState(panelId: busyPanelId, state: .commandRunning)
+        XCTAssertTrue(manager.shouldConfirmWindowClose())
+
+        manager.closeTabWarningDefaults.set(false, forKey: AppCatalogSection().warnBeforeClosingWindow.userDefaultsKey)
+        XCTAssertFalse(manager.shouldConfirmWindowClose(), "The window setting turns the prompt off")
+    }
+
+    func testClosingEveryWorkspaceFollowsTheWindowSetting() {
+        let manager = makeManager(warnBeforeClosingWorkspace: nil)
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+
+        manager.closeWorkspacesWithConfirmation(manager.tabs.map(\.id), allowPinned: true)
+        XCTAssertEqual(promptCount, 1)
+
+        manager.closeTabWarningDefaults.set(false, forKey: AppCatalogSection().warnBeforeClosingWorkspace.userDefaultsKey)
+        manager.closeWorkspacesWithConfirmation(manager.tabs.map(\.id), allowPinned: true)
+        XCTAssertEqual(promptCount, 2, "Closing every workspace is a window close, so the workspace setting alone does not skip it")
+
+        manager.closeTabWarningDefaults.set(false, forKey: AppCatalogSection().warnBeforeClosingWindow.userDefaultsKey)
+        manager.closeTabWarningDefaults.set(true, forKey: AppCatalogSection().warnBeforeClosingWorkspace.userDefaultsKey)
+        manager.closeWorkspacesWithConfirmation(manager.tabs.map(\.id), allowPinned: true)
+        XCTAssertEqual(promptCount, 2, "With the window setting off, closing every workspace does not ask")
+    }
+
     func testPinnedWorkspaceCloseStillWarnsWhenSettingDisabled() {
         let manager = makeManager(warnBeforeClosingWorkspace: false)
         let workspace = manager.tabs[1]

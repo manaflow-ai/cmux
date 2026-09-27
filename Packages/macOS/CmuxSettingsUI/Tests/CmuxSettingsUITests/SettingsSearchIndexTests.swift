@@ -62,6 +62,7 @@ struct SettingsSearchIndexTests {
         let keys = [
             catalog.app.warnBeforeClosingTab,
             catalog.app.warnBeforeClosingWorkspace,
+            catalog.app.warnBeforeClosingWindow,
             catalog.app.hideTabCloseButton,
             catalog.app.renameSelectsExistingName,
         ]

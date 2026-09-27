@@ -35,6 +35,7 @@ extension CmuxSettingsFileStore {
         "app.warnBeforeClosingTab",
         "app.warnBeforeClosingTabXButton",
         "app.warnBeforeClosingWorkspace",
+        "app.warnBeforeClosingWindow",
         "app.hideTabCloseButton",
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
