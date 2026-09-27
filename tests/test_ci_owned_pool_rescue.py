@@ -1101,6 +1101,38 @@ class Nightly(unittest.TestCase):
         # The pickers never hand it out: it is not a pull request pool.
         self.assertFalse(rescue.persistent(TRUSTED))
 
+    def test_the_marker_listing_pages_back_to_the_oldest_run_a_sweeper_adopts(self):
+        api = rescue.GitHub("token", "manaflow-ai/cmux")
+        start = dt.datetime(2026, 9, 27, 12, 0, tzinfo=dt.timezone.utc)
+
+        def page(first_minute, count):
+            return {"artifacts": [
+                {"workflow_run": {"id": 1000 - first_minute - index},
+                 "created_at": (start - dt.timedelta(minutes=first_minute + index)).strftime("%Y-%m-%dT%H:%M:%SZ")}
+                for index in range(count)]}
+
+        pages = {1: page(0, 3), 2: page(3, 3), 3: page(6, 3)}
+        paths = []
+
+        def request(method, path, **_):
+            paths.append(path)
+            return pages[int(path.rsplit("page=", 1)[1])]
+
+        api.request = request
+        # Page two still reaches minute 5, inside a 5-minute window, so page
+        # three is read; its last marker is older, so the listing stops.
+        found = api.marked_runs("owned-pool-watch", 3, start - dt.timedelta(minutes=5), 5)
+        self.assertEqual([run_id for run_id, _ in found], list(range(1000, 991, -1)))
+        self.assertEqual(len(paths), 3)
+        # One page ends the listing when the caller sets no window, and a short page ends it anyway.
+        paths.clear()
+        self.assertEqual(len(api.marked_runs("owned-pool-watch", 3)), 3)
+        self.assertEqual(len(paths), 1)
+        pages[1] = page(0, 2)
+        paths.clear()
+        api.marked_runs("owned-pool-watch", 3, start - dt.timedelta(hours=1), 5)
+        self.assertEqual(len(paths), 1)
+
     def test_newer_unfinished_runs_reads_one_page_of_main_s_nightly_runs(self):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
         seen = []
@@ -1386,8 +1418,8 @@ class SweepAPI:
     def jobs(self, run_id, attempt):
         return self.attempt_jobs.get(run_id, [])
 
-    def marked_runs(self, name, count):
-        return [(run_id, START + dt.timedelta(seconds=self.created)) for run_id in self.marked[name]][:count]
+    def marked_runs(self, name, count, oldest=None, pages=1):
+        return [(run_id, START + dt.timedelta(seconds=self.created)) for run_id in self.marked[name]][:count * pages]
 
     def run(self, run_id):
         self.reads.append(run_id)

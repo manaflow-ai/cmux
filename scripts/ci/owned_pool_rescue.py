@@ -509,14 +509,24 @@ class GitHub:
     remaining = ""  # the token's requests left this hour, from the last response
     limit = ""  # and its hourly limit
 
-    def marked_runs(self, name: str, count: int) -> list[tuple[int, dt.datetime | None]]:
-        """Runs with an artifact named `name`, newest first, with when each was uploaded (sweep())."""
-        data = self.request("GET", f"/actions/artifacts?name={name}&per_page={count}")
+    def marked_runs(self, name: str, count: int, oldest: dt.datetime | None = None,
+                    pages: int = 1) -> list[tuple[int, dt.datetime | None]]:
+        """Runs with an artifact named `name`, newest first, with when each was uploaded (sweep()).
+
+        Reads up to `pages` pages of `count`, stopping at the first page that
+        reaches back past `oldest` or runs out.
+        """
         found = []
-        for item in (data or {}).get("artifacts") or []:
-            run_id = int(((item or {}).get("workflow_run") or {}).get("id") or 0)
-            if run_id:
-                found.append((run_id, parse_time(item.get("created_at"))))
+        for page in range(1, pages + 1):
+            data = self.request("GET", f"/actions/artifacts?name={name}&per_page={count}&page={page}")
+            items = (data or {}).get("artifacts") or []
+            for item in items:
+                run_id = int(((item or {}).get("workflow_run") or {}).get("id") or 0)
+                if run_id:
+                    found.append((run_id, parse_time(item.get("created_at"))))
+            last = parse_time(items[-1].get("created_at")) if items else None
+            if len(items) < count or oldest is None or last is None or last < oldest:
+                break
         return found
 
     def run(self, run_id: int) -> Mapping[str, Any]:
@@ -1107,9 +1117,14 @@ SWEEP_SECONDS = 5 * 60 * 60
 # finished (a refusal) during a handover is still inside it, so the next
 # sweeper re-runs it.
 SWEEP_MAX_AGE_SECONDS = E2E_WATCH_LIMIT_SECONDS
-# A marker listing covers this many runs, newest first: about two hours of
-# owned placements on 2026-09-25.
+# A marker listing page covers this many runs, newest first. One page held
+# about two hours of owned placements on 2026-09-25 but only one on
+# 2026-09-27 (87 an hour), and the name-filtered listing can surface a marker
+# late: six markers uploaded 11:51 to 12:15 that day never reached page one
+# while the sweeper read it, and two of their runs failed unrescued. So the
+# sweeper pages back to SWEEP_MAX_AGE_SECONDS, at most SWEEP_LISTING_PAGES.
 SWEEP_LISTING = 100
+SWEEP_LISTING_PAGES = 5
 
 
 class Stopping(Aborted):
@@ -1219,7 +1234,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         # The picker's marker first: a run with both is watched the ordinary way.
         for name, late in ((WATCH_MARKER, False), (LATE_WATCH_MARKER, True)):
             try:
-                marked = client.marked_runs(name, SWEEP_LISTING)
+                marked = client.marked_runs(name, SWEEP_LISTING, oldest, SWEEP_LISTING_PAGES)
             except READ_ERRORS as error:
                 log(f"could not list {name} markers ({error}); next tick")
                 continue
