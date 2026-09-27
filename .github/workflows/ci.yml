@@ -128,6 +128,9 @@ jobs:
       # for this run's merge base: ["<root label>", "glaeda-runner-<name>"],
       # the labels compile admission's attempt 1 takes instead.
       macos_pr_admission_runner: ${{ steps.macos-pool.outputs.admission_runner }}
+      # The picker's costs behind that pin (candidates, chosen, predicted),
+      # JSON or "", which compile admission records (warm_distance.py).
+      macos_pr_admission_route: ${{ steps.macos-pool.outputs.admission_route }}
       # JSON tiers of root runner names warm for this run (merge base first,
       # then this pull request), for ci-macos.yml's admission-placement.
       macos_pr_admission_warm: ${{ steps.macos-pool.outputs.admission_warm }}
@@ -760,6 +763,9 @@ jobs:
           # Or, failing that, the root runner warm for this pull request.
           PR_NUMBER: ${{ github.event.pull_request.number }}
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
+          # 0 pins admission on exact warm keys only; otherwise every mini's
+          # kept builds are scored by distance (warm_distance.distance_route()).
+          OWNED_WARM_DISTANCE: ${{ vars.CI_OWNED_WARM_DISTANCE }}
         run: python3 scripts/ci/pr_runner_pool.py
 
       # A job queued on a persistent pool (owned Macs) waits for it however long
@@ -1327,6 +1333,7 @@ jobs:
       pr_refused_retry_runner: ${{ needs.changes.outputs.macos_pr_refused_retry_runner }}
       pr_root_runner: ${{ needs.changes.outputs.macos_pr_root_runner }}
       pr_admission_runner: ${{ needs.changes.outputs.macos_pr_admission_runner }}
+      pr_admission_route: ${{ needs.changes.outputs.macos_pr_admission_route }}
       pr_admission_warm: ${{ needs.changes.outputs.macos_pr_admission_warm }}
       pr_xcode_app: ${{ needs.changes.outputs.macos_pr_xcode_app }}
       pr_side_runner: ${{ needs.changes.outputs.macos_pr_side_runner }}

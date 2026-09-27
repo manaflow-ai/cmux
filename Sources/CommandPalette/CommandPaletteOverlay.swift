@@ -161,8 +161,9 @@ struct CommandPaletteCommandListRowsView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .accessibilityIdentifier("CommandPaletteResultRow.\(index)")
-                        .accessibilityValue(row.id)
+                        // The command id lives in the identifier (not the spoken value)
+                        // so UI tests can find rows without VoiceOver reading internal ids.
+                        .accessibilityIdentifier("CommandPaletteResultRow.\(index).\(row.id)")
                         .onHover { hovering in
                             if hovering {
                                 hoveredIndex = index

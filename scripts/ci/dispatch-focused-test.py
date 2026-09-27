@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import app_host_test_rerun as rerun  # noqa: E402
 import product_input_identity as product_inputs  # noqa: E402
 import e2e_runner_pool as pool  # noqa: E402
+import machine_failure  # noqa: E402
 from e2e_runner_pool import SMALL_RUNNER  # noqa: E402
 
 REPO = "manaflow-ai/cmux"
@@ -53,6 +54,9 @@ RUN_DISCOVERY_ATTEMPTS = 12
 RUN_DISCOVERY_TIMEOUT_SECONDS = 60.0
 PRIOR_ATTEMPT_LIMIT = 100
 PRIOR_ATTEMPT_TIMEOUT_SECONDS = 30.0
+# Machine failures at one commit redispatched without --force. Past this, the
+# pool is broken for this selector and another dispatch will not fix it.
+MAX_MACHINE_RETRIES = 2
 # Statuses GitHub reports before a run has a conclusion. Anything else,
 # including a missing status, is not treated as occupying a runner.
 UNFINISHED = frozenset({"queued", "in_progress", "waiting", "requested", "pending"})
@@ -484,6 +488,30 @@ def live_attempts(
         run for run in attempts(runs, commit, selector, runner)
         if str(run.get("status", "")) in UNFINISHED
     ]
+
+
+def machine_failures(failures: list[dict]) -> str | None:
+    """Why the Mac failed the newest of `failures`, when every one of them was
+    a machine failure (machine_failure.py); None when any was not, or a log
+    could not be read.
+    """
+    reasons = []
+    for run in failures:
+        run_id = run.get("databaseId")
+        if not isinstance(run_id, int):
+            return None
+        try:
+            log = output(
+                "gh", "run", "view", str(run_id), "--repo", REPO, "--log-failed",
+                timeout=PRIOR_ATTEMPT_TIMEOUT_SECONDS,
+            )
+        except (subprocess.SubprocessError, OSError, ValueError):
+            return None
+        found = machine_failure.reason(log)
+        if found is None:
+            return None
+        reasons.append(found)
+    return reasons[0] if reasons else None
 
 
 def parsed_runner(run: dict) -> str:
@@ -1046,6 +1074,16 @@ def main() -> int:
                 failures = [run for run in earlier if run.get("conclusion") == "failure"]
                 if failures and not any(run.get("conclusion") == "success" for run in earlier):
                     latest = failures[0]
+                    # Count first: each failure costs a log download.
+                    machine = machine_failures(failures) if len(failures) <= MAX_MACHINE_RETRIES else None
+                    if machine is not None:
+                        print(
+                            f"{entry} failed at {commit} before any test started: {machine} "
+                            f"({latest['url']}). That was the Mac, not the code, so this "
+                            "dispatches it again.",
+                            flush=True,
+                        )
+                        continue
                     raise ValueError(
                         f"{entry} already failed at {commit} "
                         f"({len(failures)} time(s)); the newest is {latest['url']}. "
@@ -1053,7 +1091,9 @@ def main() -> int:
                         "result is a compile error in the branch, not a flaky test -- "
                         "and re-running the same selector at the same commit returns the "
                         "same answer. Read that run, fix the branch, push, and dispatch "
-                        "the new commit. Pass --force to dispatch anyway."
+                        "the new commit. A run the Mac failed before any test started "
+                        f"(scripts/ci/machine_failure.py) is dispatched again up to "
+                        f"{MAX_MACHINE_RETRIES} times without asking. Pass --force to dispatch anyway."
                     )
 
         return None
