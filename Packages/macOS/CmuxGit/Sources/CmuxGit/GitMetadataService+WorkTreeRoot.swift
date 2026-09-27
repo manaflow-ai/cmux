@@ -19,21 +19,53 @@ extension GitMetadataService {
     /// The walk runs on a dedicated serial queue, one at a time. The caller
     /// waits at most `timeout`, even if a probe on a hung network mount never
     /// returns, and a call made while an earlier walk is still stuck returns
-    /// `nil` immediately.
+    /// immediately.
     ///
     /// - Parameters:
     ///   - directory: An absolute path to start from. A path to a file is
     ///     treated as its containing directory.
     ///   - timeout: The longest the caller waits.
-    /// - Returns: The work-tree root, or `nil` when `directory` is not inside
-    ///   a git repository, the walk timed out, or an earlier walk is still
-    ///   running.
+    /// - Returns: ``GitWorkTreeRootLookup/root(_:)``,
+    ///   ``GitWorkTreeRootLookup/notInRepository`` when the walk finished
+    ///   without finding one, or ``GitWorkTreeRootLookup/unavailable`` when
+    ///   it timed out or an earlier walk is still running.
     public nonisolated func workTreeRoot(
         forDirectory directory: String,
         timeout: Duration = .seconds(5)
-    ) async -> String? {
-        await Self.workTreeRootRunner.run(timeout: timeout) { deadline in
-            Self.resolveGitRepository(containing: directory, deadline: deadline)?.workTreeRoot
+    ) async -> GitWorkTreeRootLookup {
+        await workTreeRoot(forDirectory: directory, timeout: timeout, runner: Self.workTreeRootRunner)
+    }
+
+    /// ``workTreeRoot(forDirectory:timeout:)`` on a given runner, so tests
+    /// don't share the app's.
+    nonisolated func workTreeRoot(
+        forDirectory directory: String,
+        timeout: Duration,
+        runner: BoundedBlockingRunner
+    ) async -> GitWorkTreeRootLookup {
+        let outcome = await runner.run(timeout: timeout) { deadline -> GitWorkTreeRootLookup in
+            if let root = Self.resolveGitRepository(containing: directory, deadline: deadline)?.workTreeRoot {
+                return .root(root)
+            }
+            // The walk also gives up at the deadline, which isn't a finding.
+            return deadline > DispatchTime.now() ? .notInRepository : .unavailable
+        }
+        switch outcome {
+        case .finished(let lookup):
+            return lookup
+        case .timedOut, .busy:
+            return .unavailable
         }
     }
+}
+
+/// The result of ``GitMetadataService/workTreeRoot(forDirectory:timeout:)``.
+public enum GitWorkTreeRootLookup: Sendable, Equatable {
+    /// The root of the work tree containing the directory.
+    case root(String)
+    /// The walk reached the filesystem root without finding a repository.
+    case notInRepository
+    /// The walk timed out, or an earlier walk is still stuck, so whether the
+    /// directory is in a repository is unknown.
+    case unavailable
 }

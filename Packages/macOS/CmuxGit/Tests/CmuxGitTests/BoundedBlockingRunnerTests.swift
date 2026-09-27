@@ -7,9 +7,9 @@ import Testing
     @Test func returnsTheJobResultWhenItFinishesInTime() async {
         let runner = BoundedBlockingRunner(label: "test.bounded-runner.fast")
 
-        let value = await runner.run(timeout: .seconds(30)) { _ in 42 }
+        let outcome = await runner.run(timeout: .seconds(30)) { _ in 42 }
 
-        #expect(value == 42)
+        #expect(outcome == .finished(42))
     }
 
     @Test func timeoutResumesTheCallerWhileTheJobIsStillBlocked() async {
@@ -19,12 +19,12 @@ import Testing
         let clock = ContinuousClock()
         let start = clock.now
 
-        let value = await runner.run(timeout: .milliseconds(100)) { _ -> Int? in
+        let outcome = await runner.run(timeout: .milliseconds(100)) { _ -> Int in
             release.wait()
             return 1
         }
 
-        #expect(value == nil)
+        #expect(outcome == .timedOut)
         #expect(clock.now - start < .seconds(10))
     }
 
@@ -32,22 +32,53 @@ import Testing
         let runner = BoundedBlockingRunner(label: "test.bounded-runner.busy")
         let release = DispatchSemaphore(value: 0)
 
-        let first = await runner.run(timeout: .milliseconds(50)) { _ -> Int? in
+        let first = await runner.run(timeout: .milliseconds(50)) { _ -> Int in
             release.wait()
             return 1
         }
         let whileBusy = await runner.run(timeout: .seconds(30)) { _ in 2 }
-        #expect(first == nil)
-        #expect(whileBusy == nil)
+        #expect(first == .timedOut)
+        #expect(whileBusy == .busy)
 
         release.signal()
-        var afterRelease: Int?
-        for _ in 0..<200 where afterRelease == nil {
-            afterRelease = await runner.run(timeout: .seconds(30)) { _ in 3 }
-            if afterRelease == nil {
-                try await Task.sleep(for: .milliseconds(10))
-            }
+        for _ in 0..<500 where runner.isBusy {
+            try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(afterRelease == 3)
+        let afterRelease = await runner.run(timeout: .seconds(30)) { _ in 3 }
+        #expect(afterRelease == .finished(3))
+    }
+
+    @Test func anExpiredDeadlineNeverStartsTheJob() async throws {
+        let runner = BoundedBlockingRunner(label: "test.bounded-runner.expired")
+        let started = StartedFlag()
+
+        let outcome = await runner.run(timeout: .zero) { _ -> Int in
+            started.set()
+            return 1
+        }
+
+        #expect(outcome == .timedOut)
+        for _ in 0..<500 where runner.isBusy {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(!started.value)
+    }
+}
+
+/// A thread-safe flag for the job closure above.
+private final class StartedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var flag = false
+
+    func set() {
+        lock.lock()
+        flag = true
+        lock.unlock()
+    }
+
+    var value: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return flag
     }
 }

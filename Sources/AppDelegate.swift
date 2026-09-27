@@ -17708,21 +17708,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // With a browser, editor, or other non-terminal panel focused
                 // there is no copy target. Report the action unhandled without
                 // a beep: a bound shortcut's keystroke then reaches the focused
-                // panel, and menu callers beep on their own.
+                // panel, and the plus and group menus beep on their own.
                 guard workspace?.copyActionTerminal(panelId: workspace?.focusedPanelId) != nil else {
                     return false
                 }
                 // With a terminal focused, the runner beeps when there is
-                // nothing to copy. Report the action handled either way so a
-                // bound shortcut is consumed instead of also reaching the
-                // terminal after the beep.
-                if TerminalCopyActionRunner.run(
+                // nothing to copy. Report the action handled and finish the
+                // caller's bookkeeping either way: a bound shortcut is consumed
+                // instead of also reaching the terminal after the beep, and the
+                // group menu restores its selection in `onExecuted`.
+                TerminalCopyActionRunner.run(
                     copyAction,
                     workspace: workspace,
                     panelId: workspace?.focusedPanelId
-                ) {
-                    onExecuted?()
-                }
+                )
+                onExecuted?()
                 return true
             }
         case .command, .agent, .workspaceCommand, .workspace:

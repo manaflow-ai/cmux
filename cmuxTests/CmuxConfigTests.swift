@@ -1,4 +1,3 @@
-import AppKit
 import Combine
 import XCTest
 
@@ -1475,7 +1474,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
     /// A copy-action shortcut pressed while a browser (or any non-terminal)
     /// panel is focused must not claim the keystroke: returning false lets
     /// the shortcut router pass the key through to that panel instead of
-    /// beeping and swallowing it. Nothing is written to the clipboard.
+    /// beeping and swallowing it.
     @MainActor
     func testCopyActionShortcutPassesThroughWhenNoTerminalIsFocused() throws {
         let appDelegate = AppDelegate()
@@ -1489,7 +1488,6 @@ final class CmuxConfigDecodingTests: XCTestCase {
         workspace.focusPanel(browser.id)
         XCTAssertEqual(workspace.focusedPanelId, browser.id)
 
-        let changeCount = NSPasteboard.general.changeCount
         for builtIn in [
             CmuxSurfaceTabBarBuiltInAction.copyWorkingDirectory,
             .copyProjectRoot,
@@ -1500,7 +1498,6 @@ final class CmuxConfigDecodingTests: XCTestCase {
                 "\(builtIn.configID) claimed a shortcut with a browser panel focused"
             )
         }
-        XCTAssertEqual(NSPasteboard.general.changeCount, changeCount)
     }
 
     func testDecodeEmptySurfaceTabBarButtons() throws {

@@ -114,9 +114,21 @@ enum TerminalCopyActionRunner {
             let pasteboard = GhosttyApp.terminalPasteboard
             let startedAt = pasteboard.standardClipboardChangeCount
             Task { @MainActor in
-                let root = await GitMetadataService().workTreeRoot(forDirectory: target.path)
+                let text: String
+                switch await GitMetadataService().workTreeRoot(forDirectory: target.path) {
+                case .root(let root):
+                    text = root
+                case .notInRepository:
+                    text = target.path
+                case .unavailable:
+                    // The walk timed out or an earlier one is stuck on a hung
+                    // mount. Copying the working directory here would pass it
+                    // off as the project root.
+                    NSSound.beep()
+                    return
+                }
                 let status = await pasteboard.copyToStandardClipboard(
-                    root ?? target.path,
+                    text,
                     ifUnchangedSince: startedAt
                 )
                 switch status {

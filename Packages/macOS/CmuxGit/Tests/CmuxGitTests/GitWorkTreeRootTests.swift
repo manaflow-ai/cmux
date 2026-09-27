@@ -2,17 +2,23 @@ import Foundation
 import Testing
 @testable import CmuxGit
 
-// workTreeRoot shares one serial runner that refuses overlapping walks, so
-// these tests must not run in parallel with each other.
-@Suite(.serialized) struct GitWorkTreeRootTests {
+// Each test walks on its own runner: the app's shared runner refuses
+// overlapping walks, which would make these tests order-dependent.
+@Suite struct GitWorkTreeRootTests {
+    private func lookup(_ directory: String, timeout: Duration = .seconds(60)) async -> GitWorkTreeRootLookup {
+        await GitMetadataService().workTreeRoot(
+            forDirectory: directory,
+            timeout: timeout,
+            runner: BoundedBlockingRunner(label: "test.work-tree-root.\(UUID().uuidString)")
+        )
+    }
+
     @Test func nestedDirectoryResolvesToCheckoutRoot() async throws {
         let fixture = try GitRepositoryFixture()
         let nested = fixture.root.appendingPathComponent("Sources/App", isDirectory: true)
         try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
 
-        let root = await GitMetadataService().workTreeRoot(forDirectory: nested.path, timeout: .seconds(60))
-
-        #expect(root == fixture.root.standardizedFileURL.path)
+        #expect(await lookup(nested.path) == .root(fixture.root.standardizedFileURL.path))
     }
 
     @Test func linkedWorktreeResolvesToItsOwnRoot() async throws {
@@ -30,9 +36,7 @@ import Testing
             encoding: .utf8
         )
 
-        let root = await GitMetadataService().workTreeRoot(forDirectory: nested.path, timeout: .seconds(60))
-
-        #expect(root == worktree.standardizedFileURL.path)
+        #expect(await lookup(nested.path) == .root(worktree.standardizedFileURL.path))
     }
 
     @Test func directoryOutsideAnyRepositoryHasNoRoot() async throws {
@@ -41,19 +45,14 @@ import Testing
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: base) }
 
-        let root = await GitMetadataService().workTreeRoot(forDirectory: base.path, timeout: .seconds(60))
-
-        #expect(root == nil)
+        #expect(await lookup(base.path) == .notInRepository)
     }
 
-    @Test func expiredDeadlineReturnsNilInsteadOfWalking() async throws {
+    /// A timeout is not a finding: Copy Project Root must not treat it as
+    /// "outside a repository" and copy the working directory instead.
+    @Test func expiredDeadlineIsUnavailableNotOutsideARepository() async throws {
         let fixture = try GitRepositoryFixture()
 
-        let root = await GitMetadataService().workTreeRoot(
-            forDirectory: fixture.root.path,
-            timeout: .zero
-        )
-
-        #expect(root == nil)
+        #expect(await lookup(fixture.root.path, timeout: .zero) == .unavailable)
     }
 }
