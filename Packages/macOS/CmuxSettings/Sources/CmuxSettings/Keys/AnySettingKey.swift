@@ -65,6 +65,10 @@ public struct AnySettingKey: Sendable {
     /// instead of the one passed in.
     public let jsonValueInUserDefaults: @Sendable (UserDefaults) -> Any?
 
+    /// The UserDefaults default value in its cmux.json form, or nil for keys
+    /// that aren't UserDefaults-backed.
+    public let jsonDefaultValue: @Sendable () -> Any?
+
     /// Wraps a UserDefaults-backed key.
     public init<Value>(_ key: DefaultsKey<Value>) {
         self.id = key.id
@@ -86,6 +90,7 @@ public struct AnySettingKey: Sendable {
             }
             return value.encodeForJSON()
         }
+        self.jsonDefaultValue = { key.defaultValue.encodeForJSON() }
     }
 
     /// Wraps a JSON-backed key.
@@ -98,6 +103,7 @@ public struct AnySettingKey: Sendable {
         }
         self.userDefaultsDefaultValue = nil
         self.jsonValueInUserDefaults = { _ in nil }
+        self.jsonDefaultValue = { nil }
     }
 
     /// Wraps a secret-file-backed key. Secrets are reset through
@@ -110,6 +116,7 @@ public struct AnySettingKey: Sendable {
         self.resetInJSON = { _ in }
         self.userDefaultsDefaultValue = nil
         self.jsonValueInUserDefaults = { _ in nil }
+        self.jsonDefaultValue = { nil }
     }
 
     private static func migrateLegacyDefaultsKey<Value>(

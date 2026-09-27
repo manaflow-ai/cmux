@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Where a setting change finds the value cmux is using for a key that
@@ -23,6 +24,9 @@ public struct CmuxSettingLiveValues: Sendable {
     /// `suiteName`, such as the cmux app's bundle identifier when called from
     /// the CLI. `nil` reads `UserDefaults.standard`, which is the app's own
     /// domain inside the app.
+    ///
+    /// Only scalar values (true/false, numbers, strings) whose type the
+    /// schema allows at that path are used; see ``liveValue(for:storedJSON:schema:)``.
     public static func userDefaults(suiteName: String?) -> CmuxSettingLiveValues {
         let keys = Dictionary(
             SettingCatalog().all.map { ($0.id, $0) },
@@ -31,7 +35,54 @@ public struct CmuxSettingLiveValues: Sendable {
         return CmuxSettingLiveValues { path in
             guard let key = keys[path] else { return nil }
             let defaults = suiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
-            return key.jsonValueInUserDefaults(defaults).flatMap(CmuxSettingValue.init(jsonObject:))
+            guard let stored = key.jsonValueInUserDefaults(defaults) else { return nil }
+            return liveValue(for: path, storedJSON: stored, schema: CmuxConfigSchemaPathLookup())
+        }
+    }
+
+    /// Settings whose UserDefaults value isn't stored in its cmux.json form.
+    /// Each maps the stored value (already in its catalog JSON encoding) to
+    /// the cmux.json value. Keep in sync with the cmux.json-to-UserDefaults
+    /// mapping in the app's `CmuxSettingsFileStore+AppSection.swift`.
+    static let storedValueMappings: [String: @Sendable (Any) -> CmuxSettingValue?] = [
+        // Stored as the workspace presentation mode.
+        "app.minimalMode": { stored in
+            switch stored as? String {
+            case "minimal": return .bool(true)
+            case "standard": return .bool(false)
+            default: return nil
+            }
+        },
+        // Stored as the opposite flag, "close the workspace".
+        "app.keepWorkspaceOpenWhenClosingLastSurface": { stored in
+            (stored as? Bool).map { .bool(!$0) }
+        },
+    ]
+
+    /// The cmux.json value for a stored UserDefaults value, or nil when the
+    /// stored form can't be trusted to mean the same thing: a non-scalar
+    /// value (lists and maps are often stored as text), or a type the schema
+    /// doesn't allow at `path`.
+    static func liveValue(
+        for path: String,
+        storedJSON: Any,
+        schema: CmuxConfigSchemaPathLookup
+    ) -> CmuxSettingValue? {
+        if let mapping = storedValueMappings[path] {
+            return mapping(storedJSON)
+        }
+        guard let value = CmuxSettingValue(jsonObject: storedJSON) else { return nil }
+        let allowed = schema.declaredTypes(at: path.split(separator: ".").map(String.init))
+        switch value {
+        case .bool:
+            return allowed.contains("boolean") ? value : nil
+        case .string:
+            return allowed.contains("string") ? value : nil
+        case .number(let number):
+            if allowed.contains("number") { return value }
+            return allowed.contains("integer") && number.rounded() == number ? value : nil
+        case .null, .array, .object:
+            return nil
         }
     }
 

@@ -168,6 +168,62 @@ struct CmuxSettingChangeTests {
         #expect(live.value(at: "not.a.setting") == nil)
     }
 
+    @Test("re-setting a fraction that is already stored is not a change")
+    func resettingTheSameFractionIsUnchanged() async throws {
+        let file = try fixture("{ \"terminal\": { \"scrollSpeed\": 1.4 } }\n")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let before = try Data(contentsOf: file)
+
+        let result = try await JSONConfigStore(fileURL: file)
+            .apply(.set(path: "terminal.scrollSpeed", value: .number(1.4)))
+
+        #expect(result.receipts.allSatisfy { $0.before == $0.installed })
+        #expect(try Data(contentsOf: file) == before)
+    }
+
+    @Test("stored values that aren't in their cmux.json form are mapped or dropped")
+    func storedValueMappings() {
+        let schema = CmuxConfigSchemaPathLookup()
+        func live(_ path: String, _ stored: Any) -> CmuxSettingValue? {
+            CmuxSettingLiveValues.liveValue(for: path, storedJSON: stored, schema: schema)
+        }
+        #expect(live("fileEditor.wordWrap", true) == .bool(true))
+        #expect(live("terminal.scrollSpeed", 1.8) == .number(1.8))
+        #expect(live("app.minimalMode", "minimal") == .bool(true))
+        #expect(live("app.minimalMode", "standard") == .bool(false))
+        #expect(live("app.keepWorkspaceOpenWhenClosingLastSurface", true) == .bool(false))
+        // Lists and maps are often stored as text; never trust them.
+        #expect(live("browser.hostsToOpenInEmbeddedBrowser", "example.com\nlocalhost") == nil)
+        #expect(live("notifications.soundOverrides", "{}") == nil)
+        // A stored type the schema doesn't allow is dropped.
+        #expect(live("fileEditor.wordWrap", "yes") == nil)
+    }
+
+    /// Every UserDefaults-backed setting the live resolver would accept must
+    /// store its value in cmux.json form. A key whose encoded default
+    /// disagrees with the schema default (an inverted flag, a mode string)
+    /// needs an entry in `storedValueMappings`, or toggle would start from
+    /// the wrong value.
+    @Test("catalog settings the live resolver accepts store their cmux.json form")
+    func catalogLiveValuesMatchSchemaDefaults() {
+        let schema = CmuxConfigSchemaPathLookup()
+        var mismatches: [String] = []
+        for key in SettingCatalog().all {
+            guard CmuxSettingLiveValues.storedValueMappings[key.id] == nil,
+                  let encodedDefault = key.jsonDefaultValue(),
+                  let accepted = CmuxSettingLiveValues.liveValue(for: key.id, storedJSON: encodedDefault, schema: schema),
+                  let schemaDefault = schema.defaultValue(at: key.id.split(separator: ".").map(String.init)),
+                  !(schemaDefault is NSNull),
+                  let expected = CmuxSettingValue(jsonObject: schemaDefault) else {
+                continue
+            }
+            if !CmuxSettingChangePlanner.matches(accepted, expected) {
+                mismatches.append("\(key.id): stored default \(accepted.jsonText), schema default \(expected.jsonText)")
+            }
+        }
+        #expect(mismatches.isEmpty, "\(mismatches.joined(separator: "; "))")
+    }
+
     @Test("a typo under a map keyed by names stays an unknown path")
     func typoUnderNamedMapIsUnknown() async throws {
         let file = try fixture(baseConfig)

@@ -36,6 +36,35 @@ public struct CmuxConfigSchemaPathLookup {
         return nil
     }
 
+    /// The JSON types (`"boolean"`, `"string"`, `"number"`, ...) the schema
+    /// allows at `components`, following `$ref` and `anyOf`/`oneOf`/`allOf`.
+    /// Empty when the path is undeclared or its schema names no type.
+    public func declaredTypes(at components: [String]) -> Set<String> {
+        var types: Set<String> = []
+        for schema in schemas(at: components) {
+            collectTypes(in: schema, depth: 0, into: &types)
+        }
+        return types
+    }
+
+    private func collectTypes(in schema: [String: Any], depth: Int, into types: inout Set<String>) {
+        guard depth < 16 else { return }
+        if let type = schema["type"] as? String {
+            types.insert(type)
+        } else if let list = schema["type"] as? [String] {
+            types.formUnion(list)
+        }
+        if let ref = schema["$ref"] as? String, let target = resolvedReference(ref) {
+            collectTypes(in: target, depth: depth + 1, into: &types)
+        }
+        for combinator in ["allOf", "anyOf", "oneOf"] {
+            guard let alternatives = schema[combinator] as? [Any] else { continue }
+            for case let alternative as [String: Any] in alternatives {
+                collectTypes(in: alternative, depth: depth + 1, into: &types)
+            }
+        }
+    }
+
     private func defaultValue(in schema: [String: Any], depth: Int) -> Any? {
         if let value = schema["default"] {
             return value

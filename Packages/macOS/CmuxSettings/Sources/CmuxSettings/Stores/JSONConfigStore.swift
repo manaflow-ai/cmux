@@ -633,11 +633,11 @@ public actor JSONConfigStore {
         _ rhs: [String: Any]
     ) -> Bool {
         guard let left = try? JSONSerialization.data(
-            withJSONObject: lhs,
+            withJSONObject: canonicalJSONObject(lhs),
             options: [.sortedKeys, .withoutEscapingSlashes]
         ),
         let right = try? JSONSerialization.data(
-            withJSONObject: rhs,
+            withJSONObject: canonicalJSONObject(rhs),
             options: [.sortedKeys, .withoutEscapingSlashes]
         ) else {
             return false
