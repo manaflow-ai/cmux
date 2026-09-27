@@ -3461,6 +3461,20 @@ class GhosttyApp {
                 surfaceView.applyNativeHoverResult(hoverEventID: hoverEventID, url: url)
             }
             return true
+        case GHOSTTY_ACTION_SECURE_INPUT:
+            // Ghostty sends ON/OFF when its termios poll sees the foreground
+            // program enter or leave canonical mode with echo off (a password
+            // prompt). TOGGLE comes from the `toggle_secure_input` keybind,
+            // which is not an echo change, so it is left unhandled.
+            let mode = action.action.secure_input
+            guard mode == GHOSTTY_SECURE_INPUT_ON || mode == GHOSTTY_SECURE_INPUT_OFF else { return false }
+            let echoDisabled = mode == GHOSTTY_SECURE_INPUT_ON
+            let terminalSurface = surfaceView.terminalSurface
+            DispatchQueue.main.async {
+                guard surfaceView.terminalSurface === terminalSurface else { return }
+                terminalSurface?.hostedView.setPasswordInputActive(echoDisabled)
+            }
+            return true
         case GHOSTTY_ACTION_EXTERNAL_LINK_HOVER:
             // cmux fork: (B) ExternalHover — the ack for a prior
             // `ghostty_surface_set_external_link_hover` call. Answered
@@ -11150,12 +11164,13 @@ final class GhosttySurfaceScrollView: NSView {
 
     private var lastFlashStyle: FlashStyle = .navigation
     private var workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
-    private var workspaceAttentionNSColor = NSColor.systemBlue
+    private var workspaceAttentionNSColor = WorkspaceAttentionColor(configuredHex: nil).nsColor
     private let keyboardCopyModeBadgeContainerView: GhosttyFlashOverlayView
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeIconView: NSImageView
     private let keyboardCopyModeBadgeLabel: NSTextField
     let linkHoverIndicatorView: TerminalLinkHoverIndicatorView
+    let passwordInputIndicatorView: TerminalPasswordInputIndicatorView
     private let imageTransferIndicatorContainerView: NSView
     private let imageTransferIndicatorView: NSVisualEffectView
     private let imageTransferIndicatorSpinner: NSProgressIndicator
@@ -11163,6 +11178,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
     private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
     private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()
+    private lazy var pasteFailureNoticePresenter = TerminalPasteFailureNoticePresenter()
     private var activeImageTransferOperation: TerminalImageTransferOperation?
     private var activeImageTransferCancelHandler: (() -> Void)?
     private var lastSearchOverlayStateID: ObjectIdentifier?
@@ -11407,6 +11423,7 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeIconView = NSImageView(frame: .zero)
         keyboardCopyModeBadgeLabel = NSTextField(labelWithString: terminalKeyboardCopyModeIndicatorText)
         linkHoverIndicatorView = TerminalLinkHoverIndicatorView(frame: .zero)
+        passwordInputIndicatorView = TerminalPasswordInputIndicatorView(frame: .zero)
         imageTransferIndicatorContainerView = NSView(frame: .zero)
         imageTransferIndicatorView = NSVisualEffectView(frame: .zero)
         imageTransferIndicatorSpinner = NSProgressIndicator(frame: .zero)
@@ -11619,6 +11636,16 @@ final class GhosttySurfaceScrollView: NSView {
         linkHoverIndicatorView.frame = bounds
         linkHoverIndicatorView.autoresizingMask = [.width, .height]
         addSubview(linkHoverIndicatorView)
+        passwordInputIndicatorView.frame = bounds
+        passwordInputIndicatorView.autoresizingMask = [.width, .height]
+        addSubview(passwordInputIndicatorView)
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(cmuxAccentColorDidChange(_:)),
+            name: CmuxAccentColor.didChangeNotification,
+            object: nil
+        )
 
         scrollView.contentView.postsBoundsChangedNotifications = true
         observers.append(NotificationCenter.default.addObserver(
@@ -11934,6 +11961,7 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         _ = setFrameIfNeeded(linkHoverIndicatorView, to: contentFrame)
+        _ = setFrameIfNeeded(passwordInputIndicatorView, to: contentFrame)
         if let cloudTerminalReconnectOverlayView { _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: contentFrame) }
         synchronizeCloudTerminalReconnectOverlay()
         if let overlay = searchOverlayHostingView {
@@ -12198,7 +12226,10 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
-        if surfaceView.terminalSurface !== terminalSurface { setLinkHoverURL(nil) }
+        if surfaceView.terminalSurface !== terminalSurface {
+            setLinkHoverURL(nil)
+            setPasswordInputActive(false)
+        }
         surfaceView.attachSurface(terminalSurface)
         // Preserve the bootstrap 800x600 surface until portal reattach churn
         // has produced a real host size instead of a transient 1x1 placeholder.
@@ -12319,6 +12350,17 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.commit()
     }
 
+    /// Re-applies the cached drop-zone and copy-mode accent colors after the
+    /// resolved cmux accent changes. The attention ring and flash get theirs
+    /// through `setWorkspaceAttentionColor(_:)`.
+    @objc private func cmuxAccentColorDidChange(_ notification: Notification) {
+        guard let observer = notification.object as? CmuxAccentColorObserver else { return }
+        let accent = observer.current.themeNSColor
+        dropZoneOverlayView.layer?.backgroundColor = accent.withAlphaComponent(0.25).cgColor
+        dropZoneOverlayView.layer?.borderColor = accent.cgColor
+        surfaceView.keyboardCopyModeCursorOverlayView.layer?.borderColor = accent.cgColor
+    }
+
     private func cancelDeferredSearchOverlayMutation() {
         deferredSearchOverlayMutationScheduler.cancel()
     }
@@ -12420,6 +12462,13 @@ final class GhosttySurfaceScrollView: NSView {
         imageTransferIndicatorSpinner.stopAnimation(nil)
         imageTransferIndicatorContainerView.isHidden = true
     }
+
+    /// Shows a brief, non-modal notice over this terminal for a paste that
+    /// produced nothing (see `TerminalPasteFailureNotice`).
+    func showPasteFailureNotice(_ notice: TerminalPasteFailureNotice) {
+        pasteFailureNoticePresenter.show(notice, over: self)
+    }
+
     private func makeSearchOverlayRootView(
         terminalSurface: TerminalSurface,
         searchState: TerminalSurface.SearchState
