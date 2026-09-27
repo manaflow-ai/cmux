@@ -217,8 +217,9 @@ it 0 they take `retry_runner`. ci.yml turns off `unit_in_admission` for every
 persistent pick, so the changed suites a compile admission would run itself
 move to shard 8: glaeda gives admission the compile token, not the gui token. On a pool with a root
 count whose gui label (`glaeda-gui-<class>-xcode-<version>`, one runner per mini) has a count in
-CI_OWNED_POOL_SLOTS, the placed GUI jobs take the `gui_runner` output instead of the root label
-(gui_runner()), so each mini gets at most the one GUI job its gui token allows. A run's owned peak
+CI_OWNED_POOL_SLOTS, the placed gui-token jobs (gui_token_job(): the GUI jobs and cli-product) take
+the `gui_runner` output instead of the root label (gui_runner()), so each mini gets at most the one
+such job its gui token allows. A run's owned peak
 (`jobs`, and the marker's) counts only the jobs that may take the pool.
 
 The queue comes from the queue janitor, which lists every in-flight run's
@@ -732,8 +733,8 @@ def owned_peak(plan: RunJobs, gui: bool = True) -> int:
 def root_held(plan: RunJobs, keys: Sequence[str], gui_runners: bool = False) -> int:
     """The root runners `keys` hold at peak: admission, then the jobs after it (ROOT_JOBS).
 
-    With `gui_runners` (the pool's GUI jobs take its gui label, gui_runner()),
-    the GUI jobs hold no root runner."""
+    With `gui_runners` (the pool's gui-token jobs take its gui label, gui_runner()),
+    those jobs (gui_token_job()) hold no root runner."""
     after = sum(1 for key in keys if key in plan.after and not (gui_runners and gui_token_job(key)))
     return max(1, after) if ADMISSION_JOB in keys else after
 
