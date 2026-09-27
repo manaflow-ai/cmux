@@ -92,6 +92,7 @@ public final class EvalEnvironment {
 
     /// Defines or overwrites `name` in this scope.
     public func define(_ name: String, _ value: SwiftValue) {
+        maskedUnresolvedNames.remove(name)
         values[name] = value
     }
 
