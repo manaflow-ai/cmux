@@ -1173,6 +1173,13 @@ pub(crate) struct TerminalInputMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct AgentWrapperMessages {
+    pub hooks_unavailable: &'static str,
+    pub agent_not_found: &'static str,
+    pub agent_start_failed: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
     japanese: bool,
     pub startup: StartupMessages,
@@ -1195,6 +1202,7 @@ pub(crate) struct Catalog {
     pub config: ConfigMessages,
     pub attach: AttachMessages,
     pub sidebar: SidebarMessages,
+    pub agent_wrapper: AgentWrapperMessages,
 }
 
 impl Catalog {
@@ -1206,6 +1214,11 @@ impl Catalog {
 
 static ENGLISH: Catalog = Catalog {
     japanese: false,
+    agent_wrapper: AgentWrapperMessages {
+        hooks_unavailable: "cmux: starting the agent without cmux status updates",
+        agent_not_found: "cmux: the agent executable was not found",
+        agent_start_failed: "cmux: the agent could not be started",
+    },
     startup: StartupMessages {
         schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
         invalid_session_name: "The session name must be one path component without separators or control characters",
@@ -1901,6 +1914,11 @@ socket.
 
 static JAPANESE: Catalog = Catalog {
     japanese: true,
+    agent_wrapper: AgentWrapperMessages {
+        hooks_unavailable: "cmux: cmux のステータス更新なしでエージェントを起動します",
+        agent_not_found: "cmux: エージェントの実行ファイルが見つかりません",
+        agent_start_failed: "cmux: エージェントを起動できませんでした",
+    },
     startup: StartupMessages {
         schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",
         invalid_session_name: "セッション名には、区切り文字や制御文字を含まない 1 つのパス要素を指定してください",

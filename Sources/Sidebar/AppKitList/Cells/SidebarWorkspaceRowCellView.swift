@@ -576,10 +576,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         subtitleView.isHidden = effectiveSubtitle == nil
         if let effectiveSubtitle {
             subtitleView.maximumNumberOfLines = subtitleLineLimit
-            subtitleView.stringValue = effectiveSubtitle.sidebarBoundedDisplayString(
+            let display = effectiveSubtitle.sidebarBoundedDisplayString(
                 maxDisplayedLines: subtitleLineLimit,
                 maxDisplayedCharacters: 4096
             )
+            subtitleView.stringValue = model.latestNotificationText == nil
+                ? display
+                : SidebarMarkdownRenderer(markdown: display).plainText
             subtitleView.font = .systemFont(ofSize: model.scaled(10))
             subtitleView.textColor = palette.secondary(0.8)
         }
@@ -670,14 +673,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         badgeVisible: Bool,
         spinnerVisible: Bool
     ) {
-        let badgeFill: NSColor = {
-            if let hex = model.settings.notificationBadgeColorHex, let color = NSColor(hex: hex) {
-                return color
-            }
-            return model.isActive
+        let badgeFill = cmuxNotificationBadgeNSColor(
+            hex: model.settings.notificationBadgeColorHex,
+            fallback: model.isActive
                 ? palette.primaryText.withAlphaComponent(0.25)
                 : cmuxAccentNSColor(for: palette.colorScheme)
-        }()
+        )
         let badgeText: NSColor = model.isActive ? palette.primaryText : .white
         let badgeFont = NSFont.systemFont(ofSize: model.scaled(9), weight: .semibold)
 
@@ -1107,6 +1108,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 self?.contextMenuVisible = false
                 self?.updateCloseVisibility()
                 didClose?()
+            },
+            beginInlineRename: { [weak self] in
+                self?.beginInlineRename()
             }
         )
     }
