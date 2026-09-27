@@ -148,6 +148,9 @@ Give a million developers composable primitives and they'll collectively find th
 
 For more info on how to configure cmux, [head over to our docs](https://cmux.com/docs/getting-started?utm_source=readme).
 
+For an external task loop with durable progress and independent verification,
+see [sustained agent tasks with LongHorizon-Harness](docs/longhorizon-harness.md).
+
 ## Keyboard Shortcuts
 
 ### Workspaces

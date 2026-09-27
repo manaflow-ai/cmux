@@ -146,6 +146,9 @@ cmuxはソリューションではなくプリミティブです。ターミナ�
 
 cmuxの設定方法の詳細は、[ドキュメントをご覧ください](https://cmux.com/docs/getting-started?utm_source=readme)。
 
+進捗を永続化し、独立した検証を行う外部のタスク実行ループについては、
+[LongHorizon-Harness でエージェントのタスクを継続する](docs/longhorizon-harness.ja.md)を参照してください。
+
 ## キーボードショートカット
 
 ### ワークスペース
