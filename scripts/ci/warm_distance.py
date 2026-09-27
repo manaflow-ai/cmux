@@ -345,6 +345,15 @@ def stamp_pull_request(store: Path, files: Sequence[str], interface: bool | None
     incoming.rename(stamp_path)
 
 
+def picker_route_record(text: str | None) -> dict[str, Any] | None:
+    """The picker's route (ci.yml's admission_route output, route_record()), or None when absent or malformed."""
+    try:
+        value = json.loads(text or "")
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) and len(text or "") <= 16384 else None
+
+
 def admission(store: Path, env: Mapping[str, str], workspace: Path, now: Callable[[], dt.datetime]) -> dict[str, Any]:
     _deadline[0] = time.monotonic() + RECORD_BUDGET_SECONDS
     model = load_model()
@@ -426,6 +435,8 @@ def admission(store: Path, env: Mapping[str, str], workspace: Path, now: Callabl
             "admission_runner": env.get("ADMISSION_RUNNER") or None,
             "placement": env.get("PLACEMENT") or None,
             "hook": env.get("GLAEDA_WARM_ROUTE") or None,
+            # pr_runner_pool.py's admission pin: route_record() (candidates, chosen, predicted, baseline).
+            "picker": picker_route_record(env.get("PICKER_ROUTE")),
         },
     }
     _deadline[0] = float("inf")
@@ -593,6 +604,315 @@ def picker_route(runners: Sequence[Mapping[str, Any]], root: str, *, merged_onto
                                      running=running, job_tier=job_tier, model=model, now=now,
                                      max_wait=routed_wait_limit(queue_rounds), runner_label=runner_label)
     return (json.dumps([root, runner_label(name)], separators=(",", ":")) if name else ""), decision
+
+
+# Distance routing across minis (pr_runner_pool.py, CI_OWNED_WARM_DISTANCE) ---------------------------------------
+#
+# route_admission() above pins only on an exact key (the merge base, or `pr-<n>`) and costs the root label at
+# start_classes["none"]. glaeda's job-started hook (teamleaderleo/glaeda scripts/glaeda-cmux-runner-hook,
+# warm_root_costs()) already ranks the free roots inside one mini by the near/far/rebuild tier of each kept
+# build's distance to the job. distance_route() scores every mini's roots the same way, from the stamps
+# owned_build_state.py `warm-keys` publishes (`roots`, owned_warm_state.py), so a near build on another mini
+# counts too, and costs the root label as where it lands at random. hook_model(), hook_changes() and
+# hook_root_cost() mirror the hook's pure functions line for line (tests/test_ci_warm_distance.py pins them to
+# the hook's own answers, and checks the hook itself when a glaeda checkout is at hand); change them together.
+
+HOOK_TIERS = ("near", "far", "rebuild")
+# The hook's WARM_DEFAULT_MODEL: the model fitted on 223 admissions of 2026-09-25/26.
+HOOK_DEFAULT_MODEL = {"near_app_swift_files": 5, "hot_files": [],
+                      "tiers": {"near": 140.0, "far": 266.5, "rebuild": 400.7}, "kept": {}, "unknown": 309.7}
+HOOK_MAX_FILES = 400
+# Distinct kept merge bases compared per decision (one tree diff each; one fetch brings all that are missing).
+MAX_ROUTE_BASES = 24
+DISTANCE_BUDGET_SECONDS = 15
+WARM_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+def hook_model(model: Mapping[str, Any]) -> dict[str, Any]:
+    """The hook's read_warm_model() of a model document: tier p50s, each tier's kept-start p50 (tiers_by_start,
+    once its cell has MIN_START_ROWS compiles), near threshold, hot files, unknown start."""
+    def seconds(value: Any) -> float:
+        number = float(value)
+        if number != number or number in (float("inf"), float("-inf")) or number < 0:
+            raise ValueError("not a duration")
+        return number
+
+    try:
+        tiers = {name: seconds(model["tiers"][name]["p50"]) for name in HOOK_TIERS}
+        hot = [str(path) for path in model.get("hot_files") or [] if isinstance(path, str)][:200]
+        near = int(model.get("near_app_swift_files") or 5)
+        unknown = seconds(((model.get("start_classes") or {}).get("none") or {}).get("expected") or tiers["far"])
+        kept = {}
+        by_start = model.get("tiers_by_start")
+        for name in tiers:
+            try:  # a model without tiers_by_start, a sparse cell or a bad one: that tier's p50
+                cell = by_start[name]["kept"]
+                count = cell["n"]
+                if isinstance(count, int) and not isinstance(count, bool) and count >= MIN_START_ROWS \
+                        and not isinstance(cell["p50"], bool) and seconds(cell["p50"]) > 0:
+                    kept[name] = seconds(cell["p50"])
+            except Exception:  # noqa: BLE001
+                pass
+        return {"near_app_swift_files": near, "hot_files": hot, "tiers": tiers, "kept": kept, "unknown": unknown}
+    except Exception:  # noqa: BLE001 - as the hook: any unreadable model is the default
+        return {**HOOK_DEFAULT_MODEL, "tiers": dict(HOOK_DEFAULT_MODEL["tiers"]), "kept": {}}
+
+
+def hook_changes(raw: str) -> tuple[set[str], bool]:
+    """The hook's main_changes() of `git diff --raw -z --no-renames --no-abbrev` output: app Swift files, and
+    whether a package source or submodule changed."""
+    fields = raw.split("\0")
+    files: set[str] = set()
+    package = False
+    for meta, path in zip(fields[0::2], fields[1::2]):
+        if "160000" in (mode.lstrip(":") for mode in meta.split()[:2]):
+            package = True  # a submodule bump: its sources changed
+            continue
+        if app_swift(path):
+            files.add(path)
+            package = package or path.startswith(PACKAGE_SOURCES)
+    return files, package
+
+
+def hook_root_cost(changes: tuple[set[str], bool] | None, stamp: Mapping[str, Any] | None, number: int | None,
+                   model: Mapping[str, Any], own: Mapping[str, Any] | None = None) -> tuple[float, str, int]:
+    """(seconds, tier, app Swift files) of starting from one kept build: the hook's per-root cost in
+    warm_root_costs(). CHANGES is main's diff from the stamp's merge base to the job's (None: not comparable),
+    STAMP the root's kept build (None: none, the cold cost), NUMBER the job's pull request, MODEL hook_model()'s.
+    OWN (the job's own `paths` and features()) is what the hook leaves out as the same for every root; with it
+    the seconds are the whole job's prediction rather than a lower bound. A kept build of the same pull
+    request has those files already, so there they count only for a package interface or hot file, which a
+    re-push usually touches again (14 of 23 such starts rebuilt on 2026-09-26/27). Without OWN this is the
+    hook's cost."""
+    if stamp is None:
+        return max(model["tiers"].values()) + 1.0, "cold", -1
+    same = isinstance(stamp.get("pr"), int) and stamp.get("pr") == number
+    if changes is None or (not same and "pr_app_swift_files" not in stamp and stamp.get("pr")):
+        return model["unknown"], "unknown", -1  # not comparable, or an older cmux's stamp
+    files, package = changes
+    kept = stamp.get("pr_app_swift_files") if not same else []
+    kept = kept if isinstance(kept, list) else []
+    kept_set = {str(path) for path in kept[:HOOK_MAX_FILES] if isinstance(path, str) and app_swift(path)}
+    total = stamp.get("pr_app_swift_total") if not same else 0
+    extra = max(0, total - len(kept_set)) if isinstance(total, int) and not isinstance(total, bool) else 0
+    interface = stamp.get("pr_package_interface") if not same else False
+    # A list cut short may hide a package file: unless the stamp says no interface changed, assume one did.
+    kept_package = any(path.startswith(PACKAGE_SOURCES) for path in kept_set) or extra > 0
+    package = package or (kept_package and interface is not False)
+    changed = files | kept_set
+    own_paths: set[str] = set()
+    if own is not None:
+        own_paths = {str(path) for path in own.get("paths") or [] if isinstance(path, str) and app_swift(path)}
+        package = package or bool(own.get("package_swift_files") and own.get("package_interface") is not False)
+        if not same:  # a kept build of this pull request has its files already: they count only as a kind
+            changed |= own_paths
+    count = len(changed) + extra
+    hot = bool((changed | own_paths) & set(model["hot_files"]))
+    name = ("rebuild" if package or hot else "far" if count > model["near_app_swift_files"] else "near")
+    # Every root starts from its kept build: that tier's kept-start p50 when the model has one.
+    return (model.get("kept") or {}).get(name, model["tiers"][name]), name, count
+
+
+def fetch_bases(workspace: Path, shas: Iterable[str]) -> None:
+    """The commits and trees (no blobs) of SHAS the checkout lacks, in one shallow fetch."""
+    missing = sorted({sha for sha in shas if WARM_SHA.fullmatch(sha) and not have_commit(workspace, sha)})
+    if missing:
+        git(workspace, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--depth=1", "--filter=blob:none",
+            "origin", *missing, timeout=FETCH_TIMEOUT_SECONDS)
+
+
+def main_changes(workspace: Path, old: str, new: str) -> tuple[set[str], bool] | None:
+    """hook_changes() of main's diff between two commits in the checkout (trees only), or None."""
+    if not (WARM_SHA.fullmatch(old or "") and WARM_SHA.fullmatch(new or "")):
+        return None
+    if old == new:
+        return set(), False
+    raw = git(workspace, "diff", "--raw", "-z", "--no-renames", "--no-abbrev", old, new, "--")
+    return None if raw is None else hook_changes(raw)
+
+
+def mini_roots(warm: Mapping[str, Any], member: Callable[[str], str]) -> dict[str, list[Mapping[str, Any]]]:
+    """Each mini's roots (owned_warm_state.py `roots`), from its runner entry of the newest `at`."""
+    kept = warm.get("runners") if isinstance(warm.get("runners"), Mapping) else {}
+    newest: dict[str, tuple[str, list[Mapping[str, Any]]]] = {}
+    for name, entry in kept.items():
+        roots = entry.get("roots") if isinstance(entry, Mapping) else None
+        mini = member(str(name))
+        if not mini or not isinstance(roots, list) or not roots:
+            continue
+        at = str(entry.get("at") or "")
+        if mini not in newest or at > newest[mini][0]:
+            newest[mini] = (at, [root for root in roots if isinstance(root, Mapping)])
+    return {mini: roots for mini, (_, roots) in newest.items()}
+
+
+def distance_route(runners: Sequence[Mapping[str, Any]], root: str, *,
+                   minis: Mapping[str, Sequence[Mapping[str, Any]]],
+                   changes: Callable[[str], tuple[set[str], bool] | None], pr_number: int | None,
+                   own: Mapping[str, Any] | None, legacy: Mapping[str, float], running: Mapping[str, Any],
+                   model: Mapping[str, Any], now: dt.datetime, max_wait: float,
+                   runner_label: Callable[[str], str], member: Callable[[str], str]) -> tuple[str, dict[str, Any]]:
+    """The root runner whose mini's free root starts nearest, when it beats the root label by ROUTE_MARGIN_SECONDS.
+
+    Every online `root` runner is a candidate. Its mini's roots (MINIS, the
+    stamps admission publishes) each cost hook_root_cost() with the job's OWN
+    files. The hook hands the job the cheapest free root and each busy root
+    runner of the mini holds one, so a runner costs the root ranked after the
+    busy ones (the cheapest on an idle mini; for a busy runner, the one its
+    job frees). A mini without stamps costs LEGACY[runner] (route_admission()'s
+    exact-key start class) or the model's unknown start. A busy runner adds
+    its expected wait and counts only within MAX_WAIT. The root label goes to
+    whichever idle root runner GitHub picks: the mean of their costs, or,
+    with every one busy, the first wait plus the mean. Ties go to the lower
+    cost, then the less loaded mini, then the name. Returns the runner (""
+    for the root label) and the decision: candidates, chosen, predicted and
+    baseline seconds.
+    """
+    hook = hook_model(model)
+    decision: dict[str, Any] = {"mode": "distance", "candidates": [], "chosen": "", "predicted": None,
+                                "baseline": None}
+    online: list[tuple[str, bool, set[str]]] = []
+    busy_roots: dict[str, int] = {}
+    for runner in runners:
+        name = str(runner.get("name") or "")
+        labels = {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
+        if runner.get("status") != "online" or not name or root not in labels:
+            continue
+        online.append((name, bool(runner.get("busy")), labels))
+        if runner.get("busy"):
+            busy_roots[member(name)] = busy_roots.get(member(name), 0) + 1
+    if not online:
+        decision["why"] = "no online root runner"
+        return "", decision
+    ranked: dict[str, list[tuple[float, str, int, int]]] = {}
+    for mini, roots in minis.items():
+        costs = []
+        for entry in roots:
+            number = entry.get("root")
+            stamp = entry if entry.get("merged_onto") or entry.get("pr") else None
+            cost = hook_root_cost(changes(str(entry.get("merged_onto") or "")) if stamp else None, stamp,
+                                  pr_number, hook, own)
+            costs.append((*cost, number if isinstance(number, int) and not isinstance(number, bool) else 0))
+        ranked[mini] = sorted(costs, key=lambda item: (item[0], item[2], item[3]))
+    rows: list[dict[str, Any]] = []
+    for name, busy, labels in online:
+        mini = member(name)
+        wait = 0.0 if not busy else remaining_seconds(running.get(name), model, now)
+        taken = busy_roots.get(mini, 0) - (1 if busy else 0)
+        roots = ranked.get(mini) or []
+        if taken < len(roots):
+            seconds, tier_name, files, number = roots[taken]
+            where = f"root-{number}" if number else ""
+        else:
+            seconds = legacy.get(name, hook["unknown"])
+            tier_name, files, where = ("key" if name in legacy else "unknown"), -1, ""
+        rows.append({"runner": name, "mini": mini, "busy": busy, "wait": None if wait is None else round(wait, 1),
+                     "compile": round(seconds, 1), "tier": tier_name, "files": files, "root": where,
+                     "cost": None if wait is None else round(wait + seconds, 1),
+                     "pinnable": runner_label(name) in labels, "load": busy_roots.get(mini, 0)})
+    idle = [row["compile"] for row in rows if not row["busy"]]
+    if idle:
+        baseline = sum(idle) / len(idle)
+    else:
+        waits = [row["wait"] for row in rows if row["wait"] is not None]
+        baseline = min(waits, default=UNKNOWN_JOB_SECONDS) + sum(row["compile"] for row in rows) / len(rows)
+    decision["baseline"] = round(baseline, 1)
+    order = lambda row: (row["cost"] is None, row["cost"] or 0.0, row["load"], row["runner"])  # noqa: E731
+    decision["candidates"] = [{key: row[key] for key in ("runner", "mini", "wait", "compile", "tier", "files", "root",
+                                                          "cost")} for row in sorted(rows, key=order)][:24]
+    usable = sorted((row for row in rows if row["pinnable"] and row["cost"] is not None
+                     and (row["wait"] == 0 or row["wait"] < max_wait)), key=order)
+    if not usable:
+        decision.update(predicted=decision["baseline"],
+                        why="no root runner idle or with a known wait within the limit")
+        return "", decision
+    best = usable[0]
+    if best["cost"] + ROUTE_MARGIN_SECONDS > baseline:
+        decision.update(predicted=decision["baseline"],
+                        why=f"the nearest start ({best['runner']}, {best['tier']}, {best['cost']:.0f} s) does not "
+                            f"beat the root label ({baseline:.0f} s)")
+        return "", decision
+    decision.update(chosen=best["runner"], predicted=best["cost"], tier=best["tier"],
+                    why=f"{best['runner']}: {best['tier']} start, {best['cost']:.0f} s against {baseline:.0f} s "
+                        f"on the root label")
+    return best["runner"], decision
+
+
+def picker_distance_route(runners: Sequence[Mapping[str, Any]], root: str, *, merged_onto: str | None,
+                          pr_number: str | None, snapshot: Mapping[str, Any], workspace: Path,
+                          queue_rounds: int | None, now: dt.datetime, warm_key: Callable[[str | None], str],
+                          runner_label: Callable[[str], str], member: Callable[[str], str],
+                          model: Mapping[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
+    """pr_runner_pool.py's admission pin by distance: distance_route() over the snapshot's `warm` roots.
+
+    main's diff from each kept merge base to MERGED_ONTO comes from the
+    checkout, after one blobless shallow fetch of the bases it lacks, and the
+    job's own files from its depth-2 checkout, all within
+    DISTANCE_BUDGET_SECONDS; a base it cannot compare costs the unknown start.
+    Returns admission's runs-on JSON ("" for the root label) and the decision.
+    """
+    model = load_model() if model is None else model
+    warm = snapshot.get("warm") if isinstance(snapshot.get("warm"), Mapping) else {}
+    minis = mini_roots(warm, member)
+    base = (merged_onto or "").strip().lower()
+    number = int(pr_number) if (pr_number or "").strip().isdigit() else None
+    diffs: dict[str, tuple[set[str], bool] | None] = {}
+    _deadline[0] = time.monotonic() + DISTANCE_BUDGET_SECONDS
+    try:
+        own_files = pull_request_files(workspace, base, fetch=False) if base else None
+        bases = sorted({str(entry.get("merged_onto") or "") for roots in minis.values() for entry in roots}
+                       - {"", base})[:MAX_ROUTE_BASES]
+        if WARM_SHA.fullmatch(base):
+            if bases:
+                fetch_bases(workspace, bases)
+            diffs = {onto: main_changes(workspace, onto, base) for onto in bases}
+            diffs[base] = (set(), False)
+    finally:
+        _deadline[0] = float("inf")
+    own = None
+    if own_files:
+        own = {**features(own_files[0], own_files[1], model.get("hot_files") or DEFAULT_HOT_FILES),
+               "paths": own_files[0]}
+    job_tier = tier(own, model) if own else ""
+    # Minis whose admissions published no stamps yet (before `roots`): route_admission()'s exact-key classes.
+    kept = warm.get("runners") if isinstance(warm.get("runners"), Mapping) else {}
+    legacy: dict[str, float] = {}
+    for name, entry in kept.items():
+        keys = (entry.get("keys") or []) if isinstance(entry, Mapping) else []
+        start = "base" if warm_key(base) and warm_key(base) in keys else \
+            "pr" if warm_key(f"pr-{number}") and warm_key(f"pr-{number}") in keys else ""
+        seconds = start_class_seconds(start, job_tier, model) if start else None
+        if seconds is not None:
+            legacy[str(name)] = seconds
+    running = snapshot.get("running") if isinstance(snapshot.get("running"), Mapping) else {}
+    name, decision = distance_route(runners, root, minis=minis, changes=lambda onto: diffs.get(onto),
+                                    pr_number=number, own=own, legacy=legacy, running=running, model=model,
+                                    now=now, max_wait=routed_wait_limit(queue_rounds), runner_label=runner_label,
+                                    member=member)
+    decision["job_tier"] = job_tier
+    decision["bases"] = {"compared": sum(1 for value in diffs.values() if value is not None), "total": len(diffs)}
+    return (json.dumps([root, runner_label(name)], separators=(",", ":")) if name else ""), decision
+
+
+def route_record(decision: Mapping[str, Any]) -> dict[str, Any]:
+    """The picker's decision as admission records it (`route.picker`, for ci-dash's Estimates view), bounded:
+    mode, chosen runner ("" for the root label), predicted and baseline compile seconds, and the candidates."""
+    candidates = []
+    for row in (decision.get("candidates") or [])[:12]:
+        if isinstance(row, Mapping):
+            candidates.append({"runner": row.get("runner"), "tier": row.get("tier") or row.get("start"),
+                               "wait": row.get("wait"), "compile": row.get("compile"), "cost": row.get("cost")})
+    chosen = decision.get("chosen")
+    if chosen is None:  # route_admission(): the runner is in `why`
+        best = [row for row in candidates if str(decision.get("why") or "").startswith(f"{row['runner']}:")]
+        chosen = best[0]["runner"] if best else ""
+    predicted = decision.get("predicted")
+    if predicted is None:
+        picked = [row for row in candidates if row["runner"] == chosen]
+        predicted = picked[0]["cost"] if picked else decision.get("baseline_seconds")
+    return {"mode": decision.get("mode") or "key", "chosen": chosen, "predicted": predicted,
+            "baseline": decision.get("baseline", decision.get("baseline_seconds")), "tier": decision.get("tier"),
+            "job_tier": decision.get("job_tier"), "candidates": candidates, "why": str(decision.get("why") or "")[:200]}
 
 
 # Fitting ----------------------------------------------------------------------------------------------------
