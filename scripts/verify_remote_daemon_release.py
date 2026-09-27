@@ -111,7 +111,11 @@ def verify_bundle(app, manifest, embed=False, verify_cli=False,
                     f"bundled daemon checksum mismatch: {entry['assetName']}")
     if not verify_cli:
         return
-    cli = app / "Contents/Resources/bin/cmux"
+    cli = app / "Contents/Helpers/cmux"
+    if not cli.is_file():
+        # Development bundles and pre-relocation release stages keep the CLI in
+        # Resources/bin. Signed releases always prefer the nested-code location.
+        cli = app / "Contents/Resources/bin/cmux"
     # A release check must never be rescued by the developer's local-build override.
     environment = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_")}
     for entry in manifest["entries"]:

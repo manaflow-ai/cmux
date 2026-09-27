@@ -228,13 +228,17 @@ struct CmuxCLIPathInstaller {
     }
 
     private static func defaultBundledCLIURL(bundle: Bundle = .main) -> URL? {
-        bundle.resourceURL?.appendingPathComponent("bin/cmux", isDirectory: false)
+        let candidates = [
+            bundle.bundleURL.appendingPathComponent("Contents/Helpers/cmux", isDirectory: false),
+            bundle.bundleURL.appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false),
+            bundle.resourceURL?.appendingPathComponent("bin/cmux", isDirectory: false)
+        ].compactMap { $0 }
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }
 
     private static func defaultBundledCLIExpectedPath(bundle: Bundle = .main) -> String {
-        bundle.bundleURL
-            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
-            .path
+        defaultBundledCLIURL(bundle: bundle)?.path
+            ?? bundle.bundleURL.appendingPathComponent("Contents/Helpers/cmux", isDirectory: false).path
     }
 
     private static func installWithAdministratorPrivileges(sourceURL: URL, destinationURL: URL) throws {

@@ -141,8 +141,8 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func openTerminalThemePicker() {
-        let cliURL = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+        let cliURL = CLIForwardingLaunchRouter.bundledExecutableURL(named: "cmux")
+            ?? Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/cmux", isDirectory: false)
         guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
             hostSettingsLogger.error("Theme picker unavailable: bundled cmux CLI missing")
             return

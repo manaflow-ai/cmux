@@ -105,9 +105,10 @@ public actor DiffViewerPickerCommandRunner {
            FileManager.default.isExecutableFile(atPath: environmentPath) {
             return environmentPath
         }
-        let candidate = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
-            .path
-        return FileManager.default.isExecutableFile(atPath: candidate) ? candidate : nil
+        let candidates = [
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/cmux", isDirectory: false),
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+        ]
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }?.path
     }
 }

@@ -50,12 +50,12 @@ extension TerminalController {
            !bundledPath.isEmpty {
             ownedCLIPaths.append(bundledPath)
         }
-        let bundlePath = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
-            .path
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if !bundlePath.isEmpty {
-            ownedCLIPaths.append(bundlePath)
+        for bundlePath in [
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/cmux", isDirectory: false).path,
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false).path
+        ] {
+            let trimmed = bundlePath.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { ownedCLIPaths.append(trimmed) }
         }
         guard ownedCLIPaths.contains(where: { SocketControlSettings.pathsMatch($0, pointer) }) else {
             return

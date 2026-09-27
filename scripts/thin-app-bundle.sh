@@ -3,8 +3,8 @@
 #
 #   scripts/thin-app-bundle.sh <path-to.app> <arm64|x86_64>
 #
-# Walks the bundle (nested apps, frameworks, plug-ins, dylibs, Resources/bin
-# helpers), leaves non-Mach-O files and symlinks untouched, thins fat files that
+# Walks the bundle (nested apps, frameworks, plug-ins, dylibs, Helpers and
+# Resources/bin helpers), leaves non-Mach-O files and symlinks untouched, thins fat files that
 # contain the requested slice, and fails if any fat file lacks it. Single-arch
 # files already matching the request are left as-is; single-arch files of another
 # architecture fail, since that bundle could never launch on the target machine.

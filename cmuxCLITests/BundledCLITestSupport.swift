@@ -33,7 +33,8 @@ enum BundledCLITestSupport {
     ///      built, which is what makes this bundle independent of an app host.
     ///   2. `<products>/cmux` — the `cmux-cli` target's own product, which sits
     ///      beside this .xctest bundle in `Build/Products/<config>`.
-    ///   3. Any `*.app/Contents/Resources/bin/cmux` below the products
+    ///   3. Any `*.app/Contents/Helpers/cmux` below the products
+    ///      (with a development `Contents/Resources/bin/cmux` fallback)
     ///      directory — the copy the app bundle ships.
     static func bundledCLIPath(
         for bundleClass: AnyClass = CLITestBundleAnchor.self,
@@ -76,7 +77,8 @@ enum BundledCLITestSupport {
         )
         while let item = enumerator?.nextObject() as? URL {
             guard item.lastPathComponent == "cmux",
-                  item.path.contains(".app/Contents/Resources/bin/cmux"),
+                  (item.path.contains(".app/Contents/Helpers/cmux")
+                      || item.path.contains(".app/Contents/Resources/bin/cmux")),
                   fileManager.isExecutableFile(atPath: item.path) else { continue }
             return item
         }

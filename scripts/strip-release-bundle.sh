@@ -32,6 +32,7 @@ STRIP_TOOL="${CMUX_STRIP_TOOL:-strip}"
 strip_if_macho() {
   local path="$1"
   [ -f "$path" ] || return 0
+  [ -L "$path" ] && return 0
   [ -x "$path" ] || return 0
   if ! "$FILE_TOOL" "$path" | grep -q 'Mach-O'; then
     return 0
@@ -41,9 +42,10 @@ strip_if_macho() {
 }
 
 strip_if_macho "$APP_PATH/Contents/MacOS/cmux"
-strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux"
-strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux-tui"
-strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar"
+for helper in cmux ghostty cmux-cua cmux-tui cmux-diff-sidecar cmuxd cmux-paste-text-worker coderouter; do
+  strip_if_macho "$APP_PATH/Contents/Helpers/$helper"
+  strip_if_macho "$APP_PATH/Contents/Resources/bin/$helper"
+done
 
 if [ -d "$APP_PATH/Contents/PlugIns" ]; then
   while IFS= read -r -d '' binary; do

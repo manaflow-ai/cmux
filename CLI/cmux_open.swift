@@ -1099,13 +1099,15 @@ extension CMUXCLI {
         let homePath = ProcessInfo.processInfo.environment["HOME"]
             .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
             ?? NSHomeDirectory()
-        let candidate = URL(fileURLWithPath: homePath, isDirectory: true)
+        let app = URL(fileURLWithPath: homePath, isDirectory: true)
             .appendingPathComponent("Library/Developer/Xcode/DerivedData/cmux-\(tag)", isDirectory: true)
             .appendingPathComponent("Build/Products/Debug/cmux DEV \(tag).app", isDirectory: true)
-            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
-            .standardizedFileURL
+        let candidates = [
+            app.appendingPathComponent("Contents/Helpers/cmux", isDirectory: false),
+            app.appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+        ]
 
-        guard FileManager.default.isExecutableFile(atPath: candidate.path) else {
+        guard let candidate = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) else {
             return nil
         }
         return canonicalFileURL(candidate)

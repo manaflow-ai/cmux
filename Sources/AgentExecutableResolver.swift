@@ -197,7 +197,14 @@ struct AgentExecutableResolver {
            standardized == bundleBin {
             return true
         }
+        if let bundleHelpers = bundleHelpersURL()?.standardizedFileURL.path,
+           standardized == bundleHelpers {
+            return true
+        }
         if Self.isCmuxAppBundleResourceBinDirectory(standardized) {
+            return true
+        }
+        if Self.isCmuxAppBundleHelpersDirectory(standardized) {
             return true
         }
         return false
@@ -246,6 +253,9 @@ struct AgentExecutableResolver {
         if Self.isCmuxAppBundleResourceBinChild(path) {
             return true
         }
+        if Self.isCmuxAppBundleHelpersChild(path) {
+            return true
+        }
         guard let resourcePath = bundleResourceURL?.standardizedFileURL.path else { return false }
         return path.hasPrefix(resourcePath + "/")
     }
@@ -279,9 +289,21 @@ struct AgentExecutableResolver {
         } ?? false
     }
 
+    private static func isCmuxAppBundleHelpersDirectory(_ path: String) -> Bool {
+        cmuxAppBundleHelpersComponentIndex(path).map { index in
+            URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.pathComponents.count == index + 3
+        } ?? false
+    }
+
     private static func isCmuxAppBundleResourceBinChild(_ path: String) -> Bool {
         cmuxAppBundleResourceBinComponentIndex(path).map { index in
             URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL.pathComponents.count > index + 4
+        } ?? false
+    }
+
+    private static func isCmuxAppBundleHelpersChild(_ path: String) -> Bool {
+        cmuxAppBundleHelpersComponentIndex(path).map { index in
+            URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL.pathComponents.count > index + 3
         } ?? false
     }
 
@@ -295,6 +317,26 @@ struct AgentExecutableResolver {
                   components[index + 1] == "Contents",
                   components[index + 2] == "Resources",
                   components[index + 3] == "bin" else {
+                continue
+            }
+            return index
+        }
+        return nil
+    }
+
+    private func bundleHelpersURL() -> URL? {
+        bundleResourceURL?.deletingLastPathComponent().appendingPathComponent("Helpers", isDirectory: true)
+    }
+
+    private static func cmuxAppBundleHelpersComponentIndex(_ path: String) -> Int? {
+        let components = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+        guard components.count >= 3 else { return nil }
+        for index in components.indices {
+            guard components[index].hasSuffix(".app"),
+                  components[index].lowercased().contains("cmux"),
+                  components.indices.contains(index + 2),
+                  components[index + 1] == "Contents",
+                  components[index + 2] == "Helpers" else {
                 continue
             }
             return index

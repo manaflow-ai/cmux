@@ -88,7 +88,7 @@ public actor CloudMachineLink {
             case .inputTooLarge:
                 return String(localized: "cloud.link.inputTooLarge", defaultValue: "The machine input chunk is too large. Split it into smaller chunks and retry.")
             case .clientMissing:
-                return "No cmux-tui client is bundled with this build (Contents/Resources/bin/cmux-tui) and CMUX_TUI_CLIENT is unset."
+                return CloudTuiClientPaths.clientMissingMessage
             case .spawnFailed(let detail):
                 return "cmux-tui could not be started: \(detail)"
             case .exited(let status, let output):
@@ -739,6 +739,20 @@ public actor CloudMachineLink {
         return try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     }
 
+}
+
+extension CloudTuiClientPaths {
+    /// Localized guidance for a missing bundled client. Signed app bundles keep
+    /// executable helpers in `Contents/Helpers`; the Resources path remains the
+    /// development-bundle fallback.
+    static var clientMissingMessage: String {
+        let searched = "Contents/Helpers/cmux-tui, Contents/Resources/bin/cmux-tui"
+        let template = String(
+            localized: "cli.vm.tui.clientMissingSearched",
+            defaultValue: "No cmux-tui client found (searched: %1$@). Install one with `curl -fsSL https://cmux.com/tui/install-static.sh | sh`, or point CMUX_TUI_CLIENT at a binary."
+        )
+        return String(format: template, searched)
+    }
 }
 
 private enum CloudLinkCommandOutcome: Sendable, Equatable {

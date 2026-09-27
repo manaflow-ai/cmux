@@ -283,7 +283,7 @@ final class CmuxSSHURLProcessLauncher {
 
     @discardableResult
     func start(request: CmuxSSHURLRequest, preferredWindow: NSWindow?) -> Bool {
-        let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
+        let cliURL = CLIForwardingLaunchRouter.bundledExecutableURL(named: "cmux")
         guard let cliURL,
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {
             presentLaunchFailure(

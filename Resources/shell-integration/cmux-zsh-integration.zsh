@@ -2213,7 +2213,8 @@ _cmux_precmd() {
     fi
 }
 
-# Ensure Resources/bin is at the front of PATH, and remove the app's
+# Ensure Contents/Helpers and Resources/bin are at the front of PATH (in that
+# order), and remove the app's
 # Contents/MacOS entry so the GUI cmux binary cannot shadow the CLI cmux.
 # Shell init (.zprofile/.zshrc) may prepend other dirs after launch.
 # We fix this once on first prompt (after all init files have run), and
@@ -2224,11 +2225,15 @@ _cmux_fix_path() {
     if [[ "$integration_dir" == */Resources/shell-integration ]]; then
         local resources_dir="${integration_dir%/shell-integration}"
         local gui_dir="${resources_dir%/Resources}/MacOS"
+        local helpers_dir="${resources_dir%/Resources}/Helpers"
         local bin_dir="$resources_dir/bin"
         if [[ -d "$bin_dir" ]]; then
             local REPLY
             _cmux_path_prepend_unique_directory_into_reply "$bin_dir" "${PATH-}" "$gui_dir"
             PATH="$REPLY"
+        fi
+        if [[ -d "$helpers_dir" ]]; then
+            PATH="$(_cmux_path_prepend_unique_directory "$helpers_dir" "${PATH-}" "$gui_dir")"
         fi
     fi
     _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper

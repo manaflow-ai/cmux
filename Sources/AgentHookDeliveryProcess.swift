@@ -24,7 +24,7 @@ struct AgentHookDeliveryProcess: Sendable {
 
     init(
         executableURLProvider: @escaping @Sendable () -> URL? = {
-            Bundle.main.resourceURL?.appendingPathComponent("bin/cmux", isDirectory: false)
+            CLIForwardingLaunchRouter.bundledExecutableURL(named: "cmux")
         },
         processTimeout: Duration = .seconds(15),
         deliveryTimeout: Duration = .seconds(16),

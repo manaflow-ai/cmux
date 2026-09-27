@@ -107,15 +107,20 @@ public struct CloudTuiClientPaths: Sendable {
     }
 
     /// The cmux-tui client the app drives: the bundled one
-    /// (`Contents/Resources/bin/cmux-tui`, installed by scripts/install-cmux-tui-client.sh),
+    /// (`Contents/Helpers/cmux-tui` in signed releases, with a Resources/bin
+    /// development fallback), installed by scripts/install-cmux-tui-client.sh,
     /// else `CMUX_TUI_CLIENT`. No PATH search: the app must not pick up a stray binary.
     public static func clientURL(
         bundle: Bundle = .main,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL? {
         let fm = FileManager.default
-        if let bundled = bundle.resourceURL?.appendingPathComponent("bin/cmux-tui"),
-           fm.isExecutableFile(atPath: bundled.path) {
+        let candidates = [
+            bundle.bundleURL.appendingPathComponent("Contents/Helpers/cmux-tui", isDirectory: false),
+            bundle.bundleURL.appendingPathComponent("Contents/Resources/bin/cmux-tui", isDirectory: false),
+            bundle.resourceURL?.appendingPathComponent("bin/cmux-tui", isDirectory: false)
+        ].compactMap { $0 }
+        if let bundled = candidates.first(where: { fm.isExecutableFile(atPath: $0.path) }) {
             return bundled
         }
         if let explicit = environment["CMUX_TUI_CLIENT"]?.trimmingCharacters(in: .whitespacesAndNewlines),
