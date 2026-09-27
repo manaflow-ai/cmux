@@ -145,8 +145,11 @@ jobs:
           mkdir -p "$HOME/.secrets"
           (
             umask 077
-            printf 'CMUX_DOGFOOD_STACK_EMAIL=%s\n' "$CMUX_DOGFOOD_STACK_EMAIL"
-            printf 'CMUX_DOGFOOD_STACK_PASSWORD=%s\n' "$CMUX_DOGFOOD_STACK_PASSWORD"
+            # The release gate explicitly selects the isolated agent profile.
+            # Keep this account under the agent keys so the resolver cannot
+            # silently choose a different personal profile.
+            printf 'CMUX_UITEST_STACK_EMAIL=%s\n' "$CMUX_DOGFOOD_STACK_EMAIL"
+            printf 'CMUX_UITEST_STACK_PASSWORD=%s\n' "$CMUX_DOGFOOD_STACK_PASSWORD"
           ) > "$HOME/.secrets/cmuxterm-dev.env"
           chmod 600 "$HOME/.secrets/cmuxterm-dev.env"
 
