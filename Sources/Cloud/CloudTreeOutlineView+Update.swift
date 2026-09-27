@@ -1,4 +1,5 @@
 import CmuxSurfaceCatalogModel
+import Foundation
 
 extension CloudTreeOutlineView {
     /// A terminal rename needs a stable daemon tab placement. A terminal row
@@ -11,7 +12,8 @@ extension CloudTreeOutlineView {
 
 extension CloudTreeOutlineView.Coordinator {
     /// The representable and native tests enter through the same update boundary.
-    func update(inputs: CloudTreeBuildInputs) {
-        apply(nodes: buildNodes(inputs))
+    func update(inputs: CloudTreeBuildInputs, now: Date = .now) {
+        guard let nodes = nodeCache.nodes(ifChanged: inputs, now: now) else { return }
+        apply(nodes: nodes)
     }
 }

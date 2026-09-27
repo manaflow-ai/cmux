@@ -168,7 +168,7 @@ final class CloudTreeCellView: NSTableCellView {
             buttonsLeadingConstraint?.isActive = false
         }
         if case .machine(let machine, _) = node.kind {
-            toolTip = CloudTreeMachineRowContent(machine: machine).toolTip
+            toolTip = CloudTreeMachineRowContent(machine: machine, style: style, resources: node.resourceSection).toolTip
         } else if case .pendingMachine(let operation) = node.kind {
             // The failure's first line rides along so a red row explains itself on hover.
             toolTip = operation.summaryLine
@@ -181,7 +181,7 @@ final class CloudTreeCellView: NSTableCellView {
             toolTip = nil
         }
         if case .machine(let machine, _) = node.kind {
-            setAccessibilityLabel(CloudTreeMachineRowContent(machine: machine).accessibilityLabel)
+            setAccessibilityLabel(CloudTreeMachineRowContent(machine: machine, style: style, resources: node.resourceSection).accessibilityLabel)
         } else if case .device(let row) = node.kind {
             setAccessibilityLabel(CloudTreeDeviceRowContent(row: row, style: style).accessibilityLabel)
         } else if case .resource(_, let row) = node.kind {
@@ -207,7 +207,7 @@ final class CloudTreeCellView: NSTableCellView {
             setAccessibilityLabel(presenceHeads.isEmpty ? node.searchableTitle : "\(node.searchableTitle), \(names)")
         }
         displayHost.rootView = AnyView(
-            CloudTreeRowContentView(kind: node.kind, presenceHeads: presenceHeads, style: style)
+            CloudTreeRowContentView(kind: node.kind, presenceHeads: presenceHeads, style: style, resources: node.resourceSection)
                 .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention, attentionSlot: style.rowGrid.attentionSlot))
                 .frame(maxWidth: .infinity, alignment: .leading)
         )

@@ -3,13 +3,17 @@ import Foundation
 import CmuxCloudMachines
 
 /// Immutable resource and cost data for one Cloud machine tree section.
-struct CloudTreeMachineResourceSection: Equatable {
+final class CloudTreeMachineResourceSection: Equatable, Sendable {
     let metrics: CloudMachineResourcePresentation
     let usageSummary: String
 
     init(machine: MachineSnapshot, now: Date = .now) {
         metrics = CloudMachineResourcePresentation(machine: machine, now: now)
-        usageSummary = CloudTreeMachineRowContent(machine: machine, now: now).usageSummary
+        usageSummary = CloudTreeMachineRowContent(machine: machine, style: .defaultStyle, now: now).usageSummary
+    }
+
+    static func == (lhs: CloudTreeMachineResourceSection, rhs: CloudTreeMachineResourceSection) -> Bool {
+        lhs === rhs || (lhs.metrics == rhs.metrics && lhs.usageSummary == rhs.usageSummary)
     }
 
     var rows: [CloudTreeMachineResourceRow] {

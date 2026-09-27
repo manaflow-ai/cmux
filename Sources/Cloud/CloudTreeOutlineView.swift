@@ -32,6 +32,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var source: CloudTreeMachineSource = .cloud
     var devicesSection: CloudTreeDevicesSection = .init()
     var reveal: CloudTreeRevealRequest? = nil
+    var nodeBuilder: ((CloudTreeBuildInputs) -> [CloudTreeNode])? = nil
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
     func makeCoordinator() -> Coordinator {
@@ -39,6 +40,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organization: organizationStore,
+            buildNodes: nodeBuilder,
             tabDragTransferRegistry: { [tabDragTransferRegistry] in
                 tabDragTransferRegistry ?? AppDelegate.shared?.tabDragTransferRegistry
             }
@@ -73,7 +75,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var machineActions: MachineRowActions
         var nodeActions: CloudTreeNodeActions
         let expansionStore: CloudTreeExpansionStore
-        let buildNodes: (CloudTreeBuildInputs) -> [CloudTreeNode]
+        let nodeCache: CloudTreeNodeCache
         private(set) var style: CloudTreeStyle = CloudTreeStyleStore.current
         private let tabDragTransferRegistry: @MainActor () -> TabDragTransferRegistry?
         private var organizationObserver: NSObjectProtocol?
@@ -112,13 +114,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             nodeActions: CloudTreeNodeActions,
             expansionStore: CloudTreeExpansionStore,
             organization: CloudSidebarOrganizationStore? = nil,
-            buildNodes: @escaping (CloudTreeBuildInputs) -> [CloudTreeNode] = { $0.nodes() },
+            buildNodes: ((CloudTreeBuildInputs) -> [CloudTreeNode])? = nil,
             tabDragTransferRegistry: @escaping @MainActor () -> TabDragTransferRegistry?
         ) {
             self.machineActions = machineActions
             self.nodeActions = nodeActions
             self.expansionStore = expansionStore
-            self.buildNodes = buildNodes
+            self.nodeCache = CloudTreeNodeCache(buildNodes: buildNodes)
             self.organization = organization ?? CloudSidebarOrganizationStore()
             self.tabDragTransferRegistry = tabDragTransferRegistry
             super.init()
@@ -410,7 +412,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
-            CloudTreeRowView()
+            let identifier = NSUserInterfaceItemIdentifier("CloudTreeRow")
+            let row = (outlineView.makeView(withIdentifier: identifier, owner: nil) as? CloudTreeRowView) ?? CloudTreeRowView()
+            row.identifier = identifier
+            return row
         }
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
