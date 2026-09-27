@@ -300,6 +300,30 @@ struct SessionSnapshotTransferTests {
 
     // MARK: - Newer schema side files
 
+    @Test("a newer-schema backup is not replaced by a loaded primary when preservation fails")
+    func newerSchemaBackupSurvivesLoadedPrimaryPreservationFailure() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let repository = makeRepository(appSupport: dir, bundleIdentifier: "com.cmuxterm.app")
+        let primaryURL = try #require(repository.defaultSnapshotFileURL())
+        let backupURL = try #require(repository.manualRestoreSnapshotFileURL())
+        #expect(repository.save(snapshot("current"), fileURL: primaryURL))
+        let newerText = #"{\"version\":2,\"windows\":[{\"name\":\"future\"}]}"#
+        try write(newerText, to: backupURL)
+
+        let sideURL = SessionSnapshotFileLocation.newerSchemaSideFileURL(
+            for: backupURL,
+            schemaVersion: 2
+        )
+        // Block the side-file write. The current primary must not replace the
+        // only newer-schema recovery copy when preservation cannot complete.
+        try FileManager.default.createDirectory(at: sideURL, withIntermediateDirectories: true)
+
+        repository.syncManualRestoreSnapshotCache()
+
+        #expect(try String(contentsOf: backupURL, encoding: .utf8) == newerText)
+    }
+
     @Test("a newer-schema backup survives when side-file preservation fails")
     func newerSchemaBackupSurvivesPreservationFailure() throws {
         let dir = try makeTempDirectory()
