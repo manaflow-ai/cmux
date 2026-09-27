@@ -142,7 +142,7 @@ def loader_relative(own: str, path: Path) -> str:
     """`own` as seen from the directory holding `path`, for an @loader_path rpath.
 
     Shorter than any producer path (a deep test-bundle framework needs about
-    55 bytes against the producer's 81), so it always fits the load commands
+    55 bytes against the producer's 82 or more), so it always fits the load commands
     the linker padded, and it survives copying the whole products directory.
     """
     return "@loader_path/" + os.path.relpath(own, path.parent)

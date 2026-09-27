@@ -11,6 +11,8 @@ mod agent_browser_provider;
 mod agent_hook_install;
 mod app;
 mod browser_input;
+#[cfg(unix)]
+mod claude_wrapper;
 mod cli;
 mod client_log;
 #[cfg(unix)]
@@ -1575,8 +1577,19 @@ fn take_cloud_template_env() {
     let _ = CLOUD_TEMPLATE_ENV.set(settings);
 }
 
+/// Routes argv to a private mode, the CLI, or the interactive or headless mux.
 fn run_main() {
     take_cloud_template_env();
+    // The pane's `claude` shim lands here. Dispatch before the signal
+    // handlers and argv decoding: the wrapper execs Claude with arguments
+    // that need not be UTF-8 or valid cmux-tui flags.
+    #[cfg(unix)]
+    {
+        let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+        if let Some(wrapper_args) = claude_wrapper::invocation(&args) {
+            client_log::exit(claude_wrapper::run(wrapper_args));
+        }
+    }
     // Pin the launch directory before any subsystem can move the process:
     // new terminals default to it (not $HOME) for the daemon's lifetime.
     cmux_tui_core::platform::capture_launch_cwd();
@@ -1989,6 +2002,7 @@ impl Drop for LocalOwnerEventLoop {
     }
 }
 
+/// Starts the session server: surface environment, state root, mux, and listeners.
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
@@ -2088,6 +2102,12 @@ fn run_server(
         surface_options
             .extra_env
             .push(("CMUX_TUI_HOOK".into(), helper.to_string_lossy().into_owned()));
+    }
+    // `claude` resolves to a shim that adds the session's agent hooks, even
+    // under launchers with their own settings and config directory.
+    #[cfg(unix)]
+    if let Some(path) = claude_wrapper::pane_path() {
+        surface_options.extra_env.push(("PATH".into(), path));
     }
 
     let state_root = if args.ephemeral {

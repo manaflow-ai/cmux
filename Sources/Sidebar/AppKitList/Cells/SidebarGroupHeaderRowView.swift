@@ -197,7 +197,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             )
             unreadBadgeView.configure(
                 count: model.anchorUnreadCount,
-                fillColor: .controlAccentColor,
+                fillColor: cmuxNotificationBadgeNSColor(
+                    hex: model.notificationBadgeColorHex,
+                    fallback: cmuxAccentNSColor(for: colorScheme)
+                ),
                 textColor: .white,
                 font: unreadBadgeFont
             )
