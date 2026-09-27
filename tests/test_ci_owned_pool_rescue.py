@@ -216,12 +216,12 @@ class Refusal(unittest.TestCase):
         self.assertEqual(code, 0)
         rerun = api.calls.index("rerun-failed")
         self.assertEqual(api.calls[rerun - 3:rerun + 1], ["cancel", "run", "pull", "rerun-failed"])
-        # Then it follows attempt 2, which here took no owned job.
-        self.assertEqual(api.calls[rerun + 1:], ["jobs:2"])
-        self.assertIn("no job of this attempt asked for a persistent pool", summary)
+        # Attempt 2 runs on Blacksmith, never on the mini that refused, so the
+        # watch ends with the re-run.
+        self.assertEqual(api.calls[rerun + 1:], [])
         self.assertNotIn("rerun", api.calls)
         self.assertIn(f"refused by {MINI} at job start", summary)
-        self.assertIn("attempt 2 takes the owned pool once more", summary)
+        self.assertIn("attempt 2 takes retry_runner on Blacksmith", summary)
 
     def test_a_dispatch_reads_the_named_run_and_watches_it(self):
         # A dispatch passes only the run id; the run object the
@@ -286,54 +286,21 @@ class Refusal(unittest.TestCase):
         api = FakeAPI(clock, refusing_run(), marker=True, finished=lambda seconds: seconds >= 60)
         _, summary = run_main(api, clock)
         self.assertNotIn("cancel", api.calls)
-        self.assertEqual(api.calls[-2:], ["rerun-failed", "jobs:2"])
+        self.assertEqual(api.calls[-1], "rerun-failed")
         self.assertIn("re-ran the failed jobs", summary)
 
-    def test_a_refused_retry_on_the_fleet_goes_to_blacksmith_next(self):
-        # Attempt 2 takes the owned pool once more and is refused again: its
-        # failed jobs are re-run, and attempt 3 is never watched or owned.
+    def test_a_refusal_is_retried_once_on_blacksmith_and_never_followed(self):
+        # Leo, 2026-09-27: a retry must never loop on the machine that just
+        # failed. The re-run of failed jobs takes retry_runner (every runs-on
+        # reads it from attempt 2), so there is exactly one re-run and no watch
+        # of attempt 2, even if attempt 2 would list a job on an owned label.
         clock = Clock()
         api = FakeAPI(clock, refusing_run(), marker=True, finished=lambda seconds: seconds >= 60,
-                      rerun_jobs=lambda seconds: [refused_job()] if seconds >= 30 else
-                      [job("macos / macOS compile admission", labels=[MINI], created=0)])
-        _, summary = run_main(api, clock)
-        self.assertEqual(api.calls.count("rerun-failed"), 2)
-        self.assertNotIn("jobs:3", api.calls)
-        self.assertIn("attempt 2 takes the owned pool once more", summary)
-        self.assertIn("attempt 3 takes retry_runner on Blacksmith", summary)
-
-    def test_a_retry_the_fleet_accepts_ends_the_watch(self):
-        clock = Clock()
-        running = job("macos / macOS compile admission", labels=[MINI], created=0, status="in_progress",
-                      runner="mini-2")
-        running["started_at"] = stamp(0)
-        api = FakeAPI(clock, refusing_run(), marker=True, finished=lambda seconds: seconds >= 60,
-                      rerun_jobs=lambda seconds: [running])
-        _, summary = run_main(api, clock)
+                      rerun_jobs=lambda seconds: [refused_job()])
+        result, summary = run_main(api, clock)
         self.assertEqual(api.calls.count("rerun-failed"), 1)
-        # It stops once the job outlives the refusal window, not at the end of the run.
-        self.assertIn("stopped watching attempt 2: the fleet accepted the retry", summary)
-        self.assertLess(api.calls.count("jobs:2"), 20)
-
-    def test_a_retry_stuck_on_a_busy_fleet_moves_to_blacksmith_keeping_what_passed(self):
-        clock = Clock()
-        api = FakeAPI(clock, refusing_run(), marker=True, finished=lambda seconds: seconds >= 60,
-                      rerun_jobs=lambda seconds: [job("macos / macOS compile admission", labels=[MINI], created=0)])
-        _, summary = run_main(api, clock)
-        self.assertEqual(api.calls.count("rerun-failed"), 2)
-        self.assertNotIn("rerun", api.calls)
-        self.assertIn("queued on", summary)
-
-    def test_an_attempt_2_with_no_owned_job_ends_the_watch_at_its_first_look(self):
-        # Before routing sends retries to the fleet, attempt 2 runs on
-        # Blacksmith; the watch must not poll it until it finishes.
-        clock = Clock()
-        still_running = [job("macos / tests", status="in_progress", labels=[BLACKSMITH], runner="bs-1")]
-        api = FakeAPI(clock, refusing_run(), marker=True, finished=lambda seconds: seconds >= 60,
-                      rerun_jobs=lambda seconds: still_running)
-        _, summary = run_main(api, clock)
-        self.assertEqual(api.calls.count("jobs:2"), 1)
-        self.assertIn("no job of this attempt asked for a persistent pool", summary)
+        self.assertNotIn("jobs:2", api.calls)
+        self.assertIn("attempt 2 takes retry_runner on Blacksmith", summary)
 
     def test_a_late_refusal_is_rescued_and_attempt_2_inherits_the_watch(self):
         # A refusal found near the end of the watch is still rescued: the job
@@ -870,7 +837,7 @@ class E2E(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn("pull", api.calls)
         # The build never finished, so every job re-runs and the sibling wait looks again.
-        self.assertEqual(api.calls[-2:], ["rerun", "jobs:2"])  # attempt 2 is on Blacksmith
+        self.assertEqual(api.calls[-1], "rerun")  # attempt 2 is on Blacksmith: not watched
         self.assertIn("cancel", api.calls)
         self.assertNotIn("rerun-failed", api.calls)
 
@@ -884,7 +851,7 @@ class E2E(unittest.TestCase):
         api = FakeAPI(clock, jobs, marker=True, finished=lambda s: s >= 60)
         code, summary = run_main(api, clock, payload=e2e_event())
         self.assertEqual(code, 0)
-        self.assertEqual(api.calls[-2:], ["rerun", "jobs:2"])  # attempt 2 is on Blacksmith
+        self.assertEqual(api.calls[-1], "rerun")  # attempt 2 is on Blacksmith: not watched
         self.assertIn("refused", summary)
         self.assertIn("so its sibling wait runs again", summary)
 
@@ -1007,7 +974,7 @@ class SideLanes(unittest.TestCase):
         self.assertIn("a side-lane job asked for a persistent pool", summary)
         self.assertIn("the fleet accepted the side-lane jobs", summary)
 
-    def test_a_stuck_side_job_moves_to_the_std_minis_keeping_what_passed_and_is_followed(self):
+    def test_a_stuck_side_job_moves_to_blacksmith_keeping_what_passed(self):
         clock = Clock()
         api = FakeAPI(clock, side_run())
         code, summary = run_main(api, clock, payload=side_event())
@@ -1015,13 +982,13 @@ class SideLanes(unittest.TestCase):
         self.assertIn("cancel", api.calls)
         self.assertIn("rerun-failed", api.calls)
         self.assertNotIn("rerun", api.calls)
-        # Attempt 2 takes CI_SIDE_LANE_RUNNER, so the watch follows it.
-        self.assertIn("std minis' side label", summary)
-        self.assertIn("attempt 2", summary)
+        # Attempt 2 takes the lane's Blacksmith default, so the watch ends.
+        self.assertIn("attempt 2 takes the side lane's Blacksmith default", summary)
+        self.assertNotIn("jobs:2", api.calls)
 
-    def test_a_side_lane_attempt_3_takes_blacksmith(self):
+    def test_a_side_lane_retry_takes_blacksmith(self):
         target = rescue.target_from_event(side_event(), "manaflow-ai/cmux")
-        self.assertIn("std minis' side label", rescue.next_attempt(target))
+        self.assertIn("Blacksmith default", rescue.next_attempt(target))
         self.assertIn("Blacksmith default", rescue.next_attempt(dataclasses.replace(target, attempt=2)))
 
     def test_a_refused_side_job_is_rerun(self):
@@ -1033,8 +1000,8 @@ class SideLanes(unittest.TestCase):
         code, summary = run_main(api, clock, payload=side_event())
         self.assertIn("rerun-failed", api.calls)
         self.assertIn("refused", summary)
-        # Attempt 2 is on the std minis' side label, so the watch looks at it.
-        self.assertIn("jobs:2", api.calls[api.calls.index("rerun-failed"):])
+        # Attempt 2 is on the lane's Blacksmith default: not watched.
+        self.assertNotIn("jobs:2", api.calls)
 
 
 TRUSTED = "glaeda-trusted-std-xcode-26.6"
@@ -1216,7 +1183,7 @@ class IOSDispatch(unittest.TestCase):
         code, summary = run_main(api, clock, payload=e2e_event(path=".github/workflows/test-ios.yml"))
         self.assertEqual(code, 0)
         self.assertNotIn("pull", api.calls)
-        self.assertEqual(api.calls[-2:], ["rerun-failed", "jobs:2"])
+        self.assertEqual(api.calls[-1], "rerun-failed")  # attempt 2 is on Blacksmith: not watched
         self.assertIn("a dispatch of .github/workflows/test-ios.yml", summary)
         self.assertIn(f"queued on {MINI}", summary)
 
@@ -1232,7 +1199,7 @@ class IOSDispatch(unittest.TestCase):
         code, summary = run_main(api, clock, payload=event(path=".github/workflows/test-ios.yml"))
         self.assertEqual(code, 0)
         self.assertIn("pull", api.calls)
-        self.assertEqual(api.calls[-2:], ["rerun-failed", "jobs:2"])
+        self.assertEqual(api.calls[-1], "rerun-failed")  # attempt 2 is on Blacksmith: not watched
         self.assertIn("pull request #42's .github/workflows/test-ios.yml", summary)
 
 
@@ -1480,7 +1447,7 @@ class Sweeper(unittest.TestCase):
         self.assertEqual(api.calls.count("rerun-failed"), 1)
         self.assertNotIn("cancel", api.calls)
         # Then it follows the re-run, which here took Blacksmith.
-        self.assertEqual(outcome, "stopped watching attempt 2: no job of this attempt asked for a persistent pool")
+        self.assertEqual(outcome, "done")
 
     def test_main_sweeps_when_asked(self):
         clock = Clock()

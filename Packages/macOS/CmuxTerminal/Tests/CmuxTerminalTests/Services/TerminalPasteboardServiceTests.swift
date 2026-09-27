@@ -325,12 +325,24 @@ struct ImageMaterializationTests {
         scratch.pasteboard.declareTypes([.png], owner: nil)
         scratch.pasteboard.setData(Data(count: 10 * 1024 * 1024 + 1), forType: .png)
 
+        // Oversized is reported separately from a failed write so a paste
+        // can say why nothing arrived.
         #expect(
             service.materializeImageFileURLIfNeeded(from: scratch.pasteboard)
-                == .rejectedImagePayload
+                == .rejectedOversizedImagePayload
+        )
+        #expect(
+            service.materializeImageFileURLsIfNeeded(from: scratch.pasteboard)
+                == .rejectedOversizedImagePayload
         )
         let leftovers = try FileManager.default.contentsOfDirectory(atPath: scratchDir.path)
         #expect(leftovers.isEmpty)
+    }
+
+    /// The app's paste notice says "Image is larger than 10 MB". Changing the
+    /// cap must change that string too.
+    @Test func clipboardImageCapMatchesThePasteNoticeText() {
+        #expect(TerminalPasteboardService.maxClipboardImageSize == 10 * 1024 * 1024)
     }
 
     @Test func emptyPasteboardHasNoDecodableImagePayload() {

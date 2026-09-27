@@ -2822,14 +2822,52 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     private func scrollSelectedRowToVisibleIfNeeded() {
-        guard let table = containerView?.tableView,
+        guard let container = containerView,
               let selectedScrollTargetWorkspaceId,
               let row = rows.firstIndex(where: { $0.workspaceId == selectedScrollTargetWorkspaceId }) else {
             return
         }
-        let visibleRect = table.visibleRect
-        guard !visibleRect.contains(table.rect(ofRow: row)) else { return }
-        table.scrollRowToVisible(row)
+        let table = container.tableView
+        let scrollView = container.scrollView
+        let clipView = scrollView.contentView
+        // `visibleRect` and `scrollRowToVisible` count the strips under the
+        // content insets (the titlebar scrim and the footer) as visible, so a
+        // selected row pushed down by a reorder could stay behind the footer.
+        guard let origin = Self.selectedRowScrollOrigin(
+            rowRect: table.convert(table.rect(ofRow: row), to: clipView),
+            clipBounds: clipView.bounds,
+            insets: scrollView.contentInsets,
+            documentHeight: table.frame.height
+        ) else { return }
+        clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: origin))
+        scrollView.reflectScrolledClipView(clipView)
+    }
+
+    /// The clip view origin that brings `rowRect` fully between the top and
+    /// bottom insets, moving as little as possible, or nil when it already is.
+    /// All rects are in the (flipped) clip view's coordinates.
+    nonisolated static func selectedRowScrollOrigin(
+        rowRect: NSRect,
+        clipBounds: NSRect,
+        insets: NSEdgeInsets,
+        documentHeight: CGFloat
+    ) -> CGFloat? {
+        let unobscuredMinY = clipBounds.minY + insets.top
+        let unobscuredMaxY = clipBounds.maxY - insets.bottom
+        let target: CGFloat
+        // A row taller than the clear area aligns its top, like a short row
+        // scrolled down to.
+        if rowRect.minY < unobscuredMinY || rowRect.height > unobscuredMaxY - unobscuredMinY {
+            target = rowRect.minY - insets.top
+        } else if rowRect.maxY > unobscuredMaxY {
+            target = rowRect.maxY + insets.bottom - clipBounds.height
+        } else {
+            return nil
+        }
+        let lowest = -insets.top
+        let highest = max(lowest, documentHeight + insets.bottom - clipBounds.height)
+        let clamped = min(max(target, lowest), highest)
+        return clamped == clipBounds.origin.y ? nil : clamped
     }
 
     private func configureDropViews(

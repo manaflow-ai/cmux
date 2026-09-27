@@ -375,10 +375,14 @@ def resolve(
         log(f"live: {load.live.pool} owned runner(s) and {load.live.sim} {SIM_LABEL} free, {jobs} and "
             f"{needed} needed; staying on {default}")
         return ephemeral(default)
+    # Simulator jobs take the first owned pool only, as the live path above
+    # routes them, since SIM_LABEL is on that pool's runners. The replay of
+    # newer runs still spreads over the whole order.
     try:
         choice = e2e_runner_pool.decide(load.pool, limits, now=now,
                                         owned_slots=pool_slots(owned_slots, pr_xcode_app),
-                                        jobs=run_jobs(lane, swift_package))
+                                        jobs=run_jobs(lane, swift_package),
+                                        owned_choices=pr_runner_pool.owned_pools(pr_xcode_app)[:1])
         free = sim_free(load, capacity)
     except Exception as error:  # noqa: BLE001 - every failure is fail-safe
         log(f"could not read the runner queue ({error}); staying on {default}")
