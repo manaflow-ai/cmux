@@ -5961,26 +5961,26 @@ def test_routed_package_lane_skips_the_release_helper_build() -> None:
 
 
 def test_package_lane_fleet_step_is_opt_in_and_restates_its_runner() -> None:
-    # hq#794 phase 1: with CI_SWIFT_PACKAGE_TESTS_VIA_STEP=1 a same-repository
-    # pull request run that builds no helper takes a glaeda-ci gateway runner,
+    # hq#794 phase 1: with CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY set to a gateway
+    # label, a same-repository pull request run that builds no helper takes it,
     # which hands the lane script to the build fleet. The steps learn which
     # path they are on from PACKAGE_TESTS_VIA_STEP, so it must name exactly
     # the runs-on branch, and every runner-side step must stay off the gateway.
     block = workflow_job_block("swift-package-tests", MACOS_WORKFLOW)
     job = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["swift-package-tests"]
     via_step = (
-        "vars.CI_SWIFT_PACKAGE_TESTS_VIA_STEP == '1' && github.event_name == 'pull_request' && "
+        "github.event_name == 'pull_request' && "
         "!(inputs.full_suite == 'true' && inputs.release_build == 'true')"
     )
     fork = (
         "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name "
         "!= github.repository && 'blacksmith-6vcpu-macos-15' || "
     )
-    assert fork + via_step + " && 'glaeda-ci' || " in job["runs-on"], job["runs-on"]
+    assert fork + via_step + " && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || " in job["runs-on"], job["runs-on"]
     assert job["env"]["PACKAGE_TESTS_VIA_STEP"] == (
         "${{ github.repository_owner == 'manaflow-ai' && "
         "github.event.pull_request.head.repo.full_name == github.repository && "
-        + via_step + " && '1' || '0' }}"
+        "vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != '' && " + via_step + " && '1' || '0' }}"
     )
 
     fleet = "Run Swift package tests on the build fleet"
