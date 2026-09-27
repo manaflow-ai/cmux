@@ -25,6 +25,10 @@
   <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo video</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
+<p align="center">
+  <a href="https://cmux.com/docs/getting-started">Docs</a> · <a href="https://cmux.com/blog">Blog</a> · <a href="https://cmux.com/docs/changelog">Changelog</a> · <a href="https://cmux.com/community">Community</a>
+</p>
+
 ## Features
 
 <table>
@@ -182,6 +186,7 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 | ⌘ D | Split right |
 | ⌘ ⇧ D | Split down |
 | ⌥ ⌘ ← → ↑ ↓ | Focus pane directionally |
+| ⌃ ⇧ H J K L | Resize pane left/down/up/right |
 | ⌘ ⇧ H | Flash focused panel |
 
 ### Browser
@@ -414,6 +419,9 @@ We want to hear it. Open an [issue](https://github.com/manaflow-ai/cmux/issues) 
 
 ## Contributing
 
+For code contributions, start with the [contributor guide](CONTRIBUTING.md) and
+[fast local checks](CONTRIBUTING.md#fast-checks-before-building-or-pushing).
+
 Ways to get involved:
 
 - Follow us on X for updates [@manaflowai](https://x.com/manaflowai), [@lawrencecchen](https://x.com/lawrencecchen), and [@austinywang](https://x.com/austinywang)
@@ -448,6 +456,31 @@ cmux is free, open source, and always will be. If you'd like to support developm
 - **Early access: Cloud VMs**
 - **Early access: Voice mode**
 - **My personal iMessage/WhatsApp**
+
+## Install
+
+### DMG (recommended)
+
+<a href="https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg">
+  <img src="./docs/assets/macos-badge.png" alt="Download cmux for macOS" width="180" />
+</a>
+
+Open the `.dmg` and drag cmux to your Applications folder. cmux auto-updates via Sparkle, so you only need to download once.
+
+### Homebrew
+
+```bash
+brew tap manaflow-ai/cmux
+brew install --cask cmux
+```
+
+To update later:
+
+```bash
+brew upgrade --cask cmux
+```
+
+On first launch, macOS may ask you to confirm opening an app from an identified developer. Click **Open** to proceed.
 
 ## License
 

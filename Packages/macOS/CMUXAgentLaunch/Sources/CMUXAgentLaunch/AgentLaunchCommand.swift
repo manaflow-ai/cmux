@@ -12,6 +12,15 @@ import Foundation
 public struct AgentLaunchCommand: Codable, Hashable, Sendable {
     /// The cmux launcher classification, when one was captured.
     public var launcher: String?
+    /// The id of the user-declared external launcher that started the agent, when one was detected.
+    ///
+    /// This is deliberately separate from ``launcher``: that field is cmux's own classification and
+    /// is matched against the agent kind (see ``AgentLaunchCaptureTrust``) and against the built-in
+    /// wrapper tokens in ``AgentResumeArgv``, so an unknown value there would invalidate the whole
+    /// capture. An external launcher only adds an argv prefix at resume time, resolved from
+    /// `agents.launchers` in `cmux.json` (see ``AgentExternalLauncherRegistry``); a capture whose
+    /// declaration was removed resumes exactly as it did before, without the wrapper.
+    public var externalLauncher: String?
     /// The captured executable path.
     public var executablePath: String?
     /// The captured process arguments, including `argv[0]`. Empty on a capture
@@ -26,7 +35,7 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
         didSet {
             if !arguments.isEmpty {
                 rejectionReason = nil
-                if source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "rejected" {
+                if Self.isRejectedSourceMarker(source) {
                     source = nil
                 }
             }
@@ -61,16 +70,20 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
         if let rejectionReason {
             return rejectionReason.isPositiveCaptureRejection
         }
-        if source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "rejected" {
-            return true
-        }
-        return false
+        return Self.isRejectedSourceMarker(source)
+    }
+
+    /// A `source: "rejected"` marker beside a usable argv contradicts itself the
+    /// same way a rejection ground would, so it is dropped with the ground.
+    static func isRejectedSourceMarker(_ source: String?) -> Bool {
+        source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "rejected"
     }
 
     /// Creates a structured captured launch.
     ///
     /// - Parameters:
     ///   - launcher: The cmux launcher classification, when one was captured.
+    ///   - externalLauncher: The id of the user-declared external launcher that started the agent.
     ///   - executablePath: The captured executable path.
     ///   - arguments: The captured process arguments, including `argv[0]`.
     ///   - workingDirectory: The working directory at initial launch.
@@ -80,6 +93,7 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
     ///   - source: The capture source.
     public init(
         launcher: String? = nil,
+        externalLauncher: String? = nil,
         executablePath: String? = nil,
         arguments: [String],
         workingDirectory: String? = nil,
@@ -89,16 +103,14 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
         source: String? = nil
     ) {
         self.launcher = launcher
+        self.externalLauncher = externalLauncher
         self.executablePath = executablePath
         self.arguments = arguments
         self.workingDirectory = workingDirectory
         self.environment = environment
         self.verificationHome = verificationHome
         self.capturedAt = capturedAt
-        self.source = arguments.isEmpty
-            || source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "rejected"
-            ? source
-            : nil
+        self.source = !arguments.isEmpty && Self.isRejectedSourceMarker(source) ? nil : source
         self.rejectionReason = nil
     }
 
@@ -110,6 +122,7 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
     /// - Parameters:
     ///   - rejectionReason: The ground the captured argv was rejected on.
     ///   - launcher: The cmux launcher classification, when one was captured.
+    ///   - externalLauncher: The id of the user-declared external launcher that started the agent.
     ///   - executablePath: The captured executable path, when one survived.
     ///   - workingDirectory: The working directory at initial launch.
     ///   - environment: Replay-safe environment captured with the launch.
@@ -119,6 +132,7 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
     public init(
         rejectedOn rejectionReason: AgentLaunchCaptureRejectionReason,
         launcher: String? = nil,
+        externalLauncher: String? = nil,
         executablePath: String? = nil,
         workingDirectory: String? = nil,
         environment: [String: String]? = nil,
@@ -127,6 +141,7 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
         source: String? = nil
     ) {
         self.launcher = launcher
+        self.externalLauncher = externalLauncher
         self.executablePath = executablePath
         self.arguments = []
         self.workingDirectory = workingDirectory
@@ -140,18 +155,18 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
     /// Decodes a stored record, keeping it as written except for the one
     /// combination cmux never writes.
     ///
-    /// A record that carries both a usable argv and a rejection ground is
+    /// A record that carries both a usable argv and a rejection ground (or the
+    /// legacy `source: "rejected"` marker) is
     /// self-contradictory: the argv is the actionable half, so the ground is
     /// dropped rather than surfaced through `sessions --json` next to a launch
     /// it does not describe. Every other record round-trips byte for byte,
-    /// including a ground this build does not know — a token from a newer build
-    /// has to survive a build that implements this field but predates that token
-    /// reading and writing the record back. Builds predating this field cannot
-    /// retain an unknown key when they rewrite a Codable record, because the
-    /// hook store has no unknown-field passthrough layer.
+    /// including a ground this build does not know — the store is rewritten in
+    /// full on each mutation, so a token from a newer build has to survive an
+    /// older one reading and writing it back.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         launcher = try container.decodeIfPresent(String.self, forKey: .launcher)
+        externalLauncher = try container.decodeIfPresent(String.self, forKey: .externalLauncher)
         executablePath = try container.decodeIfPresent(String.self, forKey: .executablePath)
         // Required, as the synthesized decoder had it: a launch command without
         // an `arguments` key is a malformed record, not an empty capture.
@@ -161,14 +176,49 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
         verificationHome = try container.decodeIfPresent(String.self, forKey: .verificationHome)
         capturedAt = try container.decodeIfPresent(TimeInterval.self, forKey: .capturedAt)
         let storedSource = try container.decodeIfPresent(String.self, forKey: .source)
-        source = arguments.isEmpty
-            || storedSource?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "rejected"
-            ? storedSource
-            : nil
+        source = !arguments.isEmpty && Self.isRejectedSourceMarker(storedSource) ? nil : storedSource
         let storedRejectionReason = try container.decodeIfPresent(
             AgentLaunchCaptureRejectionReason.self,
             forKey: .rejectionReason
         )
         rejectionReason = arguments.isEmpty ? storedRejectionReason : nil
+    }
+}
+
+extension AgentLaunchCommand {
+    /// Returns this record carrying an external launcher id recovered from other records.
+    ///
+    /// The external launcher is a property of the session, not of whichever capture won an evidence
+    /// comparison. Ancestor detection can miss on a later hook — the launcher process may already be
+    /// gone — so a record without an id must never erase the id the session was captured with.
+    /// https://github.com/manaflow-ai/cmux/issues/10494
+    ///
+    /// - Parameter candidates: Other records for the same session, in preference order.
+    /// - Returns: This record, with the first id found when it has none of its own.
+    public func preservingExternalLauncher(from candidates: [AgentLaunchCommand?]) -> AgentLaunchCommand {
+        if let own = Self.normalized(externalLauncher) {
+            // Store the canonical form: the socket decoder accepts the id as written, so a padded
+            // value would otherwise be persisted and compared with its padding intact.
+            guard own != externalLauncher else { return self }
+            var canonical = self
+            canonical.externalLauncher = own
+            return canonical
+        }
+        guard let recovered = candidates
+            .lazy
+            .compactMap({ Self.normalized($0?.externalLauncher) })
+            .first else {
+            return self
+        }
+        var updated = self
+        updated.externalLauncher = recovered
+        return updated
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 }

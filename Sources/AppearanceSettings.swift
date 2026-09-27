@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import SwiftUI
 import CmuxTerminalCore
@@ -272,7 +273,7 @@ enum AppearanceSettings {
 
 final class AppearanceSettingsUserDefaultsObserver {
     struct Environment {
-        let addDefaultsObserver: (@escaping () -> Void) -> NSObjectProtocol
+        let addDefaultsObserver: (@escaping @MainActor @Sendable () -> Void) -> NSObjectProtocol
         let removeObserver: (NSObjectProtocol) -> Void
         let currentRawValue: () -> String?
         let applyStoredMode: (String?, String) -> AppearanceMode
@@ -283,11 +284,7 @@ final class AppearanceSettingsUserDefaultsObserver {
         ) -> Environment {
             Environment(
                 addDefaultsObserver: { handler in
-                    notificationCenter.addObserver(
-                        forName: UserDefaults.didChangeNotification,
-                        object: nil,
-                        queue: .main
-                    ) { _ in
+                    notificationCenter.addUserDefaultsObserver(object: nil) {
                         handler()
                     }
                 },

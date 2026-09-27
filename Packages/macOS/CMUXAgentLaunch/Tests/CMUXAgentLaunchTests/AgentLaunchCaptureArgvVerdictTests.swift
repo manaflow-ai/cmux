@@ -99,8 +99,8 @@ struct AgentLaunchCaptureArgvVerdictTests {
     /// ancestor-leak case the field exists to expose.
     @Test func theCmuxCaptureNamesTheRecordWhenBothCandidatesWereDiscarded() {
         #expect(
-            AgentLaunchCaptureRejectionReason(
-                recordedFrom: .launcherDoesNotDescribeKind,
+            AgentLaunchCaptureRejectionReason.recorded(
+                cmuxCapture: .launcherDoesNotDescribeKind,
                 processFallback: .argvLooksLikeShellWrapper
             ) == .launcherDoesNotDescribeKind
         )
@@ -110,14 +110,14 @@ struct AgentLaunchCaptureArgvVerdictTests {
     /// was, so its ground is the record's.
     @Test func theFallbackNamesTheRecordWhenThereWasNoCmuxCapture() {
         #expect(
-            AgentLaunchCaptureRejectionReason(
-                recordedFrom: nil,
+            AgentLaunchCaptureRejectionReason.recorded(
+                cmuxCapture: nil,
                 processFallback: .argvLooksLikeShellWrapper
             ) == .argvLooksLikeShellWrapper
         )
         #expect(
-            AgentLaunchCaptureRejectionReason(
-                recordedFrom: nil,
+            AgentLaunchCaptureRejectionReason.recorded(
+                cmuxCapture: nil,
                 processFallback: .nativeProcessDoesNotDescribeKind
             ) == .nativeProcessDoesNotDescribeKind
         )
@@ -126,8 +126,8 @@ struct AgentLaunchCaptureArgvVerdictTests {
     /// Neither candidate existed: nothing was rejected, there was nothing to read.
     @Test func noCandidateAtAllIsItsOwnGround() {
         #expect(
-            AgentLaunchCaptureRejectionReason(
-                recordedFrom: nil,
+            AgentLaunchCaptureRejectionReason.recorded(
+                cmuxCapture: nil,
                 processFallback: nil
             ) == .argvUnavailable
         )

@@ -238,7 +238,8 @@ struct RemoteInitialCommandBootstrapTests {
         let script = RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: 0,
             shellFeatures: "ssh-env,ssh-terminfo",
-            initialCommand: command
+            initialCommand: command,
+            protectsFromHangup: true
         )
         let environment = ProcessInfo.processInfo.environment.merging([
             "HOME": home.path,

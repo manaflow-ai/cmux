@@ -149,6 +149,12 @@ import Testing
             reachability: AlwaysOnlineReachability()
         )
         await store.loadPairedMacs()
+        // This scenario is a live post-startup session receiving presence
+        // snapshots: the launch stored-Mac restore has already settled.
+        // Automatic wake-ups arriving BEFORE that first restore defer to it
+        // (`shouldDeferAutomaticRecoveryToFirstStoredMacRestore`), so the
+        // presence-driven recovery below requires the settled launch state.
+        store.didFinishStoredMacReconnectAttempt = true
         store.registryDevices = [RegistryDevice(
             deviceId: "shared-physical-mac",
             platform: "mac",

@@ -8,34 +8,18 @@ import Foundation
 /// human sentence that changes shape per call site.
 ///
 /// This is a `RawRepresentable` string rather than an `enum` because hook
-/// stores are read and rewritten by cmux builds that implement this field. A
-/// token written by a newer build has to decode in an older build that knows
-/// the field but not the token and survive being written back: an `enum` would
-/// either throw on that unknown token, taking the whole session record down
-/// with it, or coerce it to a fallback case the way
+/// stores are read and rewritten by whichever cmux build runs next. A token
+/// written by a newer build has to decode in an older one and survive being
+/// written back: an `enum` would either throw on the unknown token, taking the
+/// whole session record down with it, or coerce it to a fallback case the way
 /// `AgentHibernationLifecycleState` does and silently rewrite the store with
-/// the wrong reason. A build from before this field necessarily drops the
-/// unknown key when it rewrites a record; that downgrade boundary has no
-/// unknown-key passthrough layer and is outside this type's guarantee.
+/// the wrong reason.
 public struct AgentLaunchCaptureRejectionReason: RawRepresentable, Codable, Hashable, Sendable {
-    /// The lossless machine-readable token stored alongside a launch verdict.
     public let rawValue: String
 
     /// Wraps a stored token, including one this build does not know.
     public init(rawValue: String) {
         self.rawValue = rawValue
-    }
-
-    /// Decodes the stable token written by the hook store.
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        self.init(rawValue: try container.decode(String.self))
-    }
-
-    /// Encodes the stable token without changing its wire representation.
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encode(rawValue)
     }
 
     /// The `CMUX_AGENT_LAUNCH_*` capture describes a different agent than the
@@ -78,7 +62,7 @@ public struct AgentLaunchCaptureRejectionReason: RawRepresentable, Codable, Hash
             && self != .argvLooksLikeShellWrapper
     }
 
-    /// Chooses the ground a record names when a hook had two argv candidates and
+    /// The ground a record names when a hook had two argv candidates and
     /// discarded both: the `CMUX_AGENT_LAUNCH_*` capture cmux wrote at launch,
     /// and the argv read back from the hook's PID.
     ///
@@ -94,11 +78,11 @@ public struct AgentLaunchCaptureRejectionReason: RawRepresentable, Codable, Hash
     /// - Parameters:
     ///   - cmuxCapture: The ground the `CMUX_AGENT_LAUNCH_*` capture was discarded on, if it was.
     ///   - processFallback: The ground the PID-derived argv was discarded on, if it was.
-    /// When both are absent, the initializer stores ``argvUnavailable``.
-    public init(
-        recordedFrom cmuxCapture: Self?,
+    /// - Returns: The ground to store, defaulting to `argvUnavailable` when neither candidate existed.
+    public static func recorded(
+        cmuxCapture: Self?,
         processFallback: Self?
-    ) {
-        self = cmuxCapture ?? processFallback ?? .argvUnavailable
+    ) -> Self {
+        cmuxCapture ?? processFallback ?? .argvUnavailable
     }
 }

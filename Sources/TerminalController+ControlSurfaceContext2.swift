@@ -2,7 +2,6 @@ import AppKit
 import Bonsplit
 import CmuxControlSocket
 import Foundation
-
 /// The surface-domain lifecycle witnesses (`split` / `respawn` / `create` /
 /// `close` / `move` / `reorder`) plus the browser-disabled mapping and the
 /// localized respawn strings. Split out of `TerminalController+ControlSurfaceContext`
@@ -40,11 +39,9 @@ extension TerminalController {
             )
         )
     }
-
     func controlSurfaceNotFoundMessage() -> String {
         String(localized: "socket.surface.error.surfaceNotFound", defaultValue: "Surface not found")
     }
-
     /// The byte-faithful twin of `v2BrowserDisabledExternalOpenResult`, mapped onto
     /// the shared ``ControlSurfaceBrowserDisabledOutcome``.
     private func surfaceBrowserDisabledOutcome(
@@ -64,9 +61,7 @@ extension TerminalController {
         let windowId = v2ResolveWindowId(tabManager: tabManager)
         return .openedExternally(windowID: windowId, url: url.absoluteString)
     }
-
     // MARK: - split
-
     func controlSurfaceSplit(
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceSplitInputs
@@ -116,6 +111,13 @@ extension TerminalController {
         }
         guard let targetSurfaceId, ws.panels[targetSurfaceId] != nil else {
             return .noFocusedSurface
+        }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: targetSurfaceId
+        ) else {
+            return .requestedSurfaceNotFound(targetSurfaceId)
         }
 
         if ws.isRemoteTmuxMirror, panelType == .terminal {
@@ -195,6 +197,10 @@ extension TerminalController {
         guard let newId else {
             return .createFailed
         }
+        // An explicit divider position wins over equalize-on-create.
+        if dividerPosition == nil {
+            ws.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: newId)
+        }
         return .created(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: ws.id,
@@ -256,9 +262,17 @@ extension TerminalController {
         guard ws.terminalPanel(for: surfaceId) != nil else {
             return .surfaceNotTerminal(surfaceId)
         }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: surfaceId
+        ) else {
+            return .surfaceNotFoundForID(surfaceId)
+        }
 
         let remoteRespawnRouting = ws.remotePTYRespawnRouting(panelId: surfaceId)
-        if remoteRespawnRouting == .unsupportedRemote {
+        let isNativeSSH = ws.machineOwningSurface(surfaceId)?.isSSH == true
+        if remoteRespawnRouting == .unsupportedRemote, !isNativeSSH {
             // A remote-owned pane must never fall through to a local Ghostty
             // exec when its transport cannot provide the persistent PTY bridge.
             return .respawnFailed(surfaceId)
@@ -297,7 +311,11 @@ extension TerminalController {
                 allowTextBoxFocusDefault: focus == true
             )
         case .unsupportedRemote:
-            return .respawnFailed(surfaceId)
+            replacementPanel = ws.respawnSSHTuiSurface(
+                panelID: surfaceId, command: inputs.command, workingDirectory: inputs.workingDirectory,
+                tmuxStartCommand: inputs.tmuxStartCommand, focus: focus,
+                allowTextBoxFocusDefault: focus == true
+            )
         }
         guard let replacementPanel else {
             return .respawnFailed(surfaceId)
@@ -481,6 +499,11 @@ extension TerminalController {
         if hasSurfaceIDParam, surfaceID == nil {
             return .invalidSurfaceID
         }
+        if let dock = windowDockForRouting(routing, tabManager: tabManager),
+           let dockSurfaceID = surfaceID ?? routing.surfaceID,
+           !remoteRelayDockTargetIsCurrent(routing: routing, dock: dock, surfaceID: dockSurfaceID) {
+            return .surfaceNotFound(dockSurfaceID)
+        }
         if let resolution = controlWindowDockSurfaceClose(
             routing: routing,
             surfaceID: surfaceID,
@@ -499,6 +522,13 @@ extension TerminalController {
             fallbackWorkspace: ws
         ) else {
             return .noFocusedSurface
+        }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: surfaceId
+        ) else {
+            return .surfaceNotFound(surfaceId)
         }
         if let remote = controlRemoteTmuxSurfaceClose(
             workspace: ws,

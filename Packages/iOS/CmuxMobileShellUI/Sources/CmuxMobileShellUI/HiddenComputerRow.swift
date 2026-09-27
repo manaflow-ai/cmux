@@ -59,6 +59,7 @@ private struct ComputerRowTransitionPhase: ViewModifier {
 /// Keeping one row identity and one `Toggle` instance lets SwiftUI carry the
 /// native switch transaction through the model update.
 private struct ComputerVisibilityRow: View {
+    @Environment(MobileMacListAuthState.self) private var listAuthState: MobileMacListAuthState?
     let item: ComputerVisibilityRowItem
     let setVisible: (Bool) -> Void
     let isVisibilityMutating: Bool
@@ -178,7 +179,8 @@ private struct ComputerVisibilityRow: View {
                     ComputerBuildBadge(label: buildLabel)
                 }
                 if gateWarningPairingIDs.contains(computer.id)
-                    || MobileMacListAuthState.shared.compatibilityEntry(pairingID: computer.id).isOutdated {
+                    || ((listAuthState?.hasSnapshot == true)
+                        && listAuthState?.compatibilityEntry(pairingID: computer.id).isOutdated == true) {
                     Button {
                         showingHiddenVersionGateWarning = true
                     } label: {

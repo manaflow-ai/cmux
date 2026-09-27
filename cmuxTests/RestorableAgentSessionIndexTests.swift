@@ -1110,7 +1110,10 @@ struct RestorableAgentSessionIndexTests {
             panelId: panelId
         )
         let detected = try XCTUnwrap(detectedSnapshots[restoredKey])
-        XCTAssertEqual(detected.snapshot.sessionId, detectedLatestSessionId)
+        XCTAssertEqual(
+            URL(fileURLWithPath: detected.snapshot.sessionId).resolvingSymlinksInPath().path,
+            detectedLatestFile.resolvingSymlinksInPath().path
+        )
 
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: root.path,
@@ -1121,7 +1124,10 @@ struct RestorableAgentSessionIndexTests {
         )
         let snapshot = try XCTUnwrap(index.snapshot(workspaceId: restoredWorkspaceId, panelId: panelId))
 
-        XCTAssertEqual(snapshot.sessionId, detectedLatestSessionId)
+        XCTAssertEqual(
+            URL(fileURLWithPath: snapshot.sessionId).resolvingSymlinksInPath().path,
+            detectedLatestFile.resolvingSymlinksInPath().path
+        )
     }
 
     @Test
@@ -1584,10 +1590,10 @@ struct RestorableAgentSessionIndexTests {
         XCTAssertEqual(Set(commands.compactMap { $0 }).count, 1, "resume command must be stable across reloads")
     }
 
-    // A session whose recorded process is no longer alive (the agent was killed) must NOT restore
-    // from the hook index, even though the record is still on disk.
+    // A dead process changes liveness without erasing the durable session
+    // available to an explicit restore command.
     @Test
-    func testKilledSessionWithDeadProcessDoesNotRestore() throws {
+    func testKilledSessionWithDeadProcessRetainsExplicitRestoreSnapshot() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-killed-\(UUID().uuidString)", isDirectory: true)
@@ -1615,12 +1621,16 @@ struct RestorableAgentSessionIndexTests {
             fileManager: fm,
             registry: registry,
             detectedSnapshots: [:],
-            processArgumentsProvider: { _ in nil }
+            processArgumentsProvider: { _ in nil },
+            processPresenceProvider: { _ in .absent }
         )
-        XCTAssertNil(
-            index.snapshot(workspaceId: ws, panelId: panel),
-            "a killed session whose recorded process is dead must not restore"
+        XCTAssertEqual(
+            index.snapshot(workspaceId: ws, panelId: panel)?.sessionId,
+            sid,
+            "a dead PID must not erase the session available for explicit restore"
         )
+        XCTAssertEqual(index.entry(workspaceId: ws, panelId: panel)?.processLiveness, .exited)
+        XCTAssertFalse(index.hasLiveProcess(workspaceId: ws, panelId: panel))
     }
 
     private func driftedHookRecord(
@@ -1947,6 +1957,24 @@ struct RestorableAgentSessionIndexTests {
         storeFilename: String,
         sessions: [String: [String: Any]]
     ) throws {
+        if storeFilename == "codex-hook-sessions.json" {
+            let rolloutDirectory = root.appendingPathComponent(".codex/sessions", isDirectory: true)
+            try FileManager.default.createDirectory(at: rolloutDirectory, withIntermediateDirectories: true)
+            for (sessionId, record) in sessions {
+                let metadata: [String: Any] = [
+                    "type": "session_meta",
+                    "payload": [
+                        "id": sessionId,
+                        "cwd": record["cwd"] as? String ?? root.path,
+                        "source": "cli",
+                        "originator": "codex_cli_rs",
+                    ],
+                ]
+                var data = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
+                data.append(0x0a)
+                try data.write(to: rolloutDirectory.appendingPathComponent("rollout-\(sessionId).jsonl"), options: .atomic)
+            }
+        }
         let stateDir = root.appendingPathComponent(".cmuxterm", isDirectory: true)
         try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
         let data = try JSONSerialization.data(

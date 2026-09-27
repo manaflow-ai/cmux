@@ -17,16 +17,20 @@ import {
   type RestoreOptions,
   type SnapshotRef,
   type SSHEndpoint,
+  type SCPEndpoint,
   type VMHandle,
   type VMVolumeInventory,
   type VMVolumeListOptions,
   type VMStatus,
   type VMStats,
+  type VMResourceStatsResult,
   type VMResizeOptions,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
+  type VmCapabilities,
+  vmCapabilitiesFor,
 } from "./drivers";
 import { VmOperationUnsupportedError, VmProviderOperationError } from "./errors";
 
@@ -46,6 +50,7 @@ export type VmProviderGatewayShape = {
   readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
   readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly pause?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
+  readonly setRuntimeBudget?: (provider: ProviderId, vmId: string, remainingSeconds: number | null) => Effect.Effect<void, VmProviderOperationError>;
   readonly snapshot?: (
     provider: ProviderId,
     vmId: string,
@@ -68,6 +73,8 @@ export type VmProviderGatewayShape = {
     snapshotId: string,
   ) => Effect.Effect<void, VmProviderOperationError>;
   readonly fork?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
+  /** Driver capabilities. Optional for compatibility with older test doubles. */
+  readonly capabilities?: (provider: ProviderId) => VmCapabilities;
   readonly exec: (
     provider: ProviderId,
     vmId: string,
@@ -83,6 +90,10 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
   ) => Effect.Effect<VMStats, VmProviderOperationError>;
+  readonly getResourceStats?: (
+    provider: ProviderId,
+    vmId: string,
+  ) => Effect.Effect<VMResourceStatsResult | null, VmProviderOperationError>;
   readonly resize?: (
     provider: ProviderId,
     vmId: string,
@@ -106,6 +117,7 @@ export type VmProviderGatewayShape = {
     invitationId: string,
     options?: CmuxRemoteApprovalOptions,
   ) => Effect.Effect<CmuxRemoteApprovalResult, VmProviderOperationError>;
+  readonly prepareSCP?: (provider: ProviderId, vmId: string, publicKey: string) => Effect.Effect<SCPEndpoint, VmProviderOperationError>;
   readonly openSSH: (provider: ProviderId, vmId: string) => Effect.Effect<SSHEndpoint, VmProviderOperationError>;
   readonly revokeSSHIdentity: (
     provider: ProviderId,
@@ -214,10 +226,16 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "resume", () => getProvider(provider).resume(vmId)),
   pause: (provider, vmId) =>
     providerEffect(provider, "pause", () => getProvider(provider).pause(vmId)),
+  setRuntimeBudget: (provider, vmId, remainingSeconds) => providerEffect(provider, "setRuntimeBudget", async () => {
+    const driver = getProvider(provider);
+    if (!driver.setRuntimeBudget) throw new Error("Provider runtime caps are unavailable");
+    await driver.setRuntimeBudget(vmId, remainingSeconds);
+  }),
   snapshot: (provider, vmId, name) =>
     providerEffect(provider, "snapshot", () => getProvider(provider).snapshot(vmId, name)),
   restore: (provider, snapshotId, options) =>
     providerEffect(provider, "restore", () => getProvider(provider).restore(snapshotId, options)),
+  capabilities: (provider) => vmCapabilitiesFor(provider),
   listSnapshots: (provider, vmId) =>
     providerEffect(provider, "listSnapshots", async () => {
       const impl = getProvider(provider);
@@ -263,6 +281,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       }
       return await impl.getStats(vmId);
     }),
+  getResourceStats: (provider, vmId) => providerEffect(provider, "getResourceStats", async () => {
+    const impl = getProvider(provider);
+    if (!impl.getResourceStats) {
+      throw new VmOperationUnsupportedError({ provider, operation: "getResourceStats" });
+    }
+    return await impl.getResourceStats(vmId);
+  }),
   resize: (provider, vmId, options) => {
     const impl = getProvider(provider);
     if (!impl.resize) return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "resize" }));
@@ -292,6 +317,12 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
         throw new VmOperationUnsupportedError({ provider, operation: "approveCmuxRemoteEnrollment" });
       }
       return impl.approveCmuxRemoteEnrollment(vmId, invitationId, options);
+    }),
+  prepareSCP: (provider, vmId, publicKey) =>
+    providerEffect(provider, "prepareSCP", async () => {
+      const impl = getProvider(provider);
+      if (!impl.prepareSCP) throw new VmOperationUnsupportedError({ provider, operation: "prepareSCP" });
+      return impl.prepareSCP(vmId, publicKey);
     }),
   openSSH: (provider, vmId) =>
     providerEffect(provider, "openSSH", async () => {

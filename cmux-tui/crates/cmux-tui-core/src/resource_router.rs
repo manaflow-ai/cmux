@@ -587,6 +587,9 @@ fn validate_operation_constraints(
     fields: &Map<String, Value>,
     supplied: &Map<String, Value>,
 ) -> Result<(), ResourceError> {
+    if operation == ResourceOperation::TabRename {
+        crate::resource_name::TabNameUpdate::parse(fields).map_err(resource_operation_error)?;
+    }
     if matches!(operation, ResourceOperation::PaneRun | ResourceOperation::WorkspaceRun)
         && let Some(argv) = fields.get("argv").and_then(Value::as_array)
         && argv.first().and_then(Value::as_str).is_none_or(str::is_empty)

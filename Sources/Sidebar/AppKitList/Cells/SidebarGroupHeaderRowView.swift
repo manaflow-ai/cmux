@@ -22,8 +22,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private let unreadBadgeView = SidebarRowUnreadBadgeView()
     private var unreadBadgeFont: NSFont = .systemFont(ofSize: 10, weight: .semibold)
     private let plusButton = SidebarHeaderGlyphButton()
-    private let topDropIndicator = NSView()
-    private let bottomDropIndicator = NSView()
+    private let topDropIndicator = SidebarReorderIndicatorView()
+    private let bottomDropIndicator = SidebarReorderIndicatorView()
     private let hintPill = SidebarShortcutHintPillView()
 
     private var model: SidebarGroupHeaderRowModel?
@@ -76,6 +76,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
         plusButton.onClick = { [weak self] in self?.actions?.onTapPlus() }
         plusButton.menuProvider = { [weak self] in self?.makePlusMenu() }
+        plusButton.concealImmediately()
         addSubview(plusButton)
 
         topDropIndicator.wantsLayer = true
@@ -94,6 +95,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         super.prepareForReuse()
         suspendPresentation()
         model = nil
+        isPointerHovering = false
+        plusButton.concealImmediately()
         hintPill.resetForReuse()
     }
 
@@ -437,16 +440,13 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             unreadBadgeView.needsDisplay = true
         }
 
-        let indicatorX: CGFloat = 8
-        let indicatorWidth = max(0, bounds.width - indicatorX - 8)
         let topOffset: CGFloat = model.isFirstRow ? 0 : -(model.rowSpacing / 2)
-        topDropIndicator.frame = NSRect(x: indicatorX, y: topOffset, width: indicatorWidth, height: 2)
+        topDropIndicator.position(in: bounds, at: topOffset)
         let bottomInset = metrics.groupScopedBottomDropIndicatorLeadingInset
-        bottomDropIndicator.frame = NSRect(
-            x: 8 + bottomInset,
-            y: bounds.height - 2 + model.rowSpacing / 2,
-            width: max(0, bounds.width - (8 + bottomInset) - 8),
-            height: 2
+        bottomDropIndicator.position(
+            in: bounds,
+            at: bounds.height - SidebarReorderIndicatorView.thickness + model.rowSpacing / 2,
+            leadingInset: bottomInset
         )
 
         let pillSize = hintPill.fittingPillSize()
@@ -648,6 +648,16 @@ final class SidebarHeaderGlyphButton: NSButton {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         menuProvider?() ?? super.menu(for: event)
+    }
+
+    /// Starting state for hover-revealed buttons, and the reset on cell
+    /// reuse. NSButton is born visible, so without this every fresh or
+    /// recycled cell faded an X out on its first unhovered configure, which
+    /// flashed the close buttons on all rows at once after a workspace close.
+    func concealImmediately() {
+        isEnabled = false
+        alphaValue = 0
+        isHidden = true
     }
 
     /// Arc-style hover reveal: 120ms ease-out fade instead of a hard snap.

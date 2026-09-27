@@ -1,4 +1,4 @@
-import { StackProvider, StackTheme } from "@stackframe/stack";
+import { StackProvider, StackTheme } from "@hexclave/next";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import {
@@ -9,6 +9,7 @@ import {
 } from "@/app/lib/dashboard-auth";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { isVaultEnabled } from "@/services/vault/config";
+import { IsolatedErrorBoundary } from "@/app/components/error-boundary";
 import { DashboardQueryProvider } from "./components/query-provider";
 import {
   DashboardAccountMenu,
@@ -21,14 +22,13 @@ import { DashboardShell } from "./dashboard-shell";
 // sidebar and page frames from the prefetched app shell.
 export const instant = true;
 
-export default async function DashboardLayout({
+export default function DashboardLayout({
   children,
   params,
 }: {
   children: React.ReactNode;
   params: Promise<{ locale: string }>;
 }) {
-  const { locale } = await params;
   if (!isStackConfigured()) redirect("/");
 
   return (
@@ -38,13 +38,18 @@ export default async function DashboardLayout({
           <DashboardShell
             vaultEnabled={isVaultEnabled()}
             account={
-              <Suspense fallback={<DashboardAccountMenuFallback />}>
-                <DashboardAccountSlot />
-              </Suspense>
+              <IsolatedErrorBoundary
+                name="dashboard-account-menu"
+                fallback={<DashboardAccountMenuFallback />}
+              >
+                <Suspense fallback={<DashboardAccountMenuFallback />}>
+                  <DashboardAccountSlot />
+                </Suspense>
+              </IsolatedErrorBoundary>
             }
           >
             <Suspense fallback={null}>
-              <DashboardSessionGuard locale={locale} />
+              <DashboardSessionGuard params={params} />
             </Suspense>
             {children}
           </DashboardShell>
@@ -65,7 +70,8 @@ async function DashboardAccountSlot() {
 // Middleware already turns away requests with no session cookie. This covers
 // a cookie whose session Stack rejects, for pages with no private section of
 // their own, without holding the page content behind the check.
-async function DashboardSessionGuard({ locale }: { locale: string }) {
+async function DashboardSessionGuard({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
   try {
     await requireDashboardUser(locale, await dashboardReturnPath());
   } catch (error) {

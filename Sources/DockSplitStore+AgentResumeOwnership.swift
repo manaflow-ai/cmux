@@ -1,4 +1,6 @@
+import CmuxFoundation
 import Foundation
+import CmuxFoundation
 
 extension DockSplitStore {
     /// Dock twin of `Workspace.restoredAgentHasLiveProcess(_:panelId:)`.
@@ -33,7 +35,8 @@ extension DockSplitStore {
             panelId: panelId,
             recordedProcess: recordedProcess,
             liveIndex: SharedLiveAgentIndex.shared.index,
-            foregroundProcessID: (panels[panelId] as? TerminalPanel)?.surface.foregroundProcessID()
+            foregroundProcessID: (panels[panelId] as? TerminalPanel)?.surface.foregroundProcessID(),
+            foregroundProcessIdentity: { AgentPIDProcessIdentity(pid: $0) }
         )
     }
 

@@ -83,7 +83,7 @@ extension GhosttySurfaceView {
         )
         let workQueue = outputQueue
         let gate = viewportRestoreGate
-        workQueue.async { [weak self] in
+        workQueue.asyncPriority { [weak self] in
             let scale = max(Double(displayScale), 1)
             let size = ghostty_surface_size(operation.surface)
             let cellWidthPt = max(Double(size.cell_width_px) / scale, 1)

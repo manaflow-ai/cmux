@@ -31,6 +31,8 @@ function row(overrides: Partial<CloudVmRow>): CloudVmRow {
     failureCode: null,
     failureMessage: null,
     providerMetadata: {},
+    ownerTeamId: overrides.ownerTeamId ?? overrides.billingTeamId ?? "team-limit-refresh",
+    coderouterPoolId: null,
     ...overrides,
   };
 }
@@ -106,7 +108,7 @@ describe("lazy active-limit provider refresh", () => {
         userId: requested.userId,
         billingCustomerType: "team",
         billingTeamId: requested.billingTeamId!,
-        billingPlanId: "pro",
+        billingPlanId: "max",
         maxActiveVms: 50,
         provider: "freestyle",
         image: "snapshot-test",
@@ -176,7 +178,7 @@ describe("lazy active-limit provider refresh", () => {
         userId: requested.userId,
         billingCustomerType: "team",
         billingTeamId: requested.billingTeamId!,
-        billingPlanId: "pro",
+        billingPlanId: "max",
         maxActiveVms: 50,
         provider: "freestyle",
         image: "snapshot-test",

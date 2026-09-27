@@ -62,7 +62,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
         #expect(
             context.state.snapshot().contains {
-                $0.hasPrefix("set_status claude_code Running ")
+                $0.hasPrefix("set_status claude_code Idle ")
                     && $0.contains("--panel=\(ttySurfaceId)")
             },
             "Claude visible status should also target the TTY surface, saw \(context.state.snapshot())"
@@ -183,7 +183,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
         #expect(
             context.state.snapshot().contains {
-                $0.hasPrefix("set_status claude_code Running ")
+                $0.hasPrefix("set_status claude_code Idle ")
                     && $0.contains("--tab=\(ttyWorkspaceId)")
                     && $0.contains("--panel=\(ttySurfaceId)")
             },
@@ -411,7 +411,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
         #expect(
             context.state.snapshot().contains {
-                $0.hasPrefix("set_status claude_code Running ")
+                $0.hasPrefix("set_status claude_code Idle ")
                     && $0.contains("--tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
@@ -852,7 +852,14 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         return data.base64EncodedString()
     }
 
-    func runProcess(executablePath: String, arguments: [String], environment: [String: String], standardInput: String? = nil, timeout: TimeInterval) -> ProcessRunResult {
+    func runProcess(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        standardInput: String? = nil,
+        currentDirectoryURL: URL? = nil,
+        timeout: TimeInterval
+    ) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -860,9 +867,16 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
         process.environment = environment
+        process.currentDirectoryURL = currentDirectoryURL
         process.standardInput = stdinPipe ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
+        // Process can finish while the test host is busy servicing another
+        // fixture. Observe termination directly instead of queueing a blocking
+        // waitUntilExit() on the shared global pool, where the waiter can be
+        // starved and report a successful child as a timeout.
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exitSignal.signal() }
 
         do {
             try process.run()
@@ -874,16 +888,10 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             try? stdinPipe.fileHandleForWriting.close()
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut && process.isRunning
         if timedOut {
             process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
                 kill(process.processIdentifier, SIGKILL)
                 _ = exitSignal.wait(timeout: .now() + 1)
             }

@@ -1,5 +1,5 @@
 import Darwin
-@_implementationOnly import XCTest
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

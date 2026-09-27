@@ -1,5 +1,8 @@
 import CmuxAuthRuntime
+import CmuxPhonePush
+import CryptoKit
 import Foundation
+import os
 import Testing
 
 @testable import CmuxMobileShellUI
@@ -116,20 +119,20 @@ private final class ReplyRelayFake: ReplyRelaying, @unchecked Sendable {
 }
 
 private final class RateLimitedReplyURLProtocol: URLProtocol, @unchecked Sendable {
-    private static let lock = NSLock()
-    private static var storedRequestCount = 0
+    // lint:allow lock - URLProtocol callbacks share this request count across executors.
+    private static let storedRequestCount = OSAllocatedUnfairLock(initialState: 0)
 
-    static var requestCount: Int { lock.withLock { storedRequestCount } }
+    static var requestCount: Int { storedRequestCount.withLock { $0 } }
 
     static func reset() {
-        lock.withLock { storedRequestCount = 0 }
+        storedRequestCount.withLock { $0 = 0 }
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        Self.lock.withLock { Self.storedRequestCount += 1 }
+        Self.storedRequestCount.withLock { $0 += 1 }
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: 429,
@@ -147,9 +150,22 @@ private final class RateLimitedReplyURLProtocol: URLProtocol, @unchecked Sendabl
     RateLimitedReplyURLProtocol.reset()
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [RateLimitedReplyURLProtocol.self]
+    // The relay only posts an end-to-end envelope, so the reply needs the
+    // push context and both keys; in-memory keys keep the host keychain out.
+    let identity = PhonePushKeyMaterial(
+        installationID: "ios-installation-1",
+        keyID: "ios-key-1",
+        privateKey: Curve25519.KeyAgreement.PrivateKey()
+    )
+    let peer = PhonePushPeerDescriptor(
+        keyID: "mac-key-1",
+        publicKey: Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation
+    )
     let client = SystemReplyRelayClient(
         serviceBaseURL: URL(string: "https://presence.test"),
         accessToken: { "token" },
+        keyMaterial: { identity },
+        pinnedPeer: { _ in peer },
         session: URLSession(configuration: configuration)
     )
     let reply = RelayedReply(
@@ -157,7 +173,10 @@ private final class RateLimitedReplyURLProtocol: URLProtocol, @unchecked Sendabl
         macDeviceId: "mac-1",
         workspaceId: "workspace-1",
         surfaceId: "surface-1",
-        text: "hello"
+        text: "hello",
+        accountID: "account-1",
+        macInstallationID: "mac-installation-1",
+        macBuildID: "mac-build-1"
     )
 
     let first = await client.relay(reply)
@@ -388,30 +407,6 @@ private func makeReplyLaneCoordinator(
     #expect(relay.requests.count == 1)
     #expect(runtime.endCount == 0)
     #expect(notifier.cancelCount == 0)
-}
-
-@MainActor
-@Test func confinedRelayPreservesSurfaceRetargetPolicy() async {
-    let runtime = ReplyRuntimeFake()
-    let notifier = ReplyNoticeFake()
-    let relay = ReplyRelayFake(outcomes: [true])
-    let coordinator = makeReplyLaneCoordinator(
-        runtime: runtime,
-        notifier: notifier,
-        nowBox: NowBox(),
-        relay: relay
-    )
-
-    await coordinator.handleReply(
-        text: "stay in this workspace",
-        workspaceId: "workspace-1",
-        surfaceId: "surface-1",
-        macDeviceId: "mac-1",
-        retargetsToLiveSurfaceOwner: false
-    )
-
-    #expect(relay.requests.count == 1)
-    #expect(relay.requests.first?.retargetsToLiveSurfaceOwner == false)
 }
 
 @MainActor

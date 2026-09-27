@@ -697,5 +697,11 @@
     "arguments": [
       2
     ]
+  },
+  "cloudTree.device.workspaceCount.other": {
+    "source": "%lld workspaces",
+    "arguments": [
+      1
+    ]
   }
 }

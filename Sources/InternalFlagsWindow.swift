@@ -52,11 +52,7 @@ private struct InternalFlagsView: View {
 
     private var rows: [InternalFlagRowSnapshot] {
         CmuxFeatureFlags.allFlags.map { definition in
-            InternalFlagRowSnapshot(
-                definition: definition,
-                resolution: flags.resolution(for: definition),
-                overrideValue: flags.overrideValue(for: definition)
-            )
+            InternalFlagRowSnapshot(definition: definition, flags: flags)
         }
     }
 
@@ -81,7 +77,10 @@ private struct InternalFlagsView: View {
             InternalFlagHeaderRow()
 
             ScrollView {
-                LazyVStack(spacing: 0) {
+                // This small, fixed inspector does not need lazy materialization.
+                // macOS 26.4 lazy prefetch can select a segmented control before
+                // its segments exist (NSRangeException: index 2, bounds 0).
+                VStack(spacing: 0) {
 #if DEBUG
                     InternalBooleanSettingRow(
                         title: String(
@@ -112,7 +111,7 @@ private struct InternalFlagsView: View {
             HStack(alignment: .center, spacing: 16) {
                 Text(String(
                     localized: "featureFlags.footer.note",
-                    defaultValue: "Local overrides apply only when no remote value is available."
+                    defaultValue: "Remote values take priority, except for local Cloud overrides in Nightly and debug builds."
                 ))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -230,40 +229,6 @@ private struct InternalFlagHeaderRow: View {
     }
 }
 
-private struct InternalFlagRowSnapshot: Identifiable, Equatable {
-    var id: String { definition.key }
-
-    let definition: CmuxFeatureFlagDefinition
-    let resolution: CmuxFeatureFlagResolution
-    let overrideValue: Bool?
-
-    var isRemoteControlled: Bool {
-        resolution.source == .remote
-    }
-
-    var sourceTitle: String {
-        switch resolution.source {
-        case .remote:
-            return String(localized: "featureFlags.source.remote", defaultValue: "Remote")
-        case .override:
-            return String(localized: "featureFlags.source.override", defaultValue: "Override")
-        case .default:
-            return String(localized: "featureFlags.source.default", defaultValue: "Default")
-        }
-    }
-
-    var overrideChoice: InternalFlagOverrideChoice {
-        switch overrideValue {
-        case .some(true):
-            return .on
-        case .some(false):
-            return .off
-        case .none:
-            return .noOverride
-        }
-    }
-}
-
 private struct InternalFlagRow: View {
     let snapshot: InternalFlagRowSnapshot
     let setOverride: (Bool?) -> Void
@@ -290,13 +255,10 @@ private struct InternalFlagRow: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .disabled(snapshot.isRemoteControlled)
+                .disabled(!snapshot.resolution.allowsLocalOverride)
 
-                if snapshot.isRemoteControlled {
-                    Text(String(
-                        localized: "featureFlags.override.remoteControlledNote",
-                        defaultValue: "Controlled remotely; local override inactive."
-                    ))
+                if let note = snapshot.overrideNote {
+                    Text(note)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 }
@@ -319,35 +281,5 @@ private struct InternalFlagValueBadge: View {
                 Capsule()
                     .fill(isOn ? Color.green.opacity(0.14) : Color.secondary.opacity(0.12))
             )
-    }
-}
-
-private enum InternalFlagOverrideChoice: CaseIterable, Hashable, Identifiable {
-    case on
-    case off
-    case noOverride
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .on:
-            return String(localized: "featureFlags.override.on", defaultValue: "On")
-        case .off:
-            return String(localized: "featureFlags.override.off", defaultValue: "Off")
-        case .noOverride:
-            return String(localized: "featureFlags.override.none", defaultValue: "No override")
-        }
-    }
-
-    var overrideValue: Bool? {
-        switch self {
-        case .on:
-            return true
-        case .off:
-            return false
-        case .noOverride:
-            return nil
-        }
     }
 }

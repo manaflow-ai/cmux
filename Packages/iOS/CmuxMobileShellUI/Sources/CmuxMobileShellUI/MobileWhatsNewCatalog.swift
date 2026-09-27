@@ -17,7 +17,13 @@ struct MobileWhatsNewFeature {
 /// binary, or a cmux-owned webpage for content pushed after release.
 enum MobileWhatsNewPageBody {
     case features([MobileWhatsNewFeature])
+    case pairingSetup([MobileWhatsNewFeature])
     case web(URL)
+}
+
+struct MobileWhatsNewMacCompatibility: Equatable {
+    let stableVersion: String?
+    let nightlyVersion: String?
 }
 
 /// One What's New page: a binary catalog entry or a resolved remote
@@ -34,7 +40,7 @@ struct MobileWhatsNewPage: Identifiable {
     /// Remote announcements are visually marked to distinguish service news
     /// from binary release notes.
     let isAnnouncement: Bool
-/// Build channels this catalog entry may render on
+    /// Build channels this catalog entry may render on
     /// (``MobileBuildType/token`` values). `nil` (the norm) means the
     /// ``MobileWhatsNewChannelPolicy`` default: team lanes only, never the
     /// official App Store app. The remote list can override per entry
@@ -42,6 +48,10 @@ struct MobileWhatsNewPage: Identifiable {
     /// binary change. Only meaningful for binary catalog entries; resolved
     /// announcements are channel-filtered before page construction.
     var channels: [String]? = nil
+    /// Optional inclusive app-version bounds for binary pages. The 1.0.6
+    /// pairing setup page is deliberately version-pinned.
+    var minVersion: String? = nil
+    var maxVersion: String? = nil
     /// One quiet line under the feature rows (compatibility notes and other
     /// fine print that must not compete with the features). `nil` hides it.
     var footnote: String? = nil
@@ -53,6 +63,10 @@ struct MobileWhatsNewPage: Identifiable {
     var listID: String {
         (isAnnouncement ? "announcement:" : "entry:") + id
     }
+
+    func supports(appVersion: String) -> Bool {
+        MobileAppVersionCompare().version(appVersion, isWithinMin: minVersion ?? "0", max: maxVersion)
+    }
 }
 
 /// Version-keyed release notes compiled into this binary, newest first.
@@ -61,14 +75,16 @@ struct MobileWhatsNewPage: Identifiable {
 /// device's acknowledgement marker and the remote visibility list
 /// (`/api/whats-new` `visibleEntryIds`) both reference it, and the
 /// unseen computation orders pages by catalog index.
-enum MobileWhatsNewCatalog {
+struct MobileWhatsNewCatalog: Sendable {
+    init() {}
+
     /// Newest first. The one-time sheet shows every visible entry newer than
     /// the acknowledgement marker.
-    static var entries: [MobileWhatsNewPage] {
-        [connectionsUpdate]
+    var entries: [MobileWhatsNewPage] {
+        [ios106PairingUpdate, pairingOptInUpdate, connectionsUpdate]
     }
 
-    static func entry(withID id: String) -> MobileWhatsNewPage? {
+    func entry(withID id: String) -> MobileWhatsNewPage? {
         entries.first { $0.id == id }
     }
 
@@ -77,11 +93,12 @@ enum MobileWhatsNewCatalog {
     /// baseline: never-fetched devices and centerless fallbacks (previews)
     /// use it, so an official App Store build renders NO What's New surface
     /// before its first fetch, while team builds keep the full catalog.
-    static func channelVisibleEntries(
-        buildType: MobileBuildType = .current()
+    func channelVisibleEntries(
+        buildType: MobileBuildType = .current(),
+        appVersion: String = AppVersionInfo.current().marketingVersion
     ) -> [MobileWhatsNewPage] {
         entries.filter { page in
-            MobileWhatsNewChannelPolicy.isVisible(
+            page.supports(appVersion: appVersion) && MobileWhatsNewChannelPolicy().isVisible(
                 channelTokens: page.channels,
                 buildType: buildType
             )
@@ -91,11 +108,57 @@ enum MobileWhatsNewCatalog {
     /// Catalog position (0 = newest). The unseen computation compares
     /// positions in the FULL catalog so remotely hiding one entry cannot
     /// shift how other entries compare against the marker.
-    static func index(ofID id: String) -> Int? {
-        entries.firstIndex { $0.id == id }
+    func index(ofID id: String) -> Int? {
+        if let index = entries.firstIndex(where: { $0.id == id }) {
+            return index
+        }
+        // The first pairing announcement preceded connections.v2. Its marker
+        // sits between the current pairing page and the older connection page.
+        switch id {
+        case "pairing-opt-in.v1":
+            return entries.firstIndex(where: { $0.id == "connections.v1" })
+        default:
+            return nil
+        }
     }
 
-    static var connectionsUpdate: MobileWhatsNewPage {
+    var ios106PairingUpdate: MobileWhatsNewPage {
+        MobileWhatsNewPage(
+            id: "pairing.1.0.6",
+            releaseLabel: L10n.string(
+                "mobile.ios106PairingUpdate.releaseLabel",
+                defaultValue: "1.0.6 · September 2026"
+            ),
+            title: L10n.string(
+                "mobile.whatsNew.pairing.pageTitle",
+                defaultValue: "Action Required: Enable iOS pairing on your Mac"
+            ),
+            body: .pairingSetup([]),
+            isAnnouncement: false,
+            channels: ["beta", "internal"],
+            minVersion: "1.0.6",
+            maxVersion: "1.0.6"
+        )
+    }
+
+    var pairingOptInUpdate: MobileWhatsNewPage {
+        MobileWhatsNewPage(
+            id: "connections.v2",
+            releaseLabel: L10n.string(
+                "mobile.pairingOptInUpdate.releaseLabel",
+                defaultValue: "1.0.4 · September 2026"
+            ),
+            title: L10n.string(
+                "mobile.whatsNew.pairing.pageTitle",
+                defaultValue: "Action Required: Enable iOS pairing on your Mac"
+            ),
+            body: .pairingSetup([]),
+            isAnnouncement: false,
+            maxVersion: "1.0.5"
+        )
+    }
+
+    var connectionsUpdate: MobileWhatsNewPage {
         MobileWhatsNewPage(
             id: "connections.v1",
             releaseLabel: L10n.string(
@@ -156,59 +219,60 @@ enum MobileWhatsNewCatalog {
             // The compat requirement is one compact notice under the feature
             // rows (owner feedback: the old full-width warning row read as
             // clutter, and BETA users need the revert path).
-            footnote: macUpdateFootnote()
+            footnote: macUpdateDetail(
+                buildType: .current(),
+                requiredVersion: macCompatibility(
+                    policy: .baked,
+                    iosVersion: AppVersionInfo.current().marketingVersion,
+                    buildType: .current()
+                ).stableVersion
+            )
         )
     }
 
-    /// The compat-notice footnote, gated per distribution channel.
-    ///
-    /// Team builds include the BETA TestFlight rollback recipe. The public
-    /// App Store app has no older protocol version to revert to, so it gets
-    /// the update requirement only; App Review's Guideline 2.2 rejection also
-    /// bars beta-lane vocabulary from its UI.
-    static func macUpdateFootnote(
-        buildType: MobileBuildType = .current(),
-        iosVersion: String? = nil,
-        policy: MobileMacCompatPolicy = .baked
-    ) -> String {
-        let version = iosVersion
-            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-            ?? "0"
-        let tier = policy.tier(forIOSVersion: version)
-        let requirement = tier?.buildKinds[buildType.token]
-            ?? tier.map { MobileMacCompatPolicy.Requirement(stableMinVersion: $0.stableMinVersion, nightly: $0.nightly) }
-        let stableVersion = requirement?.stableMinVersion.description
-            ?? L10n.string(
-                "mobile.macUpdate.unknownStableMinimum",
-                defaultValue: "the current supported stable version"
-            )
-        let nightlyVersion: String
-        if let nightly = requirement?.nightly {
-            nightlyVersion = "\(nightly.minBaseVersion)-nightly.\(nightly.minBuild)"
-        } else {
-            nightlyVersion = L10n.string(
-                "mobile.macUpdate.noNightlyMinimum",
-                defaultValue: "no minimum for this iOS build"
-            )
+    func macCompatibility(
+        policy: MobileMacCompatPolicy,
+        iosVersion: String,
+        buildType: MobileBuildType
+    ) -> MobileWhatsNewMacCompatibility {
+        guard let tier = policy.tier(forIOSVersion: iosVersion) else {
+            return .init(stableVersion: nil, nightlyVersion: nil)
         }
-        let requirementText = String(
-            format: L10n.string(
-                "mobile.macUpdate.requiredStableAndNightlyFormat",
-                defaultValue: "Requires cmux %@ or later on stable Macs. cmux NIGHTLY minimum: %@."
-            ),
-            stableVersion,
-            nightlyVersion
+        let requirement = tier.buildKinds[buildType.token]
+            ?? .init(stableMinVersion: tier.stableMinVersion, nightly: tier.nightly)
+        let nightlyVersion = requirement.nightly.map {
+            "\($0.minBaseVersion.description)-nightly.\($0.minBuild)"
+        }
+        return .init(
+            stableVersion: requirement.stableMinVersion.description,
+            nightlyVersion: nightlyVersion
         )
-        guard buildType.usesInternalBuildVocabulary else {
-            return requirementText
+    }
+
+    func macUpdateDetail(
+        buildType: MobileBuildType,
+        requiredVersion: String?
+    ) -> String {
+        let version = requiredVersion ?? L10n.string(
+            "mobile.connectionsUpdate.macUpdate.requiredVersion",
+            defaultValue: "the latest cmux NIGHTLY or cmux RELEASE"
+        )
+        if buildType.usesInternalBuildVocabulary {
+            return String(
+                format: L10n.string(
+                    "mobile.connectionsUpdate.macUpdate.detail",
+                    defaultValue: "Use cmux %@ or later. Older Macs: use BETA 1.0.5 (20260914204800)."
+                ),
+                version
+            )
         }
-        return [
-            requirementText,
-            L10n.string(
-                "mobile.macUpdate.revertShort",
-                defaultValue: "Not ready? Stay on (or revert to) cmux BETA 1.0.4 (20260817224846)."
+        return String(
+            format: L10n.string(
+                "mobile.connectionsUpdate.macUpdate.detail.official",
+                defaultValue: "Use cmux %@ or later on your Mac before connecting."
             ),
-        ].joined(separator: " ")
+            version
+        )
     }
 }
 #endif
