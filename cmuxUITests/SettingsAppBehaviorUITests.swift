@@ -247,25 +247,9 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         app.launchArguments += settingsLaunchArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
-        // Headless CI leaves the app running in the background. Keep XCTest
-        // alive through that known launch failure, then restore fail-fast so
-        // every Settings assertion below remains a real regression failure.
-        continueAfterFailure = true
-        let launchOptions = XCTExpectedFailure.Options()
-        launchOptions.isStrict = false
-        XCTExpectFailure(
-            "Headless CI may launch the app without foreground activation",
-            options: launchOptions
-        ) {
-            app.launch()
-        }
-        continueAfterFailure = false
-        XCTAssertTrue(
-            poll(timeout: 10.0) {
-                app.state == .runningForeground || app.state == .runningBackground
-            },
-            "App failed to launch. state=\(app.state.rawValue)"
-        )
+        // Activate like the other Settings tests: a window left behind a
+        // background launch has no hit point for the scroll below.
+        launchAndActivate(app)
         let window = app.windows[Self.settingsWindowIdentifier]
         XCTAssertTrue(
             poll(timeout: 8.0) { window.exists },
