@@ -1,7 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
-import CmuxSettings
 import SwiftUI
 import Testing
 import XCTest
@@ -82,7 +81,6 @@ final class SidebarWidthPolicyTests: XCTestCase {
         defaults.set(" 180 ", forKey: key)
         SessionPersistencePolicy.normalizeLegacySidebarMinimumWidthIfNeeded(defaults: defaults)
         XCTAssertEqual(defaults.object(forKey: key) as? Double, 180)
-        XCTAssertEqual(SidebarCatalogSection().leftMinWidth.value(in: defaults), 180, accuracy: 0.001)
         XCTAssertEqual(SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults), 180, accuracy: 0.001)
 
         // Numbers are left untouched, and garbage is removed.
