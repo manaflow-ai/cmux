@@ -20,7 +20,7 @@ extension GhosttyNSView {
             return true
         }
         switch preparedContent {
-        case .reject:
+        case .reject, .rejectOversizedImage:
             return false
         case .insertText(let text):
             return terminalSurface?.sendText(text) ?? false

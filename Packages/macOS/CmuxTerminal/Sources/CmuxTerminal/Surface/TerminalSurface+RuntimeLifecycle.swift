@@ -189,6 +189,7 @@ extension TerminalSurface {
             )
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
+            paneHost.terminalSurfaceRuntimeDidRelease()
             activePortalHostLease = nil
             portalHostAuthority = nil
             byteTee.dropSurface(surfaceID: id)
@@ -315,6 +316,7 @@ extension TerminalSurface {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
+        paneHost.terminalSurfaceRuntimeDidRelease()
         guard let surfaceToFree else {
             callbackContext?.release()
             manualIOContext?.release()
@@ -410,6 +412,7 @@ extension TerminalSurface {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
+        paneHost.terminalSurfaceRuntimeDidRelease()
         activePortalHostLease = nil
         portalHostAuthority = nil
         clearPortalHostVacancyRetries()
@@ -524,19 +527,6 @@ extension TerminalSurface {
         runtimeSurfaceSuspendedForAgentHibernation = false
         prepareNextRuntimeInitialInput(initialInput)
         return true
-    }
-
-    /// Sets the transport-only command used when a deferred restore is cancelled.
-    ///
-    /// Persistent SSH restores keep their PTY attached after cancellation, but
-    /// must omit the embedded agent-resume payload. The value is captured when
-    /// admission is cancelled and remains in force for later runtime retries.
-    ///
-    /// - Parameter command: The transport-only command to run after cancellation.
-    @MainActor
-    public func setStartupRestoreAdmissionFallbackCommand(_ command: String?) {
-        guard startupRestoreAdmissionPhase == .awaitingAdmission else { return }
-        startupRestoreAdmissionFallbackCommand = command?.isEmpty == false ? command : nil
     }
 
     /// Primes the initial input for the next runtime spawn only.

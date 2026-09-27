@@ -22,10 +22,8 @@ For docs or portable tooling, validate links/commands and run the affected porta
 tests. An app build is needed when native build or runtime behavior changes, not
 for every instruction edit. Web changes need their package's checks and live preview.
 
-Native work follows the [current build/test capacity owner](../../../AGENTS.md).
-The dev-build fleet does not imply XCTest, simulator or GUI support. Use an
-available supported recipe or the existing CI lane; report missing support
-instead of bypassing scheduling with an old SSH/VM command.
+Native work uses a [tagged build](../../cmux-dev-workflow/references/tagged-builds.md)
+or the existing CI lane. Team members: shared build fleet rules are in cmuxterm-hq.
 
 ## Native app versus test compilation
 
@@ -68,7 +66,7 @@ Dispatch through the wrapper. It pins the exact pushed commit, carries a `dispat
 
 **Do not dispatch `test-macos-suite.yml` for one test.** It runs a whole test target, compiles cold every time, and has none of the wrapper's reuse or refusal. A single-test dispatch there costs about 20 macOS runner-minutes for an answer the wrapper would share.
 
-**Do not re-dispatch the same selector at the same commit.** A focused run's result is a property of the commit; repeating it reprints the same failure at full cost. The wrapper now refuses a selector that already failed at that commit and points at the earlier run; read that run, fix the branch, push, and dispatch the new commit. `--force` exists for the rare case where you know the failure was infrastructure.
+**Do not re-dispatch the same selector at the same commit.** A focused run's result is a property of the commit; repeating it reprints the same failure at full cost. The wrapper now refuses a selector that already failed at that commit and points at the earlier run; read that run, fix the branch, push, and dispatch the new commit. A run the Mac failed before any test started (the UI test runner never initialized, no GUI session, screen capture never started; the list is `scripts/ci/machine_failure.py`) is not an answer, so the wrapper dispatches it again on its own, up to twice per commit, and prints which run and why. Add a signature there when you meet a new one; `--force` is for anything else you know was infrastructure.
 
 If a run fails with `selected test filter matched zero tests`, the selector is wrong or the test file is not wired into `project.pbxproj` (see the test wiring section of SKILL.md). Fix the selector; retrying an unmatched filter costs another full build and matches nothing again.
 
