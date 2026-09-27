@@ -657,9 +657,12 @@ fn upload_command(temporary: &str, encoding: UploadEncoding) -> String {
     format!("umask 077; (set -C; exec 3> {temporary} && {writer} >&3) && chmod 755 {temporary}")
 }
 
+/// Compressed upload bytes, in order, or the read error that ended them.
+type UploadChunks = mpsc::Receiver<std::io::Result<Vec<u8>>>;
+
 /// Compresses `source` on a blocking thread into bounded chunks. Dropping the
 /// receiver stops the compressor at its next chunk.
-fn compress_upload(source: &Path) -> mpsc::Receiver<std::io::Result<Vec<u8>>> {
+fn compress_upload(source: &Path) -> UploadChunks {
     let (sender, receiver) = mpsc::channel(4);
     let source = source.to_path_buf();
     tokio::task::spawn_blocking(move || {
@@ -696,7 +699,7 @@ fn compress_upload(source: &Path) -> mpsc::Receiver<std::io::Result<Vec<u8>>> {
 /// every byte was written: a remote that exits early closes the pipe, and its
 /// own status and stderr then explain the failure better than the write error.
 async fn write_upload(
-    input: Option<(Option<ChildStdin>, mpsc::Receiver<std::io::Result<Vec<u8>>>)>,
+    input: Option<(Option<ChildStdin>, UploadChunks)>,
 ) -> Result<bool, BootstrapError> {
     let Some((stdin, mut chunks)) = input else {
         return Ok(true);
