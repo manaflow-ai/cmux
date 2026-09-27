@@ -5608,24 +5608,47 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     static var suiteBaselineWindowNumbers: Set<Int>?
     static var suiteBaselinePortalCount = 0
     static var suiteBaselineRuntimeSurfaceCount = 0
-    static var suiteBaselinePendingTeardownCount: Int?
+    static var suiteBaselinePendingTeardownIds: Set<UUID>?
 
-    // XCTest runs this before the synchronous setUp(). Native frees that an
-    // earlier suite left in flight belong to that suite, not this one: wait
+    static func describePendingTeardowns(_ pending: [UUID: String]) -> String {
+        pending
+            .sorted { $0.key.uuidString < $1.key.uuidString }
+            .map { "\($0.key.uuidString.prefix(8)) (\($0.value))" }
+            .joined(separator: ", ")
+    }
+
+    // XCTest runs this before the synchronous setUp(). Native frees an
+    // earlier suite left in flight belong to that suite, not this one. Wait
     // for them to drain before the first test, bounded past Ghostty's 12 s
-    // SIGHUP grace plus its 3 s SIGKILL grace, and baseline whatever is left
-    // so the last-slot leak check only judges frees this suite started.
+    // SIGHUP grace plus its 3 s SIGKILL grace, and record an issue naming
+    // them so the leak stays visible. Whatever is still pending becomes the
+    // baseline the last-slot leak check compares identities against.
     override func setUp() async throws {
+        executionTimeAllowance = 60
         try await super.setUp()
-        guard Self.suiteBaselinePendingTeardownCount == nil else { return }
+        guard Self.suiteBaselinePendingTeardownIds == nil else { return }
         let teardown = GhosttyApp.terminalSurfaceRuntimeDependencies.runtimeTeardown
-        let deadline = ContinuousClock.now.advanced(by: .seconds(16))
-        var pending = await teardown.debugPendingTeardownCount
-        while pending > 0, ContinuousClock.now < deadline {
+        let clock = ContinuousClock()
+        let started = clock.now
+        let deadline = started.advanced(by: .seconds(16))
+        let initiallyPending = await teardown.debugPendingTeardownReasonsById
+        var pending = initiallyPending
+        while !pending.isEmpty, clock.now < deadline {
             try await Task.sleep(for: .milliseconds(50))
-            pending = await teardown.debugPendingTeardownCount
+            pending = await teardown.debugPendingTeardownReasonsById
         }
-        Self.suiteBaselinePendingTeardownCount = pending
+        let waited = clock.now - started
+        Self.suiteBaselinePendingTeardownIds = Set(pending.keys)
+        if waited > .seconds(2) || !pending.isEmpty {
+            let still = pending.isEmpty ? "" : "; still pending: " + Self.describePendingTeardowns(pending)
+            record(XCTIssue(
+                type: .assertionFailure,
+                compactDescription: "Earlier suites left native surface free(s) in flight: "
+                    + Self.describePendingTeardowns(initiallyPending)
+                    + "; waited \(waited) for them to drain\(still). "
+                    + "Release test surfaces synchronously instead of dropping them."
+            ))
+        }
     }
 
     override func setUp() {
@@ -6648,12 +6671,13 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         let pendingTeardowns = await GhosttyApp
             .terminalSurfaceRuntimeDependencies
             .runtimeTeardown
-            .debugPendingTeardownCount
-        let baselinePendingTeardowns = Self.suiteBaselinePendingTeardownCount ?? 0
-        XCTAssertLessThanOrEqual(
-            pendingTeardowns,
-            baselinePendingTeardowns,
-            "Earlier tests left \(pendingTeardowns - baselinePendingTeardowns) native surface free(s) in flight; "
+            .debugPendingTeardownReasonsById
+        let baselinePendingTeardownIds = Self.suiteBaselinePendingTeardownIds ?? []
+        let newPendingTeardowns = pendingTeardowns.filter { !baselinePendingTeardownIds.contains($0.key) }
+        XCTAssertTrue(
+            newPendingTeardowns.isEmpty,
+            "This suite's tests left \(newPendingTeardowns.count) native surface free(s) in flight: "
+                + Self.describePendingTeardowns(newPendingTeardowns) + "; "
                 + "release test surfaces synchronously instead of dropping them"
         )
     }
