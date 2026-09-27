@@ -246,11 +246,23 @@ func TestResolveClaudeHookDeliveryStepsAsideForWrapperAndNestedSessions(t *testi
 		"CMUX_SOCKET_PATH":  "127.0.0.1:63518",
 	}
 	values[claudeRelayWrapperActiveKey] = "1"
+	values["CMUX_CLAUDE_PID"] = "300"
 	base := claudeHookDelivery{socketPath: "127.0.0.1:63518", getenv: claudeHookTestEnv(values), callerTTY: func(string) string { return "" }}
 	if _, ok := resolveClaudeHookDelivery(base, true, 400, launcherTmuxProcessTree(), probe); ok {
 		t.Fatal("installed hooks must step aside when the wrapper injected its own")
 	}
+	// A wrapped Claude that started the tmux server leaks the marker and its
+	// PID into every pane; a different Claude there has no wrapper hooks.
+	values["CMUX_CLAUDE_PID"] = "999"
+	delivery, ok := resolveClaudeHookDelivery(base, true, 400, launcherTmuxProcessTree(), probe)
+	if !ok {
+		t.Fatal("an inherited wrapper marker must not silence another Claude")
+	}
+	if got := delivery.getenv("CMUX_CLAUDE_PID"); got != "300" {
+		t.Fatalf("CMUX_CLAUDE_PID = %q, want the discovered Claude, not the leaked one", got)
+	}
 	delete(values, claudeRelayWrapperActiveKey)
+	delete(values, "CMUX_CLAUDE_PID")
 	if _, ok := resolveClaudeHookDelivery(base, true, 700, launcherTmuxProcessTree(), probe); ok {
 		t.Fatal("installed hooks must not report a nested Claude session")
 	}
@@ -259,10 +271,52 @@ func TestResolveClaudeHookDeliveryStepsAsideForWrapperAndNestedSessions(t *testi
 	}
 }
 
+// TestResolveClaudeHookDeliveryNeverUsesPaneEnvironmentInTmux: pane CMUX_*
+// variables come from whichever shell started the tmux server, so without an
+// attached cmux client the installed hook stays silent.
+func TestResolveClaudeHookDeliveryNeverUsesPaneEnvironmentInTmux(t *testing.T) {
+	probe, _ := fakeClaudeHookTmuxProbe("$1\t\t@1", "", nil)
+	values := map[string]string{
+		"TMUX":              "/tmp/tmux-1000/default,100,0",
+		"CMUX_WORKSPACE_ID": "11111111-1111-4111-8111-111111111111",
+		"CMUX_SURFACE_ID":   "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+		"CMUX_SOCKET_PATH":  "127.0.0.1:63518",
+	}
+	base := claudeHookDelivery{socketPath: "127.0.0.1:63518", getenv: claudeHookTestEnv(values), callerTTY: func(string) string { return "" }}
+	if _, ok := resolveClaudeHookDelivery(base, true, 400, launcherTmuxProcessTree(), probe); ok {
+		t.Fatal("a detached tmux session must not report to the server's original surface")
+	}
+}
+
+// TestResolveClaudeHookDeliveryIgnoresSocketAddrOutsideTmux keeps surface IDs
+// and relay from one environment: ~/.cmux/socket_addr may be another
+// workspace's relay.
+func TestResolveClaudeHookDeliveryIgnoresSocketAddrOutsideTmux(t *testing.T) {
+	values := map[string]string{
+		"CMUX_WORKSPACE_ID": "11111111-1111-4111-8111-111111111111",
+		"CMUX_SURFACE_ID":   "22222222-2222-4222-8222-222222222222",
+	}
+	base := claudeHookDelivery{
+		socketPath:  "127.0.0.1:62357",
+		refreshAddr: func() string { return "127.0.0.1:62357" },
+		getenv:      claudeHookTestEnv(values),
+		callerTTY:   func(string) string { return "" },
+	}
+	if _, ok := resolveClaudeHookDelivery(base, true, 400, launcherTmuxProcessTree(), claudeHookTmuxProbe{}); ok {
+		t.Fatal("without CMUX_SOCKET_PATH the installed hook must not fall back to socket_addr")
+	}
+	values["CMUX_SOCKET_PATH"] = "127.0.0.1:63518"
+	delivery, ok := resolveClaudeHookDelivery(base, true, 400, launcherTmuxProcessTree(), claudeHookTmuxProbe{})
+	if !ok || delivery.socketPath != "127.0.0.1:63518" || delivery.refreshAddr != nil {
+		t.Fatalf("delivery = %+v ok=%v, want the environment's own relay without refresh", delivery, ok)
+	}
+}
+
 // TestClaudeHookRelayUserSettingsUsesSurfaceEnvironment runs the installed hook command shape end to end.
 func TestClaudeHookRelayUserSettingsUsesSurfaceEnvironment(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	t.Setenv("TMUX", "")
+	t.Setenv("CMUX_SOCKET_PATH", sockPath)
 	t.Setenv("CMUX_WORKSPACE_ID", "11111111-1111-4111-8111-111111111111")
 	t.Setenv("CMUX_SURFACE_ID", "22222222-2222-4222-8222-222222222222")
 	t.Setenv("CMUX_CLAUDE_HOOKS_DISABLED", "")
@@ -319,18 +373,58 @@ func TestClaudeHookRelaySharesOneTimeBudget(t *testing.T) {
 	claudeHookTimeBudget = 500 * time.Millisecond
 	t.Cleanup(func() { claudeRelayProcessTree, claudeHookTimeBudget = previousTree, previousBudget })
 
-	var stdout bytes.Buffer
-	start := time.Now()
-	code := runClaudeHookRelay(listener.Addr().String(), []string{claudeHookUserSettingsFlag, "stop"}, nil,
-		strings.NewReader(`{"session_id":"s"}`), &stdout)
-	elapsed := time.Since(start)
-	if code != 0 || strings.TrimSpace(stdout.String()) != "{}" {
-		t.Fatalf("exit %d stdout %q", code, stdout.String())
+	run := func() time.Duration {
+		var stdout bytes.Buffer
+		start := time.Now()
+		code := runClaudeHookRelay(listener.Addr().String(), []string{claudeHookUserSettingsFlag, "stop"}, nil,
+			strings.NewReader(`{"session_id":"s"}`), &stdout)
+		if code != 0 || strings.TrimSpace(stdout.String()) != "{}" {
+			t.Fatalf("exit %d stdout %q", code, stdout.String())
+		}
+		return time.Since(start)
 	}
-	if elapsed < claudeHookTimeBudget || elapsed > claudeHookTimeBudget+700*time.Millisecond {
-		t.Fatalf("hook took %v, want about one %v budget for tmux and the relay together", elapsed, claudeHookTimeBudget)
+	// A hung tmux gives up inside the budget and routes nowhere.
+	if elapsed := run(); elapsed > claudeHookTimeBudget+700*time.Millisecond {
+		t.Fatalf("hung tmux: hook took %v, want at most about one %v budget", elapsed, claudeHookTimeBudget)
+	}
+	// A silent relay holds the hook for the rest of the same budget.
+	t.Setenv("TMUX", "")
+	t.Setenv("CMUX_SOCKET_PATH", listener.Addr().String())
+	if elapsed := run(); elapsed < claudeHookTimeBudget || elapsed > claudeHookTimeBudget+700*time.Millisecond {
+		t.Fatalf("silent relay: hook took %v, want about one %v budget", elapsed, claudeHookTimeBudget)
 	}
 	if claudeHookDeclaredTimeout*time.Second-previousBudget < time.Second {
 		t.Fatalf("budget %v leaves too little room under the declared %ds timeout", previousBudget, claudeHookDeclaredTimeout)
+	}
+}
+
+// TestClaudeHookLiveRelayFollowsPersistentSlot covers a tmux client kept alive
+// in a persistent remote terminal across a reconnect: its environment still
+// names the old relay port, and the slot lease names the live one.
+func TestClaudeHookLiveRelayFollowsPersistentSlot(t *testing.T) {
+	relayDir := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(relayDir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("52000.slot", "ssh-slot-a\n")
+	write("52000.auth", `{"relay_id":"r","relay_token":"00"}`)
+	write("53000.slot", "ssh-slot-b\n")
+	write("53000.auth", `{"relay_id":"r","relay_token":"00"}`)
+	tree := fakeClaudeProcessTree{
+		10: {1, []string{"cmuxd-remote", "serve", "--persistent-server", "--slot", "ssh-slot-a", "--persistent-lease-port", "51000"}},
+		11: {10, []string{"tmux", "attach-session", "-t", "=s"}},
+	}
+	if got := claudeHookLiveRelay("127.0.0.1:51000", 11, tree, relayDir); got != "127.0.0.1:52000" {
+		t.Fatalf("relay = %q, want the live port leasing the client's slot", got)
+	}
+	// A live address is kept as is.
+	if got := claudeHookLiveRelay("127.0.0.1:53000", 11, tree, relayDir); got != "127.0.0.1:53000" {
+		t.Fatalf("relay = %q, want the live address unchanged", got)
+	}
+	// Without a slot above the client there is nothing to follow.
+	if got := claudeHookLiveRelay("127.0.0.1:51000", 99, tree, relayDir); got != "127.0.0.1:51000" {
+		t.Fatalf("relay = %q, want the original address", got)
 	}
 }

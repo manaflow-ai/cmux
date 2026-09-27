@@ -134,6 +134,9 @@ type claudeHookTmuxRoute struct {
 type claudeHookTmuxProbe struct {
 	run     func(args ...string) (string, error)
 	environ func(pid int) map[string]string
+	// liveRelay maps a client's relay address to the one currently serving
+	// its persistent slot; nil keeps the address.
+	liveRelay func(socketPath string, clientPID int) string
 }
 
 // defaultClaudeHookTmuxProbe runs the host's tmux under the hook's deadline
@@ -142,6 +145,13 @@ func defaultClaudeHookTmuxProbe(deadline time.Time) claudeHookTmuxProbe {
 	return claudeHookTmuxProbe{
 		run:     func(args ...string) (string, error) { return runClaudeHookTmux(deadline, args...) },
 		environ: readProcEnviron,
+		liveRelay: func(socketPath string, clientPID int) string {
+			home, err := os.UserHomeDir()
+			if err != nil || home == "" {
+				return socketPath
+			}
+			return claudeHookLiveRelay(socketPath, clientPID, claudeRelayProcessTree, filepath.Join(home, ".cmux", "relay"))
+		},
 	}
 }
 
@@ -242,8 +252,62 @@ func discoverClaudeHookTmuxRoute(getenv func(string) string, probe claudeHookTmu
 			clientTTY:   strings.TrimSpace(candidate.tty),
 		}
 		if route.socketPath != "" && route.workspaceID != "" && route.surfaceID != "" {
+			if probe.liveRelay != nil {
+				route.socketPath = probe.liveRelay(route.socketPath, candidate.pid)
+			}
 			return route, true
 		}
 	}
 	return claudeHookTmuxRoute{}, false
+}
+
+// claudeHookLiveRelay returns the relay that serves a tmux client now. A
+// client in a persistent remote terminal keeps the environment it started
+// with, so after a reconnect its relay port can be gone. The persistent
+// daemon above the client names its slot, and the relay directory records
+// which live port (with an auth file) leases that slot.
+func claudeHookLiveRelay(socketPath string, clientPID int, tree claudeProcessTree, relayDir string) string {
+	host, port, ok := strings.Cut(socketPath, ":")
+	if !ok || strings.HasPrefix(socketPath, "/") || port == "" {
+		return socketPath
+	}
+	if _, err := os.Stat(filepath.Join(relayDir, port+".auth")); err == nil {
+		return socketPath
+	}
+	slot := ""
+	current := tree.parent(clientPID)
+	for depth := 0; depth < claudeHookAgentSearchDepth && current > 1 && slot == ""; depth++ {
+		argv := tree.argv(current)
+		for index := 0; index+1 < len(argv); index++ {
+			if argv[index] == "--slot" {
+				slot = strings.TrimSpace(argv[index+1])
+				break
+			}
+		}
+		current = tree.parent(current)
+	}
+	if slot == "" {
+		return socketPath
+	}
+	leases, _ := filepath.Glob(filepath.Join(relayDir, "*.slot"))
+	best, bestTime := "", time.Time{}
+	for _, lease := range leases {
+		data, err := os.ReadFile(lease)
+		if err != nil || strings.TrimSpace(string(data)) != slot {
+			continue
+		}
+		livePort := strings.TrimSuffix(filepath.Base(lease), ".slot")
+		if _, err := strconv.Atoi(livePort); err != nil {
+			continue
+		}
+		info, err := os.Stat(filepath.Join(relayDir, livePort+".auth"))
+		if err != nil || (best != "" && !info.ModTime().After(bestTime)) {
+			continue
+		}
+		best, bestTime = livePort, info.ModTime()
+	}
+	if best == "" {
+		return socketPath
+	}
+	return host + ":" + best
 }
