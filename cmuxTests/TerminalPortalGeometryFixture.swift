@@ -107,14 +107,21 @@ final class TerminalPortalGeometryFixture {
         // Real shell output keeps the scroller present after the runtime's
         // first scrollbar packet; a style toggle on an empty shell is a no-op.
         let command = #"/bin/sh -c 'i=0; while [ "$i" -lt 80 ]; do printf "cmux-geometry-scroll\n"; i=$((i + 1)); done'"#
+        let start = ContinuousClock.now
+        NSLog("CMUXDIAG scroll.send before=\(String(describing: surface.visibleText()))")
         try #require(surface.sendInput(command + "\r"), sourceLocation: sourceLocation)
-        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
         repeat {
-            if let scrollbar = hosted.surfaceView.scrollbar, scrollbar.total > scrollbar.len { return }
+            if let scrollbar = hosted.surfaceView.scrollbar, scrollbar.total > scrollbar.len {
+                NSLog("CMUXDIAG scroll.ok elapsed=\(ContinuousClock.now - start)")
+                return
+            }
             await flushLayout()
         } while ContinuousClock.now < deadline && !Task.isCancelled
         let hasScrollback = false
-        try #require(hasScrollback, "Expected shell output to create real scrollback", sourceLocation: sourceLocation)
+        let text = surface.visibleText() ?? "nil"
+        NSLog("CMUXDIAG scroll.fail scrollbar=\(String(describing: hosted.surfaceView.scrollbar)) text=\(text)")
+        try #require(hasScrollback, "Expected shell output to create real scrollback; scrollbar=\(String(describing: hosted.surfaceView.scrollbar)) text=\(text)", sourceLocation: sourceLocation)
     }
 
     /// Read the actual terminal screen and kernel TTY, not just Ghostty's

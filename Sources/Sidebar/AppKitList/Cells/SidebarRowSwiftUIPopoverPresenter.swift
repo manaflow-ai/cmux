@@ -63,6 +63,7 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
         presentationCount += 1
         applyRootView(root)
         popover.show(relativeTo: rect, of: view, preferredEdge: preferredEdge)
+        NSLog("CMUXDIAG presenter.show isShown=\(popover.isShown) winVisible=\(popover.contentViewController?.view.window?.isVisible == true)")
     }
 
     /// Live refresh while shown: mutations reach the row through the normal
@@ -113,15 +114,22 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
         ), on: popover)
     }
 
+    func popoverWillShow(_ notification: Notification) {
+        NSLog("CMUXDIAG presenter.willShow")
+    }
+
     func popoverDidShow(_ notification: Notification) {
+        NSLog("CMUXDIAG presenter.didShow")
         PopoverKeyWindowElevator.promoteToKeyIfPossible(hostingController.view.window)
     }
 
     func popoverWillClose(_ notification: Notification) {
+        NSLog("CMUXDIAG presenter.willClose programmatic=\(closingProgrammatically)")
         isClosing = true
     }
 
     func popoverDidClose(_ notification: Notification) {
+        NSLog("CMUXDIAG presenter.didClose programmatic=\(closingProgrammatically) hasHandler=\(onExternalDismiss != nil)")
         isClosing = false
         visibleUpdateScheduler.cancel()
         pendingRoot = nil

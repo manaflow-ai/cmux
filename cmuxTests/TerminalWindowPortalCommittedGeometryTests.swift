@@ -132,7 +132,8 @@ struct TerminalWindowPortalCommittedGeometryTests {
         #expect(fixture.surface.committedPaneGeometry?.size == scrollView.contentView.bounds.size)
     }
 
-    @Test func legacyScrollerCommitsClipWidthWithoutPaneResize() async throws {
+    @Test(arguments: 0..<20)
+    func legacyScrollerCommitsClipWidthWithoutPaneResize(iteration: Int) async throws {
         let fixture = TerminalPortalGeometryFixture()
         defer { fixture.close() }
         fixture.bind()

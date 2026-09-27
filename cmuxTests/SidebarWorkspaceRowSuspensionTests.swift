@@ -5,7 +5,7 @@ import CmuxWorkspaces
 import Testing
 @testable import cmux_DEV
 
-@Suite
+@Suite(.serialized)
 @MainActor
 struct SidebarWorkspaceRowSuspensionTests {
     private static func makeSnapshot(
@@ -293,8 +293,9 @@ struct SidebarWorkspaceRowSuspensionTests {
         #expect(await AppKitTestEventPump().waitUntil { !popoverWindow.isVisible })
     }
 
-    @Test
-    func transientWindowReparentingPreservesChecklistPopover() async throws {
+    @Test(arguments: 0..<20)
+    func transientWindowReparentingPreservesChecklistPopover(iteration: Int) async throws {
+        NSLog("CMUXDIAG test.begin iteration=\(iteration)")
         let application = NSApplication.shared
         let model = Self.makeModel(
             checklistAddFieldActivationToken: 1,
@@ -336,15 +337,18 @@ struct SidebarWorkspaceRowSuspensionTests {
             }
         )
 
+        NSLog("CMUXDIAG test.reparent")
         let replacementRoot = NSView(frame: cell.frame)
         window.contentView = replacementRoot
         replacementRoot.addSubview(cell)
+        NSLog("CMUXDIAG test.reparented")
 
         let rePresented = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
             application.windows.contains {
                 !existingWindowIds.contains(ObjectIdentifier($0)) && $0.isVisible
             }
         }
+        NSLog("CMUXDIAG test.end iteration=\(iteration) rePresented=\(rePresented) changes=\(presentationChanges)")
         #expect(rePresented, "Checklist popover should re-present after a transient anchor reparent")
         #expect(presentationChanges.isEmpty)
         #expect(tokenConsumptions == 0)

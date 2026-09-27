@@ -413,6 +413,7 @@ final class SidebarRowChecklistSection: NSView {
 
     private func presentPendingChecklistPopoverIfNeeded() {
         guard pendingPopoverPresentation else { return }
+        NSLog("CMUXDIAG section.presentPending model=\(model != nil) actions=\(actions != nil) window=\(window != nil) width=\(bounds.width) isShown=\(popoverPresenter.isShown) hidden=\(isHiddenOrHasHiddenAncestor)")
         guard let model, let actions, window != nil, bounds.width > 1 else { return }
         pendingPopoverPresentation = false
         guard !popoverPresenter.isShown else { return }
@@ -436,6 +437,7 @@ final class SidebarRowChecklistSection: NSView {
         let generation = popoverPresentationGeneration
         popoverPresenter.onExternalDismiss = { [weak self] in
             guard let self else { return }
+            NSLog("CMUXDIAG section.externalDismiss detached=\(self.popoverAnchorDetachedWhilePresented) window=\(self.window != nil)")
 
             if self.popoverAnchorDetachedWhilePresented {
                 // Replacing/reparenting AppKit row roots can temporarily detach
@@ -446,6 +448,7 @@ final class SidebarRowChecklistSection: NSView {
                 DispatchQueue.main.async { [weak self] in
                     // Reuse and unmount already wrote this session back
                     // and reset the section for whoever owns it now.
+                    NSLog("CMUXDIAG section.deferredDismiss self=\(self != nil) genMatch=\(self?.popoverPresentationGeneration == generation) window=\(self?.window != nil) presented=\(self?.model?.isChecklistPopoverPresented == true)")
                     guard let self, self.popoverPresentationGeneration == generation else { return }
                     self.popoverAnchorDetachedWhilePresented = false
                     if self.window != nil,
@@ -485,6 +488,7 @@ final class SidebarRowChecklistSection: NSView {
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
+        NSLog("CMUXDIAG section.viewWillMove new=\(newWindow != nil) isShown=\(popoverPresenter.isShown) closing=\(popoverPresenter.isClosing) flag=\(popoverAnchorDetachedWhilePresented)")
         if newWindow == nil, popoverPresenter.isShown {
             popoverAnchorDetachedWhilePresented = true
         }
@@ -493,6 +497,7 @@ final class SidebarRowChecklistSection: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        NSLog("CMUXDIAG section.viewDidMove window=\(window != nil) isShown=\(popoverPresenter.isShown) closing=\(popoverPresenter.isClosing) flag=\(popoverAnchorDetachedWhilePresented) pending=\(pendingPopoverPresentation)")
         if window != nil, popoverAnchorDetachedWhilePresented, popoverPresenter.isShown {
             // The popover may have survived the reparent, in which case a
             // later close is a real click-away rather than a detach side
@@ -501,6 +506,7 @@ final class SidebarRowChecklistSection: NSView {
             // that close can finish after the anchor is back in the window.
             let generation = popoverPresentationGeneration
             DispatchQueue.main.async { [weak self] in
+                NSLog("CMUXDIAG section.reattachCheck genMatch=\(self?.popoverPresentationGeneration == generation) window=\(self?.window != nil) isShown=\(self?.popoverPresenter.isShown == true) closing=\(self?.popoverPresenter.isClosing == true)")
                 guard let self,
                       self.popoverPresentationGeneration == generation,
                       self.window != nil,
