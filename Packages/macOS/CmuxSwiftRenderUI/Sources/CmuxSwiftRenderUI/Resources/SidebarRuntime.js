@@ -210,9 +210,18 @@
     }
     handle.frame = (spec) => {
       // A function spec binds every key it returns: `.frame(() => ({ width: w() }))`.
-      // Keys are taken from the first evaluation.
+      // Keys are taken from the first evaluation, read untracked so a
+      // `.frame(fn)` inside a ForEach row doesn't subscribe the list effect.
       if (typeof spec === "function") {
-        for (const k of Object.keys(spec() || {})) setProp(id, k, () => (spec() || {})[k]);
+        const prevEffect = currentEffect;
+        currentEffect = null;
+        let keys;
+        try {
+          keys = Object.keys(spec() || {});
+        } finally {
+          currentEffect = prevEffect;
+        }
+        for (const k of keys) setProp(id, k, () => (spec() || {})[k]);
         return handle;
       }
       for (const k of Object.keys(spec || {})) setProp(id, k, spec[k]);
