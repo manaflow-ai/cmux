@@ -1,5 +1,6 @@
 import AppKit
 import CMUXAgentLaunch
+import CmuxSettings
 import Foundation
 import os
 import Security
