@@ -3176,6 +3176,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         }
 
         let hostedView = terminalPanel.hostedView
+        defer { terminalPanel.surface.releaseHostedSurfaceForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -3246,6 +3247,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         }
 
         let hostedView = terminalPanel.hostedView
+        defer { terminalPanel.surface.releaseHostedSurfaceForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -3295,6 +3297,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             workingDirectory: nil
         )
         let hostedView = surface.hostedView
+        defer { surface.releaseHostedSurfaceForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -3358,6 +3361,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             workingDirectory: nil
         )
         let hostedView = surface.hostedView
+        defer { surface.releaseHostedSurfaceForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -3446,6 +3450,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             workingDirectory: nil
         )
         let hostedView = surface.hostedView
+        defer { surface.releaseHostedSurfaceForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -3468,6 +3473,9 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "Expected runtime surface before simulating close lifecycle teardown"
         )
 
+        // teardownSurface frees through the coordinator; kill the shell first
+        // so that free does not wait out Ghostty's SIGHUP grace.
+        surface.killShellProcessesForTesting()
         surface.beginPortalCloseLifecycle(reason: "test.close")
         surface.teardownSurface()
         XCTAssertNil(surface.surface, "Teardown should release the runtime surface")
@@ -3507,6 +3515,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             workingDirectory: nil
         )
         let hostedView = surface.hostedView
+        defer { surface.releaseHostedSurfaceForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -3599,6 +3608,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             workingDirectory: nil
         )
         let hostedView = surface.hostedView
+        defer { surface.releaseHostedSurfaceForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -3697,6 +3707,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             workingDirectory: nil
         )
         let hostedView = surface.hostedView
+        defer { surface.releaseHostedSurfaceForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -5597,6 +5608,25 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     static var suiteBaselineWindowNumbers: Set<Int>?
     static var suiteBaselinePortalCount = 0
     static var suiteBaselineRuntimeSurfaceCount = 0
+    static var suiteBaselinePendingTeardownCount: Int?
+
+    // XCTest runs this before the synchronous setUp(). Native frees that an
+    // earlier suite left in flight belong to that suite, not this one: wait
+    // for them to drain before the first test, bounded past Ghostty's 12 s
+    // SIGHUP grace plus its 3 s SIGKILL grace, and baseline whatever is left
+    // so the last-slot leak check only judges frees this suite started.
+    override func setUp() async throws {
+        try await super.setUp()
+        guard Self.suiteBaselinePendingTeardownCount == nil else { return }
+        let teardown = GhosttyApp.terminalSurfaceRuntimeDependencies.runtimeTeardown
+        let deadline = ContinuousClock.now.advanced(by: .seconds(16))
+        var pending = await teardown.debugPendingTeardownCount
+        while pending > 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+            pending = await teardown.debugPendingTeardownCount
+        }
+        Self.suiteBaselinePendingTeardownCount = pending
+    }
 
     override func setUp() {
         super.setUp()
@@ -6619,10 +6649,11 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             .terminalSurfaceRuntimeDependencies
             .runtimeTeardown
             .debugPendingTeardownCount
-        XCTAssertEqual(
+        let baselinePendingTeardowns = Self.suiteBaselinePendingTeardownCount ?? 0
+        XCTAssertLessThanOrEqual(
             pendingTeardowns,
-            0,
-            "Earlier tests left \(pendingTeardowns) native surface free(s) in flight; "
+            baselinePendingTeardowns,
+            "Earlier tests left \(pendingTeardowns - baselinePendingTeardowns) native surface free(s) in flight; "
                 + "release test surfaces synchronously instead of dropping them"
         )
     }
