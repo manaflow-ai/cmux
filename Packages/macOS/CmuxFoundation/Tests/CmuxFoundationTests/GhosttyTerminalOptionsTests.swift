@@ -16,8 +16,8 @@ struct GhosttyTerminalOptionsTests {
         #expect(options.fontSize == 13)
         #expect(options.cursorStyle == .block)
         #expect(options.cursorBlinks)
-        #expect(options.windowPaddingX == 2)
-        #expect(options.windowPaddingY == 2)
+        #expect(options.windowPaddingX == GhosttyWindowPadding(leading: 2))
+        #expect(options.windowPaddingY == GhosttyWindowPadding(leading: 2))
         #expect(options.backgroundOpacity == 1)
         #expect(!options.backgroundBlurEnabled)
         #expect(options.optionAsAlt == .automatic)
@@ -39,8 +39,8 @@ struct GhosttyTerminalOptionsTests {
         #expect(options.fontSize == 15.5)
         #expect(options.cursorStyle == .bar)
         #expect(!options.cursorBlinks)
-        #expect(options.windowPaddingX == 4)
-        #expect(options.windowPaddingY == 6)
+        #expect(options.windowPaddingX == GhosttyWindowPadding(leading: 4, trailing: 8))
+        #expect(options.windowPaddingY == GhosttyWindowPadding(leading: 6))
         #expect(options.backgroundOpacity == 1)
         #expect(options.optionAsAlt == .left)
         #expect(options.scrollbackLimitBytes == 10_000_000)
@@ -60,7 +60,7 @@ struct GhosttyTerminalOptionsTests {
 
     @Test("font-family is a list: assignments append fallbacks and an empty one clears")
     func fontFamilyFolding() {
-        #expect(GhosttyTerminalOptions(directives: ["font-family": ["Menlo", "Monaco"]]).fontFamily == "Menlo")
+        #expect(GhosttyTerminalOptions(directives: ["font-family": ["Menlo", "Monaco"]]).fontFamilies == ["Menlo", "Monaco"])
         #expect(GhosttyTerminalOptions(directives: ["font-family": ["Menlo", "", "SF Mono"]]).fontFamily == "SF Mono")
         #expect(GhosttyTerminalOptions(directives: ["font-family": ["Menlo", ""]]).fontFamily == nil)
     }
@@ -84,7 +84,8 @@ struct GhosttyTerminalOptionsTests {
         #expect(GhosttyTerminalOptionChange.cursorStyle(.blockHollow).configValues == ["block_hollow"])
         #expect(GhosttyTerminalOptionChange.cursorBlinks(false).key.rawValue == "cursor-style-blink")
         #expect(GhosttyTerminalOptionChange.cursorBlinks(false).configValues == ["false"])
-        #expect(GhosttyTerminalOptionChange.windowPaddingY(12).key.rawValue == "window-padding-y")
+        #expect(GhosttyTerminalOptionChange.windowPaddingY(GhosttyWindowPadding(leading: 12)).key.rawValue == "window-padding-y")
+        #expect(GhosttyTerminalOptionChange.windowPaddingY(GhosttyWindowPadding(leading: 12)).configValues == ["12"])
         #expect(GhosttyTerminalOptionChange.backgroundOpacity(0.8).configValues == ["0.8"])
         #expect(GhosttyTerminalOptionChange.backgroundBlurEnabled(true).configValues == ["true"])
         #expect(GhosttyTerminalOptionChange.optionAsAlt(.both).key.rawValue == "macos-option-as-alt")
@@ -95,8 +96,39 @@ struct GhosttyTerminalOptionsTests {
 
     @Test("A font change clears inherited families before setting its own")
     func fontFamilyChangeResetsList() {
-        #expect(GhosttyTerminalOptionChange.fontFamily("JetBrains Mono").configValues == ["\"\"", "\"JetBrains Mono\""])
-        #expect(GhosttyTerminalOptionChange.fontFamily(nil).configValues == ["\"\""])
+        #expect(GhosttyTerminalOptionChange.fontFamilies(["JetBrains Mono"]).configValues == ["\"\"", "\"JetBrains Mono\""])
+        #expect(GhosttyTerminalOptionChange.fontFamilies([]).configValues == ["\"\""])
+    }
+
+    @Test("Choosing a font keeps the user's fallback chain behind it")
+    func fontChoiceKeepsFallbacks() {
+        let options = GhosttyTerminalOptions(directives: ["font-family": ["Menlo", "Symbols Nerd Font", "Apple Color Emoji"]])
+        #expect(options.fontFamiliesChoosing("SF Mono") == ["SF Mono", "Symbols Nerd Font", "Apple Color Emoji"])
+        // The chosen family isn't repeated when it was already a fallback.
+        #expect(options.fontFamiliesChoosing("Symbols Nerd Font") == ["Symbols Nerd Font", "Apple Color Emoji"])
+        #expect(options.fontFamiliesChoosing(nil) == [])
+        #expect(
+            GhosttyTerminalOptionChange.fontFamilies(options.fontFamiliesChoosing("SF Mono")).configValues
+                == ["\"\"", "\"SF Mono\"", "\"Symbols Nerd Font\"", "\"Apple Color Emoji\""]
+        )
+    }
+
+    @Test("A padding step keeps the other side of a leading,trailing pair")
+    func paddingPairKeepsTrailingSide() {
+        let options = GhosttyTerminalOptions(directives: ["window-padding-x": ["4,8"]])
+        let change = GhosttyTerminalOptionChange.windowPaddingX(options.windowPaddingX.withLeading(5))
+        #expect(change.configValues == ["5,8"])
+        #expect(GhosttyWindowPadding(configValue: "4,") == nil)
+        #expect(GhosttyWindowPadding(configValue: " 3 , 7 ") == GhosttyWindowPadding(leading: 3, trailing: 7))
+    }
+
+    @Test("reflects(_:) is false when a later file overrides the written value")
+    func reflectsDetectsOverride() {
+        let change = GhosttyTerminalOptionChange.fontSize(16)
+        let written = GhosttyTerminalOptions(directives: ["font-size": ["16"]])
+        let overridden = GhosttyTerminalOptions(directives: ["font-size": ["16", "18"]])
+        #expect(written.reflects(change))
+        #expect(!overridden.reflects(change))
     }
 
     @Test("Writing a change and reading it back after the user's config yields the change")
@@ -107,12 +139,12 @@ struct GhosttyTerminalOptionsTests {
         macos-option-as-alt = left
         """
         let changes: [GhosttyTerminalOptionChange] = [
-            .fontFamily("SF Mono"),
+            .fontFamilies(["SF Mono"]),
             .fontSize(16),
             .cursorStyle(.underline),
             .cursorBlinks(false),
-            .windowPaddingX(10),
-            .windowPaddingY(0),
+            .windowPaddingX(GhosttyWindowPadding(leading: 10)),
+            .windowPaddingY(GhosttyWindowPadding(leading: 0, trailing: 6)),
             .backgroundOpacity(0.75),
             .backgroundBlurEnabled(true),
             .optionAsAlt(.automatic),

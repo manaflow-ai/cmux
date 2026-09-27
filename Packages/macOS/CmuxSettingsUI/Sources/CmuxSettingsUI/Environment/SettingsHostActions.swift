@@ -211,8 +211,9 @@ public protocol SettingsHostActions: AnyObject {
 
     /// The effective values of the Ghostty options Settings > Terminal edits
     /// natively, folded from the user's Ghostty config and cmux's config in
-    /// load order. Reads the config files off the main actor.
-    func terminalGhosttyOptions() async -> GhosttyTerminalOptions
+    /// load order, with the file that last set each key. Reads the config
+    /// files off the main actor.
+    func terminalGhosttyOptions() async -> GhosttyTerminalOptionsSnapshot
 
     /// Writes one option's key to cmux's Ghostty config and reloads the
     /// configuration so open terminals pick it up.

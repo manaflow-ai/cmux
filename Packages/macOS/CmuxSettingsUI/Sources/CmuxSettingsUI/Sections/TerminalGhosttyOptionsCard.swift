@@ -17,9 +17,17 @@ struct TerminalGhosttyOptionsCard: View {
     @State private var monospacedFamilies: [String] = []
     @State private var activeOpacityDragValue: Double?
     @State private var saveFailed = false
-    @State private var tasks = MainActorTaskStore<String>()
+    /// Changes shown optimistically whose write hasn't finished yet, reapplied
+    /// over each re-read so one row's refresh doesn't undo another row's edit.
+    @State private var pendingChanges: [GhosttyTerminalOptionKey: GhosttyTerminalOptionChange] = [:]
+    /// Keys whose written value a later-loading config file overrides, with
+    /// that file's display path.
+    @State private var overriddenKeys: [GhosttyTerminalOptionKey: String] = [:]
+    @State private var tasks = MainActorTaskStore<GhosttyTerminalOptionKey>()
 
     private static let bytesPerMegabyte = 1_000_000
+    /// Coalesces stepper autorepeat and quick clicks into one write and reload.
+    private static let writeDelay: Duration = .milliseconds(250)
 
     var body: some View {
         SettingsCard {
@@ -63,7 +71,7 @@ struct TerminalGhosttyOptionsCard: View {
         ) {
             Picker("", selection: Binding(
                 get: { options.fontFamily ?? "" },
-                set: { apply(.fontFamily($0.isEmpty ? nil : $0)) }
+                set: { apply(.fontFamilies(options.fontFamiliesChoosing($0))) }
             )) {
                 Text(String(localized: "settings.terminal.ghostty.fontFamily.default", defaultValue: "Default")).tag("")
                 Divider()
@@ -135,8 +143,8 @@ struct TerminalGhosttyOptionsCard: View {
             key: .windowPaddingX,
             controlWidth: 140
         ) {
-            paddingStepper(options.windowPaddingX, identifier: "SettingsTerminalGhosttyPaddingXStepper") {
-                apply(.windowPaddingX($0))
+            paddingStepper(options.windowPaddingX.leading, identifier: "SettingsTerminalGhosttyPaddingXStepper") {
+                apply(.windowPaddingX(options.windowPaddingX.withLeading($0)))
             }
         }
         SettingsCardDivider()
@@ -146,8 +154,8 @@ struct TerminalGhosttyOptionsCard: View {
             key: .windowPaddingY,
             controlWidth: 140
         ) {
-            paddingStepper(options.windowPaddingY, identifier: "SettingsTerminalGhosttyPaddingYStepper") {
-                apply(.windowPaddingY($0))
+            paddingStepper(options.windowPaddingY.leading, identifier: "SettingsTerminalGhosttyPaddingYStepper") {
+                apply(.windowPaddingY(options.windowPaddingY.withLeading($0)))
             }
         }
         SettingsCardDivider()
@@ -214,6 +222,10 @@ struct TerminalGhosttyOptionsCard: View {
             "scrollback-limit",
             String(localized: "settings.terminal.ghostty.scrollbackLimit", defaultValue: "Scrollback Limit"),
             key: .scrollbackLimit,
+            detail: String(
+                localized: "settings.terminal.ghostty.scrollbackLimit.newTerminals",
+                defaultValue: "Applies to new terminals."
+            ),
             controlWidth: 140
         ) {
             HStack(spacing: 6) {
@@ -235,21 +247,40 @@ struct TerminalGhosttyOptionsCard: View {
 
     // MARK: Helpers
 
+    /// A row captioned with its Ghostty key (and `detail`, when given), with an
+    /// override note beneath it when a later-loading file beats the written value.
     private func optionRow<Control: View>(
         _ id: String,
         _ title: String,
         key: GhosttyTerminalOptionKey,
+        detail: String? = nil,
         controlWidth: CGFloat? = nil,
         @ViewBuilder control: () -> Control
     ) -> some View {
-        SettingsCardRow(
-            configurationReview: .settingsOnly,
-            searchAnchorID: "setting:terminal:\(id)",
-            title,
-            subtitle: key.rawValue,
-            controlWidth: controlWidth,
-            trailing: control
-        )
+        VStack(alignment: .leading, spacing: 0) {
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                searchAnchorID: "setting:terminal:\(id)",
+                title,
+                subtitle: [key.rawValue, detail].compactMap { $0 }.joined(separator: " · "),
+                controlWidth: controlWidth,
+                trailing: control
+            )
+            if let path = overriddenKeys[key] {
+                Text(String.localizedStringWithFormat(
+                    String(
+                        localized: "settings.terminal.ghostty.overridden",
+                        defaultValue: "Overridden by your config (%@)"
+                    ),
+                    path
+                ))
+                .cmuxFont(.caption)
+                .foregroundStyle(.orange)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
 
     private func paddingStepper(
@@ -308,22 +339,32 @@ struct TerminalGhosttyOptionsCard: View {
 
     private func load() async {
         let families = Task.detached(priority: .utility) { MonospacedFontFamilies().load() }
-        options = await hostActions.terminalGhosttyOptions()
+        options = await hostActions.terminalGhosttyOptions().options
         hasLoaded = true
         monospacedFamilies = await families.value
     }
 
-    /// Shows `change` right away, writes it, then re-reads the effective values
-    /// so a later-loading include that still overrides the key shows through.
+    /// Shows `change` right away, then writes it after a short pause (a newer
+    /// change to the same key replaces this task, so stepper autorepeat writes
+    /// once), and re-reads the effective values. When a later-loading config
+    /// file still overrides the key, the row names that file instead of
+    /// silently snapping back.
     private func apply(_ change: GhosttyTerminalOptionChange) {
+        let key = change.key
         options = options.applying(change)
-        tasks.replaceOnMainActor("apply") {
+        pendingChanges[key] = change
+        tasks.replaceOnMainActor(key) {
+            try? await Task.sleep(for: Self.writeDelay)
+            guard !Task.isCancelled else { return }
             let saved = await hostActions.applyTerminalGhosttyOption(change)
             guard !Task.isCancelled else { return }
+            pendingChanges[key] = nil
             saveFailed = !saved
-            let effective = await hostActions.terminalGhosttyOptions()
-            guard !Task.isCancelled else { return }
-            options = effective
+            let snapshot = await hostActions.terminalGhosttyOptions()
+            overriddenKeys[key] = saved && !snapshot.options.reflects(change)
+                ? snapshot.sourcePaths[key] ?? key.rawValue
+                : nil
+            options = pendingChanges.values.reduce(snapshot.options) { $0.applying($1) }
         }
     }
 }

@@ -4,13 +4,14 @@
 /// which Ghostty loads after the user's, so the change overrides a value the
 /// user set in `~/.config/ghostty/config` without editing that file.
 public enum GhosttyTerminalOptionChange: Equatable, Sendable {
-    /// A primary font family, or `nil` for Ghostty's built-in font.
-    case fontFamily(String?)
+    /// The full family list in fallback order; empty for Ghostty's built-in
+    /// font. Build it with ``GhosttyTerminalOptions/fontFamiliesChoosing(_:)``.
+    case fontFamilies([String])
     case fontSize(Double)
     case cursorStyle(GhosttyCursorStyle)
     case cursorBlinks(Bool)
-    case windowPaddingX(Int)
-    case windowPaddingY(Int)
+    case windowPaddingX(GhosttyWindowPadding)
+    case windowPaddingY(GhosttyWindowPadding)
     case backgroundOpacity(Double)
     case backgroundBlurEnabled(Bool)
     case optionAsAlt(GhosttyOptionAsAlt)
@@ -19,7 +20,7 @@ public enum GhosttyTerminalOptionChange: Equatable, Sendable {
     /// The Ghostty key this change writes.
     public var key: GhosttyTerminalOptionKey {
         switch self {
-        case .fontFamily: return .fontFamily
+        case .fontFamilies: return .fontFamily
         case .fontSize: return .fontSize
         case .cursorStyle: return .cursorStyle
         case .cursorBlinks: return .cursorStyleBlink
@@ -36,22 +37,20 @@ public enum GhosttyTerminalOptionChange: Equatable, Sendable {
     ///
     /// `font-family` appends a fallback on every assignment, so the font
     /// change first writes an empty value to clear families set by earlier
-    /// config files and then the chosen family.
+    /// config files and then every family in order.
     public var configValues: [String] {
         let numberFormatter = CmuxGhosttyConfigSettingEditor()
         switch self {
-        case .fontFamily(let family):
-            let reset = "\"\""
-            guard let family, !family.isEmpty else { return [reset] }
-            return [reset, "\"\(family)\""]
+        case .fontFamilies(let families):
+            return ["\"\""] + families.map { "\"\($0)\"" }
         case .fontSize(let points):
             return [numberFormatter.formattedFontSize(points)]
         case .cursorStyle(let style):
             return [style.rawValue]
         case .cursorBlinks(let blinks):
             return [blinks ? "true" : "false"]
-        case .windowPaddingX(let points), .windowPaddingY(let points):
-            return [String(max(points, 0))]
+        case .windowPaddingX(let padding), .windowPaddingY(let padding):
+            return [padding.configValue]
         case .backgroundOpacity(let opacity):
             return [numberFormatter.formattedFontSize(min(max(opacity, 0), 1))]
         case .backgroundBlurEnabled(let enabled):

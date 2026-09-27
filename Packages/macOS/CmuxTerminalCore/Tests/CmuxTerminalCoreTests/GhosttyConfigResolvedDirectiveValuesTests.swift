@@ -44,10 +44,11 @@ import Testing
                 to: cmux
             )
 
-            let values = GhosttyConfig.resolvedDirectiveValues(
+            let resolved = GhosttyConfig.resolvedDirectiveValues(
                 forKeys: GhosttyTerminalOptions.configKeys,
                 configPaths: [user.path, cmux.path]
             )
+            let values = resolved.values
 
             #expect(values["font-family"] == ["Fira Code", "", "SF Mono"])
             #expect(values["font-size"] == ["15"])
@@ -55,6 +56,9 @@ import Testing
             #expect(values["cursor-style"] == ["underline", "bar", "block_hollow"])
             #expect(values["theme"] == nil)
             #expect(values["background-opacity"] == nil)
+            // The include made the last cursor-style assignment, so it overrides cmux's config.
+            #expect(resolved.lastSourcePaths["cursor-style"]?.hasSuffix("/extra") == true)
+            #expect(resolved.lastSourcePaths["font-size"]?.hasSuffix("/ghostty-config") == true)
 
             let options = GhosttyTerminalOptions(directives: values)
             #expect(options.fontFamily == "SF Mono")
@@ -68,7 +72,7 @@ import Testing
             let values = GhosttyConfig.resolvedDirectiveValues(
                 forKeys: GhosttyTerminalOptions.configKeys,
                 configPaths: [dir.appendingPathComponent("absent").path]
-            )
+            ).values
             #expect(values.isEmpty)
             #expect(GhosttyTerminalOptions(directives: values) == .defaults)
         }

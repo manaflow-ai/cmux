@@ -806,10 +806,18 @@ final class HostSettingsActions: SettingsHostActions {
         CmuxGhosttyConfigSettingEditor().formattedFontSize(points)
     }
 
-    func terminalGhosttyOptions() async -> GhosttyTerminalOptions {
+    func terminalGhosttyOptions() async -> GhosttyTerminalOptionsSnapshot {
         await Task.detached(priority: .userInitiated) {
-            GhosttyTerminalOptions(
-                directives: GhosttyConfig.resolvedDirectiveValues(forKeys: GhosttyTerminalOptions.configKeys)
+            let resolved = GhosttyConfig.resolvedDirectiveValues(forKeys: GhosttyTerminalOptions.configKeys)
+            let environment = ConfigSourceEnvironment.live()
+            var sourcePaths: [GhosttyTerminalOptionKey: String] = [:]
+            for (key, path) in resolved.lastSourcePaths {
+                guard let optionKey = GhosttyTerminalOptionKey(rawValue: key) else { continue }
+                sourcePaths[optionKey] = environment.abbreviatedPath(for: URL(fileURLWithPath: path))
+            }
+            return GhosttyTerminalOptionsSnapshot(
+                options: GhosttyTerminalOptions(directives: resolved.values),
+                sourcePaths: sourcePaths
             )
         }.value
     }

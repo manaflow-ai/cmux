@@ -941,7 +941,7 @@ public struct GhosttyConfig {
         configPaths: [String]
     ) -> UserAppearanceConfigSummary {
         var summary = UserAppearanceConfigSummary()
-        visitResolvedConfigDirectives(configPaths: configPaths) { key, value in
+        visitResolvedConfigDirectives(configPaths: configPaths) { key, value, _ in
             summary.recordDirective(key: key, value: value)
         }
         return summary
@@ -949,25 +949,31 @@ public struct GhosttyConfig {
 
     /// Every value assigned to each of `keys` across the resolved config files,
     /// unquoted, in Ghostty's load order (see
-    /// ``visitResolvedConfigDirectives(configPaths:_:)``). A key with no
-    /// assignment is absent from the result.
+    /// ``visitResolvedConfigDirectives(configPaths:_:)``), with the path of the
+    /// file that made the last assignment. A key with no assignment is absent
+    /// from both.
+    ///
+    /// Only config files are read. Values a `theme` file supplies (a theme can
+    /// set `background-opacity`, for example) are not included.
     public static func resolvedDirectiveValues(
         forKeys keys: Set<String>,
         configPaths: [String] = resolvedConfigPaths()
-    ) -> [String: [String]] {
+    ) -> (values: [String: [String]], lastSourcePaths: [String: String]) {
         var values: [String: [String]] = [:]
-        visitResolvedConfigDirectives(configPaths: configPaths) { key, value in
+        var lastSourcePaths: [String: String] = [:]
+        visitResolvedConfigDirectives(configPaths: configPaths) { key, value, path in
             guard keys.contains(key) else { return }
             values[key, default: []].append(value ?? "")
+            lastSourcePaths[key] = path
         }
-        return values
+        return (values, lastSourcePaths)
     }
 
     /// Visits every directive in Ghostty's load order: each top-level file in
     /// turn, then the `config-file` includes they collected, breadth first.
     private static func visitResolvedConfigDirectives(
         configPaths: [String],
-        _ visit: (_ key: String, _ value: String?) -> Void
+        _ visit: (_ key: String, _ value: String?, _ path: String) -> Void
     ) {
         var recursiveConfigPaths: [String] = []
 
@@ -996,7 +1002,7 @@ public struct GhosttyConfig {
 
     private static func scanConfigFile(
         atPath path: String,
-        visit: (_ key: String, _ value: String?) -> Void,
+        visit: (_ key: String, _ value: String?, _ path: String) -> Void,
         recursiveConfigPaths: inout [String]
     ) {
         let resolved = (path as NSString).standardizingPath
@@ -1008,7 +1014,7 @@ public struct GhosttyConfig {
         for line in contents.components(separatedBy: .newlines) {
             guard let entry = parsedConfigEntry(from: line) else { continue }
 
-            visit(entry.key, entry.value)
+            visit(entry.key, entry.value, resolved)
             guard entry.key == "config-file", let value = entry.value else { continue }
             applyConfigFileDirective(
                 value,

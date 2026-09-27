@@ -8,6 +8,9 @@ import Foundation
 /// assignment wins, an empty assignment resets the option to its default, and
 /// an invalid assignment leaves the previous value in place. `font-family` is a
 /// list, so each assignment appends a fallback and an empty one clears it.
+///
+/// Only config-file assignments are folded. A value a `theme` file supplies
+/// (themes can set `background-opacity`, for example) is not reflected here.
 public struct GhosttyTerminalOptions: Equatable, Sendable {
     /// Ghostty's default `font-size` on macOS, in points.
     public static let defaultFontSize = 13.0
@@ -16,20 +19,20 @@ public struct GhosttyTerminalOptions: Equatable, Sendable {
     /// Ghostty's default `scrollback-limit`, in bytes.
     public static let defaultScrollbackLimitBytes = 50_000_000
 
+    /// The font families in fallback order; empty for Ghostty's built-in font.
+    public var fontFamilies: [String]
     /// The primary font family, or `nil` for Ghostty's built-in font.
-    public var fontFamily: String?
+    public var fontFamily: String? { fontFamilies.first }
     /// The terminal font size, in points.
     public var fontSize: Double
     /// The default cursor shape.
     public var cursorStyle: GhosttyCursorStyle
     /// Whether the cursor blinks by default. Ghostty blinks when unset.
     public var cursorBlinks: Bool
-    /// Horizontal padding between the terminal cells and the window edge, in
-    /// points. For a `left,right` pair this is the left value.
-    public var windowPaddingX: Int
-    /// Vertical padding between the terminal cells and the window edge, in
-    /// points. For a `top,bottom` pair this is the top value.
-    public var windowPaddingY: Int
+    /// Horizontal padding between the terminal cells and the window edge.
+    public var windowPaddingX: GhosttyWindowPadding
+    /// Vertical padding between the terminal cells and the window edge.
+    public var windowPaddingY: GhosttyWindowPadding
     /// Background opacity from 0 (clear) to 1 (opaque).
     public var backgroundOpacity: Double
     /// Whether the translucent background is blurred.
@@ -62,15 +65,16 @@ public struct GhosttyTerminalOptions: Equatable, Sendable {
         for value in values(.fontFamily) {
             if value.isEmpty { families.removeAll() } else { families.append(value) }
         }
-        fontFamily = families.first
+        fontFamilies = families
 
         fontSize = Self.fold(values(.fontSize)) { value in
             Double(value).flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         } ?? Self.defaultFontSize
         cursorStyle = Self.fold(values(.cursorStyle), parse: GhosttyCursorStyle.init(rawValue:)) ?? .block
         cursorBlinks = Self.fold(values(.cursorStyleBlink), parse: Self.parseBool) ?? true
-        windowPaddingX = Self.fold(values(.windowPaddingX), parse: Self.parsePadding) ?? Self.defaultWindowPadding
-        windowPaddingY = Self.fold(values(.windowPaddingY), parse: Self.parsePadding) ?? Self.defaultWindowPadding
+        let defaultPadding = GhosttyWindowPadding(leading: Self.defaultWindowPadding)
+        windowPaddingX = Self.fold(values(.windowPaddingX), parse: GhosttyWindowPadding.init(configValue:)) ?? defaultPadding
+        windowPaddingY = Self.fold(values(.windowPaddingY), parse: GhosttyWindowPadding.init(configValue:)) ?? defaultPadding
         backgroundOpacity = Self.fold(values(.backgroundOpacity)) { value in
             Double(value).flatMap { $0.isFinite ? min(max($0, 0), 1) : nil }
         } ?? 1
@@ -87,7 +91,7 @@ public struct GhosttyTerminalOptions: Equatable, Sendable {
     public func applying(_ change: GhosttyTerminalOptionChange) -> GhosttyTerminalOptions {
         var updated = self
         switch change {
-        case .fontFamily(let family): updated.fontFamily = family
+        case .fontFamilies(let families): updated.fontFamilies = families
         case .fontSize(let points): updated.fontSize = points
         case .cursorStyle(let style): updated.cursorStyle = style
         case .cursorBlinks(let blinks): updated.cursorBlinks = blinks
@@ -99,6 +103,20 @@ public struct GhosttyTerminalOptions: Equatable, Sendable {
         case .scrollbackLimitBytes(let bytes): updated.scrollbackLimitBytes = bytes
         }
         return updated
+    }
+
+    /// Whether this already holds the value `change` writes, so a re-read
+    /// after the write shows whether a later-loading file overrides it.
+    public func reflects(_ change: GhosttyTerminalOptionChange) -> Bool {
+        applying(change) == self
+    }
+
+    /// The family list the font picker writes for `family`: the chosen family
+    /// first, then the current fallbacks (without the chosen one), or no
+    /// families at all for Ghostty's built-in font.
+    public func fontFamiliesChoosing(_ family: String?) -> [String] {
+        guard let family, !family.isEmpty else { return [] }
+        return [family] + fontFamilies.dropFirst().filter { $0 != family }
     }
 
     /// The last valid value, or `nil` when unset or reset by an empty value.
@@ -121,12 +139,6 @@ public struct GhosttyTerminalOptions: Equatable, Sendable {
         case "false", "f", "F", "0": return false
         default: return nil
         }
-    }
-
-    /// The first side of a `window-padding-*` value (`2` or `2,4`).
-    private static func parsePadding(_ value: String) -> Int? {
-        let first = value.split(separator: ",", maxSplits: 1).first.map(String.init) ?? value
-        return Int(first.trimmingCharacters(in: .whitespaces)).flatMap { $0 >= 0 ? $0 : nil }
     }
 
     /// `background-blur` accepts a boolean, a radius, or a macOS glass style.
