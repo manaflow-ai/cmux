@@ -33,25 +33,6 @@ private actor AsyncTestBarrier {
     }
 }
 
-// Buffered start signals establish fixture ordering without depending on executor scheduling.
-private struct ForkProbeTestSignal: Sendable {
-    private let events = AsyncStream<Void>.makeStream()
-
-    func signal() {
-        events.continuation.yield(())
-    }
-
-    func wait() async -> Bool {
-        let timeout = Task {
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
-            guard !Task.isCancelled else { return }
-            events.continuation.finish()
-        }
-        defer { timeout.cancel() }
-        return await events.stream.first(where: { _ in true }) != nil
-    }
-}
-
 @MainActor
 @Suite(.serialized)
 struct WorkspaceForkConversationContextMenuTests {
@@ -5168,3 +5149,23 @@ struct WorkspaceForkConversationContextMenuTests {
         ]
     }
 }
+
+// Buffered start signals establish fixture ordering without depending on executor scheduling.
+private struct ForkProbeTestSignal: Sendable {
+    private let events = AsyncStream<Void>.makeStream()
+
+    func signal() {
+        events.continuation.yield(())
+    }
+
+    func wait() async -> Bool {
+        let timeout = Task {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else { return }
+            events.continuation.finish()
+        }
+        defer { timeout.cancel() }
+        return await events.stream.first(where: { _ in true }) != nil
+    }
+}
+
