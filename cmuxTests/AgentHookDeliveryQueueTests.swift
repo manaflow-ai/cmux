@@ -725,6 +725,44 @@ struct AgentHookDeliveryQueueTests {
         #expect(directEnvironment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == nil)
     }
 
+    @Test("Mirrored cmux-tui agent hooks replay relay-backed to the local pane without banners")
+    func mirroredAgentHookEvent() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let event = try #require(AgentHookDeliveryEvent.mirrored(
+            agent: "claude",
+            subcommand: "notification",
+            payload: #"{"hook_event_name":"Notification","notification_type":"permission_prompt","session_id":"s1"}"#,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            deliverySocketPath: "/tmp/cmux-local.sock"
+        ))
+        #expect(event.relayBacked)
+        #expect(event.sessionID == "s1")
+        #expect(event.deliveryArguments == ["hooks", "claude", "notification"])
+        #expect(event.orderingKey == "/tmp/cmux-local.sock\0surface\0\(surfaceID.uuidString)")
+
+        let environment = AgentHookDeliveryProcess(executableURLProvider: { nil }).deliveryEnvironment(
+            event: event,
+            executableURL: URL(fileURLWithPath: "/bin/true")
+        )
+        #expect(environment["CMUX_WORKSPACE_ID"] == workspaceID.uuidString)
+        #expect(environment["CMUX_SURFACE_ID"] == surfaceID.uuidString)
+        #expect(environment["CMUX_AGENT_HOOK_SUPPRESS_NOTIFICATIONS"] == "1")
+        #expect(environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] == nil)
+        #expect(environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == "1")
+
+        // Decision hooks never take the queued path, mirrored or not.
+        #expect(AgentHookDeliveryEvent.mirrored(
+            agent: "claude",
+            subcommand: "permission-request",
+            payload: "{}",
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            deliverySocketPath: "/tmp/cmux-local.sock"
+        ) == nil)
+    }
+
     @Test("Oversized optional launch metadata does not discard lifecycle routing")
     func oversizedOptionalLaunchMetadataIsOmitted() throws {
         let event = try #require(AgentHookDeliveryEvent(params: [

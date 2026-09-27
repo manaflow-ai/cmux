@@ -30,6 +30,7 @@ struct AgentHookDeliveryEvent: Sendable {
     private static let allowedHookDataEnvironmentKeys: Set<String> = [
         "PWD",
         "CMUX_AGENT_HOOK_STATE_DIR", "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
+        "CMUX_AGENT_HOOK_SUPPRESS_NOTIFICATIONS",
         AgentHookDeliveryPolicy.routeSnapshotEnvironmentKey,
         "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD",
         "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_KIND",
@@ -119,6 +120,38 @@ struct AgentHookDeliveryEvent: Sendable {
         self.environment = environment
         self.sessionID = Self.sessionID(from: payload)
         self.queueAdmissionInstant = nil
+    }
+
+    /// Builds a relay-backed event for an agent the Mac observes through a
+    /// remote daemon's agent roster instead of a hook call (the cmux-tui path
+    /// of `cmux ssh`).
+    ///
+    /// The route is the local pane showing the remote terminal. The daemon
+    /// already posts durable notification rows for these transitions, so the
+    /// replay suppresses the hook CLI's own banners and keeps only its status,
+    /// lifecycle, and resume-binding mutations.
+    static func mirrored(
+        agent: String,
+        subcommand: String,
+        payload: String,
+        workspaceID: UUID,
+        surfaceID: UUID,
+        deliverySocketPath: String
+    ) -> Self? {
+        Self(
+            params: [
+                "agent": agent,
+                "subcommand": subcommand,
+                "payload": payload,
+                "relay_backed": true,
+                "environment": [
+                    "CMUX_WORKSPACE_ID": workspaceID.uuidString,
+                    "CMUX_SURFACE_ID": surfaceID.uuidString,
+                    "CMUX_AGENT_HOOK_SUPPRESS_NOTIFICATIONS": "1",
+                ],
+            ],
+            deliverySocketPath: deliverySocketPath
+        )
     }
 
     /// Returns whether this newer terminal state can supersede an older

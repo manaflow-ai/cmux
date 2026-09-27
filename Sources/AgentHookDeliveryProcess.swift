@@ -202,6 +202,7 @@ struct AgentHookDeliveryProcess: Sendable {
             // routing that the relay has alias-rewritten plus explicit
             // notification/subagent policy bits.
             let relayDeliveryKeys: Set<String> = [
+                "CMUX_AGENT_HOOK_SUPPRESS_NOTIFICATIONS",
                 "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
                 "CMUX_AGENT_MANAGED_SUBAGENT",
                 "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",

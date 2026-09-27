@@ -2818,6 +2818,7 @@ private let suppressSubagentNotificationsDefaultsKey = "suppressSubagentNotifica
 private let suppressSubagentNotificationsEnvironmentKey = "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"
 private let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
 private let agentHookRelayOriginEnvironmentKey = "CMUX_AGENT_HOOK_RELAY_ORIGIN"
+private let agentHookSuppressNotificationsEnvironmentKey = "CMUX_AGENT_HOOK_SUPPRESS_NOTIFICATIONS"
 private let codexTeamsThreadEnvironmentKey = "CMUX_CODEX_TEAMS_THREAD_ID"
 private let codexTeamsParentThreadEnvironmentKey = "CMUX_CODEX_TEAMS_PARENT_THREAD_ID"
 private let codexTeamsDepthEnvironmentKey = "CMUX_CODEX_TEAMS_DEPTH"
@@ -28036,7 +28037,7 @@ struct CMUXCLI {
                         color: "#8E8E93"
                     )
                 }
-                if let completion {
+                if let completion, !agentHookNotificationsSuppressed(env: env) {
                     let title = String(
                         localized: "cli.claude-hook.notification.title",
                         defaultValue: "Claude Code"
@@ -28512,8 +28513,9 @@ struct CMUXCLI {
                 )
             }
             // A notification with nothing to show is state signal only: the
-            // journal recorded it; no banner is fabricated for it.
-            if !summary.body.isEmpty {
+            // journal recorded it; no banner is fabricated for it. A replay
+            // whose banner another owner already posted is state signal too.
+            if !summary.body.isEmpty, !agentHookNotificationsSuppressed(env: env) {
                 _ = try sendV1Command(try semanticNotificationCommand(source: "claude", agentKey: Self.claudeCodeStatusKey,
                     sessionId: parsedInput.sessionId, workspaceId: workspaceId, surfaceId: surfaceId,
                     kind: journalKind, rawObject: parsedInput.rawObject, payload: payload,
@@ -31536,6 +31538,17 @@ struct CMUXCLI {
             return false
         }
         return parsed
+    }
+
+    /// True when the hook's caller owns the visible notification for this
+    /// event. The app sets it when it replays transitions of an agent in a
+    /// cmux-tui (`cmux ssh`) pane, whose daemon already posts durable
+    /// notification rows. Status, lifecycle, and resume bindings still apply.
+    func agentHookNotificationsSuppressed(env: [String: String]) -> Bool {
+        guard let raw = normalizedHookValue(env[agentHookSuppressNotificationsEnvironmentKey]) else {
+            return false
+        }
+        return Self.parseHookBoolean(raw) == true
     }
 
     private func subagentNotificationSuppressionEnabled(env: [String: String]) -> Bool {

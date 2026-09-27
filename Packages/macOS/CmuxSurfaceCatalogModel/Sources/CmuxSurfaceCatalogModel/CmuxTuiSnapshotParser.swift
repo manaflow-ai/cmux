@@ -213,7 +213,8 @@ public struct CmuxTuiSnapshotParser: Sendable {
                 agent: nonEmptyString((raw["extra"] as? [String: Any])?["agent"])
                     ?? nonEmptyString(raw["agent"])
                     ?? nonEmptyString(raw["agent_type"])
-                    ?? nonEmptyString(raw["provider"])
+                    ?? nonEmptyString(raw["provider"]),
+                agentSessionID: agentSessionID(from: raw)
             )
         }
 
@@ -1046,8 +1047,15 @@ public struct CmuxTuiSnapshotParser: Sendable {
             agent: nonEmptyString((value["extra"] as? [String: Any])?["agent"])
                     ?? nonEmptyString(value["agent"])
                 ?? nonEmptyString(value["agent_type"])
-                ?? nonEmptyString(value["provider"])
+                ?? nonEmptyString(value["provider"]),
+            agentSessionID: agentSessionID(from: value)
         )
+    }
+
+    /// The agent's own session id. The mux-level `session_id` names the
+    /// cmux-tui session and is never used here.
+    private static func agentSessionID(from value: [String: Any]) -> String? {
+        nonEmptyString((value["extra"] as? [String: Any])?["agent_session_id"])
     }
 
     private static func applyAgentUpsert(
