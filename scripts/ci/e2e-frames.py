@@ -110,24 +110,46 @@ def to_png(source: Path, destination: Path) -> None:
 
 def build_sheets(frames: Path, test_dir: Path) -> list[Path]:
     ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg or not any(frames.iterdir()):
+    ordered = sorted(frames.glob("*.png"))
+    if not ffmpeg or not ordered:
         return []
-    # ffmpeg's image2 reader wants a contiguous numbered sequence.
-    with tempfile.TemporaryDirectory() as tmp:
-        for index, frame in enumerate(sorted(frames.glob("*.png")), start=1):
-            os.symlink(frame.resolve(), Path(tmp) / f"{index:04d}.png")
-        pattern = str(Path(tmp) / "%04d.png")
-        tile_height = SHEET_TILE_WIDTH * 9 // 16
-        # Fit inside the tile both ways: a taller-than-16:9 capture would
-        # otherwise overflow the pad and ffmpeg would write nothing.
-        scale = (f"scale={SHEET_TILE_WIDTH}:{tile_height}:force_original_aspect_ratio=decrease,"
-                 f"pad={SHEET_TILE_WIDTH}:{tile_height}:-1:-1:color=0x202020")
+    for stale in test_dir.glob("sheet-*.png"):
+        stale.unlink()
+    tile_height = SHEET_TILE_WIDTH * 9 // 16
+    # Fit inside the tile both ways: a taller-than-16:9 capture would
+    # otherwise overflow the pad.
+    scale = (f"scale={SHEET_TILE_WIDTH}:{tile_height}:force_original_aspect_ratio=decrease,"
+             f"pad={SHEET_TILE_WIDTH}:{tile_height}:-1:-1:color=0x202020")
+    per_sheet = SHEET_COLUMNS * SHEET_ROWS
+    gap = 4
+    # One xstack per sheet with explicit inputs. The tile filter depends on
+    # stream timing, and ffmpeg 9 emits a single sheet holding only the
+    # first frame from an image sequence.
+    for number, first in enumerate(range(0, len(ordered), per_sheet), start=1):
+        chunk = ordered[first:first + per_sheet]
+        inputs, chains, labels, layout = [], [], [], []
+        for index, frame in enumerate(chunk):
+            inputs += ["-i", str(frame)]
+            chains.append(f"[{index}:v]{scale}[t{index}]")
+            labels.append(f"[t{index}]")
+            column, row = index % SHEET_COLUMNS, index // SHEET_COLUMNS
+            layout.append(f"{column * (SHEET_TILE_WIDTH + gap)}_{row * (tile_height + gap)}")
+        if len(chunk) == 1:
+            graph = f"{chains[0]};[t0]null[out]"
+        else:
+            graph = ";".join(chains) + ";" + "".join(labels) + (
+                f"xstack=inputs={len(chunk)}:layout={'|'.join(layout)}:fill=black[out]"
+            )
         subprocess.run(
-            [ffmpeg, "-loglevel", "error", "-y", "-framerate", "1", "-i", pattern,
-             "-vf", f"{scale},tile={SHEET_COLUMNS}x{SHEET_ROWS}:padding=4:color=0x000000",
-             "-fps_mode", "passthrough", str(test_dir / "sheet-%d.png")],
+            [ffmpeg, "-loglevel", "error", "-y", *inputs, "-filter_complex", graph,
+             "-map", "[out]", "-frames:v", "1", str(test_dir / f"sheet-{number}.png")],
             check=False,
         )
+    # ffmpeg's image2 reader wants a contiguous numbered sequence.
+    with tempfile.TemporaryDirectory() as tmp:
+        for index, frame in enumerate(ordered, start=1):
+            os.symlink(frame.resolve(), Path(tmp) / f"{index:04d}.png")
+        pattern = str(Path(tmp) / "%04d.png")
         subprocess.run(
             [ffmpeg, "-loglevel", "error", "-y", "-framerate", "2", "-i", pattern,
              "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:-1:-1:color=0x202020,format=yuv420p",
@@ -222,10 +244,10 @@ def main() -> int:
                  if Path(a.get("exportedFileName", "")).suffix.lower() not in IMAGE_SUFFIXES),
                 key=lambda a: a.get("timestamp", 0),
             )
+            attachments_dir = test_dir / "attachments"
+            if attachments_dir.exists():
+                shutil.rmtree(attachments_dir)
             if others:
-                attachments_dir = test_dir / "attachments"
-                if attachments_dir.exists():
-                    shutil.rmtree(attachments_dir)
                 attachments_dir.mkdir()
                 for attachment in others:
                     exported_name = attachment["exportedFileName"]
@@ -234,6 +256,10 @@ def main() -> int:
                     destination = attachments_dir / name
                     if destination.suffix == "":
                         destination = destination.with_suffix(Path(exported_name).suffix or ".txt")
+                    duplicate = 2
+                    while destination.exists():
+                        destination = destination.with_name(f"{Path(name).stem}-{duplicate}{destination.suffix}")
+                        duplicate += 1
                     shutil.copyfile(exported / exported_name, destination)
                     files.append(str(destination))
 

@@ -30,7 +30,7 @@ A tour is a steps array, or an object with `steps` and an optional `launch`:
 
 ```json
 {
-  "launch": {"env": {"KEY": "value"}, "args": ["-someDefault", "YES"], "language": "ja", "locale": "ja_JP"},
+  "launch": {"env": {"KEY": "value"}, "args": ["-someDefault", "YES"], "language": "ja", "locale": "ja_JP", "zoom": true},
   "steps": [
     {"socket": "workspace.create", "params": {"title": "Build", "focus": true}, "save": "build"},
     {"shot": "after-create"}
@@ -40,7 +40,7 @@ A tour is a steps array, or an object with `steps` and an optional `launch`:
 
 | Step | Does |
 | --- | --- |
-| `{"shot": "name"}` | Screenshot of the display, kept even when the tour passes. |
+| `{"shot": "name"}` | Screenshot of the app's front window, kept even when the tour passes. Add `"screen": true` for the whole display. |
 | `{"tree": "name"}` | The app's accessibility tree as text. Use it to find identifiers to click. |
 | `{"wait": 0.5}` | Seconds to let animations and renders settle. |
 | `{"key": "d", "modifiers": ["command", "shift"]}` | A key press. Names: `return`, `escape`, `tab`, `delete`, `space`, `up`, `down`, `left`, `right`, `home`, `end`, `pageup`, `pagedown`, or one character. |
@@ -56,7 +56,10 @@ A target is an accessibility identifier string, or an object with `id`,
 `staticText`, `menuItem`, `checkBox`, `image`, `group`, `cell`, `tab`, `window`,
 `popover`) and `index`.
 
-A step that fails is recorded, followed by a `NN-failed` screenshot, and the
+The window is zoomed to fill the display at launch (`"zoom": false` keeps the
+default size). Every tour starts with `00-launched` and ends with `99-final` plus
+a whole-display `99-final-screen`, which shows anything the CI desktop put over
+the app. A step that fails is recorded, followed by a `NN-failed` screenshot, and the
 tour carries on. The test fails at the end and lists every failed step; `steps.log`
 has the full sequence.
 

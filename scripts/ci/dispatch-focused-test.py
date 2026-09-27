@@ -1021,6 +1021,8 @@ def main() -> int:
         # is unknown, measure against the longest label in the runner dropdown.
         label = max(pools or RUNNERS, key=len)
         group_length = len(f"e2e-{label}-{commit}-{test_filter}")
+        if scenario_b64:
+            group_length += len(f"-{uuid.uuid4().hex}")  # the dispatch id scenario runs add
         if group_length > MAX_CONCURRENCY_GROUP:
             parser.error(
                 f"these selectors make a {group_length}-character concurrency group, over "

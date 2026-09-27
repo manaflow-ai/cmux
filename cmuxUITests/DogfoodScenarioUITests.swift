@@ -17,6 +17,7 @@ import Darwin
 /// still leaves every later screenshot; the test fails at the end listing them.
 final class DogfoodScenarioUITests: XCTestCase {
     private var socketPath = ""
+    private var diagnosticsPath = ""
     private var launchTag = ""
     private var saved: [String: Any] = [:]
     private var log: [String] = []
@@ -28,11 +29,16 @@ final class DogfoodScenarioUITests: XCTestCase {
         let id = UUID().uuidString.prefix(8).lowercased()
         launchTag = "ui-tests-dogfood-\(id)"
         socketPath = "/tmp/cmux-debug-dogfood-\(id).sock"
-        try? FileManager.default.removeItem(atPath: socketPath)
+        diagnosticsPath = "/tmp/cmux-ui-test-dogfood-\(id).json"
+        for path in [socketPath, diagnosticsPath, taggedSocketPath()] {
+            try? FileManager.default.removeItem(atPath: path)
+        }
     }
 
     override func tearDown() {
-        try? FileManager.default.removeItem(atPath: socketPath)
+        for path in [socketPath, diagnosticsPath, taggedSocketPath()] {
+            try? FileManager.default.removeItem(atPath: path)
+        }
         super.tearDown()
     }
 
@@ -58,6 +64,8 @@ final class DogfoodScenarioUITests: XCTestCase {
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = launchTag
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
             app.launchEnvironment["PATH"] = path
         }
@@ -72,8 +80,11 @@ final class DogfoodScenarioUITests: XCTestCase {
             _ = app.wait(for: .runningForeground, timeout: 10)
         }
         _ = app.windows.firstMatch.waitForExistence(timeout: 20)
+        if scenario.zoomsWindow {
+            zoomFrontWindow(in: app)
+        }
         if scenario.usesSocket, !waitForSocket(timeout: 30) {
-            record(failure: "control socket never answered ping at \(socketPath)")
+            record(failure: "control socket never answered ping at \(socketCandidates().joined(separator: ", "))")
         }
         shot("00-launched", app: app)
 
@@ -88,6 +99,7 @@ final class DogfoodScenarioUITests: XCTestCase {
             }
         }
         shot("99-final", app: app)
+        shot("99-final-screen", app: app, screen: true)
         attachText(log.joined(separator: "\n"), name: "steps.log")
         if !failures.isEmpty {
             XCTFail("Dogfood steps failed:\n" + failures.joined(separator: "\n"))
@@ -98,8 +110,8 @@ final class DogfoodScenarioUITests: XCTestCase {
 
     private func run(_ step: DogfoodStep, label: String, app: XCUIApplication) throws {
         switch step {
-        case .shot(let name):
-            shot("\(label)-\(name)", app: app)
+        case .shot(let name, let screen):
+            shot("\(label)-\(name)", app: app, screen: screen)
         case .tree(let name):
             attachText(app.debugDescription, name: "\(label)-\(name).tree.txt")
         case .wait(let seconds):
@@ -177,8 +189,13 @@ final class DogfoodScenarioUITests: XCTestCase {
 
     // MARK: Attachments
 
-    private func shot(_ name: String, app: XCUIApplication) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+    /// The app's front window by default: shared CI desktops carry other
+    /// windows and system prompts, and a window crop keeps more pixels for
+    /// the app after frames are downscaled. `"screen": true` takes the display.
+    private func shot(_ name: String, app: XCUIApplication, screen: Bool = false) {
+        let window = app.windows.firstMatch
+        let image = !screen && window.exists ? window.screenshot() : XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: image)
         attachment.name = name
         // Step screenshots of a passing test are dropped unless kept.
         attachment.lifetime = .keepAlways
@@ -220,10 +237,63 @@ final class DogfoodScenarioUITests: XCTestCase {
         return value
     }
 
-    private func waitForSocket(timeout: TimeInterval) -> Bool {
-        waitForControlSocketReady(socketPath: socketPath, pingTimeout: timeout) {
-            DogfoodSocketClient(path: self.socketPath, responseTimeout: 1).sendLine("ping") == "PONG"
+    /// Window > Zoom, best effort: the app opens at a small default size, and
+    /// tours read better filling the display. Not every locale says "Zoom".
+    private func zoomFrontWindow(in app: XCUIApplication) {
+        let windowMenu = app.menuBars.menuBarItems["Window"]
+        guard windowMenu.waitForExistence(timeout: 3) else { return }
+        windowMenu.click()
+        let zoom = app.menuItems["Zoom"]
+        if zoom.waitForExistence(timeout: 2) {
+            zoom.click()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        } else {
+            app.typeKey(.escape, modifierFlags: [])
         }
+    }
+
+    /// The listener may bind the requested path, the tag-derived path, or the
+    /// path the app reports in its diagnostics, as AutomationSocketUITests
+    /// resolves it; the first one that answers wins.
+    private func waitForSocket(timeout: TimeInterval) -> Bool {
+        var resolved: String?
+        let ready = waitForControlSocketReady(
+            pingTimeout: timeout,
+            socketFileExists: { self.socketCandidates().contains { FileManager.default.fileExists(atPath: $0) } },
+            pingReturnsPong: {
+                for candidate in self.socketCandidates() where FileManager.default.fileExists(atPath: candidate) {
+                    if DogfoodSocketClient(path: candidate, responseTimeout: 1).sendLine("ping") == "PONG" {
+                        resolved = candidate
+                        return true
+                    }
+                }
+                return false
+            }
+        )
+        if ready, let resolved {
+            socketPath = resolved
+        }
+        return ready
+    }
+
+    private func socketCandidates() -> [String] {
+        var candidates = [socketPath, taggedSocketPath()]
+        if let data = try? Data(contentsOf: URL(fileURLWithPath: diagnosticsPath)),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let expected = object["socketExpectedPath"] as? String, !expected.isEmpty {
+            candidates.append(expected)
+        }
+        var seen = Set<String>()
+        return candidates.filter { seen.insert($0).inserted }
+    }
+
+    private func taggedSocketPath() -> String {
+        let slug = launchTag
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+        return "/tmp/cmux-debug-\(slug).sock"
     }
 
     private func socketRequest(method: String, params: Any) -> [String: Any]? {
@@ -309,7 +379,7 @@ struct DogfoodTarget: CustomStringConvertible {
 }
 
 enum DogfoodStep {
-    case shot(String)
+    case shot(String, screen: Bool)
     case tree(String)
     case wait(TimeInterval)
     case key(String, XCUIElement.KeyModifierFlags)
@@ -326,7 +396,7 @@ enum DogfoodStep {
 
     var summary: String {
         switch self {
-        case .shot(let name): return "shot \(name)"
+        case .shot(let name, let screen): return screen ? "shot \(name) (screen)" : "shot \(name)"
         case .tree(let name): return "tree \(name)"
         case .wait(let seconds): return "wait \(seconds)"
         case .key(let key, let modifiers): return "key \(key) modifiers=\(modifiers.rawValue)"
@@ -353,7 +423,7 @@ enum DogfoodStep {
             throw DogfoodError("each step is an object with one of \(Self.kinds.sorted().joined(separator: ", "))")
         }
         switch kind {
-        case "shot": self = .shot(value as? String ?? "shot")
+        case "shot": self = .shot(value as? String ?? "shot", screen: object["screen"] as? Bool ?? false)
         case "tree": self = .tree(value as? String ?? "tree")
         case "wait": self = .wait((value as? NSNumber)?.doubleValue ?? 1)
         case "type":
@@ -434,6 +504,7 @@ struct DogfoodScenario {
     let launchEnvironment: [String: String]
     let language: String?
     let locale: String?
+    let zoomsWindow: Bool
 
     var usesSocket: Bool { steps.contains { $0.usesSocket } }
 
@@ -454,7 +525,8 @@ struct DogfoodScenario {
             launchArguments: launch["args"] as? [String] ?? [],
             launchEnvironment: launch["env"] as? [String: String] ?? [:],
             language: launch["language"] as? String,
-            locale: launch["locale"] as? String
+            locale: launch["locale"] as? String,
+            zoomsWindow: launch["zoom"] as? Bool ?? true
         )
     }
 }
