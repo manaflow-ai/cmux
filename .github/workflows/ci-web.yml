@@ -149,22 +149,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run web test shard
-        # TEMPORARY watchdog (debugging a Blacksmith-only hang on #14876); revert before merge.
-        run: |
-          (
-            sleep 150
-            echo "=== WATCHDOG at 150s"
-            ps -eo pid,ppid,etime,pcpu,stat,wchan:32,args --forest | grep -vE 'ps -eo|grep' | cut -c1-240
-            for p in $(pgrep -f bun); do
-              echo "=== pid $p: $(tr '\0' ' ' < /proc/$p/cmdline | cut -c1-200)"
-              echo "state: $(grep State /proc/$p/status)  wchan: $(cat /proc/$p/wchan)"
-              sudo cat /proc/$p/stack 2>/dev/null | head -12
-              echo "fds:"; sudo ls -l /proc/$p/fd 2>/dev/null | awk '{print $9,$10,$11}' | head -30
-              echo "threads:"; for t in /proc/$p/task/*; do echo "  $(basename $t) $(cat $t/comm) $(cat $t/wchan)"; done | head -24
-            done
-            env | cut -d= -f1 | sort | tr '\n' ' '
-          ) &
-          ./scripts/run-tests.sh --shard "${{ matrix.shard }}"
+        run: ./scripts/run-tests.sh --shard "${{ matrix.shard }}"
 
   web-instant-navigation:
     needs: web-subarea-scope
