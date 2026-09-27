@@ -25,8 +25,9 @@ struct FilePreviewVimNavigationTests {
             themeForegroundColor: .textColor,
             drawsBackground: true,
             gutterBackgroundColor: .textBackgroundColor,
-            wordWrap: true
-        ).defaultAppStorage(defaults)
+            wordWrap: true,
+            filePreviewVimKeys: defaults.bool(forKey: "filePreviewVimKeys")
+        )
         let host = NSHostingView(rootView: editor)
         host.frame = NSRect(x: 0, y: 0, width: 300, height: 200)
         let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)

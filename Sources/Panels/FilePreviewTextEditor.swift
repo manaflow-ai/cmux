@@ -41,7 +41,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     @LiveSetting(\.fileEditor.indentGuides) private var indentGuides
     @LiveSetting(\.fileEditor.currentLineHighlight) private var currentLineHighlight
     @LiveSetting(\.fileEditor.tabWidth) private var tabWidth
-    @LiveSetting(\.app.filePreviewVimKeys) private var filePreviewVimKeys
+    /// Host-resolved snapshot, applied before the native view can accept input.
+    var filePreviewVimKeys: Bool = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
