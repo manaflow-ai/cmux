@@ -27,7 +27,9 @@ EOF
 
 MODE=""
 TAG=""
-STAGING_BASE_URL="${CMUX_IROH_RELEASE_GATE_BASE_URL:-https://cmux-staging.vercel.app}"
+# v2 verification must exercise the Cloudflare broker directly. A caller can
+# still supply a private staging origin for an isolated environment.
+STAGING_BASE_URL="${CMUX_IROH_RELEASE_GATE_BASE_URL:-https://cmux-v2-staging.debussy.workers.dev}"
 PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}"
 SKIP_BUILD=0
 KEEP_SIMULATOR=0
