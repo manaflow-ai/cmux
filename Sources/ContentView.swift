@@ -15397,9 +15397,9 @@ struct SidebarFooterButtons: View {
     }
 
     var body: some View {
-        // The footer never asks the sidebar for width: when the full row does
-        // not fit, the account chip drops its name, and anything still too wide
-        // is clipped at the trailing edge instead of widening or shifting the
+        // The footer never asks the sidebar for width: the chip's name
+        // truncates first, then the chip drops to avatar and chevron, and
+        // anything still too wide is clipped at the trailing edge instead of widening or shifting the
         // sidebar.
         ViewThatFits(in: .horizontal) {
             row(showsAccountName: true)
@@ -15409,17 +15409,15 @@ struct SidebarFooterButtons: View {
         .clipped()
     }
 
-    /// Account chip, then the icon buttons and pills in one run from the
-    /// leading edge.
+    /// The account chip takes the free width on the left; the icon buttons
+    /// and pills keep fixed slots to its right.
     private func row(showsAccountName: Bool) -> some View {
         HStack(spacing: 4) {
-            // Hover squares touch, as before the chip, so the name sits the
-            // same distance from ? as ? does from the Pro badge.
-            if shows(.account) || shows(.mobileConnect) || shows(.help) {
+            if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
+                SidebarAccountMenuButton(showsName: showsAccountName)
+            }
+            if shows(.mobileConnect) || shows(.help) {
                 HStack(spacing: 0) {
-                    if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
-                        SidebarAccountMenuButton(showsName: showsAccountName)
-                    }
                     if shows(.mobileConnect), CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
                         SidebarMobileConnectButton()
                     }

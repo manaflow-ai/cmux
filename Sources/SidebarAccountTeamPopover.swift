@@ -6,7 +6,8 @@ import SwiftUI
 enum SidebarAccountChipMetrics {
     static let height: CGFloat = 26
     static let avatarSize: CGFloat = 18
-    static let maxNameWidth: CGFloat = 140
+    static let minNameWidth: CGFloat = 48
+    static let chevronPointSize: CGFloat = 11
 }
 
 /// The sidebar account chip for account-level actions. Signed out,
@@ -17,7 +18,7 @@ struct SidebarAccountMenuButton: View {
     private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
     private let title = String(localized: "settings.section.account", defaultValue: "Account")
     private let signInTitle = String(localized: "settings.account.signIn", defaultValue: "Sign In…")
-    /// False when the footer is too narrow for the name: avatar only.
+    /// False when the footer is too narrow for the name: avatar and chevron.
     var showsName = true
     @State private var menuAnchor = SidebarFooterMenuAnchor()
 #if DEBUG
@@ -85,12 +86,12 @@ struct SidebarAccountMenuButton: View {
                 )
             }
         } label: {
-            // The whole chip is the target, like the account row in ChatGPT and
-            // Codex desktop: avatar and name, no chevron. The avatar and hover
-            // highlight already say "account menu", and the chevron cost width
-            // in a narrow sidebar. It hugs its content; when the footer is too
-            // narrow for the name, `SidebarFooterButtons` drops to the avatar
-            // alone. Signed out it reads "Sign In…".
+            // The chip fills the footer's free width and all of it is the
+            // target, like the account row in Claude and ChatGPT desktop. The
+            // chevron at the trailing edge marks where the target ends and says
+            // it opens a menu. When the footer is too narrow for the name,
+            // `SidebarFooterButtons` drops to avatar and chevron. Signed out it
+            // reads "Sign In…" with no chevron.
             HStack(spacing: 5) {
                 SidebarAccountAvatar(
                     avatarURL: identity?.avatarURL,
@@ -106,17 +107,30 @@ struct SidebarAccountMenuButton: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                        .frame(maxWidth: SidebarAccountChipMetrics.maxNameWidth, alignment: .leading)
+                        // Ideal width is a floor, not the whole name, so the
+                        // footer keeps the name (truncated) down to a short
+                        // stub before it falls back to avatar and chevron.
+                        .frame(idealWidth: SidebarAccountChipMetrics.minNameWidth, maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Spacer(minLength: 0)
+                }
+                if identity != nil {
+                    CmuxSystemSymbolImage(
+                        systemName: "chevron.up.chevron.down",
+                        pointSize: SidebarAccountChipMetrics.chevronPointSize,
+                        weight: .medium,
+                        tint: Color(nsColor: .secondaryLabelColor)
+                    )
                 }
             }
-            // Avatar alone is a 22 pt square, the same as the footer's icons.
             .padding(.leading, 2)
-            .padding(.trailing, showsName || identity == nil ? 6 : 2)
-            .frame(height: SidebarAccountChipMetrics.height)
+            .padding(.trailing, 6)
+            .frame(maxWidth: .infinity, minHeight: SidebarAccountChipMetrics.height, maxHeight: SidebarAccountChipMetrics.height, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(SidebarFooterIconButtonStyle())
         .disabled(accountFlow?.isWorkingOnAuth == true)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(SidebarFooterMenuAnchorView(anchor: menuAnchor))
         .safeHelp(buttonTitle)
         .accessibilityLabel(buttonTitle)
