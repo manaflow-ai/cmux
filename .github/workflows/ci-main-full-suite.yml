@@ -159,6 +159,9 @@ jobs:
       - name: Attribute new failures to merged pull requests
         # A report-only heuristic: its failure must not stop the issue sync.
         continue-on-error: true
+        # A hung fetch or API call must not eat the job's 20 minutes: the rest
+        # is left for the issue sync.
+        timeout-minutes: 12
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.event.workflow_run.id }}

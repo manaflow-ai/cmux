@@ -32,6 +32,8 @@ Reload builds without launching; add `--launch` when live verification is needed
 Never use bare `xcodebuild` or open an untagged `cmux DEV.app`: tags isolate bundle
 IDs, sockets and build output from other sessions. Do not use `/tmp/cmux-cli`,
 which follows the most recently reloaded app. See [tagged builds](references/tagged-builds.md).
+Never quit, kill, relaunch or `xctrace --launch` the user's running cmux
+(`com.cmuxterm.app`); it holds their live agent sessions.
 
 An app build does not establish test-target compilation or execution. Follow
 [the test guide](../cmux-testing/references/local-vs-ci-validation.md) for those claims.
