@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CMUXAgentLaunch
+import CmuxAgentJournal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -116,6 +117,113 @@ struct FeedDecisionAnsweredInTerminalTests {
         ))
 
         #expect(FeedCoordinator.shared.isAwaitingDecision(requestId: scenario.requestId))
+
+        // The raising call is consumed once; running the same command again is new work.
+        await scenario.deliverTelemetry(WorkstreamEvent(
+            sessionId: scenario.sessionId,
+            hookEventName: .preToolUse,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"touch /tmp/created.txt","description":"Create a file"}"#
+        ))
+
+        #expect(!FeedCoordinator.shared.isAwaitingDecision(requestId: scenario.requestId))
+    }
+
+    @Test func nextEditOfTheSameFileRetiresAnAnsweredEditPrompt() async throws {
+        // Edit telemetry keeps only the path, so the follow-up edit looks like the one that asked.
+        let scenario = try await PendingClaudePermission.start(
+            sessionId: "same-file-edit-retires",
+            requestId: "same-file-edit-retires-request",
+            toolName: "Edit",
+            toolInputJSON: #"{"file_path":"/tmp/app.swift","old_string":"a","new_string":"b"}"#,
+            raisingToolCallInputJSON: #"{"file_path":"/tmp/app.swift"}"#
+        )
+        defer { scenario.tearDown() }
+
+        await scenario.deliverTelemetry(WorkstreamEvent(
+            sessionId: scenario.sessionId,
+            hookEventName: .preToolUse,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Edit",
+            toolInputJSON: #"{"file_path":"/tmp/app.swift"}"#
+        ))
+
+        #expect(scenario.workspace.statusEntries[Self.attentionKey] == nil)
+        #expect(!FeedCoordinator.shared.isAwaitingDecision(requestId: scenario.requestId))
+    }
+
+    @Test func serialToolCallRetiresAConcurrencySafeToolsPrompt() async throws {
+        // An Edit never starts while another tool waits, so the Read prompt was answered.
+        let scenario = try await PendingClaudePermission.start(
+            sessionId: "edit-after-read-retires",
+            requestId: "edit-after-read-retires-request",
+            toolName: "Read",
+            toolInputJSON: #"{"file_path":"/etc/hosts"}"#,
+            raisingToolCallInputJSON: #"{"file_path":"/etc/hosts"}"#
+        )
+        defer { scenario.tearDown() }
+
+        await scenario.deliverTelemetry(WorkstreamEvent(
+            sessionId: scenario.sessionId,
+            hookEventName: .preToolUse,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Edit",
+            toolInputJSON: #"{"file_path":"/tmp/app.swift"}"#
+        ))
+
+        #expect(!FeedCoordinator.shared.isAwaitingDecision(requestId: scenario.requestId))
+    }
+
+    @Test func sessionEndRetiresASubagentsPrompt() async throws {
+        let scenario = try await PendingClaudePermission.start(
+            sessionId: "session-end-retires-subagent",
+            requestId: "session-end-retires-subagent-request",
+            requestExtraFieldsJSON: #"{"agent_id":"subagent-1"}"#
+        )
+        defer { scenario.tearDown() }
+
+        await scenario.deliverTelemetry(WorkstreamEvent(
+            sessionId: scenario.sessionId,
+            hookEventName: .stop,
+            source: "claude",
+            cwd: "/tmp"
+        ))
+        #expect(
+            FeedCoordinator.shared.isAwaitingDecision(requestId: scenario.requestId),
+            "the main agent's turn ending does not answer a subagent's prompt"
+        )
+
+        await scenario.deliverTelemetry(WorkstreamEvent(
+            sessionId: scenario.sessionId,
+            hookEventName: .sessionEnd,
+            source: "claude",
+            cwd: "/tmp"
+        ))
+        #expect(!FeedCoordinator.shared.isAwaitingDecision(requestId: scenario.requestId))
+    }
+
+    @Test func subagentPromptResolutionUsesItsOwnRequestIdentity() throws {
+        // Every prompt from one subagent carries the same agent_id; resolving one
+        // must not mark the subagent's later prompts as already resolved.
+        let event = WorkstreamEvent(
+            sessionId: "subagent-identity",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            toolName: "Bash",
+            requestId: "subagent-identity-request",
+            extraFieldsJSON: #"{"agent_id":"subagent-1"}"#
+        )
+        let draft = try #require(AgentFeedSemanticInput(
+            event: event, agentKey: "claude_code",
+            requestID: "subagent-identity-request", resolvesRequest: true
+        ).draft())
+        #expect(draft.attention?.requestIdentity == "subagent-identity-request")
     }
 
     @Test func turnEndRetiresAConcurrencySafeToolsPrompt() async throws {
@@ -162,9 +270,19 @@ private final class PendingClaudePermission {
         sessionId: String,
         requestId: String,
         toolName: String = "Bash",
-        toolInputJSON: String = #"{"command":"touch /tmp/created.txt","description":"Create a file"}"#
+        toolInputJSON: String = #"{"command":"touch /tmp/created.txt","description":"Create a file"}"#,
+        requestExtraFieldsJSON: String? = nil,
+        raisingToolCallInputJSON: String? = nil
     ) async throws -> PendingClaudePermission {
         FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 20))
+        if let raisingToolCallInputJSON {
+            // Claude's PreToolUse for the call normally reaches the Feed first.
+            await deliver(WorkstreamEvent(
+                sessionId: sessionId, hookEventName: .preToolUse, source: "claude", cwd: "/tmp",
+                toolName: toolName, toolInputJSON: raisingToolCallInputJSON,
+                extraFieldsJSON: requestExtraFieldsJSON
+            ))
+        }
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = tabManager.addWorkspace(select: true)
         let panelId = try #require(workspace.focusedPanelId)
@@ -179,7 +297,8 @@ private final class PendingClaudePermission {
             cwd: "/tmp",
             toolName: toolName,
             toolInputJSON: toolInputJSON,
-            requestId: requestId
+            requestId: requestId,
+            extraFieldsJSON: requestExtraFieldsJSON
         )
         // Surface the overlay the way the socket path does for a live owner,
         // then hand the target to the waiter that concludes it.
@@ -209,6 +328,10 @@ private final class PendingClaudePermission {
 
     /// Delivers one-way hook telemetry and returns after the Feed accepted it.
     func deliverTelemetry(_ event: WorkstreamEvent) async {
+        await Self.deliver(event)
+    }
+
+    private static func deliver(_ event: WorkstreamEvent) async {
         let accepted = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
             _ = FeedCoordinator.shared.ingestBlocking(
@@ -217,7 +340,7 @@ private final class PendingClaudePermission {
                 onAcceptedOnMainActor: { _ in accepted.signal() }
             )
         }
-        let didAccept = await Self.wait(for: accepted)
+        let didAccept = await wait(for: accepted)
         #expect(didAccept, "the telemetry event never reached the Feed")
     }
 
