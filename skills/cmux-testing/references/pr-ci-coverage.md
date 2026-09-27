@@ -27,9 +27,10 @@ checks, without any label:
 | `no-full-ci` | Records a deliberate skip for `suite-coverage`. |
 
 Neither `unit-ci` nor `full-ci` is needed to test edited suites that normal PR
-routing runs. The exception is `cmuxUITests/`: no PR job runs it, so the
-`suite-coverage` job fails a `cmuxUITests/` diff until `full-ci` runs the suite
-or `no-full-ci` records the deliberate skip.
+routing runs. The exception is `cmuxUITests/`: no PR job runs all of it, so the
+`suite-coverage` job fails a `cmuxUITests/` diff until `full-ci` runs its
+selected UI regression targets or `no-full-ci` records the deliberate skip.
+`full-ci` does not run every edited `cmuxUITests/` target.
 
 `full-ci` is not shorthand for normal PR checks, relevant tests, review
 readiness or permission to merge. Do not add it as a generic review or merge
