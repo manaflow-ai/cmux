@@ -71,6 +71,23 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.adaptiveDefaultTheme"
     )
 
+    /// Whether cmux shows a lock badge in the terminal chrome while the
+    /// foreground program has turned echo off for a password prompt. On by
+    /// default. The badge is drawn by cmux and never touches terminal text.
+    public let showPasswordInputIndicator = DefaultsKey<Bool>(
+        id: "terminal.showPasswordInputIndicator",
+        defaultValue: true,
+        userDefaultsKey: "terminal.showPasswordInputIndicator"
+    )
+
+    /// Whether the password input badge also shows one dot per typed
+    /// character. Off by default. Only a count is kept, never the characters.
+    public let showPasswordInputDots = DefaultsKey<Bool>(
+        id: "terminal.showPasswordInputDots",
+        defaultValue: false,
+        userDefaultsKey: "terminal.showPasswordInputDots"
+    )
+
     public let autoResumeAgentSessions = DefaultsKey<Bool>(
         id: "terminal.autoResumeAgentSessions",
         defaultValue: true,

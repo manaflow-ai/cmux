@@ -1782,6 +1782,7 @@
       "metaTitle": "Endringslogg",
       "versionTitle": "cmux {version} · Endringslogg",
       "releaseNavLabel": "Utgivelser rundt cmux {version}",
+      "tryIt": "Prøv det",
       "sections": {
         "added": "Lagt til",
         "changed": "Endret",

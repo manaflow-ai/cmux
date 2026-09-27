@@ -56,9 +56,18 @@ on:
         required: false
         default: ""
         type: string
+      # "layered" also uploads the product as four layer artifacts plus an
+      # index, and consumers try those before the aggregate. Off by default:
+      # measured 2026-09-27 on the owned minis, the layer uploads added 100 to
+      # 255 s to compile admission (which every shard waits on), and a shard's
+      # layer restore took 68 to 231 s (median about 115 s) against 34 to 90 s
+      # (median about 70 s) for the aggregate over parallel range requests.
+      # No caller passes this input today; a canary passes
+      # `product_artifacts: layered` from ci.yml's macos call
+      # (docs/ci/app-host-layer-transport.md).
       product_artifacts:
         required: false
-        default: "layered"
+        default: "aggregate"
         type: string
       compile_admitted:
         required: true
@@ -142,6 +151,13 @@ on:
       # root runner names warm for this run (merge base first, then this
       # pull request), which admission-placement prefers in that order.
       pr_admission_warm:
+        required: false
+        default: ""
+        type: string
+      # The picker's costs behind pr_admission_runner (candidates, chosen,
+      # predicted seconds; warm_distance.route_record()), JSON or "": compile
+      # admission records them in admissions.jsonl for ci-dash's Estimates view.
+      pr_admission_route:
         required: false
         default: ""
         type: string
@@ -873,40 +889,6 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: python3 scripts/ci/owned_build_state.py keep "$CMUX_OWNED_STATE_ROOT" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$FINGERPRINT" "$MERGED_ONTO" "$PR_NUMBER"
 
-      # The main commits and pull requests this Mac's kept builds (every
-      # root's) start from cheaply, for the queue janitor to record against
-      # this root runner (owned_warm_state.py), so a later run merging onto
-      # one of them, or re-pushing the same pull request, can ask for this Mac
-      # by its static glaeda-runner- label (pr_runner_pool.py, warm affinity).
-      # On any failure nothing is uploaded and nothing changes.
-      - name: List the commits this owned Mac starts from warm
-        id: owned-warm-keys
-        if: ${{ !cancelled() && steps.owned-state.outputs.fingerprint != '' }}
-        continue-on-error: true
-        env:
-          FINGERPRINT: ${{ steps.owned-state.outputs.fingerprint }}
-          # The seeds `prefer` may clone count only when it runs (the adopt steps' cache).
-          CMUX_SEED_LOCAL_CACHE: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && vars.CI_OWNED_PREFER_SEED != '' && format('{0}/seeds', env.CMUX_OWNED_STATE_ROOT) || '' }}
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/owned_build_state.py warm-keys "$CMUX_OWNED_STATE_ROOT" "$RUNNER_NAME" "$CMUX_PRODUCT_RUNNER" \
-            "$FINGERPRINT" > "$RUNNER_TEMP/warm-keys.json"
-          cat "$RUNNER_TEMP/warm-keys.json"
-          echo "path=$RUNNER_TEMP/warm-keys.json" >> "$GITHUB_OUTPUT"
-
-      - name: Upload the owned Mac's warm keys
-        if: ${{ !cancelled() && steps.owned-warm-keys.outputs.path != '' }}
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          # A fixed name: the janitor lists it by name, the only artifact
-          # listing this repository answers. A re-run attempt replaces it.
-          name: owned-warm-keys
-          overwrite: true
-          path: ${{ steps.owned-warm-keys.outputs.path }}
-          retention-days: 1
-          if-no-files-found: ignore
-
       - name: Generate Xcode build metrics receipt
         id: build-metrics
         if: always() && !cancelled() && steps.hosted-compile.outcome != 'skipped'
@@ -1323,7 +1305,45 @@ jobs:
           BUILD_LOGS: ${{ env.CMUX_COMPILE_ADMISSION_DERIVED_DATA }}
           ADMISSION_RUNNER: ${{ github.run_attempt == 1 && (needs.admission-placement.outputs.runner || inputs.pr_admission_runner) || '' }}
           PLACEMENT: ${{ needs.admission-placement.outputs.placement }}
+          PICKER_ROUTE: ${{ github.run_attempt == 1 && inputs.pr_admission_route || '' }}
         run: python3 scripts/ci/warm_distance.py admission "$CMUX_OWNED_STATE_ROOT"
+
+      # The main commits and pull requests this Mac's kept builds (every
+      # root's) start from cheaply, for the queue janitor to record against
+      # this root runner (owned_warm_state.py), so a later run merging onto
+      # one of them, or re-pushing the same pull request, can ask for this Mac
+      # by its static glaeda-runner- label (pr_runner_pool.py, warm affinity).
+      # It also carries every root's stamp, which the picker scores by
+      # distance (warm_distance.distance_route()); it runs after the warm
+      # distance record above, which adds this build's own files to the stamp.
+      # On any failure nothing is uploaded and nothing changes.
+      - name: List the commits this owned Mac starts from warm
+        id: owned-warm-keys
+        if: ${{ !cancelled() && steps.owned-state.outputs.fingerprint != '' }}
+        continue-on-error: true
+        env:
+          FINGERPRINT: ${{ steps.owned-state.outputs.fingerprint }}
+          # The seeds `prefer` may clone count only when it runs (the adopt steps' cache).
+          CMUX_SEED_LOCAL_CACHE: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && vars.CI_OWNED_PREFER_SEED != '' && format('{0}/seeds', env.CMUX_OWNED_STATE_ROOT) || '' }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/owned_build_state.py warm-keys "$CMUX_OWNED_STATE_ROOT" "$RUNNER_NAME" "$CMUX_PRODUCT_RUNNER" \
+            "$FINGERPRINT" > "$RUNNER_TEMP/warm-keys.json"
+          cat "$RUNNER_TEMP/warm-keys.json"
+          echo "path=$RUNNER_TEMP/warm-keys.json" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the owned Mac's warm keys
+        if: ${{ !cancelled() && steps.owned-warm-keys.outputs.path != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # A fixed name: the janitor lists it by name, the only artifact
+          # listing this repository answers. A re-run attempt replaces it.
+          name: owned-warm-keys
+          overwrite: true
+          path: ${{ steps.owned-warm-keys.outputs.path }}
+          retention-days: 1
+          if-no-files-found: ignore
 
       - name: Seed node-local compiled product cache
         if: steps.publish-products.outputs.publish == 'true'
@@ -1543,7 +1563,9 @@ jobs:
     permissions:
       contents: read
     outputs:
-      runners: ${{ steps.place.outputs.runners || '{}' }}
+      # Only jobs the rescue watch can find move: a marker that failed to
+      # upload leaves every job where the picker put it.
+      runners: ${{ steps.late-marker.outcome == 'success' && steps.late-watch-marker.outcome == 'success' && steps.place.outputs.runners || '{}' }}
     steps:
       # The picker's code from the base branch, as ci.yml's changes job uses it.
       - name: Check out the trusted picker
@@ -1603,21 +1625,25 @@ jobs:
           RUNNERS: ${{ steps.place.outputs.runners }}
         run: mkdir -p "$RUNNER_TEMP/late-placement" && printf '%s\n' "$RUNNERS" > "$RUNNER_TEMP/late-placement/runners.json"
       - name: Upload the late placement marker
+        id: late-marker
         if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}'
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: macos-pool-late-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/late-placement/runners.json
+          if-no-files-found: error
           retention-days: 1
       # The rescue sweeper finds late-placed runs by this fixed name.
       - name: Upload the late owned-pool watch marker
+        id: late-watch-marker
         if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}' && github.run_attempt == 1
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: owned-pool-watch-late
           path: ${{ runner.temp }}/late-placement/runners.json
+          if-no-files-found: error
           retention-days: 1
 
   app-host-unit-tests:
@@ -2340,9 +2366,13 @@ jobs:
             -only-testing:cmuxTests/GhosttyTerminalViewVisibilityPolicyTests \
             test-without-building
 
+      # The notification semantics step resolves `node` and runs after an
+      # earlier failure, so both node steps must run after one too. Skipped,
+      # they turned an earlier focused-regression failure into a second
+      # `command -v node` failure on minis whose runner PATH has no node.
       - name: Ensure node for app-host wrapper regressions
         id: detect-node
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
+        if: ${{ !cancelled() && (matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) || matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run agent notification semantics|')) }}
         run: |
           set -euo pipefail
           # App-host wrapper regressions, including OpenCode and Claude hooks,
@@ -2362,7 +2392,7 @@ jobs:
           echo "found=false" >> "$GITHUB_OUTPUT"
 
       - name: Install node (runner image has none)
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) && steps.detect-node.outputs.found == 'false' }}
+        if: ${{ !cancelled() && ((matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) || matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run agent notification semantics|')) && steps.detect-node.outputs.found == 'false') }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "20"
@@ -3816,7 +3846,12 @@ jobs:
           rm -f "$SOCK" "/tmp/cmux-${TAG}.sock" || true
           defaults write "$BUNDLE_ID" socketControlMode -string full >/dev/null 2>&1 || true
 
-          CMUX_TAG="$TAG" CMUX_SOCKET_PATH="$SOCK" CMUX_UI_TEST_MODE=1 "$APP/Contents/MacOS/cmux DEV" >/tmp/cmux-ci-lag.log 2>&1 &
+          # The relocated Debug app's first rpath is the producer's absolute
+          # DerivedData, which on an owned Mac is this host's own compile slot
+          # at another revision; bind the restored frameworks instead.
+          PRODUCTS="$(dirname "$APP")"
+          DYLD_FRAMEWORK_PATH="$PRODUCTS:$PRODUCTS/PackageFrameworks" \
+            CMUX_TAG="$TAG" CMUX_SOCKET_PATH="$SOCK" CMUX_UI_TEST_MODE=1 "$APP/Contents/MacOS/cmux DEV" >/tmp/cmux-ci-lag.log 2>&1 &
           APP_PID=$!
           trap 'kill "$APP_PID" >/dev/null 2>&1 || true' EXIT
 

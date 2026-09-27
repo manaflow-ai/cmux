@@ -70,6 +70,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_omo_shadow_config_mirror.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_socket_autodiscovery.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -134,6 +139,10 @@ lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_claude_wrapper_user_binary_resolution.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_claude_wrapper_subrouter_resume_marker.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
@@ -252,6 +261,10 @@ lane = "macos-cli-no-socket"
 [[test]]
 path = "tests/test_shell_git_config_remote_url_parsing.py"
 lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_shell_first_prompt_spawns.py"
+lane = "macos-shell"
 
 [[test]]
 path = "tests/test_claude_hook_stop_last_assistant.py"
@@ -743,6 +756,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_app_host_layered_products.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_relocate_package_framework_rpaths.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1303,6 +1320,10 @@ path = "tests/test_ci_guard_attribution.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_classify_failures.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_timing_readout.py"
 lane = "linux-guard"
 
@@ -1316,4 +1337,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_resources_plist_unique_keys.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_machine_failure.py"
 lane = "linux-guard"

@@ -297,6 +297,24 @@ the picker cannot list live runners and never routes by warmth. A warm runner
 taken between the pick and the queue leaves admission waiting, and the rescue
 moves it to Blacksmith like any other stuck owned job.
 
+Distance routing (`CI_OWNED_WARM_DISTANCE`, on unless `0`) replaces the exact
+keys with the distance glaeda's hook ranks roots by. The `owned-warm-keys`
+artifact also carries `roots`, every canonical root's stamp (merge base, pull
+request and that pull request's own app Swift files), uploaded after the warm
+distance record adds them. The picker folds the artifacts uploaded since the
+janitor's snapshot itself (`owned_warm_state.live_warm()`: the newest 4, one
+listing plus two requests each, nothing when the snapshot is under 2 minutes
+old), fetches the kept merge bases it lacks in one blobless shallow fetch,
+and scores every mini's roots with the hook's near/far/rebuild tiers
+(`warm_distance.distance_route()`, a mirror of the hook's
+`warm_root_costs()` pinned by a parity test) plus this pull request's own
+files. A mini's busy root runners hold its cheapest roots; the root label
+costs the mean over the idle root runners, which is where GitHub puts it.
+The cheapest runner by 30 s is pinned; ties go to cost, then the less
+loaded mini, then the name. The picker's candidates, pick and predicted
+seconds go to admission's record (`route.picker`) through the
+`admission_route` output.
+
 The cost model is `scripts/ci/warm-distance-model.json`, fitted by
 `scripts/ci/warm_distance.py fit` from the line every owned admission appends
 to `/Users/Shared/cmux-build-fleet/ci/admissions.jsonl` on its mini (start,
@@ -304,6 +322,20 @@ distance in app Swift files, package interface and hot files, Swift units,
 app rebuild, compile/admission/queue seconds, route). Refit with
 `warm_distance.py collect <minis> > data.jsonl` and `warm_distance.py fit
 data.jsonl --git <cmux checkout> --out scripts/ci/warm-distance-model.json`.
+
+The compile estimates correct themselves. Besides each tier's p50 the model
+keeps `tiers_by_start`, the p50 per tier and start kind (a kept build or a
+seed) with its count, and `predict()` (and glaeda's hook, for a root's kept
+build) uses a cell once it has 5 compiles, else the tier: a near compile from
+a kept build ran about 90 s, one from a seed about 155 s, against the near
+tier's 140 s. `scripts/ci/warm_model_refit.py` runs daily on mini-6 beside
+ci-dash: it refits the tiers and cells from the last 14 days of admissions
+(`warm_distance.py refit`, which leaves hot files, start_classes and
+job_seconds alone) and, only when a p50 with at least 20 compiles moved more
+than 20%, opens a pull request from `ci/warm-model-refit` with the errors
+before and after and a time-ordered replay (`warm_distance.py backtest`). It
+never writes main; without its token it leaves the patch and summary in its
+output directory.
 
 Spread-first admission (`CI_OWNED_SPREAD=1`, off by default): two compiles
 (8 to 10 of a mini's 14 cores each) could take both roots of one mini while
