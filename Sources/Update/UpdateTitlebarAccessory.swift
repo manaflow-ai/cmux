@@ -1943,7 +1943,7 @@ enum TitlebarWindowGeometryNotifications {
 
 final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewController, NSPopoverDelegate {
     private let hostingView: NonDraggableHostingView<AnyView>
-    private let containerView: NSView
+    private let containerView: TitlebarAccessoryContainerView
     private let notificationStore: TerminalNotificationStore
     private let layoutModel: TitlebarControlsLayoutModel
     private lazy var notificationsPopover: NSPopover = makeNotificationsPopover()
@@ -2035,6 +2035,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         hostingView.clipsToBounds = false
         hostingView.layer?.masksToBounds = false
         containerView.addSubview(hostingView)
+        containerView.onWindowChange = { [weak self] window in
+            self?.observeWindow(window)
+        }
 
         userDefaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             guard let self else { return }
@@ -2073,7 +2076,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
     override func viewDidAppear() {
         super.viewDidAppear()
-        updateObservedWindowIfNeeded()
         scheduleSizeUpdate(invalidateIntrinsicSize: true)
     }
 
@@ -2094,32 +2096,37 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        let observedWindowChanged = updateObservedWindowIfNeeded()
         let currentViewSize = view.bounds.size
         guard titlebarControlsShouldScheduleForViewSizeChange(
             previous: lastObservedViewSize,
             current: currentViewSize
-        ) || observedWindowChanged else {
+        ) else {
             return
         }
         lastObservedViewSize = currentViewSize
-        scheduleSizeUpdate(invalidateIntrinsicSize: true, invalidateLayout: observedWindowChanged)
+        scheduleSizeUpdate(invalidateIntrinsicSize: true)
     }
 
-    @discardableResult
-    private func updateObservedWindowIfNeeded() -> Bool {
-        let currentWindow = view.window
-        guard currentWindow !== observedWindow else { return false }
+    /// Tracks the host window from the container's `viewDidMoveToWindow`.
+    ///
+    /// Deferred size updates must not read `view.window` and store it weakly:
+    /// by the time the block runs, the window can be deallocating, and forming
+    /// a weak reference to it aborts the process ("Cannot form weak reference
+    /// to instance ... of class NSWindow"). AppKit hands this callback a live
+    /// window, and the weak `observedWindow` then reads nil once it goes away.
+    private func observeWindow(_ window: NSWindow?) {
+        guard window !== observedWindow else { return }
         removeWindowGeometryObservers()
-        observedWindow = currentWindow
-        guard let currentWindow else { return true }
-        let center = NotificationCenter.default
-        windowGeometryObservers = TitlebarWindowGeometryNotifications.names.map { name in
-            center.addObserver(forName: name, object: currentWindow, queue: .main) { [weak self] _ in
-                self?.scheduleSizeUpdate(invalidateIntrinsicSize: true, invalidateLayout: true)
+        observedWindow = window
+        if let window {
+            let center = NotificationCenter.default
+            windowGeometryObservers = TitlebarWindowGeometryNotifications.names.map { name in
+                center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    self?.scheduleSizeUpdate(invalidateIntrinsicSize: true, invalidateLayout: true)
+                }
             }
         }
-        return true
+        scheduleSizeUpdate(invalidateIntrinsicSize: true, invalidateLayout: true)
     }
 
     private func removeWindowGeometryObservers() {
@@ -2134,7 +2141,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         invalidateIntrinsicSize: Bool = false,
         invalidateLayout: Bool = false
     ) {
-        updateObservedWindowIfNeeded()
         if invalidateLayout {
             lastAppliedLayoutSnapshot = nil
         }
@@ -2150,7 +2156,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 
     private func updateSize() {
-        updateObservedWindowIfNeeded()
         applyWorkspaceTitlebarVisibility()
         guard showsWorkspaceTitlebar else { return }
         let contentSize = layoutModel.snapshot.contentSize
@@ -2161,17 +2166,18 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         cachedContentSize = contentSize
 
         guard contentSize.width > 0, contentSize.height > 0 else { return }
-        let closeButton = view.window?.standardWindowButton(.closeButton)
+        let window = observedWindow
+        let closeButton = window?.standardWindowButton(.closeButton)
         let titlebarView = closeButton?.superview
         let trafficLightFrame = closeButton.map { button in
             view.convert(button.convert(button.bounds, to: nil), from: nil)
         }
 #if DEBUG
-        TitlebarChromeUITestRecorder.recordTrafficLightFrames(window: view.window)
+        TitlebarChromeUITestRecorder.recordTrafficLightFrames(window: window)
 #endif
         let titlebarHeight = (titlebarView?.frame.height ?? 0) > 0
             ? titlebarView?.frame.height ?? contentSize.height
-            : view.window.map { window in
+            : window.map { window in
                 window.frame.height - window.contentLayoutRect.height
             } ?? contentSize.height
         let containerHeight = TitlebarControlsLayoutMetrics.containerHeight(

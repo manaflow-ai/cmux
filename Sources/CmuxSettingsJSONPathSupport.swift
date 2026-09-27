@@ -264,6 +264,16 @@ enum TerminalSettingsFileMapping {
             invalidPath: terminal.reflowHardWrapOnCopy.id
         ),
         .init(
+            jsonKey: "showPasswordInputIndicator",
+            defaultsKey: terminal.showPasswordInputIndicator.userDefaultsKey,
+            invalidPath: terminal.showPasswordInputIndicator.id
+        ),
+        .init(
+            jsonKey: "showPasswordInputDots",
+            defaultsKey: terminal.showPasswordInputDots.userDefaultsKey,
+            invalidPath: terminal.showPasswordInputDots.id
+        ),
+        .init(
             jsonKey: "autoResumeAgentSessions",
             defaultsKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
             invalidPath: "terminal.autoResumeAgentSessions"

@@ -45,6 +45,8 @@ extension CmuxSettingsFileStore {
         "terminal.reflowHardWrapOnCopy",
         "terminal.textEditingGestures",
         "terminal.promptSelection",
+        "terminal.showPasswordInputIndicator",
+        "terminal.showPasswordInputDots",
         "terminal.autoResumeAgentSessions",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.focusTextBoxOnNewTerminals",
