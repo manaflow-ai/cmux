@@ -11,9 +11,10 @@ public import Foundation
 ///
 /// - Writes (`upsert`/`remove`/`setActive`) forward to the local store first (it
 ///   stays authoritative), then mirror the change to the DO best-effort.
-/// - Reads (`loadAll`/`activeMac`) trigger a one-time restore for the signed-in
-///   (account, team) scope before returning, so a fresh install / post-upgrade
-///   launch shows the user's saved hosts as soon as the host list is read.
+/// - Reads (`loadAll`/`activeMac`) restore the signed-in (account, team) scope.
+///   A non-empty local cache is returned immediately while the restore runs in
+///   the background, so a normal launch does not wait on the network. A fresh
+///   install with no local rows waits for the restore before returning.
 /// - `removeAll` (the sign-out wipe) is NOT mirrored (signing out must not delete
 ///   the account's server backup) and resets the restore memo so a same-launch
 ///   re-sign-in restores again.
@@ -387,11 +388,22 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
 
     /// Load paired Macs after ensuring the signed-in account/team backup was restored.
     public func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
-        await restoreIfNeeded(stackUserID)
         // Scope to the current team (callers pass nil via the convenience overload),
         // so a multi-team user only sees the active team's Macs. NULL-team legacy
         // rows remain visible (the store's `team_id IS ? OR team_id IS NULL` rule).
         let team = await resolvedTeam(teamID)
+        let local = try await inner.loadAll(stackUserID: stackUserID, teamID: team)
+        if !local.isEmpty {
+            // The local store is the user's fast, scoped cache. Do not hold the
+            // first screen on a remote backup fetch when it already has safe
+            // rows to display. The restore still runs in the actor and will
+            // reconcile newer records before the next refresh.
+            Task { [weak self] in
+                await self?.restoreIfNeeded(stackUserID)
+            }
+            return local
+        }
+        await restoreIfNeeded(stackUserID)
         return try await inner.loadAll(stackUserID: stackUserID, teamID: team)
     }
 
