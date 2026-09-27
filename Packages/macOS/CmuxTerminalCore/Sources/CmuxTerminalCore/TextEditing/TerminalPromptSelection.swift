@@ -79,7 +79,10 @@ public enum TerminalPromptSelectionIntent: Equatable, Sendable {
     case extend(TerminalPromptSelectionDirection, TerminalPromptSelectionGranularity)
     /// Cmd+X, Edit > Cut.
     case cut
-    /// Plain Left/Right, which collapses a selection to that edge.
+    /// Plain Left/Right, which collapses a selection toward that edge.
+    ///
+    /// The caret moves left onto the edge but never right, so collapsing
+    /// cannot accept a zsh autosuggestion.
     case collapse(TerminalPromptSelectionDirection)
     /// Backspace or forward Delete.
     case delete
@@ -236,8 +239,14 @@ public func terminalPromptSelectionResolve(
 
     case let .collapse(direction):
         guard let selection else { return .passThrough }
-        let target = direction == .backward ? selection.lowerBound : selection.upperBound
-        return .edit(.moving(to: target, caret: caret), copyFirst: false, thenPassThrough: false)
+        // Collapsing never presses Right. At the end of a zsh buffer, Right
+        // accepts an autosuggestion, and the suggestion's cells read as input,
+        // so a selection can reach past the real buffer. When the edge lies
+        // right of the caret the caret stays put, which is already that edge
+        // for Cmd+A at the end of the line and for a Shift+Right extension's
+        // anchor side.
+        let edge = direction == .backward ? selection.lowerBound : selection.upperBound
+        return .edit(.moving(to: min(edge, caret), caret: caret), copyFirst: false, thenPassThrough: false)
 
     case .cut, .delete, .insertText:
         guard let selection else { return .passThrough }

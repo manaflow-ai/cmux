@@ -208,11 +208,38 @@ struct TerminalPromptSelectionTests {
 
         let right = terminalPromptSelectionResolve(
             intent: .collapse(.forward),
-            snapshot: snapshot(caret: 0, selection: 1..<3),
+            snapshot: snapshot(caret: 5, selection: 1..<3),
             tracked: nil
         )
         #expect(right == .edit(
-            TerminalPromptInputEdit(moveLeft: 0, moveRight: 3, deleteBackward: 0),
+            TerminalPromptInputEdit(moveLeft: 2, moveRight: 0, deleteBackward: 0),
+            copyFirst: false,
+            thenPassThrough: false
+        ))
+    }
+
+    /// Right at the end of a zsh buffer accepts an autosuggestion, whose cells
+    /// read as input. Cmd+A there selects the suggestion too, so collapsing
+    /// with Right must clear the selection without pressing Right.
+    @Test func collapsingNeverPressesRight() {
+        let afterSelectAll = terminalPromptSelectionResolve(
+            intent: .collapse(.forward),
+            snapshot: snapshot(length: 12, caret: 5, selection: 0..<12),
+            tracked: TerminalPromptSelection(anchor: 0, head: 12)
+        )
+        #expect(afterSelectAll == .edit(
+            TerminalPromptInputEdit(moveLeft: 0, moveRight: 0, deleteBackward: 0),
+            copyFirst: false,
+            thenPassThrough: false
+        ))
+
+        let leftOfCaret = terminalPromptSelectionResolve(
+            intent: .collapse(.backward),
+            snapshot: snapshot(caret: 0, selection: 1..<3),
+            tracked: nil
+        )
+        #expect(leftOfCaret == .edit(
+            TerminalPromptInputEdit(moveLeft: 0, moveRight: 0, deleteBackward: 0),
             copyFirst: false,
             thenPassThrough: false
         ))
