@@ -416,7 +416,7 @@ final class CmuxEventBus: @unchecked Sendable {
             }
 
             for line in text.split(whereSeparator: \.isNewline) {
-                guard let lineData = line.data(using: .utf8),
+                guard let lineData = String(line).data(using: .utf8),
                       let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
                       object["type"] as? String == "event",
                       int64(object["seq"]) != nil else {
