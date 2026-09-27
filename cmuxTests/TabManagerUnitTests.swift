@@ -1829,6 +1829,8 @@ final class TabManagerCloseDontAskAgainTests: XCTestCase {
         }
 
         XCTAssertFalse(manager.closeWorkspaceWithConfirmation(workspace))
+        // The in-flight guard releases on the next main-queue turn.
+        drainMainQueue()
         manager.closeWorkspacesWithConfirmation([unpinned.id, workspace.id], allowPinned: true)
 
         XCTAssertEqual(promptCount, 2)
