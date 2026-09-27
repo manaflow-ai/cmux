@@ -5309,6 +5309,65 @@
           }
         }
       }
+    },
+    "config.settingChange.keyContainsDot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' names a key that contains \".\", such as a workspaceGroups.byCwd path. Setting paths split on every \".\", so that key can't be changed this way. Edit it in cmux.json directly."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' verweist auf einen Schlüssel mit \".\", etwa einen workspaceGroups.byCwd-Pfad. Einstellungspfade werden an jedem \".\" geteilt, daher lässt sich dieser Schlüssel so nicht ändern. Bearbeite ihn direkt in cmux.json."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' désigne une clé qui contient \".\", par exemple un chemin workspaceGroups.byCwd. Les chemins de réglage sont découpés à chaque \".\", donc cette clé ne peut pas être modifiée ainsi. Modifiez-la directement dans cmux.json."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' يشير إلى مفتاح يحتوي على \".\"، مثل مسار workspaceGroups.byCwd. تُقسَّم مسارات الإعدادات عند كل \".\"، لذا لا يمكن تغيير هذا المفتاح بهذه الطريقة. عدّله في cmux.json مباشرةً."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' se refiere a una clave que contiene \".\", como una ruta de workspaceGroups.byCwd. Las rutas de ajustes se dividen en cada \".\", así que esa clave no se puede cambiar de esta forma. Edítala directamente en cmux.json."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 指向含有 \".\" 的鍵，例如 workspaceGroups.byCwd 路徑。設定路徑會在每個 \".\" 處分割，因此無法用這種方式變更該鍵。請直接在 cmux.json 中編輯。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 指向包含 \".\" 的键，例如 workspaceGroups.byCwd 路径。设置路径会在每个 \".\" 处拆分，因此无法用这种方式更改该键。请直接在 cmux.json 中编辑。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@'은(는) \".\"이 포함된 키를 가리킵니다(예: workspaceGroups.byCwd 경로). 설정 경로는 모든 \".\"에서 나뉘므로 이 방법으로는 해당 키를 변경할 수 없습니다. cmux.json에서 직접 편집하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' は \".\" を含むキー（workspaceGroups.byCwd のパスなど）を指しています。設定パスはすべての \".\" で分割されるため、この方法ではそのキーを変更できません。cmux.json で直接編集してください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

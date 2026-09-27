@@ -685,7 +685,7 @@ Config subcommands:
 | `config cycle <setting.path> <value> [value...]` | Move a setting to the value after its current one, wrapping at the end; a value that isn't listed moves to the first. |
 | `config preset <name>` | Apply the partial settings object at `settingPresets.<name>` in one write. Nested objects merge key by key. |
 
-`config set|unset|toggle|cycle|preset` share one mutation path with `"type": "setting"` and `"type": "settingPreset"` actions. `--json` prints `ok`, `file`, and `paths`, an array of `{path, changed, value}` objects (`value` is absent after an unset).
+`config set|unset|toggle|cycle|preset` share one mutation path with `"type": "setting"` and `"type": "settingPreset"` actions. Paths split on every `.`, so a key that itself contains `.` (for example a `workspaceGroups.byCwd` entry for `~/src/app.web`) can't be addressed; such a path is refused with an error that says so, and the key has to be edited in cmux.json directly. `--json` prints `ok`, `file`, and `paths`, an array of `{path, changed, value}` objects (`value` is absent after an unset).
 
 `config doctor --json` outputs an object with `ok`, `error_count`,
 `findings`, `reload_command`, `docs_url`, and `schema_url`. Each finding includes

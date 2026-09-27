@@ -123,6 +123,53 @@ struct CmuxSettingChangeTests {
         #expect(try Data(contentsOf: file) == before)
     }
 
+    @Test("a key containing a dot is refused with an explicit reason")
+    func refusesKeysContainingDots() async throws {
+        let file = try fixture("""
+        {
+          "settingPresets": {
+            "webGroup": { "workspaceGroups": { "byCwd": { "~/src/app.web": { "color": "#7A4FD8" } } } }
+          },
+          "workspaceGroups": { "byCwd": { "~/src/app": { "color": "#112233" } } }
+        }
+
+        """)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let store = JSONConfigStore(fileURL: file)
+        let before = try Data(contentsOf: file)
+
+        // A byCwd key without a dot is an ordinary path.
+        #expect(try store.reading(at: "workspaceGroups.byCwd.~/src/app.color").configured == .string("#112233"))
+
+        // Split on every ".", this path only resolves if "~/src/app.web" is
+        // one key, so the refusal names the dot instead of an unknown path.
+        await #expect(throws: CmuxSettingChangeError.keyContainsDot("workspaceGroups.byCwd.~/src/app.web.color")) {
+            _ = try await store.apply(.set(path: "workspaceGroups.byCwd.~/src/app.web.color", value: .string("#FFFFFF")))
+        }
+        #expect(throws: CmuxSettingChangeError.keyContainsDot("workspaceGroups.byCwd.~/src/app.web.color")) {
+            _ = try store.reading(at: "workspaceGroups.byCwd.~/src/app.web.color")
+        }
+        await #expect(throws: CmuxSettingChangeError.keyContainsDot("workspaceGroups.byCwd.~/src/app.web.color")) {
+            _ = try await store.apply(.preset(name: "webGroup"))
+        }
+        #expect(try Data(contentsOf: file) == before)
+        #expect(CmuxSettingChangeError.keyContainsDot("x").errorDescription?.contains("\".\"") == true)
+    }
+
+    @Test("each change describes itself as the equivalent cmux config command")
+    func commandLineDescriptions() {
+        #expect(CmuxSettingChange.set(path: "terminal.scrollSpeed", value: .number(1.4)).commandLineDescription
+            == "cmux config set terminal.scrollSpeed 1.4")
+        #expect(CmuxSettingChange.toggle(path: "fileEditor.wordWrap").commandLineDescription
+            == "cmux config toggle fileEditor.wordWrap")
+        #expect(CmuxSettingChange.cycle(path: "app.appearance", values: [.string("light"), .string("dark")]).commandLineDescription
+            == "cmux config cycle app.appearance \"light\" \"dark\"")
+        #expect(CmuxSettingChange.unset(path: "terminal.scrollSpeed").commandLineDescription
+            == "cmux config unset terminal.scrollSpeed")
+        #expect(CmuxSettingChange.preset(name: "sidebar.quiet").commandLineDescription
+            == "cmux config preset sidebar.quiet")
+    }
+
     @Test("values the schema rejects are refused without writing")
     func refusesInvalidValues() async throws {
         let file = try fixture(baseConfig)

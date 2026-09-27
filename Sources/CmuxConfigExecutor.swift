@@ -81,6 +81,8 @@ struct CmuxConfigExecutor {
                 change,
                 actionSourcePath: action.actionSourcePath,
                 globalConfigPath: globalConfigPath,
+                confirm: action.confirm ?? false,
+                title: action.title,
                 presentingWindow: presentingWindow
             )
             if didStart { onExecuted?() }

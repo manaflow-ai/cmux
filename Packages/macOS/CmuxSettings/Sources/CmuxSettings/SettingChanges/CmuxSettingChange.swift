@@ -31,6 +31,23 @@ public enum CmuxSettingChange: Sendable, Hashable {
             return name
         }
     }
+
+    /// The equivalent `cmux config` command, shown when a setting action
+    /// asks for confirmation.
+    public var commandLineDescription: String {
+        switch self {
+        case .set(let path, let value):
+            return "cmux config set \(path) \(value.jsonText)"
+        case .unset(let path):
+            return "cmux config unset \(path)"
+        case .toggle(let path):
+            return "cmux config toggle \(path)"
+        case .cycle(let path, let values):
+            return (["cmux config cycle", path] + values.map(\.jsonText)).joined(separator: " ")
+        case .preset(let name):
+            return "cmux config preset \(name)"
+        }
+    }
 }
 
 /// The paths a ``CmuxSettingChange`` wrote. Runtime application is not

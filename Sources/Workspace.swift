@@ -14646,6 +14646,8 @@ extension Workspace: BonsplitDelegate {
                 change,
                 actionSourcePath: executable.button.actionSourcePath,
                 globalConfigPath: globalConfigPath,
+                confirm: executable.button.confirm ?? false,
+                title: executable.button.title,
                 presentingWindow: presentingWindow
             )
             return

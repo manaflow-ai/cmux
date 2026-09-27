@@ -115,17 +115,46 @@ struct CmuxSettingChangePlanner {
         guard !components.isEmpty, !components.contains(where: \.isEmpty) else {
             throw CmuxSettingChangeError.unknownPath(display)
         }
-        // A key containing "." can't be addressed by a dotted JSONPath.
+        // A key containing "." (a preset's object key) can't be addressed by
+        // a dotted JSONPath.
         guard !components.contains(where: { $0.contains(".") }) else {
-            throw CmuxSettingChangeError.unknownPath(display)
+            throw CmuxSettingChangeError.keyContainsDot(display)
         }
         guard !Self.nonSettingSections.contains(components[0]) else {
             throw CmuxSettingChangeError.notASetting(display)
         }
         guard schema.isDeclared(components) else {
+            if resolvesWithDottedKey(components) {
+                throw CmuxSettingChangeError.keyContainsDot(display)
+            }
             throw CmuxSettingChangeError.unknownPath(display)
         }
         return JSONPath(dottedPath: components.joined(separator: "."))
+    }
+
+    /// Whether rejoining some adjacent components with "." gives a declared
+    /// path, meaning the caller most likely meant a key that contains "."
+    /// (for example `workspaceGroups.byCwd.~/src/app.web.color`). Used only
+    /// to explain the refusal; such keys stay unsupported.
+    private func resolvesWithDottedKey(_ components: [String]) -> Bool {
+        // Each bit of `mask` joins component i to component i + 1. Paths are
+        // short; the cap keeps a pathological argument cheap.
+        let joints = components.count - 1
+        guard joints > 0, joints <= 10 else { return false }
+        for mask in 1..<(1 << joints) {
+            var merged: [String] = [components[0]]
+            for index in 1..<components.count {
+                if mask & (1 << (index - 1)) != 0 {
+                    merged[merged.count - 1] += "." + components[index]
+                } else {
+                    merged.append(components[index])
+                }
+            }
+            if !Self.nonSettingSections.contains(merged[0]), schema.isDeclared(merged) {
+                return true
+            }
+        }
+        return false
     }
 
     /// The configured value, or the schema default when the file doesn't

@@ -17,6 +17,11 @@ public enum CmuxSettingChangeError: LocalizedError, Sendable, Equatable {
     case unknownPreset(String)
     /// `settingPresets.<name>` isn't an object of settings.
     case invalidPreset(String)
+    /// The path only resolves if one of its keys contains ".", such as a
+    /// `workspaceGroups.byCwd` entry for `~/src/app.web`. Setting paths split
+    /// on every ".", so these keys can't be addressed; there is deliberately
+    /// no escaping syntax.
+    case keyContainsDot(String)
 
     public var errorDescription: String? {
         let localization = CmuxConfigValidationLocalization()
@@ -56,6 +61,12 @@ public enum CmuxSettingChangeError: LocalizedError, Sendable, Equatable {
                 "config.settingChange.invalidPreset",
                 defaultValue: "Setting preset '%@' must be an object of settings, for example {\"sidebar\": {\"showPorts\": false}}.",
                 name
+            )
+        case .keyContainsDot(let path):
+            return localization.format(
+                "config.settingChange.keyContainsDot",
+                defaultValue: "'%@' names a key that contains \".\", such as a workspaceGroups.byCwd path. Setting paths split on every \".\", so that key can't be changed this way. Edit it in cmux.json directly.",
+                path
             )
         }
     }

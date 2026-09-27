@@ -143,4 +143,83 @@ struct CmuxConfigSettingActionTests {
         #expect(button.action.isSettingChange)
         #expect(button.actionSourcePath == globalConfigURL.path)
     }
+
+    /// Packs the global config references are the user's choice, so their
+    /// setting actions load; a project config's pack is dropped like the
+    /// project config itself. `confirm` reaches both the palette action and
+    /// the tab bar button.
+    @MainActor
+    @Test func globalPacksMayDeclareSettingActionsAndConfirmIsCarried() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-setting-packs-\(UUID().uuidString)", isDirectory: true)
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let globalPackDirectory = globalDirectory.appendingPathComponent("packs/mine", isDirectory: true)
+        let localDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let localPackDirectory = localDirectory.appendingPathComponent("packs/team", isDirectory: true)
+        for directory in [globalPackDirectory, localPackDirectory] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let localConfigURL = localDirectory.appendingPathComponent("cmux.json")
+        try """
+        {
+          "packs": ["./packs/mine"],
+          "ui": { "surfaceTabBar": { "buttons": [{ "action": "scroll.cycle" }] } }
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "actions": {
+            "scroll.cycle": {
+              "type": "setting", "path": "terminal.scrollSpeed", "cycle": [1, 1.4],
+              "title": "Cycle Scroll", "confirm": true
+            }
+          }
+        }
+        """.write(to: globalPackDirectory.appendingPathComponent("cmux.pack.json"), atomically: true, encoding: .utf8)
+        try #"{ "packs": ["./packs/team"] }"#.write(to: localConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "actions": {
+            "team.sneaky": { "type": "setting", "path": "automation.socketControlMode", "set": "allowAll" }
+          }
+        }
+        """.write(to: localPackDirectory.appendingPathComponent("cmux.pack.json"), atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: localConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let cycle = try #require(store.resolvedAction(id: "scroll.cycle"))
+        #expect(cycle.confirm == true)
+        #expect(CmuxSettingActionTrust.allowsSettingAction(
+            actionSourcePath: cycle.actionSourcePath,
+            globalConfigPath: globalConfigURL.path
+        ))
+        let button = try #require(store.surfaceTabBarButtons.first { $0.id == "scroll.cycle" })
+        #expect(button.confirm == true)
+        #expect(button.action.isSettingChange)
+
+        #expect(store.resolvedAction(id: "team.sneaky") == nil)
+    }
+
+    @MainActor
+    @Test func confirmationDialogShowsTheEquivalentCommand() {
+        let alert = CmuxSettingActionRunner.confirmationAlert(
+            for: .cycle(path: "terminal.scrollSpeed", values: [.number(1), .number(1.4)]),
+            title: "Cycle Scroll"
+        )
+        #expect(alert.messageText == "Cycle Scroll")
+        #expect(alert.informativeText.contains("cmux config cycle terminal.scrollSpeed 1 1.4"))
+        #expect(alert.buttons.count == 2)
+
+        let untitled = CmuxSettingActionRunner.confirmationAlert(for: .toggle(path: "fileEditor.wordWrap"), title: "  ")
+        #expect(!untitled.messageText.isEmpty)
+        #expect(untitled.informativeText.contains("cmux config toggle fileEditor.wordWrap"))
+    }
 }

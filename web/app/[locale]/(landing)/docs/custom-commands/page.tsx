@@ -267,6 +267,12 @@ export default function CustomCommandsPage() {
           preset: inlineCode,
         })}
       </p>
+      <p>
+        {renderRawRich(t.raw("settingActionsLimits"), {
+          confirm: inlineCode,
+          byCwd: inlineCode,
+        })}
+      </p>
 
       <DocsHeading level={2} id="new-workspace-button">{t("newWorkspaceButton")}</DocsHeading>
       <p>

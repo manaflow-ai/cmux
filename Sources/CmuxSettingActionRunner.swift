@@ -29,11 +29,19 @@ enum CmuxSettingActionRunner {
 
     /// Starts the change and returns whether it was accepted to run. A
     /// refused or failed write shows an alert with the reason.
+    ///
+    /// With `confirm`, the action's `"confirm": true`, the change waits for
+    /// the user to accept a dialog showing the equivalent `cmux config`
+    /// command. Setting actions only come from the global config, which the
+    /// project-action trust prompt never covers, so this is the only prompt
+    /// they get.
     @discardableResult
     static func run(
         _ change: CmuxSettingChange,
         actionSourcePath: String?,
         globalConfigPath: String,
+        confirm: Bool = false,
+        title: String? = nil,
         presentingWindow: NSWindow? = nil
     ) -> Bool {
         guard CmuxSettingActionTrust.allowsSettingAction(
@@ -43,6 +51,46 @@ enum CmuxSettingActionRunner {
             NSSound.beep()
             return false
         }
+        guard confirm else {
+            apply(change, globalConfigPath: globalConfigPath, presentingWindow: presentingWindow)
+            return true
+        }
+        let alert = confirmationAlert(for: change, title: title)
+        if let window = presentingWindow ?? NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window) { [weak window] response in
+                guard response == .alertFirstButtonReturn else { return }
+                apply(change, globalConfigPath: globalConfigPath, presentingWindow: window)
+            }
+        } else if alert.runModal() == .alertFirstButtonReturn {
+            apply(change, globalConfigPath: globalConfigPath, presentingWindow: nil)
+        }
+        return true
+    }
+
+    static func confirmationAlert(for change: CmuxSettingChange, title: String?) -> NSAlert {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        let trimmedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        alert.messageText = (trimmedTitle?.isEmpty == false)
+            ? trimmedTitle!
+            : String(localized: "settingAction.confirm.title", defaultValue: "Change Setting?")
+        alert.informativeText = String(
+            format: String(
+                localized: "settingAction.confirm.message",
+                defaultValue: "This action edits your cmux.json:\n\n%@"
+            ),
+            change.commandLineDescription
+        )
+        alert.addButton(withTitle: String(localized: "settingAction.confirm.apply", defaultValue: "Change"))
+        alert.addButton(withTitle: String(localized: "dialog.cmuxConfig.confirmCommand.cancel", defaultValue: "Cancel"))
+        return alert
+    }
+
+    private static func apply(
+        _ change: CmuxSettingChange,
+        globalConfigPath: String,
+        presentingWindow: NSWindow?
+    ) {
         let store = store(for: globalConfigPath)
         Task { @MainActor [weak presentingWindow] in
             do {
@@ -52,7 +100,6 @@ enum CmuxSettingActionRunner {
                 presentFailure(error, window: presentingWindow)
             }
         }
-        return true
     }
 
     private static func store(for globalConfigPath: String) -> JSONConfigStore {
