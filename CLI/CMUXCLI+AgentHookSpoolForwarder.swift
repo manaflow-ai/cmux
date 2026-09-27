@@ -75,8 +75,13 @@ extension CMUXCLI {
             spool.removeAll()
             return
         }
-        guard let lifetimeLock = spool.lock(AgentHookSpoolDirectory.forwarderLockName, blocking: false),
-              spool.publishEnvironmentKeys(Self.agentHookSpoolEnvironmentKeys(agent: agent)) else {
+        guard let lifetimeLock = spool.lock(AgentHookSpoolDirectory.forwarderLockName, blocking: false) else {
+            return
+        }
+        guard spool.publishEnvironmentKeys(Self.agentHookSpoolEnvironmentKeys(agent: agent)) else {
+            withExtendedLifetime(lifetimeLock) {
+                spool.removeIfUninitialized()
+            }
             return
         }
 

@@ -172,6 +172,24 @@ public struct AgentHookSpoolDirectory: Sendable {
         )
     }
 
+    /// Removes startup artifacts only when no key list or published records
+    /// exist. Callers must hold the forwarder lifetime lock.
+    /// A prior key list or record belongs to recovery, even if this start failed.
+    public func removeIfUninitialized() {
+        guard isPrivate(), let drainLock = lock(Self.drainLockName, blocking: true) else { return }
+        withExtendedLifetime(drainLock) {
+            guard let names = try? FileManager.default.contentsOfDirectory(atPath: url.path),
+                  !names.contains(Self.environmentKeysName),
+                  !names.contains(where: { $0.hasSuffix(Self.recordSuffix) }) else { return }
+            // Do not recursively remove unknown content or follow keys.tmp if
+            // publication failed because it was a symlink.
+            for name in [Self.forwarderLockName, Self.drainLockName, "\(Self.environmentKeysName).tmp"] {
+                unlink(url.appendingPathComponent(name).path)
+            }
+            rmdir(url.path)
+        }
+    }
+
     /// Removes this protocol's files and the directory after the final drain.
     public func removeAll() {
         guard isPrivate(),
