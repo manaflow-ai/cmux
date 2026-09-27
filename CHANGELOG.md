@@ -8,6 +8,7 @@ All notable changes to cmux are documented here.
 - Settings > Terminal > Reflow Hard-Wrapped Text on Copy (`terminal.reflowHardWrapOnCopy`, off by default) rejoins lines a program wrapped at exactly the terminal width when you copy ([#6923](https://github.com/manaflow-ai/cmux/pull/6923)) -- thanks @mvanhorn!
 - Pi is offered in the Machines Open Cloud Agent menu, `vm.cloud_agent_open`, and `cmux vm prompt --open pi` ([#14819](https://github.com/manaflow-ai/cmux/pull/14819)) -- thanks @aliyansajid!
 - `cmux resize-window --window <handle> --width <w> --height <h>` resizes a window from the CLI or socket, keeping its top-left corner in place ([#9826](https://github.com/manaflow-ai/cmux/pull/9826)) -- thanks @ejc3!
+- Global search finds text in the scrollback of open terminals, and Return on a terminal hit opens that pane's find bar on the match ([#11665](https://github.com/manaflow-ai/cmux/pull/11665)) -- thanks @smoreg!
 
 ### Changed
 - The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
