@@ -123,6 +123,10 @@ struct SettingCatalogTests {
         #expect(!SettingCatalog().terminal.runawayMemoryGuardrailEnabled.defaultValue)
     }
 
+    @Test func hardWrapReflowOnCopyDefaultsOff() {
+        #expect(!SettingCatalog().terminal.reflowHardWrapOnCopy.defaultValue)
+    }
+
     @Test func keyIdsMatchTheirSectionPrefix() {
         // Each key's dotted id must start with its section's prefix; this is
         // the convention that lets the JSON store use `id` as the JSON path.

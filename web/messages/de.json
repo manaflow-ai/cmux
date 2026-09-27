@@ -1783,6 +1783,7 @@
       "metaTitle": "Änderungsprotokoll",
       "versionTitle": "cmux {version} · Änderungsprotokoll",
       "releaseNavLabel": "Versionen rund um cmux {version}",
+      "tryIt": "Ausprobieren",
       "sections": {
         "added": "Hinzugefügt",
         "changed": "Geändert",

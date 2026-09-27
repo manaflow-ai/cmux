@@ -177,6 +177,14 @@ extension Array where Element == CuratedSettingEntry {
             ),
             .init(section: .terminal, id: "copy-on-select", title: String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), synonyms: "Copy on Selection terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
             .init(section: .terminal, id: "text-editing-gestures", title: String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"), synonyms: "Text Editing Gestures terminal.textEditingGestures text editing gestures option alt word line kill readline emacs keybindings command arrow delete"),
+            .init(
+                section: .terminal,
+                id: "reflow-hard-wrap-on-copy",
+                title: String(localized: "settings.terminal.reflowHardWrapOnCopy", defaultValue: "Reflow Hard-Wrapped Text on Copy"),
+                detailText: String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitleOff", defaultValue: "Copy keeps line breaks the program printed. Rows Ghostty marks as soft-wrapped still copy as one line."),
+                paths: ["terminal.reflowHardWrapOnCopy"],
+                synonyms: "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"
+            ),
             .init(section: .terminal, id: "agent-auto-resume", title: String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), synonyms: "Resume Agent Sessions on Reopen terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
             .init(
                 section: .terminal,

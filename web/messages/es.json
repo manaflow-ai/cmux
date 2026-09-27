@@ -1783,6 +1783,7 @@
       "metaTitle": "Registro de cambios",
       "versionTitle": "cmux {version} · Registro de cambios",
       "releaseNavLabel": "Versiones cercanas a cmux {version}",
+      "tryIt": "Pruébalo",
       "sections": {
         "added": "Añadido",
         "changed": "Cambiado",
