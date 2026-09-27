@@ -33,6 +33,7 @@ final class InterfaceDensityUITests: XCTestCase {
         // controls leave the accessibility tree, so hover by position first.
         hoverTitlebarRow(in: app)
         let bell = titlebarButton("titlebarControl.showNotifications", in: app)
+        XCTAssertTrue(waitForHittable(bell), "Hovering the sidebar header reveals its controls.")
         XCTAssertEqual(bell.frame.width, 24, accuracy: 0.5)
         attachScreenshot(of: app, name: "comfortable, minimal mode, pointer over sidebar header")
     }
@@ -43,12 +44,12 @@ final class InterfaceDensityUITests: XCTestCase {
         defer { app.terminate() }
 
         moveMouseToTerminal(in: app)
-        attachScreenshot(of: app, name: "compact, at rest, no unread")
         let bell = element("titlebarControl.showNotifications", in: app)
-        XCTAssertFalse(
-            bell.exists && bell.isHittable,
+        XCTAssertTrue(
+            waitForNotHittable(bell),
             "Compact titlebar controls stay hidden until the pointer reaches them."
         )
+        attachScreenshot(of: app, name: "compact, at rest, no unread")
 
         hoverTitlebarRow(in: app)
         XCTAssertTrue(waitForHittable(bell), "Hovering the titlebar row reveals the compact controls.")
@@ -142,7 +143,6 @@ final class InterfaceDensityUITests: XCTestCase {
     private func hoverTitlebarRow(in app: XCUIApplication) {
         app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: 110, dy: 14)).hover()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
     }
 
     /// Points at the help button's slot in the sidebar footer.
@@ -151,15 +151,12 @@ final class InterfaceDensityUITests: XCTestCase {
         let window = app.windows.firstMatch
         window.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: 36, dy: window.frame.height - 37)).hover()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
     }
 
-    /// Parks the pointer over the terminal so hover-revealed chrome settles.
+    /// Parks the pointer over the terminal, away from hover-revealed chrome.
     @MainActor
     private func moveMouseToTerminal(in app: XCUIApplication) {
         app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.6)).hover()
-        // Let the 0.14 s fade finish before capturing.
-        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
     }
 
     @MainActor
@@ -170,6 +167,18 @@ final class InterfaceDensityUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return element.isHittable
+    }
+
+    /// Waits until the element is absent or no longer hittable; folded
+    /// controls leave the accessibility tree entirely.
+    @MainActor
+    private func waitForNotHittable(_ element: XCUIElement, timeout: TimeInterval = 3) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !(element.exists && element.isHittable) { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return !(element.exists && element.isHittable)
     }
 
     private func waitForFile(atPath path: String, timeout: TimeInterval) -> Bool {
@@ -183,7 +192,6 @@ final class InterfaceDensityUITests: XCTestCase {
 
     @MainActor
     private func attachScreenshot(of app: XCUIApplication, name: String) {
-        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
         let attachment = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways
