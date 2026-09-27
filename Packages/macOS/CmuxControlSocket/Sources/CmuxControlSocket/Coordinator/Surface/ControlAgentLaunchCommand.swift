@@ -2,6 +2,8 @@
 public struct ControlAgentLaunchCommand: Sendable, Equatable {
     /// The registry-owned launcher identifier, when one created the command.
     public let launcher: String?
+    /// The id of the user-declared external launcher that started the agent, when one was detected.
+    public let externalLauncher: String?
     /// The captured absolute executable path, when available.
     public let executablePath: String?
     /// Process arguments including `argv[0]`.
@@ -21,6 +23,7 @@ public struct ControlAgentLaunchCommand: Sendable, Equatable {
     ///
     /// - Parameters:
     ///   - launcher: The registry-owned launcher identifier.
+    ///   - externalLauncher: The id of the user-declared external launcher that started the agent.
     ///   - executablePath: The captured absolute executable path.
     ///   - arguments: Process arguments including `argv[0]`.
     ///   - workingDirectory: The captured working directory.
@@ -30,6 +33,7 @@ public struct ControlAgentLaunchCommand: Sendable, Equatable {
     ///   - source: The subsystem that captured the launch.
     public init(
         launcher: String?,
+        externalLauncher: String? = nil,
         executablePath: String?,
         arguments: [String],
         workingDirectory: String?,
@@ -39,6 +43,7 @@ public struct ControlAgentLaunchCommand: Sendable, Equatable {
         source: String?
     ) {
         self.launcher = launcher
+        self.externalLauncher = externalLauncher
         self.executablePath = executablePath
         self.arguments = arguments
         self.workingDirectory = workingDirectory

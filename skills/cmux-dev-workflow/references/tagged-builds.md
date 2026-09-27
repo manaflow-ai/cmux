@@ -13,6 +13,8 @@ Use `--build-only` only for an explicit compile/validation pass. It leaves the r
 
 Other local variants: `reloadp.sh` (Release), `reloads.sh` (isolated Release staging) and `reload2.sh --tag <tag>` (both).
 
+`reloadp.sh` builds with the stable bundle id `com.cmuxterm.app`, the same id as the user's installed cmux. It refuses to run while another stable-id cmux is running, and `reload.sh --bundle-id` accepts only `com.cmuxterm.app.debug.*` ids in that namespace. Don't work around either: quitting, killing, relaunching or profiling the user's running cmux drops their live agent sessions. Use a tag, and profile by attaching to the tagged pid.
+
 For prebuilt GhosttyKit, run `./scripts/download-prebuilt-ghosttykit.sh` (it verifies the pinned artifact), then use `CMUX_GHOSTTYKIT_PREPROVISIONED=1` with the tagged reload.
 
 ## Compile-only checks
