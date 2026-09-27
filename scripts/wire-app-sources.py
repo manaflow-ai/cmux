@@ -109,12 +109,29 @@ def parse(text: str, directory: str = "Sources", target: str = "cmux") -> Projec
             setting(match.group("rest"), "sourceTree"),
             match.span("children"),
         )
+    # `directory` is a top-level folder: its group is a child of the
+    # project's main group (which has no comment, so GROUP skips it).
+    if "/" in directory.strip("/"):
+        raise SystemExit(f"wire-app-sources: --dir must be a top-level directory, not {directory!r}")
+    directory = directory.strip("/")
+    main_group = re.search(r"\bmainGroup = ([0-9A-Za-z]+);", text)
+    main_children = re.search(
+        (re.escape(main_group.group(1)) if main_group else "(?!)")
+        + r"(?: /\* [^\n]*? \*/)? = \{\n\t+isa = PBXGroup;\n\t+children = \(\n(.*?)\t+\);",
+        text,
+        re.S,
+    )
+    top_level = set(CHILD_ID.findall(main_children.group(1))) if main_children else set()
     root_id = next(
-        (gid for gid, (_, path, tree, _) in raw_groups.items() if path == directory and tree == '<group>'),
+        (
+            gid
+            for gid, (_, path, tree, _) in raw_groups.items()
+            if gid in top_level and path == directory and tree == "<group>"
+        ),
         None,
     )
     if root_id is None:
-        raise SystemExit(f"wire-app-sources: the {directory} group was not found")
+        raise SystemExit(f"wire-app-sources: no top-level {directory} group in the project")
 
     groups: dict[str, Group] = {}
     ref_paths: dict[str, str] = {}
