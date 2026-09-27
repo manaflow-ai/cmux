@@ -95,11 +95,13 @@ private final class BackportCursorRectNSView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
+        let cursorRect = bounds.intersection(visibleRect)
+        guard !cursorRect.isEmpty else { return }
         switch style {
         case .link:
-            addCursorRect(bounds, cursor: .pointingHand)
+            addCursorRect(cursorRect, cursor: .pointingHand)
         case .default:
-            addCursorRect(bounds, cursor: .arrow)
+            addCursorRect(cursorRect, cursor: .arrow)
         default:
             break
         }

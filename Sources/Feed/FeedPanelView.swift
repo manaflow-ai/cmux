@@ -1685,6 +1685,7 @@ struct FeedButton: View {
         }
         .buttonStyle(.plain)
         .backport.pointerStyle(.link)
+        .disabled(dimmed)
         .onHover { hovering in
             handleHover(hovering)
         }
