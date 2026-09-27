@@ -2709,8 +2709,13 @@ class TabManager: ObservableObject {
     @discardableResult
     func closeWorkspaceWithConfirmation(_ workspace: Workspace) -> Bool {
         if workspace.isPinned {
-            guard confirmPinnedWorkspaceClose(source: .workspace) else { return false }
-            return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
+            let pinnedConfirmation = confirmPinnedWorkspaceClose(source: .workspace)
+            guard pinnedConfirmation != .cancelled else { return false }
+            return closeWorkspaceIfRunningProcess(
+                workspace,
+                requiresConfirmation: false,
+                closeAlreadyConfirmed: pinnedConfirmation == .confirmed
+            )
         }
         return closeWorkspaceIfRunningProcess(workspace)
     }
@@ -2718,8 +2723,13 @@ class TabManager: ObservableObject {
     @discardableResult
     func closeWorkspaceFromCloseTabGesture(_ workspace: Workspace) -> Bool {
         if workspace.isPinned {
-            guard confirmPinnedWorkspaceClose(source: .tabClose) else { return false }
-            return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
+            let pinnedConfirmation = confirmPinnedWorkspaceClose(source: .tabClose)
+            guard pinnedConfirmation != .cancelled else { return false }
+            return closeWorkspaceIfRunningProcess(
+                workspace,
+                requiresConfirmation: false,
+                closeAlreadyConfirmed: pinnedConfirmation == .confirmed
+            )
         }
         return closeWorkspaceIfRunningProcess(workspace, source: .tabClose)
     }
@@ -2727,8 +2737,13 @@ class TabManager: ObservableObject {
     @discardableResult
     func closeWorkspaceFromTabCloseButton(_ workspace: Workspace) -> Bool {
         if workspace.isPinned {
-            guard confirmPinnedWorkspaceClose(source: .tabCloseButton) else { return false }
-            return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
+            let pinnedConfirmation = confirmPinnedWorkspaceClose(source: .tabCloseButton)
+            guard pinnedConfirmation != .cancelled else { return false }
+            return closeWorkspaceIfRunningProcess(
+                workspace,
+                requiresConfirmation: false,
+                closeAlreadyConfirmed: pinnedConfirmation == .confirmed
+            )
         }
         return closeWorkspaceIfRunningProcess(workspace, source: .tabCloseButton)
     }
@@ -2764,6 +2779,7 @@ class TabManager: ObservableObject {
         }
 
         let plan = closeWorkspacesPlan(for: workspaces)
+        var closeAlreadyConfirmed = false
         if shouldConfirmClose(requiresConfirmation: true, source: .tabClose) {
             guard confirmClose(
                 title: plan.title,
@@ -2771,6 +2787,7 @@ class TabManager: ObservableObject {
                 scrollableDetails: plan.details,
                 acceptCmdD: plan.acceptCmdD
             ) else { return }
+            closeAlreadyConfirmed = true
         }
 
         if plan.workspaces.count == tabs.count,
@@ -2779,12 +2796,10 @@ class TabManager: ObservableObject {
             // the remote-tmux session(s) (kept alive on the server for resume); the
             // mark seam is a retained no-op (see markRemoteTmuxKillOnWindowCloseIfNeeded).
             markRemoteTmuxKillOnWindowCloseIfNeeded(for: plan.workspaces)
-            if let window {
-                window.performClose(nil)
-                return
-            }
-            if AppDelegate.shared != nil {
-                AppDelegate.shared?.closeMainWindowContainingTabId(firstWorkspace.id)
+            if closeWindowForLastWorkspace(
+                workspaceId: firstWorkspace.id,
+                closeAlreadyConfirmed: closeAlreadyConfirmed
+            ) {
                 return
             }
         }
@@ -3030,7 +3045,8 @@ class TabManager: ObservableObject {
     private func closeWorkspaceIfRunningProcess(
         _ workspace: Workspace,
         requiresConfirmation: Bool = true,
-        source: CloseConfirmationSource = .workspace
+        source: CloseConfirmationSource = .workspace,
+        closeAlreadyConfirmed: Bool = false
     ) -> Bool {
         // Closing a group's anchor is non-destructive to the group: its next
         // member is promoted to anchor in closeWorkspace, so the members stay
@@ -3038,8 +3054,9 @@ class TabManager: ObservableObject {
         // needed; the normal running-process confirmation below still applies.
         let willCloseWindow = tabs.count <= 1
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
-        if requiresConfirmation,
-           shouldConfirmClose(requiresConfirmation: needsCloseConfirmation, source: source),
+        let showsCloseConfirmation = requiresConfirmation
+            && shouldConfirmClose(requiresConfirmation: needsCloseConfirmation, source: source)
+        if showsCloseConfirmation,
            !confirmClose(
                title: String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
                message: String(localized: "dialog.closeWorkspace.message", defaultValue: "This will close the workspace and all of its panels."),
@@ -3047,6 +3064,8 @@ class TabManager: ObservableObject {
            ) {
             return false
         }
+        // Reaching here after a shown dialog means the user accepted it.
+        let closeConfirmed = closeAlreadyConfirmed || showsCloseConfirmation
         if tabs.count <= 1 {
             // Last workspace in this window closes via the window-close path. For a
             // remote-tmux mirror this DETACHES from the remote session (kept alive for
@@ -3054,11 +3073,10 @@ class TabManager: ObservableObject {
             // markRemoteTmuxKillOnWindowCloseIfNeeded). Non-last workspaces also detach
             // via closeWorkspace.
             markRemoteTmuxKillOnWindowCloseIfNeeded(for: [workspace])
-            if let window {
-                window.performClose(nil)
-            } else {
-                AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
-            }
+            closeWindowForLastWorkspace(
+                workspaceId: workspace.id,
+                closeAlreadyConfirmed: closeConfirmed
+            )
         } else {
             closeWorkspace(workspace)
         }
@@ -3082,9 +3100,15 @@ class TabManager: ObservableObject {
         }
     }
 
-    private func confirmPinnedWorkspaceClose(source: CloseConfirmationSource) -> Bool {
-        guard shouldConfirmClose(requiresConfirmation: true, source: source) else { return true }
-        return confirmClose(
+    private enum PinnedWorkspaceCloseConfirmation {
+        case notNeeded
+        case confirmed
+        case cancelled
+    }
+
+    private func confirmPinnedWorkspaceClose(source: CloseConfirmationSource) -> PinnedWorkspaceCloseConfirmation {
+        guard shouldConfirmClose(requiresConfirmation: true, source: source) else { return .notNeeded }
+        let accepted = confirmClose(
             title: String(localized: "dialog.closePinnedWorkspace.title", defaultValue: "Close pinned workspace?"),
             message: String(
                 localized: "dialog.closePinnedWorkspace.message",
@@ -3092,6 +3116,26 @@ class TabManager: ObservableObject {
             ),
             acceptCmdD: tabs.count <= 1
         )
+        return accepted ? .confirmed : .cancelled
+    }
+
+    /// Closes this manager's window after its last workspace goes. When the user
+    /// already accepted a close dialog, the window close carries that answer so
+    /// the last-window path does not ask again. Returns false when there is no
+    /// window route to close.
+    @discardableResult
+    private func closeWindowForLastWorkspace(workspaceId: UUID, closeAlreadyConfirmed: Bool) -> Bool {
+        if let window {
+            if closeAlreadyConfirmed, let app = AppDelegate.shared {
+                app.performPreconfirmedMainWindowClose(window)
+            } else {
+                window.performClose(nil)
+            }
+            return true
+        }
+        guard let app = AppDelegate.shared else { return false }
+        app.closeMainWindowContainingTabId(workspaceId, closeAlreadyConfirmed: closeAlreadyConfirmed)
+        return true
     }
 
     private func shouldCloseWorkspaceOnLastSurfaceShortcut(_ workspace: Workspace, panelId: UUID) -> Bool {
