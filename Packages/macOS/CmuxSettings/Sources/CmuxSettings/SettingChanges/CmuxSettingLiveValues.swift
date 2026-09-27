@@ -43,7 +43,10 @@ public struct CmuxSettingLiveValues: Sendable {
     /// Settings whose UserDefaults value isn't stored in its cmux.json form.
     /// Each maps the stored value (already in its catalog JSON encoding) to
     /// the cmux.json value. Keep in sync with the cmux.json-to-UserDefaults
-    /// mapping in the app's `CmuxSettingsFileStore+AppSection.swift`.
+    /// mapping in the app's settings file store
+    /// (`CmuxSettingsFileStore+AppSection.swift`,
+    /// `KeyboardShortcutSettingsFileStore.swift`); the catalog test in
+    /// `CmuxSettingChangeTests` fails when a new key needs an entry.
     static let storedValueMappings: [String: @Sendable (Any) -> CmuxSettingValue?] = [
         // Stored as the workspace presentation mode.
         "app.minimalMode": { stored in
@@ -56,6 +59,12 @@ public struct CmuxSettingLiveValues: Sendable {
         // Stored as the opposite flag, "close the workspace".
         "app.keepWorkspaceOpenWhenClosingLastSurface": { stored in
             (stored as? Bool).map { .bool(!$0) }
+        },
+        // Stored as a width, with a negative sentinel for "no cap", which
+        // cmux.json spells `false`.
+        SessionContentWidthSettings.settingsPath: { stored in
+            guard let width = (stored as? NSNumber)?.doubleValue, width.isFinite else { return nil }
+            return width < SessionContentWidthSettings.minimumWidth ? .bool(false) : .number(width)
         },
     ]
 

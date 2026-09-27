@@ -192,6 +192,8 @@ struct CmuxSettingChangeTests {
         #expect(live("app.minimalMode", "minimal") == .bool(true))
         #expect(live("app.minimalMode", "standard") == .bool(false))
         #expect(live("app.keepWorkspaceOpenWhenClosingLastSurface", true) == .bool(false))
+        #expect(live("terminal.sessionContentMaxWidth", -1) == .bool(false))
+        #expect(live("terminal.sessionContentMaxWidth", 980) == .number(980))
         // Lists and maps are often stored as text; never trust them.
         #expect(live("browser.hostsToOpenInEmbeddedBrowser", "example.com\nlocalhost") == nil)
         #expect(live("notifications.soundOverrides", "{}") == nil)
