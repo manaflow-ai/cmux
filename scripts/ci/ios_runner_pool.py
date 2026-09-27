@@ -375,6 +375,11 @@ def resolve(
         log(f"live: {load.live.pool} owned runner(s) and {load.live.sim} {SIM_LABEL} free, {jobs} and "
             f"{needed} needed; staying on {default}")
         return ephemeral(default)
+    # Simulator jobs run on the first owned pool only, as the live path above
+    # routes them: glaeda puts SIM_LABEL on std minis, never on light ones.
+    first = pr_runner_pool.owned_pools(pr_xcode_app)[:1]
+    limits = dataclasses.replace(limits, order=tuple(
+        label for label in limits.order if not pr_runner_pool.persistent(label) or label in first))
     try:
         choice = e2e_runner_pool.decide(load.pool, limits, now=now,
                                         owned_slots=pool_slots(owned_slots, pr_xcode_app),
