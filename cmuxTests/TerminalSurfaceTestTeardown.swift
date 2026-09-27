@@ -59,3 +59,24 @@ extension TerminalSurface {
         releaseSurfaceForTesting()
     }
 }
+
+extension TabManager {
+    /// Closes a test-owned manager's workspaces the way a window close does,
+    /// after killing their shells.
+    ///
+    /// Releasing a workspace terminal's runtime directly is not enough: the
+    /// workspace still owns the panel and starts a new runtime for it on a
+    /// later main-queue turn, and that runtime is then dropped with the
+    /// manager, so its free waits out Ghostty's 12 s SIGHUP grace in whatever
+    /// test runs next. Closing the workspaces retires the panels, and with
+    /// the shells already dead their coordinator frees finish at once.
+    @MainActor
+    func closeWorkspacesForTesting() {
+        for workspace in tabs {
+            for case let terminalPanel as TerminalPanel in workspace.panels.values {
+                terminalPanel.surface.killShellProcessesForTesting()
+            }
+        }
+        finalizeAllWorkspacesForWindowClose()
+    }
+}

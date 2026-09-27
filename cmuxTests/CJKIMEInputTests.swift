@@ -2152,7 +2152,7 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
                 GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
             }
 
-            terminalSurface.releaseSurfaceForTesting()
+            terminalSurface.releaseHostedSurfaceForTesting()
             XCTAssertNil(
                 terminalSurface.surface,
                 "Expected the runtime Ghostty surface to be released before simulating Cmd+V"
