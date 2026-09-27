@@ -39,12 +39,11 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
     }
 
     private func tearDownHostedTerminal(_ hosted: HostedTerminalWindow) {
-        // Deinitialization queues native surface frees on the shared teardown
-        // coordinator. Release the test surface synchronously so this suite
-        // cannot leave an in-flight free for the portal leak guard or the next
-        // app-host test.
-        hosted.surface.releaseSurfaceForTesting()
+        // Kill the shell before freeing the surface so the shared teardown
+        // coordinator cannot leave an in-flight native free for the next test.
+        hosted.surface.releaseHostedSurfaceForTesting()
         hosted.window.orderOut(nil)
+        withExtendedLifetime(hosted.surface) {}
     }
 
     private func makeHostedTerminalWindow() async throws -> HostedTerminalWindow {

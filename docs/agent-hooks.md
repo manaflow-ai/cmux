@@ -13,6 +13,19 @@ cmux hooks uninstall <agent>
 
 Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, `amp`, `cursor`, `gemini`, `kimi`, `kiro`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
 
+## Remote hosts
+
+In a `cmux ssh` or `cmux mosh-tmux` workspace that uses the CLI relay, Claude Code on the remote host reports running state, notifications, and its session ID for resume through the relay. The remote `claude` shim adds the hooks with `--settings`, so it also covers launchers that pick `claude` from `PATH` with their own config directory. Permission prompts stay in Claude on the remote host. Details are in [daemon/remote/README.md](../daemon/remote/README.md#claude-code-hooks).
+
+Claude sessions that did not start from a cmux shell, for example inside a tmux server that was already running before cmux attached to it, need the hooks in Claude's user settings instead. Run this once on the remote host, then restart those sessions:
+
+```bash
+~/.cmux/bin/cmux claude-hook install     # writes ${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json
+~/.cmux/bin/cmux claude-hook uninstall   # removes only the cmux entries
+```
+
+Inside tmux, these hooks report to the cmux workspace attached to the tmux session.
+
 ## Integrations
 
 | Agent | Binary checked | Installed file | Session restore | Feed bridge |
