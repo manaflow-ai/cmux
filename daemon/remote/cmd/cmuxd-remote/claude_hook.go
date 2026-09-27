@@ -125,23 +125,39 @@ func resolveClaudeHookDelivery(base claudeHookDelivery, fromUserSettings bool, h
 	delivery := base
 	overrides := map[string]string{}
 	if fromUserSettings {
-		if base.getenv(claudeRelayWrapperActiveKey) == "1" {
-			return claudeHookDelivery{}, false
-		}
 		agentPID, nested := claudeHookAgentProcess(hookParent, tree)
 		if nested {
 			return claudeHookDelivery{}, false
 		}
-		if agentPID > 0 && strings.TrimSpace(base.getenv("CMUX_CLAUDE_PID")) == "" {
+		// The wrapper execs Claude, so its marker applies only when the PID it
+		// exported is this Claude. Anything a wrapped Claude starts, such as a
+		// tmux server, inherits the marker without having the wrapper's hooks.
+		if base.getenv(claudeRelayWrapperActiveKey) == "1" &&
+			(agentPID == 0 || strings.TrimSpace(base.getenv("CMUX_CLAUDE_PID")) == strconv.Itoa(agentPID)) {
+			return claudeHookDelivery{}, false
+		}
+		if agentPID > 0 {
 			overrides["CMUX_CLAUDE_PID"] = strconv.Itoa(agentPID)
 		}
-		if route, ok := discoverClaudeHookTmuxRoute(base.getenv, probe); ok {
+		if strings.TrimSpace(base.getenv("TMUX")) != "" {
+			// A pane's CMUX_* variables come from whichever shell started the
+			// tmux server, so only the attached cmux client names the surface.
+			route, ok := discoverClaudeHookTmuxRoute(base.getenv, probe)
+			if !ok {
+				return claudeHookDelivery{}, false
+			}
 			delivery.socketPath = route.socketPath
 			delivery.refreshAddr = nil
 			overrides["CMUX_WORKSPACE_ID"] = route.workspaceID
 			overrides["CMUX_SURFACE_ID"] = route.surfaceID
 			clientTTY := route.clientTTY
 			delivery.callerTTY = func(string) string { return clientTTY }
+		} else {
+			// Outside tmux the surface IDs and relay must come from the same
+			// environment; ~/.cmux/socket_addr may name another workspace's
+			// relay.
+			delivery.socketPath = strings.TrimSpace(base.getenv("CMUX_SOCKET_PATH"))
+			delivery.refreshAddr = nil
 		}
 	}
 	if strings.TrimSpace(delivery.socketPath) == "" {
