@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxNotifications
 import SwiftUI
@@ -34,7 +35,8 @@ extension VerticalTabsSidebar {
             isMultiSelected: true,
             customColorHex: effectiveColor,
             colorScheme: renderContext.environment.colorScheme,
-            sidebarSelectionColorHex: settings.selectionColorHex
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            increaseContrast: renderContext.environment.displayAccessibility.increaseContrast
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
@@ -188,7 +190,8 @@ extension VerticalTabsSidebar {
             isMultiSelected: true,
             customColorHex: effectiveColor,
             colorScheme: renderContext.environment.colorScheme,
-            sidebarSelectionColorHex: settings.selectionColorHex
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            increaseContrast: renderContext.environment.displayAccessibility.increaseContrast
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement

@@ -33,6 +33,11 @@ public struct WindowAppearanceSnapshot {
     /// dependent surface consume the same answer for a render pass.
     public let resolvedColorScheme: ColorScheme
 
+    /// Whether the macOS Reduce Transparency setting is on. Window glass,
+    /// see-through terminal backdrops and sidebar materials then render as
+    /// opaque fills of the color they would have composited to.
+    public let reducesTransparency: Bool
+
     /// Creates a resolved window appearance snapshot.
     public init(
         terminalBackgroundColor: NSColor,
@@ -42,7 +47,8 @@ public struct WindowAppearanceSnapshot {
         unifySurfaceBackdrops: Bool,
         sidebarSettings: SidebarBackdropSettingsSnapshot,
         windowGlassSettings: WindowGlassSettingsSnapshot,
-        resolvedColorScheme: ColorScheme? = nil
+        resolvedColorScheme: ColorScheme? = nil,
+        reducesTransparency: Bool = false
     ) {
         let resolvedScheme = resolvedColorScheme ?? Self.colorScheme(
             forTerminalBackgroundColor: terminalBackgroundColor,
@@ -67,6 +73,7 @@ public struct WindowAppearanceSnapshot {
         )
         self.windowGlassSettings = windowGlassSettings
         self.resolvedColorScheme = resolvedScheme
+        self.reducesTransparency = reducesTransparency
     }
 
     /// Clamps opacity into the visible `0...1` range.
@@ -221,7 +228,13 @@ public struct WindowAppearanceSnapshot {
             if unifySurfaceBackdrops {
                 return .clear
             }
-            return .sidebarMaterial(sidebarSettings.materialPolicy)
+            let materialPolicy = sidebarSettings.materialPolicy
+            guard reducesTransparency else {
+                return .sidebarMaterial(materialPolicy)
+            }
+            return .sidebarMaterial(materialPolicy.opaque(
+                over: Self.resolvedColor(.windowBackgroundColor, for: resolvedColorScheme)
+            ))
         }
     }
 
@@ -254,6 +267,9 @@ public struct WindowAppearanceSnapshot {
         windowBackgroundPolicy: WindowBackgroundPolicy
     ) -> WindowBackdropPlan {
         let rootPolicy = terminalBackdropPolicy()
+        if reducesTransparency {
+            return opaqueWindowFillPlan(rootPolicy: rootPolicy)
+        }
         if windowGlassSettings.shouldApply(
             glassEffectAvailable: glassEffectAvailable,
             windowBackgroundPolicy: windowBackgroundPolicy
@@ -282,7 +298,11 @@ public struct WindowAppearanceSnapshot {
             )
         }
 
-        return WindowBackdropPlan(
+        return opaqueWindowFillPlan(rootPolicy: rootPolicy)
+    }
+
+    private func opaqueWindowFillPlan(rootPolicy: WindowBackdropPolicy) -> WindowBackdropPlan {
+        WindowBackdropPlan(
             hostingPhase: .opaqueWindowFill,
             windowBackgroundColor: compositedTerminalBackgroundColor,
             windowIsOpaque: true,

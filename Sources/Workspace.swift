@@ -3648,7 +3648,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         paneBorderColorHex: String? = nil,
         splitDividerColor: NSColor? = nil,
         chromeBackgroundColor: NSColor? = nil,
-        chromeHost: BonsplitChromeHost = .workspace
+        chromeHost: BonsplitChromeHost = .workspace,
+        increaseContrast: Bool = false
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         let surfaceHex = bonsplitChromeHex(
             backgroundColor: backgroundColor,
@@ -3662,7 +3663,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     ?? WindowAppearanceSnapshot.compositedTerminalColor(
                         backgroundColor: backgroundColor,
                         opacity: backgroundOpacity
-                    )
+                    ),
+                increaseContrast: increaseContrast
             )
             .hexString(includeAlpha: true)
         let borderHex = resolvedPaneBorderHex(
@@ -3802,7 +3804,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             chromeBackgroundColor: Self.resolvedTerminalChromeBackgroundColor(
                 backgroundColor: backgroundColor,
                 backgroundOpacity: backgroundOpacity
-            )
+            ),
+            increaseContrast: DisplayAccessibilityOptions.current.increaseContrast
         )
         return BonsplitConfiguration.Appearance(
             tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
@@ -3831,7 +3834,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             chromeBackgroundColor: Self.resolvedTerminalChromeBackgroundColor(
                 backgroundColor: config.backgroundColor,
                 backgroundOpacity: config.backgroundOpacity
-            )
+            ),
+            increaseContrast: DisplayAccessibilityOptions.current.increaseContrast
         )
         let nextTabTitleFontSize = config.surfaceTabBarFontSize
         let currentAppearance = bonsplitController.configuration.appearance
@@ -3894,7 +3898,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             chromeBackgroundColor: Self.resolvedTerminalChromeBackgroundColor(
                 backgroundColor: backgroundColor,
                 backgroundOpacity: backgroundOpacity
-            )
+            ),
+            increaseContrast: DisplayAccessibilityOptions.current.increaseContrast
         )
         let currentChromeColors = bonsplitController.configuration.appearance.chromeColors
         let currentUsesSharedBackdrop = bonsplitController.configuration.appearance.usesSharedBackdrop
