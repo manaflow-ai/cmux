@@ -2193,6 +2193,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if side_lanes:
         plan = dataclasses.replace(plan, side=tuple(key for key in plan.side if key not in side_lanes))
         jobs = owned_peak(plan, gui)
+        light = pool_label(light_side)
+        if live_owned is not None and light in live_owned:
+            # The side runners just claimed carry the light pool label too: no longer free for this pick.
+            live_owned = {**live_owned, light: max(0, live_owned[light] - len(side_lanes))}
     choice, snapshot = choose(
         event=event,
         ref=ref,
