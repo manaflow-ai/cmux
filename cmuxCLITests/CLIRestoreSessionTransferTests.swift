@@ -155,13 +155,13 @@ final class CLIRestoreSessionTransferTests {
         let listenerFD = try bindUnixSocket(at: socketPath)
         let workDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-restore-session-cli-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
-        try prepareWorkDirectory?(workDirectory)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: workDirectory)
         }
+        try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
+        try prepareWorkDirectory?(workDirectory)
         let state = MockSocketServerState()
         let replyData = try JSONSerialization.data(withJSONObject: reply ?? [:])
         let errorData = try JSONSerialization.data(withJSONObject: error ?? [:])
