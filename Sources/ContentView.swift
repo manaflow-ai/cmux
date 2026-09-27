@@ -3172,6 +3172,17 @@ struct ContentView: View {
             openCommandPaletteRenameTabInput()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameRequested)) { notification in
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ), let target = CommandPaletteRenameTarget(userInfo: notification.userInfo) else { return }
+            openCommandPaletteRenameInput(target)
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameWorkspaceRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
             guard Self.shouldHandleCommandPaletteRequest(
@@ -9863,6 +9874,13 @@ struct ContentView: View {
         beginRenameTabFlow()
     }
 
+    private func openCommandPaletteRenameInput(_ target: CommandPaletteRenameTarget) {
+        if !isCommandPalettePresented {
+            presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
+        }
+        startRenameFlow(target)
+    }
+
     private func openCommandPaletteRenameWorkspaceInput() {
         if !isCommandPalettePresented {
             presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
@@ -10656,15 +10674,17 @@ struct ContentView: View {
         case .workspace(let workspaceId):
             tabManager.setCustomTitle(tabId: workspaceId, title: normalizedName)
         case .tab(let workspaceId, let panelId):
-            if let browserTarget = commandPaletteBrowserActionTarget,
-               browserTarget.panelId == panelId,
-               let dock = AppDelegate.shared?.dock(
-                   resolving: browserTarget
-               ), dock.setDockPanelCustomTitle(
-                   panelId: panelId,
-                   title: normalizedName
-               ) {
-                break
+            // Dock tabs carry their Dock owner id (a workspace or window id);
+            // containment decides whether the panel lives in that Dock or in
+            // the workspace's own split tree.
+            if let dock = tabManager.dockSplitStore(
+                ownerID: workspaceId,
+                containingPanel: panelId
+            ) {
+                guard dock.setDockPanelCustomTitle(panelId: panelId, title: normalizedName) else {
+                    NSSound.beep()
+                    return
+                }
             } else if let workspace = tabManager.tabs.first(where: {
                 $0.id == workspaceId
             }) {
@@ -16564,8 +16584,26 @@ struct TabItemView: View, Equatable {
 #endif
         rowView
     }
+    /// Double-click selects the row (the gesture is also a click), then edits
+    /// its title in place.
     private func beginInlineRename() {
         updateSelection()
+        startInlineRenameEditing()
+    }
+
+    /// "Rename Workspace…" from the row's context menu edits that row in place
+    /// without touching selection: selecting would switch workspaces (moving
+    /// focus to the terminal and blurring, and so committing, the new field)
+    /// or collapse a multi-selection. Editing starts on the next run-loop turn
+    /// so the field takes first responder after the menu has dismissed.
+    func beginInlineRenameFromContextMenu() {
+        DispatchQueue.main.async {
+            guard !isEditing else { return }
+            startInlineRenameEditing()
+        }
+    }
+
+    private func startInlineRenameEditing() {
         renameDraft = workspaceSnapshot.title
         renameBaselineHadUserCustomTitle = snapshot.hasUserCustomTitle
         isEditing = true
@@ -16799,73 +16837,11 @@ struct TabItemView: View, Equatable {
     }
 
     func promptCustomColor(targetIds: [UUID]) {
-        let alert = NSAlert()
-        alert.messageText = String(localized: "alert.customColor.title", defaultValue: "Custom Workspace Color")
-        alert.informativeText = String(localized: "alert.customColor.message", defaultValue: "Enter a hex color in the format #RRGGBB.")
-
-        let seed = workspaceSnapshot.customColorHex ?? WorkspaceTabColorSettings.customPaletteEntries().first?.hex ?? ""
-        let input = NSTextField(string: seed)
-        input.placeholderString = "#1565C0"
-        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
-        alert.addButton(withTitle: String(localized: "alert.customColor.apply", defaultValue: "Apply"))
-        alert.addButton(withTitle: String(localized: "alert.customColor.cancel", defaultValue: "Cancel"))
-
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        let response = alert.runCmuxModal(
+        guard let hex = WorkspaceCustomColorPrompt.run(
+            currentHex: workspaceSnapshot.customColorHex,
             presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(workspaceId)
-        ) { _ in
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
-        guard response == .alertFirstButtonReturn else { return }
-        guard let normalized = WorkspaceTabColorSettings.addCustomColor(input.stringValue) else {
-            showInvalidColorAlert(input.stringValue)
-            return
-        }
-        applyTabColor(normalized, targetIds: targetIds)
-    }
-
-    private func showInvalidColorAlert(_ value: String) {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = String(localized: "alert.invalidColor.title", defaultValue: "Invalid Color")
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            alert.informativeText = String(localized: "alert.invalidColor.emptyMessage", defaultValue: "Enter a hex color in the format #RRGGBB.")
-        } else {
-            alert.informativeText = String(
-                format: String(localized: "alert.invalidColor.invalidMessage", defaultValue: "\"%@\" is not a valid hex color. Use #RRGGBB."),
-                trimmed
-            )
-        }
-        alert.addButton(withTitle: String(localized: "alert.invalidColor.ok", defaultValue: "OK"))
-        _ = alert.runCmuxModal(
-            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(workspaceId)
-        )
-    }
-
-    func promptRename() {
-        let alert = NSAlert()
-        alert.messageText = String(localized: "alert.renameWorkspace.title", defaultValue: "Rename Workspace")
-        alert.informativeText = String(localized: "alert.renameWorkspace.message", defaultValue: "Enter a custom name for this workspace.")
-        let input = NSTextField(string: snapshot.customTitle ?? workspaceSnapshot.title)
-        input.placeholderString = String(localized: "alert.renameWorkspace.placeholder", defaultValue: "Workspace name")
-        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
-        alert.addButton(withTitle: String(localized: "alert.renameWorkspace.rename", defaultValue: "Rename"))
-        alert.addButton(withTitle: String(localized: "alert.renameWorkspace.cancel", defaultValue: "Cancel"))
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        let response = alert.runCmuxModal(
-            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(workspaceId)
-        ) { _ in
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
-        guard response == .alertFirstButtonReturn else { return }
-        actions.setCustomTitle(input.stringValue)
+        ) else { return }
+        applyTabColor(hex, targetIds: targetIds)
     }
 
     func beginWorkspaceDescriptionEditFromContextMenu() {
