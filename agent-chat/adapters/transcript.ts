@@ -376,8 +376,12 @@ export class TranscriptTail {
 
   start() {
     if (this.timer) return;
-    void this.poll();
-    this.timer = setInterval(() => void this.poll(), this.opts.pollMs ?? TRANSCRIPT_POLL_MS);
+    // A transcript that stops being readable between stat and open (deleted,
+    // or a root-owned file) must not reject out of the timer: an unhandled
+    // rejection ends the whole sidecar. The next poll tries again.
+    const tick = () => void this.poll().catch(() => {});
+    tick();
+    this.timer = setInterval(tick, this.opts.pollMs ?? TRANSCRIPT_POLL_MS);
   }
 
   stop() {
@@ -510,11 +514,11 @@ export const transcriptAdapter: Adapter = {
   async send(sess: SessionCtx, prompt: string) {
     const target = transcriptTarget(sess);
     if (!target) {
-      sess.emit({ kind: "error", message: "This view is not attached to a terminal session." });
+      sess.emit({ kind: "error", message: "This view is not attached to a terminal session.", prompt });
       return;
     }
     const res = await rpc("mobile.chat.send", { session_id: target.agentSessionId, text: prompt });
-    if (!res.ok) sess.emit({ kind: "error", message: `Couldn't send to the terminal: ${res.error}` });
+    if (!res.ok) sess.emit({ kind: "error", message: `Couldn't send to the terminal: ${res.error}`, prompt });
   },
   stop(sess: SessionCtx) {
     const target = transcriptTarget(sess);

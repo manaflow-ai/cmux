@@ -33,7 +33,7 @@ export type AgentEvent =
   | { kind: "tool-end"; toolId: string; name?: string; detail?: string; ok?: boolean }
   | { kind: "done"; stats?: string }
   | { kind: "files-changed"; files: ChangedFile[] }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string; prompt?: string };
 
 export type OptionKind = "select" | "toggle";
 export type OptionValue = string | boolean;
@@ -292,9 +292,12 @@ export function restoreComposerDraft(storage: Pick<Storage, "setItem">, prompt: 
   storage.setItem(composerDraftKey, prompt);
 }
 
+// An echo matches anywhere in the queue: one that never lands (a failed send)
+// or lands rewritten (`!ls` recorded as a bash input) must not block the rest.
 export function consumeOptimisticUserEcho(queue: string[], text: string): boolean {
-  if (queue[0] !== text) return false;
-  queue.shift();
+  const index = queue.indexOf(text);
+  if (index < 0) return false;
+  queue.splice(index, 1);
   return true;
 }
 
@@ -355,6 +358,9 @@ export function useSession(): SessionState {
   } | null>(null);
   const pendingStartTimeoutRef = useRef<number | null>(null);
   const optimisticUsersRef = useRef<string[]>([]);
+  // The last status the server sent: reply() shows "running" before the server
+  // knows, and a send that fails puts this back.
+  const serverStatusRef = useRef<string | null>(null);
   const sessionModeRef = useRef<SessionSummary["mode"]>(routedToTranscript ? "transcript" : undefined);
   useEffect(() => {
     if (session) sessionModeRef.current = session.mode;
@@ -461,6 +467,7 @@ export function useSession(): SessionState {
                 sendRaw({ op: "send", sessionId: msg.session.id, requestId: queued.requestId, prompt: queued.prompt });
               }
             } else {
+              serverStatusRef.current = msg.session.status;
               setSession(msg.session);
               setRouting(msg.routing?.kind === "routing" ? normalizeRouteStatus(msg.routing) : null);
               setBlocks([]);
@@ -483,6 +490,7 @@ export function useSession(): SessionState {
             }
             sessionIdRef.current = msg.session.id;
             document.title = msg.session.title || "cmux agent";
+            serverStatusRef.current = msg.session.status;
             setSession(msg.session);
             setRouting(latestRouteStatus(msg.events as AgentEvent[]));
             setBlocks((msg.events as AgentEvent[]).reduce(foldEvent, [] as Block[]));
@@ -511,6 +519,7 @@ export function useSession(): SessionState {
             break;
           case "session-status":
             if (msg.sessionId === sessionIdRef.current) {
+              serverStatusRef.current = msg.status;
               setSession((s) => (s ? { ...s, status: msg.status } : s));
             }
             break;
@@ -537,6 +546,13 @@ export function useSession(): SessionState {
               if (evt.kind === "options") setActions(evt.actions ?? {});
               if (evt.kind === "commands") setCommands((gs) => upsertCommands(gs, evt));
               if (evt.kind === "error") setForkPending(false);
+              if (evt.kind === "error" && evt.prompt !== undefined) {
+                // The prompt never reached the terminal: its echo will not
+                // come, and the agent is as busy as the server last said.
+                consumeOptimisticUserEcho(optimisticUsersRef.current, evt.prompt);
+                const status = serverStatusRef.current ?? "idle";
+                setSession((s) => (s ? { ...s, status } : s));
+              }
             }
             break;
           case "session-forked":
