@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-Regression test: `cmux omo` points OpenCode at a shadow config dir. Everything
-the user keeps in ~/.config/opencode besides the files cmux owns there (agents,
-commands, prompt files referenced as {file:./...}) must be visible from the
-shadow dir, or user-defined agents and prompts silently stop loading.
+Regression test: `cmux omo` points OpenCode at a shadow config dir holding a
+copy of the user's opencode.json. Relative references in that copy, such as
+{file:./prompts/chief.md}, resolve against the shadow dir, so the files they
+name must be visible there. OpenCode already scans the user's real config dir
+for agents, commands, modes, plugins, tools, and skills; linking those into the
+shadow dir too would load each one twice, and linking package-lock.json would
+let OpenCode's npm install in the shadow dir rewrite the user's lockfile.
 https://github.com/manaflow-ai/cmux/issues/14844
 """
 
@@ -68,7 +71,7 @@ def make_user_config(root: Path) -> Path:
     return user_dir
 
 
-def check_user_config_is_mirrored(cli_path: str, failures: list[str]) -> None:
+def check_referenced_files_are_mirrored(cli_path: str, failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-omo-mirror-") as td:
         root = Path(td)
         user_dir = make_user_config(root)
@@ -78,12 +81,11 @@ def check_user_config_is_mirrored(cli_path: str, failures: list[str]) -> None:
             failures.append(f"shadow opencode.json missing; exit={run.returncode} stderr={run.stderr.strip()}")
             return
 
-        for relative in ["prompts/chief.md", "agents/reviewer.md", "commands/ship.md"]:
-            shadow_file = shadow / relative
-            if not shadow_file.exists():
-                failures.append(f"{relative} is not visible from the shadow config dir")
-            elif shadow_file.read_text(encoding="utf-8") != (user_dir / relative).read_text(encoding="utf-8"):
-                failures.append(f"{relative} in the shadow dir does not match the user's file")
+        shadow_prompt = shadow / "prompts" / "chief.md"
+        if not shadow_prompt.exists():
+            failures.append("prompts/chief.md, referenced as {file:./prompts/chief.md}, is not visible from the shadow config dir")
+        elif shadow_prompt.read_text(encoding="utf-8") != (user_dir / "prompts" / "chief.md").read_text(encoding="utf-8"):
+            failures.append("prompts/chief.md in the shadow dir does not match the user's file")
 
         # cmux owns these in the shadow dir; they must not become links to the user's copies.
         for owned in ["opencode.json", "package.json"]:
@@ -91,19 +93,32 @@ def check_user_config_is_mirrored(cli_path: str, failures: list[str]) -> None:
                 failures.append(f"shadow {owned} was replaced by a link to the user's file")
 
 
-def check_user_plugins_load_beside_the_session_plugin(cli_path: str, failures: list[str]) -> None:
-    with tempfile.TemporaryDirectory(prefix="cmux-omo-plugins-") as td:
+def check_auto_discovered_entries_are_not_mirrored(cli_path: str, failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-omo-discovered-") as td:
         root = Path(td)
         user_dir = make_user_config(root)
-        (user_dir / "plugins").mkdir()
-        (user_dir / "plugins" / "notify.js").write_text("export const Notify = async () => ({})\n", encoding="utf-8")
+        for folder, filename in [
+            ("plugins", "notify.js"),
+            ("plugin", "legacy.js"),
+            ("modes", "focus.md"),
+            ("tools", "lookup.ts"),
+            ("skills", "SKILL.md"),
+        ]:
+            (user_dir / folder).mkdir(exist_ok=True)
+            (user_dir / folder / filename).write_text("// user file\n", encoding="utf-8")
+        (user_dir / "package-lock.json").write_text('{"lockfileVersion": 3}', encoding="utf-8")
         run = run_omo(cli_path, root)
-        shadow_plugins = root / ".cmuxterm" / "omo-config" / "plugins"
-        if not (shadow_plugins / "cmux-session.js").exists():
+        shadow = root / ".cmuxterm" / "omo-config"
+
+        # OpenCode loads these from the user's real config dir already.
+        for relative in [
+            "agents", "commands", "modes", "tools", "skills", "plugin",
+            "plugins/notify.js", "package-lock.json",
+        ]:
+            if os.path.lexists(shadow / relative):
+                failures.append(f"shadow {relative} exists, so OpenCode would load or write it a second time")
+        if not (shadow / "plugins" / "cmux-session.js").exists():
             failures.append(f"cmux session plugin missing from the shadow dir; exit={run.returncode} stderr={run.stderr.strip()}")
-        if not (shadow_plugins / "notify.js").exists():
-            failures.append("the user's plugins/notify.js is not visible from the shadow config dir")
-        # The session plugin is cmux's; it must not leak into the user's own config.
         if (user_dir / "plugins" / "cmux-session.js").exists():
             failures.append("cmux wrote its session plugin into the user's plugins dir")
 
@@ -112,21 +127,18 @@ def check_removed_user_entries_do_not_leave_dangling_links(cli_path: str, failur
     with tempfile.TemporaryDirectory(prefix="cmux-omo-prune-") as td:
         root = Path(td)
         user_dir = make_user_config(root)
-        (user_dir / "plugins").mkdir()
-        (user_dir / "plugins" / "notify.js").write_text("export const Notify = async () => ({})\n", encoding="utf-8")
+        (user_dir / "snippets").mkdir()
+        (user_dir / "snippets" / "intro.md").write_text("Hello.\n", encoding="utf-8")
         run_omo(cli_path, root)
         shadow = root / ".cmuxterm" / "omo-config"
 
-        # The user removes a folder and a plugin, then launches omo again.
-        for path in (user_dir / "agents").iterdir():
-            path.unlink()
-        (user_dir / "agents").rmdir()
-        (user_dir / "plugins" / "notify.js").unlink()
+        # The user removes a folder, then launches omo again.
+        (user_dir / "snippets" / "intro.md").unlink()
+        (user_dir / "snippets").rmdir()
         run = run_omo(cli_path, root)
 
-        for relative in ["agents", "plugins/notify.js"]:
-            if os.path.lexists(shadow / relative):
-                failures.append(f"shadow {relative} still exists after the user removed it; exit={run.returncode}")
+        if os.path.lexists(shadow / "snippets"):
+            failures.append(f"shadow snippets still exists after the user removed it; exit={run.returncode}")
         if not (shadow / "plugins" / "cmux-session.js").exists():
             failures.append("pruning removed the cmux session plugin")
         if not (shadow / "prompts" / "chief.md").exists():
@@ -141,15 +153,15 @@ def main() -> int:
         return 1
 
     failures: list[str] = []
-    check_user_config_is_mirrored(cli_path, failures)
-    check_user_plugins_load_beside_the_session_plugin(cli_path, failures)
+    check_referenced_files_are_mirrored(cli_path, failures)
+    check_auto_discovered_entries_are_not_mirrored(cli_path, failures)
     check_removed_user_entries_do_not_leave_dangling_links(cli_path, failures)
 
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}")
         return 1
-    print("PASS: cmux omo exposes the user's OpenCode config dir through the shadow config")
+    print("PASS: cmux omo exposes referenced config files without duplicating what OpenCode already loads")
     return 0
 
 
