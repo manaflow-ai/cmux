@@ -717,6 +717,7 @@ struct AgentLaunchSanitizerTests {
             AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                 from: ["codex", "resume", "session", "-C/local/repo", "--model", "gpt-5.4"],
                 workingDirectory: nil,
+                agentKind: "codex",
                 removeAllWorkingDirectoryOptions: true
             ) == ["codex", "resume", "session", "--model", "gpt-5.4"]
         )
@@ -724,8 +725,39 @@ struct AgentLaunchSanitizerTests {
             AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                 from: ["kimi", "--resume", "session", "-w/local/repo", "--model", "kimi-k2"],
                 workingDirectory: nil,
+                agentKind: "kimi",
                 removeAllWorkingDirectoryOptions: true
             ) == ["kimi", "--resume", "session", "--model", "kimi-k2"]
+        )
+    }
+
+    @Test("Remove-all keeps cwd-shaped options that are not a cwd for the agent kind")
+    func removeAllWorkingDirectoryOptionsIsKindScoped() {
+        func removeAll(_ args: [String], kind: String?) -> [String] {
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: args,
+                workingDirectory: nil,
+                agentKind: kind,
+                removeAllWorkingDirectoryOptions: true
+            )
+        }
+        // Claude's -w/--worktree is not a cwd.
+        #expect(removeAll(["claude", "--resume", "s", "-w", "wt"], kind: "claude") == ["claude", "--resume", "s", "-w", "wt"])
+        // Qoder's --workspace selects a saved profile; its -w is the cwd.
+        #expect(removeAll(["qoder", "--workspace", "x", "-w", "/local/repo"], kind: "qoder") == ["qoder", "--workspace", "x"])
+        #expect(removeAll(["qoder", "--workspace=x"], kind: "qoder") == ["qoder", "--workspace=x"])
+        // Attached tokens that merely start with -C/-w stay unless that short option is a cwd.
+        #expect(removeAll(["agent", "-Continue", "-Color", "-wide"], kind: "claude") == ["agent", "-Continue", "-Color", "-wide"])
+        #expect(removeAll(["agent", "-Continue", "-C", "dir"], kind: nil) == ["agent", "-Continue", "-C", "dir"])
+        // Codex -C is the cwd, in split, `=`, and attached forms.
+        #expect(removeAll(["codex", "resume", "s", "-C", "dir", "--model", "m"], kind: "codex") == ["codex", "resume", "s", "--model", "m"])
+        #expect(removeAll(["codex", "-C=dir", "-Cdir"], kind: "codex") == ["codex"])
+        // Cursor's --workspace is the cwd.
+        #expect(removeAll(["cursor-agent", "--workspace", "/local/repo", "--resume", "s"], kind: "cursor") == ["cursor-agent", "--resume", "s"])
+        // Custom registrations and unknown kinds only lose the unambiguous cwd spellings.
+        #expect(
+            removeAll(["custom", "--cwd", "/a", "--cd=/b", "--work-dir", "/c", "-w", "p", "--workspace", "q"], kind: nil)
+                == ["custom", "-w", "p", "--workspace", "q"]
         )
     }
 }

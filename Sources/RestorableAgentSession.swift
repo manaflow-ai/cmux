@@ -528,9 +528,12 @@ enum AgentResumeCommandBuilder {
         } else if discardRecordedCwdOptions {
             // Exact remote selections trust no captured cwd value, including one
             // that differs from the process working directory saved at launch.
+            // Only built-in kinds get provider-specific cwd flags (codex `-C`, kimi/qoder `-w`,
+            // cursor `--workspace`) removed outright; a custom registration keeps them.
             sanitizedAgentParts = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                 from: argv,
                 workingDirectory: nil,
+                agentKind: customRegistration == nil ? kind.rawValue : nil,
                 removeAllWorkingDirectoryOptions: true
             )
         } else {
