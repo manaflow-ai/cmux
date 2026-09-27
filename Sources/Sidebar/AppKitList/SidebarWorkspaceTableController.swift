@@ -2837,7 +2837,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             rowRect: table.convert(table.rect(ofRow: row), to: clipView),
             clipBounds: clipView.bounds,
             insets: scrollView.contentInsets,
-            documentHeight: clipView.documentRect.height
+            documentHeight: table.frame.height
         ) else { return }
         clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: origin))
         scrollView.reflectScrolledClipView(clipView)
@@ -2855,7 +2855,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let unobscuredMinY = clipBounds.minY + insets.top
         let unobscuredMaxY = clipBounds.maxY - insets.bottom
         let target: CGFloat
-        if rowRect.minY < unobscuredMinY {
+        // A row taller than the clear area aligns its top, like a short row
+        // scrolled down to.
+        if rowRect.minY < unobscuredMinY || rowRect.height > unobscuredMaxY - unobscuredMinY {
             target = rowRect.minY - insets.top
         } else if rowRect.maxY > unobscuredMaxY {
             target = rowRect.maxY + insets.bottom - clipBounds.height

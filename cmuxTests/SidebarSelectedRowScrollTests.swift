@@ -37,6 +37,12 @@ struct SidebarSelectedRowScrollTests {
     }
 
     @Test
+    func aRowTallerThanTheClearAreaAlignsItsTop() {
+        // Clear area is 512 tall; this row starts in view and runs past the footer.
+        #expect(origin(row: 100, height: 600, clipOriginY: 0) == 70)
+    }
+
+    @Test
     func scrollingStopsAtTheEndsOfTheList() {
         // The last row can go no further than the bottom inset allows.
         #expect(origin(row: 960, height: 40, clipOriginY: 0) == documentHeight + insets.bottom - 600)
