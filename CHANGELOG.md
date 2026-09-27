@@ -15,6 +15,7 @@ All notable changes to cmux are documented here.
 
 ### Fixed
 - In a split, a pane you switch to no longer shows a dimmed frame before it brightens; the unfocused-pane dim now changes in the same frame as focus ([#14892](https://github.com/manaflow-ai/cmux/pull/14892)).
+- Clicking a sidebar workspace keeps its highlight steady while the selection lands, instead of flickering off when the pointer moves away, and rapid clicks never show two rows selected ([#14871](https://github.com/manaflow-ai/cmux/pull/14871)).
 - Closing a workspace no longer briefly flashes the close (X) button on every sidebar row, and the X no longer appears on the row that slides under a context menu's old position ([#14826](https://github.com/manaflow-ai/cmux/pull/14826)).
 - Closing or creating a workspace no longer rebuilds every sidebar row, so a rename, checklist edit, or popover open on another row survives it ([#14866](https://github.com/manaflow-ai/cmux/pull/14866)).
 - In pane tab bars, the tab that slides under the pointer after a close shows its hover and close button without moving the mouse, and VoiceOver can close any tab with a Close Tab action ([manaflow-ai/bonsplit#253](https://github.com/manaflow-ai/bonsplit/pull/253)).
