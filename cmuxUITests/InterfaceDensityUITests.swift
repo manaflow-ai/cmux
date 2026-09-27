@@ -32,6 +32,7 @@ final class InterfaceDensityUITests: XCTestCase {
         // Minimal mode reveals its sidebar-header controls on hover.
         let bell = titlebarButton("titlebarControl.showNotifications", in: app)
         bell.hover()
+        XCTAssertTrue(waitForHittable(bell), "Hovering the sidebar header reveals its controls.")
         attachScreenshot(of: app, name: "comfortable, minimal mode, pointer over sidebar header")
     }
 
@@ -45,6 +46,10 @@ final class InterfaceDensityUITests: XCTestCase {
         XCTAssertTrue(help.waitForExistence(timeout: 5))
 
         moveMouseToTerminal(in: app)
+        XCTAssertTrue(
+            waitForNotHittable(bell),
+            "Compact titlebar controls settle hidden after the pointer leaves the titlebar."
+        )
         attachScreenshot(of: app, name: "compact, at rest, no unread")
         XCTAssertFalse(bell.isHittable, "Compact titlebar controls stay hidden until the pointer reaches them.")
 
@@ -127,12 +132,10 @@ final class InterfaceDensityUITests: XCTestCase {
         return element
     }
 
-    /// Parks the pointer over the terminal so hover-revealed chrome settles.
+    /// Parks the pointer over the terminal, away from hover-revealed chrome.
     @MainActor
     private func moveMouseToTerminal(in app: XCUIApplication) {
         app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.6)).hover()
-        // Let the 0.14 s fade finish before capturing.
-        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
     }
 
     @MainActor
@@ -143,6 +146,16 @@ final class InterfaceDensityUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return element.isHittable
+    }
+
+    @MainActor
+    private func waitForNotHittable(_ element: XCUIElement, timeout: TimeInterval = 3) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !element.isHittable { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return !element.isHittable
     }
 
     private func waitForFile(atPath path: String, timeout: TimeInterval) -> Bool {
@@ -156,7 +169,6 @@ final class InterfaceDensityUITests: XCTestCase {
 
     @MainActor
     private func attachScreenshot(of app: XCUIApplication, name: String) {
-        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
         let attachment = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways
