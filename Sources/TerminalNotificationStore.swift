@@ -1514,6 +1514,9 @@ final class TerminalNotificationStore: ObservableObject {
             tabId: request.tabId,
             surfaceId: request.surfaceId
         )
+        let effects = effects.keepingFocusedWorkspaceInPlace(
+            isFocusedPane: shouldSuppressExternalDelivery
+        )
         let notification = TerminalNotification(
             id: notificationID,
             tabId: request.tabId,

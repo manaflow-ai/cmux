@@ -39,6 +39,12 @@ public protocol MobileSyncRuntime: Sendable {
     /// Optional Iroh-only source for independently framed server events.
     /// A nil provider preserves control-stream delivery for every route.
     var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? { get }
+    /// Whether ``independentEventByteStreamProvider`` reads every server
+    /// event lane the host opens (one per terminal surface) and forwards them
+    /// frame-aligned. Only then may the client ask the host to put each
+    /// terminal's render-grid output on its own stream; a single-lane reader
+    /// would never see a second stream.
+    var independentEventsMergeSurfaceLanes: Bool { get }
     /// Optional source for one independent, sequence-aware terminal lane per
     /// mounted surface. A nil provider preserves control/event delivery.
     var terminalLaneProvider: MobileTerminalLaneProvider? { get }
@@ -71,6 +77,7 @@ public protocol MobileSyncRuntime: Sendable {
 
 public extension MobileSyncRuntime {
     var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? { nil }
+    var independentEventsMergeSurfaceLanes: Bool { false }
     var terminalLaneProvider: MobileTerminalLaneProvider? { nil }
     var terminalInputLaneProvider: MobileTerminalLaneProvider? { nil }
     var artifactLaneProvider: MobileArtifactLaneProvider? { nil }

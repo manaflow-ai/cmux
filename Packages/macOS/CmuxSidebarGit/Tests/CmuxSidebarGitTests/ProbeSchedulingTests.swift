@@ -22,16 +22,6 @@ import CmuxGit
         return service
     }
 
-    private func waitUntil(maxYields: Int = 5_000, _ predicate: () -> Bool) async -> Bool {
-        for _ in 0..<maxYields {
-            if predicate() {
-                return true
-            }
-            await Task.yield()
-        }
-        return predicate()
-    }
-
     /// The initial probe's retry offsets [0, 0.5, 1.5, 3, 6, 10] are absolute
     /// offsets from scheduling time, walked as sequential clock gaps. The
     /// reader gate stays closed so no snapshot applies mid-walk (an applied
@@ -369,10 +359,9 @@ import CmuxGit
         #expect(service.workspaceGitProbeRerunPending(for: key))
         await reader.openGate()
 
-        // The detached snapshot task must finish before it schedules the rerun.
-        // Wait for that scheduling signal instead of assuming a fixed number of
-        // executor yields gives the snapshot task enough time on a busy runner.
-        await clock.waitForSleeper()
+        _ = await waitUntil("three immediate probe sleeps") {
+            await clock.recordedDurations.filter { $0 == 0 }.count >= 3
+        }
         let immediateProbeSleeps = await clock.recordedDurations.filter { $0 == 0 }.count
 
         #expect(immediateProbeSleeps == 3)

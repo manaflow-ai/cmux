@@ -118,6 +118,17 @@ jobs:
             -Dtest-filter="ideograph fallback sizing fills two primary cells" \
             --summary all
 
+      - name: Test Ghostty unfocused render pacing
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="unfocused render pacer spaces unfocused frames" \
+            --summary all
+
       - name: Build GhosttyKit.xcframework
         if: steps.check-release.outputs.exists == 'false' || inputs.verify_build
         run: |
