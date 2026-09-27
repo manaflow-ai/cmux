@@ -71,8 +71,11 @@ extension NSMenu {
         // the chosen item before `popUp` returns. Opening a window or sheet
         // from that nested context does nothing (the popovers this replaces
         // deferred every action the same way), so run it on the next turn.
+        // The main queue runs it on the main thread it was created on, so the
+        // non-Sendable handler never crosses threads.
+        nonisolated(unsafe) let handler = handler
         let item = SidebarRowClosureMenuItem(title: title) {
-            DispatchQueue.main.async(execute: handler)
+            DispatchQueue.main.async { handler() }
         }
         item.identifier = NSUserInterfaceItemIdentifier(identifier)
         if let shortcut, let keyEquivalent = shortcut.menuItemKeyEquivalent {
