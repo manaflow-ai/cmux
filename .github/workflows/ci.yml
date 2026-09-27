@@ -161,10 +161,12 @@ jobs:
 
       # Delta CI (#14631): when this head only merged main into a head whose
       # ci-status passed, plus at most one resolution commit, the pull
-      # request's own changes are already proven there, so routing diffs from
-      # that green head instead of from main. Fail open: any doubt (another
-      # shape, a red or missing verdict, shallow history, an API error) leaves
-      # base_sha empty and the detector routes the usual pull request diff.
+      # request's own changes are already proven there and main's changes
+      # are judged by main's runs. Routing then keeps only the pull request's
+      # own files in an area main changed since, plus the resolution. Fail
+      # open: any doubt (another shape, a red or missing verdict, shallow
+      # history, areas the router cannot tell, an API error) leaves `files`
+      # empty and the detector routes the usual pull request diff.
       # The base revision's copy runs, like the trusted router below, so a
       # pull request cannot change how its own diff is chosen. Same-repository
       # pull requests only: fork runs get no repository variables, so the
@@ -175,7 +177,9 @@ jobs:
         id: delta
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (vars.CI_DELTA_SINCE_GREEN || '1') != '0' }}
         continue-on-error: true
-        timeout-minutes: 3
+        # It classifies main's changes with the router, as the detector did
+        # when it routed them; a timeout routes the whole pull request diff.
+        timeout-minutes: 5
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -201,8 +205,11 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           MERGE_SHA: ${{ github.sha }}
-          # Empty unless the delta step found a green head to diff from.
-          DELTA_BASE_SHA: ${{ steps.delta.outputs.base_sha }}
+          # Empty unless the delta step found a green head: then the list of
+          # the pull request's own files to route, and whether to still
+          # compile the app when that list is empty.
+          DELTA_FILES: ${{ steps.delta.outputs.files }}
+          DELTA_COMPILE_MACOS: ${{ steps.delta.outputs.compile_macos }}
         run: |
           set -euo pipefail
           emit_all_areas() {
@@ -226,11 +233,11 @@ jobs:
             if git rev-parse -q --verify "$MERGE_SHA^2" > /dev/null; then
               BASE_SHA="$(git rev-parse "$MERGE_SHA^1")"
             fi
-            # Everything below, including the base-revision comparisons of
-            # ci.yml, ci-macos.yml, the registry and the Xcode project, then
-            # reads "what changed since the green head".
-            if [ -n "${DELTA_BASE_SHA:-}" ]; then
-              BASE_SHA="$DELTA_BASE_SHA"
+            # The delta keeps a subset of the pull request's own files; the
+            # diffs below stay against this base, limited to that subset.
+            delta_routed=false
+            if [ -n "${DELTA_FILES:-}" ] && [ -f "$DELTA_FILES" ]; then
+              delta_routed=true
             fi
             # Keep both sides of renames visible to path-based guard routing.
             # A guarded file moved into docs/ must still run its owning checks.
@@ -242,6 +249,35 @@ jobs:
               emit_all_areas
               exit 0
             fi
+            if [ "$delta_routed" = true ]; then
+              grep -Fxf "$DELTA_FILES" /tmp/cmux-ci-changed-files.txt > /tmp/cmux-ci-delta-routed.txt || true
+              mv /tmp/cmux-ci-delta-routed.txt /tmp/cmux-ci-changed-files.txt
+            fi
+            # `git diff -U0` of the routed paths under the given roots. Under
+            # the delta an empty selection is an empty diff, not the whole one.
+            changed_lines() {
+              local out="$1"
+              shift
+              local paths=("$@")
+              if [ "$delta_routed" = true ]; then
+                paths=()
+                local path root
+                while IFS= read -r path; do
+                  for root in "$@"; do
+                    if [ "$path" = "$root" ] || [ "${path#"$root"/}" != "$path" ]; then
+                      paths+=("$path")
+                      break
+                    fi
+                  done
+                done < /tmp/cmux-ci-changed-files.txt
+                if [ "${#paths[@]}" -eq 0 ]; then
+                  : > "$out"
+                  return
+                fi
+              fi
+              git --literal-pathspecs diff --no-renames -U0 "$BASE_SHA" "$MERGE_SHA" -- "${paths[@]}" \
+                > "$out" || rm -f "$out"
+            }
             # The standalone route compares ci.yml job by job with this base.
             # Absence means unavailable, and that step then fails open.
             if grep -Fxq '.github/workflows/ci.yml' /tmp/cmux-ci-changed-files.txt; then
@@ -252,17 +288,21 @@ jobs:
             # which declarations a test edit touched, and of ci-macos.yml, so
             # it can tell whether an edit sits in the app-host shards' job.
             # Absent reads as "every line of each changed file".
-            git diff --no-renames -U0 "$BASE_SHA" "$MERGE_SHA" -- cmuxTests .github/workflows/ci-macos.yml \
-              > /tmp/cmux-ci-tests.diff || rm -f /tmp/cmux-ci-tests.diff
+            changed_lines /tmp/cmux-ci-tests.diff cmuxTests .github/workflows/ci-macos.yml
             # The changed lines of app code, so choose_ci_suite.py can add the
             # suites whose tests mention what changed (reverse_test_impact.py).
-            git diff --no-renames -U0 "$BASE_SHA" "$MERGE_SHA" -- Sources Packages/macOS Packages/Shared CLI \
-              > /tmp/cmux-ci-app.diff || rm -f /tmp/cmux-ci-app.diff
+            changed_lines /tmp/cmux-ci-app.diff Sources Packages/macOS Packages/Shared CLI
 
             if [ ! -s /tmp/cmux-ci-changed-files.txt ]; then
-              echo "PR diff is empty; skipping product-area CI."
+              compile_macos=false
+              if [ "$delta_routed" = true ]; then
+                compile_macos="${DELTA_COMPILE_MACOS:-true}"
+                echo "Nothing main changed since the green head reaches this pull request's areas; compile only (macos=$compile_macos)."
+              else
+                echo "PR diff is empty; skipping product-area CI."
+              fi
               {
-                echo "macos=false"
+                echo "macos=$compile_macos"
                 echo "web=false"
                 echo "agent_session_web=false"
                 echo "cli=false"

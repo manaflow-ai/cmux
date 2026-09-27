@@ -3,9 +3,14 @@
 
 RFC #14631, slice 2. When a pull request's head H2 is its previous head H1
 plus one or more merges of main, and at most one commit on top (the conflict
-resolution), the pull request's own changes already passed CI at H1. What can
-change a test's outcome is what differs between H1 and the tree this run
-tests, so ci.yml routes diff(H1, merge) instead of diff(main, merge).
+resolution), the pull request's own changes already passed CI at H1, and
+main's own runs judge what main gained since. What this run still has to
+answer is whether the pull request's code works against new main. So ci.yml
+routes only the pull request's own files (its diff against main) whose CI
+areas, per detect_ci_change_areas.py, meet the areas of what main changed
+since H1, plus what H1's run never saw: the resolution and a merge's edits.
+It never routes a file only main changed. When no file qualifies, the macOS
+app still compiles if the pull request has app code.
 
 H1 is the nearest commit on H2's first-parent chain with a conclusive
 `ci-status` check run from a pull_request run of ci.yml that GitHub ties to
@@ -14,27 +19,29 @@ between them must be a merge whose second parent is on main, except H2 itself,
 which may be one ordinary commit on top of such a merge.
 
 Fail open. Anything unexpected (another shape, a red or missing verdict, a
-force push, history too shallow, a pull request that edits CI policy, an
-API error) prints why and leaves
-`base_sha` empty, and ci.yml routes the usual pull request diff. The result
-also never drops a file the pull request's own diff needs: every file the
-pull request changes against main must either differ since H1 or have been
-part of the pull request's diff at H1, which H1's green run covered. And
-it never routes more than the pull request's own diff, nor main's
-cmuxUITests/ edits, which would fail the pull request's suite-coverage check.
+force push, history too shallow, a pull request that edits CI policy, areas
+the router cannot tell, an API error) prints why and leaves `files` empty,
+and ci.yml routes the usual pull request diff.
 
 Stdlib only: ci.yml runs the copy on the base revision, like the trusted
-router, so a pull request cannot change how its own diff is chosen.
+router, so a pull request cannot change how its own diff is chosen. The
+router it loads is the checkout's, which equals the base's because a pull
+request that edits scripts/ci/ keeps its whole diff.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import functools
+import importlib.util
+import io
 import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,10 +61,6 @@ CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 CI_POLICY_PREFIXES = (".github/", "scripts/ci/")
 CI_POLICY_TEST_PREFIXES = ("tests/test_ci_",)
 CI_POLICY_FILES = frozenset({"tests/test-execution.toml"})
-# choose_ci_suite.py fails a pull request run whose routed diff touches these
-# (UNJUDGED_BY_ANY_PR_JOB_PREFIXES): no pull request job executes them. Main's
-# edits there, carried in by the delta, would fail the pull request for them.
-UNJUDGED_PREFIXES = ("cmuxUITests/",)
 # The GitHub Actions app, which owns every workflow check suite.
 ACTIONS_APP_ID = 15368
 CONCLUSIVE = frozenset({"success", "failure", "timed_out", "action_required", "startup_failure"})
@@ -65,6 +68,9 @@ SHA = re.compile(r"[0-9a-f]{40}")
 
 # oid -> "success", another conclusive conclusion, or None for no verdict.
 Verdicts = Callable[[list[str]], dict[str, Optional[str]]]
+# Paths -> the CI areas they route (detect_ci_change_areas.py), or None when
+# the router cannot tell.
+Classify = Callable[[list[str]], Optional[frozenset[str]]]
 
 
 class Skip(Exception):
@@ -79,8 +85,11 @@ class Commit:
 
 @dataclass(frozen=True)
 class Decision:
-    base: Optional[str]
+    # The pull request's own files to route, or None for its whole diff.
+    files: Optional[tuple[str, ...]]
     reason: str
+    # With no files to route: whether to still compile the macOS app.
+    compile_macos: bool = False
 
 
 def short(oid: str) -> str:
@@ -209,7 +218,8 @@ def ci_policy_paths(paths: Iterable[str]) -> list[str]:
     )
 
 
-def decide(git: Git, merge_sha: str, head_sha: str, verdicts: Verdicts) -> Decision:
+def decide(git: Git, merge_sha: str, head_sha: str, verdicts: Verdicts,
+           classify: Optional[Classify] = None) -> Decision:
     for name, value in (("merge", merge_sha), ("head", head_sha)):
         if not SHA.fullmatch(value):
             raise Skip(f"the {name} sha {value!r} is not a full sha")
@@ -222,6 +232,9 @@ def decide(git: Git, merge_sha: str, head_sha: str, verdicts: Verdicts) -> Decis
     if policy:
         listed = ", ".join(policy[:3]) + (", ..." if len(policy) > 3 else "")
         raise Skip(f"the pull request changes CI policy ({listed}), which routes from its whole diff")
+
+    if classify is None:
+        classify = detector_classifier(git.cwd)
 
     # Commits only, no trees: enough to read the chain's shape.
     git.fetch("--filter=tree:0", f"--depth={MAX_CHAIN + 2}", git.remote, head_sha)
@@ -240,35 +253,100 @@ def decide(git: Git, merge_sha: str, head_sha: str, verdicts: Verdicts) -> Decis
     if base is None or base in git.shallow():
         raise Skip(f"the merge base of {short(green.oid)} and main is outside the fetched history")
 
-    # Trees (not blobs) of the two commits the diffs below need. A commit that
-    # is already local is skipped by fetch, so ask for the trees themselves.
-    git.fetch("--filter=blob:none", git.remote, git.tree(green.oid), git.tree(base))
+    # Trees (not blobs) of the commits the diffs below need. A commit that is
+    # already local is skipped by fetch, so ask for the trees themselves.
+    touched = {green.oid, base, *(oid for merge in merges for oid in (merge.oid, *merge.parents))}
+    if len(chain[0].parents) == 1:
+        touched.update((chain[0].oid, chain[0].parents[0]))
+    git.fetch("--filter=blob:none", git.remote, *sorted({git.tree(oid) for oid in touched}))
     delta = git.changed(green.oid, merge_sha)
     own_then = git.changed(base, green.oid)
-    # A file the pull request changes now that neither differs since H1 nor
-    # was changed at H1 was never tested with this content: a merge that kept
-    # the pull request's side of a file only main had edited.
-    uncovered = sorted(own_now - delta - own_then)
-    if uncovered:
-        listed = ", ".join(uncovered[:5]) + (", ..." if len(uncovered) > 5 else "")
-        raise Skip(f"{len(uncovered)} files the pull request changes were not in its diff at "
-                   f"{short(green.oid)} and did not change since: {listed}")
-    # The delta exists to route less than the pull request diff. It carries
-    # everything main gained since H1, which main's own runs judge, so when
-    # main moved further than the pull request it routes more, and main's
-    # cmuxUITests/ edits would read as this pull request's coverage gap.
-    if len(delta) > len(own_now):
-        raise Skip(f"the delta since {short(green.oid)} ({len(delta)} files) is larger than "
-                   f"the pull request diff ({len(own_now)} files)")
-    unjudged = sorted(path for path in delta - own_now if path.startswith(UNJUDGED_PREFIXES))
-    if unjudged:
-        listed = ", ".join(unjudged[:3]) + (", ..." if len(unjudged) > 3 else "")
-        raise Skip(f"main's edits since {short(green.oid)} touch files no pull request job runs: {listed}")
+    # What H1's green run did not see of the pull request's own files: the
+    # resolution commit, a merge's edits to both sides, and a file whose
+    # content neither changed since H1 nor was in the diff at H1 (a merge that
+    # kept the pull request's side of a file only main had edited).
+    resolved = own_now - delta - own_then
+    if len(chain[0].parents) == 1:
+        resolved |= git.changed(chain[0].parents[0], chain[0].oid)
+    for merge in merges:
+        resolved |= git.changed(merge.parents[0], merge.oid) & git.changed(merge.parents[1], merge.oid)
+    resolved &= own_now
+
+    # Main's own runs judge main's files, so the delta never routes them. The
+    # risk this run exists for is the pull request's code against new main:
+    # its files in an area main changed since H1. Area routing already
+    # includes the dependency closures (the macOS and CLI package closures).
+    delta_areas = classify(sorted(delta))
+    if delta_areas is None:
+        raise Skip("could not read the CI areas of main's changes since the green head")
+    routed = set(resolved)
+    for path in own_now - resolved:
+        areas = classify([path])
+        if areas is None:
+            raise Skip(f"could not read the CI areas of {path}")
+        if areas & delta_areas:
+            routed.add(path)
+    compile_macos = False
+    if not routed:
+        # Nothing main changed reaches the pull request's areas. Still build
+        # its code against new main when it has app code.
+        own_areas = classify(sorted(own_now))
+        if own_areas is None:
+            raise Skip("could not read the CI areas of the pull request diff")
+        compile_macos = "macos" in own_areas
+    summary = ", ".join(sorted(delta_areas)) or "none"
     return Decision(
-        green.oid,
-        f"delta since green head {short(green.oid)}: {len(delta)} files "
-        f"(pull request diff: {len(own_now)} files)",
+        tuple(sorted(routed)),
+        f"since green head {short(green.oid)}, main changed {len(delta)} files (areas: {summary}); "
+        f"routing {len(routed)} of the pull request's {len(own_now)} files"
+        + (" (compile only)" if not routed and compile_macos else ""),
+        compile_macos,
     )
+
+
+AREA_NAMES = ("macos", "web", "agent_session_web", "cli", "swift_packages", "release_build")
+
+
+def detector_classifier(root: Path) -> Classify:
+    """Areas from ci.yml's own router, loaded from the checkout.
+
+    Only after decide() has ruled out a pull request that edits scripts/ci/,
+    so the checkout's router is the base revision's. It reads the checkout's
+    Xcode project and manifests for the package closures, as ci.yml's run of
+    it does. A closure it cannot derive makes the answer None: uncertain.
+    """
+    path = root / "scripts" / "ci" / "detect_ci_change_areas.py"
+    spec = importlib.util.spec_from_file_location("cmux_ci_detect_change_areas", path)
+    if spec is None or spec.loader is None:
+        return lambda paths: None
+    module = importlib.util.module_from_spec(spec)
+    # dataclasses resolves the module's annotations through sys.modules.
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception as error:  # noqa: BLE001 - uncertain, not fatal
+        print(f"Could not load the change-area router: {error}", file=sys.stderr)
+        return lambda paths: None
+    # classify_files() reloads these per call; one classification per file
+    # would parse the Xcode project and workflows each time.
+    for name in ("load_cli_target_inputs", "load_macos_job_test_references"):
+        setattr(module, name, functools.lru_cache(maxsize=None)(getattr(module, name)))
+    loaders = (module.load_cli_target_inputs, module.load_macos_ios_package_closure,
+               module.load_macos_job_test_references, module.swift_package_test_packages,
+               module._select_package_tests)
+
+    def classify(paths: list[str]) -> Optional[frozenset[str]]:
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                if any(loader() is None for loader in loaders):
+                    return None
+                areas = module.classify_files(paths)
+        except Exception as error:  # noqa: BLE001 - uncertain, not fatal
+            print(f"Could not classify {len(paths)} files: {error}", file=sys.stderr)
+            return None
+        return frozenset(name for name in AREA_NAMES if getattr(areas, name))
+
+    return classify
 
 
 def ci_status_runs(suites: Iterable[dict]) -> dict[int, str]:
@@ -389,6 +467,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--base-ref", required=True, help="the pull request's base branch")
     parser.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT"))
     parser.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"))
+    parser.add_argument("--files-out", type=Path,
+                        default=Path(os.environ.get("RUNNER_TEMP") or tempfile.gettempdir()) / "cmux-ci-delta-files.txt",
+                        help="where to write the files to route when the delta applies")
     args = parser.parse_args(argv)
 
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
@@ -410,9 +491,14 @@ def main(argv: list[str]) -> int:
     print(f"CI diff base: {decision.reason}")
     for note in notes:
         print(f"CI diff base note: {note}")
+    files_output = ""
+    if decision.files is not None:
+        args.files_out.write_text("".join(f"{path}\n" for path in decision.files), encoding="utf-8")
+        files_output = str(args.files_out)
     if args.github_output:
         with open(args.github_output, "a", encoding="utf-8") as handle:
-            handle.write(f"base_sha={decision.base or ''}\n")
+            handle.write(f"files={files_output}\n")
+            handle.write(f"compile_macos={'true' if decision.compile_macos else 'false'}\n")
     if args.summary:
         with open(args.summary, "a", encoding="utf-8") as handle:
             handle.write(f"**CI diff base:** {decision.reason}\n\n")

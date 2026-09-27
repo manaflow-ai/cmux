@@ -2385,8 +2385,15 @@ def run_detect_step_for_paths(
     base_files: dict[str, str] | None = None,
     head_files: dict[str, str] | None = None,
     standalone: bool = False,
+    delta_files: list[str] | None = None,
+    delta_compile_macos: str = "",
+    artifacts: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
-    """Run the changes job's detect step; with `standalone`, then its standalone route."""
+    """Run the changes job's detect step; with `standalone`, then its standalone route.
+
+    `delta_files` is the delta step's list of the pull request's files to
+    route; `artifacts` receives the step's /tmp files, by name, when given.
+    """
     script = detect_step_script(workflow_path)
     route = (
         workflow_job_step_script("changes", "Route standalone project workflows", workflow_path)
@@ -2454,6 +2461,11 @@ def run_detect_step_for_paths(
             "GITHUB_WORKSPACE": str(repo),
             "RUNNER_TEMP": str(repo),
         }
+        if delta_files is not None:
+            delta_list = repo / "delta-files.txt"
+            delta_list.write_text("".join(f"{path}\n" for path in delta_files), encoding="utf-8")
+            env["DELTA_FILES"] = str(delta_list)
+            env["DELTA_COMPILE_MACOS"] = delta_compile_macos
         result = subprocess.run(
             ["bash", "-c", script],
             cwd=repo,
@@ -2467,6 +2479,10 @@ def run_detect_step_for_paths(
             # The job's next step, reading what the detect step left behind.
             subprocess.run(["bash", "-c", route], cwd=repo, env=env, text=True,
                            capture_output=True, check=True)
+        if artifacts is not None:
+            for name in ("cmux-ci-changed-files.txt", "cmux-ci-tests.diff", "cmux-ci-app.diff"):
+                if (repo / name).exists():
+                    artifacts[name] = (repo / name).read_text(encoding="utf-8")
         return result, output_path.read_text(encoding="utf-8").splitlines()
 
 
@@ -2931,6 +2947,50 @@ def test_workflow_routes_when_main_moved_past_the_event_base() -> None:
     # base-only.txt landed on main after the event base. It is not part of the
     # pull request and must not route macOS.
     assert outputs == ["macos=false", "web=true", "agent_session_web=false", "cli=false", "swift_packages=false", "release_build=false"]
+
+
+def test_workflow_delta_routes_only_its_files_of_the_pull_request_diff() -> None:
+    artifacts: dict[str, str] = {}
+    result, outputs = run_detect_step_for_paths(
+        ["web/app/page.tsx", "Sources/DeltaSkipped.swift", "cmuxTests/DeltaSkippedTests.swift"],
+        delta_files=["web/app/page.tsx", "main-only.txt"],
+        artifacts=artifacts,
+    )
+
+    # main-only.txt is not in the pull request diff, so it never routes.
+    assert artifacts["cmux-ci-changed-files.txt"] == "web/app/page.tsx\n"
+    assert artifacts["cmux-ci-tests.diff"] == ""
+    assert artifacts["cmux-ci-app.diff"] == ""
+    assert "macos=false" in outputs and "web=true" in outputs
+
+
+def test_workflow_delta_limits_changed_lines_to_its_files() -> None:
+    artifacts: dict[str, str] = {}
+    run_detect_step_for_paths(
+        ["Sources/DeltaRouted.swift", "Sources/DeltaSkipped.swift"],
+        delta_files=["Sources/DeltaRouted.swift"],
+        artifacts=artifacts,
+    )
+
+    assert "Sources/DeltaRouted.swift" in artifacts["cmux-ci-app.diff"]
+    assert "Sources/DeltaSkipped.swift" not in artifacts["cmux-ci-app.diff"]
+
+
+def test_workflow_empty_delta_compiles_only() -> None:
+    for compile_macos, macos in (("true", "macos=true"), ("false", "macos=false")):
+        result, outputs = run_detect_step_for_paths(
+            ["Sources/DeltaSkipped.swift"], delta_files=[], delta_compile_macos=compile_macos,
+        )
+
+        assert "compile only" in result.stdout
+        assert outputs == [
+            macos,
+            "web=false",
+            "agent_session_web=false",
+            "cli=false",
+            "swift_packages=false",
+            "release_build=false",
+        ]
 
 
 def test_workflow_empty_diff_skips_product_areas() -> None:

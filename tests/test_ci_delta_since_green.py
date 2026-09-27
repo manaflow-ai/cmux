@@ -106,6 +106,23 @@ class Origin:
         return work
 
 
+# Top-level directory -> areas, standing in for detect_ci_change_areas.py.
+FAKE_AREAS = {
+    "app": {"macos"}, "cmuxUITests": {"macos"}, "web": {"web"}, "docs": set(),
+    "scripts": {"macos", "web", "cli"},
+}
+
+
+def fake_classify(paths: list[str]) -> frozenset[str] | None:
+    areas: set[str] = set()
+    for path in paths:
+        top = path.split("/", 1)[0]
+        if top not in FAKE_AREAS:
+            return None
+        areas |= FAKE_AREAS[top]
+    return frozenset(areas)
+
+
 class Case(unittest.TestCase):
     def setUp(self) -> None:
         directory = tempfile.TemporaryDirectory()
@@ -124,7 +141,7 @@ class Case(unittest.TestCase):
             return {oid: verdicts.get(oid) for oid in oids}
 
         self.work = work
-        return delta.decide(delta.Git(work), merge, head, lookup)
+        return delta.decide(delta.Git(work), merge, head, lookup, fake_classify)
 
     def skip_reason(self, verdicts: dict[str, str]) -> str:
         with self.assertRaises(delta.Skip) as caught:
@@ -136,25 +153,67 @@ class Case(unittest.TestCase):
 
 
 class DecideTests(Case):
-    def test_clean_merge_of_main_routes_from_the_green_head(self) -> None:
+    def test_main_change_in_another_area_compiles_only(self) -> None:
+        # Main changed web/, the pull request only app/: no file of the pull
+        # request meets what main changed, and main's file is never routed.
         h1 = self.pr_head()
         self.origin.commit("main", {"web/w.txt": "w1\n"})
         self.origin.merge_main_into_pr()
         decision = self.decide({h1: "success"})
-        self.assertEqual(decision.base, h1)
-        self.assertIn(f"delta since green head {h1[:10]}: 1 files", decision.reason)
-        # Only main's change is new since H1; the pull request's file passed there.
-        self.assertEqual(git(self.work, "diff", "--name-only", h1, "HEAD"), "web/w.txt")
+        self.assertEqual(decision.files, ())
+        self.assertTrue(decision.compile_macos)
+        self.assertIn(f"since green head {h1[:10]}, main changed 1 files (areas: web)", decision.reason)
+        self.assertIn("routing 0 of the pull request's 1 files (compile only)", decision.reason)
+
+    def test_routes_the_pull_request_files_in_an_area_main_changed(self) -> None:
+        h1 = self.origin.commit("pr", {"app/a.txt": "a-pr\n", "web/x.txt": "x-pr\n"}, "pull request work")
+        self.origin.commit("main", {"web/w.txt": "w1\n"})
+        self.origin.merge_main_into_pr()
+        decision = self.decide({h1: "success"})
+        self.assertEqual(decision.files, ("web/x.txt",))
+        self.assertFalse(decision.compile_macos)
+
+    def test_empty_intersection_without_app_code_compiles_nothing(self) -> None:
+        h1 = self.origin.commit("pr", {"docs/p.txt": "p-pr\n"}, "pull request work")
+        self.origin.commit("main", {"web/w.txt": "w1\n"})
+        self.origin.merge_main_into_pr()
+        decision = self.decide({h1: "success"})
+        self.assertEqual(decision.files, ())
+        self.assertFalse(decision.compile_macos)
+
+    def test_many_file_pull_request_with_a_small_main_delta(self) -> None:
+        # The common case: a large pull request, then a merge of a little of
+        # main. Only its files in main's area route, and main's own file,
+        # here a UI test no pull request job runs (#14961), never does.
+        files = {f"app/f{index}.txt": f"{index}\n" for index in range(12)}
+        files.update({"web/x.txt": "x-pr\n", "docs/p.txt": "p-pr\n"})
+        h1 = self.origin.commit("pr", files, "pull request work")
+        self.origin.commit("main", {"cmuxUITests/SidebarUITests.swift": "main edit\n"})
+        self.origin.merge_main_into_pr()
+        decision = self.decide({h1: "success"})
+        self.assertEqual(decision.files, tuple(sorted(f"app/f{index}.txt" for index in range(12))))
+        self.assertIn("routing 12 of the pull request's 14 files", decision.reason)
+
+    def test_uncertain_areas_keep_the_whole_diff(self) -> None:
+        for pr_file, main_file, reason in (
+            ("unknown/p.txt", "web/w.txt", "could not read the CI areas of unknown/p.txt"),
+            ("app/a.txt", "unknown/w.txt", "could not read the CI areas of main's changes"),
+        ):
+            with self.subTest(pr_file=pr_file, main_file=main_file):
+                self.setUp()
+                h1 = self.origin.commit("pr", {pr_file: "pr\n"}, "pull request work")
+                self.origin.commit("main", {main_file: "main\n"})
+                self.origin.merge_main_into_pr()
+                self.assertIn(reason, self.skip_reason({h1: "success"}))
 
     def test_merge_plus_one_resolution_commit(self) -> None:
+        # docs/ routes no area, but H1's run never saw the resolution.
         h1 = self.pr_head()
         self.origin.commit("main", {"web/w.txt": "w1\n"})
         self.origin.merge_main_into_pr()
         self.origin.commit("pr", {"docs/d.txt": "resolved\n"}, "resolve")
         decision = self.decide({h1: "success"})
-        self.assertEqual(decision.base, h1)
-        self.assertEqual(set(git(self.work, "diff", "--name-only", h1, "HEAD").split()),
-                         {"web/w.txt", "docs/d.txt"})
+        self.assertEqual(decision.files, ("docs/d.txt",))
 
     def test_normal_new_commit_does_not_apply(self) -> None:
         h1 = self.pr_head()
@@ -188,8 +247,8 @@ class DecideTests(Case):
         self.origin.commit("main", {"docs/d.txt": "d1\n"})
         self.origin.merge_main_into_pr()
         decision = self.decide({h1: "success"})
-        self.assertEqual(decision.base, h1)
-        self.assertIn(": 2 files", decision.reason)
+        self.assertEqual(decision.files, ())
+        self.assertIn("main changed 2 files (areas: web)", decision.reason)
 
     def test_second_merge_routes_from_the_first_when_it_was_green(self) -> None:
         self.pr_head()
@@ -198,8 +257,8 @@ class DecideTests(Case):
         self.origin.commit("main", {"docs/d.txt": "d1\n"})
         self.origin.merge_main_into_pr()
         decision = self.decide({first: "success"})
-        self.assertEqual(decision.base, first)
-        self.assertIn(": 1 files", decision.reason)
+        self.assertIn(f"since green head {first[:10]}, main changed 1 files (areas: none)", decision.reason)
+        self.assertEqual(decision.files, ())
 
     def test_force_push_whose_first_parent_is_not_the_old_head(self) -> None:
         h1 = self.pr_head()
@@ -216,32 +275,13 @@ class DecideTests(Case):
         self.origin.merge_branch_into_pr("side")
         self.assertIn("which is not on main", self.skip_reason({h1: "success"}))
 
-    def test_merge_that_keeps_the_head_side_of_a_main_only_file_does_not_apply(self) -> None:
+    def test_merge_that_keeps_the_head_side_of_a_main_only_file_routes_it(self) -> None:
         # The pull request never touched web/w.txt, but its merge kept the old
         # content over main's. That content was never tested against main.
         h1 = self.pr_head()
         self.origin.commit("main", {"web/w.txt": "w1\n", "docs/d.txt": "d1\n"})
         self.origin.merge_main_into_pr(keep_ours=("web/w.txt",))
-        self.assertIn("1 files the pull request changes were not in its diff", self.skip_reason({h1: "success"}))
-
-    def test_delta_larger_than_the_pull_request_diff_does_not_apply(self) -> None:
-        # Main moved further than the pull request: the delta would route
-        # main's two files for a pull request that changes one (#14961).
-        h1 = self.pr_head()
-        self.origin.commit("main", {"web/w.txt": "w1\n", "docs/d.txt": "d1\n"})
-        self.origin.merge_main_into_pr()
-        self.assertIn("(2 files) is larger than the pull request diff (1 files)",
-                      self.skip_reason({h1: "success"}))
-
-    def test_main_editing_ui_tests_does_not_apply(self) -> None:
-        # No pull request job runs cmuxUITests/, so suite-coverage fails any
-        # routed diff that touches it. Main's edit there is not this pull
-        # request's, however small the delta.
-        h1 = self.origin.commit("pr", {"app/a.txt": "a-pr\n", "app/b.txt": "b-pr\n"}, "pull request work")
-        self.origin.commit("main", {"cmuxUITests/SidebarUITests.swift": "main edit\n"})
-        self.origin.merge_main_into_pr()
-        self.assertIn("touch files no pull request job runs: cmuxUITests/SidebarUITests.swift",
-                      self.skip_reason({h1: "success"}))
+        self.assertEqual(self.decide({h1: "success"}).files, ("web/w.txt",))
 
     def test_pull_request_that_changes_ci_policy_keeps_its_whole_diff(self) -> None:
         # At H1 the pull request edited the router. The delta would no longer
@@ -261,10 +301,9 @@ class DecideTests(Case):
         self.origin.commit("main", {"scripts/ci/detect_ci_change_areas.py": "main edit\n"})
         self.origin.merge_main_into_pr()
         decision = self.decide({h1: "success"})
-        self.assertEqual(decision.base, h1)
-        # The delta carries main's router edit, so ci.yml still classifies it.
-        self.assertEqual(git(self.work, "diff", "--name-only", h1, "HEAD"),
-                         "scripts/ci/detect_ci_change_areas.py")
+        # Main's router edit reaches every area, so the pull request's file
+        # routes; main's file itself does not.
+        self.assertEqual(decision.files, ("app/a.txt",))
 
     def test_complete_history_is_not_deepened(self) -> None:
         # The chain fetch completes this short history; some git versions
@@ -283,7 +322,7 @@ class DecideTests(Case):
 
         delta.Git.fetch = record
         self.addCleanup(setattr, delta.Git, "fetch", original)
-        self.assertEqual(self.decide({h1: "success"}).base, h1)
+        self.assertEqual(self.decide({h1: "success"}).files, ())
         self.assertFalse([args for args in fetched if args[0].startswith("--deepen")], fetched)
 
     def test_a_refused_filter_falls_back_to_a_plain_fetch_and_says_so(self) -> None:
@@ -301,8 +340,9 @@ class DecideTests(Case):
         self.addCleanup(setattr, delta.Git, "run", original)
         merge, head = self.origin.tested_merge()
         git_checkout = delta.Git(self.origin.checkout(merge))
-        decision = delta.decide(git_checkout, merge, head, lambda oids: {oid: "success" for oid in oids if oid == h1})
-        self.assertEqual(decision.base, h1)
+        decision = delta.decide(git_checkout, merge, head, lambda oids: {oid: "success" for oid in oids if oid == h1},
+                                fake_classify)
+        self.assertEqual(decision.files, ())
         self.assertTrue(git_checkout.notes)
         self.assertIn("fatal: filter refused", git_checkout.notes[0])
         self.assertIn("retried without it", git_checkout.notes[0])
@@ -444,6 +484,17 @@ class VerdictTests(unittest.TestCase):
                 self.assertIn(f"head_sha={oid}", calls[1])
 
 
+class DetectorClassifierTests(unittest.TestCase):
+    def test_reads_areas_from_the_repository_router(self) -> None:
+        classify = delta.detector_classifier(ROOT)
+        self.assertIn("macos", classify(["Sources/AppDelegate.swift"]))
+        self.assertIn("web", classify(["web/app/page.tsx"]))
+
+    def test_a_checkout_without_the_router_is_uncertain(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertIsNone(delta.detector_classifier(Path(directory))(["Sources/AppDelegate.swift"]))
+
+
 class MainTests(unittest.TestCase):
     def test_fails_open_with_an_empty_base(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -457,7 +508,7 @@ class MainTests(unittest.TestCase):
                 cwd=directory, env=env, capture_output=True, text=True,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(output.read_text(), "base_sha=\n")
+            self.assertEqual(output.read_text(), "files=\ncompile_macos=false\n")
             self.assertIn("pull request diff:", summary.read_text())
 
 
@@ -527,14 +578,17 @@ class WorkflowTests(unittest.TestCase):
         names = [step.get("id") for step in self.job["steps"]]
         self.assertLess(names.index("delta"), names.index("detect"))
 
-    def test_detector_diffs_from_the_green_head_only_when_one_was_found(self) -> None:
+    def test_detector_limits_the_pull_request_diff_to_the_delta_files(self) -> None:
         detect = self.steps["detect"]
-        self.assertEqual(detect["env"]["DELTA_BASE_SHA"], "${{ steps.delta.outputs.base_sha }}")
+        self.assertEqual(detect["env"]["DELTA_FILES"], "${{ steps.delta.outputs.files }}")
+        self.assertEqual(detect["env"]["DELTA_COMPILE_MACOS"], "${{ steps.delta.outputs.compile_macos }}")
         run = detect["run"]
-        override = run.index('BASE_SHA="$DELTA_BASE_SHA"')
-        self.assertLess(run.index('BASE_SHA="$(git rev-parse "$MERGE_SHA^1")"'), override)
-        self.assertLess(override, run.index("> /tmp/cmux-ci-changed-files.txt"))
-
+        self.assertNotIn("DELTA_BASE_SHA", run)
+        # The diff stays against the merge's base; the delta only filters it.
+        diff = run.index("> /tmp/cmux-ci-changed-files.txt")
+        self.assertLess(run.index('BASE_SHA="$(git rev-parse "$MERGE_SHA^1")"'), diff)
+        self.assertLess(diff, run.index('grep -Fxf "$DELTA_FILES" /tmp/cmux-ci-changed-files.txt'))
+        self.assertIn('compile_macos="${DELTA_COMPILE_MACOS:-true}"', run)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
