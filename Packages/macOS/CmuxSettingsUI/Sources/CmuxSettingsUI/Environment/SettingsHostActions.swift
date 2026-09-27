@@ -110,6 +110,10 @@ public protocol SettingsHostActions: AnyObject {
     /// Opens the interactive terminal theme picker in a focused cmux terminal pane.
     func openTerminalThemePicker()
 
+    /// Opens a focused cmux terminal pane running `cmux import`, which lists other
+    /// terminals' settings and imports the one the user picks.
+    func openTerminalImport()
+
     /// Launches the host's browser-import flow (Safari / Chrome /
     /// Firefox source picker + profile selection + cookie prompt).
     func openBrowserImportFlow()
@@ -474,6 +478,9 @@ public extension SettingsHostActions {
 
     /// Default no-op for package-only settings hosts without a terminal theme picker.
     func openTerminalThemePicker() {}
+
+    /// Default no-op for package-only settings hosts without a bundled cmux CLI.
+    func openTerminalImport() {}
 
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}

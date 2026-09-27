@@ -271,6 +271,9 @@
          location = "group:CmuxTerminalCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxTerminalImport">
+      </FileRef>
+      <FileRef
          location = "group:CmuxTestSupport">
       </FileRef>
       <FileRef
