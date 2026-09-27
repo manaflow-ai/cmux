@@ -582,6 +582,66 @@ struct SessionScrollbackCheckpointStoreTests {
             == "second\n")
     }
 
+    @Test func cleanQuitThenCrashDoesNotRestoreThePreviousLaunchCheckpoints() throws {
+        let store = makeStore()
+        defer { cleanUp(store) }
+        // Launch A checkpoints a workspace terminal and a dock terminal, then quits
+        // cleanly. The quit save carries scrollback (one terminal deliberately
+        // omitted), and the checkpoint files stay on disk.
+        let panel = UUID()
+        let dockPanel = UUID()
+        store.apply(.init(
+            captures: [capture(panel, at: 100, "launch A\n"), capture(dockPanel, at: 100, "dock A\n")],
+            removals: [],
+            livePanelIds: [panel, dockPanel]
+        ))
+
+        // Launch B restores both terminals under the same panel ids, autosaves
+        // without scrollback, and crashes before its first checkpoint.
+        let crashedAutosave = Self.snapshot(
+            createdAt: 200,
+            scrollbackCapturedAt: nil,
+            panels: [(panel, nil)],
+            dockPanels: [(dockPanel, nil)]
+        )
+        // Without the startup discard, launch C would restore launch A's records.
+        #expect(store.merging(into: crashedAutosave).windows.first?.tabManager.workspaces.first?
+            .panels.first?.terminal?.scrollback == "launch A\n")
+
+        // Launch B's startup follows A's clean exit.
+        #expect(store.prepareForLaunch(previousLaunchWasUnclean: false))
+        #expect(!FileManager.default.fileExists(atPath: store.directoryURL.path))
+
+        // Launch C's startup follows B's crash: nothing from A reaches the restore.
+        #expect(!store.prepareForLaunch(previousLaunchWasUnclean: true))
+        let merged = store.merging(into: crashedAutosave)
+        let workspace = try #require(merged.windows.first?.tabManager.workspaces.first)
+        #expect(workspace.panels.first?.terminal?.scrollback == nil)
+        #expect(merged.windows.first?.dock?.panels.first?.terminal?.scrollback == nil)
+    }
+
+    @Test func crashAfterCleanLaunchRestoresItsOwnCheckpoints() throws {
+        let store = makeStore()
+        defer { cleanUp(store) }
+        let panel = UUID()
+        store.apply(.init(captures: [capture(panel, at: 100, "launch A\n")], removals: [], livePanelIds: [panel]))
+        store.prepareForLaunch(previousLaunchWasUnclean: false)
+
+        // Launch B checkpoints the restored terminal, then crashes.
+        store.apply(.init(captures: [capture(panel, at: 260, "launch B\n")], removals: [], livePanelIds: [panel]))
+        #expect(!store.prepareForLaunch(previousLaunchWasUnclean: true))
+
+        let merged = store.merging(into: Self.snapshot(
+            createdAt: 270,
+            scrollbackCapturedAt: nil,
+            panels: [(panel, nil)]
+        ))
+        #expect(merged.windows.first?.tabManager.workspaces.first?.panels.first?.terminal?.scrollback
+            == "launch B\n")
+        // Kept for a second crash until the restored terminals are seeded.
+        #expect(store.loadRecords(panelIds: [panel])[panel]?.scrollback == "launch B\n")
+    }
+
     @Test func ignoresRecordsFiledUnderAnotherPanel() throws {
         let store = makeStore()
         defer { cleanUp(store) }

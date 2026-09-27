@@ -31,6 +31,8 @@ import os
 //   for the new panels, so a second crash does not lose it.
 // - Restore merges checkpoints into the startup snapshot only after an unclean
 //   exit, and a checkpoint never overrides a newer scrollback-bearing save.
+//   A launch after a clean exit deletes every checkpoint before its own first
+//   one, so a crash of that launch never merges an earlier launch's records.
 
 /// Scheduling, idle gating and change-detection decisions for scrollback checkpoints.
 enum SessionScrollbackCheckpointPolicy {
@@ -307,6 +309,23 @@ struct SessionScrollbackCheckpointStore: Sendable {
             }
             try? fileManager.removeItem(at: url)
         }
+    }
+
+    /// Startup step, run once before the restore decision (also when restore is skipped).
+    ///
+    /// After an unclean exit the checkpoints belong to the launch that crashed:
+    /// they are kept for `merging(into:)` and for a second crash before the
+    /// restored terminals are seeded. After a clean exit they are stale. That
+    /// exit saved scrollback into the snapshot, and restore reuses snapshot
+    /// panel ids, so a record left behind would match the same terminal in this
+    /// launch's 8 s autosave. If this launch crashed before its first checkpoint
+    /// pruned or rewrote it, the next restore would replay the older launch's
+    /// scrollback over what the clean exit saved. Returns whether they were deleted.
+    @discardableResult
+    func prepareForLaunch(previousLaunchWasUnclean: Bool, fileManager: FileManager = .default) -> Bool {
+        guard !previousLaunchWasUnclean else { return false }
+        try? fileManager.removeItem(at: directoryURL)
+        return true
     }
 
     func loadRecords(panelIds: Set<UUID>) -> [UUID: SessionScrollbackCheckpointRecord] {

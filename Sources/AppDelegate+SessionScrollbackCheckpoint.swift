@@ -4,6 +4,58 @@ import CmuxWorkspaces
 import Foundation
 
 extension AppDelegate {
+    func sessionScrollbackCheckpointStore() -> SessionScrollbackCheckpointStore? {
+        sessionSnapshotStore.defaultSnapshotFileURL().map {
+            SessionScrollbackCheckpointStore(primarySnapshotURL: $0)
+        }
+    }
+
+    /// Drops the previous launch's checkpoints unless it exited uncleanly; see
+    /// `SessionScrollbackCheckpointStore.prepareForLaunch`.
+    func prepareSessionScrollbackCheckpointsForLaunch(
+        previousLaunchWasUnclean: Bool,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        guard SessionScrollbackCheckpointPolicy.isEnabled(environment: environment) else { return }
+        sessionScrollbackCheckpointStore()?.prepareForLaunch(previousLaunchWasUnclean: previousLaunchWasUnclean)
+    }
+
+    func startSessionScrollbackCheckpointsIfNeeded(environment: [String: String]) {
+        guard sessionScrollbackCheckpointCoordinator == nil,
+              SessionScrollbackCheckpointPolicy.isEnabled(environment: environment),
+              let store = sessionScrollbackCheckpointStore() else { return }
+        let queue = sessionScrollbackCheckpointQueue
+        sessionScrollbackCheckpointCoordinator = SessionScrollbackCheckpointCoordinator(
+            environment: SessionScrollbackCheckpointCoordinator.Environment(
+                uptime: { ProcessInfo.processInfo.systemUptime },
+                wallClock: { Date().timeIntervalSince1970 },
+                canCheckpoint: { [weak self] in
+                    guard let self else { return false }
+                    return !self.isTerminatingApp
+                        && self.didAttemptStartupSessionRestore
+                        && !self.isApplyingSessionRestore
+                },
+                secondsSinceTyping: { [weak self] in
+                    guard let self, self.lastTypingActivityAt > 0 else { return nil }
+                    return ProcessInfo.processInfo.systemUptime - self.lastTypingActivityAt
+                },
+                candidates: { [weak self] in
+                    self?.sessionScrollbackCheckpointCandidates() ?? []
+                },
+                scheduleNextCapture: { work in
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated { work() }
+                    }
+                },
+                persist: { batch in
+                    queue.async {
+                        store.applyMarkingFailuresPending(batch, activity: .shared)
+                    }
+                }
+            )
+        )
+    }
+
     /// Live terminals a scrollback checkpoint may capture: the same panels the
     /// session snapshot walks (registered windows, their docks, and windowless
     /// routes that still fit the persisted window budget).

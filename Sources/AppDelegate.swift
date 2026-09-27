@@ -1266,8 +1266,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     )
     private var todoStatePersistenceCoordinator: SessionTodoStatePersistenceCoordinator?
     /// Crash-safe scrollback checkpoints; see `SessionScrollbackCheckpoint.swift`.
-    private var sessionScrollbackCheckpointCoordinator: SessionScrollbackCheckpointCoordinator?
-    private let sessionScrollbackCheckpointQueue = DispatchQueue(
+    var sessionScrollbackCheckpointCoordinator: SessionScrollbackCheckpointCoordinator?
+    let sessionScrollbackCheckpointQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionScrollbackCheckpoint",
         qos: .utility
     )
@@ -1303,7 +1303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
     private var lastPersistedSessionWindowIds: [UUID] = []
-    private var lastTypingActivityAt: TimeInterval = 0
+    private(set) var lastTypingActivityAt: TimeInterval = 0
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
@@ -3641,11 +3641,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics(
             primaryOutcome: primaryOutcome
         )
+        // Before the restore guard, so a skipped restore still drops stale checkpoints.
+        prepareSessionScrollbackCheckpointsForLaunch(previousLaunchWasUnclean: previousSessionLaunchWasUnclean)
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup else { return }
         // After a crash the primary snapshot comes from the 8 s autosave, which
         // never carries scrollback; recover it from the latest checkpoints. A
-        // clean exit already wrote scrollback, so checkpoints are ignored.
+        // clean exit already wrote scrollback and discarded them above.
         if previousSessionLaunchWasUnclean,
            let sanitizedStartupSnapshot,
            let checkpointStore = sessionScrollbackCheckpointStore() {
@@ -4354,48 +4356,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sessionAutosaveTimer = timer
         timer.resume()
         startSessionScrollbackCheckpointsIfNeeded(environment: env)
-    }
-
-    private func sessionScrollbackCheckpointStore() -> SessionScrollbackCheckpointStore? {
-        sessionSnapshotStore.defaultSnapshotFileURL().map {
-            SessionScrollbackCheckpointStore(primarySnapshotURL: $0)
-        }
-    }
-
-    private func startSessionScrollbackCheckpointsIfNeeded(environment: [String: String]) {
-        guard sessionScrollbackCheckpointCoordinator == nil,
-              SessionScrollbackCheckpointPolicy.isEnabled(environment: environment),
-              let store = sessionScrollbackCheckpointStore() else { return }
-        let queue = sessionScrollbackCheckpointQueue
-        sessionScrollbackCheckpointCoordinator = SessionScrollbackCheckpointCoordinator(
-            environment: SessionScrollbackCheckpointCoordinator.Environment(
-                uptime: { ProcessInfo.processInfo.systemUptime },
-                wallClock: { Date().timeIntervalSince1970 },
-                canCheckpoint: { [weak self] in
-                    guard let self else { return false }
-                    return !self.isTerminatingApp
-                        && self.didAttemptStartupSessionRestore
-                        && !self.isApplyingSessionRestore
-                },
-                secondsSinceTyping: { [weak self] in
-                    guard let self, self.lastTypingActivityAt > 0 else { return nil }
-                    return ProcessInfo.processInfo.systemUptime - self.lastTypingActivityAt
-                },
-                candidates: { [weak self] in
-                    self?.sessionScrollbackCheckpointCandidates() ?? []
-                },
-                scheduleNextCapture: { work in
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated { work() }
-                    }
-                },
-                persist: { batch in
-                    queue.async {
-                        store.applyMarkingFailuresPending(batch, activity: .shared)
-                    }
-                }
-            )
-        )
     }
 
     private func stopSessionAutosaveTimer() {
