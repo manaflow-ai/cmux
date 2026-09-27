@@ -59,6 +59,50 @@ import Testing
         #expect(plan.windowBackgroundColor.hexString() == reduced.compositedTerminalBackgroundColor.hexString())
     }
 
+    @Test func reduceTransparencyRootBackdropMatchesOpaqueWindowFill() {
+        let reduced = makeResolver(opacity: 0.6).current(settings: makeSettings(
+            sidebarBlendMode: "withinWindow",
+            bgGlassEnabled: false,
+            reduceTransparency: true
+        ))
+        let plan = reduced.backdropPlan(
+            glassEffectAvailable: false,
+            windowBackgroundPolicy: makeWindowBackgroundPolicy()
+        )
+
+        for policy in [reduced.policy(for: .windowRoot), plan.rootPolicy] {
+            guard case let .ghosttyTerminalBackdrop(color, opacity, _) = policy else {
+                Issue.record("Expected an opaque terminal backdrop")
+                continue
+            }
+            #expect(opacity == 1)
+            #expect(color.hexString(includeAlpha: true) == plan.windowBackgroundColor.hexString(includeAlpha: true))
+        }
+        #expect(
+            plan.rootPolicy.hostLayerBackgroundColor?.hexString(includeAlpha: true)
+                == plan.windowBackgroundColor.hexString(includeAlpha: true)
+        )
+    }
+
+    @Test func reduceTransparencyWithinWindowSidebarCompositesOverWindowFill() {
+        let reduced = makeResolver(opacity: 0.6).current(settings: makeSettings(
+            sidebarBlendMode: "withinWindow",
+            sidebarTintOpacity: 0.4,
+            bgGlassEnabled: false,
+            reduceTransparency: true
+        ))
+        guard case let .sidebarMaterial(policy) = reduced.policy(for: .leftSidebar) else {
+            Issue.record("Expected a sidebar material policy")
+            return
+        }
+        let tint = reduced.sidebarSettings.materialPolicy.tintColor
+        let expected = WindowChromeColorResolver().compositedColor(
+            tint,
+            over: reduced.compositedTerminalBackgroundColor
+        )
+        #expect(policy.tintColor.hexString(includeAlpha: true) == expected.hexString(includeAlpha: true))
+    }
+
     @Test func reduceTransparencyDropsSidebarMaterialForOpaqueTint() {
         let snapshot = makeResolver(opacity: 1).current(settings: makeSettings(
             sidebarBlendMode: "behindWindow",

@@ -232,14 +232,28 @@ public struct WindowAppearanceSnapshot {
             guard reducesTransparency else {
                 return .sidebarMaterial(materialPolicy)
             }
-            return .sidebarMaterial(materialPolicy.opaque(
-                over: Self.resolvedColor(.windowBackgroundColor, for: resolvedColorScheme)
-            ))
+            // A within-window sidebar sits on the window's own fill, so its
+            // opaque tint composites over that same color and does not shift.
+            let baseColor = materialPolicy.blendingMode == .withinWindow
+                ? compositedTerminalBackgroundColor
+                : Self.resolvedColor(.windowBackgroundColor, for: resolvedColorScheme)
+            return .sidebarMaterial(materialPolicy.opaque(over: baseColor))
         }
     }
 
     /// Returns the root terminal backdrop policy.
+    ///
+    /// With Reduce Transparency on, this is the already-composited window
+    /// color at full opacity, so the root layer matches the opaque window
+    /// fill instead of painting the translucent terminal color a second time.
     public func terminalBackdropPolicy() -> WindowBackdropPolicy {
+        if reducesTransparency {
+            return .ghosttyTerminalBackdrop(
+                color: compositedTerminalBackgroundColor,
+                opacity: 1,
+                renderingMode: terminalRenderingMode
+            )
+        }
         if terminalBackgroundBlur.isMacOSGlassStyle {
             return .clear
         }

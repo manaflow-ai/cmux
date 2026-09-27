@@ -394,13 +394,11 @@ func sidebarWorkspaceRowBackgroundStyle(
     }
 }
 
-/// Whether the active row gets its outline stroke. Solid-fill rows always
-/// draw it; with Increase Contrast every style does, so the selected row
-/// keeps an edge even when its fill is close to the sidebar background.
-func sidebarWorkspaceRowDrawsActiveBorder(
-    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
-    isActive: Bool,
-    increaseContrast: Bool
-) -> Bool {
-    isActive && (activeTabIndicatorStyle == .solidFill || increaseContrast)
+extension WorkspaceIndicatorStyle {
+    /// Whether the active row gets its outline stroke. Solid-fill rows always
+    /// draw it; with Increase Contrast every style does, so the selected row
+    /// keeps an edge even when its fill is close to the sidebar background.
+    func drawsActiveBorder(isActive: Bool, increaseContrast: Bool) -> Bool {
+        isActive && (self == .solidFill || increaseContrast)
+    }
 }

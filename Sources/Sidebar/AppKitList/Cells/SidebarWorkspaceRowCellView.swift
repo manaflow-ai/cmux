@@ -431,8 +431,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             increaseContrast: model.displayAccessibility.increaseContrast
         )
         applyBackgroundStyle(style)
-        if sidebarWorkspaceRowDrawsActiveBorder(
-            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
+        if settings.activeTabIndicatorStyle.drawsActiveBorder(
             isActive: model.isActive,
             increaseContrast: model.displayAccessibility.increaseContrast
         ) {

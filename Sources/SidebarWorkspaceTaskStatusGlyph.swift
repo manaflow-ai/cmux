@@ -264,22 +264,11 @@ struct SidebarWorkspaceTaskStatusGlyph: View {
                 SidebarStatusPieShape(fraction: model.fillFraction)
                     .fill(statusColor)
             }
-            switch model.mark {
-            case .none:
-                EmptyView()
-            case .checkmark:
-                SidebarStatusCheckmarkShape()
-                    .stroke(
-                        checkmarkColor,
-                        style: StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
-                    )
-            case .exclamation:
-                SidebarStatusExclamationShape()
-                    .stroke(
-                        checkmarkColor,
-                        style: StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
-                    )
-            }
+            SidebarStatusMarkShape(mark: model.mark)
+                .stroke(
+                    checkmarkColor,
+                    style: StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
+                )
         }
         .frame(width: size, height: size)
         // Fixed-width slot so titles align whether or not the pie is drawn
@@ -315,43 +304,41 @@ struct SidebarStatusPieShape: Shape {
     }
 }
 
-/// A small checkmark centered in the glyph's circle.
-struct SidebarStatusCheckmarkShape: Shape {
+/// The glyph's mark (checkmark or exclamation) centered in its circle;
+/// empty when the lane has no mark.
+struct SidebarStatusMarkShape: Shape {
+    let mark: SidebarWorkspaceTaskStatusGlyphModel.Mark
+
     func path(in rect: CGRect) -> Path {
-        Path(SidebarStatusGlyphMarkPath.checkmark(in: rect))
+        mark.path(in: rect).map { Path($0) } ?? Path()
     }
 }
 
-/// A small exclamation mark centered in the glyph's circle.
-struct SidebarStatusExclamationShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        Path(SidebarStatusGlyphMarkPath.exclamation(in: rect))
-    }
-}
-
-/// Mark geometry as fractions of the glyph's circle rect, shared by the
-/// SwiftUI glyph and the AppKit row button (both stroke it 1.2pt, round).
-/// Coordinates are y-down, which matches SwiftUI and the flipped AppKit view.
-enum SidebarStatusGlyphMarkPath {
-    static func checkmark(in rect: CGRect) -> CGPath {
+extension SidebarWorkspaceTaskStatusGlyphModel.Mark {
+    /// The mark's stroke path inside the glyph's circle rect, or `nil` for
+    /// no mark. Shared by the SwiftUI glyph and the AppKit row button (both
+    /// stroke it 1.2pt, round). Coordinates are y-down, matching SwiftUI and
+    /// the flipped AppKit view.
+    func path(in rect: CGRect) -> CGPath? {
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + rect.width * x, y: rect.minY + rect.height * y)
+        }
         let path = CGMutablePath()
-        path.move(to: point(0.28, 0.52, in: rect))
-        path.addLine(to: point(0.45, 0.68, in: rect))
-        path.addLine(to: point(0.74, 0.34, in: rect))
+        switch self {
+        case .none:
+            return nil
+        case .checkmark:
+            path.move(to: point(0.28, 0.52))
+            path.addLine(to: point(0.45, 0.68))
+            path.addLine(to: point(0.74, 0.34))
+        case .exclamation:
+            path.move(to: point(0.5, 0.24))
+            path.addLine(to: point(0.5, 0.54))
+            // A near-zero segment: the round cap draws the dot.
+            path.move(to: point(0.5, 0.75))
+            path.addLine(to: point(0.5, 0.76))
+        }
         return path
     }
-
-    static func exclamation(in rect: CGRect) -> CGPath {
-        let path = CGMutablePath()
-        path.move(to: point(0.5, 0.24, in: rect))
-        path.addLine(to: point(0.5, 0.54, in: rect))
-        // A near-zero segment: the round cap draws the dot.
-        path.move(to: point(0.5, 0.75, in: rect))
-        path.addLine(to: point(0.5, 0.76, in: rect))
-        return path
-    }
-
-    private static func point(_ x: CGFloat, _ y: CGFloat, in rect: CGRect) -> CGPoint {
-        CGPoint(x: rect.minX + rect.width * x, y: rect.minY + rect.height * y)
-    }
 }
+

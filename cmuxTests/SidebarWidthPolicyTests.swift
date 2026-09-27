@@ -375,18 +375,10 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
     }
 
     func testActiveBorderDrawsForSolidFillOrIncreaseContrast() {
-        XCTAssertTrue(sidebarWorkspaceRowDrawsActiveBorder(
-            activeTabIndicatorStyle: .solidFill, isActive: true, increaseContrast: false
-        ))
-        XCTAssertFalse(sidebarWorkspaceRowDrawsActiveBorder(
-            activeTabIndicatorStyle: .leftRail, isActive: true, increaseContrast: false
-        ))
-        XCTAssertTrue(sidebarWorkspaceRowDrawsActiveBorder(
-            activeTabIndicatorStyle: .leftRail, isActive: true, increaseContrast: true
-        ))
-        XCTAssertFalse(sidebarWorkspaceRowDrawsActiveBorder(
-            activeTabIndicatorStyle: .solidFill, isActive: false, increaseContrast: true
-        ))
+        XCTAssertTrue(WorkspaceIndicatorStyle.solidFill.drawsActiveBorder(isActive: true, increaseContrast: false))
+        XCTAssertFalse(WorkspaceIndicatorStyle.leftRail.drawsActiveBorder(isActive: true, increaseContrast: false))
+        XCTAssertTrue(WorkspaceIndicatorStyle.leftRail.drawsActiveBorder(isActive: true, increaseContrast: true))
+        XCTAssertFalse(WorkspaceIndicatorStyle.solidFill.drawsActiveBorder(isActive: false, increaseContrast: true))
     }
 
     func testSelectedColoredWorkspaceUsesStandardSelectionBackgroundInLightAndDark() {

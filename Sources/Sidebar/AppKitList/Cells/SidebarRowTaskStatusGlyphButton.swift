@@ -131,15 +131,7 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
             context.fillPath()
         }
 
-        let markPath: CGPath
-        switch glyph.mark {
-        case .none:
-            return
-        case .checkmark:
-            markPath = SidebarStatusGlyphMarkPath.checkmark(in: circleRect)
-        case .exclamation:
-            markPath = SidebarStatusGlyphMarkPath.exclamation(in: circleRect)
-        }
+        guard let markPath = glyph.mark.path(in: circleRect) else { return }
         context.addPath(markPath)
         context.setStrokeColor(
             (model.usesMonochrome ? NSColor.black.withAlphaComponent(0.7) : .white).cgColor
