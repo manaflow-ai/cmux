@@ -438,7 +438,10 @@ class JanitorSnapshot(unittest.TestCase):
         run = {"id": 42, "run_attempt": 1}
         name = "macos-pool-persistent-42-1-5-glaeda-std-xcode-26.6"
         self.assertEqual(janitor.owned_marker(run, ["other", name]), ("glaeda-std-xcode-26.6", 5, 5))
-        self.assertIsNone(janitor.owned_marker({"id": 42, "run_attempt": 2}, [name]))
+        # A re-run of failed jobs uploads no marker: it holds the pool of the attempt that last picked.
+        self.assertEqual(janitor.owned_marker({"id": 42, "run_attempt": 2}, [name]), ("glaeda-std-xcode-26.6", 5, 5))
+        self.assertEqual(pool.run_marker([{"name": name}], {"id": 42, "run_attempt": 2}), ("glaeda-std-xcode-26.6", 5))
+        self.assertIsNone(pool.run_marker([{"name": name.replace("-42-1-", "-42-3-")}], {"id": 42, "run_attempt": 2}))
         self.assertIsNone(janitor.owned_marker({"id": 4, "run_attempt": 1}, [name]))
         self.assertIsNone(janitor.owned_marker(run, ["macos-pool-persistent-42-1-5-blacksmith-6vcpu-macos-26"]))
         self.assertEqual(janitor.owned_marker(run, ["macos-pool-persistent-42-1-99-glaeda-std-xcode-26.6"]),
@@ -497,7 +500,7 @@ def retry_lane(key: str) -> str:
 
 def root_lane(key: str) -> str:
     """retry_lane() for a root job: the root label, when the picker named one, before the pool label."""
-    return (f"(github.run_attempt > 1 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+    return (f"(github.run_attempt > 1 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
@@ -2392,7 +2395,7 @@ class Wiring(unittest.TestCase):
         shards = self.workflow("ci-macos.yml")["jobs"]["app-host-unit-tests"]
         self.assertEqual(shards["runs-on"], "${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')"
                                             "[format('shard-{0}', matrix.shard)] "
-                                            "|| (github.run_attempt > 1 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, "
+                                            "|| (github.run_attempt > 1 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, "
                                             "format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner "
                                             "|| inputs.pr_shard_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}")
         wrapper = self.workflow("ci.yml")["jobs"]["claude-wrapper"]["runs-on"]

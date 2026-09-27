@@ -252,11 +252,12 @@ selects the newest SDK 26 Xcode on the pool it lands on, and the product
 consumers restate compile admission's empty pin), and only lands on
 ephemeral Blacksmith pools.
 
-A retry attempt (GITHUB_RUN_ATTEMPT above 1) never takes a persistent pool
-either. A job queued on a persistent pool waits for it however long it stays
-busy, so owned_pool_rescue.py cancels such a run and re-runs it, and the
-re-run has to land somewhere with capacity. A rerun after a job failed on an
-owned Mac lands on Blacksmith for the same reason. One exception, off unless
+Re-runs are routed by cause (RESCUE_ACTOR below). github-actions[bot]'s re-run
+follows a host fault (a refusal, a stuck queue, a machine failure) and never
+takes a persistent pool: owned_pool_rescue.py cancels a run stuck on one and
+re-runs it, and that re-run has to land somewhere with capacity. Anyone
+else's re-run of a pull request follows a code failure and picks like
+attempt 1, without queueing. One exception for the bot, off unless
 `vars.CI_OWNED_LIGHT_RETRY == '1'`: attempt 2 (LIGHT_RETRY_ATTEMPT) may take
 a `light` owned pool, the next fleet tier, when its whole owned peak is free
 there by the same rule as attempt 1, and only when github-actions[bot]
@@ -1865,20 +1866,27 @@ def may_hold_owned_pool(run: Mapping[str, Any], *, light_retry: bool = False) ->
     """
     attempt = int(run.get("run_attempt") or 1)
     actor = str((run.get("triggering_actor") or {}).get("login") or "")
-    if host_fault_retry(attempt, actor) and attempt > (LIGHT_RETRY_ATTEMPT if light_retry else 1):
+    code_retry = run.get("event") == "pull_request" and not host_fault_retry(attempt, actor)
+    if attempt > (LIGHT_RETRY_ATTEMPT if light_retry else 1) and not code_retry:
         return False
     head, base = (run.get("head_repository") or {}).get("id"), (run.get("repository") or {}).get("id")
     return head is not None and head == base
 
 
 def run_marker(artifacts: Sequence[Any], run: Mapping[str, Any]) -> tuple[str, int] | None:
-    """The owned pool and peak a run's `macos-pool-persistent-...` marker names, or None."""
+    """The owned pool and peak a run's `macos-pool-persistent-...` marker names, or None.
+
+    The newest marker up to the run's attempt: a re-run of failed jobs does not re-run the picker, so it
+    holds the pool of the attempt that last picked (a person's re-run goes back to it).
+    """
+    best: tuple[int, str, int] | None = None
     for artifact in artifacts:
         match = OWNED_MARKER.fullmatch(str((artifact or {}).get("name") or "")) if isinstance(artifact, Mapping) else None
         if (match and not artifact.get("expired") and int(match["run"]) == run.get("id")
-                and int(match["attempt"]) == int(run.get("run_attempt") or 1) and persistent(match["pool"])):
-            return match["pool"], min(int(match["jobs"]), MAX_RUN_JOBS)
-    return None
+                and int(match["attempt"]) <= int(run.get("run_attempt") or 1) and persistent(match["pool"])
+                and (best is None or int(match["attempt"]) > best[0])):
+            best = int(match["attempt"]), match["pool"], min(int(match["jobs"]), MAX_RUN_JOBS)
+    return (best[1], best[2]) if best else None
 
 
 def count_in_flight(runs: Sequence[Mapping[str, Any]], *, exclude_run_id: int | None) -> int:

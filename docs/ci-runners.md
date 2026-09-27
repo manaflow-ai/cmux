@@ -418,7 +418,9 @@ or failed it. Anyone else's re-run follows a code or test failure and goes
 back to the owned label attempt 1 placed the job on (a full re-run picks
 again like attempt 1, without queueing). When a mini fails that re-run, the
 failure attribution re-runs it once more as the bot, onto Blacksmith, so a
-refusal never loops. In 7 days to 2026-09-27, 135 of 138 bot re-runs followed
+refusal never loops; the rescue sweeper also watches a person's re-run
+(`person_reruns()`), so a job stuck queued there is re-run onto Blacksmith.
+Main's full-suite dispatch has neither, so any retry of it takes Blacksmith. In 7 days to 2026-09-27, 135 of 138 bot re-runs followed
 a host fault, and 139 of 217 other re-runs a code failure only (23 a host
 fault, 55 a Linux or guard failure). Side lanes off ci.yml keep attempt 1 on
 a side label and every retry on their Blacksmith default.

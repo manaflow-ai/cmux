@@ -1543,8 +1543,9 @@ class Wiring(unittest.TestCase):
         owned_jobs = " admission shard-1 shard-2 lag cli-product "
         for attempt, actor, runner in (("1", "github-actions[bot]", root),
                                        ("2", "github-actions[bot]", retry),
-                                       ("2", "someone", root),
-                                       ("3", "someone", root)):
+                                       # Main has no failure attribution or re-run watch: every retry on Blacksmith.
+                                       ("2", "someone", retry),
+                                       ("3", "someone", retry)):
             context = github_context("workflow_dispatch")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
                                      sha="head")
