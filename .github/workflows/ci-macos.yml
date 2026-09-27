@@ -56,9 +56,18 @@ on:
         required: false
         default: ""
         type: string
+      # "layered" also uploads the product as four layer artifacts plus an
+      # index, and consumers try those before the aggregate. Off by default:
+      # measured 2026-09-27 on the owned minis, the layer uploads added 100 to
+      # 255 s to compile admission (which every shard waits on), and a shard's
+      # layer restore took 68 to 231 s (median about 115 s) against 34 to 90 s
+      # (median about 70 s) for the aggregate over parallel range requests.
+      # No caller passes this input today; a canary passes
+      # `product_artifacts: layered` from ci.yml's macos call
+      # (docs/ci/app-host-layer-transport.md).
       product_artifacts:
         required: false
-        default: "layered"
+        default: "aggregate"
         type: string
       compile_admitted:
         required: true

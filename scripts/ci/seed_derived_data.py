@@ -9,7 +9,8 @@
     seed_derived_data.py prefetch STORE REVISION
     seed_derived_data.py keep DERIVED_DATA KEY [PREFIX]
 
-nightly.yml `refresh-test-compilation-cache` already compiles main cold on the
+nightly.yml `refresh-test-compilation-cache` (scheduled while CI_PR_POOL_OWNED
+is not 1, or a seed_only dispatch) compiles main cold on the
 runner, Xcode and canonical paths that ci-macos.yml compile admission uses.
 `record` writes the content digest and modification time of every file in the
 canonical source tree into that DerivedData before the build, and `prune`
