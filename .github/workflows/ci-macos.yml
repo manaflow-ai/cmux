@@ -2603,11 +2603,7 @@ jobs:
             CMUX_BASH_NEW_BIN="$BASH_NEW_BIN" \
             python3 tests/test_issue_11257_prompt_command_export.py
 
-      - name: Run open-wrapper shell regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
-        run: python3 scripts/ci/run_python_test_lane.py --lane macos-shell
-
-      - name: Run CLI no-socket regressions
+      - name: Run shell and CLI no-socket regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
@@ -2623,8 +2619,6 @@ jobs:
             exit 1
           fi
 
-          CMUX_CLI_BIN="$CLI_BIN" python3 scripts/ci/run_python_test_lane.py --lane macos-cli-no-socket
-
           if ! command -v fish >/dev/null 2>&1; then
             HOMEBREW_NO_AUTO_UPDATE=1 brew install fish
           fi
@@ -2632,8 +2626,11 @@ jobs:
             echo "fish is required for the issue #9075 shell socket regression" >&2
             exit 1
           }
-          python3 scripts/ci/run_python_test_lane.py --lane macos-shell-fish
-          CMUX_CLI_BIN="$CLI_BIN" python3 scripts/ci/run_python_test_lane.py --lane macos-cli-no-socket-post-fish
+
+          # The lanes run together, eight tests at a time; serial registry
+          # entries run alone first. Run one after another, these ~70 files
+          # were this shard's ~7 minute tail.
+          CMUX_CLI_BIN="$CLI_BIN" python3 scripts/ci/run_python_test_lane.py --jobs 8 --lane macos-shell --lane macos-cli-no-socket --lane macos-shell-fish --lane macos-cli-no-socket-post-fish
 
       - name: Collect app-host failure diagnostics
         id: collect-app-host-diagnostics
