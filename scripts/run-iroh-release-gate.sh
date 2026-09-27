@@ -1048,6 +1048,13 @@ if soak_profile:
         minimum = cycles if operation in required_operations[:8] else cycles // 4
         if counts.get(operation, 0) < minimum:
             problems.append("insufficient operation coverage: " + operation)
+    # The release gate must enforce the product launch budget, rather than
+    # merely recording a slow measurement and still calling the run passed.
+    launch_latency = (report.get("uiLatencies") or {}).get(
+        "app_launch_request_to_workspace_rows_visible"
+    )
+    if not isinstance(launch_latency, (int, float)) or launch_latency >= 2.5:
+        problems.append("workspace list exceeded the 2.5 second launch budget")
 unexpected_keys = set(report) - allowed_keys
 if unexpected_keys:
     problems.append("report contained unexpected fields")
