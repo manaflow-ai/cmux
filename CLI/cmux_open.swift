@@ -1,5 +1,6 @@
 import CryptoKit
 import CmuxTerminalCore
+import CmuxSettings
 import Darwin
 import Foundation
 
@@ -137,17 +138,6 @@ enum CMUXDiffViewerLocalization {
 }
 
 extension CMUXCLI {
-    private static let diffViewerCustomPropertyNames: Set<String> = [
-        "--cmux-diff-accent",
-        "--cmux-diff-error",
-        "--cmux-diff-renamed-light",
-        "--cmux-diff-renamed-dark",
-        "--cmux-diff-addition-fg-light",
-        "--cmux-diff-addition-fg-dark",
-        "--cmux-diff-deletion-fg-light",
-        "--cmux-diff-deletion-fg-dark"
-    ]
-
     private enum DiffViewerLimits {
         static let repoOptions = 12
         static let branchBaseOptions = 4
@@ -3532,18 +3522,12 @@ extension CMUXCLI {
             guard let contents = readOptionalDiffViewerConfig(at: url) else { continue }
             applyDiffViewerGhosttyConfig(contents, to: &appearance)
         }
-        var managedCustomProperties = Set<String>()
-        for path in diffViewerDefaultSettingsPaths() {
-            guard let root = diffViewerSettingsRoot(at: path),
-                  let section = root["diffViewer"] as? [String: Any] else {
-                continue
-            }
-            applyDiffViewerCustomProperties(
-                from: section,
-                to: &appearance,
-                managedNames: &managedCustomProperties
-            )
+        let customPropertyLayers = diffViewerDefaultSettingsPaths().compactMap { path in
+            let root = diffViewerSettingsRoot(at: path)
+            let section = root?["diffViewer"] as? [String: Any]
+            return section?["cssVariables"] as? [String: Any]
         }
+        appearance.customProperties = DiffViewerCustomProperties(layers: customPropertyLayers).values
         if let fontSizeOverride {
             appearance.fontSize = fontSizeOverride
         }
@@ -3553,33 +3537,6 @@ extension CMUXCLI {
         appearance.lightTheme.type = diffViewerThemeType(forBackground: appearance.lightTheme.background, fallback: "light")
         appearance.darkTheme.type = diffViewerThemeType(forBackground: appearance.darkTheme.background, fallback: "dark")
         return appearance
-    }
-
-    private func applyDiffViewerCustomProperties(
-        from section: [String: Any],
-        to appearance: inout DiffViewerAppearance,
-        managedNames: inout Set<String>
-    ) {
-        guard let values = section["cssVariables"] as? [String: Any] else { return }
-        for (name, rawValue) in values {
-            guard Self.diffViewerCustomPropertyNames.contains(name),
-                  let rawColor = rawValue as? String,
-                  isSixDigitDiffViewerCustomPropertyColor(rawColor),
-                  let color = normalizedDiffViewerHexColor(rawColor) else {
-                continue
-            }
-            guard managedNames.insert(name).inserted else { continue }
-            appearance.customProperties[name] = color
-        }
-    }
-
-    private func isSixDigitDiffViewerCustomPropertyColor(_ rawValue: String) -> Bool {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count == 7,
-              trimmed.first == "#" else {
-            return false
-        }
-        return trimmed.dropFirst().allSatisfy(\.isHexDigit)
     }
 
     private func defaultDiffViewerAppearance() -> DiffViewerAppearance {
@@ -8038,7 +7995,6 @@ extension CMUXCLI {
           --no-focus                   Do not focus the opened diff browser split
           --title <text>               Set the diff viewer title to the provided text
           --layout <split|unified>     Diff layout (default: unified; configurable via diffViewer.defaultLayout in cmux.json)
-                                      Diff chrome colors are configurable via diffViewer.cssVariables in cmux.json.
           --font-size <points>         Set diff font size (default: 10)
 
         Examples:
