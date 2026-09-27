@@ -12,6 +12,7 @@ All notable changes to cmux are documented here.
 - Global search finds text in the scrollback of open terminals, and Return on a terminal hit opens that pane's find bar on the match ([#11665](https://github.com/manaflow-ai/cmux/pull/11665)) -- thanks @smoreg!
 
 ### Changed
+- The pane notification ring and focus flash draw at the same 2pt width as the active pane border, and the file and Markdown preview path header matches the 28pt bars around it with smaller icons ([#14982](https://github.com/manaflow-ai/cmux/pull/14982))
 - The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
 
 ### Fixed
