@@ -8889,13 +8889,13 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dos"
+            "value": "Retour"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خلف"
+            "value": "رجوع"
           }
         },
         "es": {
@@ -8919,7 +8919,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "뒤쪽에"
+            "value": "뒤로"
           }
         }
       }
@@ -19512,7 +19512,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تفريغ"
+            "value": "تفريع"
           }
         },
         "es": {
@@ -43228,7 +43228,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arrêt"
+            "value": "Arrêter"
           }
         },
         "it": {
@@ -43252,7 +43252,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "멈추다"
+            "value": "중지"
           }
         },
         "nb": {
@@ -54416,25 +54416,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klar"
+            "value": "Löschen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clair"
+            "value": "Effacer"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "واضح"
+            "value": "مسح"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claro"
+            "value": "Borrar"
           }
         },
         "zh-Hant": {
@@ -54452,7 +54452,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "분명한"
+            "value": "지우기"
           }
         }
       }
@@ -54593,7 +54593,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Offen"
+            "value": "Öffnen"
           }
         },
         "fr": {
@@ -54611,7 +54611,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abierto"
+            "value": "Abrir"
           }
         },
         "zh-Hant": {
@@ -54629,7 +54629,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "열려 있는"
+            "value": "열기"
           }
         }
       }
@@ -59080,13 +59080,13 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dos"
+            "value": "Retour"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خلف"
+            "value": "رجوع"
           }
         },
         "es": {
@@ -128782,7 +128782,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rebaptiser"
+            "value": "Renommer"
           }
         },
         "ar": {
@@ -128794,7 +128794,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rebautizar"
+            "value": "Renombrar"
           }
         },
         "zh-Hant": {
@@ -128835,25 +128835,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klar"
+            "value": "Löschen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clair"
+            "value": "Effacer"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "واضح"
+            "value": "مسح"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claro"
+            "value": "Borrar"
           }
         },
         "zh-Hant": {
@@ -128871,7 +128871,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "분명한"
+            "value": "지우기"
           }
         }
       }
@@ -129071,7 +129071,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Offen"
+            "value": "Öffnen"
           }
         },
         "fr": {
@@ -129089,7 +129089,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abierto"
+            "value": "Abrir"
           }
         },
         "zh-Hant": {
@@ -129107,7 +129107,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "열려 있는"
+            "value": "열기"
           }
         }
       }
@@ -129520,7 +129520,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새로 고치다"
+            "value": "새로고침"
           }
         }
       }
@@ -189807,7 +189807,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Offen"
+            "value": "Öffnen"
           }
         },
         "fr": {
@@ -189825,7 +189825,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abierto"
+            "value": "Abrir"
           }
         },
         "zh-Hant": {
@@ -189843,7 +189843,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "열려 있는"
+            "value": "열기"
           }
         }
       }
@@ -203819,7 +203819,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새로 고치다"
+            "value": "새로고침"
           }
         },
         "nb": {
@@ -228244,7 +228244,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새로 고치다"
+            "value": "새로고침"
           }
         }
       }
@@ -235489,7 +235489,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تفريغ"
+            "value": "تفريع"
           }
         },
         "es": {
@@ -237402,7 +237402,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rebaptiser"
+            "value": "Renommer"
           }
         },
         "ar": {
@@ -237414,7 +237414,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rebautizar"
+            "value": "Renombrar"
           }
         },
         "zh-Hant": {
@@ -239932,7 +239932,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "시사"
+            "value": "미리보기"
           }
         }
       }
@@ -267398,7 +267398,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Offen"
+            "value": "Öffnen"
           }
         },
         "fr": {
@@ -267416,7 +267416,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abierto"
+            "value": "Abrir"
           }
         },
         "zh-Hant": {
@@ -267434,7 +267434,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "열려 있는"
+            "value": "열기"
           }
         }
       }
@@ -290819,7 +290819,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Offen"
+            "value": "Öffnen"
           }
         },
         "fr": {
@@ -290837,7 +290837,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abierto"
+            "value": "Abrir"
           }
         },
         "zh-Hant": {
@@ -290855,7 +290855,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "열려 있는"
+            "value": "열기"
           }
         }
       }
@@ -340829,7 +340829,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새로 고치다"
+            "value": "새로고침"
           }
         }
       }
@@ -348844,25 +348844,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klar"
+            "value": "Löschen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clair"
+            "value": "Effacer"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "واضح"
+            "value": "مسح"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claro"
+            "value": "Borrar"
           }
         },
         "zh-Hant": {
@@ -349704,6 +349704,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "已準備好用於通知（已轉換為 CAF 格式）。"
+          }
+        }
+      }
+    },
+    "settings.notifications.sound.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview Sound"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ton anhören"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écouter le son"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معاينة الصوت"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escuchar sonido"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "試聽音效"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "试听声音"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "소리 미리 듣기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サウンドをプレビュー"
           }
         }
       }
@@ -367557,7 +367616,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Offen"
+            "value": "Öffnen"
           }
         },
         "fr": {
@@ -367575,7 +367634,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abierto"
+            "value": "Abrir"
           }
         },
         "zh-Hant": {
@@ -397734,7 +397793,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Offen"
+            "value": "Öffnen"
           }
         },
         "fr": {
@@ -397752,7 +397811,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abierto"
+            "value": "Abrir"
           }
         },
         "zh-Hant": {
@@ -397770,7 +397829,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "열려 있는"
+            "value": "열기"
           }
         }
       }
@@ -413502,7 +413561,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새로 고치다"
+            "value": "새로고침"
           }
         }
       }
@@ -417248,37 +417307,37 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clair"
+            "value": "Transparent"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "واضح"
+            "value": "شفاف"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claro"
+            "value": "Transparente"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "清除"
+            "value": "透明"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "清除"
+            "value": "透明"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "분명한"
+            "value": "투명"
           }
         }
       }
@@ -437218,7 +437277,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "시사"
+            "value": "미리보기"
           }
         }
       }
@@ -455661,7 +455720,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새로 고치다"
+            "value": "새로고침"
           }
         }
       }
