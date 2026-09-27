@@ -375,7 +375,6 @@ jobs:
           for selector in "${selectors[@]}"; do args+=("-only-testing:$selector"); done
           case "$TEST_ITERATIONS" in ''|*[!0-9]*) echo "test_iterations must be a number" >&2; exit 2 ;; esac
           if [ "$TEST_ITERATIONS" -gt 1 ]; then args+=(-test-iterations "$TEST_ITERATIONS"); fi
-          sudo rm -f /tmp/cmux-debug*.log /private/tmp/cmux-debug*.log
           sw_vers
           scripts/ci/run-in-console-session.sh \
             scripts/ci/run-app-host-xcodebuild.sh \
@@ -393,8 +392,11 @@ jobs:
           TEST_ITERATIONS: ${{ inputs.test_iterations }}
         run: |
           set -euo pipefail
-          sudo sh -c "mkdir -p '$RUNNER_TEMP/rerun-out/rebuilt' && cp /tmp/cmux-debug*.log '$RUNNER_TEMP/rerun-out/rebuilt/' 2>/dev/null" || true
-          sudo rm -f /tmp/cmux-debug*.log /private/tmp/cmux-debug*.log
+          mkdir -p "$RUNNER_TEMP/rerun-out/rebuilt"
+          cp "$RUNNER_TEMP"/cmux-app-host-xcodebuild-*.log \
+            "$RUNNER_TEMP"/cmux-app-host-xcodebuild-*.meta \
+            "$RUNNER_TEMP"/cmux-app-host-console-capture-*.log \
+            "$RUNNER_TEMP/rerun-out/rebuilt/" 2>/dev/null || true
           bundle="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest"
           rm -rf "$bundle"
           ditto "$RUNNER_TEMP/prebuilt-cmuxTests.xctest" "$bundle"
@@ -416,13 +418,15 @@ jobs:
           set -u
           out="$RUNNER_TEMP/rerun-out"
           mkdir -p "$out"
-          sudo sh -c "cp /tmp/cmux-debug*.log /private/tmp/cmux-debug*.log '$out'/ 2>/dev/null" || true
-          cp "$RUNNER_TEMP"/cmux-app-host-xcodebuild-*.log "$RUNNER_TEMP"/cmux-app-host-xcodebuild-*.meta "$out"/ 2>/dev/null || true
+          # These captures belong to this job; global debug logs may belong to
+          # another runner, and collecting diagnostics must not require sudo.
+          cp "$RUNNER_TEMP"/cmux-app-host-xcodebuild-*.log \
+            "$RUNNER_TEMP"/cmux-app-host-xcodebuild-*.meta \
+            "$RUNNER_TEMP"/cmux-app-host-console-capture-*.log "$out"/ 2>/dev/null || true
           cp "$RUNNER_TEMP/cmuxTests-detached.xcconfig" "$out"/ 2>/dev/null || true
           if [ -d "$RUNNER_TEMP/cmux-app-host-xcresults" ]; then
             cp -R "$RUNNER_TEMP/cmux-app-host-xcresults" "$out"/
           fi
-          sudo chown -R "$(id -u)" "$out"
           ls -la "$out"
 
       - name: Upload results
