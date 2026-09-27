@@ -43,4 +43,14 @@ struct TerminalNotificationDeliveryDecisionTests {
         #expect(decision.disposition == .externalDelivery)
         #expect(decision.effects.reorderWorkspace)
     }
+
+    /// The terminal notification store applies the same rule once it knows the
+    /// target pane is focused; other effects pass through unchanged.
+    @Test func storeOrderingEffectsDropReorderOnlyForFocusedPane() {
+        let effects = TerminalNotificationPolicyEffects()
+        #expect(effects.keepingFocusedWorkspaceInPlace(isFocusedPane: false) == effects)
+        var expected = effects
+        expected.reorderWorkspace = false
+        #expect(effects.keepingFocusedWorkspaceInPlace(isFocusedPane: true) == expected)
+    }
 }
