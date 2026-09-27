@@ -102,10 +102,6 @@ public struct RemoteRelayCommandPolicy: Sendable {
                 return .deny(reason: "agent delivery resolution requires the authenticated TTY path")
             }
         }
-        if method == "agent.hook.enqueue",
-           let key = RemoteRelayRoutingSchema().agentHookContractViolation(in: params) {
-            return .deny(reason: "parameter '\(key)' is not permitted through a remote relay")
-        }
 
         if let malformedSelector = malformedSelector(in: params, key: nil) {
             return .deny(reason: "selector '\(malformedSelector)' is invalid")

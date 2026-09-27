@@ -253,16 +253,6 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
                 )
             }
         }
-        // Hook routing comes only from the owner-checked selectors above, so a
-        // remote host can report lifecycle state for its own surfaces and
-        // cannot pick a decision hook or carry local replay environment.
-        if method == "agent.hook.enqueue",
-           let key = RemoteRelayRoutingSchema().agentHookContractViolation(in: parameters) {
-            return .denied(
-                code: "remote_relay_method_denied",
-                message: "Relay parameter '\(key)' is not permitted"
-            )
-        }
         if let key = RemoteRelayRoutingSchema().unsupportedKey(in: parameters, method: method) {
             return .denied(
                 code: "remote_relay_method_denied",

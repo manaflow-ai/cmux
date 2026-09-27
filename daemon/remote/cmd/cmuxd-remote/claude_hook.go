@@ -203,7 +203,7 @@ func claudeHookCallerTTY(claudePID string) string {
 
 // runClaudeWrapper implements `cmux claude-wrapper [claude args...]`. The
 // remote shell integration's `claude` shim execs it, so launchers that resolve
-// `claude` from PATH (for example `sr claude proxy`) are covered too. Hooks go
+// `claude` from PATH with their own config are covered too. Hooks go
 // through `--settings`, which works under any CLAUDE_CONFIG_DIR.
 func runClaudeWrapper(socketPath string, args []string, refreshAddr func() string) int {
 	cmuxBin := claudeWrapperCmuxBinary()
@@ -304,7 +304,7 @@ func claudeSettingsCacheDir() string {
 }
 
 // claudeArgsWithRelayHooks folds every `--settings` argument into one settings
-// file that also carries the cmux relay hooks. A launcher such as `sr` passes
+// file that also carries the cmux relay hooks. A launcher can pass
 // its own `--settings`; merging keeps both instead of relying on Claude's
 // handling of repeated flags.
 func claudeArgsWithRelayHooks(args []string, cmuxBin string, cacheDir string) ([]string, error) {
@@ -416,7 +416,7 @@ func shellQuoteClaudeHookPath(path string) string {
 	return "'" + strings.ReplaceAll(path, "'", `'\''`) + "'"
 }
 
-// Merged settings can carry a launcher's credentials (sr's `env`), so copies
+// Merged settings can carry a launcher's credentials (an `env` block), so copies
 // that no launch has reused for this long are removed.
 const claudeSettingsRetention = 7 * 24 * time.Hour
 
