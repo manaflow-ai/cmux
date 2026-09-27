@@ -24,6 +24,76 @@ struct SidebarCompactAgentStatusTests {
 
     private static let openPR = Glyph.Input.PullRequest(label: "PR", number: 12, status: .open)
 
+    // MARK: Group headers
+
+    private static func member(_ title: String, _ kind: Glyph.Kind, _ tooltip: String = "detail") -> Glyph.GroupMember {
+        Glyph.GroupMember(title: title, glyph: Glyph(kind: kind, tooltip: tooltip))
+    }
+
+    @Test
+    func groupRollUpShowsTheLoudestMemberAndNamesEveryOneAskingForAttention() {
+        let glyph = Glyph.rollUp([
+            Self.member("api", .running, "Claude Code: Running"),
+            Self.member("docs", .pullRequest(.open(.passing))),
+            Self.member("web", .needsInput, "Codex: Needs input\nfeat/web"),
+            Self.member("cli", .unseen, "Finished"),
+        ])
+
+        #expect(glyph?.kind == .needsInput)
+        // Loudest first, one line each; settled members stay out.
+        #expect(glyph?.tooltip == "web: Codex: Needs input\napi: Claude Code: Running\ncli: Finished")
+    }
+
+    @Test
+    func groupRollUpIsNilWhenEveryMemberIsSettled() {
+        #expect(Glyph.rollUp([
+            Self.member("a", .pullRequest(.merged)),
+            Self.member("b", .idle),
+            Self.member("c", .branch),
+            Self.member("d", .terminal),
+            Self.member("e", .pending),
+        ]) == nil)
+    }
+
+    @Test
+    func groupRollUpRanksBrokenChecksAboveRunningAgents() {
+        #expect(Glyph.rollUp([
+            Self.member("a", .running),
+            Self.member("b", .pullRequest(.open(.conflict))),
+        ])?.kind == .pullRequest(.open(.conflict)))
+        #expect(Glyph.rollUp([
+            Self.member("a", .pullRequest(.open(.conflict))),
+            Self.member("b", .pullRequest(.open(.failing))),
+            Self.member("c", .error),
+        ])?.kind == .error)
+    }
+
+    @Test
+    func expandedGroupHeaderSpeaksForItsAnchorAndCollapsedForEveryMember() {
+        let anchor = UUID(), member = UUID()
+        let members = [
+            anchor: Self.member("anchor", .idle),
+            member: Self.member("member", .needsInput),
+        ]
+        func header(collapsed: Bool, unreadAnchor: Int = 0) -> Glyph? {
+            Glyph.groupHeader(
+                isCollapsed: collapsed,
+                anchorId: anchor,
+                memberIds: [anchor, member],
+                members: members,
+                unread: { ($0 == anchor ? unreadAnchor : 0, $0 == anchor ? "Done" : nil) }
+            )
+        }
+
+        // Expanded: the member has its own row; the idle anchor says nothing.
+        #expect(header(collapsed: false) == nil)
+        // Unread on the anchor turns it blue, with the notification leading.
+        #expect(header(collapsed: false, unreadAnchor: 2)?.kind == .unseen)
+        #expect(header(collapsed: false, unreadAnchor: 2)?.tooltip == "anchor: Done")
+        // Collapsed: the hidden member's needs-input surfaces.
+        #expect(header(collapsed: true)?.kind == .needsInput)
+    }
+
     // MARK: Partition
 
     @Test

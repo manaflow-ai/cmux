@@ -28,6 +28,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.hasLatestNotifications == rhs.hasLatestNotifications &&
             lhs.canMarkAllRead == rhs.canMarkAllRead &&
             lhs.canMarkAllUnread == rhs.canMarkAllUnread &&
+            lhs.statusGlyph == rhs.statusGlyph &&
             lhs.shortcutDigit == rhs.shortcutDigit &&
             lhs.shortcutModifierSymbol == rhs.shortcutModifierSymbol &&
             lhs.showsShortcutHint == rhs.showsShortcutHint &&
@@ -61,6 +62,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let hasLatestNotifications: Bool
     let canMarkAllRead: Bool
     let canMarkAllUnread: Bool
+    let statusGlyph: SidebarCompactStatusGlyph?
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
@@ -170,7 +172,14 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                if anchorUnreadCount > 0 {
+                // Compact status mode: unread folds into the glyph (blue).
+                if let statusGlyph {
+                    SidebarCompactStatusGlyphView(
+                        glyph: statusGlyph,
+                        pointSize: metrics.iconFontSize,
+                        color: statusGlyph.color(isActive: false, selected: .labelColor, secondary: .secondaryLabelColor)
+                    )
+                } else if anchorUnreadCount > 0 {
                     Text("\(anchorUnreadCount)")
                         .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)
                         .foregroundStyle(.white)

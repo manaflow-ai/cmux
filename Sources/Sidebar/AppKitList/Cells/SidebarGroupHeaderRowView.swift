@@ -21,6 +21,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     // intrinsic insets shift single digits off the circle's optical center.
     private let unreadBadgeView = SidebarRowUnreadBadgeView()
     private var unreadBadgeFont: NSFont = .systemFont(ofSize: 10, weight: .semibold)
+    /// Compact status mode: replaces the unread badge; see `model.statusGlyph`.
+    private let statusGlyphView = SidebarCompactStatusGlyphImageView()
     private let plusButton = SidebarHeaderGlyphButton()
     private let topDropIndicator = SidebarReorderIndicatorView()
     private let bottomDropIndicator = SidebarReorderIndicatorView()
@@ -73,6 +75,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         addSubview(nameField)
 
         addSubview(unreadBadgeView)
+        addSubview(statusGlyphView)
 
         plusButton.onClick = { [weak self] in self?.actions?.onTapPlus() }
         plusButton.menuProvider = { [weak self] in self?.makePlusMenu() }
@@ -102,6 +105,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         contextMenuDidOpen = nil
         contextMenuDidClose = nil
         contextMenuVisible = false
+        statusGlyphView.isPresentationActive = false
     }
 
     func configurePresentation(model: SidebarGroupHeaderRowModel) {
@@ -122,6 +126,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         contextMenuDidClose: @escaping () -> Void
     ) {
         let requiresFullApply = self.actions == nil
+        statusGlyphView.isPresentationActive = true
         let previous = self.model
         self.actions = actions
         self.contextMenuDidOpen = contextMenuDidOpen
@@ -185,7 +190,21 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             ? colorResolver.resolvedColor(.labelColor, for: colorScheme)
             : colorResolver.resolvedColor(.labelColor, for: colorScheme, opacity: 0.9)
 
-        let showsBadge = model.anchorUnreadCount > 0
+        // In compact status mode unread folds into the glyph (blue), so the
+        // count badge only shows without one.
+        statusGlyphView.isHidden = model.statusGlyph == nil
+        if let glyph = model.statusGlyph {
+            statusGlyphView.configure(
+                glyph,
+                pointSize: GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: percent),
+                color: glyph.color(
+                    isActive: false,
+                    selected: .labelColor,
+                    secondary: colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
+                )
+            )
+        }
+        let showsBadge = model.statusGlyph == nil && model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
         if showsBadge {
             unreadBadgeFont = .systemFont(
@@ -415,6 +434,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             )
         }
 
+        if !statusGlyphView.isHidden {
+            let side = GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: model.globalFontMagnificationPercent)
+            badgeSize = NSSize(width: side, height: side)
+        }
+
         let nameAvailable = max(0, (plusButton.frame.minX - 4) - x
             - (badgeSize.width > 0 ? badgeSize.width + 6 : 0))
         let nameSize = nameField.attributedStringValue.size()
@@ -435,6 +459,14 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 height: badgeSize.height
             )
             unreadBadgeView.needsDisplay = true
+        }
+        if !statusGlyphView.isHidden {
+            statusGlyphView.frame = NSRect(
+                x: x + min(ceil(nameSize.width), nameAvailable) + 6,
+                y: midY - badgeSize.height / 2,
+                width: badgeSize.width,
+                height: badgeSize.height
+            )
         }
 
         let topOffset: CGFloat = model.isFirstRow ? 0 : -(model.rowSpacing / 2)

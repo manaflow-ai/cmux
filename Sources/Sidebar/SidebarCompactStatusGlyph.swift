@@ -29,8 +29,8 @@ import SwiftUI
 ///    row's edge (a `terminal` entry in `sidebar.compactStatusIcons` adds one).
 /// Only the three agent states Claude marks with dots (needs input, unseen,
 /// running) are dots; everything settled gets a symbol that says what it is.
-struct SidebarCompactStatusGlyph: Equatable {
-    enum Kind: Equatable {
+struct SidebarCompactStatusGlyph: Equatable, Hashable {
+    enum Kind: Equatable, Hashable {
         case error
         case needsInput
         case running
@@ -42,14 +42,14 @@ struct SidebarCompactStatusGlyph: Equatable {
         case terminal
     }
 
-    enum PullRequestState: Equatable {
+    enum PullRequestState: Equatable, Hashable {
         case open(Checks?)
         case merged
         case closed
     }
 
     /// CI and mergeability of an open pull request, when known.
-    enum Checks: Equatable {
+    enum Checks: Equatable, Hashable {
         case passing
         case failing
         case conflict
@@ -186,6 +186,69 @@ struct SidebarCompactStatusGlyph: Equatable {
         case .error, .needsInput, .running, .pending, .unseen:
             return SidebarCompactStatusGlyph(kind: kind, tooltip: unreadTooltip, iconOverrides: iconOverrides)
         }
+    }
+
+    /// A workspace a group header stands in for: its title and glyph.
+    struct GroupMember: Equatable, Hashable {
+        let title: String
+        let glyph: SidebarCompactStatusGlyph
+    }
+
+    /// How loud a state is on a group header, or nil when it does
+    /// not surface there. Only states that ask for attention roll up; a
+    /// settled pull request, idle agent, branch or terminal stays inside.
+    private var groupRank: Int? {
+        switch kind {
+        case .error: return 0
+        case .needsInput: return 1
+        case .pullRequest(.open(.failing)): return 2
+        case .pullRequest(.open(.conflict)): return 3
+        case .running: return 4
+        case .unseen: return 5
+        case .pending, .pullRequest, .idle, .branch, .terminal: return nil
+        }
+    }
+
+    /// The loudest of the members' glyphs, for a group header. The tooltip
+    /// names every member asking for attention, loudest first. Nil when no
+    /// member needs attention.
+    static func rollUp(_ members: [GroupMember]) -> SidebarCompactStatusGlyph? {
+        let ranked = members.compactMap { member in
+            member.glyph.groupRank.map { (rank: $0, member: member) }
+        }
+        // Stable: members keep sidebar order within one rank.
+        let sorted = ranked.enumerated()
+            .sorted { ($0.element.rank, $0.offset) < ($1.element.rank, $1.offset) }
+            .map(\.element.member)
+        guard let loudest = sorted.first else { return nil }
+        let tooltip = sorted.map { member in
+            let detail = member.glyph.tooltip.split(separator: "\n").first.map(String.init)
+            return detail.map { line(member.title, $0) } ?? member.title
+        }.joined(separator: "\n")
+        return SidebarCompactStatusGlyph(kind: loudest.glyph.kind, tooltip: tooltip, iconOverrides: loudest.glyph.iconOverrides)
+    }
+
+    /// The glyph for a group header, which stands in for the workspaces
+    /// without rows of their own: the anchor while the group is expanded, and
+    /// every member once it is collapsed. `members` holds each workspace's
+    /// glyph before unread, keyed by workspace id; `unread` gives its count
+    /// and latest notification text.
+    static func groupHeader(
+        isCollapsed: Bool,
+        anchorId: UUID?,
+        memberIds: [UUID],
+        members: [UUID: GroupMember],
+        unread: (UUID) -> (count: Int, latestText: String?)
+    ) -> SidebarCompactStatusGlyph? {
+        let ids = isCollapsed ? memberIds : (anchorId.map { [$0] } ?? [])
+        return rollUp(ids.compactMap { id in
+            guard let member = members[id] else { return nil }
+            let unread = unread(id)
+            return GroupMember(
+                title: member.title,
+                glyph: member.glyph.applyingUnread(unread.count, latestNotificationText: unread.latestText)
+            )
+        })
     }
 
     /// The pure inputs, captured by the snapshot factory.
@@ -514,5 +577,15 @@ struct SidebarCompactStatusGlyphView: NSViewRepresentable {
         context: Context
     ) -> CGSize? {
         CGSize(width: pointSize, height: pointSize)
+    }
+}
+
+extension SidebarCompactStatusGlyph {
+    /// Each workspace's glyph before unread, for the group headers.
+    @MainActor
+    static func groupMembers(_ rows: [UUID: SidebarWorkspaceRowInput]) -> [UUID: GroupMember] {
+        rows.compactMapValues { row in
+            row.workspace.compactStatusGlyph.map { GroupMember(title: row.workspace.title, glyph: $0) }
+        }
     }
 }

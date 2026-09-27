@@ -25,6 +25,7 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let hasLatestNotifications: Bool
     let canMarkAllRead: Bool
     let canMarkAllUnread: Bool
+    let statusGlyph: SidebarCompactStatusGlyph?
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool

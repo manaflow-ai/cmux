@@ -12366,6 +12366,7 @@ struct VerticalTabsSidebar: View, Equatable {
             ) else { return nil }
             return (workspace.id, input)
         })
+        let memberStatusGlyphs = SidebarCompactStatusGlyph.groupMembers(workspaceRowInputsById)
         let groupRowSnapshotsById = Dictionary(uniqueKeysWithValues: renderContext.workspaceGroups.map { group in
             (
                 group.id,
@@ -12373,6 +12374,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     group: group,
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
                     renderContext: renderContext,
+                    memberStatusGlyphs: memberStatusGlyphs,
                     unreadSnapshot: unreadSnapshot,
                     notificationIndex: notificationIndex,
                     shouldCollectWorkspaceDropTargets: false
@@ -12395,6 +12397,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 return sidebarWorkspaceGroupTableConfiguration(
                     group: group,
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[groupId] ?? [],
+                    memberStatusGlyphs: memberStatusGlyphs,
                     renderContext: renderContext
                 )
             case .workspace(let workspaceId):
@@ -14096,6 +14099,7 @@ struct VerticalTabsSidebar: View, Equatable {
             return (workspace.id, input)
         })
         let _ = anchorCwdRevision
+        let memberStatusGlyphs = SidebarCompactStatusGlyph.groupMembers(workspaceRowInputsById)
         let groupRowSnapshotsById = Dictionary(uniqueKeysWithValues: renderContext.workspaceGroups.map { group in
             (
                 group.id,
@@ -14103,6 +14107,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     group: group,
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
                     renderContext: renderContext,
+                    memberStatusGlyphs: memberStatusGlyphs,
                     unreadSnapshot: unreadSnapshot,
                     notificationIndex: notificationIndex,
                     shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
