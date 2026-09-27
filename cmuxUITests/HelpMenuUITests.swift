@@ -37,6 +37,7 @@ private let helpMenuMainWindowLaunchArguments = [
     "-menuBarOnly", "false",
 ]
 
+// Probe for the ui-tests job (manaflow-ai/cmux#14964); not for merge.
 final class HelpMenuUITests: XCTestCase {
     override func setUp() {
         super.setUp()
