@@ -32,6 +32,7 @@ All notable changes to cmux are documented here.
 ## [0.64.24] - 2026-09-15
 
 ### Added
+- `cmux.copyWorkingDirectory`, `cmux.copyProjectRoot`, and `cmux.copyScreen` built-in actions copy a terminal's working directory, its git project root, or its visible screen from a tab bar button, shortcut, or the Command Palette ([#14858](https://github.com/manaflow-ai/cmux/pull/14858))
 - IROH v2 Cloud connectivity now uses the Cloudflare control plane with durable pairing, relay renewal, direct-only routes, and recovery that stays alive through stalls and traffic bursts ([#12326](https://github.com/manaflow-ai/cmux/pull/12326), [#12411](https://github.com/manaflow-ai/cmux/pull/12411)) -- thanks @azooz2003-bit!
 - Cloud file transfers use private SCP, and iOS Computer details can delete non-IROH routes without losing the computer ([`5f0ce77`](https://github.com/manaflow-ai/cmux/commit/5f0ce77cab82ad60496175b222ec50a0b749085f), [#12691](https://github.com/manaflow-ai/cmux/pull/12691)) -- thanks @azooz2003-bit!
 
