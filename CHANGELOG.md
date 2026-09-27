@@ -4,7 +4,17 @@ All notable changes to cmux are documented here.
 
 ## Unreleased
 
+### Added
+- Settings > Terminal > Reflow Hard-Wrapped Text on Copy (`terminal.reflowHardWrapOnCopy`, off by default) rejoins lines a program wrapped at exactly the terminal width when you copy ([#6923](https://github.com/manaflow-ai/cmux/pull/6923)) -- thanks @mvanhorn!
+- Pi is offered in the Machines Open Cloud Agent menu, `vm.cloud_agent_open`, and `cmux vm prompt --open pi` ([#14819](https://github.com/manaflow-ai/cmux/pull/14819)) -- thanks @aliyansajid!
+- `cmux resize-window --window <handle> --width <w> --height <h>` resizes a window from the CLI or socket, keeping its top-left corner in place ([#9826](https://github.com/manaflow-ai/cmux/pull/9826)) -- thanks @ejc3!
+
+### Changed
+- The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
+
 ### Fixed
+- Context-menu submenus built with `Menu` in custom sidebars appear instead of being dropped ([#14808](https://github.com/manaflow-ai/cmux/pull/14808)) -- thanks @aliyansajid!
+- Closing the last workspace no longer unfolds a collapsed sidebar group above it ([#10169](https://github.com/manaflow-ai/cmux/pull/10169)) -- thanks @AvoChang!
 - The focused pane border follows a zoomed terminal or browser pane instead of remaining at its pre-zoom split size, including when window chrome changes the overlay reference coordinates ([#14646](https://github.com/manaflow-ai/cmux/pull/14646)).
 
 ## [0.64.25] - 2026-09-17

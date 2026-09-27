@@ -149,7 +149,13 @@ class Workflow(unittest.TestCase):
                        "needs.macos-compile-admission.result == 'success'"):
             self.assertIn(clause, spec["if"])
         self.assertTrue(all(step.get("continue-on-error") for step in spec["steps"]))
-        self.assertEqual(spec["outputs"]["runners"], "${{ steps.place.outputs.runners || '{}' }}")
+        # Jobs move only once both markers the rescue watch reads uploaded.
+        self.assertEqual(spec["outputs"]["runners"],
+                         "${{ steps.late-marker.outcome == 'success' && steps.late-watch-marker.outcome == 'success'"
+                         " && steps.place.outputs.runners || '{}' }}")
+        steps = {step.get("id"): step for step in spec["steps"]}
+        for marker in ("late-marker", "late-watch-marker"):
+            self.assertEqual(steps[marker]["with"]["if-no-files-found"], "error", marker)
 
     def test_moved_jobs_leave_the_marker_the_rescue_watch_looks_for(self):
         steps = {step["name"]: step for step in self.jobs["late-placement"]["steps"]}

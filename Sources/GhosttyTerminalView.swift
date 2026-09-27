@@ -4246,11 +4246,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// rather than in the engine: Ctrl+A arrives carrying text "a", which is a
     /// chord, not a character.
     ///
-    /// `isPlainBackspace` comes from the caller, which has to classify the key
-    /// before ghostty consumes it; see `isPlainBackspace(_:surface:)`.
+    /// `isPlainBackspace` and `isBound` come from the caller, which has to
+    /// classify the key before ghostty consumes it. A key a binding consumed
+    /// put nothing on the PTY, so it withdraws instead of predicting.
     private func recordPredictedEchoInput(
         _ keyEvent: ghostty_input_key_s,
-        isPlainBackspace: Bool
+        isPlainBackspace: Bool,
+        isBound: Bool
     ) {
         guard TerminalPredictionCenter.shared.isPredictionEnabled,
               let surfaceID = terminalSurface?.id else { return }
@@ -4259,7 +4261,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         TerminalPredictionCenter.shared.typed(
-            printableASCII: Self.predictedEchoByte(for: keyEvent),
+            printableASCII: isBound ? nil : Self.predictedEchoByte(for: keyEvent),
             surfaceID: surfaceID
         )
     }
@@ -4270,22 +4272,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// so the key event carries no text and ghostty's encoder picks the byte.
     /// Either byte means erase-one-back to a line editor. Any modifier makes
     /// it a different key (Option+Backspace deletes a word); a composing
-    /// Backspace edits the IME's marked text instead; and a keybinding may
-    /// send something else entirely, so each of those withdraws instead.
-    /// Call it before `ghostty_surface_key`, while the binding answer still
-    /// reflects the sequence state this key is about to be matched against.
-    private static func isPlainBackspace(
-        _ keyEvent: ghostty_input_key_s,
-        surface: ghostty_surface_t
-    ) -> Bool {
+    /// Backspace edits the IME's marked text instead, so each of those
+    /// withdraws instead. The caller excludes keys a binding consumes.
+    private static func isPlainBackspace(_ keyEvent: ghostty_input_key_s) -> Bool {
         guard keyEvent.keycode == UInt32(kVK_Delete), !keyEvent.composing else { return false }
         let anyMods = GHOSTTY_MODS_SHIFT.rawValue
             | GHOSTTY_MODS_CTRL.rawValue
             | GHOSTTY_MODS_ALT.rawValue
             | GHOSTTY_MODS_SUPER.rawValue
-        guard keyEvent.mods.rawValue & anyMods == 0 else { return false }
-        var bindingFlags = ghostty_binding_flags_e(0)
-        return !ghostty_surface_key_is_binding(surface, keyEvent, &bindingFlags)
+        return keyEvent.mods.rawValue & anyMods == 0
     }
 
     /// The single printable byte a key sends, or `nil` when its effect on the
@@ -7489,17 +7484,26 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
         }
         // Asked before ghostty_surface_key, which advances a pending key
-        // sequence or one-shot key table: afterwards a Backspace that key
-        // binding consumed no longer reports as bound.
-        let isPlainBackspace = keyEvent.action != GHOSTTY_ACTION_RELEASE
+        // sequence or one-shot key table: afterwards a key that binding
+        // consumed (the `c` of `ctrl+a>c`, say) no longer reports as bound.
+        let predictsInput = keyEvent.action != GHOSTTY_ACTION_RELEASE
             && TerminalPredictionCenter.shared.isPredictionEnabled
-            && Self.isPlainBackspace(keyEvent, surface: surface)
+        var predictionBindingFlags = ghostty_binding_flags_e(0)
+        let isBoundForPrediction = predictsInput
+            && ghostty_surface_key_is_binding(surface, keyEvent, &predictionBindingFlags)
+        let isPlainBackspace = predictsInput
+            && !isBoundForPrediction
+            && Self.isPlainBackspace(keyEvent)
         let handled = withPotentialClipboardPasteIntent {
             ghostty_surface_key(surface, keyEvent)
         }
         if handled, keyEvent.action != GHOSTTY_ACTION_RELEASE {
             terminalSurface?.didAcceptExplicitInput()
-            recordPredictedEchoInput(keyEvent, isPlainBackspace: isPlainBackspace)
+            recordPredictedEchoInput(
+                keyEvent,
+                isPlainBackspace: isPlainBackspace,
+                isBound: isBoundForPrediction
+            )
         }
         return handled
     }
