@@ -154,6 +154,7 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
     "scripts/ci/compile-app-host-test-product.sh",
     "scripts/ci/product_input_identity.py",
     "scripts/ci/peer_product_source.py",
+    "scripts/ci/relocate_package_framework_rpaths.py",
     "scripts/ci/restore-app-host-test-product.sh",
     "scripts/ci/reuse_app_host_products.py",
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
@@ -871,6 +872,7 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     # What restore-app-host-test-product.sh itself runs.
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/canonical-build-root.sh",
+    "scripts/ci/relocate_package_framework_rpaths.py",
     # Seeds the checkout of compile admission and cli-product-tests.
     "scripts/ci/git-seed.sh",
 })
