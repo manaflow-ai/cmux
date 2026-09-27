@@ -107,7 +107,7 @@ struct RemoteRelayAgentHookPolicyTests {
         parameters[ownerKey] = owner.uuidString
         parameters["_cmux_remote_connection_id"] = UUID().uuidString
 
-        let admitted = try #require(RemoteRelayAgentHookAdmission.queueParameters(from: parameters))
+        let admitted = try #require(RemoteRelayAgentHookAdmission().queueParameters(from: parameters))
         #expect(admitted["environment"] as? [String: String] == [
             "CMUX_WORKSPACE_ID": owner.uuidString,
             "CMUX_SURFACE_ID": ownedSurface.uuidString,
@@ -122,13 +122,13 @@ struct RemoteRelayAgentHookPolicyTests {
 
     @Test("admission rejects requests without UUID selectors")
     func admissionRequiresSelectors() {
-        #expect(RemoteRelayAgentHookAdmission.queueParameters(
+        #expect(RemoteRelayAgentHookAdmission().queueParameters(
             from: hookParameters(overrides: ["surface_id": "surface:1"])
         ) == nil)
         var missingWorkspace = hookParameters()
         missingWorkspace.removeValue(forKey: "workspace_id")
-        #expect(RemoteRelayAgentHookAdmission.queueParameters(from: missingWorkspace) == nil)
-        #expect(RemoteRelayAgentHookAdmission.portablePayload("not json") == "{}")
+        #expect(RemoteRelayAgentHookAdmission().queueParameters(from: missingWorkspace) == nil)
+        #expect(RemoteRelayAgentHookAdmission().portablePayload("not json") == "{}")
     }
 
     @Test("the direct barrier stays unavailable through the relay")

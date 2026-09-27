@@ -8,7 +8,7 @@ public import Foundation
 /// host paths are dropped from the payload because the remote host is
 /// untrusted: the Mac replays the event locally and must never open a
 /// same-named path on its own disk.
-public enum RemoteRelayAgentHookAdmission {
+public struct RemoteRelayAgentHookAdmission: Sendable {
     /// Payload keys that name paths on the remote host.
     static let filesystemPayloadKeys: Set<String> = [
         "cwd", "working_directory", "workingDirectory",
@@ -17,12 +17,15 @@ public enum RemoteRelayAgentHookAdmission {
         "transcript_path", "transcriptPath", "agent_transcript_path",
     ]
 
+    /// Creates the stateless admission transform.
+    public init() {}
+
     /// Rebuilds a relay-admitted hook request for the local delivery queue.
     ///
     /// - Parameter parameters: Decoded request parameters carrying relay provenance.
     /// - Returns: Queue parameters with a selector-derived environment, or `nil`
     ///   when the selectors or required fields are missing.
-    public static func queueParameters(from parameters: [String: Any]) -> [String: Any]? {
+    public func queueParameters(from parameters: [String: Any]) -> [String: Any]? {
         guard let workspaceID = parameters["workspace_id"] as? String,
               UUID(uuidString: workspaceID) != nil,
               let surfaceID = parameters["surface_id"] as? String,
@@ -55,7 +58,7 @@ public enum RemoteRelayAgentHookAdmission {
     /// - Parameter payload: The hook payload as sent by the remote host.
     /// - Returns: Sorted-key JSON without path keys, or `{}` when the payload
     ///   is not a JSON object.
-    public static func portablePayload(_ payload: String) -> String {
+    public func portablePayload(_ payload: String) -> String {
         guard let data = payload.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let portable = removingFilesystemKeys(object) as? [String: Any],
@@ -70,10 +73,10 @@ public enum RemoteRelayAgentHookAdmission {
         return text
     }
 
-    private static func removingFilesystemKeys(_ value: Any) -> Any {
+    private func removingFilesystemKeys(_ value: Any) -> Any {
         if let object = value as? [String: Any] {
             var portable: [String: Any] = [:]
-            for (key, child) in object where !filesystemPayloadKeys.contains(key) {
+            for (key, child) in object where !Self.filesystemPayloadKeys.contains(key) {
                 portable[key] = removingFilesystemKeys(child)
             }
             return portable

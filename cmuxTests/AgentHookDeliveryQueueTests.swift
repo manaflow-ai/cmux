@@ -15,7 +15,7 @@ struct AgentHookDeliveryQueueTests {
     func relayAdmittedParametersBuildRelayEvent() throws {
         let workspaceID = UUID().uuidString
         let surfaceID = UUID().uuidString
-        let admitted = try #require(RemoteRelayAgentHookAdmission.queueParameters(from: [
+        let admitted = try #require(RemoteRelayAgentHookAdmission().queueParameters(from: [
             "agent": "claude",
             "subcommand": "stop",
             "payload": #"{"session_id":"sess-1","transcript_path":"/Users/leo/.ssh/id_ed25519"}"#,

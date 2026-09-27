@@ -1607,7 +1607,7 @@ class TerminalController {
             // the owner workspace and surface selectors.
             let enqueueParams: [String: Any]?
             if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] != nil {
-                enqueueParams = RemoteRelayAgentHookAdmission.queueParameters(from: request.params)
+                enqueueParams = RemoteRelayAgentHookAdmission().queueParameters(from: request.params)
             } else {
                 enqueueParams = request.params
             }
