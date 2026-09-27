@@ -1609,14 +1609,14 @@ jobs:
           # A job token cannot list repository variables (HTTP 403), so the
           # dispatcher reads its routing inputs from these instead.
           CMUX_MACOS_RUNNER_TESTS: ${{ vars.MACOS_RUNNER_TESTS }}
-          CMUX_CI_E2E_LARGE_POOL_OVERFLOW: ${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}
-          CMUX_CI_PR_POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
-          CMUX_CI_PR_POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
-          CMUX_CI_PR_POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
-          CMUX_CI_PR_POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
-          CMUX_CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
-          CMUX_CMUX_CI_XCODE_APP_PR: ${{ vars.CMUX_CI_XCODE_APP_PR }}
-          CMUX_CI_E2E_OWNED_UI: ${{ vars.CI_E2E_OWNED_UI }}
+          CMUX_CI_E2E_LARGE_POOL_OVERFLOW: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_E2E_LARGE_POOL_OVERFLOW || '' }}
+          CMUX_CI_PR_POOL_ORDER: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_ORDER || '' }}
+          CMUX_CI_PR_POOL_MAX_QUEUED: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_MAX_QUEUED || '' }}
+          CMUX_CI_PR_POOL_QUEUE_ROUNDS: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_QUEUE_ROUNDS || '' }}
+          CMUX_CI_PR_POOL_OWNED: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_OWNED || '' }}
+          CMUX_CI_OWNED_POOL_SLOTS: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_OWNED_POOL_SLOTS || '' }}
+          CMUX_CMUX_CI_XCODE_APP_PR: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
+          CMUX_CI_E2E_OWNED_UI: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_E2E_OWNED_UI || '' }}
         run: |
           set -euo pipefail
           # shellcheck disable=SC2086
