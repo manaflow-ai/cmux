@@ -10,6 +10,7 @@ import SwiftUI
 /// Resolved column is computed locally as the first non-empty value in the
 /// stack (target → project → empty). The cell whose value won is marked.
 struct ProjectBuildSettingsTabView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @ObservedObject var panel: ProjectPanel
     let model: ProjectModel
 
@@ -106,7 +107,7 @@ struct ProjectBuildSettingsTabView: View {
                     .overlay(alignment: .leading) {
                         if row.winner == .target {
                             Rectangle()
-                                .fill(Color.accentColor)
+                                .fill(cmuxAccent.color)
                                 .frame(width: 3)
                         }
                     }
@@ -191,6 +192,7 @@ private struct BuildSettingRow {
 }
 
 private struct SettingsRow: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let row: BuildSettingRow
     let settingColumnWidth: CGFloat
     let valueColumnWidth: CGFloat
@@ -220,7 +222,7 @@ private struct SettingsRow: View {
     private func valueCell(_ value: String, emphasis: CellEmphasis) -> some View {
         let style: Color = {
             switch emphasis {
-            case .accent: return Color.accentColor
+            case .accent: return cmuxAccent.color
             case .normal: return Color.primary
             case .dim: return Color.secondary
             }

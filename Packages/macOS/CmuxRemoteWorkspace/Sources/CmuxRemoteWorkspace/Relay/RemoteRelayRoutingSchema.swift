@@ -3,6 +3,8 @@ import Foundation
 /// Closed parameter contracts for the methods intentionally exposed to a relay.
 /// Adding a handler parameter does not expose it remotely until it is reviewed here.
 struct RemoteRelayRoutingSchema {
+    /// Returns the reviewed parameter names for a relay method, or `nil` when
+    /// the method is not exposed through the relay.
     func parameters(for method: String) -> Set<String>? {
         let workspace: Set<String> = ["workspace_id"]
         let surface = workspace.union(["surface_id"])
@@ -37,13 +39,52 @@ struct RemoteRelayRoutingSchema {
         case "surface.resume.clear":
             return terminal.union(["checkpoint_id", "checkpointId", "source", "expected_updated_at", "agent_session_ended"])
         case "agent.resolve_delivery_target": return workspace.union(["tty_name", "tty_resolution"])
+        case "agent.hook.enqueue":
+            return surface.union(["agent", "subcommand", "payload", "relay_backed", "caller_tty"])
         case "notification.create_for_target":
             return surface.union(["title", "subtitle", "body", "reply_shape"])
         default: return nil
         }
     }
 
+    /// Claude lifecycle events a relay host may admit. Decision hooks
+    /// (permission feed, CronCreate guard) and auxiliary workers stay local-only,
+    /// so a remote host can report state but never answer for the agent.
+    static let relayAgentHookSubcommands: Set<String> = [
+        "session-start", "prompt-submit", "stop", "notification", "session-end", "pre-tool-use",
+    ]
+    static let maximumRelayAgentHookPayloadBytes = 8 * 1_024
+    static let maximumRelayAgentHookCallerTTYBytes = 256
+
+    /// Returns the first `agent.hook.enqueue` parameter outside the relay
+    /// contract. Routing is carried only by the scoped `workspace_id` and
+    /// `surface_id` selectors; the app rebuilds the hook environment from them.
+    func agentHookContractViolation(in parameters: [String: Any]) -> String? {
+        guard parameters["agent"] as? String == "claude" else { return "agent" }
+        guard let subcommand = parameters["subcommand"] as? String,
+              Self.relayAgentHookSubcommands.contains(subcommand) else { return "subcommand" }
+        guard let payload = parameters["payload"] as? String,
+              payload.utf8.count <= Self.maximumRelayAgentHookPayloadBytes,
+              !payload.contains("\0") else { return "payload" }
+        guard parameters["relay_backed"] as? Bool == true else { return "relay_backed" }
+        if let rawTTY = parameters["caller_tty"], !(rawTTY is NSNull) {
+            guard let callerTTY = rawTTY as? String,
+                  callerTTY.utf8.count <= Self.maximumRelayAgentHookCallerTTYBytes,
+                  !callerTTY.contains("\0") else { return "caller_tty" }
+        }
+        return nil
+    }
+
+    /// Returns the first parameter outside the method's reviewed contract, or
+    /// `nil` when every key and value shape is allowed. Both relay gates report
+    /// it with their existing "parameter not permitted" denial.
     func unsupportedKey(in parameters: [String: Any], method: String) -> String? {
+        // Hook routing comes only from the owner-checked selectors, so a remote
+        // host can report lifecycle state for its own surfaces and cannot pick
+        // a decision hook or carry local replay environment.
+        if method == "agent.hook.enqueue", let key = agentHookContractViolation(in: parameters) {
+            return key
+        }
         // `_cmux_remote_relay_authentication_code` is a retired resume MAC that
         // old remote clients may still send; ingress strips it, so allow it here.
         let provenance: Set<String> = [
