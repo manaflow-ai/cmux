@@ -1036,6 +1036,18 @@ class TabManager: ObservableObject {
         return result.accepted
     }
 
+    /// Pastes the newest screenshot's path into the focused terminal through the
+    /// file transfer path (see ``TerminalPanel/pasteLastScreenshot()``).
+    ///
+    /// - Returns: `false` when no terminal panel is focused. A missing
+    ///   screenshot is reported later by a beep, after the folder is read.
+    @discardableResult
+    func pasteLastScreenshotIntoFocusedTerminal() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        panel.pasteLastScreenshot()
+        return true
+    }
+
     @discardableResult
     func toggleFocusedTerminalTextBox() -> Bool {
         guard let panel = selectedTerminalPanel else { return false }
@@ -6972,6 +6984,7 @@ extension Notification.Name {
     static let commandPaletteDismissRequested = Notification.Name("cmux.commandPaletteDismissRequested")
     static let commandPaletteRenameTabRequested = Notification.Name("cmux.commandPaletteRenameTabRequested")
     static let commandPaletteRenameWorkspaceRequested = Notification.Name("cmux.commandPaletteRenameWorkspaceRequested")
+    static let commandPaletteRenameRequested = Notification.Name("cmux.commandPaletteRenameRequested")
     static let commandPaletteEditWorkspaceDescriptionRequested = Notification.Name("cmux.commandPaletteEditWorkspaceDescriptionRequested")
     static let commandPaletteMoveSelection = Notification.Name("cmux.commandPaletteMoveSelection")
     static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
