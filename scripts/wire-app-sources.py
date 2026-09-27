@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wire Sources/**/*.swift files into the cmux app target.
+"""Wire Swift files into their Xcode target: Sources/** into cmux by default.
 
 `scripts/sync-test-wiring` reconciles cmuxTests only; app sources were added
 by hand, and a merge that takes main's project.pbxproj silently drops a
@@ -10,6 +10,10 @@ normalizes the project.
     scripts/wire-app-sources.py                 # wire every unwired file
     scripts/wire-app-sources.py Sources/X.swift # wire these
     scripts/wire-app-sources.py --check         # exit 1 if any is unwired
+    scripts/wire-app-sources.py --target cmuxUITests --dir cmuxUITests
+
+`--target`/`--dir` wire another target's directory the same way (UI tests:
+`cmuxUITests`); cmuxTests has its own `scripts/sync-test-wiring`.
 
 After a merge that took main's project.pbxproj, run it with no arguments.
 
@@ -95,7 +99,7 @@ class Project:
         }
 
 
-def parse(text: str) -> Project:
+def parse(text: str, directory: str = "Sources", target: str = "cmux") -> Project:
     refs = {m.group("id"): m.group("body") for m in FILE_REF.finditer(text)}
     raw_groups = {}
     for match in GROUP.finditer(text):
@@ -106,11 +110,11 @@ def parse(text: str) -> Project:
             match.span("children"),
         )
     root_id = next(
-        (gid for gid, (_, path, tree, _) in raw_groups.items() if path == "Sources" and tree == '<group>'),
+        (gid for gid, (_, path, tree, _) in raw_groups.items() if path == directory and tree == '<group>'),
         None,
     )
     if root_id is None:
-        raise SystemExit("wire-app-sources: the Sources group was not found")
+        raise SystemExit(f"wire-app-sources: the {directory} group was not found")
 
     groups: dict[str, Group] = {}
     ref_paths: dict[str, str] = {}
@@ -128,29 +132,29 @@ def parse(text: str) -> Project:
                 if path:
                     ref_paths[child] = posixpath.normpath(posixpath.join(directory, path))
 
-    walk(root_id, "Sources", 0)
+    walk(root_id, directory, 0)
     # Some refs are repo-relative (`sourceTree = SOURCE_ROOT`) wherever they sit.
     for ref, body in refs.items():
         if setting(body, "sourceTree") == "SOURCE_ROOT" and setting(body, "path"):
             ref_paths[ref] = posixpath.normpath(setting(body, "path"))
-    return Project(text, groups, ref_paths, app_sources_phase(text))
+    return Project(text, groups, ref_paths, app_sources_phase(text, target))
 
 
-def app_sources_phase(text: str) -> tuple[int, int]:
-    """Span of the cmux app target's PBXSourcesBuildPhase `files = (...)` list."""
-    target = re.search(
-        r"/\* cmux \*/ = \{\s*isa = PBXNativeTarget;.*?buildPhases = \((.*?)\);", text, re.S
+def app_sources_phase(text: str, target: str = "cmux") -> tuple[int, int]:
+    """Span of `target`'s PBXSourcesBuildPhase `files = (...)` list."""
+    native = re.search(
+        r"/\* " + re.escape(target) + r" \*/ = \{\s*isa = PBXNativeTarget;.*?buildPhases = \((.*?)\);", text, re.S
     )
-    if not target:
-        raise SystemExit("wire-app-sources: cmux PBXNativeTarget not found")
-    phase_id = re.search(r"([0-9A-Za-z]+) /\* Sources \*/", target.group(1))
+    if not native:
+        raise SystemExit(f"wire-app-sources: {target} PBXNativeTarget not found")
+    phase_id = re.search(r"([0-9A-Za-z]+) /\* Sources \*/", native.group(1))
     if not phase_id:
-        raise SystemExit("wire-app-sources: cmux target has no Sources phase")
+        raise SystemExit(f"wire-app-sources: {target} target has no Sources phase")
     block = re.search(
         re.escape(phase_id.group(1)) + r" /\* Sources \*/ = \{.*?files = \((.*?)\);", text, re.S
     )
     if not block:
-        raise SystemExit("wire-app-sources: cmux Sources phase block not found")
+        raise SystemExit(f"wire-app-sources: {target} Sources phase block not found")
     return block.start(1), block.end(1)
 
 
@@ -166,12 +170,13 @@ def allowlisted(root: Path) -> set[str]:
     return entries
 
 
-def unwired_sources(root: Path, text: str) -> list[str]:
-    wired = parse(text).wired_paths
-    allow = allowlisted(root)
+def unwired_sources(root: Path, text: str, directory: str = "Sources", target: str = "cmux") -> list[str]:
+    wired = parse(text, directory, target).wired_paths
+    # The allowlist lists app sources deliberately left out of cmux.
+    allow = allowlisted(root) if (directory, target) == ("Sources", "cmux") else set()
     return [
         rel
-        for rel in (path.relative_to(root).as_posix() for path in sorted((root / "Sources").rglob("*.swift")))
+        for rel in (path.relative_to(root).as_posix() for path in sorted((root / directory).rglob("*.swift")))
         if rel not in allow and rel not in wired
     ]
 
@@ -186,7 +191,7 @@ def owning_group(project: Project, rel: str) -> Group:
         if directory == group.directory or directory.startswith(group.directory + "/")
     ]
     if not candidates:
-        raise SystemExit(f"wire-app-sources: {rel} is outside the Sources group")
+        raise SystemExit(f"wire-app-sources: {rel} is outside the wired directory's group")
     deepest = max(len(group.directory) for group in candidates)
     candidates = [group for group in candidates if len(group.directory) == deepest]
 
@@ -205,11 +210,11 @@ def fresh_id(text: str, seed: str) -> str:
     return candidate
 
 
-def wire(text: str, rel: str) -> str:
+def wire(text: str, rel: str, directory: str = "Sources", target: str = "cmux") -> str:
     """Adds whatever `rel` is missing: a file reference in its group, a build
     file, and membership in the app Sources phase. A surviving reference or
     orphaned build file (often only the phase line was lost) is reused."""
-    project = parse(text)
+    project = parse(text, directory, target)
     if rel in project.wired_paths:
         return text
     name = posixpath.basename(rel)
@@ -258,31 +263,33 @@ def wire(text: str, rel: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("paths", nargs="*", help="Sources/... files; default: every unwired one")
+    parser.add_argument("paths", nargs="*", help="files under --dir; default: every unwired one")
     parser.add_argument("--check", action="store_true", help="list unwired files and exit 1 if any")
     parser.add_argument("--root", type=Path, default=ROOT)
+    parser.add_argument("--target", default="cmux", help="Xcode target (default: cmux)")
+    parser.add_argument("--dir", default="Sources", help="repo directory whose group it owns (default: Sources)")
     args = parser.parse_args(argv)
 
     pbxproj = args.root / PBXPROJ
     text = pbxproj.read_text()
     if args.paths:
         targets = []
-        sources_root = (args.root / "Sources").resolve()
+        sources_root = (args.root / args.dir).resolve()
         for raw in args.paths:
             path = (args.root / raw).resolve()
             try:
                 rel = path.relative_to(args.root).as_posix()
                 path.relative_to(sources_root)
             except ValueError:
-                parser.error(f"path must resolve under Sources/: {raw}")
+                parser.error(f"path must resolve under {args.dir}/: {raw}")
             if path.suffix != ".swift" or not path.is_file():
                 parser.error(f"path must be an existing .swift file: {raw}")
             targets.append(rel)
         if args.check:
-            wired = parse(text).wired_paths
+            wired = parse(text, args.dir, args.target).wired_paths
             targets = [rel for rel in targets if rel not in wired]
     else:
-        targets = unwired_sources(args.root, text)
+        targets = unwired_sources(args.root, text, args.dir, args.target)
     if args.check:
         for rel in targets:
             print(f"unwired: {rel}", flush=True)
@@ -290,10 +297,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if targets else 0
     changed = False
     for rel in targets:
-        if rel in parse(text).wired_paths:
+        if rel in parse(text, args.dir, args.target).wired_paths:
             print(f"already wired: {rel}", flush=True)
             continue
-        text = wire(text, rel)
+        text = wire(text, rel, args.dir, args.target)
         changed = True
         print(f"wired: {rel}", flush=True)
     if changed:
