@@ -6,7 +6,7 @@ import SwiftUI
 enum SidebarAccountChipMetrics {
     static let height: CGFloat = 26
     static let avatarSize: CGFloat = 18
-    static let minNameWidth: CGFloat = 48
+    static let minNameWidth: CGFloat = 72
     static let chevronPointSize: CGFloat = 11
 }
 

@@ -15397,13 +15397,15 @@ struct SidebarFooterButtons: View {
     }
 
     var body: some View {
-        // The footer never asks the sidebar for width: the chip's name
-        // truncates first, then the chip drops to avatar and chevron, and
-        // anything still too wide is clipped at the trailing edge instead of widening or shifting the
-        // sidebar.
+        // The footer never asks the sidebar for width. As it narrows, the
+        // update pill shrinks to its icon first, so the account chip keeps its
+        // name as long as possible; then the name truncates, then the chip
+        // drops to avatar and chevron. Anything still too wide is clipped at
+        // the trailing edge instead of widening or shifting the sidebar.
         ViewThatFits(in: .horizontal) {
-            row(showsAccountName: true)
-            row(showsAccountName: false)
+            row(showsAccountName: true, compactUpdate: false)
+            row(showsAccountName: true, compactUpdate: true)
+            row(showsAccountName: false, compactUpdate: true)
         }
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         .clipped()
@@ -15411,7 +15413,7 @@ struct SidebarFooterButtons: View {
 
     /// The account chip takes the free width on the left; the icon buttons
     /// and pills keep fixed slots to its right.
-    private func row(showsAccountName: Bool) -> some View {
+    private func row(showsAccountName: Bool, compactUpdate: Bool) -> some View {
         HStack(spacing: 4) {
             if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
                 SidebarAccountMenuButton(showsName: showsAccountName)
@@ -15450,7 +15452,7 @@ struct SidebarFooterButtons: View {
                 .background(TitlebarControlAnchorView { extensionBrowserAnchorView = $0 })
             }
             if shows(.update), let updateActionsHost = AppDelegate.shared {
-                UpdatePill(model: updateViewModel, accent: cmuxAccentColor(), actions: updateActionsHost)
+                UpdatePill(model: updateViewModel, accent: cmuxAccentColor(), actions: updateActionsHost, compact: compactUpdate)
             }
         }
     }
