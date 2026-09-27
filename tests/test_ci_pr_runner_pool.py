@@ -2020,20 +2020,29 @@ class WarmAffinity(unittest.TestCase):
         std = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, SIDE_MINI), live_runner(3, MINI, SIDE_MINI)]
         idle = [live_runner(21, LIGHT, light_side), live_runner(22, LIGHT, light_side), live_runner(23, LIGHT, light_root)]
         values = self.outputs(std + idle, slots=slots, extra=lanes)
-        self.assertEqual((values["runner"], values["side_runner"]), (MINI, light_side))
+        self.assertEqual((values["runner"], values["light_side_runner"], values["light_side_jobs"]),
+                         (MINI, light_side, " claude-wrapper remote-daemon "))
         for key in (" admission ", " claude-wrapper ", " remote-daemon "):
             self.assertIn(key, values["owned_jobs"])
         # The std pool holds only admission: the side lanes are not its machines.
         self.assertEqual(values["jobs"], "1")
-        # One light side runner idle for two lanes, none, or no light side count: the std side label as before.
+        # One light side runner idle for two lanes: one lane takes it, the other std's side label.
         one = [live_runner(21, LIGHT, light_side), live_runner(22, LIGHT, light_side, busy=True)]
-        for runners, count in ((std + one, slots), (std, slots),
-                               (std + idle, '{"std": 40, "root-std": 10, "light": 2, "root-light": 2}')):
+        values = self.outputs(std + one, slots=slots, extra=lanes)
+        self.assertEqual((values["runner"], values["side_runner"], values["light_side_runner"],
+                          values["light_side_jobs"]), (MINI, SIDE_MINI, light_side, " claude-wrapper "))
+        for key in (" admission ", " claude-wrapper ", " remote-daemon "):
+            self.assertIn(key, values["owned_jobs"])
+        self.assertEqual(values["jobs"], "2")
+        self.assertIn("claude-wrapper take `" + light_side + "`", values["summary"])
+        # None idle, or no light side count: the std side label as before.
+        for runners, count in ((std, slots), (std + idle, '{"std": 40, "root-std": 10, "light": 2, "root-light": 2}')):
             values = self.outputs(runners, slots=count, extra=lanes)
-            self.assertEqual((values["runner"], values["side_runner"]), (MINI, SIDE_MINI), runners)
+            self.assertEqual((values["runner"], values["side_runner"], values["light_side_jobs"]),
+                             (MINI, SIDE_MINI, ""), runners)
             self.assertIn(" claude-wrapper ", values["owned_jobs"])
         # A retry attempt keeps its own route.
-        self.assertNotEqual(self.outputs(std + idle, slots=slots, attempt="2", extra=lanes)["side_runner"], light_side)
+        self.assertEqual(self.outputs(std + idle, slots=slots, attempt="2", extra=lanes)["light_side_jobs"], "")
 
     def test_light_side_lanes_on_the_light_pick_count_in_its_peak(self):
         # The janitor takes the side lanes off the marker's peak for the root share, so the peak holds them.
@@ -2043,7 +2052,7 @@ class WarmAffinity(unittest.TestCase):
                 live_runner(24, LIGHT, light_root)]
         values = self.outputs(idle, slots=slots, extra={"RUN_CLAUDE_WRAPPER": "true", "RUN_REMOTE_DAEMON": "true",
                                                         "POOL_ORDER": LIGHT})
-        self.assertEqual((values["runner"], values["side_runner"], values["jobs"]), (LIGHT, light_side, "3"))
+        self.assertEqual((values["runner"], values["light_side_runner"], values["jobs"]), (LIGHT, light_side, "3"))
 
     def test_side_lanes_alone_on_the_light_side_runners_hold_no_std_machine(self):
         # Nothing left for std once the side lanes take the light side runners: a full std still takes the run.
@@ -2055,7 +2064,7 @@ class WarmAffinity(unittest.TestCase):
         values = self.outputs(busy + idle, slots=slots, rounds="0",
                               extra={"RUN_MACOS": "false", "RUN_CLAUDE_WRAPPER": "true", "RUN_REMOTE_DAEMON": "true",
                                      "POOL_ORDER": f"{MINI},{SMALL}"})
-        self.assertEqual((values["runner"], values["side_runner"], values["jobs"]), (MINI, light_side, "0"))
+        self.assertEqual((values["runner"], values["light_side_runner"], values["jobs"]), (MINI, light_side, "0"))
         self.assertIn(" claude-wrapper ", values["owned_jobs"])
         # A 0-machine marker reserves nothing.
         artifact = {"name": "macos-pool-persistent-7-1-0p2-" + MINI}
