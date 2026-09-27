@@ -156,12 +156,15 @@ root runner about half the time (11 of 21 on 2026-09-25, 06:30 to 09:00Z,
 mini's root while it ran; on cmux7s and cmux9s, with one root, it blocked the
 mini's only compile. A pool without a root count keeps the pool label.
 The light pool's side runners come first (light_side_lanes()): on attempt 1
-of a same-repository pull request whose pick is an owned pool, when that
-many of them are idle now, every side lane takes the light side label, and
-the picked pool places only admission and what follows it. The light minis
-sat almost idle (about 1% of their runner time over the 7 days to
-2026-09-27) while side lanes held std side runners, because a run takes one
-owned pool and std, first in the order with the most room, always won.
+of a same-repository pull request whose pick is an owned pool, as many side
+lanes as the light side runners idle now take the light side label (the
+`light_side_runner` and `light_side_jobs` outputs), and the picked pool
+places the rest beside admission and what follows it. The light minis sat
+almost idle (about 1% of their runner time over the 7 days to 2026-09-27)
+while side lanes held std side runners, because a run takes one owned pool
+and std, first in the order with the most room, always won. Placing the
+lanes all or nothing kept them off light whenever one of its two side
+runners was busy or offline, and most runs have two side lanes.
 
 Warm affinity: an owned Mac keeps compile admission's DerivedData
 (owned_build_state.py), and the queue janitor's snapshot carries `warm`: for
@@ -533,17 +536,19 @@ def side_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
 
 
 def light_side_lanes(plan: "RunJobs", runners: Sequence[Mapping[str, Any]], owned_slots: Mapping[str, int],
-                     pr_xcode_app: str | None) -> str:
-    """The light pool's side label when its idle side runners can take every side lane of `plan` now, else "".
+                     pr_xcode_app: str | None) -> tuple[str, tuple[str, ...]]:
+    """The light pool's side label and the side lanes of `plan` its idle side runners take now, one per runner.
 
-    Only while CI_OWNED_POOL_SLOTS gives the light pool machines beyond its
-    root runners (side_runner()'s rule), so removing that count turns it off.
+    ("", ()) when none is idle, and always while CI_OWNED_POOL_SLOTS gives
+    the light pool no machines beyond its root runners (side_runner()'s
+    rule), so removing that count turns it off.
     """
     light = next((label for label in owned_pools(pr_xcode_app) if label.startswith(f"glaeda-{LIGHT_CLASS}-")), "")
     label = side_label(light)
     if not plan.side or not label or owned_slots.get(light, 0) <= owned_slots.get(root_label(light), 0):
-        return ""
-    return label if live_owned_free(runners, [label])[label] >= len(plan.side) else ""
+        return "", ()
+    lanes = plan.side[:max(0, live_owned_free(runners, [label])[label])]
+    return (label, lanes) if lanes else ("", ())
 
 
 def pool_label(label: str) -> str:
@@ -2074,7 +2079,8 @@ class GitHub:
 
 def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datetime,
             owned_slots: Mapping[str, int] | None = None, problems: Sequence[str] = (),
-            owned_jobs: Sequence[str] = (), admission_runner: str = "", side: str = "") -> str:
+            owned_jobs: Sequence[str] = (), admission_runner: str = "", side: str = "",
+            light_side: str = "", light_lanes: Sequence[str] = ()) -> str:
     runner = choice.runner or "each job's default (MACOS_RUNNER_PR or its fallback)"
     lines = ["### macOS pool for this run", "", f"- Pool: `{runner}`", f"- Why: {choice.reason}"]
     if choice.xcode_app:
@@ -2084,8 +2090,11 @@ def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datet
                      f"and a re-run of failed jobs, goes to: `{choice.retry_runner}`")
     if choice.root_runner:
         lines.append(f"- Root jobs among them ({ROOT_JOBS}) take `{choice.root_runner}`")
+    if light_lanes:
+        lines.append(f"- Side lanes on the light minis: {', '.join(light_lanes)} take `{light_side}`")
     if side:
-        lines.append(f"- Side lanes among them ({', '.join(SIDE_LANE_JOBS)}) take `{side}`")
+        lines.append(f"- Side lanes among them ({', '.join(SIDE_LANE_JOBS)}) take `{side}`"
+                     + (" unless on the light minis" if light_lanes else ""))
     if admission_runner:
         labels = " + ".join(f"`{label}`" for label in json.loads(admission_runner))
         lines.append(f"- Compile admission takes {labels}: an idle root runner kept a build of this run's merge base")
@@ -2175,15 +2184,19 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         except Exception as error:  # noqa: BLE001 - the snapshot path still decides
             print(f"::warning title=live owned capacity::could not list runners ({error}); using the snapshot")
             live_owned = online = live_runners = None
-    # The side lanes on the light minis' side runners when enough are idle now (light_side_lanes()): the pool
-    # picked below then holds only admission and what follows it.
+    # As many side lanes as the light minis' side runners idle now (light_side_lanes()) take them: the pool
+    # picked below then holds admission, what follows it and the other side lanes.
     light_side, side_lanes = "", ()
     if live_runners is not None and attempt in ("", "1") and event == "pull_request" and env.get("HEAD_REPO") == repo:
-        light_side = light_side_lanes(plan, live_runners, slots(env.get("OWNED_SLOTS"), env.get(PR_XCODE_VARIABLE)),
-                                      env.get(PR_XCODE_VARIABLE))
-    if light_side:
-        side_lanes, plan = plan.side, dataclasses.replace(plan, side=())
+        light_side, side_lanes = light_side_lanes(
+            plan, live_runners, slots(env.get("OWNED_SLOTS"), env.get(PR_XCODE_VARIABLE)), env.get(PR_XCODE_VARIABLE))
+    if side_lanes:
+        plan = dataclasses.replace(plan, side=tuple(key for key in plan.side if key not in side_lanes))
         jobs = owned_peak(plan, gui)
+        light = pool_label(light_side)
+        if live_owned is not None and light in live_owned:
+            # The side runners just claimed carry the light pool label too: no longer free for this pick.
+            live_owned = {**live_owned, light: max(0, live_owned[light] - len(side_lanes))}
     choice, snapshot = choose(
         event=event,
         ref=ref,
@@ -2278,14 +2291,17 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 admission_runner = admission_route = ""
                 print(f"::warning title=warm routing::{type(error).__name__}: {error}"[:300])
     side = side_runner(choice, owned_slots)
-    if light_side and persistent(choice.runner):
-        owned_jobs, side = owned_jobs + side_lanes, light_side
+    if not (side_lanes and persistent(choice.runner)):
+        light_side, side_lanes = "", ()
+    else:
+        owned_jobs = owned_jobs + side_lanes
         if choice.runner == pool_label(light_side):
             # The light pool's own pick: its side lanes are its machines too, and the janitor
             # (marker_peaks()) takes them off the marker's peak for the root share.
             held += len(side_lanes)
     text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,
-                   owned_jobs=owned_jobs, admission_runner=admission_runner, side=side)
+                   owned_jobs=owned_jobs, admission_runner=admission_runner, side=side,
+                   light_side=light_side, light_lanes=side_lanes)
     print(text)
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
@@ -2305,6 +2321,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          # What the side lanes in owned_jobs take instead of
                          # the pool label, on attempt 1.
                          f"side_runner={side}\n"
+                         # The side lanes in owned_jobs that take light_side_runner
+                         # instead of side_runner (light_side_lanes()), delimited
+                         # like owned_jobs, or "".
+                         f"light_side_runner={light_side}\n"
+                         f"light_side_jobs={' ' + ' '.join(side_lanes) + ' ' if side_lanes else ''}\n"
                          # What the GUI jobs (app-host shards, tests-build-and-lag)
                          # take instead of the root label: one runner per mini
                          # carries it (gui_runner()), or "".

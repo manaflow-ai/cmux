@@ -303,6 +303,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             let catalog = SettingCatalog()
             let keys = [
                 catalog.app.warnBeforeClosingTab,
+                catalog.app.warnBeforeClosingWorkspace,
                 catalog.app.hideTabCloseButton,
                 catalog.app.renameSelectsExistingName,
             ]

@@ -66,7 +66,12 @@ is no head to re-check, and its build and test jobs are not a split that can
 break: from attempt 2 on both take the runner job's retry_label, a macOS 26
 Blacksmith pool on the same Xcode build. So a stuck or refused E2E job gets
 its failed and cancelled jobs re-run, keeping a build that passed, and the
-follow-on watch of attempt 2 finds no owned job and stops. When the build
+follow-on watch of attempt 2 finds no owned job and stops. A UI run's
+retry_label stays on its owned pool, since Blacksmith cannot run UI tests
+(e2e_runner_pool.py), so the watch of attempt 2 may re-run it once more;
+no attempt past 2 is watched, so it still never loops. A queued UI run
+moved that way only rejoins the same owned queue, costing its place in it;
+the watch stays for the refusals, which a re-run does clear. When the build
 itself did not succeed, every job is re-run instead, so the `sibling` job
 looks again for another run compiling the same revision
 (e2e_build_unfinished). A stuck E2E run
@@ -497,14 +502,35 @@ class GitHub:
     remaining = ""  # the token's requests left this hour, from the last response
     limit = ""  # and its hourly limit
 
-    def marked_runs(self, name: str, count: int) -> list[tuple[int, dt.datetime | None]]:
-        """Runs with an artifact named `name`, newest first, with when each was uploaded (sweep())."""
-        data = self.request("GET", f"/actions/artifacts?name={name}&per_page={count}")
+    def marked_runs(self, name: str, count: int, oldest: dt.datetime | None = None, pages: int = 1,
+                    log: Callable[[str], None] = lambda message: None) -> list[tuple[int, dt.datetime | None]]:
+        """Runs with an artifact named `name`, by artifact id, newest first, with when each was uploaded (sweep()).
+
+        Reads up to `pages` pages of `count`, stopping at a short page or at
+        one whose last marker is older than `oldest` by MARKER_ORDER_SKEW:
+        the listing is ordered by id, which trails upload time by up to that
+        much. A page that cannot be read ends the listing with what came
+        before it, unless it is the first.
+        """
         found = []
-        for item in (data or {}).get("artifacts") or []:
-            run_id = int(((item or {}).get("workflow_run") or {}).get("id") or 0)
-            if run_id:
-                found.append((run_id, parse_time(item.get("created_at"))))
+        for page in range(1, pages + 1):
+            try:
+                data = self.request("GET", f"/actions/artifacts?name={name}&per_page={count}&page={page}")
+            except READ_ERRORS:
+                if page == 1:
+                    raise
+                log(f"could not read page {page} of the {name} markers; using the first {page - 1}")
+                return found
+            items = (data or {}).get("artifacts") or []
+            for item in items:
+                run_id = int(((item or {}).get("workflow_run") or {}).get("id") or 0)
+                if run_id:
+                    found.append((run_id, parse_time(item.get("created_at"))))
+            last = parse_time(items[-1].get("created_at")) if items else None
+            if len(items) < count or oldest is None or last is None or last < oldest - MARKER_ORDER_SKEW:
+                return found
+        if oldest is not None:
+            log(f"read {pages} pages of {name} markers without reaching {oldest:%H:%M}; older ones wait for a later tick")
         return found
 
     def run(self, run_id: int) -> Mapping[str, Any]:
@@ -1087,9 +1113,17 @@ SWEEP_SECONDS = 5 * 60 * 60
 # finished (a refusal) during a handover is still inside it, so the next
 # sweeper re-runs it.
 SWEEP_MAX_AGE_SECONDS = E2E_WATCH_LIMIT_SECONDS
-# A marker listing covers this many runs, newest first: about two hours of
-# owned placements on 2026-09-25.
+# A marker listing page covers this many runs, newest first by artifact id.
+# One page held about two hours of owned placements on 2026-09-25 but only one
+# on 2026-09-27 (87 an hour), and an artifact's id trails its upload time by
+# up to 78 minutes (measured over 400 markers that day): six markers uploaded
+# 11:51 to 12:15 took ids among markers an hour older, never reached page
+# one, and two of their runs failed unrescued. So the sweeper pages back until
+# a page ends MARKER_ORDER_SKEW past SWEEP_MAX_AGE_SECONDS, at most
+# SWEEP_LISTING_PAGES.
 SWEEP_LISTING = 100
+SWEEP_LISTING_PAGES = 5
+MARKER_ORDER_SKEW = dt.timedelta(minutes=90)
 
 
 class Stopping(Aborted):
@@ -1199,7 +1233,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         # The picker's marker first: a run with both is watched the ordinary way.
         for name, late in ((WATCH_MARKER, False), (LATE_WATCH_MARKER, True)):
             try:
-                marked = client.marked_runs(name, SWEEP_LISTING)
+                marked = client.marked_runs(name, SWEEP_LISTING, oldest, SWEEP_LISTING_PAGES, log=log)
             except READ_ERRORS as error:
                 log(f"could not list {name} markers ({error}); next tick")
                 continue

@@ -299,7 +299,7 @@ class FailSafe(unittest.TestCase):
                 sys.stdout = old
             self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n"
                                               f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nplaced=0\nshard_runner=\n"
-                                              f"root_runner=\nside_runner=\ngui_runner=\n"
+                                              f"root_runner=\nside_runner=\nlight_side_runner=\nlight_side_jobs=\ngui_runner=\n"
                                               "admission_runner=\nadmission_route=\nadmission_warm=\nowned_jobs=\n")
             text = summary.read_text()
             self.assertIn(f"Pool: `{LARGE}`", text)
@@ -2020,20 +2020,29 @@ class WarmAffinity(unittest.TestCase):
         std = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, SIDE_MINI), live_runner(3, MINI, SIDE_MINI)]
         idle = [live_runner(21, LIGHT, light_side), live_runner(22, LIGHT, light_side), live_runner(23, LIGHT, light_root)]
         values = self.outputs(std + idle, slots=slots, extra=lanes)
-        self.assertEqual((values["runner"], values["side_runner"]), (MINI, light_side))
+        self.assertEqual((values["runner"], values["light_side_runner"], values["light_side_jobs"]),
+                         (MINI, light_side, " claude-wrapper remote-daemon "))
         for key in (" admission ", " claude-wrapper ", " remote-daemon "):
             self.assertIn(key, values["owned_jobs"])
         # The std pool holds only admission: the side lanes are not its machines.
         self.assertEqual(values["jobs"], "1")
-        # One light side runner idle for two lanes, none, or no light side count: the std side label as before.
+        # One light side runner idle for two lanes: one lane takes it, the other std's side label.
         one = [live_runner(21, LIGHT, light_side), live_runner(22, LIGHT, light_side, busy=True)]
-        for runners, count in ((std + one, slots), (std, slots),
-                               (std + idle, '{"std": 40, "root-std": 10, "light": 2, "root-light": 2}')):
+        values = self.outputs(std + one, slots=slots, extra=lanes)
+        self.assertEqual((values["runner"], values["side_runner"], values["light_side_runner"],
+                          values["light_side_jobs"]), (MINI, SIDE_MINI, light_side, " claude-wrapper "))
+        for key in (" admission ", " claude-wrapper ", " remote-daemon "):
+            self.assertIn(key, values["owned_jobs"])
+        self.assertEqual(values["jobs"], "2")
+        self.assertIn("claude-wrapper take `" + light_side + "`", values["summary"])
+        # None idle, or no light side count: the std side label as before.
+        for runners, count in ((std, slots), (std + idle, '{"std": 40, "root-std": 10, "light": 2, "root-light": 2}')):
             values = self.outputs(runners, slots=count, extra=lanes)
-            self.assertEqual((values["runner"], values["side_runner"]), (MINI, SIDE_MINI), runners)
+            self.assertEqual((values["runner"], values["side_runner"], values["light_side_jobs"]),
+                             (MINI, SIDE_MINI, ""), runners)
             self.assertIn(" claude-wrapper ", values["owned_jobs"])
         # A retry attempt keeps its own route.
-        self.assertNotEqual(self.outputs(std + idle, slots=slots, attempt="2", extra=lanes)["side_runner"], light_side)
+        self.assertEqual(self.outputs(std + idle, slots=slots, attempt="2", extra=lanes)["light_side_jobs"], "")
 
     def test_light_side_lanes_on_the_light_pick_count_in_its_peak(self):
         # The janitor takes the side lanes off the marker's peak for the root share, so the peak holds them.
@@ -2043,7 +2052,7 @@ class WarmAffinity(unittest.TestCase):
                 live_runner(24, LIGHT, light_root)]
         values = self.outputs(idle, slots=slots, extra={"RUN_CLAUDE_WRAPPER": "true", "RUN_REMOTE_DAEMON": "true",
                                                         "POOL_ORDER": LIGHT})
-        self.assertEqual((values["runner"], values["side_runner"], values["jobs"]), (LIGHT, light_side, "3"))
+        self.assertEqual((values["runner"], values["light_side_runner"], values["jobs"]), (LIGHT, light_side, "3"))
 
     def test_side_lanes_alone_on_the_light_side_runners_hold_no_std_machine(self):
         # Nothing left for std once the side lanes take the light side runners: a full std still takes the run.
@@ -2055,7 +2064,7 @@ class WarmAffinity(unittest.TestCase):
         values = self.outputs(busy + idle, slots=slots, rounds="0",
                               extra={"RUN_MACOS": "false", "RUN_CLAUDE_WRAPPER": "true", "RUN_REMOTE_DAEMON": "true",
                                      "POOL_ORDER": f"{MINI},{SMALL}"})
-        self.assertEqual((values["runner"], values["side_runner"], values["jobs"]), (MINI, light_side, "0"))
+        self.assertEqual((values["runner"], values["light_side_runner"], values["jobs"]), (MINI, light_side, "0"))
         self.assertIn(" claude-wrapper ", values["owned_jobs"])
         # A 0-machine marker reserves nothing.
         artifact = {"name": "macos-pool-persistent-7-1-0p2-" + MINI}
@@ -2347,8 +2356,9 @@ class Wiring(unittest.TestCase):
 
     def test_every_pr_route_in_the_run_reads_the_choice(self):
         expected = {
-            # The Claude wrapper, a side lane: the side label first.
-            "ci.yml": "needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner "
+            # The Claude wrapper, a side lane: the light side label when the picker put it there, else the side
+            # label first.
+            "ci.yml": "(contains(needs.changes.outputs.macos_pr_light_side_jobs, ' claude-wrapper ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner) || needs.changes.outputs.macos_pr_runner "
                       "|| vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'",
             # Compile admission (and its CMUX_PRODUCT_RUNNER mirror) and
             # tests-build-and-lag each test their own owned_jobs key, and are
@@ -2389,9 +2399,9 @@ class Wiring(unittest.TestCase):
         # among them) take the side label.
         self.assertEqual(jobs["macos"]["with"]["pr_root_runner"], "${{ needs.changes.outputs.macos_pr_root_runner }}")
         self.assertNotIn("pr_root_runner", jobs["remote-daemon"]["with"])
-        self.assertEqual(jobs["remote-daemon"]["with"]["pr_side_runner"],
-                         "${{ needs.changes.outputs.macos_pr_side_runner }}")
-        self.assertEqual(jobs["macos"]["with"]["pr_side_runner"], "${{ needs.changes.outputs.macos_pr_side_runner }}")
+        # Each side lane: the light side label when the picker put that lane there, else the side label.
+        self.assertEqual(jobs["remote-daemon"]["with"]["pr_side_runner"], "${{ contains(needs.changes.outputs.macos_pr_light_side_jobs, ' remote-daemon ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner }}")
+        self.assertEqual(jobs["macos"]["with"]["pr_side_runner"], "${{ contains(needs.changes.outputs.macos_pr_light_side_jobs, ' swift-package ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner }}")
         # In ci-macos.yml only swift-package-tests reads it; its root jobs never do.
         macos_jobs = self.workflow("ci-macos.yml")["jobs"]
         readers = sorted(name for name, job in macos_jobs.items() if "pr_side_runner" in yaml.safe_dump(job))
