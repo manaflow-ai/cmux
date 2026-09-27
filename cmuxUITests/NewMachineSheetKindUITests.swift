@@ -33,9 +33,9 @@ final class NewMachineSheetKindUITests: XCTestCase {
         searchField.typeText("new cloud machine")
         let row = app.descendants(matching: .any)
             .matching(NSPredicate(
-                format: "identifier BEGINSWITH %@ AND value == %@",
+                format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@",
                 "CommandPaletteResultRow.",
-                "palette.cloud.newMachine"
+                ".palette.cloud.newMachine"
             ))
             .firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5.0), "Expected the New Cloud Machine… palette row")
