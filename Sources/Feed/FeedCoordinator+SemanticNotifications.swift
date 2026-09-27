@@ -69,21 +69,6 @@ extension FeedCoordinator {
         }
     }
 
-    /// Ends one Feed decision the agent no longer waits on: the hook returns
-    /// neutral output, the card expires, and its "Needs input" overlay clears.
-    /// - Returns: `false` when a reply or timeout already ended the request.
-    @discardableResult
-    func invalidateSemanticRequest(requestId: String, source: String, sessionId: String) -> Bool {
-        guard let (reply, itemID) = waiterRegistry.invalidate(requestID: requestId, source: source, sessionID: sessionId) else {
-            return false
-        }
-        cancelNotification(requestId: requestId)
-        concludeAttentionOnMain(reply.target)
-        expireTimedOutItem(itemID)
-        waiterRegistry.cleanupStored(requestID: requestId, groupID: reply.groupID)
-        return true
-    }
-
     /// Agents whose own terminal prompt stays live while the blocking hook
     /// waits on the Feed. Claude shows its permission prompt when the
     /// `PermissionRequest` hook starts and lets that hook run on after the
@@ -154,8 +139,9 @@ extension FeedCoordinator {
             let input = AgentFeedSemanticInput(event: request.event,
                 agentKey: Self.lifecycleStatusKey(forSource: request.event.source),
                 requestID: request.requestID, resolvesRequest: true)
-            guard invalidateSemanticRequest(requestId: request.requestID,
-                source: request.event.source, sessionId: input.sessionID) else { continue }
+            // A reply racing this retirement journals and clears the same request; both are idempotent.
+            invalidateSemanticRequest(requestId: request.requestID,
+                source: request.event.source, sessionId: input.sessionID)
             Self.requestsAwaitingTheirToolCall.remove(request.requestID)
             clearSemanticFeedNotification(requestId: request.requestID)
             // A tool call means the turn is running again. Turn and session

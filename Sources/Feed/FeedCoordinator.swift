@@ -362,6 +362,14 @@ final class FeedCoordinator: @unchecked Sendable {
         return finished.outcome
     }
 
+    func invalidateSemanticRequest(requestId: String, source: String, sessionId: String) {
+        guard let (reply, itemID) = waiterRegistry.invalidate(requestID: requestId, source: source, sessionID: sessionId) else { return }
+        cancelNotification(requestId: requestId)
+        concludeAttentionOnMain(reply.target)
+        expireTimedOutItem(itemID)
+        waiterRegistry.cleanupStored(requestID: requestId, groupID: reply.groupID)
+    }
+
     private func enqueueZeroWaitAcceptance(
         _ event: WorkstreamEvent,
         onAcceptedOnMainActor: @escaping @MainActor @Sendable (WorkstreamEvent) -> Void,
@@ -426,7 +434,7 @@ final class FeedCoordinator: @unchecked Sendable {
 
     /// Concludes an attention overlay (if any) on the main actor, hopping if
     /// called from the socket worker thread.
-    func concludeAttentionOnMain(_ target: FeedAttentionTarget?) {
+    private func concludeAttentionOnMain(_ target: FeedAttentionTarget?) {
         guard let target else { return }
         let conclude: @Sendable () -> Void = { [target] in
             MainActor.assumeIsolated {
@@ -491,7 +499,7 @@ final class FeedCoordinator: @unchecked Sendable {
         return nil
     }
 
-    func expireTimedOutItem(_ itemId: UUID?) {
+    private func expireTimedOutItem(_ itemId: UUID?) {
         guard let itemId else { return }
         let expire: @Sendable () -> Void = { [itemId] in
             MainActor.assumeIsolated {
