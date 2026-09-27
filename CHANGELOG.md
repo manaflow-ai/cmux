@@ -5,6 +5,7 @@ All notable changes to cmux are documented here.
 ## Unreleased
 
 ### Added
+- Settings > Terminal > Command Moves by Word (`terminal.textEditingCommandMovesByWord`, off by default) gives the text-editing gestures a browser-style layout: Command arrows and Delete move by word and Control+Left/Right go to line start and end. A new `terminalAlternateScreen` key for `shortcuts.when` lets `closeTab` bound to Ctrl+W close the surface at the shell prompt and still reach vim ([#14863](https://github.com/manaflow-ai/cmux/pull/14863))
 - Claude Code and Codex agents on a `cmux ssh` host show Running, Needs input, or Idle in the sidebar; cmux installs their hooks on the host when the Integrations toggles are on ([#14902](https://github.com/manaflow-ai/cmux/pull/14902))
 - Settings > Terminal > Reflow Hard-Wrapped Text on Copy (`terminal.reflowHardWrapOnCopy`, off by default) rejoins lines a program wrapped at exactly the terminal width when you copy ([#6923](https://github.com/manaflow-ai/cmux/pull/6923)) -- thanks @mvanhorn!
 - Pi is offered in the Machines Open Cloud Agent menu, `vm.cloud_agent_open`, and `cmux vm prompt --open pi` ([#14819](https://github.com/manaflow-ai/cmux/pull/14819)) -- thanks @aliyansajid!
@@ -12,6 +13,7 @@ All notable changes to cmux are documented here.
 - Global search finds text in the scrollback of open terminals, and Return on a terminal hit opens that pane's find bar on the match ([#11665](https://github.com/manaflow-ai/cmux/pull/11665)) -- thanks @smoreg!
 
 ### Changed
+- Text-editing gestures no longer fire while a full-screen app such as vim, less, or tmux has the terminal on the alternate screen. Turn on `terminal.textEditingGesturesInFullScreenApps` to keep them inside tmux, screen, or zellij ([#14863](https://github.com/manaflow-ai/cmux/pull/14863))
 - The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
 
 ### Fixed
