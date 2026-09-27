@@ -5,7 +5,8 @@ usage() {
   cat <<'EOF'
 Usage: scripts/lib/verify-iroh-release-gate-builds.sh \
   --mac-app <path> --ios-app <path> \
-  --backend-base-url <url> --v2-base-url <url> [--presence-base-url <url>]
+  --backend-base-url <url> --v2-base-url <url> --v2-environment <name> \
+  [--presence-base-url <url>]
 EOF
 }
 
@@ -13,6 +14,7 @@ MAC_APP=""
 IOS_APP=""
 BACKEND_BASE_URL=""
 V2_BASE_URL=""
+V2_ENVIRONMENT=""
 PRESENCE_BASE_URL=""
 
 while [[ $# -gt 0 ]]; do
@@ -21,6 +23,7 @@ while [[ $# -gt 0 ]]; do
     --ios-app) IOS_APP="${2:-}"; shift 2 ;;
     --backend-base-url) BACKEND_BASE_URL="${2:-}"; shift 2 ;;
     --v2-base-url) V2_BASE_URL="${2:-}"; shift 2 ;;
+    --v2-environment) V2_ENVIRONMENT="${2:-}"; shift 2 ;;
     --presence-base-url) PRESENCE_BASE_URL="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
@@ -35,6 +38,10 @@ done
 }
 [[ -n "$V2_BASE_URL" ]] || {
   echo "error: --v2-base-url is required" >&2
+  exit 2
+}
+[[ "$V2_ENVIRONMENT" == production || "$V2_ENVIRONMENT" == staging || "$V2_ENVIRONMENT" == development ]] || {
+  echo "error: --v2-environment must be production, staging, or development" >&2
   exit 2
 }
 
@@ -89,6 +96,14 @@ require_value \
   "iOS app v2 Worker configuration" \
   "$(read_plist "$IOS_INFO_PLIST" "CMUX_IROH_V2_BASE_URL")" \
   "$V2_BASE_URL"
+require_value \
+  "Mac app v2 environment" \
+  "$(read_plist "$MAC_INFO_PLIST" "LSEnvironment:CMUX_IROH_V2_ENVIRONMENT")" \
+  "$V2_ENVIRONMENT"
+require_value \
+  "iOS app v2 environment" \
+  "$(read_plist "$IOS_INFO_PLIST" "CMUX_IROH_V2_ENVIRONMENT")" \
+  "$V2_ENVIRONMENT"
 
 if [[ -n "$PRESENCE_BASE_URL" ]]; then
   require_value \

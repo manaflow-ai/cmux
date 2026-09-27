@@ -32,6 +32,7 @@ TAG=""
 # Cloudflare Worker. A caller can override either origin for an isolated test.
 STAGING_BASE_URL="${CMUX_IROH_RELEASE_GATE_BASE_URL:-https://cmux-staging.vercel.app}"
 V2_BASE_URL="${CMUX_IROH_RELEASE_GATE_V2_BASE_URL:-https://cmux-v2-staging.debussy.workers.dev}"
+V2_ENVIRONMENT="staging"
 PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}"
 SKIP_BUILD=0
 KEEP_SIMULATOR=0
@@ -92,6 +93,7 @@ fi
 if [[ "$PRODUCTION" -eq 1 ]]; then
   STAGING_BASE_URL="https://cmux.com"
   V2_BASE_URL="https://cmux-v2.debussy.workers.dev"
+  V2_ENVIRONMENT="production"
   # Production clients resolve presence.cmux.dev from their auth channel.
   # Never inherit a development worker override from the caller's shell.
   PRESENCE_BASE_URL=""
@@ -543,6 +545,7 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
       CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
       CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
       CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_V2_ENVIRONMENT="$V2_ENVIRONMENT" \
       CMUX_IROH_V2_BASE_URL="$V2_BASE_URL" \
       ./scripts/reload.sh \
         --tag "$TAG" \
@@ -553,6 +556,7 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
       CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
       CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
       CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_V2_ENVIRONMENT="$V2_ENVIRONMENT" \
       CMUX_IROH_V2_BASE_URL="$V2_BASE_URL" \
       ./ios/scripts/reload.sh "${IROH_RELEASE_GATE_IOS_RELOAD_ARGS[@]}"
   else
@@ -560,6 +564,7 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
       CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
       CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
       CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_V2_ENVIRONMENT="$V2_ENVIRONMENT" \
       CMUX_IROH_V2_BASE_URL="$V2_BASE_URL" \
       ./scripts/reload.sh --tag "$TAG"
     run_build_with_heartbeat iOS env \
@@ -567,6 +572,7 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
       CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
       CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
       CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_V2_ENVIRONMENT="$V2_ENVIRONMENT" \
       CMUX_IROH_V2_BASE_URL="$V2_BASE_URL" \
       ./ios/scripts/reload.sh "${IROH_RELEASE_GATE_IOS_RELOAD_ARGS[@]}"
   fi
@@ -587,6 +593,7 @@ rm -f "$DATA_CONTAINER/Library/Caches/$REPORT_FILENAME" \
   --ios-app "$IOS_APP" \
   --backend-base-url "$STAGING_BASE_URL" \
   --v2-base-url "$V2_BASE_URL" \
+  --v2-environment "$V2_ENVIRONMENT" \
   --presence-base-url "$PRESENCE_BASE_URL"
 
 if [[ "$PRODUCTION" -eq 1 ]]; then

@@ -69,11 +69,13 @@ test("release gate rejects Mac and iOS artifacts configured for different author
     CMUX_API_BASE_URL: "https://stale.example",
     CMUX_IROH_BROKER_BASE_URL: "https://stale.example",
     CMUX_IROH_V2_BASE_URL: "https://stale.example",
+    CMUX_IROH_V2_ENVIRONMENT: "development",
   }, "macOS");
   writeGateAppPlist(iosApp, {
     CMUXApiBaseURL: expected,
     CMUXIrohBrokerBaseURL: expected,
     CMUX_IROH_V2_BASE_URL: expectedV2,
+    CMUX_IROH_V2_ENVIRONMENT: "staging",
     CMUXPresenceBaseURL: presence,
   });
 
@@ -83,6 +85,7 @@ test("release gate rejects Mac and iOS artifacts configured for different author
     "--ios-app", iosApp,
     "--backend-base-url", expected,
     "--v2-base-url", expectedV2,
+    "--v2-environment", "staging",
     "--presence-base-url", presence,
   ]);
   assert.notEqual(mismatch.status, 0);
@@ -93,6 +96,7 @@ test("release gate rejects Mac and iOS artifacts configured for different author
     CMUX_API_BASE_URL: expected,
     CMUX_IROH_BROKER_BASE_URL: expected,
     CMUX_IROH_V2_BASE_URL: expectedV2,
+    CMUX_IROH_V2_ENVIRONMENT: "staging",
   }, "macOS");
   const presenceMismatch = run("bash", [
     "scripts/lib/verify-iroh-release-gate-builds.sh",
@@ -100,6 +104,7 @@ test("release gate rejects Mac and iOS artifacts configured for different author
     "--ios-app", iosApp,
     "--backend-base-url", expected,
     "--v2-base-url", expectedV2,
+    "--v2-environment", "staging",
     "--presence-base-url", presence,
   ]);
   assert.notEqual(presenceMismatch.status, 0);
@@ -109,6 +114,7 @@ test("release gate rejects Mac and iOS artifacts configured for different author
     CMUX_API_BASE_URL: expected,
     CMUX_IROH_BROKER_BASE_URL: expected,
     CMUX_IROH_V2_BASE_URL: expectedV2,
+    CMUX_IROH_V2_ENVIRONMENT: "staging",
     CMUX_PRESENCE_BASE_URL: presence,
   }, "macOS");
   const matched = run("bash", [
@@ -117,6 +123,7 @@ test("release gate rejects Mac and iOS artifacts configured for different author
     "--ios-app", iosApp,
     "--backend-base-url", expected,
     "--v2-base-url", expectedV2,
+    "--v2-environment", "staging",
     "--presence-base-url", presence,
   ]);
   assert.equal(matched.status, 0, matched.stderr);
