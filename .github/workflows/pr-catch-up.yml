@@ -12,8 +12,8 @@ name: PR catch-up
 # comment about the current head from guard_attribution.py marks a step "red
 # on main too") while missing the green commit. At most CMUX_AUTO_CATCH_UP_MAX
 # (default 15) per run, most recently pushed first. It comments only when it
-# pushed or when a person must act on that head (a conflict outside the
-# generated files, a refused push), once per head and without mentions; an
+# pushed or when a person must act on that head (a conflict it could not
+# resolve, a refused push), once per head and without mentions; an
 # up-to-date branch, an error, a head that moved or a refused merge stay
 # silent, and the selector's ledger artifact stops it from selecting one head
 # more than twice. The trigger is main's own push run, so there is no
@@ -55,7 +55,8 @@ name: PR catch-up
 #   pull request, fetches both parents itself, and pushes only a commit whose
 #   parents are the head and a base on the base branch and whose tree differs
 #   from git's own merge of those parents only in the generated files
-#   (catch_up_pr.py verify). Then it comments and removes the label.
+#   (catch_up_pr.py verify), or in source files it re-derives the same way
+#   the merge job resolved them. Then it comments and removes the label.
 #
 # The merge commit is authored by github-actions[bot], which cannot sign the
 # CLA. Before the branch moves, finish pushes the commit to a scratch ref
@@ -804,6 +805,21 @@ jobs:
           if [[ ! -s "$comment" ]]; then
             echo "Nothing to say on #$PR_NUMBER (${MERGE_STATUS:-no result}, ${PUSH_OUTCOME:-no push})."
             exit 0
+          fi
+          # Two green main runs can both select a head before either comments
+          # (2026-09-27, #14876: two identical comments 26 s apart). This job's
+          # per-PR concurrency group runs them one after another, so the
+          # second sees the first's marker here and stays quiet.
+          if [[ "$AUTO" == true ]]; then
+            marker="$(head -n 1 "$comment")"
+            # Read every page before matching: grep -q stopping early would
+            # SIGPIPE gh, and pipefail would read that as no marker.
+            bodies="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
+              --jq '.[] | select(.user.login == "github-actions[bot]") | .body')"
+            if grep -qxF -- "$marker" <<<"$bodies"; then
+              echo "#$PR_NUMBER already has the comment for this head."
+              exit 0
+            fi
           fi
           gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$comment"
 

@@ -9,11 +9,13 @@ on it turns every open pull request red for a reason its author cannot fix.
 from __future__ import annotations
 
 import importlib.util
+import io
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
@@ -26,6 +28,14 @@ assert spec and spec.loader
 validator = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = validator
 spec.loader.exec_module(validator)
+
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+RUNNER = ROOT / "scripts" / "ci" / "run_python_test_lane.py"
+runner_spec = importlib.util.spec_from_file_location("run_python_test_lane", RUNNER)
+assert runner_spec and runner_spec.loader
+runner = importlib.util.module_from_spec(runner_spec)
+sys.modules[runner_spec.name] = runner
+runner_spec.loader.exec_module(runner)
 
 
 GUARD_WORKFLOW = """\
@@ -321,6 +331,137 @@ class RegistryBlastRadiusTests(unittest.TestCase):
             validator.newly_added_tests(base_tip, root),
             {"tests/test_mine.py"},
         )
+
+
+# Each fake test records its start, then waits until `peers` tests have
+# started (or 5 s pass) so the runner's concurrency is observable.
+LANE_TEST = """\
+import os, pathlib, sys, time
+log = pathlib.Path(os.environ["LANE_LOG"])
+name = pathlib.Path(__file__).stem
+with log.open("a") as stream:
+    stream.write(f"start {name}\\n")
+peers = int(os.environ.get("LANE_PEERS", "0"))
+deadline = time.monotonic() + 5
+while name.startswith("test_par") and time.monotonic() < deadline:
+    if sum(line.startswith("start test_par") for line in log.read_text().splitlines()) >= peers:
+        break
+    time.sleep(0.02)
+with log.open("a") as stream:
+    stream.write(f"end {name}\\n")
+print(f"output from {name}")
+if name.endswith("hang"):
+    time.sleep(60)
+sys.exit(3 if name.endswith("fail") else 0)
+"""
+
+
+class LaneRunnerTests(unittest.TestCase):
+    def run_lane(self, registry: str, names: list[str], *args: str, peers: int) -> tuple[int, list[str], str]:
+        root = Path(tempfile.mkdtemp(prefix="cmux-lane-runner-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        (root / "tests").mkdir()
+        for name in names:
+            (root / "tests" / f"{name}.py").write_text(LANE_TEST, encoding="utf-8")
+        manifest = root / "tests" / "test-execution.toml"
+        manifest.write_text(registry, encoding="utf-8")
+        log = root / "lane.log"
+        log.touch()
+        output = io.StringIO()
+        with mock.patch.object(runner, "ROOT", root), mock.patch.object(runner, "MANIFEST", manifest), \
+                mock.patch.dict(runner.os.environ, {"LANE_LOG": str(log), "LANE_PEERS": str(peers)}), \
+                mock.patch.object(runner.sys, "stdout", output):
+            code = runner.main(list(args))
+        return code, log.read_text().splitlines(), output.getvalue()
+
+    @staticmethod
+    def entry(name: str, lane: str, extra: str = "") -> str:
+        return f'\n[[test]]\npath = "tests/{name}.py"\nlane = "{lane}"\n{extra}'
+
+    def test_jobs_run_tests_concurrently(self) -> None:
+        names = ["test_par_a", "test_par_b", "test_par_c"]
+        registry = "version = 1\n" + "".join(self.entry(name, "lane-a") for name in names)
+        code, log, output = self.run_lane(registry, names, "--lane", "lane-a", "--jobs", "3", peers=3)
+        self.assertEqual(code, 0, output)
+        events = [line.split()[0] for line in log]
+        self.assertEqual(events[:3], ["start"] * 3, log)
+        # Output stays grouped per test, in registry order.
+        self.assertLess(output.index("output from test_par_a"), output.index("==> tests/test_par_b.py"))
+
+    def test_serial_entries_run_alone_before_the_pool(self) -> None:
+        names = ["test_par_a", "test_par_b", "test_serial"]
+        registry = (
+            "version = 1\n"
+            + self.entry("test_par_a", "lane-a")
+            + self.entry("test_serial", "lane-b", "serial = true\n")
+            + self.entry("test_par_b", "lane-b")
+        )
+        code, log, output = self.run_lane(
+            registry, names, "--lane", "lane-a", "--lane", "lane-b", "--jobs", "4", peers=2
+        )
+        self.assertEqual(code, 0, output)
+        self.assertEqual(log[:2], [log[0], "end test_serial"], log)
+        self.assertTrue(log[0].startswith("start test_serial"), log)
+
+    def test_a_failure_reports_every_failing_test_after_running_all(self) -> None:
+        names = ["test_par_fail", "test_par_ok", "test_par_other_fail"]
+        registry = "version = 1\n" + "".join(self.entry(name, "lane-a") for name in names)
+        code, log, output = self.run_lane(registry, names, "--lane", "lane-a", "--jobs", "2", peers=2)
+        self.assertEqual(code, 1)
+        self.assertEqual(sum(line.startswith("end") for line in log), 3, log)
+        self.assertIn("FAILED: tests/test_par_fail.py (exit 3)", output)
+        self.assertIn("FAILED: tests/test_par_other_fail.py (exit 3)", output)
+
+    def test_a_process_start_failure_reports_the_test_and_continues(self) -> None:
+        original_popen = runner.subprocess.Popen
+
+        def start_process(command, **kwargs):
+            if Path(command[1]).stem == "test_start_fail":
+                raise OSError("simulated process creation failure")
+            return original_popen(command, **kwargs)
+
+        for serial in (False, True):
+            with self.subTest(serial=serial):
+                names = ["test_start_fail", "test_ok"]
+                registry = (
+                    "version = 1\n"
+                    + self.entry("test_start_fail", "lane-a", "serial = true\n" if serial else "")
+                    + self.entry("test_ok", "lane-a")
+                )
+                with mock.patch.object(runner.subprocess, "Popen", side_effect=start_process):
+                    code, log, output = self.run_lane(
+                        registry, names, "--lane", "lane-a", "--jobs", "2", peers=0
+                    )
+                self.assertEqual(code, 1)
+                self.assertIn("end test_ok", log)
+                self.assertIn("output from test_ok", output)
+                self.assertIn("simulated process creation failure", output)
+                self.assertIn("FAILED: tests/test_start_fail.py (exit 1)", output)
+                self.assertIn("2 tests in", output)
+                self.assertIn("1 failed", output)
+
+    def test_a_hung_test_is_killed_and_reported(self) -> None:
+        # Neither process waits for a peer; only the deliberate hang reaches
+        # the timeout, regardless of which process the scheduler starts first.
+        names = ["test_hang", "test_ok"]
+        registry = "version = 1\n" + "".join(self.entry(name, "lane-a") for name in names)
+        code, log, output = self.run_lane(
+            registry, names, "--lane", "lane-a", "--jobs", "2", "--timeout", "1", peers=0
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("killed after 1s timeout", output)
+        self.assertIn("FAILED: tests/test_hang.py (exit 124)", output)
+        self.assertIn("output from test_ok", output)
+
+    def test_serial_parses_as_a_toml_boolean(self) -> None:
+        entries = runner.load_registry.__globals__["parse_registry"](
+            'version = 1\n[[test]]\npath = "tests/test_x.py"\nlane = "a"\nserial = true\n', "inline"
+        )
+        self.assertIs(entries[0]["serial"], True)
+
+    def test_workflow_discovery_reads_every_lane_of_one_invocation(self) -> None:
+        workflow = "run: python3 scripts/ci/run_python_test_lane.py --jobs 8 --lane one --lane=two --lane three\n"
+        self.assertEqual(validator.runner_lanes_from_workflow_text(workflow), {"one", "two", "three"})
 
 
 if __name__ == "__main__":
