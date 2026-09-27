@@ -1074,8 +1074,9 @@ def main() -> int:
                 failures = [run for run in earlier if run.get("conclusion") == "failure"]
                 if failures and not any(run.get("conclusion") == "success" for run in earlier):
                     latest = failures[0]
-                    machine = machine_failures(failures)
-                    if machine is not None and len(failures) <= MAX_MACHINE_RETRIES:
+                    # Count first: each failure costs a log download.
+                    machine = machine_failures(failures) if len(failures) <= MAX_MACHINE_RETRIES else None
+                    if machine is not None:
                         print(
                             f"{entry} failed at {commit} before any test started: {machine} "
                             f"({latest['url']}). That was the Mac, not the code, so this "

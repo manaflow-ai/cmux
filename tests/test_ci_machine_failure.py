@@ -28,9 +28,19 @@ class MachineFailureTests(unittest.TestCase):
         for started in (
             "Test Case '-[cmuxUITests.SidebarTests testA]' started.",
             "◇ Test testA() started.",
+            "◇ Test \"Sidebar opens\" started.",
+            "Test case '-[cmuxUITests.SidebarTests testA]' started.",
         ):
             with self.subTest(started=started):
                 self.assertIsNone(machine_failure.reason(AUTOMATION_MODE + "\n" + PREFIX + started))
+
+    def test_an_app_crash_at_launch_is_the_codes_failure(self):
+        crash = PREFIX + (
+            "cmux (4242) encountered an error (Early unexpected exit, operation never finished "
+            "bootstrapping - no restart will be attempted. (Underlying Error: Test crashed with "
+            "signal abrt before starting test execution.))"
+        )
+        self.assertIsNone(machine_failure.reason(crash))
 
     def test_messages_quoted_in_the_script_listing_do_not_count(self):
         listing = PREFIX + "\x1b[36;1m  echo \"::error::screen frame capture failed to start\"\x1b[0m"

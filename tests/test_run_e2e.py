@@ -139,6 +139,8 @@ elif args[:2] == ["run", "watch"]:
     sys.exit(int(os.environ.get("LAUNCHER_WATCH_STATUS", "0")))
 elif args[:2] == ["run", "view"]:
     if "--log-failed" in args:
+        if os.environ.get("LAUNCHER_FAILED_LOG_FAIL"):
+            sys.exit(1)
         print(os.environ.get("LAUNCHER_FAILED_LOG", ""))
     else:
         print("failure")
@@ -746,6 +748,23 @@ class FocusedLauncherTests(unittest.TestCase):
         result = self.launch(
             "cmuxTests/ExampleTests",
             LAUNCHER_PRIOR_RUNS=self._prior("failure"), LAUNCHER_FAILED_LOG=log,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already failed", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_two_machine_failures_are_still_redispatched(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure", count=2), LAUNCHER_FAILED_LOG=self.MACHINE_LOG,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("before any test started", result.stdout)
+
+    def test_an_unreadable_log_is_refused(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure"), LAUNCHER_FAILED_LOG_FAIL="1",
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("already failed", result.stderr)

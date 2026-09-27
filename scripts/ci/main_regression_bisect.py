@@ -668,7 +668,12 @@ def poll_run(repo: str, run_id: int) -> str:
             ]
 
         def failed_log() -> str:
-            return gh(["run", "view", str(run_id), "--repo", repo, "--log-failed"])
+            # An unreadable log keeps the answer this had before logs were
+            # read: the test step failed, so it reproduced.
+            try:
+                return gh(["run", "view", str(run_id), "--repo", repo, "--log-failed"])
+            except subprocess.CalledProcessError:
+                return ""
 
         return classify(run, failed_steps, failed_log)
     except (subprocess.CalledProcessError, json.JSONDecodeError) as error:
