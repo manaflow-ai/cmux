@@ -91,6 +91,9 @@ final class TerminalPasswordInputIndicatorView: NSView {
     private(set) var state = TerminalPasswordInputIndicatorState()
     private var showsIndicator = true
     private var showsDots = false
+    /// Registered only while a prompt is active, so settings toggled during a
+    /// prompt apply at once without every idle terminal observing defaults.
+    private var settingsObserver: NSObjectProtocol?
 
     override var acceptsFirstResponder: Bool { false }
 
@@ -162,6 +165,12 @@ final class TerminalPasswordInputIndicatorView: NSView {
         fatalError("init(coder:) not implemented")
     }
 
+    deinit {
+        if let settingsObserver {
+            NotificationCenter.default.removeObserver(settingsObserver)
+        }
+    }
+
     /// True when a keystroke would change what the badge shows. The key path
     /// checks this before classifying an event, so typing outside a password
     /// prompt pays only this Boolean read.
@@ -172,12 +181,42 @@ final class TerminalPasswordInputIndicatorView: NSView {
     /// Applies Ghostty's password-input (echo off) state for this surface.
     func setEchoDisabled(_ echoDisabled: Bool) {
         if echoDisabled {
-            let terminal = TerminalCatalogSection()
-            showsIndicator = terminal.showPasswordInputIndicator.value(in: .standard)
-            showsDots = terminal.showPasswordInputDots.value(in: .standard)
+            reloadSettings()
         }
+        observeSettings(echoDisabled)
         state.setEchoDisabled(echoDisabled)
         render()
+    }
+
+    /// Rereads both settings. Returns `true` when either changed.
+    @discardableResult
+    private func reloadSettings() -> Bool {
+        let terminal = TerminalCatalogSection()
+        let indicator = terminal.showPasswordInputIndicator.value(in: .standard)
+        let dots = terminal.showPasswordInputDots.value(in: .standard)
+        guard indicator != showsIndicator || dots != showsDots else { return false }
+        showsIndicator = indicator
+        showsDots = dots
+        return true
+    }
+
+    private func observeSettings(_ observe: Bool) {
+        if observe {
+            guard settingsObserver == nil else { return }
+            settingsObserver = NotificationCenter.default.addObserver(
+                forName: UserDefaults.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.reloadSettings() else { return }
+                    self.render()
+                }
+            }
+        } else if let settingsObserver {
+            NotificationCenter.default.removeObserver(settingsObserver)
+            self.settingsObserver = nil
+        }
     }
 
     func record(_ keystroke: TerminalPasswordInputIndicatorState.Keystroke) {
@@ -208,6 +247,12 @@ extension GhosttySurfaceScrollView {
             return
         }
         passwordInputIndicatorView.setEchoDisabled(active)
+    }
+
+    /// The released runtime never reports echo back on, so clear the badge
+    /// here; a replacement runtime starts with echo on.
+    func terminalSurfaceRuntimeDidRelease() {
+        setPasswordInputActive(false)
     }
 }
 
