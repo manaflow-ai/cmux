@@ -1,6 +1,7 @@
 public import AppKit
 import SwiftUI
 import CmuxCanvas
+public import CmuxFoundation
 /// The AppKit root of the canvas layout: owns the scroll view, document,
 /// pane views, content mounts, guides, drag/resize sessions, document
 /// sizing, and the explicit offscreen-pane lifecycle.
@@ -22,6 +23,14 @@ public final class CanvasRootView: NSView {
     let guidesView = CanvasGuidesView()
     let minimapView = CanvasMinimapView()
     var isMinimapInteractionActive = false
+    /// Accent for pane focus borders, guides and the minimap. The host
+    /// passes the resolved cmux accent on every update.
+    public var accentColor = CmuxAccentColor() {
+        didSet {
+            guard accentColor != oldValue else { return }
+            applyAccentColor()
+        }
+    }
     var paneViews: [CanvasPaneID: CanvasPaneView] = [:]
     /// One mount per pane: its selected tab's content. Keyed by panel id.
     private var mounts: [UUID: any CanvasPaneContentMounting] = [:]
@@ -58,7 +67,12 @@ public final class CanvasRootView: NSView {
     private var pendingViewportRestore: (canvasCenter: CGPoint, magnification: CGFloat)?
     var isDiscreteZoomAnimationActive = false
     var discreteZoomAnimationGeneration: UInt64 = 0
-    var shouldReduceMotionForDiscreteZoom: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    /// Reduce Motion gate for every canvas animation (pans, pane frames,
+    /// discrete zoom). Tests replace it.
+    var shouldReduceMotion: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    /// Called with the duration whenever a viewport pan or pane-frame
+    /// animation actually starts. Tests observe it.
+    var onMotionAnimationStarted: ((TimeInterval) -> Void)?
     /// True while programmatically applying a saved viewport, so the scroll
     /// events that causes don't overwrite the saved value with transients.
     private var isApplyingSavedViewport = false
@@ -66,6 +80,8 @@ public final class CanvasRootView: NSView {
     /// panes don't flicker on at the edge mid-flick.
     private static let lifecycleMarginFraction: CGFloat = 0.5
     static let revealMargin: CGFloat = 24
+    static let panAnimationDuration: TimeInterval = 0.28
+    static let paneFrameAnimationDuration: TimeInterval = 0.25
     static let overviewPadding: CGFloat = 48
     struct DragSession {
         let paneID: CanvasPaneID
@@ -138,6 +154,14 @@ public final class CanvasRootView: NSView {
     @available(*, unavailable)
     public required init?(coder: NSCoder) {
         nil
+    }
+
+    private func applyAccentColor() {
+        guidesView.accentColor = accentColor
+        minimapView.accentColor = accentColor
+        for paneView in paneViews.values {
+            paneView.accentColor = accentColor
+        }
     }
 
     private func applyTheme() {
@@ -264,8 +288,12 @@ public final class CanvasRootView: NSView {
             // viewport so switching back lands exactly where the user left off.
             pendingViewportRestore = saved
             applyPendingViewportRestoreIfPossible()
-        } else if let revealTarget = added.last {
-            revealPane(revealTarget, animated: true)
+        } else if let focusedPanelId, added.contains(focusedPanelId) {
+            // A pane that arrives through sync was created off the canvas
+            // gesture path (agent, CLI, socket). It pulls the viewport only
+            // when it also took focus, and without animation; one that did
+            // not take focus leaves the user's view where it is.
+            revealPane(focusedPanelId, animated: false)
         }
     }
 
@@ -295,6 +323,7 @@ public final class CanvasRootView: NSView {
                 paneView = CanvasPaneView(paneID: pane.id)
                 paneView.delegate = self
                 paneView.paneBackground = themeProvider().paneBackground
+                paneView.accentColor = accentColor
                 documentView.addSubview(paneView)
                 paneViews[pane.id] = paneView
             }
@@ -506,10 +535,17 @@ public final class CanvasRootView: NSView {
         setClipOrigin(target, animated: animated)
     }
 
+    /// Whether a requested animation should run. Reduce Motion turns every
+    /// canvas pan and pane-frame animation into an immediate move.
+    func shouldAnimate(_ requested: Bool) -> Bool {
+        requested && !shouldReduceMotion()
+    }
+
     func setClipOrigin(_ origin: CGPoint, animated: Bool) {
-        if animated {
+        if shouldAnimate(animated) {
+            onMotionAnimationStarted?(Self.panAnimationDuration)
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.28
+                context.duration = Self.panAnimationDuration
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 context.allowsImplicitAnimation = true
                 scrollView.contentView.animator().setBoundsOrigin(origin)

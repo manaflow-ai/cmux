@@ -47,8 +47,16 @@ struct Args {
     native_event: String,
 }
 
+// cmux-tui embeds this file as a module and enters through `run_cli`.
+#[allow(dead_code)]
 fn main() -> ExitCode {
-    let arguments = env::args().skip(1).collect::<Vec<_>>();
+    run_cli(env::args().skip(1).collect(), &[])
+}
+
+/// Runs the helper with `arguments` (argv without the program name).
+/// `exe_prefix` is the argv that re-enters this mode through `current_exe`:
+/// empty for the standalone helper, `["__agent-hook"]` inside cmux-tui.
+pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
     if arguments.len() == 1 && arguments[0] == DETACHED_MODE_ARG {
         return match detached_child_from_stdin() {
             Ok(()) => ExitCode::SUCCESS,
@@ -62,7 +70,7 @@ fn main() -> ExitCode {
         println!("Usage: cmux-tui-hook <agent> <native-event>");
         return ExitCode::SUCCESS;
     }
-    match parse_args(arguments).and_then(run) {
+    match parse_args(arguments).and_then(|args| run(args, exe_prefix)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("cmux-tui-hook: {error:#}");
@@ -71,7 +79,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(args: Args) -> anyhow::Result<()> {
+fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
     if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
         drain_native_payload()?;
         return Ok(());
@@ -94,7 +102,7 @@ fn run(args: Args) -> anyhow::Result<()> {
     let event = serde_json::to_value(ingress)?;
     let (request_id, encoded) = encode_request(event)?;
     let handoff = handoff_wait(&args.source, &args.native_event);
-    match detach::append_detached(&socket, &request_id, &encoded, handoff)? {
+    match detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix)? {
         Handoff::Sent => Ok(()),
         Handoff::ChildExited => bail!("hook child gave up before writing the journal request"),
         Handoff::TimedOut => {
@@ -547,6 +555,7 @@ mod detach {
         request_id: &str,
         encoded: &[u8],
         handoff_wait: std::time::Duration,
+        _exe_prefix: &[&str],
     ) -> anyhow::Result<Handoff> {
         let mut fds = [0_i32; 2];
         // SAFETY: `fds` is a valid two-element array for pipe(2) to fill.
@@ -662,11 +671,13 @@ mod detach {
         request_id: &str,
         encoded: &[u8],
         handoff_wait: Duration,
+        exe_prefix: &[&str],
     ) -> anyhow::Result<Handoff> {
         use std::os::unix::process::CommandExt;
         let exe = std::env::current_exe().context("locate hook helper")?;
         let mut command = Command::new(exe);
         command
+            .args(exe_prefix)
             .arg(DETACHED_MODE_ARG)
             .env("CMUX_TUI_SOCKET", socket)
             .stdin(Stdio::piped())
@@ -738,10 +749,12 @@ mod detach {
         request_id: &str,
         encoded: &[u8],
         handoff_wait: Duration,
+        exe_prefix: &[&str],
     ) -> anyhow::Result<Handoff> {
         let exe = std::env::current_exe().context("locate hook helper")?;
         let mut command = Command::new(exe);
         command
+            .args(exe_prefix)
             .arg(DETACHED_MODE_ARG)
             .env("CMUX_TUI_SOCKET", socket)
             .stdin(Stdio::piped())

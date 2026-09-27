@@ -136,11 +136,13 @@ extension GhosttyApp {
                 .map(\.rawValue)
                 .joined(separator: ",")
 
-            let preparedContent = await TerminalImageTransferPlanner.prepare(
-                pasteboard: pasteboard,
-                mode: .paste,
-                using: preparationService
-            )
+            let preparationOutcome = await TerminalImageTransferPlanner
+                .prepareReportingFailure(
+                    pasteboard: pasteboard,
+                    mode: .paste,
+                    using: preparationService
+                )
+            let preparedContent = preparationOutcome.content
             pasteboardReadLease.finish()
 
             guard !operation.isCancelled else {
@@ -170,8 +172,15 @@ extension GhosttyApp {
             )
 #endif
 
+            // The beep for a timed-out worker already played in the
+            // preparation service; an oversized image was silent. Both now
+            // also get a brief notice over the pasting terminal.
+            if let notice = TerminalPasteFailureNotice.notice(for: preparationOutcome) {
+                requestTerminalSurface.hostedView.showPasteFailureNotice(notice)
+            }
+
             switch preparedContent {
-            case .reject:
+            case .reject, .rejectOversizedImage:
                 completeClipboardRequest(with: "")
             case .insertText(let text):
                 completeClipboardRequest(with: text)

@@ -1,6 +1,8 @@
+import CmuxFoundation
 import SwiftUI
 
 struct SidebarWorkspaceTopDropIndicator: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let isVisible: Bool
     let isFirstRow: Bool
     let rowSpacing: CGFloat
@@ -24,7 +26,7 @@ struct SidebarWorkspaceTopDropIndicator: View {
     var body: some View {
         if isVisible {
             Rectangle()
-                .fill(cmuxAccentColor())
+                .fill(cmuxAccent.color)
                 .frame(height: SidebarReorderIndicatorView.thickness)
                 .padding(.leading, Self.horizontalPadding + max(leadingInset, 0))
                 .padding(.trailing, Self.horizontalPadding)
