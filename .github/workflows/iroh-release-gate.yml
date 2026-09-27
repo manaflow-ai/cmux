@@ -32,6 +32,14 @@ on:
         required: false
         default: https://cmux-v2-staging.debussy.workers.dev
         type: string
+      soak_profile:
+        description: workload duration for automatic and relay-only verification
+        required: false
+        default: stress
+        type: choice
+        options:
+          - basic
+          - stress
 
 permissions:
   contents: read
@@ -210,7 +218,7 @@ jobs:
             GATE_ARGS+=(--v2-base-url "${{ inputs.v2_base_url }}")
           fi
           if [[ "${{ matrix.mode }}" == automatic || "${{ matrix.mode }}" == relay-only ]]; then
-            GATE_ARGS+=(--soak-profile stress)
+            GATE_ARGS+=(--soak-profile "${{ inputs.soak_profile }}")
           fi
           ./scripts/run-iroh-release-gate.sh "${GATE_ARGS[@]}"
 
@@ -222,6 +230,9 @@ jobs:
           path: |
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}.json
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-mac.cmuxdiag
+            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-ios-failure.log
+            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-ios-failure.png
+            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-mac-failure.cmuxdiag
           if-no-files-found: warn
           retention-days: 7
 

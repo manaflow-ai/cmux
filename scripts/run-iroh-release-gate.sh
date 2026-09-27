@@ -355,6 +355,28 @@ cleanup() {
     rm -f "$UI_CAPTURE_DIR/terminal.png"
     rmdir "$UI_CAPTURE_DIR" >/dev/null 2>&1 || true
   fi
+  # Preserve diagnostics when the app never emits a report. The normal
+  # success path captures these below after the report arrives, but an early
+  # readiness failure used to delete the only useful endpoint evidence during
+  # cleanup. Outputs are redacted and best-effort, so this cannot change the
+  # transport verdict or block teardown.
+  if [[ "$exit_code" -ne 0 && -n "$REPORT_OUTPUT" ]]; then
+    mkdir -p "$(dirname "$REPORT_OUTPUT")"
+    failure_prefix="${REPORT_OUTPUT%.json}"
+    if [[ -n "$SIMULATOR_ID" ]]; then
+      xcrun simctl io "$SIMULATOR_ID" screenshot "${failure_prefix}-ios-failure.png" >/dev/null 2>&1 || true
+      xcrun simctl spawn "$SIMULATOR_ID" log show --style compact --last 10m \
+        --predicate 'subsystem == "dev.cmux.ios"' 2>/dev/null \
+        | sed -E 's/[[:alnum:]._%+-]+@[[:alnum:].-]+\.[[:alpha:]]+/<redacted-email>/g; s/[A-Za-z0-9_-]{24,}/<redacted-token>/g' \
+        > "${failure_prefix}-ios-failure.log" || true
+    fi
+    if [[ -n "$TAG" ]]; then
+      if ! CMUX_TAG="$TAG" "$SCRIPT_DIR/cmux-debug-cli.sh" iroh-diag \
+        > "${failure_prefix}-mac-failure.cmuxdiag" 2>/dev/null; then
+        rm -f "${failure_prefix}-mac-failure.cmuxdiag"
+      fi
+    fi
+  fi
   # The helper commits protected recovery state immediately after Stack creates
   # the user. Retry cleanup whenever that state exists, including a partial
   # create whose session-token step failed.
