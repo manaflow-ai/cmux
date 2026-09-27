@@ -142,6 +142,9 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.autoResumeAgentSessions",
         "terminal.copyOnSelect",
         "terminal.reflowHardWrapOnCopy",
+        "terminal.confirmUnsafePaste",
+        "terminal.showPasswordInputIndicator",
+        "terminal.showPasswordInputDots",
         "terminal.textEditingGestures",
         "terminal.resumeCommands",
         "terminal.sessionContentAlignment",
@@ -155,6 +158,7 @@ struct SettingsRowAnchorResolutionTests {
         "workspaceColors.indicatorStyle",
         "workspaceColors.notificationBadgeColor",
         "workspaceColors.selectionColor",
+        "workspaceColors.subtleSelection",
     ]
 
     /// Searchable rows anchored with an explicit `settingsSearchAnchors`

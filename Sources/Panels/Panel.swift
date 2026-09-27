@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import CmuxFoundation
 
 /// Type of panel content
 public enum PanelType: String, Codable, CaseIterable, Sendable {
@@ -210,7 +211,7 @@ enum FocusFlashCurve: Equatable {
 enum PanelOverlayRingMetrics {
     static let inset: CGFloat = 2
     static let cornerRadius: CGFloat = 6
-    static let lineWidth: CGFloat = 2.5
+    static let lineWidth: CGFloat = .paneIndicatorStrokeWidth
 
     static func pathRect(in bounds: CGRect) -> CGRect {
         bounds.insetBy(dx: inset, dy: inset)

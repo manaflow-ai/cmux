@@ -125,13 +125,4 @@ struct SettingsSectionMountModelTests {
         model.pin(second)
         #expect(model.pinnedScroll == second)
     }
-
-    @Test func isAboveFollowsDisplayOrder() {
-        let model = SettingsSectionMountModel(initial: .account, order: order)
-        #expect(model.isAbove(.account, .reset))
-        #expect(!model.isAbove(.reset, .account))
-        #expect(!model.isAbove(.app, .app))
-        #expect(model.isAbove(.terminal, .browserImport))
-        #expect(!model.isAbove(.cloudMachines, .reset))
-    }
 }

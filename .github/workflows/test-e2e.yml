@@ -532,7 +532,14 @@ jobs:
           # too: any other value invalidates every compile the seed carries.
           DERIVED_DATA_PATH="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission"
           CACHE_PATH="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas"
-          rm -rf -- "$DERIVED_DATA_PATH" "$CACHE_PATH"
+          # A leftover indexer can refill the tree while `rm -rf` walks it
+          # ("Directory not empty", run 36317930241). Rename first, as
+          # scripts/ci/clear-dirs.sh does; inline, because the tested tree
+          # may predate that helper.
+          for dir in "$DERIVED_DATA_PATH" "$CACHE_PATH"; do
+            if [ -e "$dir" ] || [ -L "$dir" ]; then mv -- "$dir" "$dir.stale.$GITHUB_RUN_ID.$$"; fi
+            rm -rf -- "$dir".stale.* 2>/dev/null || true
+          done
           mkdir -p "$DERIVED_DATA_PATH" "$CACHE_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
           echo "CMUX_E2E_COMPILATION_CACHE=$CACHE_PATH" >> "$GITHUB_ENV"
@@ -1000,8 +1007,12 @@ jobs:
           esac
           case "$derived_data_path" in
             "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission")
-              rm -rf -- "$derived_data_path"
-              if [ -n "$cache_path" ]; then rm -rf -- "$cache_path"; fi
+              # Rename first, like the prepare step, so a leftover indexer
+              # cannot turn a finished run red with "Directory not empty".
+              for dir in "$derived_data_path" ${cache_path:+"$cache_path"}; do
+                if [ -e "$dir" ] || [ -L "$dir" ]; then mv -- "$dir" "$dir.stale.$GITHUB_RUN_ID.$$"; fi
+                rm -rf -- "$dir".stale.* 2>/dev/null || true
+              done
               # The tests run next, in this job, from a DerivedData of their
               # own. Hand the variable over empty, so their cleanup finds
               # nothing to refuse when a failure skips their preparation.
@@ -1068,7 +1079,9 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           path: .e2e-workflow
-          sparse-checkout: .github/actions/e2e-run-tests
+          sparse-checkout: |
+            .github/actions/e2e-run-tests
+            scripts/ci/e2e-frames.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -1245,6 +1258,31 @@ jobs:
           artifact-id: ${{ needs.build.outputs.artifact_id }}
           path: ${{ runner.temp }}/app-host-products
 
+      # On an owned Mac the tests share its one console session with every
+      # other GUI job, so they need glaeda's gui token. This job runs only when
+      # build could not get it, so asking at job start meant waiting glaeda's
+      # 240 s for the same busy token and then being refused. glaeda's hook
+      # gives this job none at job start (class gui-step); the token is taken
+      # here, after the product download and before the tests' restore takes
+      # the producer's canonical root (the order every GUI job takes them in),
+      # and held to the end of the job. An older hook gave the token at job
+      # start, so take-gui returns 0 at once; one without take-gui exits 2.
+      # Blacksmith has no helper.
+      - name: Take this Mac's gui token
+        run: |
+          set -uo pipefail
+          helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+          [ -x "$helper" ] || exit 0
+          status=0
+          "$helper" take-gui --wait 900 || status=$?
+          case "$status" in
+            0|2) ;;
+            *)
+              echo "::error::Could not take this Mac's gui token for the E2E tests (take-gui exited $status)."
+              exit 1
+              ;;
+          esac
+
       # The steps come from this workflow's revision, not the tested one, which
       # may predate them.
       - name: Checkout the E2E test steps
@@ -1252,7 +1290,9 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           path: .e2e-workflow
-          sparse-checkout: .github/actions/e2e-run-tests
+          sparse-checkout: |
+            .github/actions/e2e-run-tests
+            scripts/ci/e2e-frames.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 

@@ -22,6 +22,11 @@ description: "Socket command threading and focus policy for cmux CLI/socket work
 - Explicit focus-intent commands include `window.focus`, `workspace.select/next/previous/last`, `surface.focus`, `pane.focus/last`, browser focus commands, and v1 focus equivalents.
 - All non-focus commands should preserve the current user focus context while still applying data/model changes.
 
-## Detailed reference
+## Remote relay authorization
+
+Every v2 method is a potential `cmux ssh` relay payload. `RemoteRelayCommandPolicy` denies by default; allowlisting a method needs the security analysis and policy tests in [remote relay authorization](references/remote-relay-authorization.md).
+
+## Detailed references
 
 - Read [references/threading-and-focus.md](references/threading-and-focus.md) when adding a command, changing command execution context, or deciding whether focus changes are allowed.
+- Read [references/remote-relay-authorization.md](references/remote-relay-authorization.md) when adding or changing a v2 method, a remote CLI command, or the relay policy.

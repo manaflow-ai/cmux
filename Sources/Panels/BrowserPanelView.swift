@@ -538,6 +538,12 @@ struct BrowserPanelView: View {
         )
     }
 
+    private var reloadOrStopButtonLabel: String {
+        panel.isLoading
+            ? String(localized: "browser.stop", defaultValue: "Stop")
+            : String(localized: "browser.reload", defaultValue: "Reload")
+    }
+
     private var developerToolsButtonHelp: String {
         let base = String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools")
         let _ = keyboardShortcutSettingsObserver.revision
@@ -1182,7 +1188,7 @@ struct BrowserPanelView: View {
 
             omnibarField
                 .accessibilityIdentifier("BrowserOmnibarPill")
-                .accessibilityLabel("Browser omnibar")
+                .accessibilityLabel(String(localized: "browser.omnibar.accessibilityLabel", defaultValue: "Address and search bar"))
 
             HStack(spacing: browserToolbarAccessorySpacing) {
                 if shouldShowToolbarImportHintChip {
@@ -1263,6 +1269,7 @@ struct BrowserPanelView: View {
             .disabled(!panel.canGoBack)
             .opacity(panel.canGoBack ? 1.0 : 0.4)
             .safeHelp(String(localized: "browser.goBack", defaultValue: "Go Back"))
+            .accessibilityLabel(String(localized: "browser.goBack", defaultValue: "Go Back"))
 
             Button(action: {
                 #if DEBUG
@@ -1278,6 +1285,7 @@ struct BrowserPanelView: View {
             .disabled(!panel.canGoForward)
             .opacity(panel.canGoForward ? 1.0 : 0.4)
             .safeHelp(String(localized: "browser.goForward", defaultValue: "Go Forward"))
+            .accessibilityLabel(String(localized: "browser.goForward", defaultValue: "Go Forward"))
 
             Button(action: handleReloadOrStopButtonAction) {
                 CmuxSystemSymbolImage(systemName: panel.isLoading ? "xmark" : "arrow.clockwise", pointSize: chromeMetrics.navigationIconFontSize, weight: .medium, tint: .primary)
@@ -1293,7 +1301,8 @@ struct BrowserPanelView: View {
                     handleHardRefreshButtonAction()
                 }
             }
-            .safeHelp(panel.isLoading ? String(localized: "browser.stop", defaultValue: "Stop") : String(localized: "browser.reload", defaultValue: "Reload"))
+            .safeHelp(reloadOrStopButtonLabel)
+            .accessibilityLabel(reloadOrStopButtonLabel)
 
             BrowserPDFDocumentToolbarButtons(
                 panel: panel,
@@ -1508,6 +1517,7 @@ struct BrowserPanelView: View {
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .safeHelp(developerToolsButtonHelp)
+        .accessibilityLabel(String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools"))
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
     }
 
@@ -1523,16 +1533,19 @@ struct BrowserPanelView: View {
         .popover(isPresented: $isBrowserProfileMenuPresented, arrowEdge: .bottom) {
             browserProfilePopover.browserChromePopoverAppearance(resolvedColorScheme)
         }
-        .safeHelp(
-            String(
-                format: String(
-                    localized: "browser.profile.buttonHelp",
-                    defaultValue: "Browser Profile: %@"
-                ),
-                panel.profileDisplayName
-            )
-        )
+        .safeHelp(browserProfileButtonLabel)
+        .accessibilityLabel(browserProfileButtonLabel)
         .accessibilityIdentifier("BrowserProfileButton")
+    }
+
+    private var browserProfileButtonLabel: String {
+        String(
+            format: String(
+                localized: "browser.profile.buttonHelp",
+                defaultValue: "Browser Profile: %@"
+            ),
+            panel.profileDisplayName
+        )
     }
 
     /// Low-frequency browser actions that do not need dedicated toolbar space.
@@ -1610,16 +1623,19 @@ struct BrowserPanelView: View {
         .popover(isPresented: $isBrowserThemeMenuPresented, arrowEdge: .bottom) {
             browserThemeModePopover.browserChromePopoverAppearance(resolvedColorScheme)
         }
-        .safeHelp(
-            String(
-                format: String(
-                    localized: "browser.theme.buttonHelp",
-                    defaultValue: "Browser Theme: %@"
-                ),
-                browserThemeMode.displayName
-            )
-        )
+        .safeHelp(browserThemeModeButtonLabel)
+        .accessibilityLabel(browserThemeModeButtonLabel)
         .accessibilityIdentifier("BrowserThemeModeButton")
+    }
+
+    private var browserThemeModeButtonLabel: String {
+        String(
+            format: String(
+                localized: "browser.theme.buttonHelp",
+                defaultValue: "Browser Theme: %@"
+            ),
+            browserThemeMode.displayName
+        )
     }
 
     private var browserImportHintToolbarChip: some View {
@@ -5411,11 +5427,8 @@ struct OmnibarSuggestionsView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("BrowserOmnibarSuggestions.Row.\(idx)")
-                .accessibilityValue(
-                    idx == selectedIndex
-                        ? "selected \(item.listText)"
-                        : item.listText
-                )
+                .accessibilityValue(item.listText)
+                .accessibilityAddTraits(idx == selectedIndex ? .isSelected : [])
                 .onHover { hovering in
                     if hovering, idx != selectedIndex, isPointerDrivenSelectionEvent {
                         onHighlight(idx)
