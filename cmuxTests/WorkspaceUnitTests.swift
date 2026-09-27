@@ -4729,6 +4729,43 @@ final class WorkspaceTeardownTests: XCTestCase {
 #endif
     }
 
+    func testPortalReconcileMovesUnfocusedDimWithFocus() throws {
+#if DEBUG
+        let workspace = Workspace()
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let firstPanel = try XCTUnwrap(workspace.terminalPanel(for: firstPanelId))
+        let splitPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
+        )
+        workspace.focusPanel(firstPanelId)
+        XCTAssertEqual(workspace.focusedPanelId, firstPanelId)
+
+        // The SwiftUI hosts last rendered the split as focused and have not had
+        // their next portal turn yet.
+        firstPanel.hostedView.setInactiveOverlay(color: .black, opacity: 0.3, visible: true)
+        splitPanel.hostedView.setInactiveOverlay(color: .black, opacity: 0.3, visible: false)
+        workspace.debugReconcileTerminalPortalVisibilityForTesting()
+        XCTAssertTrue(
+            firstPanel.hostedView.debugInactiveOverlayState().isHidden,
+            "The focused terminal must lose its dim in the same pass that activates it"
+        )
+        XCTAssertFalse(splitPanel.hostedView.debugInactiveOverlayState().isHidden)
+
+        // A background tab keeps the dim it got while hidden until it is revealed.
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let backgroundTab = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
+        backgroundTab.hostedView.setInactiveOverlay(color: .black, opacity: 0.3, visible: true)
+        workspace.focusPanel(backgroundTab.id)
+        workspace.debugReconcileTerminalPortalVisibilityForTesting()
+        XCTAssertTrue(
+            backgroundTab.hostedView.debugInactiveOverlayState().isHidden,
+            "A revealed tab must not show the dim it got while hidden"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testSelectingWorkspaceTodoPaneHidesDeselectedTerminalPortal() throws {
         let workspace = Workspace()
         let terminalPanelId = try XCTUnwrap(workspace.focusedPanelId)
