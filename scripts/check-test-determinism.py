@@ -32,7 +32,8 @@ Detectors (all line/regex heuristics, never an AST):
   This is the "sleep as synchronization" ban. Deadline-bounded polls and
   scenario-pacing sleeps with no trailing assert are allowed.
 - yield-count-poll (Swift): `for _ in 0..<N { ... await Task.yield() ... }`
-  that exits on a condition (`break`/`return`) and carries no deadline. N
+  (N a literal or a named bound such as a `maxYields` parameter) that
+  exits on a condition (`break`/`return`) and carries no deadline. N
   yields is however long N reschedules take, so the bound tightens exactly
   when the runner is busy and turns a slow pass into a failure. Loops that
   already check a deadline, drain yields with no condition, or exit only on
@@ -3688,10 +3689,11 @@ def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bo
     return False
 
 
-# `for _ in 0..<100 {` / `for _ in 1...256 {`: a loop bounded only by a literal
-# iteration count. A named loop variable means per-iteration work, not a poll.
+# `for _ in 0..<100 {` / `for _ in 1...256 {` / `for _ in 0..<maxYields {`: a
+# loop bounded only by an iteration count, literal or named. A named loop
+# variable means per-iteration work, not a poll.
 _YIELD_COUNT_LOOP_HEADER = re.compile(
-    r"^\s*for\s+_\s+in\s+\(?\s*\d[\d_]*\s*(?:\.\.<|\.\.\.)\s*\d[\d_]*\s*\)?\s*\{"
+    r"^\s*for\s+_\s+in\s+\(?\s*\d[\d_]*\s*(?:\.\.<|\.\.\.)\s*(?:\d[\d_]*|[A-Za-z_]\w*)\s*\)?\s*\{"
 )
 _TASK_YIELD = re.compile(r"\bawait\s+Task\.yield\(\s*\)")
 _POLL_EXIT = re.compile(r"\b(?:break|return)\b")
@@ -4969,6 +4971,22 @@ def _self_test() -> int:
         (
             "cmuxTests/yield_poll_one_line.swift",
             "for _ in 0..<20 { if model.isReady { break }; await Task.yield() }\n",
+            {RULE_YIELD_COUNT_POLL},
+        ),
+        # A yield bound passed in as a parameter is still a count, not a
+        # deadline. CmuxSidebarGit's shared reader helpers hid 5_000-yield
+        # polls behind `maxYields` and failed in 0.09 s on a loaded runner.
+        (
+            "Packages/macOS/Kit/Tests/KitTests/yield_poll_param.swift",
+            (
+                "    func waitForProbe(maxYields: Int = 5_000) async -> Bool {\n"
+                "        for _ in 0..<maxYields {\n"
+                "            if probed.count >= 1 { return true }\n"
+                "            await Task.yield()\n"
+                "        }\n"
+                "        return false\n"
+                "    }\n"
+            ),
             {RULE_YIELD_COUNT_POLL},
         ),
     ]

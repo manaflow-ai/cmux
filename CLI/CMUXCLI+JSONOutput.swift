@@ -11,6 +11,21 @@ extension CMUXCLI {
         publicSurfaceResumePayload(object, routed: containsSubrouterRouting(object))
     }
 
+    /// Removes private Subrouter routing metadata from a `surface.list` payload.
+    ///
+    /// Each listed surface is redacted on its own, so a Subrouter-routed surface
+    /// never hides the custom Codex path of an unrelated surface in the same list.
+    func publicSurfaceListPayload(_ payload: [String: Any]) -> Any {
+        guard let surfaces = payload["surfaces"] as? [Any] else {
+            return publicSurfaceResumePayload(payload)
+        }
+        var rest = payload
+        rest.removeValue(forKey: "surfaces")
+        var selected = publicSurfaceResumePayload(rest) as? [String: Any] ?? rest
+        selected["surfaces"] = surfaces.map { publicSurfaceResumePayload($0) }
+        return selected
+    }
+
     private func publicSurfaceResumePayload(_ object: Any, routed: Bool) -> Any {
         let isPrivateKey = { (key: String) in
             self.isPrivateSubrouterRoutingKey(key, routed: routed)

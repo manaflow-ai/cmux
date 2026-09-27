@@ -1,6 +1,12 @@
 {
   "app_rebuild_units": 1000,
-  "fitted_at": "2026-09-26T02:44:17Z",
+  "calibrated": {
+    "days": 14,
+    "from": "2026-09-26T03:03:51Z",
+    "rows": 243,
+    "to": "2026-09-27T09:08:53Z"
+  },
+  "fitted_at": "2026-09-27T09:13:25Z",
   "hot_files": [
     "Sources/DockPanelView.swift",
     "Sources/Panels/BrowserPanel.swift",
@@ -114,11 +120,11 @@
     }
   },
   "misclassified": {
-    "rows": 27,
-    "share": 0.121
+    "rows": 24,
+    "share": 0.099
   },
   "near_app_swift_files": 5,
-  "rows": 223,
+  "rows": 243,
   "start_classes": {
     "base": {
       "by_job_tier": {
@@ -177,25 +183,75 @@
   },
   "tiers": {
     "far": {
-      "mean": 276.1,
-      "n": 45,
-      "p50": 266.5,
-      "p90": 382.3,
-      "rebuilt": 3
+      "mean": 212.5,
+      "n": 22,
+      "p50": 206.1,
+      "p90": 334.5,
+      "rebuilt": 2
     },
     "near": {
-      "mean": 157.4,
-      "n": 56,
-      "p50": 140.1,
-      "p90": 269.0,
-      "rebuilt": 1
+      "mean": 145.9,
+      "n": 98,
+      "p50": 105.3,
+      "p90": 278.4,
+      "rebuilt": 7
     },
     "rebuild": {
-      "mean": 385.8,
-      "n": 122,
-      "p50": 400.7,
-      "p90": 494.5,
-      "rebuilt": 99
+      "mean": 382.8,
+      "n": 123,
+      "p50": 373.4,
+      "p90": 490.1,
+      "rebuilt": 108
+    }
+  },
+  "tiers_by_start": {
+    "far": {
+      "kept": {
+        "mean": 167.0,
+        "n": 10,
+        "p50": 120.9,
+        "p90": 261.7,
+        "rebuilt": 1
+      },
+      "seed": {
+        "mean": 250.5,
+        "n": 12,
+        "p50": 246.5,
+        "p90": 334.5,
+        "rebuilt": 1
+      }
+    },
+    "near": {
+      "kept": {
+        "mean": 108.7,
+        "n": 44,
+        "p50": 91.1,
+        "p90": 226.0,
+        "rebuilt": 3
+      },
+      "seed": {
+        "mean": 176.1,
+        "n": 54,
+        "p50": 156.5,
+        "p90": 300.4,
+        "rebuilt": 4
+      }
+    },
+    "rebuild": {
+      "kept": {
+        "mean": 340.1,
+        "n": 76,
+        "p50": 354.7,
+        "p90": 418.7,
+        "rebuilt": 63
+      },
+      "seed": {
+        "mean": 451.9,
+        "n": 47,
+        "p50": 441.7,
+        "p90": 586.7,
+        "rebuilt": 45
+      }
     }
   },
   "version": 1
