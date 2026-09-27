@@ -60,6 +60,7 @@ public struct AgentHookSpoolProducer: Sendable {
         // owns the event, so it is admitted exactly once or by the fallback.
         let script = #"""
         LC_ALL=C
+        export \#(pidKey)=${\#(pidKey):-$PPID}
         cmux_fallback() { { print -rn -- "$cmux_p"; /bin/cat; } | /bin/sh -c "$1" >&3; exit $?; }
         zmodload zsh/system zsh/datetime zsh/files 2>/dev/null || exec /bin/sh -c "$1" >&3
         cmux_p= cmux_c= cmux_e=0
@@ -67,7 +68,6 @@ public struct AgentHookSpoolProducer: Sendable {
         [[ -n ${CMUX_SURFACE_ID:-} && ${\#(disableEnvironmentKey):-} != 1 ]] || { (( cmux_e == 5 )) || /bin/cat >/dev/null; print -r -- '{}' >&3; exit 0; }
         cmux_d=$\#(spoolDirectoryEnvironmentKey)
         (( cmux_e == 5 )) && [[ -f $cmux_d/\#(spool.environmentKeysName) ]] || cmux_fallback "$1"
-        export \#(pidKey)=${\#(pidKey):-$PPID}
         cmux_r="\#(AgentHookSpoolRecord.formatMarker)"$'\n'"\#(agent)"$'\n'"$2"$'\n'
         for cmux_k in ${(f)"$(<$cmux_d/\#(spool.environmentKeysName))"}; do (( ${+parameters[$cmux_k]} )) && cmux_r+="$cmux_k=${(P)cmux_k}"$'\0'; done
         cmux_r+=$'\0'"$cmux_p"

@@ -135,11 +135,12 @@ extension CMUXCLI {
             return true
         }
         return withExtendedLifetime(drainLock) {
-            admitPublishedAgentHookRecords(in: spool) { record in
+            admitPublishedAgentHookRecords(in: spool, beforeClaim: {
                 if client.socketFD >= 0, !client.connectionAppearsOpen() {
                     client.close()
                 }
                 try connectAgentHookForwarder(client, socketPassword: socketPassword)
+            }) { record in
                 try admitAgentHookSpoolRecord(
                     record, agentExited: agentExited, client: client, socketPassword: socketPassword
                 )
@@ -170,9 +171,17 @@ extension CMUXCLI {
     /// - Returns: `false` when a transport failure stopped the drain.
     private func admitPublishedAgentHookRecords(
         in spool: AgentHookSpoolDirectory,
+        beforeClaim: () throws -> Void = {},
         admit: (AgentHookSpoolRecord) throws -> Void
     ) -> Bool {
         for name in spool.publishedRecordNames() {
+            // Connection/authentication has not submitted this event. Preserve
+            // it on failure so a later drainer can still admit it safely.
+            do {
+                try beforeClaim()
+            } catch {
+                return false
+            }
             guard let record = spool.claim(name: name) else { continue }
             do {
                 try admit(record)

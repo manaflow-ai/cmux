@@ -10,6 +10,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import shlex
 import socket
 import subprocess
 import sys
@@ -26,7 +27,7 @@ SURFACE = '22222222-2222-2222-2222-222222222222'
 
 class ClaudeHookSpoolTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix='cl-spool-', dir='/tmp')
+        self.temp = tempfile.TemporaryDirectory(prefix='cl spool-', dir='/tmp')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.cli = str(resolve_cmux_cli())
@@ -45,7 +46,9 @@ class ClaudeHookSpoolTests(unittest.TestCase):
 
         self.launches = self.root / 'cli-launches'
         self.shim = self.root / 'cmux-shim'
-        self.shim.write_text(f'#!/bin/sh\necho "$*" >> {self.launches}\nexec {self.cli} "$@"\n')
+        self.shim.write_text(
+            f'#!/bin/sh\necho "$*" >> {shlex.quote(str(self.launches))}\n'
+            f'exec {shlex.quote(self.cli)} "$@"\n')
         self.shim.chmod(0o755)
 
         base = {k: v for k, v in os.environ.items() if not k.startswith('CMUX_')}
