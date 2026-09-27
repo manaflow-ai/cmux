@@ -29,7 +29,7 @@ CLA_ACTION_LEGACY_REFS = %w[
   manaflow-ai/cla-github-action@fc608ba7106e7029d981d487d7bad28a64325956
   manaflow-ai/cla-github-action@b4d3c4fab86d21e7775c63522d4b39b3724ea4bf
 ].freeze
-CLA_ACTION_CURRENT_BASE_REF = "manaflow-ai/cla-github-action@851ac68a0fae4abacc3b37f04b4924fb7f298f52".freeze
+CLA_ACTION_CURRENT_BASE_REF = "manaflow-ai/cla-github-action@3bdedfb05157fd9c1c879dfea58455e32a770f96".freeze
 CLA_ACTION_FINAL = "manaflow-ai/cla-github-action@212a0f2dd659b24b48a30ba35966e06dc41736af".freeze
 CLA_ACTION_BASE_REFS = (CLA_ACTION_LEGACY_REFS + [CLA_ACTION_CURRENT_BASE_REF, CLA_ACTION_FINAL]).freeze
 CLA_ACTION = CLA_ACTION_FINAL
@@ -79,9 +79,9 @@ LEGACY_B4D3_CLA_REFRESH_DIGEST = "580ea1130f9745be686e428e45aa39c93ad290ca487363
 LEGACY_B4D3_CLA_HELPER_PATH = ".github/scripts/refresh-cla-check.sh".freeze
 # origin/main currently carries the single-job workflow and intentionally has
 # no rerun helper. This is a bounded one-time bridge to the final v3 workflow.
-# The digest is the revision that pins the 851ac68 action (trusted merge
+# The digest is the revision that pins the 3bdedfb action (trusted merge
 # status for pr-catch-up.yml merges) on top of #14668's hosted runner.
-CURRENT_MAIN_CLA_WORKFLOW_DIGEST = "77dcb7fdcdaea1d0261b1aed83fbece0cbcc33d6add0abdd5b0c44cf701a4f46".freeze
+CURRENT_MAIN_CLA_WORKFLOW_DIGEST = "317432cd2145726daadec61cd3a6d84674197374ac92bf66ba09c8f6761853cc".freeze
 REVIEWED_CLA_BASES = {
   CLA_ACTION_LEGACY_REFS.fetch(0) => {
     workflow_digest: LEGACY_CLA_WORKFLOW_DIGEST,

@@ -751,10 +751,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("skipped-no-app-token", push)
 
     def test_merge_is_vouched_for_before_the_branch_moves(self) -> None:
-        # cla.yml exempts a merge commit whose newest CLA_MERGE_CONTEXT status
-        # is a success from github-actions[bot], so the status is posted with
-        # the Actions token, after the commit reaches a scratch ref (a status
-        # needs the commit here) and before the push that starts the CLA run.
+        """The finish job vouches for its merge before the branch moves.
+
+        cla.yml exempts a merge commit whose newest CLA_MERGE_CONTEXT status
+        is a success from github-actions[bot], so the status is posted with
+        the Actions token, after the commit reaches a scratch ref (a status
+        needs the commit here) and before the push that starts the CLA run.
+        """
         finish = self.workflow["jobs"]["finish"]
         self.assertEqual(finish["permissions"]["statuses"], "write")
         push = next(step for step in finish["steps"] if step.get("id") == "push")["run"]

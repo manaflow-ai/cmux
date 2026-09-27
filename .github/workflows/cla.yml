@@ -57,7 +57,7 @@ jobs:
     steps:
       - name: "CLA Assistant"
         id: cla
-        uses: manaflow-ai/cla-github-action@851ac68a0fae4abacc3b37f04b4924fb7f298f52
+        uses: manaflow-ai/cla-github-action@3bdedfb05157fd9c1c879dfea58455e32a770f96
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

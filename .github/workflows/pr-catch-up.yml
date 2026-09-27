@@ -715,6 +715,7 @@ jobs:
           fi
           auth="$(printf 'x-access-token:%s' "$token" | base64 -w0)"
           echo "::add-mask::$auth"
+          # push ARGS...: git push with the chosen token, output to push.log.
           push() {
             GIT_CONFIG_COUNT=1 \
               GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
