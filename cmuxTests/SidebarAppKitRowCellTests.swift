@@ -2207,7 +2207,8 @@ struct SidebarPinnedIndicatorColorTests {
             isBeingDragged: false,
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false,
-            colorSchemeIsDark: true
+            colorSchemeIsDark: true,
+            notificationBadgeColorHex: nil
         ))
 
         let workspacePin = try #require(

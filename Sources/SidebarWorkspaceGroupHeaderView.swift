@@ -85,6 +85,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onContextMenuDisappear: () -> Void
 
     @State private var contextMenuVisible = false
+    @Environment(\.colorScheme) private var colorScheme
 
 #if DEBUG
     // Plain-value environment probe set only by SidebarLazyLayoutScaleTests;
@@ -181,7 +182,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                         .padding(.vertical, metrics.unreadVerticalPadding)
                         .background(Capsule().fill(Color(nsColor: cmuxNotificationBadgeNSColor(
                             hex: notificationBadgeColorHex,
-                            fallback: cmuxAccentNSColor()
+                            fallback: cmuxAccentNSColor(for: colorScheme)
                         ))))
                         .accessibilityLabel(Text(String.localizedStringWithFormat(
                             String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),

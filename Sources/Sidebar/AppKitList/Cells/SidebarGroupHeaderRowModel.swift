@@ -41,7 +41,7 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     /// Resolved cmux scheme used by native group-header chrome.
     let colorSchemeIsDark: Bool
     /// Notification Badge color setting; nil falls back to the cmux accent.
-    var notificationBadgeColorHex: String? = nil
+    let notificationBadgeColorHex: String?
 }
 
 /// Behavior bundle for one group header row; recreated per apply and excluded
