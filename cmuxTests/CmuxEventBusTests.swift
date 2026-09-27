@@ -79,6 +79,53 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertNotNil(snapshot.ack["boot_id"] as? String)
     }
 
+    func testNewBusRestoresDurableEventWindowAndContinuesSequence() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-replay-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let firstBus = CmuxEventBus(retainedEventLimit: 4, eventLogURL: logURL)
+        firstBus.publish(name: "one", category: "test", source: "first")
+        firstBus.publish(name: "two", category: "test", source: "first")
+        firstBus.flushEventLogForTesting()
+
+        let secondBus = CmuxEventBus(retainedEventLimit: 4, eventLogURL: logURL)
+        let snapshot = secondBus.subscribe(afterSequence: 0, names: [], categories: [])
+        defer { secondBus.unsubscribe(snapshot.subscription) }
+
+        XCTAssertEqual(snapshot.replay.compactMap { $0["name"] as? String }, ["one", "two"])
+        XCTAssertEqual(snapshot.replay.compactMap { CmuxEventBus.int64($0["seq"]) }, [1, 2])
+        XCTAssertEqual((snapshot.ack["resume"] as? [String: Any])?["gap"] as? Bool, false)
+
+        secondBus.publish(name: "three", category: "test", source: "second")
+        XCTAssertEqual(secondBus.latestSequence, 3)
+    }
+
+    func testDurableReplayRebasesSequenceAfterAnOlderBootSegment() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-replay-segments-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let lines: [[String: Any]] = [
+            ["type": "event", "boot_id": "boot-a", "seq": 1, "id": "boot-a-1", "name": "one", "category": "test", "source": "test", "payload": [:]],
+            ["type": "event", "boot_id": "boot-a", "seq": 2, "id": "boot-a-2", "name": "two", "category": "test", "source": "test", "payload": [:]],
+            ["type": "event", "boot_id": "boot-b", "seq": 1, "id": "boot-b-1", "name": "three", "category": "test", "source": "test", "payload": [:]]
+        ]
+        let encoded = try lines.map { try XCTUnwrap(CmuxEventBus.encodeLine($0)) }.joined(separator: "\n") + "\n"
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try encoded.write(to: logURL, atomically: true, encoding: .utf8)
+
+        let bus = CmuxEventBus(retainedEventLimit: 4, eventLogURL: logURL)
+        let replay = bus.subscribe(afterSequence: 0, names: [], categories: [])
+        defer { bus.unsubscribe(replay.subscription) }
+
+        XCTAssertEqual(replay.replay.compactMap { CmuxEventBus.int64($0["seq"]) }, [1, 2, 3])
+        XCTAssertEqual(CmuxEventBus.int64(replay.replay[2]["legacy_seq"]), 1)
+        XCTAssertEqual(bus.latestSequence, 3)
+    }
+
     func testSubscriptionFiltersLiveEventsByCategory() {
         let bus = CmuxEventBus(retainedEventLimit: 8)
         let snapshot = bus.subscribe(afterSequence: nil, names: [], categories: ["notification"])
