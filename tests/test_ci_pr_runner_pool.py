@@ -438,7 +438,16 @@ class JanitorSnapshot(unittest.TestCase):
         run = {"id": 42, "run_attempt": 1}
         name = "macos-pool-persistent-42-1-5-glaeda-std-xcode-26.6"
         self.assertEqual(janitor.owned_marker(run, ["other", name]), ("glaeda-std-xcode-26.6", 5, 5))
-        self.assertIsNone(janitor.owned_marker({"id": 42, "run_attempt": 2}, [name]))
+        # A re-run of failed jobs (no picker) holds the newest earlier attempt's pool; a later attempt's
+        # marker never counts for an earlier one.
+        self.assertEqual(janitor.owned_marker({"id": 42, "run_attempt": 2}, [name]), ("glaeda-std-xcode-26.6", 5, 5))
+        newer = "macos-pool-persistent-42-2-3-glaeda-light-xcode-26.6"
+        self.assertEqual(janitor.owned_marker({"id": 42, "run_attempt": 3}, [name, newer])[0],
+                         "glaeda-light-xcode-26.6")
+        self.assertEqual(janitor.owned_marker(run, [newer, name])[0], "glaeda-std-xcode-26.6")
+        self.assertEqual(pool.run_marker([{"name": name}, {"name": newer.replace("light", "std")}],
+                                         {"id": 42, "run_attempt": 3}), ("glaeda-std-xcode-26.6", 3))
+        self.assertIsNone(pool.run_marker([{"name": newer}], {"id": 42, "run_attempt": 1}))
         self.assertIsNone(janitor.owned_marker({"id": 4, "run_attempt": 1}, [name]))
         self.assertIsNone(janitor.owned_marker(run, ["macos-pool-persistent-42-1-5-blacksmith-6vcpu-macos-26"]))
         self.assertEqual(janitor.owned_marker(run, ["macos-pool-persistent-42-1-99-glaeda-std-xcode-26.6"]),

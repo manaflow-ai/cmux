@@ -800,7 +800,7 @@ jobs:
       # The owned-pool rescue sweeper (ci-owned-pool-rescue.yml) finds the runs
       # it watches by this fixed name, one listing for all of them.
       - name: Upload the owned-pool watch marker
-        if: ${{ steps.macos-pool-marker.outputs.path != '' && github.run_attempt == 1 }}
+        if: ${{ steps.macos-pool-marker.outputs.path != '' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

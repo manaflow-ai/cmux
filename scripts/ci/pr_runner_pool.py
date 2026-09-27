@@ -1111,7 +1111,7 @@ def host_fault(job: Mapping[str, Any]) -> bool:
 
     A test that fails fails a workflow step, and its re-run may take any mini.
     """
-    if job.get("conclusion") != "failure":
+    if job.get("conclusion") not in ("failure", "timed_out"):
         return False
     steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
     if any(step.get("name") in HOST_FAULT_SETUP_STEPS and step.get("conclusion") == "failure" for step in steps):
@@ -1857,13 +1857,20 @@ def may_hold_owned_pool(run: Mapping[str, Any]) -> bool:
 
 
 def run_marker(artifacts: Sequence[Any], run: Mapping[str, Any]) -> tuple[str, int] | None:
-    """The owned pool and peak a run's `macos-pool-persistent-...` marker names, or None."""
+    """The owned pool and peak a run's `macos-pool-persistent-...` marker names, or None.
+
+    The newest attempt's marker up to the run's own: a re-run of failed jobs
+    does not re-run the picker, so it holds the pool of the attempt that last did.
+    """
+    best: tuple[int, str, int] | None = None
+    attempt = int(run.get("run_attempt") or 1)
     for artifact in artifacts:
         match = OWNED_MARKER.fullmatch(str((artifact or {}).get("name") or "")) if isinstance(artifact, Mapping) else None
         if (match and not artifact.get("expired") and int(match["run"]) == run.get("id")
-                and int(match["attempt"]) == int(run.get("run_attempt") or 1) and persistent(match["pool"])):
-            return match["pool"], min(int(match["jobs"]), MAX_RUN_JOBS)
-    return None
+                and int(match["attempt"]) <= attempt and persistent(match["pool"])
+                and (best is None or int(match["attempt"]) > best[0])):
+            best = int(match["attempt"]), match["pool"], min(int(match["jobs"]), MAX_RUN_JOBS)
+    return (best[1], best[2]) if best else None
 
 
 def count_in_flight(runs: Sequence[Mapping[str, Any]], *, exclude_run_id: int | None) -> int:

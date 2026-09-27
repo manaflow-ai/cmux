@@ -400,18 +400,21 @@ OWNED_MARKER = re.compile(r"macos-pool-persistent-(?P<run>[0-9]+)-(?P<attempt>[0
 
 
 def owned_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str, int, int] | None:
-    """(pool, peak jobs, placed jobs) from this attempt's owned-pool marker, or None.
+    """(pool, peak jobs, placed jobs) from the newest owned-pool marker up to this attempt, or None.
 
-    A marker without a placed count places as many jobs as its peak.
+    A re-run of failed jobs does not re-run the picker, so it holds the pool of
+    the attempt that last did. A marker without a placed count places as many
+    jobs as its peak.
     """
+    best: tuple[int, str, int, int] | None = None
     for name in names:
         match = OWNED_MARKER.fullmatch(str(name))
-        if (match and int(match["run"]) == run.get("id") and int(match["attempt"]) == (run.get("run_attempt") or 1)
-                and owned_pool(match["pool"])):
+        if (match and int(match["run"]) == run.get("id") and int(match["attempt"]) <= (run.get("run_attempt") or 1)
+                and owned_pool(match["pool"]) and (best is None or int(match["attempt"]) > best[0])):
             peak = min(int(match["jobs"]), MAX_RUN_JOBS)
             placed = min(int(match["placed"]), MAX_RUN_JOBS) if match["placed"] is not None else peak
-            return match["pool"], peak, placed
-    return None
+            best = int(match["attempt"]), match["pool"], peak, placed
+    return best[1:] if best else None
 
 
 def capability_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str, int] | None:

@@ -224,7 +224,6 @@ names no owned pool.
 | `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 12, "glaeda-light-xcode-26.6": 2}`. A class (`{"std": 12, "light": 2}`) or a bare count (`12`, the std class) means that class at the lane's Xcode pin |
 | `CI_OWNED_MAIN_RESERVE` | `0` | machines, and root runners, main's full-suite dispatch leaves free for pull requests; above 0 it takes an owned pool only whole (below) |
 | `GLAEDA_ROUTE_APP_ID` + secret `GLAEDA_ROUTE_APP_KEY` | unset (snapshot only) | the org's `manaflow-glaeda-route` App. `ci.yml`'s `changes` job mints a token with `administration: read` for same-repository pull requests and main's full-suite dispatch only, on its ephemeral Linux runner, and the picker lists the repository's runners: the online runners carrying an owned label are that pool's capacity, and the idle ones its free runners, less what runs of the last `LIVE_WINDOW_MINUTES` took. That replaces the counts of `CI_OWNED_POOL_SLOTS` (which still turns a pool's root routing on) and the snapshot's owned counts and age. Any failure falls back to them |
-| `CI_OWNED_LIGHT_RETRY` | unset (off) | read only by `ci-owned-pool-rescue.yml`: `1` makes the rescue watch the full re-run it starts for a stuck run (attempt 2) like attempt 1. The picker and the janitor no longer read it: every full re-run picks like attempt 1 |
 
 Main's full suite: `ci-main-full-suite.yml` dispatches `ci.yml` on main about
 32 times a day, each a full suite. Until this change every one ran compile
@@ -423,7 +422,11 @@ before (`pr_runner_pool.avoid_hosts()`): the job-started hook refused the job
 it timed out (its step was cancelled). Those minis do not count as free, so
 the run takes the owned pool only for what the other minis can hold. A job
 that failed a test step avoids no mini.
-Blacksmith takes a re-run only as overflow, when no owned pool has room.
+Blacksmith takes a re-run only as overflow, when no owned pool has room. The rescue watches every attempt
+up to `LAST_OWNED_ATTEMPT` (2), a full re-run included (the owned-pool watch
+marker is uploaded on any attempt whose picker chose an owned pool); a later
+attempt goes back where its jobs were placed, unwatched, so the rescue never
+loops.
 
 Compile admission on an owned Mac keeps its build state between jobs
 (`scripts/ci/owned_build_state.py`) under `/Users/Shared/cmux-build-fleet/ci`:
