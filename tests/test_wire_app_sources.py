@@ -34,6 +34,29 @@ PROJECT = """// !$*UTF8*$!
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
+		M0000000000000000000000M = {
+			isa = PBXGroup;
+			children = (
+				G0000000000000000000000S /* Sources */,
+				G0000000000000000000000U /* UITests */,
+			);
+			sourceTree = "<group>";
+		};
+		G0000000000000000000000U /* UITests */ = {
+			isa = PBXGroup;
+			children = (
+				G0000000000000000000000N /* Sources */,
+			);
+			path = UITests;
+			sourceTree = "<group>";
+		};
+		G0000000000000000000000N /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
 		G0000000000000000000000C /* Cloud */ = {
 			isa = PBXGroup;
 			children = (
@@ -53,6 +76,13 @@ PROJECT = """// !$*UTF8*$!
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
+
+/* Begin PBXProject section */
+		P0000000000000000000000P /* Project object */ = {
+			isa = PBXProject;
+			mainGroup = M0000000000000000000000M;
+		};
+/* End PBXProject section */
 
 /* Begin PBXNativeTarget section */
 		N0000000000000000000000A /* cmux */ = {
@@ -94,6 +124,12 @@ PROJECT = """// !$*UTF8*$!
 
 def group_of(text, rel):
     project = wire_app_sources.parse(text)
+    ref = next(ref for ref, path in project.ref_paths.items() if path == rel)
+    return next(group.directory for group in project.groups.values() if ref in group.children)
+
+
+def group_of_in(text, rel, directory):
+    project = wire_app_sources.parse(text, directory=directory, target="cmuxTests")
     ref = next(ref for ref, path in project.ref_paths.items() if path == rel)
     return next(group.directory for group in project.groups.values() if ref in group.children)
 
@@ -160,6 +196,23 @@ class WireAppSourcesTests(unittest.TestCase):
         self.assertIn("Top.swift in Sources */,", tests_phase)
         self.assertIn("Sources/Top.swift", wire_app_sources.parse(text, target="cmuxTests").wired_paths)
         self.assertNotIn("Sources/Top.swift", wire_app_sources.parse(text).wired_paths)
+
+    def test_another_top_level_directory_uses_its_own_group(self):
+        text = wire_app_sources.wire(PROJECT, "UITests/NewUITests.swift", directory="UITests", target="cmuxTests")
+        self.assertEqual(group_of_in(text, "UITests/NewUITests.swift", "UITests"), "UITests")
+        self.assertIn("path = NewUITests.swift;", text)
+
+    def test_the_directory_group_is_the_top_level_one_not_a_nested_namesake(self):
+        # UITests/Sources is also a group with `path = Sources`; wiring into
+        # Sources must still resolve from the top-level Sources group.
+        project = wire_app_sources.parse(PROJECT)
+        self.assertIn("Sources/Sidebar/Wired.swift", project.wired_paths)
+        self.assertEqual(min(group.directory for group in project.groups.values()), "Sources")
+
+    def test_nested_or_missing_directories_are_errors(self):
+        for directory in ["Sources/Sidebar", "Nope"]:
+            with self.subTest(directory=directory), self.assertRaises(SystemExit):
+                wire_app_sources.parse(PROJECT, directory=directory)
 
     def test_wiring_is_idempotent_and_ids_are_stable(self):
         once = wire_app_sources.wire(PROJECT, "Sources/Top.swift")
