@@ -152,6 +152,15 @@ class WireAppSourcesTests(unittest.TestCase):
         text = wire_app_sources.wire(busy, "Sources/Top.swift")
         self.assertEqual(text.count(taken + " /* "), busy.count(taken + " /* "))
 
+    def test_another_target_gets_the_file_in_its_own_phase(self):
+        text = wire_app_sources.wire(PROJECT, "Sources/Top.swift", target="cmuxTests")
+        app_phase = text[text.index("S0000000000000000000000A /* Sources */ = {"):text.index("S0000000000000000000000T /* Sources */ = {")]
+        tests_phase = text[text.index("S0000000000000000000000T /* Sources */ = {"):]
+        self.assertNotIn("Top.swift", app_phase)
+        self.assertIn("Top.swift in Sources */,", tests_phase)
+        self.assertIn("Sources/Top.swift", wire_app_sources.parse(text, target="cmuxTests").wired_paths)
+        self.assertNotIn("Sources/Top.swift", wire_app_sources.parse(text).wired_paths)
+
     def test_wiring_is_idempotent_and_ids_are_stable(self):
         once = wire_app_sources.wire(PROJECT, "Sources/Top.swift")
         self.assertEqual(wire_app_sources.wire(once, "Sources/Top.swift"), once)
