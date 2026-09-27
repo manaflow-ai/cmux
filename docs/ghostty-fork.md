@@ -32,11 +32,12 @@ When we change the fork, update this document and the parent submodule SHA.
   gap, which makes a right prompt `.input` text.
 - Coverage: ten `Screen: promptInput ...` Zig tests, run by
   `build-ghosttykit.yml` before packaging (`-Dtest-filter="promptInput"`).
-  Hosted run RUNURL passed 83 tests with this filter at `f8f8f828a` (74 with
+  Hosted [run 36315307261](https://github.com/manaflow-ai/cmux/actions/runs/36315307261) passed 83 tests with this filter at `f8f8f828a` (74 with
   the single-test pacer filter, so all ten ran) and published GhosttyKit.
 - Artifact:
   https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f8f8f828a4bd0c691ade20f15074ae18c69e4ba6-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-- SHA-256 `CHECKSUM` is pinned in `scripts/ghosttykit-checksums.txt`.
+- SHA-256 `378fea01b027365eab88f99d1ee3ad01c21bb117e55f8ce71fe859f1e0c0286b`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
 - Conflict note: everything lives in new functions (`Screen.promptInput`,
   `Screen.promptInputSelection`, `Surface.promptInput`,
   `Surface.selectPromptInput`, and two `CAPI` exports). Only the cursor's
