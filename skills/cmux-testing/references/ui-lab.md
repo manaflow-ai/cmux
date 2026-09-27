@@ -18,18 +18,27 @@ directory is `$TMPDIR/cmux-ui-lab/<harness>`.
 ## Writing a harness
 
 ```swift
+// ui-lab: source Sources/Sidebar/GPUSpinnerStyle.swift
 // ui-lab: source Sources/Sidebar/GPUSpinnerNSView.swift
 // ui-lab: shim SidebarAppearanceColorResolver
 
 import AppKit
 
 UILab.main {
-    let canvas = UILab.Canvas(frame: NSRect(x: 0, y: 0, width: 200, height: 60))
-    canvas.fill = .windowBackgroundColor
-    // build views with the app's real types, add them to canvas
-    UILab.render(canvas, name: "example", detail: canvas.bounds)
+    let bounds = NSRect(x: 0, y: 0, width: 200, height: 60)
+    UILab.render(name: "example", detail: bounds) { scheme in
+        let canvas = UILab.Canvas(frame: bounds)
+        canvas.fill = .windowBackgroundColor
+        // Build views with the app's real types and add them to canvas.
+        return canvas
+    }
 }
 ```
+
+`render` calls its closure once per color scheme, under that scheme's
+appearance. Views that color themselves from a `colorScheme` property rather
+than the appearance (`GPUSpinnerNSView` does) need it set from `scheme`, or
+the dark render shows light colors.
 
 - `source` lines are repo-relative app files. They compile as one module with
   the harness; `import Cmux*` lines are dropped.
@@ -40,8 +49,7 @@ UILab.main {
   real layout's metrics in the harness and cite where they come from.
 
 A file that needs many app or package types does not fit. Split its drawing
-into a file with only AppKit/SwiftUI dependencies (as the compact status glyph
-does), which also keeps it testable.
+into a file with only AppKit/SwiftUI dependencies, which also keeps it testable.
 
 ## What it is not
 

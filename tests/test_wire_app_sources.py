@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""scripts/wire-app-sources.py adds an unwired app source next to its sibling."""
+"""scripts/wire-app-sources.py wires app sources through the real group tree."""
 
 import importlib.util
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,26 +10,44 @@ from pathlib import Path
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/wire-app-sources.py"
 spec = importlib.util.spec_from_file_location("wire_app_sources", SCRIPT)
 wire_app_sources = importlib.util.module_from_spec(spec)
+sys.modules["wire_app_sources"] = wire_app_sources  # dataclasses look it up
 spec.loader.exec_module(wire_app_sources)
 
+# A Sources group holding `Sidebar/Wired.swift` directly and a nested Cloud
+# group with its own `path`, whose file (`AAA.swift`) sorts before every
+# other ref, plus a repo-relative (SOURCE_ROOT) ref, and a cmuxTests target.
 PROJECT = """// !$*UTF8*$!
 {
 	objects = {
 
 /* Begin PBXBuildFile section */
-		AAAA00000000000000000001 /* Wired.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000002 /* Wired.swift */; };
-		TTTT00000000000000000001 /* Wired.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000002 /* Wired.swift */; };
+		B0000000000000000000000A /* AAA.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000000A /* AAA.swift */; };
+		B0000000000000000000000B /* Wired.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000000B /* Wired.swift */; };
+		B0000000000000000000000C /* Rooted.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000000C /* Rooted.swift */; };
+		B0000000000000000000000T /* Wired.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000000B /* Wired.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		AAAA00000000000000000002 /* Wired.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Wired.swift; sourceTree = "<group>"; };
+		F0000000000000000000000A /* AAA.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AAA.swift; sourceTree = "<group>"; };
+		F0000000000000000000000B /* Wired.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Wired.swift; sourceTree = "<group>"; };
+		F0000000000000000000000C /* Rooted.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Rooted.swift"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
-		GGGG00000000000000000001 /* Sources */ = {
+		G0000000000000000000000C /* Cloud */ = {
 			isa = PBXGroup;
 			children = (
-				AAAA00000000000000000002 /* Wired.swift */,
+				F0000000000000000000000A /* AAA.swift */,
+			);
+			path = Cloud;
+			sourceTree = "<group>";
+		};
+		G0000000000000000000000S /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				G0000000000000000000000C /* Cloud */,
+				F0000000000000000000000B /* Wired.swift */,
+				F0000000000000000000000C /* Rooted.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -36,33 +55,35 @@ PROJECT = """// !$*UTF8*$!
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		NNNN00000000000000000001 /* cmux */ = {
+		N0000000000000000000000A /* cmux */ = {
 			isa = PBXNativeTarget;
 			buildPhases = (
-				SSSS00000000000000000001 /* Sources */,
+				S0000000000000000000000A /* Sources */,
 			);
 			name = cmux;
 		};
-		NNNN00000000000000000002 /* cmuxTests */ = {
+		N0000000000000000000000T /* cmuxTests */ = {
 			isa = PBXNativeTarget;
 			buildPhases = (
-				SSSS00000000000000000002 /* Sources */,
+				S0000000000000000000000T /* Sources */,
 			);
 			name = cmuxTests;
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXSourcesBuildPhase section */
-		SSSS00000000000000000001 /* Sources */ = {
+		S0000000000000000000000A /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
-				AAAA00000000000000000001 /* Wired.swift in Sources */,
+				B0000000000000000000000A /* AAA.swift in Sources */,
+				B0000000000000000000000B /* Wired.swift in Sources */,
+				B0000000000000000000000C /* Rooted.swift in Sources */,
 			);
 		};
-		SSSS00000000000000000002 /* Sources */ = {
+		S0000000000000000000000T /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
-				TTTT00000000000000000001 /* Wired.swift in Sources */,
+				B0000000000000000000000T /* Wired.swift in Sources */,
 			);
 		};
 /* End PBXSourcesBuildPhase section */
@@ -71,37 +92,54 @@ PROJECT = """// !$*UTF8*$!
 """
 
 
+def group_of(text, rel):
+    project = wire_app_sources.parse(text)
+    ref = next(ref for ref, path in project.ref_paths.items() if path == rel)
+    return next(group.directory for group in project.groups.values() if ref in group.children)
+
+
 class WireAppSourcesTests(unittest.TestCase):
-    def test_finds_and_wires_an_unwired_file_into_the_app_target_only(self):
+    def test_resolves_paths_through_nested_groups_and_source_root(self):
+        project = wire_app_sources.parse(PROJECT)
+        self.assertEqual(
+            project.wired_paths,
+            {"Sources/Cloud/AAA.swift", "Sources/Sidebar/Wired.swift", "Sources/Rooted.swift"},
+        )
+
+    def test_a_top_level_file_goes_in_the_sources_group_not_a_nested_one(self):
+        text = wire_app_sources.wire(PROJECT, "Sources/Top.swift")
+        self.assertEqual(group_of(text, "Sources/Top.swift"), "Sources")
+        self.assertIn("Sources/Top.swift", wire_app_sources.parse(text).wired_paths)
+
+    def test_a_nested_group_file_gets_a_group_relative_path(self):
+        text = wire_app_sources.wire(PROJECT, "Sources/Cloud/New+Thing.swift")
+        self.assertEqual(group_of(text, "Sources/Cloud/New+Thing.swift"), "Sources/Cloud")
+        # Group-relative, and quoted because of the `+`.
+        self.assertIn('path = "New+Thing.swift";', text)
+
+    def test_a_subdirectory_without_its_own_group_uses_a_prefixed_path(self):
+        text = wire_app_sources.wire(PROJECT, "Sources/Sidebar/Glyph.swift")
+        self.assertEqual(group_of(text, "Sources/Sidebar/Glyph.swift"), "Sources")
+        self.assertIn("path = Sidebar/Glyph.swift;", text)
+
+    def test_wires_the_app_target_only(self):
+        text = wire_app_sources.wire(PROJECT, "Sources/Top.swift")
+        tests_phase = text[text.index("S0000000000000000000000T /* Sources */ = {"):]
+        self.assertNotIn("Top.swift", tests_phase)
+        self.assertEqual(text.count("/* Top.swift in Sources */"), 2)  # build file + app phase
+
+    def test_matching_is_by_path_not_basename(self):
         with tempfile.TemporaryDirectory() as root:
             root = Path(root)
-            (root / "Sources/Sidebar").mkdir(parents=True)
-            (root / "Sources/Sidebar/Wired.swift").write_text("")
-            (root / "Sources/Sidebar/Glyph+Resolve.swift").write_text("")
-            self.assertEqual(
-                wire_app_sources.unwired_sources(root, PROJECT),
-                ["Sources/Sidebar/Glyph+Resolve.swift"],
-            )
+            for rel in ["Sources/Sidebar/Wired.swift", "Sources/Other/Wired.swift", "Sources/Cloud/AAA.swift", "Sources/Rooted.swift"]:
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text("")
+            self.assertEqual(wire_app_sources.unwired_sources(root, PROJECT), ["Sources/Other/Wired.swift"])
 
-            text = wire_app_sources.wire(PROJECT, "Sources/Sidebar/Glyph+Resolve.swift")
-
-            self.assertIn("Glyph+Resolve.swift", wire_app_sources.wired_names(text))
-            # `+` needs quoting in an OpenStep plist.
-            self.assertIn('path = "Sidebar/Glyph+Resolve.swift";', text)
-            self.assertEqual(text.count("/* Glyph+Resolve.swift in Sources */"), 2)  # build file + app phase
-            self.assertEqual(text.count("/* Glyph+Resolve.swift */"), 3)  # file ref, build file's fileRef, group child
-            tests_phase = text[text.index("SSSS00000000000000000002 /* Sources */ = {"):]
-            self.assertNotIn("Glyph+Resolve", tests_phase)
-            self.assertEqual(wire_app_sources.unwired_sources(root, text), [])
-
-    def test_ids_are_stable_per_path(self):
-        once = wire_app_sources.wire(PROJECT, "Sources/Sidebar/New.swift")
-        twice = wire_app_sources.wire(PROJECT, "Sources/Sidebar/New.swift")
-        self.assertEqual(once, twice)
-
-    def test_a_directory_with_no_wired_sibling_is_an_error(self):
-        with self.assertRaises(SystemExit):
-            wire_app_sources.wire(PROJECT, "Sources/Elsewhere/New.swift")
+    def test_wiring_is_idempotent_and_ids_are_stable(self):
+        once = wire_app_sources.wire(PROJECT, "Sources/Top.swift")
+        self.assertEqual(wire_app_sources.wire(once, "Sources/Top.swift"), once)
+        self.assertEqual(wire_app_sources.wire(PROJECT, "Sources/Top.swift"), once)
 
 
 if __name__ == "__main__":

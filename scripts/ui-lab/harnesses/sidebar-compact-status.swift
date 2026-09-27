@@ -45,68 +45,69 @@ let groups: [(String, Glyph.Kind?, Bool)] = [
 
 UILab.main {
     let height = CGFloat(rows.count + groups.count) * rowHeight + 16
-    let canvas = UILab.Canvas(frame: NSRect(x: 0, y: 0, width: width, height: height))
-    canvas.fill = .windowBackgroundColor
+    UILab.render(name: "sidebar-compact-status", detail: NSRect(x: 0, y: 0, width: 120, height: CGFloat(rows.count) * rowHeight + 8)) { _ in
+        let canvas = UILab.Canvas(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        canvas.fill = .windowBackgroundColor
 
-    @MainActor
-    func label(_ text: String, size: CGFloat, color: NSColor, x: CGFloat, centerY: CGFloat) -> NSTextField {
-        let field = NSTextField(labelWithString: text)
-        field.font = .systemFont(ofSize: size, weight: .semibold)
-        field.textColor = color
-        field.sizeToFit()
-        field.frame.origin = NSPoint(x: x, y: centerY - field.frame.height / 2)
-        return field
-    }
-
-    @MainActor
-    func glyphView(_ kind: Glyph.Kind, selected: Bool, x: CGFloat, centerY: CGFloat) -> NSView? {
-        let glyph = Glyph(kind: kind, tooltip: "")
-        guard glyph.isDrawn else { return nil }
-        let view = SidebarCompactStatusGlyphImageView()
-        view.configure(glyph, pointSize: 11, color: glyph.color(isActive: selected, selected: .white, secondary: .secondaryLabelColor))
-        view.frame = NSRect(x: x, y: centerY - 5.5, width: 11, height: 11)
-        return view
-    }
-
-    var y: CGFloat = 8
-    for (title, kind, selected) in rows {
-        let row = UILab.Canvas(frame: NSRect(x: outerPad, y: y, width: width - outerPad * 2, height: rowHeight))
-        if selected {
-            row.wantsLayer = true
-            row.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
-            row.layer?.cornerRadius = 6
+        @MainActor
+        func label(_ text: String, size: CGFloat, color: NSColor, x: CGFloat, centerY: CGFloat) -> NSTextField {
+            let field = NSTextField(labelWithString: text)
+            field.font = .systemFont(ofSize: size, weight: .semibold)
+            field.textColor = color
+            field.sizeToFit()
+            field.frame.origin = NSPoint(x: x, y: centerY - field.frame.height / 2)
+            return field
         }
-        var x = leading - outerPad
-        if let kind, let view = glyphView(kind, selected: selected, x: x - Glyph.leadingPullIn, centerY: lineCenter) {
-            row.addSubview(view)
-            x += 11 - Glyph.leadingPullIn + Glyph.titleSpacing
-        }
-        row.addSubview(label(title, size: 12.5, color: selected ? .white : .labelColor, x: x, centerY: lineCenter))
-        canvas.addSubview(row)
-        y += rowHeight
-    }
 
-    // Group headers (SidebarGroupHeaderTableCellView): chevron, folder, name,
-    // then the roll-up glyph where the unread count would be.
-    for (name, kind, collapsed) in groups {
-        let row = UILab.Canvas(frame: NSRect(x: outerPad, y: y, width: width - outerPad * 2, height: rowHeight))
-        let mid = rowHeight / 2
-        var x: CGFloat = 0
-        for (symbol, size, gap) in [(collapsed ? "chevron.right" : "chevron.down", CGFloat(9), CGFloat(4)), ("folder.fill", 11, 6)] {
-            let image = NSImageView(image: RenderableSystemSymbol.configuredAppKitImage(systemName: symbol, pointSize: size, weight: .semibold)!)
-            image.contentTintColor = .secondaryLabelColor
-            image.frame = NSRect(x: x, y: mid - 7, width: 14, height: 14)
-            row.addSubview(image)
-            x += 14 + gap
+        @MainActor
+        func glyphView(_ kind: Glyph.Kind, selected: Bool, x: CGFloat, centerY: CGFloat) -> NSView? {
+            let glyph = Glyph(kind: kind, tooltip: "")
+            guard glyph.isDrawn else { return nil }
+            let view = SidebarCompactStatusGlyphImageView()
+            view.configure(glyph, pointSize: 11, color: glyph.color(isActive: selected, selected: .white, secondary: .secondaryLabelColor))
+            view.frame = NSRect(x: x, y: centerY - 5.5, width: 11, height: 11)
+            return view
         }
-        let field = label(name, size: 11, color: .labelColor, x: x, centerY: mid)
-        row.addSubview(field)
-        if let kind, let view = glyphView(kind, selected: false, x: field.frame.maxX + 6, centerY: mid) {
-            row.addSubview(view)
-        }
-        canvas.addSubview(row)
-        y += rowHeight
-    }
 
-    UILab.render(canvas, name: "sidebar-compact-status", detail: NSRect(x: 0, y: 0, width: 120, height: CGFloat(rows.count) * rowHeight + 8))
+        var y: CGFloat = 8
+        for (title, kind, selected) in rows {
+            let row = UILab.Canvas(frame: NSRect(x: outerPad, y: y, width: width - outerPad * 2, height: rowHeight))
+            if selected {
+                row.wantsLayer = true
+                row.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+                row.layer?.cornerRadius = 6
+            }
+            var x = leading - outerPad
+            if let kind, let view = glyphView(kind, selected: selected, x: x - Glyph.leadingPullIn, centerY: lineCenter) {
+                row.addSubview(view)
+                x += 11 - Glyph.leadingPullIn + Glyph.titleSpacing
+            }
+            row.addSubview(label(title, size: 12.5, color: selected ? .white : .labelColor, x: x, centerY: lineCenter))
+            canvas.addSubview(row)
+            y += rowHeight
+        }
+
+        // Group headers (SidebarGroupHeaderTableCellView): chevron, folder, name,
+        // then the roll-up glyph where the unread count would be.
+        for (name, kind, collapsed) in groups {
+            let row = UILab.Canvas(frame: NSRect(x: outerPad, y: y, width: width - outerPad * 2, height: rowHeight))
+            let mid = rowHeight / 2
+            var x: CGFloat = 0
+            for (symbol, size, gap) in [(collapsed ? "chevron.right" : "chevron.down", CGFloat(9), CGFloat(4)), ("folder.fill", 11, 6)] {
+                let image = NSImageView(image: RenderableSystemSymbol.configuredAppKitImage(systemName: symbol, pointSize: size, weight: .semibold)!)
+                image.contentTintColor = .secondaryLabelColor
+                image.frame = NSRect(x: x, y: mid - 7, width: 14, height: 14)
+                row.addSubview(image)
+                x += 14 + gap
+            }
+            let field = label(name, size: 11, color: .labelColor, x: x, centerY: mid)
+            row.addSubview(field)
+            if let kind, let view = glyphView(kind, selected: false, x: field.frame.maxX + 6, centerY: mid) {
+                row.addSubview(view)
+            }
+            canvas.addSubview(row)
+            y += rowHeight
+        }
+        return canvas
+    }
 }
