@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxCommandPalette
 import CmuxPanes
 import CmuxSettings
 import CmuxTerminal
@@ -30,6 +31,7 @@ enum DockShortcutCommand {
     case focusTextBoxInput
     case attachTextBoxFile
     case sendCtrlFToTerminal
+    case pasteLastScreenshot
     case clearScreenKeepScrollback
     case startFind
     case findNext
@@ -102,7 +104,7 @@ extension DockSplitStore {
             triggerUserInitiatedFocusFlash(panelId: focusedPanelId)
             return true
         case .renameSurface(let presentingWindow):
-            return promptRenameFocusedDockSurface(
+            return requestPaletteRenameFocusedDockSurface(
                 presentingWindow: presentingWindow
             )
         case .closeOtherTabsInPane:
@@ -129,6 +131,12 @@ extension DockSplitStore {
                 )
             }
             return result.accepted
+        case .pasteLastScreenshot:
+            guard let terminal = focusedDockTerminalPanel else {
+                return false
+            }
+            terminal.pasteLastScreenshot()
+            return true
         case .clearScreenKeepScrollback:
             guard let terminal = focusedDockTerminalPanel else {
                 return false
@@ -205,70 +213,40 @@ extension DockSplitStore {
         return panels[focusedPanelId] as? BrowserPanel
     }
 
-    private func promptRenameFocusedDockSurface(
+    private func requestPaletteRenameFocusedDockSurface(
         presentingWindow: NSWindow?
     ) -> Bool {
         guard let panelId = focusedPanelId,
               let tabId = surfaceId(forPanelId: panelId) else {
             return false
         }
-        return promptRenameDockSurface(
+        return requestPaletteRenameDockSurface(
             tabId: tabId,
             presentingWindow: presentingWindow
         )
     }
 
-    func promptRenameDockSurface(
+    /// Dock tabs have no inline title editor, so rename opens the palette
+    /// editor for this tab. The target carries the Dock owner id, which the
+    /// palette resolves back to this store.
+    func requestPaletteRenameDockSurface(
         tabId: TabID,
         presentingWindow: NSWindow?
     ) -> Bool {
         guard let panel = panel(for: tabId),
-              let tab = bonsplitController.tab(tabId) else {
+              let tab = bonsplitController.tab(tabId),
+              let app = AppDelegate.shared else {
             return false
         }
-
-        let alert = NSAlert()
-        alert.messageText = String(
-            localized: "alert.renameTab.title",
-            defaultValue: "Rename Tab"
+        app.requestCommandPaletteRename(
+            CommandPaletteRenameTarget(
+                kind: .tab(workspaceId: workspaceId, panelId: panel.id),
+                currentName: tab.title
+            ),
+            preferredWindow: presentingWindow,
+            source: "dock.renameTab"
         )
-        alert.informativeText = String(
-            localized: "alert.renameTab.message",
-            defaultValue: "Enter a custom name for this tab."
-        )
-        let input = NSTextField(string: tab.title)
-        input.placeholderString = String(
-            localized: "alert.renameTab.placeholder",
-            defaultValue: "Tab name"
-        )
-        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
-        alert.addButton(
-            withTitle: String(
-                localized: "alert.renameTab.rename",
-                defaultValue: "Rename"
-            )
-        )
-        alert.addButton(
-            withTitle: String(
-                localized: "alert.cancel",
-                defaultValue: "Cancel"
-            )
-        )
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        let response = alert.runCmuxModal(
-            presentingWindow: presentingWindow
-        ) { _ in
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
-        guard response == .alertFirstButtonReturn else { return true }
-
-        return setDockPanelCustomTitle(
-            panelId: panel.id,
-            title: input.stringValue
-        )
+        return true
     }
 
     @discardableResult

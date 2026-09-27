@@ -119,8 +119,8 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
         search.click()
         search.typeText("open team picker")
         let command = app.descendants(matching: .any).matching(NSPredicate(
-            format: "identifier BEGINSWITH %@ AND value == %@",
-            "CommandPaletteResultRow.", "palette.auth.teamPicker"
+            format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@",
+            "CommandPaletteResultRow.", ".palette.auth.teamPicker"
         )).firstMatch
         XCTAssertTrue(command.waitForExistence(timeout: 5))
         command.click()
