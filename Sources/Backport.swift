@@ -8,8 +8,8 @@ struct Backport<Content> {
 extension View {
     var backport: Backport<Self> { Backport(content: self) }
 
-    func safeHelp(_ text: String) -> some View {
-        self.help(text)
+    func safeHelp(_ text: String) -> AnyView {
+        AnyView(self.help(text))
     }
 }
 
