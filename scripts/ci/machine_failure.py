@@ -20,6 +20,8 @@ SIGNATURES = (
     ("No logged-in GUI user is available", "the Mac had no logged-in GUI user"),
     ("Timed out waiting for virtual display readiness", "the virtual display never became ready"),
     ("screen frame capture failed to start", "screen capture could not start"),
+    # Homebrew's refusal when the runner user does not own its prefix.
+    ("The following directories are not writable by your user", "the Mac's Homebrew prefix is not writable by the runner user"),
 )
 
 # XCTest and Swift Testing lines for a test that began. One of these means the
