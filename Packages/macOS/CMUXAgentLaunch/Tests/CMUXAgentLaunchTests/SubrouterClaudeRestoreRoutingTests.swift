@@ -149,7 +149,7 @@ struct SubrouterClaudeRestoreRoutingTests {
             ))
 
             #expect(
-                invocation.arguments == launcher + ["--resume", sessionID, "--model", "opus"],
+                invocation.arguments == ["sr", "claude", "proxy", "--account", "me@example.com", "--resume", sessionID, "--model", "opus"],
                 "\(invocation.arguments)"
             )
             #expect(invocation.environment["CLAUDE_CONFIG_DIR"] == nil)
@@ -157,13 +157,38 @@ struct SubrouterClaudeRestoreRoutingTests {
         }
     }
 
+    /// Only the account pin is carried over: a prompt, `--settings`, or
+    /// `--print` sr received stays out of the restore argv, and the program
+    /// is still resolved on PATH even when the captured one moved.
+    @Test("Only the account pin is taken from the captured launcher argv")
+    func onlyAccountPinIsReplayed() throws {
+        let request = resumeRequest(
+            environment: routedLaunchEnvironment(baseURL: localPoolBaseURL, marker: marker, launchBoundMarker: marker),
+            launcherPrefix: [
+                "/gone/bin/sr", "claude", "proxy", "--settings", "/tmp/unreadable.json",
+                "--account=me@example.com", "-p", "hello", "--resume", "other", "--",
+            ]
+        )
+
+        let invocation = try #require(plannerWithSubrouterOnPath().invocation(
+            for: request,
+            ambientEnvironment: ambientEnvironment
+        ))
+
+        #expect(
+            invocation.arguments == ["sr", "claude", "proxy", "--account=me@example.com", "--resume", sessionID, "--model", "opus"],
+            "\(invocation.arguments)"
+        )
+        #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "claude:\(sessionID)")
+    }
+
     @Test(
-        "A launcher argv that is another program or already names a session falls back to the marker",
+        "A launcher argv for another program, or without an account pin, falls back to the marker",
         arguments: [
             ["/opt/homebrew/bin/cx", "claude", "proxy", "--account", "me@example.com"],
-            ["sr", "claude", "proxy", "--account", "me@example.com", "--resume", "other"],
             ["sr", "claude", "proxy", "--continue"],
             ["sr", "codex", "proxy"],
+            ["sr", "claude", "proxy", "--account"],
         ]
     )
     func unusableLauncherArgvFallsBackToMarker(launcher: [String]) throws {

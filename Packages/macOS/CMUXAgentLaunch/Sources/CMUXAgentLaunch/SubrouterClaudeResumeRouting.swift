@@ -162,8 +162,8 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
     /// dropped because the launcher issues a fresh one.
     ///
     /// When the record also carries the launcher argv that started Claude
-    /// (`sr claude proxy --account x`), the resume goes through it so options
-    /// such as a pinned account survive; otherwise the pool picks the account.
+    /// (`sr claude proxy --account x`), its account pin is kept; otherwise the
+    /// pool picks the account.
     public func resumeArguments(
         launcher: String?,
         sessionID: String,
@@ -186,8 +186,11 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
             + removingPrivateSettingsArguments(from: preserved)
     }
 
-    /// The captured launcher argv followed by `--resume`, when it is the same
-    /// launcher the marker names and does not already select a session.
+    /// The marker's launcher with the captured account pin carried over, when
+    /// the captured launcher argv is the same launcher. Only `--account` is
+    /// taken: anything else sr was given (a prompt, `--settings`, `--print`)
+    /// must not be replayed ahead of `--resume`, and the marker's own program
+    /// name is kept so the restore resolves it on PATH as before.
     private func pinnedLauncherArguments(_ launcherPrefix: [String]?, markerTokens: [String]) -> [String]? {
         guard let launcherPrefix,
               let executable = launcherPrefix.first,
@@ -197,14 +200,23 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
               Array(launcherPrefix[1..<3]) == Array(markerTokens[1..<3]) else {
             return nil
         }
-        let sessionSelectors: Set<String> = ["--resume", "-r", "--continue", "-c", "--session-id", "--fork-session"]
-        guard !launcherPrefix.dropFirst().contains(where: { argument in
-            let flag = argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument
-            return sessionSelectors.contains(flag)
-        }) else {
-            return nil
+        let options = Array(launcherPrefix.dropFirst(3))
+        var account: [String] = []
+        var index = 0
+        while index < options.count {
+            let option = options[index]
+            if option == "--account", index + 1 < options.count, !options[index + 1].hasPrefix("-") {
+                account = [option, options[index + 1]]
+                index += 2
+            } else if option.hasPrefix("--account="), option.count > "--account=".count {
+                account = [option]
+                index += 1
+            } else {
+                index += 1
+            }
         }
-        return launcherPrefix + ["--resume"]
+        guard !account.isEmpty else { return nil }
+        return Array(markerTokens[0..<3]) + account + ["--resume"]
     }
 
     /// Whether a `--settings` value names Subrouter's private per-launch file.
