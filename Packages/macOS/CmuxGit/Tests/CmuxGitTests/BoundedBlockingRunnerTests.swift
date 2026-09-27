@@ -32,10 +32,13 @@ import Testing
         let runner = BoundedBlockingRunner(label: "test.bounded-runner.busy")
         let release = DispatchSemaphore(value: 0)
 
-        let first = await runner.run(timeout: .milliseconds(50)) { _ -> Int in
+        // A generous timeout so a slow CI queue still starts the job before
+        // the deadline; the job then blocks until released.
+        let first = await runner.run(timeout: .milliseconds(500)) { _ -> Int in
             release.wait()
             return 1
         }
+        #expect(runner.isBusy)
         let whileBusy = await runner.run(timeout: .seconds(30)) { _ in 2 }
         #expect(first == .timedOut)
         #expect(whileBusy == .busy)
