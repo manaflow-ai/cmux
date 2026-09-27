@@ -450,6 +450,9 @@ def admission(store: Path, env: Mapping[str, str], workspace: Path, now: Callabl
     share_model(fleet_dir(store))
     if own is not None and env.get("KEPT") == "true":
         stamp_pull_request(store, own[0], own[1], hot_files)
+    elif own is not None and env.get("KEPT") == "parked" and (env.get("PR_NUMBER") or "").strip().isdigit():
+        # Kept in its PR slot beside a root that stays at main (owned_build_state.py holds_last_main).
+        stamp_pull_request(store / "pr-builds" / f"pr-{int(env['PR_NUMBER'])}", own[0], own[1], hot_files)
     return record
 
 

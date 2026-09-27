@@ -384,6 +384,26 @@ class WarmKeys(Fixture):
         self.assertEqual(self.keys(cache=False)["roots"][0], {"root": 1, "merged_onto": A,
                                                               "parked": [{"merged_onto": A, "pr": 7}]})
 
+    def test_an_oversized_slot_falls_back_to_the_main_build(self):
+        self.build("seven")
+        self.kept(pr="7")
+        self.build("main")
+        self.kept(pr="")
+        with unittest.mock.patch.object(state, "MAX_DERIVED_BYTES", 1):
+            result = run(state.check, self.store, "fp", self.workspace, None, "7")
+        self.assertNotIn("adopt_from", result)
+        # The start is the main build again (itself over this test's 1-byte cap).
+        self.assertEqual((result["warm"], result["reason"]), ("false", "kept DerivedData grew to 4 bytes"))
+        self.assertFalse((self.store / "pr-builds" / "pr-7").exists())
+
+    def test_main_from_another_xcode_does_not_hold_the_root(self):
+        self.build("main")
+        self.kept(fingerprint="old-xcode", pr="")
+        self.second_root(pr="3")
+        self.assertFalse(state.holds_last_main(self.store, "fp"))
+        self.build("seven")
+        self.assertEqual(self.kept(pr="7")["kept"], "true")
+
     def test_a_main_build_is_replaced_while_another_root_keeps_main(self):
         self.build("main")
         self.kept(pr="")

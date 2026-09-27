@@ -631,8 +631,10 @@ jobs:
           MAX_DISTANCE: ${{ vars.CI_OWNED_PREFER_SEED }}
           CMUX_SEED_LOCAL_CACHE: ${{ env.CMUX_OWNED_STATE_ROOT }}/seeds
           GH_TOKEN: ${{ github.token }}
+          # This pull request's parked build when the root keeps main (check's adopt_from).
+          OWNED_START: ${{ steps.owned-state.outputs.adopt_from || env.CMUX_OWNED_STATE_ROOT }}
         run: |
-          python3 scripts/ci/owned_build_state.py prefer "$CMUX_OWNED_STATE_ROOT" "$PWD" \
+          python3 scripts/ci/owned_build_state.py prefer "$OWNED_START" "$PWD" \
             "$SEED_PREFIX" "$MERGED_ONTO" "$MAX_DISTANCE"
 
       - name: Cache GhosttyKit.xcframework

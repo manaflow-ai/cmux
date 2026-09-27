@@ -159,6 +159,7 @@ from __future__ import annotations
 
 import contextlib
 import errno
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -385,7 +386,7 @@ def main_build(store: Path, fingerprint: str = "") -> bool:
             and (not fingerprint or kept == stamped(fingerprint)))
 
 
-def holds_last_main(store: Path) -> bool:
+def holds_last_main(store: Path, fingerprint: str = "") -> bool:
     """STORE keeps the only main build among its mini's canonical roots, on a mini with more than one.
 
     Such a root stays at main: a pull request compiled there is kept in its PR slot instead, and that pull
@@ -394,7 +395,20 @@ def holds_last_main(store: Path) -> bool:
     for everyone once that pull request changed a package interface (09-27: 100 of 108 picker candidates
     were rebuild). glaeda-idle-warm keeps it at main's head."""
     others = other_root_stores(store)
-    return bool(others) and main_build(store) and not any(main_build(other) for other in others)
+    return bool(others) and main_build(store, fingerprint) and not any(main_build(other) for other in others)
+
+
+@contextlib.contextmanager
+def mini_keep_lock(store: Path):
+    """One `keep` at a time across the mini's roots, so two roots never both decide the other keeps main."""
+    suffix = store.name[len(ROOT_STORE_PREFIX):]
+    base = store.parent if store.name.startswith(ROOT_STORE_PREFIX) and suffix.isdigit() else store
+    lock = os.open(base / ".keep.lock", os.O_RDONLY | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(lock)
 
 
 def usable_slot(store: Path, number: object, fingerprint: str) -> Path | None:
@@ -483,6 +497,10 @@ def check(store: Path, fingerprint: str, workspace: Path, package_store: Path | 
             incoming.rename(store / seed.SEED_SOURCE)
         except OSError:
             pass
+    if adopt_from is not None and tree_bytes(adopt_from / DERIVED) > MAX_DERIVED_BYTES:
+        with contextlib.suppress(OSError, RuntimeError):
+            clear(adopt_from)  # grown past the cap: drop it and start from the main build
+        adopt_from = None
     start = adopt_from or store
     stamp = read_stamp(start)
     result = {"warm": "false", "packages": "false"}
@@ -613,8 +631,14 @@ def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr
     # A seed's record is never replayed here (adopt reads RECORD only).
     for name in (*UNREAD, seed.MANIFEST):
         remove(incoming / name)
+    with mini_keep_lock(store):
+        return keep_locked(store, incoming, fingerprint, merged_onto, pr_number)
+
+
+def keep_locked(store: Path, incoming: Path, fingerprint: str, merged_onto: str, pr_number: str) -> dict[str, str]:
+    """`keep` after the clone, under mini_keep_lock: park or replace."""
     slot = pr_slot(store, pr_number)
-    if slot is not None and holds_last_main(store):
+    if slot is not None and holds_last_main(store, fingerprint):
         # This root stays at main for the mini's other pull requests; this build waits in its slot.
         staged = slot.with_name(f".{slot.name}.incoming-{os.getpid()}")
         try:
