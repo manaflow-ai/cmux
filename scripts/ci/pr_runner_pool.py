@@ -88,7 +88,7 @@ idle ones among them; every other online runner counts as busy
 snapshot's queue and one job per run since it, since the API shows no queue.
 Read live, in-flight runs' peaks (`committed`, the markers' peaks beyond the
 live window) are not charged at all: those are the fallback without the
-runners API. With the runners read, attempt 1 does not need the snapshot
+runners API. With the runners read, a run does not need the snapshot
 either: when it cannot be downloaded or is stale, the owned pools are
 decided from the runners alone and Blacksmith's queues count as unknown
 (empty): a run that no owned pool takes keeps every job's default, as
@@ -100,9 +100,10 @@ job lengths, and ci-owned-pool-rescue.yml gives a CI run's jobs that much
 run to Blacksmith (owned_pool_rescue.py). Without the runners API an
 offline machine still counts toward capacity; what that gets wrong,
 ci-owned-pool-rescue.yml catches: a run whose
-job waits on an owned pool past its budget is re-run on Blacksmith. A re-run
-of failed jobs reuses this run's outputs, so a persistent choice also names
-`retry_runner`, the Blacksmith pool every macOS job takes from attempt 2 on. The owned order is `std` (48 GB minis),
+job waits on an owned pool past its budget is re-run. A persistent choice
+also names `retry_runner`, the Blacksmith pool the jobs not placed on the
+owned pool take (on every attempt: a re-run of failed jobs reuses this run's
+outputs). The owned order is `std` (48 GB minis),
 then `light` (16 GB), then the Blacksmith pools: one order for every job type.
 
 Per-job placement (`vars.CI_PR_POOL_OWNED_SPLIT == '1'`): without it, a run
@@ -249,19 +250,20 @@ selects the newest SDK 26 Xcode on the pool it lands on, and the product
 consumers restate compile admission's empty pin), and only lands on
 ephemeral Blacksmith pools.
 
-A retry attempt (GITHUB_RUN_ATTEMPT above 1) never takes a persistent pool
-either. A job queued on a persistent pool waits for it however long it stays
-busy, so owned_pool_rescue.py cancels such a run and re-runs it, and the
-re-run has to land somewhere with capacity. A rerun after a job failed on an
-owned Mac lands on Blacksmith for the same reason. One exception, off unless
-`vars.CI_OWNED_LIGHT_RETRY == '1'`: attempt 2 (LIGHT_RETRY_ATTEMPT) may take
-a `light` owned pool, the next fleet tier, when its whole owned peak is free
-there by the same rule as attempt 1, and only when github-actions[bot]
-started it (GITHUB_TRIGGERING_ACTOR). That attempt is the full re-run the
-rescue starts for a job stuck queued on `std`, which picks again; the rescue
-watches it, and a job stuck or refused there goes to Blacksmith on attempt
-3. The order is std, then light, then Blacksmith. The `persistent` output
-tells ci.yml to publish the marker the rescue watcher looks for.
+Re-runs: no attempt count sends a run to Blacksmith. A re-run of failed
+jobs reuses attempt 1's outputs, so each job goes back where attempt 1
+placed it: an owned job to the owned pool label (pr_root_runner, else
+pr_refused_retry_runner; never attempt 1's pinned runner), any mini of it.
+A full re-run (the rescue's, after a job stuck queued, or a person's) runs
+this picker again and picks exactly like attempt 1, except that with the
+runners read live it leaves out the minis whose host faults ended a job of
+the attempt before (avoid_hosts(): the job-started hook refused it, the
+runner was lost or killed, or it timed out), so they do not count as idle:
+the run takes the owned pool only for what the other minis can hold. A job
+that failed a test step avoids no mini: the code, not the host, failed. Blacksmith then takes a re-run only
+the way it takes attempt 1: overflow, when no owned pool has room. The
+`persistent` output tells ci.yml to publish the marker the rescue watcher
+looks for, on whichever attempt picked.
 
 Main's full suite: ci-main-full-suite.yml dispatches ci.yml on main about
 32 times a day, each a full suite (compile admission, 7 app-host shards,
@@ -350,17 +352,14 @@ OWNED_VARIABLE = "CI_PR_POOL_OWNED"
 SPLIT_VARIABLE = "CI_PR_POOL_OWNED_SPLIT"
 GUI_VARIABLE = "CI_PR_POOL_OWNED_GUI"
 SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
-LIGHT_RETRY_VARIABLE = "CI_OWNED_LIGHT_RETRY"
-# The one retry attempt that may take the light tier (owned_pool_rescue.py's
-# LAST_OWNED_ATTEMPT): later attempts always go to Blacksmith.
-LIGHT_RETRY_ATTEMPT = 2
 LIGHT_CLASS = "light"
-# Attempt 2 of a re-run of failed jobs keeps attempt 1's outputs, so its owned-eligible jobs go back to the
-# owned pool (pr_root_runner or pr_refused_retry_runner) whoever started it: the rescue after a refusal, or a
-# person or agent re-running a failed job, which the rescue then watches like its own (attempt 3 and later
-# always take Blacksmith). Only the light tier, which a full re-run's picker may claim, stays the rescue's:
-# a person's full re-run must not claim light (or publish its marker) behind the rescue's back.
-RESCUE_ACTOR = "github-actions[bot]"
+# A re-run of failed jobs keeps attempt 1's outputs, so its owned-eligible jobs go back to the owned pool
+# (pr_root_runner or pr_refused_retry_runner) on any attempt, whoever started it. A full re-run picks again
+# like attempt 1, leaving out the minis its previous attempt's host faults point at (avoid_hosts()).
+# Job states a mini leaves behind when it, not the code under test, ended the job: glaeda's job-started
+# hook refusing it (the runner's setup step fails), the runner lost or killed mid-job (a step never
+# finishes), or the job timing out (a step cancelled inside a failed job).
+HOST_FAULT_SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 MAIN_RESERVE_VARIABLE = "CI_OWNED_MAIN_RESERVE"
 # Machines and root runners main's full suite leaves free for pull requests.
 # 0: main takes the minis like a pull request. Its run holds 9 root runners
@@ -1107,6 +1106,25 @@ def live_owned_free(runners: Sequence[Mapping[str, Any]], labels: Sequence[str])
     return free
 
 
+def host_fault(job: Mapping[str, Any]) -> bool:
+    """Whether the mini, not the code under test, ended this failed job (HOST_FAULT_SETUP_STEPS above).
+
+    A test that fails fails a workflow step, and its re-run may take any mini.
+    """
+    if job.get("conclusion") != "failure":
+        return False
+    steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
+    if any(step.get("name") in HOST_FAULT_SETUP_STEPS and step.get("conclusion") == "failure" for step in steps):
+        return True
+    return not any(step.get("conclusion") == "failure" for step in steps)
+
+
+def avoid_hosts(jobs: Sequence[Mapping[str, Any]]) -> set[str]:
+    """The minis (runner_member()) whose host faults ended a job of the previous attempt."""
+    return {member for job in jobs if isinstance(job, Mapping) and host_fault(job)
+            for member in [runner_member(str(job.get("runner_name") or ""))] if member}
+
+
 def warm_key(commit: str | None) -> str:
     """A commit's warm key (its first 12 hex digits), a `pr-<n>` key as is, or "" for anything else."""
     key = (commit or "").strip().lower()
@@ -1646,8 +1664,6 @@ def choose(
     jobs: int = MAX_RUN_JOBS,
     split: str | None = None,
     root_jobs: int = 0,
-    light_retry: str | None = None,
-    triggering_actor: str | None = None,
     fetch: Callable[[], Mapping[str, Any] | None],
     count_routed: Callable[[str], "int | Routed"] = lambda since: 0,
     now: dt.datetime,
@@ -1677,9 +1693,6 @@ def choose(
         if (owned or "").strip() != "1":
             return Choice("", "", f"main's full-suite dispatch takes only an owned pool, and {OWNED_VARIABLE} "
                                   "is not 1"), None
-        if run_attempt > 1:
-            return Choice("", "", f"retry attempt {run_attempt} of main's full-suite dispatch; "
-                                  "it keeps its own route"), None
         try:
             reserve = int(main_reserve) if (main_reserve or "").strip() else DEFAULT_MAIN_RESERVE
         except ValueError:
@@ -1725,26 +1738,18 @@ def choose(
             label for label in limits.order if label.startswith(EPHEMERAL_PREFIX)))
         if not limits.order:
             return Choice("", "", "fork head; no ephemeral pool in the order"), snapshot
+    # A re-run picks like attempt 1: no attempt count sends it to Blacksmith.
+    # main() leaves the minis a failed attempt's host faults point at out of
+    # the live runners (avoid_hosts()), so only the overflow path does.
     retry = run_attempt > 1
-    if retry:
-        light = (not fork and run_attempt == LIGHT_RETRY_ATTEMPT and (light_retry or "").strip() == "1"
-                 and (triggering_actor or "").strip() == RESCUE_ACTOR)
-        # A retry exists to get off a queue, so it does not queue (rounds 0):
-        # the light tier only with its peak free now, Blacksmith rolling over
-        # at a full pool, and the rescue's short budget.
-        limits = dataclasses.replace(limits, queue_rounds=0, order=tuple(
-            label for label in limits.order
-            if not persistent(label) or light and label.startswith(f"glaeda-{LIGHT_CLASS}-")))
-        if not limits.order:
-            return Choice("", "", f"retry attempt {run_attempt}; no ephemeral pool in the order"), snapshot
     live = live_owned is not None and not fork
-    # Attempt 1 with the owned runners read live does not need the janitor:
+    # Any attempt with the owned runners read live does not need the janitor:
     # a failed download (an HTTP 503 from artifact storage) or a stale
     # snapshot leaves the owned pools to the live runners and Blacksmith's
     # queues unknown, instead of skipping the fleet (2026-09-25: 2.8k
     # Blacksmith job-min on a stale snapshot, 0.6k on a 503).
     live_only = ""
-    if live and not retry:
+    if live:
         live_only = unreadable or snapshot_problem(snapshot, now)
         if live_only:
             # A stale snapshot's warm keys still name kept builds (warm affinity).
@@ -1841,18 +1846,12 @@ def routed_run(run: Mapping[str, Any]) -> bool:
     return run.get("event") == "pull_request" or main_dispatch(run)
 
 
-def may_hold_owned_pool(run: Mapping[str, Any], *, light_retry: bool = False) -> bool:
-    """Only attempt 1 of a same-repository pull request run (or of main's dispatch) can take an owned pool,
-    and attempt 2 too while CI_OWNED_LIGHT_RETRY is 1 (`light_retry`).
+def may_hold_owned_pool(run: Mapping[str, Any]) -> bool:
+    """Any attempt of a same-repository pull request run (or of main's dispatch) can take an owned pool.
 
-    Attempt 2 then may hold the light tier, or a refused job's retry
-    (pr_refused_retry_runner); with the variable off it is not looked up,
-    so no request is spent on it. The same rule as
-    queue_janitor.may_hold_owned_pool: a fork runs its own ci.yml and could
-    upload any marker, so its markers are never read.
+    The same rule as queue_janitor.may_hold_owned_pool: a fork runs its own
+    ci.yml and could upload any marker, so its markers are never read.
     """
-    if int(run.get("run_attempt") or 1) > (LIGHT_RETRY_ATTEMPT if light_retry else 1):
-        return False
     head, base = (run.get("head_repository") or {}).get("id"), (run.get("repository") or {}).get("id")
     return head is not None and head == base
 
@@ -1954,14 +1953,13 @@ class GitHub:
         return [run for run in runs if isinstance(run, Mapping)]
 
     def pull_request_routes_since(self, since: str, *, exclude_run_id: int | None,
-                                  light_retry: bool = False, now: dt.datetime | None = None) -> Routed:
+                                  now: dt.datetime | None = None) -> Routed:
         """Where the pull request runs (and main's dispatches) since `since` went, so they are not all guessed.
 
         One unfiltered page of CI runs, kept to the routed ones (routed_run()),
         so main's full-suite dispatch is counted at no extra request.
 
-        A fork run or a retry attempt never takes an owned pool, so it is off
-        them without a lookup (and a fork's own marker is never trusted). For
+        A fork run never takes an owned pool, so it is off them without a lookup (and a fork's own marker is never trusted). For
         the rest, a marker names the owned pool and peak the run took; a
         finished `changes` job whose marker step was skipped means the pick
         was not an owned pool. Any other run (still picking, a lost marker
@@ -1981,7 +1979,7 @@ class GitHub:
             age = run_age_minutes(run, clock)
             return age is not None and age < LIVE_WINDOW_MINUTES
         for run in runs:
-            if not may_hold_owned_pool(run, light_retry=light_retry):
+            if not may_hold_owned_pool(run):
                 ephemeral += 1
                 continue
             if looked_up >= ROUTE_LOOKUPS:
@@ -2024,6 +2022,16 @@ class GitHub:
             if steps and all(step.get("conclusion") == "skipped" for step in steps):
                 return "ephemeral"
         return None
+
+    def attempt_jobs(self, run_id: int, attempt: int) -> list[Mapping[str, Any]]:
+        """The jobs of one attempt of a run (two pages at most: ci.yml has under 100)."""
+        jobs: list[Mapping[str, Any]] = []
+        for page in (1, 2):
+            body = self.get(f"/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page={PAGE_SIZE}&page={page}")
+            jobs += [job for job in body.get("jobs") or [] if isinstance(job, Mapping)]
+            if len(jobs) >= int(body.get("total_count") or 0):
+                break
+        return jobs
 
     def runners(self) -> list[Mapping[str, Any]]:
         """The self-hosted runners this repository can use: its own and the org's RUNNER_GROUP.
@@ -2131,8 +2139,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         if args.snapshot:
             return 0
         return client().pull_request_routes_since(
-            since, exclude_run_id=int(run_id) if run_id.isdigit() else None,
-            light_retry=(env.get("OWNED_LIGHT_RETRY") or "").strip() == "1", now=now)
+            since, exclude_run_id=int(run_id) if run_id.isdigit() else None, now=now)
 
     event = env.get("EVENT_NAME") or ""
     ref = env.get("GITHUB_REF") or ""
@@ -2166,11 +2173,23 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     live_runners: list[Mapping[str, Any]] | None = None
     route_token = (env.get("ROUTE_TOKEN") or "").strip()
     if route_token and repo and not args.snapshot and (env.get("POOL_OWNED") or "").strip() == "1":
+        # A full re-run leaves out the minis whose host faults ended a job of
+        # the attempt before (avoid_hosts()); a test failure avoids no mini.
+        avoided: set[str] = set()
+        if attempt.isdigit() and int(attempt) > 1 and run_id.isdigit():
+            try:
+                avoided = avoid_hosts(client().attempt_jobs(int(run_id), int(attempt) - 1))
+            except Exception as error:  # noqa: BLE001 - every mini stays eligible
+                print(f"::warning title=avoid hosts::could not read attempt {int(attempt) - 1}'s jobs ({error})")
+            print(f"avoid hosts: {', '.join(sorted(avoided)) or 'none'}")
         try:
             labels = owned_pools(env.get(PR_XCODE_VARIABLE))
             # Each pool's root runners too; choose() keeps those with a root count.
             labels += tuple(root_label(label) for label in labels)
             live_runners = GitHub(route_token, repo).runners() if labels else None
+            if live_runners is not None and avoided:
+                live_runners = [runner for runner in live_runners
+                                if runner_member(str(runner.get("name") or "")) not in avoided]
             live_owned = live_owned_free(live_runners, labels) if live_runners is not None else None
             online = live_online(live_runners, labels) if live_runners is not None else None
         except Exception as error:  # noqa: BLE001 - the snapshot path still decides
@@ -2200,8 +2219,6 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         jobs=jobs,
         split=env.get("POOL_OWNED_SPLIT"),
         root_jobs=root_peak(plan, gui, gui_runners),
-        light_retry=env.get("OWNED_LIGHT_RETRY"),
-        triggering_actor=env.get("GITHUB_TRIGGERING_ACTOR"),
         xcode_pins={variable: env.get(variable) or ""
                     for variable in {*POOLS.values(), PR_XCODE_VARIABLE} if variable},
         fetch=fetch,

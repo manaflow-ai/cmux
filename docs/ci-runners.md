@@ -224,7 +224,7 @@ names no owned pool.
 | `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 12, "glaeda-light-xcode-26.6": 2}`. A class (`{"std": 12, "light": 2}`) or a bare count (`12`, the std class) means that class at the lane's Xcode pin |
 | `CI_OWNED_MAIN_RESERVE` | `0` | machines, and root runners, main's full-suite dispatch leaves free for pull requests; above 0 it takes an owned pool only whole (below) |
 | `GLAEDA_ROUTE_APP_ID` + secret `GLAEDA_ROUTE_APP_KEY` | unset (snapshot only) | the org's `manaflow-glaeda-route` App. `ci.yml`'s `changes` job mints a token with `administration: read` for same-repository pull requests and main's full-suite dispatch only, on its ephemeral Linux runner, and the picker lists the repository's runners: the online runners carrying an owned label are that pool's capacity, and the idle ones its free runners, less what runs of the last `LIVE_WINDOW_MINUTES` took. That replaces the counts of `CI_OWNED_POOL_SLOTS` (which still turns a pool's root routing on) and the snapshot's owned counts and age. Any failure falls back to them |
-| `CI_OWNED_LIGHT_RETRY` | unset (off) | `1` lets attempt 2, the full re-run the rescue starts for a job stuck on a full `std` pool, take the `light` pool when the run's whole owned peak is free there and `github-actions[bot]` started the re-run (a person's re-run of attempt 2 stays on Blacksmith). The rescue watches that attempt like attempt 1, and a job stuck or refused there goes to Blacksmith on attempt 3. Only while it is on do the janitor and the picker look up attempt 2's marker. Order: std, light, Blacksmith |
+| `CI_OWNED_LIGHT_RETRY` | unset (off) | read only by `ci-owned-pool-rescue.yml`: `1` makes the rescue watch the full re-run it starts for a stuck run (attempt 2) like attempt 1. The picker and the janitor no longer read it: every full re-run picks like attempt 1 |
 
 Main's full suite: `ci-main-full-suite.yml` dispatches `ci.yml` on main about
 32 times a day, each a full suite. Until this change every one ran compile
@@ -366,7 +366,7 @@ by tier (`admission_warm`): picking there
 would leave the gap until admission queues for other runs' late placement to
 take the pinned runner.
 A pinned runner taken in the seconds before admission queues leaves it
-waiting until the rescue re-runs the run, and attempt 2 never takes a pinned
+waiting until the rescue re-runs the run, and a re-run never takes a pinned
 label. The job adds its own runtime (a Linux runner, a token and one runner
 listing) to admission's start.
 
@@ -387,9 +387,10 @@ pull request head has not moved, cancels the run, and re-runs it. For main's
 full-suite dispatch it checks main's HEAD instead: once main has moved past
 the run's commit, the run is cancelled but not re-run, because its completion
 makes `ci-main-full-suite.yml` dispatch the newer HEAD; a refused job on
-main's run gets its failed jobs re-run whether or not main moved. A retry
-attempt never takes a persistent pool, so the re-run lands on Blacksmith as a
-whole, and so does a manual "Re-run all jobs".
+main's run gets its failed jobs re-run whether or not main moved. That full
+re-run, like a manual "Re-run all jobs", runs the picker again, which picks as
+on attempt 1 from the runners it reads live: with the pool still full it
+overflows to Blacksmith, otherwise it takes the minis that are free.
 
 An owned runner can also refuse a job: glaeda's job-started hook exits 1 when
 the host is busy, and the job fails within seconds (or, for a GUI job waiting on
@@ -401,30 +402,28 @@ in progress, and cancelling the run would kill the refused job's healthy
 siblings, as in run 36198335113), confirms the head has not moved, and re-runs
 its failed jobs, so nobody has to. Only a run still going when the watch ends,
 or main's full-suite run (a failed one would open main's red-CI issue), is
-cancelled first. That attempt 2 keeps what passed and sends the
-rest to `retry_runner` (below). Products built on a mini are then tested on
-Blacksmith, which is sound only while both carry the same Xcode build: on
-2026-09-24 the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images all
-reported Xcode 26.6 build 17F113 (jobs 107712770707 and 107710434810).
+cancelled first. That attempt 2 keeps what passed.
 
-A refused job goes back to the fleet once before Blacksmith. Attempt 2 may
-take the owned pool again where a job's `runs-on` reads
-`github.run_attempt == 2 && inputs.pr_refused_retry_runner` first. GitHub
-sends no `requested` event for a re-run, so the watch that re-ran the failed
-jobs follows attempt 2 itself, until its owned jobs have run past the
-360-second refusal window. A job refused, or queued past the budget, on
-attempt 2 gets its failed jobs re-run once more, keeping what passed, and
-attempt 3 and later always take `retry_runner` on Blacksmith, so a busy fleet
-costs at most one extra refusal and never loops.
+Re-runs are cause-based, not counted: no attempt number sends a job to
+Blacksmith. "Re-run failed jobs" does not re-run `changes`, so each failed job
+reads attempt 1's outputs and goes back where attempt 1 placed it: a job in
+`pr_owned_jobs` to the owned pool label (`github.run_attempt > 1 &&
+inputs.pr_root_runner || inputs.pr_refused_retry_runner`, never attempt 1's
+pinned runner), and a job attempt 1 sent to Blacksmith to `retry_runner`, the
+Blacksmith pool the picker named on the lane's own Xcode (the Xcode the owned
+label names). GitHub sends no `requested` event for a re-run, so the watch
+that re-ran a refused job's failed jobs follows attempt 2 itself, until its
+owned jobs have run past the 360-second refusal window.
 
-"Re-run failed jobs" is different: `changes` passed, so it is not re-run, and
-the failed jobs read attempt 1's outputs, owned pool included, with no watcher
-(the rescue follows attempt 1 only). So a persistent choice also names
-`retry_runner`, the Blacksmith pool the same rule picks on the lane's own
-Xcode, which is also the Xcode the owned label names. Every pull request macOS
-`runs-on`, and the app-host shards that otherwise inherit compile admission's
-pool, reads `github.run_attempt > 1 && inputs.pr_retry_runner` first. It is
-empty for a run on Blacksmith, so those re-run where they ran.
+A full re-run (the rescue's after a stuck queue, or "Re-run all jobs") runs
+the picker again, which picks as on attempt 1 and, with the runners read
+live, leaves out the minis whose host faults ended a job of the attempt
+before (`pr_runner_pool.avoid_hosts()`): the job-started hook refused the job
+(its setup step failed), the runner was lost or killed (no step failed), or
+it timed out (its step was cancelled). Those minis do not count as free, so
+the run takes the owned pool only for what the other minis can hold. A job
+that failed a test step avoids no mini.
+Blacksmith takes a re-run only as overflow, when no owned pool has room.
 
 Compile admission on an owned Mac keeps its build state between jobs
 (`scripts/ci/owned_build_state.py`) under `/Users/Shared/cmux-build-fleet/ci`:

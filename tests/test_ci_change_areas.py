@@ -4599,9 +4599,9 @@ def product_runner_output(key: str) -> str:
     # pr_runner_pool.gui_label() of the same owned pick, so the same Xcode.
     shard = "inputs.pr_shard_runner || " if "shard-" in key else ""
     gui = "inputs.pr_gui_runner || "
-    return ("${{ github.run_attempt == 2 && contains(inputs.pr_owned_jobs, " + key + ") "
+    return ("${{ github.run_attempt > 1 && contains(inputs.pr_owned_jobs, " + key + ") "
             "&& (" + gui + "inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
-            "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, " + key + ")) "
+            "|| !contains(inputs.pr_owned_jobs, " + key + ") "
             "&& inputs.pr_retry_runner || " + shard + gui + "needs.macos-compile-admission.outputs.runner }}")
 
 
@@ -6153,7 +6153,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
         "CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && "
         "github.event.pull_request.head.repo.full_name == github.repository && "
         "contains(inputs.pr_owned_jobs, ' swift-package ') && "
-        "(github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && "
+        "(github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt > 1 && "
         "(inputs.pr_side_runner || inputs.pr_refused_retry_runner)) && "
         "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
     ) in package_block
