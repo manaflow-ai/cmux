@@ -24,9 +24,8 @@ import XCTest
 ///     non-password mode hides it again;
 ///   * choosing **Full open access** raises a destructive confirmation dialog,
 ///     and cancelling it does not show the open-access warning;
-///   * each integration toggle drives a live subtitle that flips between its
-///     "on" and "off" sentence — an effect bound to the same model the runtime
-///     reads, so the subtitle change proves the stored value actually changed.
+///   * each integration toggle turns on with one click and keeps its fixed
+///     subtitle; the toggle value comes from the same model the runtime reads.
 ///
 /// Each test resets the backing `UserDefaults` keys so it starts from the
 /// documented default value.
