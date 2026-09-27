@@ -70,6 +70,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_omo_shadow_config_mirror.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_socket_autodiscovery.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
