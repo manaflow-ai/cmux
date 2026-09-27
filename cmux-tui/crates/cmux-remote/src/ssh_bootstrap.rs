@@ -1032,6 +1032,68 @@ mod tests {
         assert_eq!(fs::read(installed).unwrap(), b"exact unpublished build");
     }
 
+    /// A first connect uploads tens of megabytes over the user's own link, so
+    /// the payload must travel compressed when the remote can decompress it,
+    /// and the install must not spend a round trip per shell step.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn raw_build_streams_a_compressed_upload_in_few_round_trips() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        let installed = directory.path().join("installed");
+        let staged = directory.path().join("staged");
+        let wire = directory.path().join("wire");
+        let commands = directory.path().join("commands");
+        let source = directory.path().join("cmux-tui");
+        let payload = b"compressible unpublished build\n".repeat(64 * 1024);
+        fs::write(&source, &payload).unwrap();
+        let uname_os = if std::env::consts::OS == "macos" { "Darwin" } else { "Linux" };
+        let uname_arch =
+            if std::env::consts::ARCH == "aarch64" { "arm64" } else { std::env::consts::ARCH };
+        let probe = serde_json::json!({
+            "app": "cmux-tui",
+            "version": DISTRIBUTION_VERSION,
+            "distribution_version": DISTRIBUTION_VERSION,
+            "build_identity": BUILD_IDENTITY,
+            "remote_protocol": REMOTE_PROTOCOL_VERSION,
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+        });
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >>'{commands}'\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"mkdir -p \"*|*\"mkdir -m 700 \"*) command -v gzip >/dev/null 2>&1 && printf '%s\\n' 'cmux-upload:gzip' ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*)\n    [ -f '{staged}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"remote-probe --json\"*)\n    [ -f '{installed}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"exec 3> \"*\".cmux-upload-\"*\"gzip -dc\"*) tee '{wire}' | gzip -dc >'{staged}' ;;\n  *\"exec 3> \"*\".cmux-upload-\"*) tee '{wire}' >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) mv '{staged}' '{installed}' ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *\"rmdir \"*\".cmux-upload-\"*) exit 0 ;;\n  *) exit 2 ;;\nesac\n",
+                commands = commands.display(),
+                installed = installed.display(),
+                staged = staged.display(),
+                wire = wire.display(),
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut config = SshBootstrapConfig::defaults("host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        config.package_installable = false;
+        config.local_binary = Some(source);
+        config.remote_binary = "~/.local/bin/cmux-upload".into();
+
+        assert_eq!(
+            SshBootstrapper::new(config).unwrap().ensure_installed().await.unwrap(),
+            BootstrapOutcome::Installed
+        );
+        assert_eq!(fs::read(installed).unwrap(), payload);
+        let sent = fs::read(wire).unwrap();
+        assert_eq!(sent.get(..2), Some(&[0x1f, 0x8b][..]), "upload was not gzip");
+        assert!(sent.len() * 10 < payload.len(), "upload sent {} bytes", sent.len());
+        // probe, platform, staging, upload, staged probe, move, final probe.
+        let commands = fs::read_to_string(commands).unwrap();
+        assert!(commands.lines().count() <= 7, "install ran:\n{commands}");
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn raw_build_keeps_existing_remote_binary_when_staged_probe_is_incompatible() {
