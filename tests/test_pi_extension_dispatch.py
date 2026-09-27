@@ -360,14 +360,18 @@ await handlers.get("session_shutdown")({ reason: "dialog test" }, ctx);
     calls = dialog_log.read_text(encoding="utf-8").splitlines()
     question = [line for line in calls if "hooks pi notification" in line and "questionAsked" in line]
     response = [line for line in calls if "hooks pi approval-response" in line]
+    response_payloads = [json.loads(line.split("|", 1)[1]) for line in response]
     question_payloads = [json.loads(line.split("|", 1)[1]) for line in question]
-    response_payload = json.loads(response[0].split("|", 1)[1]) if len(response) == 1 else {}
+    response_payload = response_payloads[-1] if response_payloads else {}
     if (
         len(question) != 2
-        or len(response) != 1
-        or calls.index(question[1]) > calls.index(response[0])
+        or len(response) != 2
+        or calls.index(question[0]) > calls.index(response[0])
+        or calls.index(question[1]) > calls.index(response[1])
         or question_payloads[1].get("turn_id") != response_payload.get("turn_id")
-        or question_payloads[0].get("turn_id") == response_payload.get("turn_id")
+        or question_payloads[0].get("turn_id") == response_payloads[1].get("turn_id")
+        or response_payloads[0].get("cmux_pi_idle_dialog") is not True
+        or response_payloads[1].get("cmux_pi_idle_dialog") is not False
     ):
         print(f"FAIL: Pi UI dialog did not bracket a needs-input lifecycle: {calls!r}")
         return 1

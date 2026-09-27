@@ -108,12 +108,14 @@ async function publishPiApprovalResponse(
   dispatcher: PiCmuxCommandDispatcher,
   context: PiExtensionContextSnapshot,
   turnId: string,
+  idleDialog: boolean,
 ): Promise<void> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
   const sessionId = context.sessionId;
   if (!sessionId) return;
   await sendHook(dispatcher, "approval-response", context, {
     turn_id: turnId,
+    cmux_pi_idle_dialog: idleDialog,
   });
 }
 
@@ -159,11 +161,12 @@ function installPiUIDialogHooks(
   const resolved = (dialog: PiUIDialogLifecycle | undefined) => {
     const current = snapshot();
     const sessionId = current.sessionId;
-    if (!sessionId || !dialog?.resolveTurn) return;
+    if (!sessionId || !dialog) return;
     void enqueueLifecycleTask(sessionId, current, () => publishPiApprovalResponse(
       dispatcher,
       current,
       dialog.turnId,
+      !dialog.resolveTurn,
     ));
   };
 
