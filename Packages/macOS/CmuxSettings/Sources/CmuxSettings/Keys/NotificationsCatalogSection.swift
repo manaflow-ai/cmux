@@ -26,6 +26,13 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationPaneFlashEnabled"
     )
 
+    /// Blink the pane flash twice instead of one short pulse.
+    public let paneFlashDoubleBlink = DefaultsKey<Bool>(
+        id: "notifications.paneFlashDoubleBlink",
+        defaultValue: false,
+        userDefaultsKey: "notificationPaneFlashDoubleBlink"
+    )
+
     /// Stroke color of the attention ring and pane flash, as a `#RRGGBB` hex.
     /// Empty (the default) keeps the built-in `systemBlue`.
     public let paneFlashColorHex = DefaultsKey<String>(

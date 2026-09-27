@@ -405,6 +405,17 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: NotificationPaneFlashSettings.enabledKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "paneFlashDoubleBlink",
+                settingsKey: "notifications.paneFlashDoubleBlink",
+                title: {
+                    String(localized: "settings.notifications.paneFlashDoubleBlink.title", defaultValue: "Double Blink")
+                },
+                sectionTitle: app,
+                keywords: ["notifications.paneFlashDoubleBlink", "pane", "flash", "double", "blink", "pulse"],
+                defaultValue: NotificationPaneFlashSettings.defaultDoubleBlink,
+                defaultsKey: NotificationPaneFlashSettings.doubleBlinkKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "sendAnonymousTelemetry",
                 settingsKey: "app.sendAnonymousTelemetry",
                 title: {

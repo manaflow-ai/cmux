@@ -76,6 +76,7 @@ Notification behavior from Settings > Notifications.
 | `notifications.showInMenuBar` | boolean | `true` | Show the menu bar extra. |
 | `notifications.unreadPaneRing` | boolean | `true` | Highlight panes with unread notifications. |
 | `notifications.paneFlash` | boolean | `true` | Flash the focused pane when requested. |
+| `notifications.paneFlashDoubleBlink` | boolean | `false` | Blink the pane flash twice instead of one short pulse. |
 | `notifications.sound` | `"default"` or `"Basso"` or `"Blow"` or `"Bottle"` or `"Frog"` or `"Funk"` or `"Glass"` or `"Hero"` or `"Morse"` or `"Ping"` or `"Pop"` or `"Purr"` or `"Sosumi"` or `"Submarine"` or `"Tink"` or `"custom_file"` or `"none"` | `"default"` | Notification sound preset. |
 | `notifications.customSoundFilePath` | string | `""` | Local path to the custom notification sound file. |
 | `notifications.command` | string | `""` | Optional shell command to run alongside notification delivery. |

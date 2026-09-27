@@ -49,6 +49,7 @@ enum SettingsSearchIndex {
         setting(.app, "show-menu-bar", String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar"), "menu extra status item"),
         setting(.app, "unread-pane-ring", String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring"), "notification blue ring pane"),
         setting(.app, "pane-flash", String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"), "notification flash highlight"),
+        setting(.app, "pane-flash-double-blink", String(localized: "settings.notifications.paneFlashDoubleBlink.title", defaultValue: "Double Blink"), "pane flash blink twice pulse"),
         setting(.app, "desktop-notifications", String(localized: "settings.notifications.desktop", defaultValue: "Desktop Notifications"), "permission alerts test notification"),
         setting(.app, "notification-sound", String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"), "custom sound alert audio"),
         setting(
@@ -237,6 +238,7 @@ enum SettingsSearchIndex {
         "notifications.showInMenuBar": settingID(for: .app, idSuffix: "show-menu-bar"),
         "notifications.unreadPaneRing": settingID(for: .app, idSuffix: "unread-pane-ring"),
         "notifications.paneFlash": settingID(for: .app, idSuffix: "pane-flash"),
+        "notifications.paneFlashDoubleBlink": settingID(for: .app, idSuffix: "pane-flash-double-blink"),
         "notifications.sound": settingID(for: .app, idSuffix: "notification-sound"),
         "notifications.customSoundFilePath": settingID(for: .app, idSuffix: "notification-sound"),
         "notifications.soundOverrides": settingID(for: .app, idSuffix: "notification-sound-overrides"),

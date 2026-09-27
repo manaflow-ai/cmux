@@ -55,6 +55,7 @@ public struct AppSection: View {
     @State private var showInMenuBar: DefaultsValueModel<Bool>
     @State private var paneRing: DefaultsValueModel<Bool>
     @State private var paneFlash: DefaultsValueModel<Bool>
+    @State private var paneFlashDoubleBlink: DefaultsValueModel<Bool>
     @State private var desktopNotifications: DesktopNotificationAuthorizationModel
     @State private var agentPermissionPrompt: DefaultsValueModel<Bool>
     @State private var agentTurnComplete: DefaultsValueModel<String>
@@ -121,6 +122,7 @@ public struct AppSection: View {
         _showInMenuBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.showInMenuBar))
         _paneRing = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.unreadPaneRing))
         _paneFlash = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlash))
+        _paneFlashDoubleBlink = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlashDoubleBlink))
         _desktopNotifications = State(initialValue: DesktopNotificationAuthorizationModel(hostActions: hostActions))
         _agentPermissionPrompt = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentPermissionPrompt))
         _agentTurnComplete = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentTurnComplete))
@@ -160,7 +162,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, paneFlashDoubleBlink, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if soundAgents.isEmpty {
                 soundAgents = await hostActions.notificationSoundAgentOptions()
             }
@@ -719,6 +721,19 @@ public struct AppSection: View {
                 Toggle("", isOn: Binding(get: { paneFlash.current }, set: { paneFlash.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Pane Flash: Double Blink
+            SettingsCardRow(
+                configurationReview: .json("notifications.paneFlashDoubleBlink"),
+                String(localized: "settings.notifications.paneFlashDoubleBlink.title", defaultValue: "Double Blink"),
+                subtitle: String(localized: "settings.notifications.paneFlashDoubleBlink.subtitle", defaultValue: "Blink the pane flash twice instead of one short pulse.")
+            ) {
+                Toggle("", isOn: Binding(get: { paneFlashDoubleBlink.current }, set: { paneFlashDoubleBlink.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .disabled(!paneFlash.current)
             }
             SettingsCardDivider()
 
