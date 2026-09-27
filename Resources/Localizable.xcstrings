@@ -551552,55 +551552,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scales all text in cmux. Command-Equal sign and Command-Hyphen still zoom the focused pane."
+            "value": "Scales all text in cmux."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ändert die Größe des gesamten Texts in cmux. Mit Befehlstaste-Gleichheitszeichen und Befehlstaste-Bindestrich lässt sich das fokussierte Teilfenster weiterhin zoomen."
+            "value": "Ändert die Größe des gesamten Texts in cmux."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Modifie la taille de tout le texte de cmux. Commande + signe égal et Commande + trait d’union continuent de régler le zoom du volet actif."
+            "value": "Modifie la taille de tout le texte de cmux."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يغيّر حجم جميع النصوص في cmux. ولا يزال الاختصاران Command-علامة المساواة وCommand-الواصلة يكبّران الجزء المركّز عليه ويصغّرانه."
+            "value": "يغيّر حجم جميع النصوص في cmux."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cambia el tamaño de todo el texto de cmux. Comando + signo igual y Comando + guion siguen ajustando el zoom del panel enfocado."
+            "value": "Cambia el tamaño de todo el texto de cmux."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "調整 cmux 中所有文字的大小。Command + 等號和 Command + 連字號仍可用來縮放目前聚焦的窗格。"
+            "value": "調整 cmux 中所有文字的大小。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "调整 cmux 中所有文本的大小。Command + 等号和 Command + 连字符仍可用于缩放当前聚焦的窗格。"
+            "value": "调整 cmux 中所有文本的大小。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux의 모든 텍스트 크기를 조절합니다. 포커스된 분할 창은 계속 Command-등호와 Command-하이픈으로 확대/축소할 수 있습니다."
+            "value": "cmux의 모든 텍스트 크기를 조절합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 内のすべてのテキストの大きさを変更します。フォーカス中のペインは、これまでどおり Command + イコールと Command + ハイフンで拡大縮小できます。"
+            "value": "cmux 内のすべてのテキストの大きさを変更します。"
           }
         }
       }
@@ -553145,55 +553145,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adds Cloud Machines to the right sidebar, Settings, the command palette, and the new workspace menu."
+            "value": "Shows Cloud Machines in the right sidebar, command palette, and new workspace menu."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fügt Cloud-Maschinen zur rechten Seitenleiste, zu den Einstellungen, zur Befehlspalette und zum Menü für neue Arbeitsbereiche hinzu."
+            "value": "Zeigt Cloud-Maschinen in der rechten Seitenleiste, in der Befehlspalette und im Menü für neue Arbeitsbereiche an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajoute les machines cloud à la barre latérale droite, aux Réglages, à la palette de commandes et au menu de nouvel espace de travail."
+            "value": "Affiche les machines cloud dans la barre latérale droite, la palette de commandes et le menu de nouvel espace de travail."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يضيف الأجهزة السحابية إلى الشريط الجانبي الأيمن والإعدادات ولوحة الأوامر وقائمة مساحة العمل الجديدة."
+            "value": "يعرض الأجهزة السحابية في الشريط الجانبي الأيمن ولوحة الأوامر وقائمة مساحة العمل الجديدة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añade las máquinas en la nube a la barra lateral derecha, a Ajustes, a la paleta de comandos y al menú de nuevo espacio de trabajo."
+            "value": "Muestra las máquinas en la nube en la barra lateral derecha, la paleta de comandos y el menú de nuevo espacio de trabajo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在右側邊欄、設定、命令面板和新增工作區選單中加入雲端機器。"
+            "value": "在右側邊欄、命令面板和新增工作區選單中顯示雲端機器。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在右侧边栏、设置、命令面板和新建工作区菜单中添加云主机。"
+            "value": "在右侧边栏、命令面板和新建工作区菜单中显示云主机。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오른쪽 사이드바, 설정, 명령어 팔레트, 새 작업 공간 메뉴에 클라우드 머신을 추가합니다."
+            "value": "오른쪽 사이드바, 명령어 팔레트, 새 작업 공간 메뉴에 클라우드 머신을 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右サイドバー、設定、コマンドパレット、新規ワークスペースメニューにクラウドマシンを追加します。"
+            "value": "右サイドバー、コマンドパレット、新規ワークスペースメニューにクラウドマシンを表示します。"
           }
         }
       }
@@ -553499,55 +553499,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Add Checklist Item and status controls on workspaces."
+            "value": "Adds checklist items and a status menu to workspaces."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt „Checklisten-Eintrag hinzufügen“ und Statussteuerelemente bei Arbeitsbereichen an."
+            "value": "Fügt Arbeitsbereichen Checklisten-Einträge und ein Statusmenü hinzu."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affiche « Ajouter un élément à la liste de contrôle » et les commandes d’état sur les espaces de travail."
+            "value": "Ajoute des éléments de liste de contrôle et un menu d’état aux espaces de travail."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض «إضافة عنصر قائمة تحقق» وعناصر التحكم في الحالة على مساحات العمل."
+            "value": "يضيف عناصر قائمة تحقق وقائمة حالة إلى مساحات العمل."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra «Añadir elemento a la lista de verificación» y los controles de estado en los espacios de trabajo."
+            "value": "Añade elementos de lista de verificación y un menú de estado a los espacios de trabajo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在工作區上顯示「新增檢查清單項目」和狀態控制項。"
+            "value": "在工作區中加入檢查清單項目和狀態選單。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在工作区上显示“添加清单项”和状态控件。"
+            "value": "为工作区添加清单项和状态菜单。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간에 ‘체크리스트 항목 추가’ 및 상태 컨트롤을 표시합니다."
+            "value": "작업 공간에 체크리스트 항목과 상태 메뉴를 추가합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースに「チェックリスト項目を追加」とステータスコントロールを表示します。"
+            "value": "ワークスペースにチェックリスト項目とステータスメニューを追加します。"
           }
         }
       }
@@ -554384,55 +554384,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hibernates idle background agent terminals above the live terminal limit."
+            "value": "Hibernates idle background agents to free memory."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Versetzt inaktive Agenten-Terminals im Hintergrund in den Ruhezustand, sobald das Limit für aktive Terminals überschritten ist."
+            "value": "Versetzt inaktive Agenten im Hintergrund in den Ruhezustand, um Arbeitsspeicher freizugeben."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Met en hibernation les terminaux d’agent inactifs en arrière-plan au-delà de la limite de terminaux actifs."
+            "value": "Met en hibernation les agents inactifs en arrière-plan pour libérer de la mémoire."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يُدخل طرفيات الوكلاء الخاملة في الخلفية في السبات عند تجاوز حد الطرفيات النشطة."
+            "value": "يُدخل الوكلاء الخاملين في الخلفية في السبات لتحرير الذاكرة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pone en hibernación las terminales de agentes inactivas en segundo plano que superan el límite de terminales activas."
+            "value": "Pone en hibernación los agentes inactivos en segundo plano para liberar memoria."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "作用中終端機超過上限時，閒置的背景代理終端機會進入休眠。"
+            "value": "讓閒置的背景代理程式進入休眠，以釋放記憶體。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "活动终端超过上限时，空闲的后台代理终端会进入休眠。"
+            "value": "让空闲的后台代理进入休眠，以释放内存。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "활성 터미널 수가 한도를 넘으면 백그라운드에서 유휴 상태인 에이전트 터미널을 최대 절전 모드로 전환합니다."
+            "value": "유휴 상태인 백그라운드 에이전트를 최대 절전 모드로 전환하여 메모리를 확보합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "実行中のターミナル数が上限を超えると、アイドル状態のバックグラウンドエージェントのターミナルを休止させます。"
+            "value": "アイドル状態のバックグラウンドエージェントを休止させて、メモリを解放します。"
           }
         }
       }
@@ -554502,55 +554502,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copying text joins lines that a program broke at the terminal edge."
+            "value": "Joins wrapped lines in copied text."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Beim Kopieren werden Zeilen zusammengefügt, die ein Programm am Terminalrand umbrochen hat."
+            "value": "Fügt umbrochene Zeilen in kopiertem Text zusammen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lors de la copie, les lignes qu’un programme a coupées au bord du terminal sont réunies."
+            "value": "Réunit les lignes coupées dans le texte copié."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عند النسخ، تُدمج الأسطر التي قسّمها برنامج عند حافة الطرفية."
+            "value": "يدمج الأسطر الملتفّة في النص المنسوخ."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Al copiar, se unen las líneas que un programa cortó en el borde de la terminal."
+            "value": "Une las líneas cortadas en el texto copiado."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "複製文字時，合併程式在終端機邊緣斷開的行。"
+            "value": "將複製文字中自動換行的行合併回一行。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "复制文本时，合并程序在终端边缘断开的行。"
+            "value": "将复制文本中自动换行的行合并回一行。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "텍스트를 복사할 때 프로그램이 터미널 가장자리에서 나눈 줄을 합칩니다."
+            "value": "복사한 텍스트에서 줄바꿈된 줄을 한 줄로 합칩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "テキストをコピーするとき、プログラムがターミナルの端で区切った行をつなげます。"
+            "value": "コピーしたテキスト内の折り返された行をつなげます。"
           }
         }
       }
@@ -554974,55 +554974,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pressing Command or Option with an arrow key or Delete moves or deletes by line or word, including in full-screen terminal apps."
+            "value": "Moves and deletes by line or word with Command or Option and the arrow keys or Delete."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mit der Befehls- oder Wahltaste und einer Pfeiltaste oder der Löschtaste bewegen Sie die Einfügemarke bzw. löschen Text zeilen- oder wortweise, auch in Terminal-Apps im Vollbildmodus."
+            "value": "Ermöglicht das zeilen- oder wortweise Bewegen und Löschen mit der Befehls- oder Wahltaste und den Pfeiltasten oder der Löschtaste."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Commande ou Option associée à une touche fléchée ou à Supprimer déplace le point d’insertion ou supprime du texte par ligne ou par mot, y compris dans les apps de terminal en plein écran."
+            "value": "Permet de se déplacer et de supprimer par ligne ou par mot avec Commande ou Option et les flèches ou Supprimer."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يؤدي الضغط على Command أو Option مع مفتاح سهم أو مفتاح الحذف إلى التنقل أو الحذف سطرًا سطرًا أو كلمةً كلمة، حتى في تطبيقات الطرفية بملء الشاشة."
+            "value": "يتيح التنقل والحذف سطرًا سطرًا أو كلمةً كلمة باستخدام Command أو Option مع مفاتيح الأسهم أو مفتاح الحذف."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comando u Opción junto con una tecla de flecha o Eliminar mueve el punto de inserción o borra por líneas o palabras, también en las apps de terminal a pantalla completa."
+            "value": "Permite moverse y borrar por líneas o palabras con Comando u Opción y las teclas de flecha o Eliminar."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "按住 Command 或 Option 鍵再按方向鍵或 Delete 鍵，可按行或字詞移動或刪除，全螢幕終端機 App 中也適用。"
+            "value": "使用 Command 或 Option 鍵搭配方向鍵或 Delete 鍵，按行或字詞移動及刪除。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "按住 Command 或 Option 键再按箭头键或 Delete 键，可按行或按词移动或删除，全屏终端 App 中也适用。"
+            "value": "使用 Command 或 Option 键搭配箭头键或 Delete 键，按行或按词移动和删除。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command 또는 Option 키를 누른 채 화살표 키나 Delete 키를 누르면 줄 또는 단어 단위로 이동하거나 삭제합니다. 전체 화면 터미널 앱에서도 동작합니다."
+            "value": "Command 또는 Option 키와 화살표 키 또는 Delete 키를 사용하여 줄 또는 단어 단위로 이동하거나 삭제합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command キーまたは Option キーを押しながら矢印キーや Delete キーを押すと、行単位または単語単位で移動・削除します。フルスクリーンのターミナルアプリでも使えます。"
+            "value": "Command キーまたは Option キーと、矢印キーまたは Delete キーを使って、行単位または単語単位で移動・削除します。"
           }
         }
       }
@@ -555564,55 +555564,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows a lock badge while a program such as sudo reads a password."
+            "value": "Shows a lock badge during password prompts."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt ein Schloss-Symbol an, während ein Programm wie sudo ein Passwort einliest."
+            "value": "Zeigt bei Passwortabfragen ein Schloss-Symbol an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affiche un badge de cadenas pendant qu’un programme comme sudo lit un mot de passe."
+            "value": "Affiche un badge de cadenas lors des demandes de mot de passe."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض شارة قفل أثناء قراءة برنامج مثل sudo لكلمة مرور."
+            "value": "يعرض شارة قفل عند طلب كلمة مرور."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra una insignia de candado mientras un programa como sudo lee una contraseña."
+            "value": "Muestra una insignia de candado cuando se solicita una contraseña."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "當 sudo 等程式讀取密碼時，顯示鎖頭標記。"
+            "value": "在提示輸入密碼時顯示鎖頭標記。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "当 sudo 等程序读取密码时，显示锁形标记。"
+            "value": "在提示输入密码时显示锁形标记。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "sudo 같은 프로그램이 비밀번호를 읽는 동안 자물쇠 배지를 표시합니다."
+            "value": "비밀번호를 요청할 때 자물쇠 배지를 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "sudo などのプログラムがパスワードを読み取っている間、鍵のバッジを表示します。"
+            "value": "パスワードの入力を求められたときに鍵のバッジを表示します。"
           }
         }
       }
@@ -555623,55 +555623,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows a dot in the badge for each typed character."
+            "value": "Shows a dot for each typed character."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt im Symbol einen Punkt pro eingegebenem Zeichen."
+            "value": "Zeigt für jedes eingegebene Zeichen einen Punkt an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affiche dans le badge un point par caractère saisi."
+            "value": "Affiche un point pour chaque caractère saisi."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض في الشارة نقطة لكل حرف مكتوب."
+            "value": "يعرض نقطة لكل حرف مكتوب."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra en la insignia un punto por cada carácter escrito."
+            "value": "Muestra un punto por cada carácter escrito."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "每輸入一個字元，就在標記中顯示一個圓點。"
+            "value": "每輸入一個字元就顯示一個圓點。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "每输入一个字符，就在标记中显示一个圆点。"
+            "value": "每输入一个字符就显示一个圆点。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "입력한 문자마다 배지에 점을 하나씩 표시합니다."
+            "value": "입력한 문자마다 점을 하나씩 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "入力した文字ごとにバッジにドットを 1 つ表示します。"
+            "value": "入力した文字ごとにドットを 1 つ表示します。"
           }
         }
       }
