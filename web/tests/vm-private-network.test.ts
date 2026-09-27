@@ -874,6 +874,33 @@ describe("team tunnel reconciliation", () => {
     expect(generations).toEqual([4]);
   });
 
+  test("a stale detach keeps a row that was deleted and re-inserted during the detach", async () => {
+    const team = teamNetworkRow({ teamId: "team-gone" });
+    const initial = { tunnelId: tunnelRow().id, teamNetworkId: team.id, addressV4: "10.50.0.2", addressV6: "fd50::2", attachedAt: new Date(), generation: 1, teamNetwork: team };
+    const options = { network: networkRow(), tunnel: tunnelRow(), teamNetworks: [] as CloudVmTeamNetworkRow[], tunnelTeamNetworks: [initial], deletedTeamAttachments: [] as string[] };
+    const repo = testRepo(options);
+    let firstDetach = true;
+    const gateway = testGateway({
+      detachTunnelNetwork: () => Effect.sync(() => {
+        if (!firstDetach) return;
+        firstDetach = false;
+        Effect.runSync(repo.deleteTunnelTeamNetwork!(initial.tunnelId, initial.teamNetworkId));
+        Effect.runSync(repo.insertTunnelTeamNetwork!({ tunnelId: initial.tunnelId, teamNetworkId: initial.teamNetworkId, addressV4: null, addressV6: null }));
+        Effect.runSync(repo.insertTunnelTeamNetwork!({ tunnelId: initial.tunnelId, teamNetworkId: initial.teamNetworkId, addressV4: initial.addressV4, addressV6: initial.addressV6 }));
+      }),
+    });
+    await Effect.runPromise(enrollVmTunnel({
+      userId: "user-1",
+      provider: "freestyle",
+      deviceId: "device-1",
+      deviceFingerprint: "device-1",
+      tunnelPurpose: "browser",
+      clientPublicKey: CLIENT_KEY,
+      teamIds: [],
+    }).pipe(Effect.provide(layerFor(repo, gateway))));
+    expect(options.tunnelTeamNetworks.some((row) => row.tunnelId === initial.tunnelId && row.teamNetworkId === initial.teamNetworkId)).toBe(true);
+  });
+
   test("overlap and generic attach failures are skipped", async () => {
     const team = teamNetworkRow();
     const overlap = new VmProviderOperationError({ provider: "freestyle", operation: "attachTunnelNetwork", cause: new ProviderTunnelNetworkOverlapError("overlap") });
