@@ -157,8 +157,11 @@ jobs:
           [[ -n "${STACK_PROJECT_ID:-}" ]] || { echo "::error::missing production Stack project id"; exit 1; }
           [[ -n "${STACK_PUBLISHABLE_CLIENT_KEY:-}" ]] || { echo "::error::missing production Stack publishable key"; exit 1; }
           [[ -n "${STACK_SECRET_SERVER_KEY:-}" ]] || { echo "::error::missing production Stack server key"; exit 1; }
-          production_env="$RUNNER_TEMP/cmux-production-stack.env"
           umask 077
+          production_dir="$RUNNER_TEMP/cmux-production-stack"
+          mkdir -p "$production_dir"
+          chmod 700 "$production_dir"
+          production_env="$production_dir/stack.env"
           cat > "$production_env" <<EOF
           NEXT_PUBLIC_STACK_PROJECT_ID=$STACK_PROJECT_ID
           NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY=$STACK_PUBLISHABLE_CLIENT_KEY
@@ -194,7 +197,7 @@ jobs:
             esac
             GATE_ARGS+=(
               --production
-              --stack-env-file "$RUNNER_TEMP/cmux-production-stack.env"
+              --stack-env-file "$RUNNER_TEMP/cmux-production-stack/stack.env"
             )
           else
             GATE_ARGS+=(--v2-base-url "${{ inputs.v2_base_url }}")
@@ -225,4 +228,6 @@ jobs:
 
       - name: Remove production Stack environment
         if: ${{ always() && inputs.environment == 'production' }}
-        run: rm -f "$RUNNER_TEMP/cmux-production-stack.env"
+        run: |
+          rm -f "$RUNNER_TEMP/cmux-production-stack/stack.env"
+          rmdir "$RUNNER_TEMP/cmux-production-stack" 2>/dev/null || true
