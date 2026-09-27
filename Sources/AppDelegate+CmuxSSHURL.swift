@@ -184,6 +184,24 @@ enum DefaultTerminalUserAction {
     }
 }
 
+/// Document types Info.plist declares with the Viewer role, so Finder offers cmux under
+/// Open With. LaunchServices opens of these land in a file preview, never a terminal.
+enum FilePreviewDocumentTypes {
+    static let contentTypeIdentifiers = [
+        "net.daringfireball.markdown",
+        "public.json",
+        "public.yaml",
+        "public.python-script"
+    ]
+
+    static func contains(_ contentType: UTType?) -> Bool {
+        guard let contentType else { return false }
+        return contentTypeIdentifiers.contains { identifier in
+            contentType.conforms(to: DefaultTerminalRegistration.contentType(forIdentifier: identifier))
+        }
+    }
+}
+
 struct TerminalDefaultFileOpenRequest: Equatable {
     let fileURL: URL
     let workingDirectory: String
@@ -244,7 +262,12 @@ struct TerminalDefaultFileOpenRequest: Equatable {
         if isTerminalShellScript(fileURL: fileURL, contentType: contentType) {
             return true
         }
-        return contentType?.conforms(to: .unixExecutable) == true || isExecutable
+        if contentType?.conforms(to: .unixExecutable) == true {
+            return true
+        }
+        // A document cmux opens as a Viewer previews even with its executable bit set:
+        // choosing cmux to read an executable Python script must not run it.
+        return isExecutable && !FilePreviewDocumentTypes.contains(contentType)
     }
 
     private static func isTerminalShellScript(fileURL: URL, contentType: UTType?) -> Bool {

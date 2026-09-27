@@ -697,6 +697,39 @@ final class TerminalDefaultFileOpenRequestTests: XCTestCase {
         XCTAssertEqual(request.initialInput, "'\(executable.path)'\n")
     }
 
+    func testPreviewsExecutableViewerDocumentsInsteadOfRunningThem() {
+        let url = URL(fileURLWithPath: "/tmp/tool.py")
+
+        XCTAssertNil(TerminalDefaultFileOpenRequest(fileURL: url, contentType: .pythonScript, isExecutable: true))
+        XCTAssertNil(TerminalDefaultFileOpenRequest(fileURL: url, contentType: .json, isExecutable: true))
+        XCTAssertNil(TerminalDefaultFileOpenRequest(
+            fileURL: URL(fileURLWithPath: "/tmp/README.md"),
+            contentType: DefaultTerminalRegistration.contentType(forIdentifier: "net.daringfireball.markdown"),
+            isExecutable: true
+        ))
+    }
+
+    func testStillRunsExecutableScriptsOutsideViewerDocumentTypes() {
+        let url = URL(fileURLWithPath: "/tmp/build.sh")
+
+        XCTAssertNotNil(TerminalDefaultFileOpenRequest(fileURL: url, contentType: .shellScript, isExecutable: true))
+        XCTAssertNil(TerminalDefaultFileOpenRequest(fileURL: url, contentType: .shellScript, isExecutable: false))
+    }
+
+    func testInfoPlistDeclaresPreviewDocumentTypesAsAlternateViewer() throws {
+        let documentTypes = try XCTUnwrap(
+            Bundle(for: AppDelegate.self).infoDictionary?["CFBundleDocumentTypes"] as? [[String: Any]]
+        )
+        for identifier in FilePreviewDocumentTypes.contentTypeIdentifiers {
+            let entry = try XCTUnwrap(
+                documentTypes.first { ($0["LSItemContentTypes"] as? [String])?.contains(identifier) == true },
+                "Info.plist does not declare \(identifier)"
+            )
+            XCTAssertEqual(entry["CFBundleTypeRole"] as? String, "Viewer", identifier)
+            XCTAssertEqual(entry["LSHandlerRank"] as? String, "Alternate", identifier)
+        }
+    }
+
     func testIgnoresDirectoriesWithTerminalScriptExtension() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-terminal-default-directory-\(UUID().uuidString).command", isDirectory: true)
