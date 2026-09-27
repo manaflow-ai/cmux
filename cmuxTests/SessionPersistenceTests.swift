@@ -3371,15 +3371,16 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     }
 
     func testOpenCodeForkSupportSkipsLocalProbeForRemoteLikeContext() async {
+        let workingDirectory = "/remote/cmux/project-\(UUID().uuidString)"
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .opencode,
             sessionId: "opencode-session-remote",
-            workingDirectory: "/remote/cmux/project-\(UUID().uuidString)",
+            workingDirectory: workingDirectory,
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "opencode",
                 executablePath: "/remote/bin/opencode",
                 arguments: ["/remote/bin/opencode"],
-                workingDirectory: "/remote/cmux/project-\(UUID().uuidString)",
+                workingDirectory: workingDirectory,
                 environment: ["PATH": "/remote/bin:/usr/bin"],
                 capturedAt: 123,
                 source: "process"
