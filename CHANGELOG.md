@@ -15,6 +15,7 @@ All notable changes to cmux are documented here.
 - The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
 
 ### Fixed
+- Hovering a sidebar workspace swaps its unread badge for the close button in the same frame, feed selection with j/k no longer eases between rows, clearing a notification closes the gap at once, and holding Command no longer animates unrelated right sidebar changes ([#14927](https://github.com/manaflow-ai/cmux/pull/14927)).
 - In a split, a pane you switch to no longer shows a dimmed frame before it brightens; the unfocused-pane dim now changes in the same frame as focus ([#14892](https://github.com/manaflow-ai/cmux/pull/14892)).
 - Clicking a sidebar workspace keeps its highlight steady while the selection lands, instead of flickering off when the pointer moves away, and rapid clicks never show two rows selected ([#14871](https://github.com/manaflow-ai/cmux/pull/14871)).
 - Closing a workspace no longer briefly flashes the close (X) button on every sidebar row, and the X no longer appears on the row that slides under a context menu's old position ([#14826](https://github.com/manaflow-ai/cmux/pull/14826)).

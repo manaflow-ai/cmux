@@ -2609,9 +2609,10 @@ private struct NotificationsPopoverView: View {
                             workspaceTitle: titleSnapshot[notification.tabId],
                             onOpen: { open(notification) },
                             onClear: {
-                                withAnimation(.easeOut(duration: 0.18)) {
-                                    notificationStore.remove(id: notification.id)
-                                }
+                                // No withAnimation: interpolating a LazyVStack's
+                                // height after a removal re-runs its layout every
+                                // frame (#5764); the list closes the gap at once.
+                                notificationStore.remove(id: notification.id)
                             },
                             onToggleRead: {
                                 if notification.isRead {
