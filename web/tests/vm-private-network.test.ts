@@ -456,11 +456,44 @@ describe("resolveOwnerNetwork", () => {
     expect(timedOut.memberIngress).toBe(false);
   });
 
-  test("an existing team row is reused without listing members", async () => {
-    let calls = 0;
-    const result = await Effect.runPromise(resolveOwnerNetwork({ userId: "user-1", provider: "freestyle", billingTeamId: "team-1", teamDirectory: { listMemberIds: async () => { calls += 1; return []; } } }).pipe(Effect.provide(layerFor(testRepo({ teamNetworks: [teamNetworkRow()] }), testGateway()))));
+  test("an existing team network is reused by a current member of a one-member team", async () => {
+    let directoryCalls = 0;
+    const calls = newGatewayCalls();
+    const result = await Effect.runPromise(resolveOwnerNetwork({
+      userId: "user-1",
+      provider: "freestyle",
+      billingTeamId: "team-1",
+      teamDirectory: { listMemberIds: async () => { directoryCalls += 1; return ["user-1"]; } },
+    }).pipe(Effect.provide(layerFor(testRepo({ network: networkRow(), teamNetworks: [teamNetworkRow()] }), testGateway({ calls })))));
     expect(result.scope).toBe("team");
-    expect(calls).toBe(0);
+    expect(result.memberIngress).toBe(true);
+    expect(result.providerNetworkId).toBe("vpc-team");
+    expect(directoryCalls).toBe(1);
+    expect(calls.ensureNetwork).toBe(0);
+  });
+
+  test("a removed member does not reuse an existing team network", async () => {
+    const result = await Effect.runPromise(resolveOwnerNetwork({
+      userId: "user-1",
+      provider: "freestyle",
+      billingTeamId: "team-1",
+      teamDirectory: { listMemberIds: async () => ["user-2", "user-3"] },
+    }).pipe(Effect.provide(layerFor(testRepo({ network: networkRow(), teamNetworks: [teamNetworkRow()] }), testGateway()))));
+    expect(result.scope).toBe("user");
+    expect(result.memberIngress).toBe(false);
+    expect(result.providerNetworkId).toBe(NETWORK.id);
+  });
+
+  test("directory failure with an existing team network falls back to the personal network", async () => {
+    const result = await Effect.runPromise(resolveOwnerNetwork({
+      userId: "user-1",
+      provider: "freestyle",
+      billingTeamId: "team-1",
+      teamDirectory: { listMemberIds: async () => { throw new Error("directory"); } },
+    }).pipe(Effect.provide(layerFor(testRepo({ network: networkRow(), teamNetworks: [teamNetworkRow()] }), testGateway()))));
+    expect(result.scope).toBe("user");
+    expect(result.memberIngress).toBe(false);
+    expect(result.providerNetworkId).toBe(NETWORK.id);
   });
 
   test("creates a new isolated team network for a capable multi-member team", async () => {
