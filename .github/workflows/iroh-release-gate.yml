@@ -114,6 +114,12 @@ jobs:
           ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
+      - name: Install Bun
+        if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry' }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
       - name: Materialize isolated staging account
         if: ${{ inputs.environment == 'staging' && (matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry') }}
         env:
