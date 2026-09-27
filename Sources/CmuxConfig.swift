@@ -1338,6 +1338,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     var confirm: Bool?
     var terminalCommandTarget: CmuxConfigTerminalCommandTarget?
     var filePatterns: [String]?
+    var filePatternsSourcePath: String?
     var actionSourcePath: String?
     var iconSourcePath: String?
     var newWorkspaceMenu: Bool?
@@ -1374,7 +1375,8 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     func applying(
         _ definition: CmuxConfigActionDefinition,
         actionSourcePath: String?,
-        iconSourcePath: String?
+        iconSourcePath: String?,
+        filePatternsSourcePath: String?
     ) -> CmuxResolvedConfigAction? {
         var next = self
         next.title = definition.title ?? next.title
@@ -1391,7 +1393,10 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         next.tooltip = definition.tooltip ?? next.tooltip
         next.confirm = definition.confirm ?? next.confirm
         next.terminalCommandTarget = definition.terminalCommandTarget ?? next.terminalCommandTarget
-        next.filePatterns = definition.filePatterns ?? next.filePatterns
+        if let filePatterns = definition.filePatterns {
+            next.filePatterns = filePatterns
+            next.filePatternsSourcePath = filePatternsSourcePath ?? actionSourcePath
+        }
         next.newWorkspaceMenu = definition.newWorkspaceMenu ?? next.newWorkspaceMenu
         if let action = definition.action {
             next.action = action
@@ -1410,7 +1415,8 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
             id: id,
             definition: definition,
             actionSourcePath: sourcePath,
-            iconSourcePath: sourcePath
+            iconSourcePath: sourcePath,
+            filePatternsSourcePath: definition.filePatterns == nil ? nil : sourcePath
         )
     }
 
@@ -1418,7 +1424,8 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         id: String,
         definition: CmuxConfigActionDefinition,
         actionSourcePath: String?,
-        iconSourcePath: String?
+        iconSourcePath: String?,
+        filePatternsSourcePath: String? = nil
     ) -> CmuxResolvedConfigAction? {
         guard let action = definition.action else { return nil }
         let title = definition.title
@@ -1437,6 +1444,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
             confirm: definition.confirm,
             terminalCommandTarget: definition.terminalCommandTarget,
             filePatterns: definition.filePatterns,
+            filePatternsSourcePath: definition.filePatterns == nil ? nil : (filePatternsSourcePath ?? actionSourcePath),
             actionSourcePath: actionSourcePath,
             iconSourcePath: definition.icon == nil ? nil : (iconSourcePath ?? actionSourcePath),
             newWorkspaceMenu: definition.newWorkspaceMenu
@@ -1459,6 +1467,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
             confirm: nil,
             terminalCommandTarget: nil,
             filePatterns: nil,
+            filePatternsSourcePath: nil,
             actionSourcePath: nil,
             iconSourcePath: nil
         )
@@ -1811,6 +1820,7 @@ final class CmuxConfigStore: ObservableObject {
         let definition: CmuxConfigActionDefinition
         let actionSourcePath: String?
         let iconSourcePath: String?
+        let filePatternsSourcePath: String?
     }
 
     private struct ResolvedSurfaceTabBarButtonEntry {
@@ -2394,7 +2404,8 @@ final class CmuxConfigStore: ObservableObject {
             entries[canonicalActionID(id)] = ActionEntry(
                 definition: definition,
                 actionSourcePath: actionSourcePath,
-                iconSourcePath: iconSourcePath
+                iconSourcePath: iconSourcePath,
+                filePatternsSourcePath: definition.filePatterns == nil ? nil : actionSourcePath
             )
         }
         return entries
@@ -2444,7 +2455,10 @@ final class CmuxConfigStore: ObservableObject {
                     : primaryEntry.actionSourcePath,
                 iconSourcePath: primaryDefinition.icon == nil
                     ? fallbackEntry.iconSourcePath
-                    : primaryEntry.iconSourcePath
+                    : primaryEntry.iconSourcePath,
+                filePatternsSourcePath: primaryDefinition.filePatterns == nil
+                    ? fallbackEntry.filePatternsSourcePath
+                    : (primaryEntry.filePatternsSourcePath ?? primaryEntry.actionSourcePath)
             )
         }
     }
@@ -2630,14 +2644,16 @@ final class CmuxConfigStore: ObservableObject {
                     guard let resolved = existing.applying(
                         entry.definition,
                         actionSourcePath: entry.actionSourcePath,
-                        iconSourcePath: entry.iconSourcePath
+                        iconSourcePath: entry.iconSourcePath,
+                        filePatternsSourcePath: entry.filePatternsSourcePath
                     ) else { continue }
                     registry[registryID] = resolved
                 } else if let resolved = CmuxResolvedConfigAction.fromDefinition(
                     id: id,
                     definition: entry.definition,
                     actionSourcePath: entry.actionSourcePath,
-                    iconSourcePath: entry.iconSourcePath
+                    iconSourcePath: entry.iconSourcePath,
+                    filePatternsSourcePath: entry.filePatternsSourcePath
                 ) {
                     registry[id] = resolved
                 } else {
@@ -2670,6 +2686,7 @@ final class CmuxConfigStore: ObservableObject {
                 confirm: command.confirm,
                 terminalCommandTarget: command.workspace == nil ? .currentTerminal : nil,
                 filePatterns: nil,
+                filePatternsSourcePath: nil,
                 actionSourcePath: sourcePath,
                 iconSourcePath: nil
             )
@@ -2928,6 +2945,7 @@ final class CmuxConfigStore: ObservableObject {
                 confirm: command.command.confirm,
                 terminalCommandTarget: nil,
                 filePatterns: nil,
+                filePatternsSourcePath: nil,
                 actionSourcePath: command.sourcePath,
                 iconSourcePath: nil
             ),

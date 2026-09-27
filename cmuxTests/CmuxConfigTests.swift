@@ -1709,6 +1709,50 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testLocalFilePatternsKeepTheirSourceForGlobalAction() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-file-pattern-source-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = root.appendingPathComponent("global.json")
+        let localConfigURL = root.appendingPathComponent("local.json")
+        try """
+        {
+          "actions": {
+            "diagram.preview": {
+              "type": "command",
+              "command": "open-preview {file}"
+            }
+          }
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "actions": {
+            "diagram.preview": {
+              "filePatterns": ["*.excalidraw"]
+            }
+          }
+        }
+        """.write(to: localConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: localConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let action = try XCTUnwrap(store.resolvedAction(id: "diagram.preview"))
+        XCTAssertEqual(action.actionSourcePath, globalConfigURL.path)
+        XCTAssertEqual(action.filePatternsSourcePath, localConfigURL.path)
+        XCTAssertEqual(action.filePatterns, ["*.excalidraw"])
+    }
+
+    @MainActor
     func testConfigNewWorkspaceCommandOverridesPackAction() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-pack-\(UUID().uuidString)",

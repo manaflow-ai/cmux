@@ -164,6 +164,7 @@ struct CmuxConfigExecutor {
         fileAction.action = .command(
             CmuxFileActionCommand(command: command).substituting(filePath: absolutePath)
         )
+        fileAction.actionSourcePath = action.filePatternsSourcePath ?? action.actionSourcePath
         return execute(
             action: fileAction,
             commands: commands,
