@@ -128,6 +128,12 @@ jobs:
           chmod 600 "$HOME/.secrets/cmuxterm-dev.env"
 
       - name: Run staging Iroh gate
+        env:
+          # The hosted runner does not have cmuxterm-hq's tagged-backend
+          # helper. The explicit Worker origin remains the app's API and v2
+          # broker; local mode only prevents reload.sh from looking for that
+          # helper while constructing the tagged artifacts.
+          CMUX_DEV_BACKEND_MODE: local
         run: |
           set -euo pipefail
           case "${{ matrix.mode }}" in
@@ -143,6 +149,9 @@ jobs:
             --staging-base-url "${{ inputs.backend_base_url }}"
             --report-output "$RUNNER_TEMP/iroh-release-gate-${{ matrix.mode }}.json"
           )
+          if [[ "${{ matrix.mode }}" == relay-only ]]; then
+            GATE_ARGS+=(--soak-profile stress)
+          fi
           ./scripts/run-iroh-release-gate.sh "${GATE_ARGS[@]}"
 
       - name: Upload redacted verdict
