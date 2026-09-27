@@ -9,54 +9,43 @@ import Testing
 @testable import cmux
 #endif
 
-/// What an update relaunch would interrupt, counted from workspace agent and shell activity.
+/// What an update relaunch would interrupt, counted from panel agent and shell activity.
 @Suite struct UpdateRelaunchBlockersTests {
-    @Test func countsMidTurnAgentsAndOtherLocalCommands() {
-        let busyAgent = UUID()
-        let waitingAgent = UUID()
-        let idleAgentShell = UUID()
-        let devServer = UUID()
-        let idleShell = UUID()
-        let local = UpdateRelaunchWorkspaceActivity(
-            agentLifecycles: [
-                busyAgent: ["claude": .running],
-                waitingAgent: ["codex": .needsInput],
-                idleAgentShell: ["claude": .idle],
-            ],
-            shellActivity: [
-                busyAgent: .commandRunning,
-                waitingAgent: .commandRunning,
-                idleAgentShell: .commandRunning,
-                devServer: .commandRunning,
-                idleShell: .promptIdle,
-            ],
-            isRemote: false
-        )
+    private func panel(
+        _ agents: [String: AgentHibernationLifecycleState] = [:],
+        shell: PanelShellActivityState? = nil,
+        remote: Bool = false
+    ) -> UpdateRelaunchPanelActivity {
+        UpdateRelaunchPanelActivity(agentLifecycles: agents, shellActivity: shell, isRemote: remote)
+    }
 
-        let blockers = AppDelegate.updateRelaunchBlockers(workspaces: [local])
+    @Test func countsMidTurnAgentsAndOtherLocalCommands() {
+        let blockers = AppDelegate.updateRelaunchBlockers(panels: [
+            panel(["claude": .running], shell: .commandRunning),
+            panel(["codex": .needsInput], shell: .commandRunning),
+            panel(["claude": .idle], shell: .commandRunning),
+            panel(shell: .commandRunning),
+            panel(shell: .promptIdle),
+            panel(),
+        ])
 
         #expect(blockers == UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 1))
     }
 
     @Test func remoteCommandsDoNotBlockButRemoteAgentsAreWaitedFor() {
-        let remote = UpdateRelaunchWorkspaceActivity(
-            agentLifecycles: [UUID(): ["claude": .running]],
-            shellActivity: [UUID(): .commandRunning],
-            isRemote: true
-        )
-
-        let blockers = AppDelegate.updateRelaunchBlockers(workspaces: [remote])
+        let blockers = AppDelegate.updateRelaunchBlockers(panels: [
+            panel(["claude": .running], remote: true),
+            panel(shell: .commandRunning, remote: true),
+        ])
 
         #expect(blockers == UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0))
     }
 
-    @Test func idleWorkspacesDoNotBlock() {
-        let idle = UpdateRelaunchWorkspaceActivity(
-            agentLifecycles: [UUID(): ["claude": .idle, "codex": .needsInput]],
-            shellActivity: [UUID(): .promptIdle],
-            isRemote: false
-        )
+    @Test func manualLoadingKeysAreNotAgents() {
+        let blockers = AppDelegate.updateRelaunchBlockers(panels: [
+            panel([AgentHibernationLifecycleStatusKeys.manualKey: .running], shell: .commandRunning),
+        ])
 
-        #expect(AppDelegate.updateRelaunchBlockers(workspaces: [idle]).isEmpty)
+        #expect(blockers == UpdateRelaunchBlockers(busyAgentCount: 0, runningCommandCount: 1))
     }
 }

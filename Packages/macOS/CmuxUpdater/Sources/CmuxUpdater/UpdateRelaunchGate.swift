@@ -7,7 +7,7 @@ public struct UpdateRelaunchBlockers: Equatable, Sendable {
     public var runningCommandCount: Int
 
     /// Nothing would be interrupted.
-    public static let none = UpdateRelaunchBlockers(busyAgentCount: 0, runningCommandCount: 0)
+    public static let empty = UpdateRelaunchBlockers(busyAgentCount: 0, runningCommandCount: 0)
 
     /// Creates a blocker report.
     public init(busyAgentCount: Int, runningCommandCount: Int) {
@@ -90,10 +90,14 @@ final class UpdateRelaunchGate {
     /// Runs `relaunch` now if nothing would be interrupted, otherwise publishes a waiting
     /// state through `publish` and runs it once the blockers clear, the agent timeout
     /// elapses, or the user chooses Install Now. `later` runs instead if the user defers.
-    /// Each hold runs exactly one of `relaunch` or `later`; a new hold defers the old one.
+    /// Each hold runs at most one of `relaunch` or `later`: a new hold defers the old one,
+    /// and ``cancel()`` (the update session ended) runs neither. `isShown` reports whether
+    /// the published waiting state is still the visible one; once something else replaced it,
+    /// the hold ends without touching the newer state.
     func hold(
         isAutoUpdate: Bool,
         blockers: @escaping @MainActor () -> UpdateRelaunchBlockers,
+        isShown: @escaping @MainActor () -> Bool,
         publish: @escaping @MainActor (UpdateState) -> Void,
         relaunch: @escaping () -> Void,
         later: @escaping () -> Void
@@ -113,6 +117,11 @@ final class UpdateRelaunchGate {
                     return
                 }
                 guard let self, self.pending === request else { return }
+                guard isShown() else {
+                    self.log.append("update relaunch gate: waiting state replaced; ending hold")
+                    self.cancel()
+                    return
+                }
                 request.waited += interval
                 if self.evaluate(request, blockers: blockers(), publish: publish) { return }
             }
@@ -154,6 +163,15 @@ final class UpdateRelaunchGate {
             relaunchBlockers: current
         )))
         return false
+    }
+
+    /// Ends a held relaunch without running either action, because the update session that
+    /// owned it ended (an error, a finished cycle, or a completed install).
+    func cancel() {
+        guard pending != nil else { return }
+        pending = nil
+        waitTask?.cancel()
+        waitTask = nil
     }
 
     private func finish(_ request: Pending, relaunching: Bool) {

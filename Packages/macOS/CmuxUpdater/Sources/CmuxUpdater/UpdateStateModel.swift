@@ -380,17 +380,22 @@ public final class UpdateStateModel {
     /// Explains why a ready update is waiting to relaunch: busy agents are waited out, other
     /// running commands need the user's Install Now.
     public static func relaunchBlockersDescription(_ blockers: UpdateRelaunchBlockers) -> String {
+        var sentences: [String] = []
         if blockers.busyAgentCount > 0 {
-            return String(
+            sentences.append(String(
                 localized: "update.readyWaiting.agents",
                 defaultValue: "Installs and relaunches when \(blockers.busyAgentCount) agents finish. Agents resume after the relaunch."
-            )
+            ))
         }
-        return String(
-            localized: "update.readyWaiting.commands",
-            defaultValue: "Relaunching will stop \(blockers.runningCommandCount) running commands. Choose Install Now when you're ready."
-        )
+        if blockers.runningCommandCount > 0 {
+            sentences.append(String(
+                localized: "update.readyWaiting.commands",
+                defaultValue: "Relaunching will stop \(blockers.runningCommandCount) running commands. Choose Install Now when you're ready."
+            ))
+        }
+        return sentences.joined(separator: " ")
     }
+
 
     /// The detected-background-update title, when one should be shown.
     var detectedUpdateText: String? {

@@ -464,11 +464,11 @@ private struct WaitingToRelaunchView: View {
 
                 Spacer()
 
+                // No default-action shortcut: Install Now interrupts agents or running commands.
                 Button(String(localized: "update.installNow", defaultValue: "Install Now")) {
                     installing.retryTerminatingApplication()
                     dismiss()
                 }
-                .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
             }

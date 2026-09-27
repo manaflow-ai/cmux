@@ -110,6 +110,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                           acknowledgement: @escaping () -> Void) {
         let details = formatErrorForLog(error)
         log.append("show updater error: \(details)")
+        relaunchGate.cancel()
         setState(.error(.init(
             error: error,
             retry: { [weak self] in
@@ -172,27 +173,53 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show ready to install")
-        holdRelaunch(
-            isAutoUpdate: false,
-            relaunch: { reply(.install) },
-            later: { [weak self] in
-                // Sparkle keeps a dismissed ready update and installs it when cmux quits.
-                reply(.dismiss)
-                self?.setState(.idle)
-            }
+        reply(.install)
+    }
+
+    /// Sparkle asks this before every install that relaunches cmux: Install and Relaunch,
+    /// Restart Now on the install-on-quit prompt, and a resumed install after Later. Returns
+    /// `true` to hold the relaunch until `installHandler` is invoked (see ``UpdateRelaunchGate``).
+    func handleShouldPostponeRelaunch(installHandler: @escaping () -> Void) -> Bool {
+        guard !currentRelaunchBlockers().isEmpty else { return false }
+        holdRelaunch(isAutoUpdate: false, install: installHandler)
+        return true
+    }
+
+    private func currentRelaunchBlockers() -> UpdateRelaunchBlockers {
+        actionDelegate?.updaterRelaunchBlockers() ?? .empty
+    }
+
+    /// Holds `install` while relaunching would interrupt a busy agent or a running command.
+    /// Later leaves the downloaded update on "Restart to Complete Update"; Sparkle still
+    /// installs it when cmux quits.
+    private func holdRelaunch(isAutoUpdate: Bool, install: @escaping () -> Void) {
+        relaunchGate.hold(
+            isAutoUpdate: isAutoUpdate,
+            blockers: { [weak self] in self?.currentRelaunchBlockers() ?? .empty },
+            isShown: { [weak self] in
+                guard case .installing(let installing) = self?.model.state else { return false }
+                return installing.relaunchBlockers != nil
+            },
+            publish: { [weak self] state in self?.setState(state) },
+            relaunch: install,
+            later: { [weak self] in self?.showRestartToComplete(install: install) }
         )
     }
 
-    /// Runs `relaunch` once relaunching would not interrupt a busy agent or a running
-    /// command, or when the user chooses Install Now. See ``UpdateRelaunchGate``.
-    func holdRelaunch(isAutoUpdate: Bool, relaunch: @escaping () -> Void, later: @escaping () -> Void) {
-        relaunchGate.hold(
-            isAutoUpdate: isAutoUpdate,
-            blockers: { [weak self] in self?.actionDelegate?.updaterRelaunchBlockers() ?? .none },
-            publish: { [weak self] state in self?.setState(state) },
-            relaunch: relaunch,
-            later: later
-        )
+    private func showRestartToComplete(install: @escaping () -> Void) {
+        setState(.installing(.init(
+            isAutoUpdate: true,
+            retryTerminatingApplication: { [weak self] in
+                guard let self else {
+                    install()
+                    return
+                }
+                self.holdRelaunch(isAutoUpdate: true, install: install)
+            },
+            dismiss: { [weak self] in
+                self?.model.setState(.idle)
+            }
+        )))
     }
 
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
@@ -207,6 +234,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
         log.append("show update installed (relaunched=\(relaunched))")
+        relaunchGate.cancel()
         setState(.idle)
         acknowledgement()
     }
