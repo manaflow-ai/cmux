@@ -268,19 +268,7 @@ public struct TerminalSection: View {
                 }
             }
             SettingsCardDivider()
-            SettingsCardRow(
-                configurationReview: .settingsOnly,
-                String(localized: "settings.app.theme", defaultValue: "Theme")
-            ) {
-                Button(
-                    String(localized: "settings.browser.import.choose", defaultValue: "Choose…")
-                ) {
-                    hostActions.openTerminalThemePicker()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .accessibilityIdentifier("SettingsTerminalThemePickerButton")
-            }
+            TerminalThemeSettingsRows(hostActions: hostActions)
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .settingsOnly,

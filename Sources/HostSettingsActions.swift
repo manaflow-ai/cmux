@@ -191,6 +191,41 @@ final class HostSettingsActions: SettingsHostActions {
         }
     }
 
+    func terminalThemeGalleryContext() -> TerminalThemeGalleryContext? {
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            return nil
+        }
+        let configURL = CmuxGhosttyConfigPathResolver().editableConfigURL(
+            currentBundleIdentifier: Bundle.main.bundleIdentifier,
+            appSupportDirectory: appSupport
+        )
+        let themeDirectories = GhosttyThemeDirectories(
+            environment: ProcessInfo.processInfo.environment,
+            bundledThemeDirectories: [Bundle.main.resourceURL?.appendingPathComponent("ghostty/themes", isDirectory: true)]
+                .compactMap { $0 }
+        ).urls
+        return TerminalThemeGalleryContext(
+            configFile: CmuxManagedThemeConfigFile(url: configURL),
+            themeDirectories: themeDirectories,
+            readCurrentThemeValue: { GhosttyApp.userAppearanceConfigSummary().lastThemeDirective },
+            prefersDarkAppearance: NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        )
+    }
+
+    func terminalThemeConfigDidChange(phase: TerminalThemeReloadPhase) {
+        let phaseName: String
+        switch phase {
+        case .preview: phaseName = "preview"
+        case .final: phaseName = "final"
+        }
+        AppDelegate.shared?.reloadGhosttyConfigurationForCmuxThemeSource(
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadSource(phase: phaseName)
+        )
+    }
+
     func notifyShortcutSettingsDidChange() {
         // reload() already posts didChangeNotification when the file's
         // contents changed; posting again here double-notified every
