@@ -2003,6 +2003,84 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         }
     }
 
+    /// A persisted Kimi session decodes as `.custom("kimi")` with the exact built-in
+    /// registration (Kimi is not in `RestorableAgentKind.allCases`), so the exact remote
+    /// restore must resolve the sanitizer's provider kind through the registration.
+    @Test func exactSelectionStripsKimiCwdArgumentsForPersistedCustomKind() throws {
+        let trustedRemoteDirectory = "/repo-b"
+        let localDirectory = "/Users/alice/kimi-explicit-cwd"
+        let cases: [(id: String, cwdArguments: [String])] = [
+            ("attached", ["-w\(localDirectory)"]),
+            ("separate", ["-w", localDirectory]),
+        ]
+
+        for testCase in cases {
+            let sessionId = "remote-kimi-custom-\(testCase.id)"
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: .custom("kimi"),
+                sessionId: sessionId,
+                workingDirectory: "/Users/alice/recorded-agent-cwd",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "kimi",
+                    executablePath: "kimi",
+                    arguments: ["kimi"] + testCase.cwdArguments,
+                    workingDirectory: "/tmp/process-cwd",
+                    environment: [:],
+                    capturedAt: 1_777_777_777,
+                    source: "process"
+                ),
+                registration: .builtInKimi
+            )
+
+            for exactDirectory in [trustedRemoteDirectory, nil] as [String?] {
+                let input = try #require(snapshot.resumeStartupInput(
+                    useLocalRestoreVerb: false,
+                    workingDirectorySelection: .exact(exactDirectory)
+                ))
+                #expect(input.contains(sessionId), Comment(rawValue: input))
+                #expect(!input.contains(localDirectory), Comment(rawValue: input))
+                #expect(!input.contains("'-w"), Comment(rawValue: input))
+                if let exactDirectory {
+                    #expect(input.contains(exactDirectory), Comment(rawValue: input))
+                }
+            }
+        }
+    }
+
+    /// A user-edited Kimi registration is a user-authored template, so its own `-w`
+    /// survives an exact remote restore.
+    @Test func exactSelectionKeepsUserEditedKimiTemplateCwdArgument() throws {
+        var registration = CmuxVaultAgentRegistration.builtInKimi
+        registration.resumeCommand = "{{executable}} -w /srv/kimi-owned --resume {{sessionId}}"
+        #expect(registration != .builtInKimi)
+
+        let sessionId = "remote-kimi-user-template"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("kimi"),
+            sessionId: sessionId,
+            workingDirectory: "/Users/alice/recorded-agent-cwd",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "kimi",
+                executablePath: "kimi",
+                arguments: ["kimi"],
+                workingDirectory: "/tmp/process-cwd",
+                environment: [:],
+                capturedAt: 1_777_777_777,
+                source: "process"
+            ),
+            registration: registration
+        )
+
+        for exactDirectory in ["/repo-b", nil] as [String?] {
+            let input = try #require(snapshot.resumeStartupInput(
+                useLocalRestoreVerb: false,
+                workingDirectorySelection: .exact(exactDirectory)
+            ))
+            #expect(input.contains(sessionId), Comment(rawValue: input))
+            #expect(input.contains("'-w' '/srv/kimi-owned'"), Comment(rawValue: input))
+        }
+    }
+
     @MainActor
     @Test func genericDirectoryReportCannotSeedEmptyTrustRequiredRemotePanel() throws {
         let localDirectory = "/Users/alice/development"

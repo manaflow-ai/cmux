@@ -1418,6 +1418,11 @@
           "default": null,
           "description": "Override the selected workspace background color."
         },
+        "subtleSelection": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the selected workspace as a faint accent tint with a thin edge instead of a solid fill. A custom selectionColor still uses a solid fill."
+        },
         "notificationBadgeColor": {
           "$ref": "#/$defs/colorHexOrNull",
           "default": null,

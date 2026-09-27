@@ -37,6 +37,7 @@ extension VerticalTabsSidebar {
             customColorHex: effectiveColor,
             colorScheme: renderContext.environment.colorScheme,
             sidebarSelectionColorHex: settings.selectionColorHex,
+            subtleSelection: settings.subtleSelection,
             increaseContrast: renderContext.environment.displayAccessibility.increaseContrast
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
@@ -192,6 +193,7 @@ extension VerticalTabsSidebar {
             customColorHex: effectiveColor,
             colorScheme: renderContext.environment.colorScheme,
             sidebarSelectionColorHex: settings.selectionColorHex,
+            subtleSelection: settings.subtleSelection,
             increaseContrast: renderContext.environment.displayAccessibility.increaseContrast
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
