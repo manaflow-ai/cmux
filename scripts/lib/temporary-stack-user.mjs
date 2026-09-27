@@ -365,11 +365,18 @@ async function main() {
 }
 
 if (import.meta.main) {
-  main().catch(() => {
+  main().catch((error) => {
     // Stack SDK errors can echo request fields. Keep command-line logs free of
     // the temporary account identity, password, and tokens; recovery details
     // live only in the protected state/report files.
-    process.stderr.write("error: temporary Stack user operation failed; inspect the protected recovery state\n");
+    const safeDetails = {
+      name: typeof error?.name === "string" ? error.name : null,
+      code: typeof error?.code === "string" ? error.code.slice(0, 80) : null,
+      status: Number.isInteger(error?.status) ? error.status : null,
+      statusCode: Number.isInteger(error?.statusCode) ? error.statusCode : null,
+      type: typeof error?.type === "string" ? error.type.slice(0, 80) : null,
+    };
+    process.stderr.write(`error: temporary Stack user operation failed (${JSON.stringify(safeDetails)}); inspect the protected recovery state\n`);
     process.exitCode = 1;
   });
 }
