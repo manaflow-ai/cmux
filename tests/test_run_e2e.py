@@ -1602,6 +1602,16 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
             self.assertEqual(self.pool.retry_runner(label), label)
         self.assertEqual(self.owned(requested=MINI, owned="0"), MINI)  # explicit is explicit
 
+    def test_a_ui_run_waits_for_an_owned_mac_instead_of_blacksmith(self):
+        # Blacksmith sessions sit at a locked screen, so UI tests cannot run there.
+        full = dict(running=8, queued=40, committed=48, test_filter="cmuxUITests/ExampleUITests", owned_ui="1")
+        self.assertIn(self.owned(**{**full, "test_filter": "cmuxTests/ExampleTests"}), self.pool.E2E_POOLS)
+        self.assertEqual(self.owned(**full), MINI)
+        self.assertEqual(self.pool.retry_runner(MINI, ui=True), MINI)
+        self.assertEqual(self.pool.retry_runner(SMALL, ui=True), SMALL)
+        self.assertTrue(self.pool.ui_run("cmuxTests/A, cmuxUITests/B"))
+        self.assertFalse(self.pool.ui_run("cmuxTests/A, cmuxTests/B"))
+
     def test_owned_macs_record_no_video(self):
         step = next(step for step in self.jobs["filter"]["steps"] if step.get("id") == "filter")
         self.assertIn("runner", self.jobs["filter"]["needs"])

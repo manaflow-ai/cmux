@@ -96,6 +96,13 @@ Automation Mode enabled without authentication, which takes an admin on
 each Mac (`sudo automationmodetool enable-automationmode-without-authentication`)
 and the job's runner user cannot do it. Once the fleet has it,
 `vars.CI_E2E_OWNED_UI == '1'` lets UI runs take owned Macs too.
+
+A UI run that may take an owned Mac never goes to Blacksmith: its macOS
+sessions sit at a locked screen, so no app can come to the front and every
+UI test fails after a minute ("Failed to activate application"; runs
+36311300649, 36314786865 and 36315094804 on 2026-09-27, while the same
+tests passed on owned Macs). With no owned room it queues on the owned pool,
+and a re-run of it stays there too (retry_runner()).
 """
 from __future__ import annotations
 
@@ -196,8 +203,19 @@ def owned_target(test_filter: str | None, owned_ui: str | None) -> bool:
     return bool(entries) and all(entry.startswith("cmuxTests/") for entry in entries)
 
 
-def retry_runner(label: str) -> str:
-    """The pool a re-run attempt takes: never an owned one, which may be why it is re-run."""
+def ui_run(test_filter: str | None) -> bool:
+    """Whether a filter names any UI test: anything but cmuxTests/ entries."""
+    if not test_filter:
+        return False
+    return not all(entry.strip().startswith("cmuxTests/") for entry in test_filter.split(","))
+
+
+def retry_runner(label: str, *, ui: bool = False) -> str:
+    """The pool a re-run attempt takes: never an owned one, which may be why it
+    is re-run, except for a UI run, which cannot run on Blacksmith (see the
+    module docstring) and waits for another owned Mac instead."""
+    if ui and pr_runner_pool.persistent(label):
+        return label
     return SMALL_RUNNER if pr_runner_pool.persistent(label) else label
 
 
@@ -342,6 +360,7 @@ def auto_runner(
     now: dt.datetime,
     log: Callable[[str], None] = lambda message: None,
     owned_slots: Mapping[str, int] | None = None,
+    ui: bool = False,
 ) -> str | None:
     """The pool an unpinned run lands on, given what `auto` means.
 
@@ -377,6 +396,14 @@ def auto_runner(
     # glaeda gives an E2E job, which it does not know, the mini's root token,
     # so a pool with a root count sends it to its root runners.
     runner = choice.root_runner or choice.runner
+    owned = [label for label in limits.order if pr_runner_pool.persistent(label)]
+    if ui and owned and not pr_runner_pool.persistent(runner):
+        # Blacksmith cannot run UI tests (see the module docstring), so the
+        # run waits for the first owned pool instead.
+        root = pr_runner_pool.root_label(owned[0])
+        runner = root if root and (owned_slots or {}).get(root, 0) > 0 else owned[0]
+        log(f"{choice.reason}, but a UI run cannot run on Blacksmith -> queued on {runner} (janitor saw {queue})")
+        return runner
     log(f"{choice.reason} -> {runner} (janitor saw {queue})")
     return runner
 
@@ -414,6 +441,7 @@ def resolve(
         now=now,
         log=log,
         owned_slots=pr_runner_pool.slots(owned_slots, pr_xcode_app),
+        ui=ui_run(test_filter),
     ) or SMALL_RUNNER
 
 
@@ -457,7 +485,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--retry-of", help="print the pool a re-run of this label takes, and nothing else")
     args = parser.parse_args(argv)
     if args.retry_of is not None:
-        print(retry_runner(args.retry_of.strip()))
+        print(retry_runner(args.retry_of.strip(), ui=ui_run(args.test_filter)))
         return 0
 
     repo = env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or ""

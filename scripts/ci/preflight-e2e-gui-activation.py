@@ -175,6 +175,27 @@ def main():
     if not user:
         annotate('error', f'No logged-in console user, so no app can activate; no UI tests ran. {describe(user, prefix)}')
         return 1
+    if 'requires user authentication' in run(['automationmodetool'])[1]:
+        # Lift it the way the test step does, where passwordless sudo allows.
+        run(['sudo', '-n', 'automationmodetool', 'enable-automationmode-without-authentication'], timeout=30)
+    if 'requires user authentication' in run(['automationmodetool'])[1]:
+        # XCTest enables Automation Mode before the first test and, when it
+        # needs authentication, waits a minute for a prompt nobody answers
+        # ("Timed out while enabling automation mode"; cmux7s, 2026-09-27).
+        # The job's runner user cannot lift the requirement.
+        annotate('error', 'Automation Mode requires authentication on this runner, so XCTest times out '
+                 'enabling it; no UI tests ran. An admin on the Mac runs '
+                 '`sudo automationmodetool enable-automationmode-without-authentication`. '
+                 f'State: {describe(user, prefix)}.')
+        return 1
+    if session_state().get('locked'):
+        # No repair unlocks a session without its password, and XCTest cannot
+        # activate an app over the lock screen (runs 36314786865 and
+        # 36315094804, Blacksmith, 2026-09-27).
+        annotate('error', 'The console session is at a locked screen, so every UI test would fail with '
+                 '"Failed to activate application"; no UI tests ran. Re-run to take another runner. '
+                 f'State: {describe(user, prefix)}.')
+        return 1
     if front_bundle(prefix) is None:
         # lsappinfo cannot read this session from here, so the probe
         # cannot tell a stuck session from its own lack of access. Leave
