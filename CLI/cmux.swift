@@ -25572,14 +25572,15 @@ struct CMUXCLI {
         ".DS_Store"
     ]
 
-    /// Links every other top-level entry of the user's OpenCode config dir into
-    /// the shadow dir. Existing links are repointed; real files cmux created in
-    /// the shadow dir are left alone. Best effort: a failure only means that
-    /// entry is missing under `cmux omo`, as before.
-    private func omoMirrorUserConfigEntries(userDir: URL, shadowDir: URL) {
+    /// Links each entry of a user OpenCode config dir into the matching shadow
+    /// dir, skipping `excluded` names. Existing links are repointed; real files
+    /// cmux created in the shadow dir are left alone. Best effort: a failure only
+    /// means that entry is missing under `cmux omo`, as before.
+    private func omoLinkEntries(of userDir: URL, into shadowDir: URL, excluding excluded: Set<String>) {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: userDir.path) else { return }
-        for name in names where !Self.omoShadowOwnedConfigEntries.contains(name) {
+        try? fm.createDirectory(at: shadowDir, withIntermediateDirectories: true, attributes: nil)
+        for name in names where !excluded.contains(name) {
             let userEntry = userDir.appendingPathComponent(name)
             let shadowEntry = shadowDir.appendingPathComponent(name)
             switch omoFileType(at: shadowEntry) {
@@ -25831,7 +25832,14 @@ struct CMUXCLI {
 
         // Agents, commands, and prompt files referenced as {file:./...} live next
         // to opencode.json; expose them from the shadow dir so they still load.
-        omoMirrorUserConfigEntries(userDir: userDir, shadowDir: shadowDir)
+        omoLinkEntries(of: userDir, into: shadowDir, excluding: Self.omoShadowOwnedConfigEntries)
+        // plugins/ also holds the cmux session plugin, so link the user's plugins
+        // one by one instead of pointing the whole dir at the user's copy.
+        omoLinkEntries(
+            of: userDir.appendingPathComponent("plugins", isDirectory: true),
+            into: shadowDir.appendingPathComponent("plugins", isDirectory: true),
+            excluding: [Self.openCodeSessionPluginFilename, ".DS_Store"]
+        )
 
         // Copy oh-my-openagent plugin config (jsonc) if the user has one.
         // Keep legacy filenames visible in the shadow dir so existing setups still load.
