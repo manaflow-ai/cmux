@@ -1411,6 +1411,12 @@ class Wiring(unittest.TestCase):
                             checked.add((path.name, name, any(str(item).startswith("glaeda-") for item in labels)))
                         else:
                             self.assertFalse(any(str(item).startswith("glaeda-") for item in labels), labels)
+        # Matrix-picked runners (cmux-tui) and input-gated lanes (reload-build)
+        # are not evaluated above: no workflow may name a later attempt at all.
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(workflow=path.name):
+                self.assertIsNone(re.search(r"run_attempt (?:<= ?[2-9]|== ?[2-9])", text))
         # The guard reaches owned jobs at all: attempt 1 of the main lanes takes the fleet.
         owned = {(workflow, job) for workflow, job, on_fleet in checked if on_fleet}
         self.assertTrue({("ci-macos.yml", "macos-compile-admission"), ("ci-macos.yml", "cli-product-tests"),
