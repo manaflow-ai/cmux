@@ -67,7 +67,13 @@ extension NSMenu {
         shortcut: StoredShortcut? = nil,
         handler: @escaping () -> Void
     ) -> NSMenuItem {
-        let item = SidebarRowClosureMenuItem(title: title, handler: handler)
+        // `popUp` runs inside the SwiftUI button's action, and AppKit calls
+        // the chosen item before `popUp` returns. Opening a window or sheet
+        // from that nested context does nothing (the popovers this replaces
+        // deferred every action the same way), so run it on the next turn.
+        let item = SidebarRowClosureMenuItem(title: title) {
+            DispatchQueue.main.async(execute: handler)
+        }
         item.identifier = NSUserInterfaceItemIdentifier(identifier)
         if let shortcut, let keyEquivalent = shortcut.menuItemKeyEquivalent {
             item.keyEquivalent = keyEquivalent
@@ -182,11 +188,7 @@ struct SidebarHelpMenuButton: View {
             String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"),
             identifier: "SidebarHelpMenuOptionKeyboardShortcuts"
         ) {
-            // Presented after the menu's tracking loop has fully unwound so
-            // the popover's first click is not eaten by the closing menu.
-            DispatchQueue.main.async {
-                isShortcutsPopoverPresented = true
-            }
+            isShortcutsPopoverPresented = true
         }
         addLink(to: menu, String(localized: "about.docs", defaultValue: "Docs"), url: Self.docsURL, identifier: "SidebarHelpMenuOptionDocs")
         addLink(to: menu, String(localized: "sidebar.help.changelog", defaultValue: "Changelog"), url: Self.changelogURL, identifier: "SidebarHelpMenuOptionChangelog")
