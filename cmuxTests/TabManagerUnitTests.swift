@@ -1748,6 +1748,32 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
 @MainActor
 final class TabManagerCloseCurrentPanelTests: XCTestCase {
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
+    private var originalLastSurfaceCloseSetting: Any?
+
+    /// Start every test from the shipped last-surface behavior (closing the
+    /// last surface closes the workspace). The app host shares
+    /// `UserDefaults.standard` across suites, so a value left by an earlier
+    /// suite must not decide these assertions.
+    override func setUp() {
+        super.setUp()
+        let defaults = UserDefaults.standard
+        originalLastSurfaceCloseSetting = defaults.object(forKey: lastSurfaceCloseShortcutDefaultsKey)
+        defaults.set(
+            AppCatalogSection().keepWorkspaceOpenWhenClosingLastSurface.defaultValue,
+            forKey: lastSurfaceCloseShortcutDefaultsKey
+        )
+    }
+
+    override func tearDown() {
+        let defaults = UserDefaults.standard
+        if let originalLastSurfaceCloseSetting {
+            defaults.set(originalLastSurfaceCloseSetting, forKey: lastSurfaceCloseShortcutDefaultsKey)
+        } else {
+            defaults.removeObject(forKey: lastSurfaceCloseShortcutDefaultsKey)
+        }
+        originalLastSurfaceCloseSetting = nil
+        super.tearDown()
+    }
 
     func testCloseCurrentPanelHonorsWarnBeforeClosingTabDisabledFromCmuxJSON() throws {
         try assertCloseCurrentPanelConfirmation(
