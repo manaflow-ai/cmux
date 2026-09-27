@@ -4352,12 +4352,17 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             """
         )
 
+        // The integration only publishes to a running default tmux server.
+        let tmuxServer = try TmuxDefaultServerSocketFixture()
+        defer { withExtendedLifetime(tmuxServer) {} }
+
         _ = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,
             cmuxLoadShellIntegration: true,
             command: "_cmux_preexec tmux; print -r -- READY",
             extraEnvironment: [
                 "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMUX_TMPDIR": tmuxServer.tmuxTemporaryDirectory.path,
                 "CMUX_SOCKET_PATH": "/tmp/cmux-current.sock",
                 "CMUX_TAG": "feat-tmux-notification-attention-state",
                 "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
@@ -4399,12 +4404,17 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             """
         )
 
+        // The integration only publishes to a running default tmux server.
+        let tmuxServer = try TmuxDefaultServerSocketFixture()
+        defer { withExtendedLifetime(tmuxServer) {} }
+
         _ = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,
             cmuxLoadShellIntegration: true,
             command: "_cmux_preexec tmux; print -r -- READY",
             extraEnvironment: [
                 "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMUX_TMPDIR": tmuxServer.tmuxTemporaryDirectory.path,
                 "CMUX_SOCKET_PATH": "/tmp/cmux-current.sock",
                 "CMUX_TAG": "feat-tmux-notification-attention-state",
                 "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",

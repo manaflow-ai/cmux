@@ -183,7 +183,7 @@ class AdoptAndSave(Fixture):
 
     def test_a_save_that_loses_a_race_leaves_nothing_behind(self):
         self.keep()
-        (self.store / ".source-packages.incoming-1").mkdir()  # a cancelled save
+        (self.store / ".source-packages.incoming-999999").mkdir()  # a cancelled save
         (self.store / "cmux-ci-2" / "source-packages").mkdir(parents=True)  # pre-shared slot copy
         self.packages.mkdir(parents=True)
         real = Path.rename
@@ -196,6 +196,16 @@ class AdoptAndSave(Fixture):
         self.assertEqual(result["packages"], "false")
         self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [])
         self.assertFalse((self.store / "cmux-ci-2" / "source-packages").exists())
+
+    def test_a_save_leaves_another_slots_save_in_flight(self):
+        self.keep()
+        live = self.store / f".source-packages.incoming-{os.getpid()}"
+        live.mkdir()
+        dead = self.store / ".source-packages.discard-999999"
+        dead.mkdir()
+        run(state.save, self.store / "cmux-ci-2", self.packages, self.workspace, self.store)
+        self.assertTrue(live.is_dir())
+        self.assertFalse(dead.exists())
 
     def test_a_package_clone_that_loses_a_race_is_a_miss(self):
         self.keep()
@@ -762,10 +772,11 @@ class Prefer(Fixture):
     def test_any_error_keeps_the_warm_path(self):
         output = Path(self.tmp.name) / "output"
         with unittest.mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), \
-             unittest.mock.patch.object(state.seed, "locate", side_effect=RuntimeError("boom")), \
+             unittest.mock.patch.object(state.seed, "lineage", side_effect=RuntimeError("boom")), \
              unittest.mock.patch("sys.stdout", io.StringIO()):
             self.assertEqual(state.main(["x", "prefer", str(self.store), str(self.workspace), "p-", "base", "local"]), 0)
         self.assertIn("prefer=false", output.read_text())
+        self.assertIn("RuntimeError: boom", output.read_text())
 
 
 class WorkflowCommandLines(unittest.TestCase):

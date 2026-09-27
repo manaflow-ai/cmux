@@ -470,7 +470,8 @@ jobs:
       # (tests/test_seed_derived_data.py pins the copy). Staging and relocation
       # rewrite Build/Products, so these follow "Save seed". Only a main push
       # is a producer pull requests and E2E dispatches trust; a dispatch of
-      # this workflow would publish a product nothing adopts. A failure here
+      # this workflow publishes no product: staging, packaging and upload run
+      # on a main push only. A failure here
       # costs pull requests the adoption, never the seed. The product does not
       # depend on the width, so only the first
       # pool (decide's publisher) publishes it, under the one artifact name

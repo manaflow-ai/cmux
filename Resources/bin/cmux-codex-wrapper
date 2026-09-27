@@ -56,6 +56,42 @@ cmux_codex_wrapper_is_self_or_shim() {
     return 1
 }
 
+codex_launch_has_subrouter_provider() {
+    local argument assignment compact provider=""
+    local expects_config_value=0
+    for argument in "$@"; do
+        [[ "$argument" == "--" ]] && break
+        assignment=""
+        if (( expects_config_value )); then
+            assignment="$argument"
+            expects_config_value=0
+        else
+            case "$argument" in
+                -c|--config)
+                    expects_config_value=1
+                    continue
+                    ;;
+                -c=*|--config=*)
+                    assignment="${argument#*=}"
+                    ;;
+                *)
+                    continue
+                    ;;
+            esac
+        fi
+        compact="${assignment//[[:space:]]/}"
+        case "$compact" in
+            model_provider=subrouter|model_provider=\"subrouter\"|model_provider=\'subrouter\')
+                provider="subrouter"
+                ;;
+            model_provider=*)
+                provider="other"
+                ;;
+        esac
+    done
+    [[ "$provider" == "subrouter" ]]
+}
+
 # Find the real codex binary, skipping this wrapper and cmux's shell shims.
 find_real_codex() {
     local custom="${CMUX_CUSTOM_CODEX_PATH:-}"
@@ -376,6 +412,9 @@ cmux_codex_emit_computer_use_args() {
     # ownership, daemon credentials, and the installed approval broker.
     cmux_computer_use_surface_socket_available || return 0
     local client default_session runtime_scope runtime_uid cua_socket state_dir auth_token
+    # Read the uid in this shell first: the helpers below run in command
+    # substitutions, so a uid they cache would not survive back here.
+    cmux_codex_wrapper_effective_uid || return 1
     client="$(cmux_computer_use_resolve_client)" || return 1
     auth_token="$(cmux_computer_use_auth_token)" || return 1
     # Stable per-terminal session id so the branded cursor survives helper restarts.
@@ -387,7 +426,6 @@ cmux_codex_emit_computer_use_args() {
         runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
     fi
     [[ -n "$runtime_scope" ]] || runtime_scope="default"
-    cmux_codex_wrapper_effective_uid || return 1
     runtime_uid="$cmux_codex_wrapper_uid"
     cua_socket="${CMUX_CUA_CODEX_SOCKET_PATH:-/tmp/cmux-cua-${runtime_uid}/${runtime_scope}/cmux-cua-codex.sock}"
     state_dir="${CMUX_CUA_STATE_DIR:-${HOME}/Library/Application Support/cmux/cmux-cua/runtime/${runtime_scope}/state}"
@@ -647,6 +685,14 @@ export CMUX_CODEX_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
 export CMUX_AGENT_LAUNCH_KIND="codex"
 export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CODEX"
 export CMUX_AGENT_LAUNCH_CWD="$PWD"
+unset CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND
+if codex_launch_has_subrouter_provider "$@"; then
+    case "${SUBROUTER_CODEX_RESUME_COMMAND:-}" in
+        "sr codex resume"|"subrouter codex resume"|"cx codex resume")
+            export CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND="$SUBROUTER_CODEX_RESUME_COMMAND"
+            ;;
+    esac
+fi
 {
     cmux_codex_argv_b64="$(
         {
