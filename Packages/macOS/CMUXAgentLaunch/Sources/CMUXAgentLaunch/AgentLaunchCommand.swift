@@ -170,34 +170,32 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
 }
 
 extension AgentLaunchCommand {
-    /// Returns this record carrying an external launcher id and launcher argv recovered from other
-    /// records.
+    /// Returns this record carrying an external launcher id recovered from other records.
     ///
-    /// Both are properties of the session, not of whichever capture won an evidence comparison.
-    /// Ancestor detection can miss on a later hook — the launcher process may already be gone — so a
-    /// record without them must never erase what the session was captured with. A rejected capture
-    /// keeps its own (absent) launcher argv.
+    /// The external launcher is a property of the session, not of whichever capture won an evidence
+    /// comparison. Ancestor detection can miss on a later hook — the launcher process may already be
+    /// gone — so a record without an id must never erase the id the session was captured with.
     /// https://github.com/manaflow-ai/cmux/issues/10494
     ///
     /// - Parameter candidates: Other records for the same session, in preference order.
-    /// - Returns: This record, with the first id and argv found when it has none of its own.
+    /// - Returns: This record, with the first id found when it has none of its own.
     public func preservingExternalLauncher(from candidates: [AgentLaunchCommand?]) -> AgentLaunchCommand {
-        var updated = self
         if let own = Self.normalized(externalLauncher) {
             // Store the canonical form: the socket decoder accepts the id as written, so a padded
             // value would otherwise be persisted and compared with its padding intact.
-            updated.externalLauncher = own
-        } else if let recovered = candidates
+            guard own != externalLauncher else { return self }
+            var canonical = self
+            canonical.externalLauncher = own
+            return canonical
+        }
+        guard let recovered = candidates
             .lazy
             .compactMap({ Self.normalized($0?.externalLauncher) })
-            .first {
-            updated.externalLauncher = recovered
+            .first else {
+            return self
         }
-        if launcherPrefix?.isEmpty ?? true,
-           source?.lowercased() != "rejected",
-           let recovered = candidates.lazy.compactMap({ $0?.launcherPrefix }).first(where: { !$0.isEmpty }) {
-            updated.launcherPrefix = recovered
-        }
+        var updated = self
+        updated.externalLauncher = recovered
         return updated
     }
 
