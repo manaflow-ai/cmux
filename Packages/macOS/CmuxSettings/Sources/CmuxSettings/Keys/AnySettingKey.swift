@@ -59,6 +59,12 @@ public struct AnySettingKey: Sendable {
     /// The UserDefaults fallback value, type-erased for batch reset bookkeeping.
     public let userDefaultsDefaultValue: (any Sendable)?
 
+    /// Reads this setting's stored UserDefaults value in its cmux.json form,
+    /// or returns nil when nothing is stored (or the key isn't
+    /// UserDefaults-backed). A key with its own suite reads that suite
+    /// instead of the one passed in.
+    public let jsonValueInUserDefaults: @Sendable (UserDefaults) -> Any?
+
     /// Wraps a UserDefaults-backed key.
     public init<Value>(_ key: DefaultsKey<Value>) {
         self.id = key.id
@@ -72,6 +78,14 @@ public struct AnySettingKey: Sendable {
         }
         self.resetInJSON = { _ in }
         self.userDefaultsDefaultValue = key.defaultValue
+        self.jsonValueInUserDefaults = { defaults in
+            let store = key.suite.flatMap(UserDefaults.init(suiteName:)) ?? defaults
+            guard let raw = store.object(forKey: key.userDefaultsKey),
+                  let value = Value.decodeFromUserDefaults(raw) else {
+                return nil
+            }
+            return value.encodeForJSON()
+        }
     }
 
     /// Wraps a JSON-backed key.
@@ -83,6 +97,7 @@ public struct AnySettingKey: Sendable {
             try? await store.reset(key)
         }
         self.userDefaultsDefaultValue = nil
+        self.jsonValueInUserDefaults = { _ in nil }
     }
 
     /// Wraps a secret-file-backed key. Secrets are reset through
@@ -94,6 +109,7 @@ public struct AnySettingKey: Sendable {
         self.migrateUserDefaultsLegacyKeys = { _ in }
         self.resetInJSON = { _ in }
         self.userDefaultsDefaultValue = nil
+        self.jsonValueInUserDefaults = { _ in nil }
     }
 
     private static func migrateLegacyDefaultsKey<Value>(

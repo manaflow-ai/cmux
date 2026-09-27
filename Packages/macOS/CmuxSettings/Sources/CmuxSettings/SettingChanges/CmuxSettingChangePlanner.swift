@@ -31,19 +31,24 @@ struct CmuxSettingChangePlanner {
     static let presetsKey = "settingPresets"
 
     private let schema: CmuxConfigSchemaPathLookup
+    private let liveValues: CmuxSettingLiveValues
 
-    init(schema: CmuxConfigSchemaPathLookup = CmuxConfigSchemaPathLookup()) {
+    init(
+        schema: CmuxConfigSchemaPathLookup = CmuxConfigSchemaPathLookup(),
+        liveValues: CmuxSettingLiveValues = .schemaDefaultsOnly
+    ) {
         self.schema = schema
+        self.liveValues = liveValues
     }
 
     func edits(for change: CmuxSettingChange, in root: [String: Any]) throws -> [Edit] {
         switch change {
         case .set(let path, let value):
-            return [Edit(path: try settingPath(path), value: value.jsonObject)]
+            return [Edit(path: try settingPath(path, root: root), value: value.jsonObject)]
         case .unset(let path):
-            return [Edit(path: try settingPath(path), value: nil)]
+            return [Edit(path: try settingPath(path, root: root), value: nil)]
         case .toggle(let rawPath):
-            let path = try settingPath(rawPath)
+            let path = try settingPath(rawPath, root: root)
             let current = effectiveValue(at: path, in: root)
             guard let current = current.flatMap(CmuxSettingValue.init(jsonObject:)),
                   case .bool(let flag) = current else {
@@ -51,7 +56,7 @@ struct CmuxSettingChangePlanner {
             }
             return [Edit(path: path, value: NSNumber(value: !flag))]
         case .cycle(let rawPath, let values):
-            let path = try settingPath(rawPath)
+            let path = try settingPath(rawPath, root: root)
             guard let first = values.first else {
                 throw CmuxSettingChangeError.emptyCycle(rawPath)
             }
@@ -109,13 +114,18 @@ struct CmuxSettingChangePlanner {
     }
 
     /// Validates a dotted settings path: declared by the schema and outside
-    /// the non-setting sections.
-    func settingPath(_ raw: String) throws -> JSONPath {
+    /// the non-setting sections. `root` is the current file, used only to
+    /// explain a refusal.
+    func settingPath(_ raw: String, root: [String: Any] = [:]) throws -> JSONPath {
         let components = raw.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
-        return try settingPath(components, display: raw)
+        return try settingPath(components, display: raw, root: root)
     }
 
-    private func settingPath(_ components: [String], display: String? = nil) throws -> JSONPath {
+    private func settingPath(
+        _ components: [String],
+        display: String? = nil,
+        root: [String: Any] = [:]
+    ) throws -> JSONPath {
         let display = display ?? components.joined(separator: ".")
         guard !components.isEmpty, !components.contains(where: \.isEmpty) else {
             throw CmuxSettingChangeError.unknownPath(display)
@@ -129,7 +139,7 @@ struct CmuxSettingChangePlanner {
             throw CmuxSettingChangeError.notASetting(display)
         }
         guard schema.isDeclared(components) else {
-            if resolvesWithDottedKey(components) {
+            if resolvesWithDottedKey(components, root: root) {
                 throw CmuxSettingChangeError.keyContainsDot(display)
             }
             throw CmuxSettingChangeError.unknownPath(display)
@@ -138,10 +148,12 @@ struct CmuxSettingChangePlanner {
     }
 
     /// Whether rejoining some adjacent components with "." gives a declared
-    /// path, meaning the caller most likely meant a key that contains "."
-    /// (for example `workspaceGroups.byCwd.~/src/app.web.color`). Used only
-    /// to explain the refusal; such keys stay unsupported.
-    private func resolvesWithDottedKey(_ components: [String]) -> Bool {
+    /// path whose rejoined key the caller most likely meant: one the file
+    /// already has, or a path-like key such as a `workspaceGroups.byCwd`
+    /// entry for `~/src/app.web`. A typo under a map keyed by names (for
+    /// example `shortcuts.bindings.toggleSidebar.foo`) stays an unknown
+    /// path. Used only to explain the refusal; such keys stay unsupported.
+    private func resolvesWithDottedKey(_ components: [String], root: [String: Any]) -> Bool {
         // Each bit of `mask` joins component i to component i + 1. Paths are
         // short; the cap keeps a pathological argument cheap.
         let joints = components.count - 1
@@ -155,21 +167,43 @@ struct CmuxSettingChangePlanner {
                     merged.append(components[index])
                 }
             }
-            if !Self.nonSettingSections.contains(merged[0]), schema.isDeclared(merged) {
+            guard !Self.nonSettingSections.contains(merged[0]), schema.isDeclared(merged) else {
+                continue
+            }
+            let rejoined = merged.filter { $0.contains(".") }
+            if rejoined.contains(where: { $0.contains("/") })
+                || Self.value(at: merged, in: root) != nil {
                 return true
             }
         }
         return false
     }
 
-    /// The configured value, or the schema default when the file doesn't
-    /// set the path.
+    /// The configured value; when the file doesn't set the path, the live
+    /// value (for example from UserDefaults), then the schema default.
     private func effectiveValue(at path: JSONPath, in root: [String: Any]) -> Any? {
-        path.lookup(in: root) ?? schema.defaultValue(at: path.components)
+        path.lookup(in: root)
+            ?? liveValue(at: path)?.jsonObject
+            ?? schema.defaultValue(at: path.components)
+    }
+
+    func liveValue(at path: JSONPath) -> CmuxSettingValue? {
+        liveValues.value(at: path.components.joined(separator: "."))
     }
 
     func defaultValue(at path: JSONPath) -> Any? {
         schema.defaultValue(at: path.components)
+    }
+
+    /// The value at `components`, which may contain keys with "." that a
+    /// ``JSONPath`` can't express.
+    private static func value(at components: [String], in root: [String: Any]) -> Any? {
+        var cursor: Any = root
+        for component in components {
+            guard let object = cursor as? [String: Any], let next = object[component] else { return nil }
+            cursor = next
+        }
+        return cursor
     }
 
     /// Cycle membership. Numbers compare with a small tolerance so `1.4`

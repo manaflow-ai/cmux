@@ -94,7 +94,9 @@ enum CmuxSettingActionRunner {
         let store = store(for: globalConfigPath)
         Task { @MainActor [weak presentingWindow] in
             do {
-                _ = try await store.apply(change)
+                // Start toggle and cycle from what the user sees: a value set
+                // in the Settings window lives in UserDefaults, not cmux.json.
+                _ = try await store.apply(change, liveValues: .userDefaults(suiteName: nil))
             } catch {
                 NSLog("[CmuxConfig] setting action on '%@' failed: %@", change.displayTarget, String(describing: error))
                 presentFailure(error, window: presentingWindow)
@@ -118,7 +120,11 @@ enum CmuxSettingActionRunner {
             localized: "settingAction.failed.title",
             defaultValue: "Couldn't Change Setting"
         )
-        alert.informativeText = error.localizedDescription
+        alert.informativeText = (error as? LocalizedError)?.errorDescription
+            ?? String(
+                localized: "settingAction.failed.unreadable",
+                defaultValue: "cmux couldn't read or save ~/.config/cmux/cmux.json. Check it for a syntax error, then try again."
+            )
         if let window = window ?? NSApp.keyWindow {
             alert.beginSheetModal(for: window)
         } else {

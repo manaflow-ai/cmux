@@ -558585,6 +558585,65 @@
         }
       }
     },
+    "settingAction.failed.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't read or save ~/.config/cmux/cmux.json. Check it for a syntax error, then try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte ~/.config/cmux/cmux.json nicht lesen oder speichern. Prüfe die Datei auf einen Syntaxfehler und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu lire ou enregistrer ~/.config/cmux/cmux.json. Vérifiez qu'il ne contient pas d'erreur de syntaxe, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux قراءة ~/.config/cmux/cmux.json أو حفظه. تحقّق من عدم وجود خطأ في الصياغة، ثم حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo leer ni guardar ~/.config/cmux/cmux.json. Revisa si tiene un error de sintaxis y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法讀取或儲存 ~/.config/cmux/cmux.json。請檢查是否有語法錯誤，然後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法读取或保存 ~/.config/cmux/cmux.json。请检查是否有语法错误，然后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 ~/.config/cmux/cmux.json을 읽거나 저장하지 못했습니다. 구문 오류가 있는지 확인한 뒤 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は ~/.config/cmux/cmux.json を読み込むか保存できませんでした。構文エラーがないか確認してから、もう一度お試しください。"
+          }
+        }
+      }
+    },
     "settingAction.failed.title": {
       "extractionState": "manual",
       "localizations": {

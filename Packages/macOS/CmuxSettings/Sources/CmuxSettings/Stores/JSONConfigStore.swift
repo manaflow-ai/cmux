@@ -449,7 +449,13 @@ public actor JSONConfigStore {
     /// the canonical global schema and refused only for issues this change
     /// introduces. Comments and unrelated formatting are preserved.
     ///
-    /// - Parameter change: The edit to apply.
+    /// - Parameters:
+    ///   - change: The edit to apply.
+    ///   - liveValues: Where `toggle` and `cycle` read the current value of
+    ///     a key the file doesn't set, before falling back to the schema
+    ///     default. Pass ``CmuxSettingLiveValues/userDefaults(suiteName:)``
+    ///     so settings changed in the Settings window start from what the
+    ///     user sees.
     /// - Returns: One receipt per path the change addressed, including paths
     ///   that already held the requested value. Runtime application is not
     ///   observed; cmux's config file watcher applies the saved file.
@@ -458,8 +464,11 @@ public actor JSONConfigStore {
     ///   ``JSONConfigMutationError/invalidCandidate(_:)`` for a value the
     ///   schema rejects; or a conflict, parse, or filesystem error. Nothing is
     ///   published on throw.
-    public func apply(_ change: CmuxSettingChange) async throws -> CmuxSettingChangeResult {
-        let planner = CmuxSettingChangePlanner()
+    public func apply(
+        _ change: CmuxSettingChange,
+        liveValues: CmuxSettingLiveValues = .schemaDefaultsOnly
+    ) async throws -> CmuxSettingChangeResult {
+        let planner = CmuxSettingChangePlanner(liveValues: liveValues)
         let receipts = try await mutateRoot(validateSemantics: true) { root, _ in
             try planner.edits(for: change, in: root)
         }

@@ -5,6 +5,7 @@ All notable changes to cmux are documented here.
 ## Unreleased
 
 ### Added
+- `"type": "setting"` and `"type": "settingPreset"` actions put a setting change (set, toggle, cycle, unset, or a named preset from `settingPresets`) on a tab bar button, shortcut, or Command Palette entry, and `cmux config get|set|unset|toggle|cycle|preset` make the same edits from a terminal, validated against the schema with comments kept ([#14868](https://github.com/manaflow-ai/cmux/pull/14868))
 - Claude Code and Codex agents on a `cmux ssh` host show Running, Needs input, or Idle in the sidebar; cmux installs their hooks on the host when the Integrations toggles are on ([#14902](https://github.com/manaflow-ai/cmux/pull/14902))
 - Settings > Terminal > Reflow Hard-Wrapped Text on Copy (`terminal.reflowHardWrapOnCopy`, off by default) rejoins lines a program wrapped at exactly the terminal width when you copy ([#6923](https://github.com/manaflow-ai/cmux/pull/6923)) -- thanks @mvanhorn!
 - Pi is offered in the Machines Open Cloud Agent menu, `vm.cloud_agent_open`, and `cmux vm prompt --open pi` ([#14819](https://github.com/manaflow-ai/cmux/pull/14819)) -- thanks @aliyansajid!

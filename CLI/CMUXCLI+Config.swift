@@ -172,11 +172,11 @@ extension CMUXCLI {
           path|paths                              Print cmux.json paths, docs URL, and schema URL.
           docs|documentation                      Print the same output as `cmux docs settings`.
           reload                                  Reload Ghostty config + cmux.json and refresh terminals (alias for `cmux reload-config`).
-          get <setting.path>                      Print a cmux.json setting: its configured value, or the default.
+          get <setting.path>                      Print a setting: its cmux.json value, else the value set in Settings, else the default.
           set <setting.path> <value>              Write a setting to ~/.config/cmux/cmux.json. <value> is JSON (true, 1.4, "dark", [...]);
                                                   other text is stored as a string. Comments and other keys are kept.
-          unset <setting.path>                    Remove a setting so its default applies.
-          toggle <setting.path>                   Flip a true/false setting.
+          unset <setting.path>                    Remove a setting from cmux.json, so the value set in Settings (or the default) applies.
+          toggle <setting.path>                   Flip a true/false setting, starting from the value cmux is using.
           cycle <setting.path> <value> [value...] Move a setting to the value after its current one, wrapping around.
           preset <name>                           Apply the settings stored at settingPresets.<name> in cmux.json.
           get <key>                               Print sidebar-font-size or surface-tab-bar-font-size.
@@ -259,7 +259,8 @@ extension CMUXCLI {
         let store = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
         let result: CmuxSettingChangeResult
         do {
-            result = try runConfigSettingsBlocking { try await store.apply(change) }
+            let liveValues = Self.configSettingLiveValues()
+            result = try runConfigSettingsBlocking { try await store.apply(change, liveValues: liveValues) }
         } catch {
             throw CLIError(message: error.localizedDescription)
         }
@@ -301,16 +302,26 @@ extension CMUXCLI {
         let store = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
         let reading: CmuxSettingReading
         do {
-            reading = try store.reading(at: path)
+            reading = try store.reading(at: path, liveValues: Self.configSettingLiveValues())
         } catch {
             throw CLIError(message: error.localizedDescription)
         }
 
+        let source: String
+        if reading.configured != nil {
+            source = "cmux.json"
+        } else if reading.live != nil {
+            source = "settings"
+        } else {
+            source = "default"
+        }
+
         if jsonOutput {
             var payload: [String: Any] = [
-                "key": reading.path,
+                "path": reading.path,
+                "file": store.fileURL.path,
                 "configured": reading.configured != nil,
-                "path": store.fileURL.path,
+                "source": source,
             ]
             payload["value"] = reading.effective?.jsonObject ?? NSNull()
             if let defaultValue = reading.defaultValue {
@@ -320,7 +331,20 @@ extension CMUXCLI {
             return
         }
 
-        print("\(reading.path) = \(reading.effective?.jsonText ?? "null")\(reading.configured == nil ? " (default)" : "")")
+        let suffix: String
+        switch source {
+        case "settings": suffix = " (set in Settings, not cmux.json)"
+        case "default": suffix = " (default)"
+        default: suffix = ""
+        }
+        print("\(reading.path) = \(reading.effective?.jsonText ?? "null")\(suffix)")
+    }
+
+    /// Reads settings the Settings window stored in the cmux app's
+    /// UserDefaults, so `get`, `toggle`, and `cycle` start from the value
+    /// the app is using when cmux.json doesn't set the key.
+    private static func configSettingLiveValues() -> CmuxSettingLiveValues {
+        .userDefaults(suiteName: CLISocketPathResolver.currentAppBundleIdentifier())
     }
 
     /// Bridges the actor-backed store to this synchronous command. The

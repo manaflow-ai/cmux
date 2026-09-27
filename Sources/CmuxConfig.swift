@@ -2653,6 +2653,17 @@ final class CmuxConfigStore: ObservableObject {
                 }
                 let registryID = CmuxSurfaceTabBarBuiltInAction(configID: id)?.configID ?? id
                 if let existing = registry[registryID] {
+                    // Only the global config may retitle, rebind, or drop the
+                    // confirm of a setting action; a project override would
+                    // otherwise dress one up as something harmless.
+                    if case .setting = existing.action,
+                       !CmuxSettingActionTrust.allowsSettingAction(
+                           actionSourcePath: entry.actionSourcePath,
+                           globalConfigPath: globalConfigPath
+                       ) {
+                        NSLog("[CmuxConfig] override of setting action '%@' ignored: only the global cmux.json may change it", id)
+                        continue
+                    }
                     guard let resolved = existing.applying(
                         entry.definition,
                         actionSourcePath: entry.actionSourcePath,
@@ -2744,6 +2755,28 @@ final class CmuxConfigStore: ObservableObject {
 
         let resolvedIdentifier = canonicalActionID(identifier)
         if let entry = actions[resolvedIdentifier] {
+            // A project button may show a global setting action, but not
+            // relabel it or drop its confirm.
+            if case .setting = entry.action,
+               !CmuxSettingActionTrust.allowsSettingAction(
+                   actionSourcePath: button.actionSourcePath,
+                   globalConfigPath: globalConfigPath
+               ) {
+                return ResolvedSurfaceTabBarButtonEntry(
+                    button: CmuxSurfaceTabBarButton(
+                        id: button.id,
+                        title: entry.title,
+                        icon: entry.icon,
+                        tooltip: entry.tooltip ?? entry.title,
+                        action: entry.action,
+                        confirm: entry.confirm,
+                        terminalCommandTarget: nil,
+                        actionSourcePath: entry.actionSourcePath,
+                        iconSourcePath: entry.iconSourcePath
+                    ),
+                    terminalCommandSourcePath: nil
+                )
+            }
             let resolvedButton = CmuxSurfaceTabBarButton(
                 id: button.id,
                 title: button.title ?? entry.title,

@@ -123,6 +123,61 @@ struct CmuxSettingChangeTests {
         #expect(try Data(contentsOf: file) == before)
     }
 
+    @Test("toggle and cycle start from the live value of a key cmux.json doesn't set")
+    func liveValuesSeedToggleAndCycle() async throws {
+        let file = try fixture(baseConfig)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let store = JSONConfigStore(fileURL: file)
+        // The Settings window turned word wrap on and set scroll speed 1.8;
+        // neither is in the file.
+        let live = CmuxSettingLiveValues { path in
+            switch path {
+            case "fileEditor.wordWrap": return .bool(true)
+            case "sidebar.showLog": return .bool(false)
+            default: return nil
+            }
+        }
+
+        _ = try await store.apply(.toggle(path: "fileEditor.wordWrap"), liveValues: live)
+        #expect((try value("fileEditor.wordWrap", in: file) as? NSNumber)?.boolValue == false)
+
+        // A key the file does set ignores the live value.
+        _ = try await store.apply(.toggle(path: "sidebar.showLog"), liveValues: live)
+        #expect((try value("sidebar.showLog", in: file) as? NSNumber)?.boolValue == false)
+
+        let reading = try store.reading(at: "fileEditor.wordWrap", liveValues: live)
+        #expect(reading.configured == .bool(false))
+        #expect(reading.live == nil)
+        _ = try await store.apply(.unset(path: "fileEditor.wordWrap"))
+        let unset = try store.reading(at: "fileEditor.wordWrap", liveValues: live)
+        #expect(unset.configured == nil)
+        #expect(unset.live == .bool(true))
+        #expect(unset.effective == .bool(true))
+    }
+
+    @Test("UserDefaults-backed settings are read in their cmux.json form")
+    func userDefaultsLiveValues() throws {
+        let suiteName = "cmux.settings.live-values.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let live = CmuxSettingLiveValues.userDefaults(suiteName: suiteName)
+
+        #expect(live.value(at: "fileEditor.wordWrap") == nil)
+        defaults.set(true, forKey: SettingCatalog().fileEditor.wordWrap.userDefaultsKey)
+        #expect(live.value(at: "fileEditor.wordWrap") == .bool(true))
+        #expect(live.value(at: "not.a.setting") == nil)
+    }
+
+    @Test("a typo under a map keyed by names stays an unknown path")
+    func typoUnderNamedMapIsUnknown() async throws {
+        let file = try fixture(baseConfig)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        await #expect(throws: CmuxSettingChangeError.unknownPath("workspaceGroups.byCwd.app.colr")) {
+            _ = try await JSONConfigStore(fileURL: file)
+                .apply(.set(path: "workspaceGroups.byCwd.app.colr", value: .string("#FFFFFF")))
+        }
+    }
+
     @Test("a key containing a dot is refused with an explicit reason")
     func refusesKeysContainingDots() async throws {
         let file = try fixture("""

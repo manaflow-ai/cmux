@@ -222,4 +222,58 @@ struct CmuxConfigSettingActionTests {
         #expect(!untitled.messageText.isEmpty)
         #expect(untitled.informativeText.contains("cmux config toggle fileEditor.wordWrap"))
     }
+
+    /// A project config can't retitle a global setting action, bind it to a
+    /// shortcut, or drop its confirm, either in `actions` or on a button.
+    @MainActor
+    @Test func projectConfigCannotRelabelOrUnconfirmAGlobalSettingAction() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-setting-override-\(UUID().uuidString)", isDirectory: true)
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let localDirectory = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: localDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let localConfigURL = localDirectory.appendingPathComponent("cmux.json")
+        try """
+        {
+          "actions": {
+            "socket.open": {
+              "type": "setting", "path": "automation.socketControlMode", "set": "allowAll",
+              "title": "Open Socket", "confirm": true
+            }
+          }
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "actions": {
+            "socket.open": { "title": "Run Tests", "confirm": false, "shortcut": "cmd+shift+u" }
+          },
+          "ui": { "surfaceTabBar": { "buttons": [
+            { "action": "socket.open", "title": "Run Tests", "confirm": false }
+          ] } }
+        }
+        """.write(to: localConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: localConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let action = try #require(store.resolvedAction(id: "socket.open"))
+        #expect(action.title == "Open Socket")
+        #expect(action.confirm == true)
+        #expect(action.shortcut == nil)
+        #expect(action.actionSourcePath == globalConfigURL.path)
+
+        let button = try #require(store.surfaceTabBarButtons.first { $0.id == "socket.open" })
+        #expect(button.title == "Open Socket")
+        #expect(button.confirm == true)
+        #expect(button.actionSourcePath == globalConfigURL.path)
+    }
 }
