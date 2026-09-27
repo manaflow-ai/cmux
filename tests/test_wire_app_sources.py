@@ -136,6 +136,22 @@ class WireAppSourcesTests(unittest.TestCase):
                 (root / rel).write_text("")
             self.assertEqual(wire_app_sources.unwired_sources(root, PROJECT), ["Sources/Other/Wired.swift"])
 
+    def test_a_lost_phase_line_reuses_the_surviving_reference_and_build_file(self):
+        # Only the app-phase line is gone; the ref and the build file remain.
+        stripped = PROJECT.replace("\t\t\t\tB0000000000000000000000C /* Rooted.swift in Sources */,\n", "")
+        self.assertNotIn("Sources/Rooted.swift", wire_app_sources.parse(stripped).wired_paths)
+        text = wire_app_sources.wire(stripped, "Sources/Rooted.swift")
+        self.assertEqual(text.count("isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = \"Sources/Rooted.swift\""), 1)
+        self.assertEqual(text.count("= {isa = PBXBuildFile; fileRef = F0000000000000000000000C"), 1)
+        self.assertIn("\t\t\t\tB0000000000000000000000C /* Rooted.swift in Sources */,\n", text)
+        self.assertIn("Sources/Rooted.swift", wire_app_sources.parse(text).wired_paths)
+
+    def test_a_derived_id_already_in_use_is_resalted(self):
+        taken = wire_app_sources.object_id("fileref:Sources/Top.swift")
+        busy = PROJECT.replace("F0000000000000000000000A", taken)
+        text = wire_app_sources.wire(busy, "Sources/Top.swift")
+        self.assertEqual(text.count(taken + " /* "), busy.count(taken + " /* "))
+
     def test_wiring_is_idempotent_and_ids_are_stable(self):
         once = wire_app_sources.wire(PROJECT, "Sources/Top.swift")
         self.assertEqual(wire_app_sources.wire(once, "Sources/Top.swift"), once)
