@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|relay-expiry|direct-only|private-path> --tag <tag>
-       [--staging-base-url <url>] [--presence-base-url <url>]
+       [--staging-base-url <url>] [--v2-base-url <url>] [--presence-base-url <url>]
        [--skip-build] [--keep-simulator] [--simulator-id <dedicated-monitor-udid>]
        [--report-output <path>] [--print-plan]
        [--soak-profile <basic|stress>]
@@ -27,9 +27,11 @@ EOF
 
 MODE=""
 TAG=""
-# v2 verification must exercise the Cloudflare broker directly. A caller can
-# still supply a private staging origin for an isolated environment.
-STAGING_BASE_URL="${CMUX_IROH_RELEASE_GATE_BASE_URL:-https://cmux-v2-staging.debussy.workers.dev}"
+# The web API and legacy compatibility broker remain on their existing staging
+# origin. The v2 control plane is verified separately through the canonical
+# Cloudflare Worker. A caller can override either origin for an isolated test.
+STAGING_BASE_URL="${CMUX_IROH_RELEASE_GATE_BASE_URL:-https://cmux-staging.vercel.app}"
+V2_BASE_URL="${CMUX_IROH_RELEASE_GATE_V2_BASE_URL:-https://cmux-v2-staging.debussy.workers.dev}"
 PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}"
 SKIP_BUILD=0
 KEEP_SIMULATOR=0
@@ -38,6 +40,7 @@ REPORT_OUTPUT=""
 PRODUCTION=0
 STACK_ENV_FILE=""
 BASE_URL_WAS_EXPLICIT=0
+V2_BASE_URL_WAS_EXPLICIT=0
 PRINT_PLAN=0
 SOAK_PROFILE=""
 REPORT_TIMEOUT=480
@@ -48,6 +51,7 @@ while [[ $# -gt 0 ]]; do
     --mode) MODE="${2:-}"; shift 2 ;;
     --tag) TAG="${2:-}"; shift 2 ;;
     --staging-base-url) STAGING_BASE_URL="${2:-}"; BASE_URL_WAS_EXPLICIT=1; shift 2 ;;
+    --v2-base-url) V2_BASE_URL="${2:-}"; V2_BASE_URL_WAS_EXPLICIT=1; shift 2 ;;
     --presence-base-url) PRESENCE_BASE_URL="${2:-}"; shift 2 ;;
     --production) PRODUCTION=1; shift ;;
     --stack-env-file) STACK_ENV_FILE="${2:-}"; shift 2 ;;
@@ -69,6 +73,10 @@ if [[ "$PRODUCTION" -eq 1 && "$BASE_URL_WAS_EXPLICIT" -eq 1 ]]; then
   echo "error: --production cannot be combined with --staging-base-url" >&2
   exit 2
 fi
+if [[ "$PRODUCTION" -eq 1 && "$V2_BASE_URL_WAS_EXPLICIT" -eq 1 ]]; then
+  echo "error: --production cannot be combined with --v2-base-url" >&2
+  exit 2
+fi
 if [[ "$PRODUCTION" -eq 1 && -n "$PRESENCE_BASE_URL" ]]; then
   echo "error: --production cannot be combined with --presence-base-url" >&2
   exit 2
@@ -83,6 +91,7 @@ if [[ "$PRODUCTION" -eq 1 && "$SKIP_BUILD" -eq 1 ]]; then
 fi
 if [[ "$PRODUCTION" -eq 1 ]]; then
   STAGING_BASE_URL="https://cmux.com"
+  V2_BASE_URL="https://cmux-v2.debussy.workers.dev"
   # Production clients resolve presence.cmux.dev from their auth channel.
   # Never inherit a development worker override from the caller's shell.
   PRESENCE_BASE_URL=""
@@ -124,6 +133,10 @@ if [[ "$GATE_PLAN" != "host-private-path-transport" ]]; then
   case "$STAGING_BASE_URL" in
     https://*) ;;
     *) echo "error: --staging-base-url must use https" >&2; exit 2 ;;
+  esac
+  case "$V2_BASE_URL" in
+    https://*) ;;
+    *) echo "error: --v2-base-url must use https" >&2; exit 2 ;;
   esac
   case "$PRESENCE_BASE_URL" in
     ""|https://*) ;;
@@ -530,6 +543,7 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
       CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
       CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
       CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_V2_BASE_URL="$V2_BASE_URL" \
       ./scripts/reload.sh \
         --tag "$TAG" \
         --prod-auth \
@@ -539,18 +553,21 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
       CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
       CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
       CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_V2_BASE_URL="$V2_BASE_URL" \
       ./ios/scripts/reload.sh "${IROH_RELEASE_GATE_IOS_RELOAD_ARGS[@]}"
   else
     run_build_with_heartbeat Mac env \
       CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
       CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
       CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_V2_BASE_URL="$V2_BASE_URL" \
       ./scripts/reload.sh --tag "$TAG"
     run_build_with_heartbeat iOS env \
       CMUX_XCODEBUILD_JOBS="${CMUX_IROH_RELEASE_GATE_XCODEBUILD_JOBS:-2}" \
       CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
       CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
       CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_V2_BASE_URL="$V2_BASE_URL" \
       ./ios/scripts/reload.sh "${IROH_RELEASE_GATE_IOS_RELOAD_ARGS[@]}"
   fi
 else
@@ -569,6 +586,7 @@ rm -f "$DATA_CONTAINER/Library/Caches/$REPORT_FILENAME" \
   --mac-app "$MAC_APP" \
   --ios-app "$IOS_APP" \
   --backend-base-url "$STAGING_BASE_URL" \
+  --v2-base-url "$V2_BASE_URL" \
   --presence-base-url "$PRESENCE_BASE_URL"
 
 if [[ "$PRODUCTION" -eq 1 ]]; then

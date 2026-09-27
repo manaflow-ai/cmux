@@ -19,8 +19,8 @@ on:
           - relay-expiry
           - direct-only
           - private-path
-      backend_base_url:
-        description: v2 broker Worker origin used by the app and gate
+      v2_base_url:
+        description: canonical v2 Worker origin used by the app and gate
         required: false
         default: https://cmux-v2-staging.debussy.workers.dev
         type: string
@@ -146,7 +146,7 @@ jobs:
           GATE_ARGS=(
             --mode "${{ matrix.mode }}"
             --tag "$TAG"
-            --staging-base-url "${{ inputs.backend_base_url }}"
+            --v2-base-url "${{ inputs.v2_base_url }}"
             --report-output "$RUNNER_TEMP/iroh-release-gate-${{ matrix.mode }}.json"
           )
           if [[ "${{ matrix.mode }}" == relay-only ]]; then
