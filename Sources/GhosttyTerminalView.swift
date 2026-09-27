@@ -847,7 +847,7 @@ class GhosttyApp {
             ) -> Bool,
             to: ghostty_runtime_read_clipboard_cb.self
         )
-        runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, _ in
+        runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, request in
             guard let content,
                   let callbackContext = GhosttyApp.callbackContext(from: userdata) else { return }
             // Libghostty invokes this synchronously from the main-actor
@@ -860,6 +860,7 @@ class GhosttyApp {
                 callbackContext.confirmClipboardRead(
                     String(cString: content),
                     stateAddress: UInt(bitPattern: state),
+                    isPasteRequest: request == GHOSTTY_CLIPBOARD_REQUEST_PASTE,
                     surfaceIdentity: surfaceIdentity
                 )
             }

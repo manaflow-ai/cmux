@@ -3,6 +3,9 @@ import CmuxCloudTui
 import CmuxCore
 import CmuxSurfaceCatalogModel
 import Foundation
+import os
+
+private let sshTuiWorkspaceLogger = Logger(subsystem: "com.cmuxterm.app", category: "SSHTuiWorkspace")
 
 /// Composes SSH carriers with the same terminal graph and native projections as Cloud.
 @MainActor
@@ -108,9 +111,7 @@ final class SSHTuiWorkspaceCoordinator {
         } else {
             let connected = try await provider.links.connected(machineID: connection.id)
             guard let link = await provider.links.link(machineID: connection.id) else { throw CancellationError() }
-            let request = CloudTuiRequests.createWorkspaceArguments(
-                socketPath: connected.socketPath, empty: true
-            ).withIdempotencyKey("ssh-workspace-" + workspace.stableId.uuidString.lowercased())
+            let request = Self.remoteWorkspaceCreationRequest(for: workspace, socketPath: connected.socketPath)
             let response = try await link.run(arguments: request)
             try requireCurrent(workspace: workspace, attemptID: attemptID)
             guard let object = try JSONSerialization.jsonObject(with: response) as? [String: Any],
@@ -122,6 +123,12 @@ final class SSHTuiWorkspaceCoordinator {
                 request: CloudTerminalCreationRequest(id: workspace.stableId, remoteWorkspaceID: remoteID, restoring: restoring)
             )
             try requireCurrent(workspace: workspace, attemptID: attemptID)
+            if let title = Self.remoteWorkspaceTitleToPublish(for: workspace) {
+                // A failed publish degrades to the daemon default name; log it rather than fail the attach.
+                catalog.enqueueRemoteWorkspaceRename(on: machine, id: remoteID, name: title) { error in
+                    sshTuiWorkspaceLogger.error("publishing the workspace title to \(remoteID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                }
+            }
             workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: connection.id, isBase: false, remoteWorkspaceID: remoteID)
             let projected = try await catalog.project(resource.id, into: .workspace(id: workspace.id, placement: .tab),
                                                       focus: false, adopting: reservation)
@@ -130,6 +137,32 @@ final class SSHTuiWorkspaceCoordinator {
         }
         completed = true
         workspace.applyRemoteConnectionStateUpdate(.connected, detail: nil, target: configuration.displayTarget)
+    }
+
+    /// The `workspace.create` request an SSH attach sends when the workspace has no remote identity yet.
+    ///
+    /// It stays unnamed so its creation fingerprint is stable: the idempotency
+    /// key is per workspace, and the daemon rejects a replay whose parameters
+    /// changed (`creation.conflict`), which a title edit between retries would cause.
+    static func remoteWorkspaceCreationRequest(for workspace: Workspace, socketPath: String) -> CloudTuiRequest {
+        CloudTuiRequests.createWorkspaceArguments(socketPath: socketPath, empty: true)
+            .withIdempotencyKey("ssh-workspace-" + workspace.stableId.uuidString.lowercased())
+    }
+
+    /// The local title an SSH attach publishes to the remote workspace it just created.
+    ///
+    /// Once the workspace is bound, the daemon graph owns its name and
+    /// reconciliation projects that name onto the local title, so a title from
+    /// `--name` or a restored snapshot must reach the daemon first. Attach
+    /// enqueues it as a rename before binding; the pending rename keeps
+    /// reconciliation from painting the daemon default (`workspace-N`) meanwhile.
+    /// Auto titles are derived locally and are not pinned into the daemon, and a
+    /// title over the daemon's 1024-byte workspace-name limit is not sent.
+    static func remoteWorkspaceTitleToPublish(for workspace: Workspace) -> String? {
+        guard workspace.effectiveCustomTitleSource != .auto,
+              let title = workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty, title.utf8.count <= 1024 else { return nil }
+        return title
     }
 
     /// Replace the local scaffold before yielding so an SSH workspace can never start a local shell.
