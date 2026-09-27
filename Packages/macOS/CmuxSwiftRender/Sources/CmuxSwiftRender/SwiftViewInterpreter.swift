@@ -141,6 +141,9 @@ public struct SwiftViewInterpreter: Sendable {
             // are removed so retrying their dependents cannot evaluate them twice.
             if pending.count == previousCount { break }
         }
+        env.maskUnresolvedNames(Set(pending.compactMap {
+            $0.pattern.as(IdentifierPatternSyntax.self)?.identifier.text
+        }))
     }
 
     private func bindParameters(_ decl: FunctionDeclSyntax, _ call: FunctionCallExprSyntax, _ env: EvalEnvironment) -> EvalEnvironment {

@@ -21,6 +21,7 @@ public final class EvalEnvironment {
     private let externalResolver: ((String) -> SwiftValue?)?
     private var unresolvedNameObserver: ((String) -> Void)?
     private var deferredLookupNames: Set<String>?
+    private var maskedUnresolvedNames: Set<String> = []
     /// Shared across the whole scope chain; bounds interpreter recursion so
     /// pathological authored source can't overflow the stack.
     let budget: RecursionBudget
@@ -49,6 +50,10 @@ public final class EvalEnvironment {
     /// Looks up `name`, walking up the scope chain, then asking the root's
     /// external resolver.
     public func lookup(_ name: String) -> SwiftValue? {
+        if parent == nil, maskedUnresolvedNames.contains(name) {
+            unresolvedNameObserver?(name)
+            return nil
+        }
         if parent == nil, deferredLookupNames?.contains(name) == true {
             unresolvedNameObserver?(name)
             return nil
@@ -78,6 +83,11 @@ public final class EvalEnvironment {
         }
         let value = evaluate()
         return (value, readUnresolvedName)
+    }
+
+    /// Keeps unresolved file-scope names from falling back to seeded state.
+    func maskUnresolvedNames(_ names: Set<String>) {
+        maskedUnresolvedNames.formUnion(names)
     }
 
     /// Defines or overwrites `name` in this scope.
