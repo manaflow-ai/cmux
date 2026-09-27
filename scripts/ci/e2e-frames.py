@@ -8,6 +8,7 @@ For each test it writes, under <out>/<Class>/<method>/:
     steps.md                  numbered actions ("Click ... MenuItem"), the failure, and each frame's file
     frames/NN-<action>.jpg    the screen right after that action
     sheet-N.jpg               3x4 contact sheets, each tile captioned with its action
+    attachments/<name>        text a test attached (a dogfood tour's trees, socket replies, step log)
 
 A frame is the last screenshot XCUITest saved under a top-level action. On hosts
 where XCTest keeps a screen recording of a failing test instead, the recording
@@ -23,6 +24,7 @@ $GITHUB_STEP_SUMMARY). Needs `gh` for runs, and xcrun, sips and ffmpeg to build.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import html
 import json
 import re
@@ -45,6 +47,8 @@ FONT = "/System/Library/Fonts/SFNS.ttf"
 NOISE = re.compile(r"^(kXCTAttachment|Checking existence of|Waiting .* to exist|Get number of matches|Find the |"
                    r"Wait for .* to idle|Check for interrupting|Synthesize event|Set Up$|Tear Down$)")
 AT_FAILURE = "Screen at failure"
+# XCUITest attaches these to every synthesized event; they bury what a test kept.
+XCUITEST_NOISE = ("Synthesized Event", "UI Snapshot", "Debug description", "App UI hierarchy")
 # XCTest's own activity names, shortened to what a reader needs.
 RENAME = [(re.compile(r"^Collecting debug information"), AT_FAILURE), (re.compile(r"^Start Test at "), "Start")]
 
@@ -283,6 +287,19 @@ def extract_test(xcresult: Path, exported: Path, entry: dict, outcome: dict, tes
         before = [s for s in steps if s["time"] <= failed_at + 0.5 and s["title"] != AT_FAILURE]
         failed_step = (before or steps)[-1]["number"]
 
+    # Text a test attached on purpose, under the name it gave.
+    kept = [a for a in entry.get("attachments", [])
+            if Path(a.get("exportedFileName", "")).suffix.lower() not in IMAGE_SUFFIXES | VIDEO_SUFFIXES
+            and not a.get("suggestedHumanReadableName", "").startswith(XCUITEST_NOISE)]
+    for attachment in kept:
+        # "<name>_0_<UUID>.<ext>" -> "<name>.<ext>"
+        name = re.sub(r"_[0-9]+_[0-9A-F-]{36}", "", attachment.get("suggestedHumanReadableName", ""))
+        name = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-.") or attachment["exportedFileName"]
+        destination = test_dir / "attachments" / name
+        destination.parent.mkdir(exist_ok=True)
+        with contextlib.suppress(OSError):
+            shutil.copyfile(exported / attachment["exportedFileName"], destination)
+
     lines = [f"# {identifier}: {outcome['result']}", ""]
     lines += [f"Failure: {f.splitlines()[0]}" for f in outcome["failures"] if f]
     lines.append("")
@@ -416,6 +433,8 @@ def main() -> int:
                 print(f"          frame: {step['frame']}")
         if item["steps"]:
             print(f"          steps: {item['dir']}/steps.md")
+        if item["dir"] and (Path(item["dir"]) / "attachments").is_dir():
+            print(f"          attachments: {item['dir']}/attachments")
         for sheet in item["sheets"]:
             print(f"          sheet: {sheet}")
     return 0

@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -478,6 +479,46 @@ class DistanceRouting(unittest.TestCase):
         self.assertEqual(name, "m2-glaeda")
         self.assertEqual(wd.own_parked(minis["m2"][0], 7), [parked])
         self.assertEqual(wd.own_parked(minis["m2"][0], None), [])
+
+    def test_the_base_fetch_is_tried_twice_and_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            calls = []
+
+            def fake_run(args, **_kwargs):
+                calls.append(args)
+                return subprocess.CompletedProcess(args, 128, stdout="", stderr="fatal: the remote hung up")
+            with unittest.mock.patch.object(wd.subprocess, "run", side_effect=fake_run), \
+                    unittest.mock.patch.object(wd, "have_tree", return_value=False):
+                wd._deadline[0] = time.monotonic() + 30
+                try:
+                    report = wd.fetch_bases(workspace, ["1" * 40, "2" * 40, "not-a-sha"])
+                finally:
+                    wd._deadline[0] = float("inf")
+            self.assertEqual(len(calls), 2)
+            self.assertIn("--refetch", calls[0])
+            self.assertEqual({key: report[key] for key in ("missing", "attempts", "left")},
+                             {"missing": 2, "attempts": 2, "left": 2})
+            self.assertIn("remote hung up", report["error"])
+            record = wd.bases_record({"compared": 1, "total": 3, "fetch": {**report, "error": "x" * 999}})
+            self.assertEqual((record["compared"], len(record["fetch"]["error"])), (1, 160))
+
+    def test_a_commit_without_its_tree_counts_as_missing(self):
+        # delta_since_green.py fetches main's history with --filter=tree:0: commits, no trees.
+        with tempfile.TemporaryDirectory() as tmp:
+            git = ["git", "-C", tmp, "-c", "user.email=t@t", "-c", "user.name=t"]
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            (Path(tmp) / "A.swift").write_text("a")
+            subprocess.run([*git, "add", "."], check=True)
+            subprocess.run([*git, "commit", "-qm", "0"], check=True)
+            sha = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+            tree = subprocess.run([*git, "rev-parse", "HEAD^{tree}"], check=True, capture_output=True,
+                                  text=True).stdout.strip()
+            self.assertTrue(wd.have_tree(Path(tmp), sha))
+            (Path(tmp) / ".git/objects" / tree[:2] / tree[2:]).unlink()
+            self.assertTrue(wd.have_commit(Path(tmp), sha))
+            self.assertFalse(wd.have_tree(Path(tmp), sha))
 
     def test_record_is_bounded_and_reads_either_mode(self):
         minis = {"m1": [self.stamp("1" * 40)]}

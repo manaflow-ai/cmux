@@ -27,6 +27,16 @@ struct DefaultsKeyDirectAccessTests {
         #expect(key.value(in: defaults) == true)
     }
 
+    @Test func warnBeforeClosingWorkspaceDefaultsToEnabled() {
+        let defaults = makeScratchDefaults()
+        let key = AppCatalogSection().warnBeforeClosingWorkspace
+        #expect(key.id == "app.warnBeforeClosingWorkspace")
+        #expect(key.value(in: defaults) == true)
+
+        defaults.set(false, forKey: "warnBeforeClosingWorkspace")
+        #expect(key.value(in: defaults) == false)
+    }
+
     @Test func undecodableStoredValueReadsAsDefault() {
         let defaults = makeScratchDefaults()
         let key = AppCatalogSection().confirmQuitMode
