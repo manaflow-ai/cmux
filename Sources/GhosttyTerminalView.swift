@@ -6379,25 +6379,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         UserDefaults.standard.bool(forKey: "terminal.promptSelection")
     }
 
-    /// The shell input under the cursor, or `nil` when Ghostty reports no
-    /// editable prompt (alternate screen, a running command, no shell
-    /// integration, or a line without a prompt before its input).
-    ///
-    /// Takes Ghostty's renderer lock once, so it runs only for gestures.
-    private func promptInputSnapshot(surface: ghostty_surface_t) -> TerminalPromptInputSnapshot? {
-        var input = ghostty_surface_prompt_input_s()
-        guard ghostty_surface_prompt_input(surface, &input) else { return nil }
-        let selection: Range<Int>? = input.has_selection && input.selection_end > input.selection_start
-            ? Int(input.selection_start)..<Int(input.selection_end)
-            : nil
-        return TerminalPromptInputSnapshot(
-            length: Int(input.length),
-            caret: Int(input.caret),
-            selection: selection,
-            selectionOutsideInput: selection == nil && ghostty_surface_has_selection(surface)
-        )
-    }
-
     /// Handles Command-A and Command-X at a shell prompt.
     ///
     /// Runs from `performKeyEquivalent` ahead of Ghostty's `select_all`
@@ -6488,7 +6469,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ) -> Bool {
         let action = terminalPromptSelectionResolve(
             intent: intent,
-            snapshot: promptInputSnapshot(surface: surface),
+            snapshot: TerminalPromptInputSnapshot.read(from: surface),
             tracked: promptSelectionTracked
         )
         switch action {
@@ -6498,12 +6479,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .consume:
             return true
         case let .select(selection):
-            let range = selection.range
-            guard ghostty_surface_select_prompt_input(
-                surface,
-                UInt32(clamping: range.lowerBound),
-                UInt32(clamping: range.upperBound)
-            ) else {
+            guard selection.select(on: surface) else {
                 promptSelectionTracked = nil
                 return false
             }
