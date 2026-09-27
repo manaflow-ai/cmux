@@ -868,6 +868,12 @@ def main() -> int:
     parser.add_argument("--ref", help="remote branch, tag, or SHA; default: clean local HEAD, already pushed")
     parser.add_argument("--wait", action="store_true", help="wait and return a nonzero status if the run fails")
     parser.add_argument("--no-video", action="store_true")
+    parser.add_argument(
+        "--frames",
+        action="store_true",
+        help="implies --wait; then turn the run's xcresult into per-test screenshots and "
+        "contact sheets with scripts/ci/e2e-frames.py (works without video)",
+    )
     parser.add_argument("--timeout", type=positive_integer, default=120, help="per-test timeout in seconds (default: 120)")
     parser.add_argument("--job-timeout", type=positive_integer, default=45, help="job timeout in minutes, including compilation (default: 45)")
     parser.add_argument("--workflow-ref", help="workflow-definition branch/tag (default: repository default branch)")
@@ -886,6 +892,8 @@ def main() -> int:
         "or is already running there",
     )
     args = parser.parse_args()
+    if args.frames:
+        args.wait = True
     for entry in args.test_filter:
         if not SELECTOR.fullmatch(entry):
             parser.error(
@@ -1014,7 +1022,7 @@ def main() -> int:
                     )
                     print(f"Run: {live['url']}", flush=True)
                     if args.wait:
-                        return watch_run(live["databaseId"])
+                        return watch_and_extract(live["databaseId"], args.frames)
                     return 0
 
             # Refuse per entry: one already-red selector makes the whole batch a
@@ -1060,6 +1068,8 @@ def main() -> int:
     if test_target == "cmuxTests" and not pinned and not args.full_build:
         status = reuse_ci_products(commit, args.test_filter, args.workflow_ref, args.wait)
         if status is not None:
+            if args.frames:
+                print("--frames: cmuxTests attach no screenshots, so there are no frames to extract", flush=True)
             return status
 
     if ui_source is not None and not ui_source["ready"]:
@@ -1117,8 +1127,20 @@ def main() -> int:
         )
     print(f"Run: {run['url']}", flush=True)
     if args.wait:
-        return watch_run(run["databaseId"])
+        return watch_and_extract(run["databaseId"], args.frames)
     return 0
+
+
+def watch_and_extract(run_id: int, frames: bool) -> int:
+    """Watch the run; with --frames, then print where its per-test frames are."""
+    status = watch_run(run_id)
+    if frames and status != 130:  # not after an interrupt
+        subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parent / "e2e-frames.py"), str(run_id)],
+            cwd=ROOT,
+            check=False,
+        )
+    return status
 
 
 if __name__ == "__main__":
