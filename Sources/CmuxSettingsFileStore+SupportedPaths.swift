@@ -105,6 +105,7 @@ extension CmuxSettingsFileStore {
         RightSidebarWidthSettings.settingsPath,
         "workspaceColors.indicatorStyle",
         "workspaceColors.selectionColor",
+        "workspaceColors.subtleSelection",
         "workspaceColors.notificationBadgeColor",
         "workspaceColors.colors",
         "workspaceColors.paletteOverrides",

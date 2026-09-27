@@ -16,7 +16,8 @@ struct SidebarRowPalette {
         sidebarSelectedWorkspaceBackgroundNSColor(
             for: colorScheme,
             sidebarSelectionColorHex: model.settings.selectionColorHex,
-            activeTabIndicatorStyle: model.settings.activeTabIndicatorStyle
+            activeTabIndicatorStyle: model.settings.activeTabIndicatorStyle,
+            subtleSelection: model.settings.subtleSelection
         )
     }
 

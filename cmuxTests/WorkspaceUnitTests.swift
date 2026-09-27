@@ -107,7 +107,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
     }
 
-    func testDefaultRailSelectionIsAHairlineTintWithLabelColoredText() {
+    func testSubtleRailSelectionIsAHairlineTintWithLabelColoredText() {
         for (scheme, expectedWhite) in [(ColorScheme.light, CGFloat(0)), (.dark, 1)] {
             let fill = CmuxSelectionFill.resolve(
                 colorScheme: scheme,
@@ -125,19 +125,54 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
                 customColorHex: nil,
                 colorScheme: scheme,
                 sidebarSelectionColorHex: nil,
+                subtleSelection: true,
                 isEmphasized: true,
                 increasesContrast: false
             )
             XCTAssertEqual(style.color, fill.color)
+            XCTAssertEqual(style.edgeColor, fill.edgeColor)
 
             guard let foreground = sidebarSelectedWorkspaceForegroundNSColor(
-                on: sidebarSelectedWorkspaceBackgroundNSColor(for: scheme),
+                on: sidebarSelectedWorkspaceBackgroundNSColor(
+                    for: scheme,
+                    sidebarSelectionColorHex: nil,
+                    subtleSelection: true
+                ),
                 opacity: 1
             ).usingColorSpace(.sRGB) else {
                 XCTFail("Expected sRGB-convertible color")
                 return
             }
             XCTAssertEqual(foreground.redComponent, expectedWhite, accuracy: 0.001)
+        }
+    }
+
+    func testSelectionStaysSolidUnlessSubtleSelectionIsEnabled() {
+        XCTAssertFalse(SettingCatalog().workspaceColors.subtleSelection.defaultValue)
+        for scheme in [ColorScheme.light, .dark] {
+            let solid = sidebarWorkspaceRowBackgroundStyle(
+                activeTabIndicatorStyle: .leftRail,
+                isActive: true,
+                isMultiSelected: false,
+                customColorHex: nil,
+                colorScheme: scheme,
+                sidebarSelectionColorHex: nil
+            )
+            XCTAssertEqual(solid.color?.hexString(), cmuxAccentNSColor(for: scheme).hexString())
+            XCTAssertEqual(solid.opacity, 1.0, accuracy: 0.001)
+            XCTAssertNil(solid.edgeColor)
+
+            let configured = sidebarWorkspaceRowBackgroundStyle(
+                activeTabIndicatorStyle: .leftRail,
+                isActive: true,
+                isMultiSelected: false,
+                customColorHex: nil,
+                colorScheme: scheme,
+                sidebarSelectionColorHex: "#123456",
+                subtleSelection: true
+            )
+            XCTAssertEqual(configured.color?.hexString(), "#123456")
+            XCTAssertNil(configured.edgeColor)
         }
     }
 
@@ -225,7 +260,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
     }
 
     @MainActor
-    func testLeftRailKeepsSelectedBackgroundForActiveCustomColoredWorkspaceRow() {
+    func testSubtleLeftRailSelectionIgnoresActiveCustomWorkspaceColor() {
         let manager = TabManager()
         guard let workspace = manager.tabs.first else {
             XCTFail("Expected TabManager to initialise with a workspace")
@@ -250,6 +285,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
             customColorHex: workspace.customColor,
             colorScheme: .light,
             sidebarSelectionColorHex: nil,
+            subtleSelection: true,
             isEmphasized: true,
             increasesContrast: false
         )

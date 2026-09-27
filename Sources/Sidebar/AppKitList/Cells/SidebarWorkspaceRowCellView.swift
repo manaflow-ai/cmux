@@ -223,6 +223,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             customColorHex: model.snapshot.customColorHex,
             colorScheme: palette.colorScheme,
             sidebarSelectionColorHex: settings.selectionColorHex,
+            subtleSelection: settings.subtleSelection,
             // Key or main, like SwiftUI's controlActiveState: cmux's own
             // popovers and child panels taking key must not grey the row.
             isEmphasized: window.map { $0.isKeyWindow || $0.isMainWindow } ?? true

@@ -156,6 +156,7 @@ struct SettingsRowAnchorResolutionTests {
         "workspaceColors.indicatorStyle",
         "workspaceColors.notificationBadgeColor",
         "workspaceColors.selectionColor",
+        "workspaceColors.subtleSelection",
     ]
 
     /// Searchable rows anchored with an explicit `settingsSearchAnchors`

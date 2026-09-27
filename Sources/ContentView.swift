@@ -15866,7 +15866,8 @@ struct TabItemView: View, Equatable {
         sidebarSelectedWorkspaceBackgroundNSColor(
             for: colorScheme,
             sidebarSelectionColorHex: sidebarSelectionColorHex,
-            activeTabIndicatorStyle: activeTabIndicatorStyle
+            activeTabIndicatorStyle: activeTabIndicatorStyle,
+            subtleSelection: settings.subtleSelection
         )
     }
 
@@ -16600,6 +16601,7 @@ struct TabItemView: View, Equatable {
             customColorHex: workspaceSnapshot.customColorHex,
             colorScheme: colorScheme,
             sidebarSelectionColorHex: sidebarSelectionColorHex,
+            subtleSelection: settings.subtleSelection,
             isEmphasized: controlActiveState != .inactive,
             increasesContrast: colorSchemeContrast == .increased
         )

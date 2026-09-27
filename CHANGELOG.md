@@ -5,6 +5,7 @@ All notable changes to cmux are documented here.
 ## Unreleased
 
 ### Added
+- Settings > Workspace Colors > Subtle Selection Highlight (`workspaceColors.subtleSelection`, off by default) draws the sidebar's selected workspace as a faint accent tint with a thin edge instead of a solid blue block, neutral while the window is inactive and stronger under Increase Contrast ([#14890](https://github.com/manaflow-ai/cmux/pull/14890))
 - Claude Code and Codex agents on a `cmux ssh` host show Running, Needs input, or Idle in the sidebar; cmux installs their hooks on the host when the Integrations toggles are on ([#14902](https://github.com/manaflow-ai/cmux/pull/14902))
 - Settings > Terminal > Reflow Hard-Wrapped Text on Copy (`terminal.reflowHardWrapOnCopy`, off by default) rejoins lines a program wrapped at exactly the terminal width when you copy ([#6923](https://github.com/manaflow-ai/cmux/pull/6923)) -- thanks @mvanhorn!
 - Pi is offered in the Machines Open Cloud Agent menu, `vm.cloud_agent_open`, and `cmux vm prompt --open pi` ([#14819](https://github.com/manaflow-ai/cmux/pull/14819)) -- thanks @aliyansajid!
@@ -12,7 +13,6 @@ All notable changes to cmux are documented here.
 - Global search finds text in the scrollback of open terminals, and Return on a terminal hit opens that pane's find bar on the match ([#11665](https://github.com/manaflow-ai/cmux/pull/11665)) -- thanks @smoreg!
 
 ### Changed
-- The sidebar's selected workspace is a faint tint of your accent color with a thin accent edge instead of a solid blue block, turns neutral grey while the window is inactive, and gets a stronger fill and edge under Increase Contrast ([#14890](https://github.com/manaflow-ai/cmux/pull/14890))
 - The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
 
 ### Fixed

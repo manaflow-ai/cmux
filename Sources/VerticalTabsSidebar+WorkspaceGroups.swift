@@ -34,7 +34,8 @@ extension VerticalTabsSidebar {
             isMultiSelected: true,
             customColorHex: effectiveColor,
             colorScheme: renderContext.environment.colorScheme,
-            sidebarSelectionColorHex: settings.selectionColorHex
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            subtleSelection: settings.subtleSelection
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
@@ -187,7 +188,8 @@ extension VerticalTabsSidebar {
             isMultiSelected: true,
             customColorHex: effectiveColor,
             colorScheme: renderContext.environment.colorScheme,
-            sidebarSelectionColorHex: settings.selectionColorHex
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            subtleSelection: settings.subtleSelection
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
