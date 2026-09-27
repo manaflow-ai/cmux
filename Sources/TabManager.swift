@@ -2780,7 +2780,7 @@ class TabManager: ObservableObject {
 
         let plan = closeWorkspacesPlan(for: workspaces)
         var closeAlreadyConfirmed = false
-        if shouldConfirmClose(requiresConfirmation: true, source: .tabClose) {
+        if shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose) {
             guard confirmClose(
                 title: plan.title,
                 message: plan.message,
@@ -3055,7 +3055,7 @@ class TabManager: ObservableObject {
         let willCloseWindow = tabs.count <= 1
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
         let showsCloseConfirmation = requiresConfirmation
-            && shouldConfirmClose(requiresConfirmation: needsCloseConfirmation, source: source)
+            && shouldConfirmWorkspaceClose(requiresConfirmation: needsCloseConfirmation, source: source)
         if showsCloseConfirmation,
            !confirmClose(
                title: String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
@@ -3098,6 +3098,15 @@ class TabManager: ObservableObject {
                 source: .tabCloseButton
             )
         }
+    }
+
+    /// Gate for the "Close workspace?" and "Close workspaces?" prompts: the
+    /// source's own gate plus `app.warnBeforeClosingWorkspace`. The pinned
+    /// prompt uses `shouldConfirmClose` directly, so turning this setting off
+    /// never removes the protection a user asked for by pinning.
+    private func shouldConfirmWorkspaceClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
+        AppCatalogSection().warnBeforeClosingWorkspace.value(in: closeTabWarningDefaults)
+            && shouldConfirmClose(requiresConfirmation: requiresConfirmation, source: source)
     }
 
     private enum PinnedWorkspaceCloseConfirmation {
