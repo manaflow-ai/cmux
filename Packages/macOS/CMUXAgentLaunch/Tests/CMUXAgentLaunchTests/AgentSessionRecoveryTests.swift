@@ -43,6 +43,14 @@ struct AgentLauncherPrefixTests {
                 parentArguments: ["sr", "claude", "proxy", "--api-key", "sk-123"]
             ) == nil
         )
+        for flag in [["--key", "sk-123"], ["--key=sk-123"], ["-k", "sk-123"]] {
+            #expect(
+                AgentLauncherPrefix(kind: "claude").derive(
+                    agentArguments: ["claude"],
+                    parentArguments: ["sr", "claude", "proxy"] + flag
+                ) == nil
+            )
+        }
     }
 
     @Test("a parent that never names the agent is not trusted as its launcher")

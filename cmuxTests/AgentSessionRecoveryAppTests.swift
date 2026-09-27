@@ -41,13 +41,15 @@ struct AgentSessionRecoveryAppTests {
         try append(.sessionEnded, "finished")
         try append(.sessionStarted, "already-open")
         try append(.sessionStarted, "no-transcript")
+        try append(.sessionStarted, "no-pid")
         store.close()
 
         func record(
             _ id: String,
             cwd: String,
             launch: AgentLaunchCommand,
-            hasTranscript: Bool = true
+            hasTranscript: Bool = true,
+            pid: Int? = 999_999
         ) throws -> RestorableAgentHookSessionRecord {
             let transcript = root.appendingPathComponent("\(id).jsonl")
             if hasTranscript { try Data("{}\n".utf8).write(to: transcript) }
@@ -57,7 +59,7 @@ struct AgentSessionRecoveryAppTests {
                 surfaceId: UUID().uuidString,
                 cwd: cwd,
                 transcriptPath: transcript.path,
-                pid: 999_999,
+                pid: pid,
                 pidStartSeconds: 1,
                 launchCommand: launch,
                 isRestorable: true,
@@ -77,6 +79,8 @@ struct AgentSessionRecoveryAppTests {
             "finished": try record("finished", cwd: "/tmp", launch: plain),
             "already-open": try record("already-open", cwd: "/tmp", launch: plain),
             "no-transcript": try record("no-transcript", cwd: "/tmp", launch: plain, hasTranscript: false),
+            // A hook that never saw the agent's pid still leaves a resumable session.
+            "no-pid": try record("no-pid", cwd: "/tmp", launch: plain, pid: nil),
         ]
         try JSONEncoder().encode(file).write(to: root.appendingPathComponent("claude-hook-sessions.json"))
 
@@ -86,7 +90,7 @@ struct AgentSessionRecoveryAppTests {
             environment: ["CMUX_AGENT_HOOK_STATE_DIR": root.path]
         )
         let candidates = recovery.candidates(openSessionIds: ["already-open"], now: now)
-        #expect(Set(candidates.map(\.sessionId)) == ["proxied", "plain"])
+        #expect(Set(candidates.map(\.sessionId)) == ["proxied", "plain", "no-pid"])
 
         let proxiedCandidate = try #require(candidates.first { $0.sessionId == "proxied" })
         #expect(

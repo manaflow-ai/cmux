@@ -286,46 +286,69 @@ extension TerminalController {
     /// `session.agent_recovery.list`: agent sessions that were running when
     /// cmux last died and are neither running nor open now. After a clean
     /// exit nothing was lost, so the wider 48-hour window is listed for
-    /// inspection only.
-    func v2AgentRecoveryList(params: [String: Any]) -> V2CallResult {
-        guard let appDelegate = AppDelegate.shared else {
+    /// inspection only. Runs on the socket worker; only the app-state reads
+    /// hop to the main actor.
+    nonisolated func v2AgentRecoveryList(params: [String: Any]) -> V2CallResult {
+        guard let context = v2MainSync(commandKey: "session.agent_recovery.list", { Self.agentRecoveryContext() }) else {
             return .err(code: "unavailable", message: "App is not ready", data: nil)
         }
-        let candidates = AgentSessionRecovery().candidates(
-            openSessionIds: appDelegate.openAgentSessionIdsForRecovery(),
-            activeSince: appDelegate.previousSessionLaunchStartedAt
+        let candidates = context.recovery.candidates(
+            openSessionIds: context.openSessionIds,
+            activeSince: context.activeSince
         )
         return .ok([
             "sessions": candidates.map(Self.agentRecoveryPayload),
-            "previous_exit_unclean": appDelegate.previousLaunchWasUncleanForRecovery,
+            "previous_exit_unclean": context.previousExitUnclean,
         ])
     }
 
     /// `session.agent_recovery.restore`: reopens those sessions, or only the
-    /// ones named in `session_ids`, one workspace each.
-    func v2AgentRecoveryRestore(params: [String: Any]) -> V2CallResult {
-        guard let appDelegate = AppDelegate.shared else {
+    /// ones named in `session_ids`, one workspace each. After a clean exit a
+    /// session without an end event is more likely a closed pane than a lost
+    /// one, so only named sessions are restored then.
+    nonisolated func v2AgentRecoveryRestore(params: [String: Any]) -> V2CallResult {
+        guard let context = v2MainSync(commandKey: "session.agent_recovery.restore", { Self.agentRecoveryContext() }) else {
             return .err(code: "unavailable", message: "App is not ready", data: nil)
         }
-        var candidates = AgentSessionRecovery().candidates(
-            openSessionIds: appDelegate.openAgentSessionIdsForRecovery(),
-            activeSince: appDelegate.previousSessionLaunchStartedAt
+        var candidates = context.recovery.candidates(
+            openSessionIds: context.openSessionIds,
+            activeSince: context.activeSince
         )
         if let requested = params["session_ids"] as? [String], !requested.isEmpty {
             let wanted = Set(requested)
             candidates = candidates.filter { wanted.contains($0.sessionId) }
-        } else if !appDelegate.previousLaunchWasUncleanForRecovery {
-            // After a clean exit, a session without an end event is more
-            // likely a closed pane than a lost one; restore only by id.
+        } else if !context.previousExitUnclean {
             candidates = []
         }
-        let restored = Set(appDelegate.restoreRecoveredAgentSessions(candidates))
+        let selected = candidates
+        let restored = Set(v2MainSync(commandKey: "session.agent_recovery.restore") {
+            AppDelegate.shared?.restoreRecoveredAgentSessions(selected) ?? []
+        })
         return .ok([
-            "restored": candidates.filter { restored.contains($0.sessionId) }.map(Self.agentRecoveryPayload),
+            "restored": selected.filter { restored.contains($0.sessionId) }.map(Self.agentRecoveryPayload),
+            "previous_exit_unclean": context.previousExitUnclean,
         ])
     }
 
-    private static func agentRecoveryPayload(_ candidate: AgentRecoveryCandidate) -> [String: Any] {
+    private struct AgentRecoveryContext: Sendable {
+        let recovery: AgentSessionRecovery
+        let openSessionIds: Set<String>
+        let activeSince: Date?
+        let previousExitUnclean: Bool
+    }
+
+    @MainActor
+    private static func agentRecoveryContext() -> AgentRecoveryContext? {
+        guard let appDelegate = AppDelegate.shared else { return nil }
+        return AgentRecoveryContext(
+            recovery: AgentSessionRecovery(),
+            openSessionIds: appDelegate.openAgentSessionIdsForRecovery(),
+            activeSince: appDelegate.previousSessionLaunchStartedAt,
+            previousExitUnclean: appDelegate.previousLaunchWasUncleanForRecovery
+        )
+    }
+
+    private nonisolated static func agentRecoveryPayload(_ candidate: AgentRecoveryCandidate) -> [String: Any] {
         [
             "kind": candidate.kind,
             "session_id": candidate.sessionId,

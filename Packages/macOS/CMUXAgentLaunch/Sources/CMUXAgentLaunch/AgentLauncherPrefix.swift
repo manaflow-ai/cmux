@@ -53,6 +53,8 @@ public struct AgentLauncherPrefix: Equatable, Sendable {
     /// carry a credential is not recorded at all.
     private static func looksSecret(_ token: String) -> Bool {
         let lowered = token.lowercased()
+        let flag = lowered.split(separator: "=", maxSplits: 1).first.map(String.init) ?? lowered
+        if flag == "--key" || flag == "-k" { return true }
         return ["token", "secret", "password", "passwd", "apikey", "api-key", "api_key", "bearer"]
             .contains { lowered.contains($0) }
     }

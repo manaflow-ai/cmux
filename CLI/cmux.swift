@@ -8694,7 +8694,10 @@ struct CMUXCLI {
     ) throws {
         var remaining = commandArgs.filter { $0 != "--" }
         guard remaining.first == "restore" else {
-            throw CLIError(message: "session: expected 'restore' (see cmux help session)")
+            throw CLIError(message: String(
+                localized: "cli.session.error.expectedRestore",
+                defaultValue: "session: expected 'restore' (see cmux help session)"
+            ))
         }
         remaining.removeFirst()
         var listOnly = false
@@ -8706,12 +8709,21 @@ struct CMUXCLI {
                 listOnly = true
             case "--session":
                 guard let value = remaining.first, !value.hasPrefix("--") else {
-                    throw CLIError(message: "session restore: --session requires an id")
+                    throw CLIError(message: String(
+                        localized: "cli.session.error.sessionRequiresId",
+                        defaultValue: "session restore: --session requires an id"
+                    ))
                 }
                 remaining.removeFirst()
                 sessionIds.append(value)
             default:
-                throw CLIError(message: "session restore: unknown argument '\(argument)'")
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.session.error.unknownArgument",
+                        defaultValue: "session restore: unknown argument '%@'"
+                    ),
+                    argument
+                ))
             }
         }
 
@@ -8731,11 +8743,16 @@ struct CMUXCLI {
         }
         let sessions = (response[listOnly ? "sessions" : "restored"] as? [[String: Any]]) ?? []
         if sessions.isEmpty {
-            if !listOnly, (response["restored"] as? [Any])?.isEmpty != false, sessionIds.isEmpty {
-                print("No agent sessions restored. cmux last quit cleanly; pass --session <id> from --list to restore one.")
-                return
+            if listOnly {
+                print(String(localized: "cli.session.list.empty", defaultValue: "No agent sessions to restore."))
+            } else if sessionIds.isEmpty, response["previous_exit_unclean"] as? Bool == false {
+                print(String(
+                    localized: "cli.session.restore.cleanQuit",
+                    defaultValue: "No agent sessions restored: cmux last quit normally. To restore one anyway, pass --session <id> from --list."
+                ))
+            } else {
+                print(String(localized: "cli.session.restore.empty", defaultValue: "No agent sessions restored."))
             }
-            print(listOnly ? "No agent sessions to restore." : "No agent sessions restored.")
             return
         }
         for session in sessions {
@@ -8746,7 +8763,10 @@ struct CMUXCLI {
             print("\(kind)\t\(id)\t\(cwd)\t\(command)")
         }
         if !listOnly {
-            print("Restored \(sessions.count) agent session(s).")
+            print(String(
+                format: String(localized: "cli.session.restore.done", defaultValue: "Agent sessions restored: %lld"),
+                Int64(sessions.count)
+            ))
         }
     }
 
@@ -18649,10 +18669,10 @@ struct CMUXCLI {
             Configure idle and live-terminal limits from Settings or cmux settings JSON.
             """
         case "session":
-            return """
+            return String(localized: "cli.session.help", defaultValue: """
             Usage: cmux session restore [--list] [--session <id>]...
 
-            Reopen agent sessions that were running when cmux last quit unexpectedly.
+            Reopen Claude sessions that were running when cmux last quit unexpectedly.
             cmux finds them in the agent journal, skips any that are running or already
             open, and resumes each in its own workspace through the launcher that started
             it (for example `sr claude proxy --account <x>`).
@@ -18662,7 +18682,7 @@ struct CMUXCLI {
             Options:
               --list            Show the sessions without restoring them.
               --session <id>    Restore only this session (repeatable).
-            """
+            """)
         case "restore-session":
             return """
             Usage: cmux restore-session
