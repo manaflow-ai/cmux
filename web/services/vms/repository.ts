@@ -1224,14 +1224,19 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
     const networks = await cloudDb().select().from(cloudVmTeamNetworks)
       .where(input.afterTeamNetworkId ? gt(cloudVmTeamNetworks.id, input.afterTeamNetworkId) : undefined)
       .orderBy(asc(cloudVmTeamNetworks.id)).limit(input.limit);
-    const result = [];
-    for (const network of networks) {
-      const attachments = await cloudDb().select({ tunnelId: cloudVmTunnelTeamNetworks.tunnelId, providerTunnelId: cloudVmTunnels.providerTunnelId, userId: cloudVmTunnels.userId, revokedAt: cloudVmTunnels.revokedAt })
-        .from(cloudVmTunnelTeamNetworks).innerJoin(cloudVmTunnels, eq(cloudVmTunnels.id, cloudVmTunnelTeamNetworks.tunnelId))
-        .where(eq(cloudVmTunnelTeamNetworks.teamNetworkId, network.id));
-      result.push({ ...network, attachments });
+    if (networks.length === 0) return [];
+    const networkIds = networks.map((network) => network.id);
+    const attachments = await cloudDb().select({ teamNetworkId: cloudVmTunnelTeamNetworks.teamNetworkId, tunnelId: cloudVmTunnelTeamNetworks.tunnelId, providerTunnelId: cloudVmTunnels.providerTunnelId, userId: cloudVmTunnels.userId, revokedAt: cloudVmTunnels.revokedAt })
+      .from(cloudVmTunnelTeamNetworks)
+      .innerJoin(cloudVmTunnels, eq(cloudVmTunnels.id, cloudVmTunnelTeamNetworks.tunnelId))
+      .where(inArray(cloudVmTunnelTeamNetworks.teamNetworkId, networkIds));
+    const grouped = new Map<string, Array<{ tunnelId: string; providerTunnelId: string; userId: string; revokedAt: Date | null }>>();
+    for (const attachment of attachments) {
+      const list = grouped.get(attachment.teamNetworkId) ?? [];
+      list.push({ tunnelId: attachment.tunnelId, providerTunnelId: attachment.providerTunnelId, userId: attachment.userId, revokedAt: attachment.revokedAt });
+      grouped.set(attachment.teamNetworkId, list);
     }
-    return result;
+    return networks.map((network) => ({ ...network, attachments: grouped.get(network.id) ?? [] }));
   }),
 
   deleteNetwork: (id) =>

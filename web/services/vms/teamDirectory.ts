@@ -1,14 +1,18 @@
 import { getStackServerApp } from "../../app/lib/stack";
+import { Cause, Effect } from "effect";
 
 export type VmTeamDirectory = {
-  listMemberIds(teamId: string): Promise<readonly string[] | null>;
+  listMemberIds(teamId: string, options?: { signal?: AbortSignal }): Promise<readonly string[] | null>;
 };
 
 export function vmTeamDirectory(): VmTeamDirectory {
   return {
-    async listMemberIds(teamId) {
+    async listMemberIds(teamId, options) {
+      if (options?.signal?.aborted) throw new DOMException("aborted", "AbortError");
       const team = await getStackServerApp().getTeam(teamId);
       if (!team) return null;
+      // The Stack SDK does not accept AbortSignal, so only the preflight can be cancelled.
+      if (options?.signal?.aborted) throw new DOMException("aborted", "AbortError");
       return (await team.listUsers()).map((user) => user.id);
     },
   };
@@ -25,19 +29,21 @@ export type VmTeamMemberLookup =
   | { readonly memberIds: readonly string[] | null }
   | { readonly error: "timeout" | "error" };
 
+/** Performs a bounded, cancellation-aware team member lookup. */
 export function listTeamMemberIdsWithTimeout(
   directory: VmTeamDirectory,
   teamId: string,
   timeoutMs = 3000,
-): Promise<VmTeamMemberLookup> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<VmTeamMemberLookup>((resolve) => {
-    timer = setTimeout(() => resolve({ error: "timeout" }), timeoutMs);
-  });
-  const lookup = Promise.resolve().then(() => directory.listMemberIds(teamId))
-    .then((memberIds) => ({ memberIds }) satisfies VmTeamMemberLookup)
-    .catch(() => ({ error: "error" as const } satisfies VmTeamMemberLookup));
-  return Promise.race([lookup, timeout]).finally(() => {
-    if (timer) clearTimeout(timer);
-  });
+): Effect.Effect<VmTeamMemberLookup, never> {
+  return Effect.tryPromise({
+    try: (signal) => directory.listMemberIds(teamId, { signal }),
+    catch: (error) => error,
+  }).pipe(
+    Effect.timeout(timeoutMs),
+    Effect.map((memberIds) => ({ memberIds })),
+    Effect.catchAll((error) => Effect.succeed({
+      error: Cause.isTimeoutException(error)
+        ? "timeout" as const : "error" as const,
+    })),
+  );
 }

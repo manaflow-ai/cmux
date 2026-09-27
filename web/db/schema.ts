@@ -439,9 +439,7 @@ export const cloudVmTunnelTeamNetworks = pgTable(
     tunnelId: uuid("tunnel_id")
       .notNull()
       .references(() => cloudVmTunnels.id, { onDelete: "cascade" }),
-    teamNetworkId: uuid("team_network_id")
-      .notNull()
-      .references(() => cloudVmTeamNetworks.id, { onDelete: "cascade" }),
+    teamNetworkId: uuid("team_network_id").notNull(),
     addressV4: text("address_v4"),
     addressV6: text("address_v6"),
     attachedAt: timestamp("attached_at", { withTimezone: true }).notNull().defaultNow(),
@@ -449,6 +447,11 @@ export const cloudVmTunnelTeamNetworks = pgTable(
   (table) => [
     primaryKey({ columns: [table.tunnelId, table.teamNetworkId], name: "cloud_vm_tunnel_team_networks_pkey" }),
     index("cloud_vm_tunnel_team_networks_team_network_idx").on(table.teamNetworkId),
+    foreignKey({
+      name: "cloud_vm_tunnel_team_networks_team_network_id_fk",
+      columns: [table.teamNetworkId],
+      foreignColumns: [cloudVmTeamNetworks.id],
+    }).onDelete("cascade"),
   ],
 );
 

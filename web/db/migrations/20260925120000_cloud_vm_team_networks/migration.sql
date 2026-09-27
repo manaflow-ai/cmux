@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS "cloud_vm_tunnel_team_networks" (
   "attached_at" timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT "cloud_vm_tunnel_team_networks_tunnel_id_cloud_vm_tunnels_id_fk"
     FOREIGN KEY ("tunnel_id") REFERENCES "cloud_vm_tunnels"("id") ON DELETE cascade,
-  CONSTRAINT "cloud_vm_tunnel_team_networks_team_network_id_cloud_vm_team_networks_id_fk"
+  CONSTRAINT "cloud_vm_tunnel_team_networks_team_network_id_fk"
     FOREIGN KEY ("team_network_id") REFERENCES "cloud_vm_team_networks"("id") ON DELETE cascade,
   CONSTRAINT "cloud_vm_tunnel_team_networks_pkey" PRIMARY KEY ("tunnel_id", "team_network_id")
 );

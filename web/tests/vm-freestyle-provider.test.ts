@@ -197,6 +197,14 @@ describe("Freestyle platform contract", () => {
     expect(isProviderTunnelNetworkOverlap({ cause: overlap })).toBe(true);
   });
 
+  test("a non-CONFLICT 409 is a provider error, not overlap", async () => {
+    const provider = new FreestyleProvider({ client: () => ({
+      tunnels: { attachVpc: async () => { throw new FreestyleApiError(409, { code: "RATE_LIMITED", message: "retry" }); } },
+    } as unknown as Freestyle) });
+    await expect(provider.privateNetworking!.attachTunnelNetwork!("tun-1", "vpc-team")).rejects.toBeInstanceOf(ProviderError);
+    await expect(provider.privateNetworking!.attachTunnelNetwork!("tun-1", "vpc-team")).rejects.not.toBeInstanceOf(ProviderTunnelNetworkOverlapError);
+  });
+
   test("create never re-reads or resizes a snapshot-backed machine", async () => {
     const createResponse = (fake: ReturnType<typeof fakeFreestyle>, gets: string[], resizes: unknown[]) => {
       const vm = fake.client.vms.ref(VM_ID);

@@ -554,11 +554,11 @@ describe("VM REST auth", () => {
     }));
     expect(posted.status).toBe(200);
     const enrollCalls = (enrollVmTunnel as unknown as { mock: { calls: unknown[][] } }).mock.calls;
-    expect((enrollCalls[0]?.[0] as { teamIds: readonly string[] }).teamIds).toEqual(authedUser?.teamIds);
+    expect((enrollCalls[0]?.[0] as { teamIds?: readonly string[] } | undefined)?.teamIds).toEqual(authedUser?.teamIds);
     const read = await tunnelGET(new Request("https://cmux.test/api/vm/tunnel?deviceFingerprint=device-test&tunnelPurpose=browser", { headers }));
     expect(read.status).toBe(200);
     const readCalls = (readVmTunnel as unknown as { mock: { calls: unknown[][] } }).mock.calls;
-    expect((readCalls[0]?.[0] as { teamIds: readonly string[] }).teamIds).toEqual(authedUser?.teamIds);
+    expect((readCalls[0]?.[0] as { teamIds?: readonly string[] } | undefined)?.teamIds).toEqual(authedUser?.teamIds);
   });
 
   test("passes the team directory only for capable create clients", async () => {

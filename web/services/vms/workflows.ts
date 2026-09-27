@@ -426,7 +426,7 @@ function reconcileTeamTunnelAttachments(
           });
           return;
         }
-        const membersResult = yield* Effect.promise(() => listTeamMemberIdsWithTimeout(directory, network.teamId, timeoutMs));
+        const membersResult = yield* listTeamMemberIdsWithTimeout(directory, network.teamId, timeoutMs);
         if ("error" in membersResult) continue;
         const members = membersResult.memberIds;
         const memberSet = members ? new Set(members) : null;

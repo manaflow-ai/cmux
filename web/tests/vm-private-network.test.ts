@@ -28,7 +28,7 @@ import type {
   ProviderTunnelAttachment,
 } from "../services/vms/drivers";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
-import { vmClientRoutesTeamNetworks } from "../services/vms/teamDirectory";
+import { listTeamMemberIdsWithTimeout, vmClientRoutesTeamNetworks } from "../services/vms/teamDirectory";
 import {
   VmRepository,
   type CloudVmAccessGrantRow,
@@ -362,6 +362,18 @@ describe("account slugs", () => {
 });
 
 describe("resolveOwnerNetwork", () => {
+  test("directory timeout aborts the lookup signal", async () => {
+    let signal: AbortSignal | undefined;
+    const result = await Effect.runPromise(listTeamMemberIdsWithTimeout({
+      listMemberIds: async (_teamId, options) => {
+        signal = options?.signal;
+        return new Promise<readonly string[]>(() => {});
+      },
+    }, "team-1", 1));
+    expect(result).toEqual({ error: "timeout" });
+    expect(signal?.aborted).toBe(true);
+  });
+
   test("provisions on first use and records the provider network", async () => {
     const gatewayCalls = newGatewayCalls();
     const repoCalls = newRepoCalls();
@@ -453,7 +465,7 @@ describe("resolveOwnerNetwork", () => {
     }).pipe(Effect.provide(layerFor(repo, gateway))));
     expect(ensureOptions).toEqual({
       slug: networkSlugForTeam("team-1"),
-      displayName: "cmux team machines",
+      displayName: networkSlugForTeam("team-1"),
       membersRule: false,
     });
     expect(upsertInput).toMatchObject({ providerNetworkId: "vpc-created-team", createdByUserId: "user-1" });
@@ -748,6 +760,48 @@ describe("enrollVmTunnel", () => {
 });
 
 describe("team tunnel reconciliation", () => {
+  test("records intent before provider attach and then writes live addresses", async () => {
+    const events: string[] = [];
+    const team = teamNetworkRow();
+    const repo = {
+      ...testRepo({ network: networkRow(), teamNetworks: [team] }),
+      insertTunnelTeamNetwork: (input: { addressV4?: string | null; addressV6?: string | null; teamNetworkId: string; tunnelId: string }) => Effect.sync(() => {
+        events.push(`insert:${input.addressV4 ?? "null"}`);
+        return { ...input, attachedAt: new Date(), addressV4: input.addressV4 ?? null, addressV6: input.addressV6 ?? null, teamNetwork: team } as never;
+      }),
+    } as VmRepositoryShape;
+    const gateway = testGateway({ attachTunnelNetwork: () => Effect.sync(() => {
+      events.push("attach");
+      return { networkId: team.providerNetworkId, addressV4: "10.50.0.2", addressV6: "fd50::2" };
+    }) });
+    await Effect.runPromise(enrollVmTunnel({ userId: "user-1", provider: "freestyle", deviceId: "device-1", deviceFingerprint: "device-1", tunnelPurpose: "browser", clientPublicKey: CLIENT_KEY, teamIds: ["team-1"] }).pipe(Effect.provide(layerFor(repo, gateway))));
+    expect(events).toEqual(["insert:null", "attach", "insert:10.50.0.2"]);
+  });
+
+  test("failed attach keeps intent and later stale reconciliation detaches it", async () => {
+    const team = teamNetworkRow();
+    const rows: Array<{ tunnelId: string; teamNetworkId: string; addressV4: string | null; addressV6: string | null; attachedAt: Date; teamNetwork: CloudVmTeamNetworkRow }> = [];
+    const repo = {
+      ...testRepo({ network: networkRow(), teamNetworks: [team] }),
+      insertTunnelTeamNetwork: (input: { tunnelId: string; teamNetworkId: string; addressV4?: string | null; addressV6?: string | null }) => Effect.sync(() => {
+        const row = { ...input, addressV4: input.addressV4 ?? null, addressV6: input.addressV6 ?? null, attachedAt: new Date(), teamNetwork: team };
+        rows.push(row);
+        return row as never;
+      }),
+    } as VmRepositoryShape;
+    const failedGateway = testGateway({ attachTunnelNetwork: () => Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "attachTunnelNetwork", cause: new Error("unavailable") })) });
+    const result = await Effect.runPromise(enrollVmTunnel({ userId: "user-1", provider: "freestyle", deviceId: "device-1", deviceFingerprint: "device-1", tunnelPurpose: "browser", clientPublicKey: CLIENT_KEY, teamIds: ["team-1"] }).pipe(Effect.provide(layerFor(repo, failedGateway))));
+    expect(result.networks).toHaveLength(1);
+    expect(rows).toMatchObject([{ tunnelId: tunnelRow().id, teamNetworkId: team.id, addressV4: null, addressV6: null }]);
+
+    const deleted: string[] = [];
+    const calls = newGatewayCalls();
+    const staleRepo = testRepo({ network: networkRow(), tunnel: tunnelRow(), teamNetworks: [], tunnelTeamNetworks: rows, deletedTeamAttachments: deleted });
+    await Effect.runPromise(enrollVmTunnel({ userId: "user-1", provider: "freestyle", deviceId: "device-1", deviceFingerprint: "device-1", tunnelPurpose: "browser", clientPublicKey: CLIENT_KEY, teamIds: [] }).pipe(Effect.provide(layerFor(staleRepo, testGateway({ calls })) )));
+    expect(calls.detachTunnelNetwork).toEqual([team.providerNetworkId]);
+    expect(deleted).toEqual([team.id]);
+  });
+
   test("stale team attachments are detached and deleted", async () => {
     const calls = newGatewayCalls();
     const deleted: string[] = [];
@@ -778,13 +832,13 @@ describe("team tunnel reconciliation", () => {
     expect(result.networks).toHaveLength(2);
   });
 
-  test("a team-network listing failure never detaches recorded attachments", async () => {
+  test("a team-network listing failure never detaches and advertises only live attachments", async () => {
     const calls = newGatewayCalls();
     const team = teamNetworkRow();
     const attachment = { tunnelId: tunnelRow().id, teamNetworkId: team.id, addressV4: "10.50.0.2", addressV6: null, attachedAt: new Date(), teamNetwork: team };
     const result = await Effect.runPromise(enrollVmTunnel({ userId: "user-1", provider: "freestyle", deviceId: "mac-stable-1", deviceFingerprint: "device-1", tunnelPurpose: "browser", clientPublicKey: CLIENT_KEY, teamIds: ["team-1"] }).pipe(Effect.provide(layerFor(testRepo({ network: networkRow(), tunnel: null, teamNetworks: [team], tunnelTeamNetworks: [attachment], listTeamNetworksFailure: true }), testGateway({ calls })))));
     expect(calls.detachTunnelNetwork).toHaveLength(0);
-    expect(result.networks).toHaveLength(2);
+    expect(result.networks).toHaveLength(1);
   });
 
   test("revoke paths delete tunnel team attachment rows", async () => {

@@ -166,7 +166,7 @@ describe("team private network regression", () => {
     const gateway = baseGateway({ creates: [], attaches: calls.attaches });
     const result = await Effect.runPromise(enrollVmTunnel({ userId: "user-1", provider: "freestyle", deviceId: "device-1", deviceFingerprint: "device-1", tunnelPurpose: "browser", clientPublicKey: CLIENT_KEY, teamIds: ["team-1"] }).pipe(Effect.provide(Layer.mergeAll(Layer.succeed(VmRepository, enrollmentRepo(calls)), Layer.succeed(VmProviderGateway, gateway)))));
     expect(calls.attaches).toEqual([teamNetwork.providerNetworkId]);
-    expect(calls.inserts).toBe(1);
+    expect(calls.inserts).toBe(2);
     expect(result.networks[0]?.scope).toBe("user");
     expect(result.networks[1]).toMatchObject({ scope: "team", cidr: teamNetwork.cidr });
   });

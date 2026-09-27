@@ -774,7 +774,8 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
       if (!attachment) throw new Error("missing attachment");
       return { networkId, addressV4: attachment.ipv4 ?? null, addressV6: attachment.ipv6 ?? null };
     } catch (err) {
-      if (err instanceof FreestyleApiError && err.status === 409) {
+      // Freestyle uses generic CONFLICT for 409s; without remoteCidrs or pinned addresses, overlap is the only reachable 409.
+      if (err instanceof FreestyleApiError && err.status === 409 && err.code === "CONFLICT") {
         throw new ProviderTunnelNetworkOverlapError(`Freestyle refused overlapping tunnel network ${networkId}`);
       }
       throw new ProviderError("freestyle", `attachTunnelNetwork(${tunnelId})`, err);

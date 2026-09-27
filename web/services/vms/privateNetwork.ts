@@ -337,11 +337,7 @@ function resolveTeamNetwork(input: {
     if (!input.teamDirectory) return { network: null, fallbackReason: "no_capability" as const };
     const existing = yield* input.repo.findTeamNetwork(input.billingTeamId, input.provider);
     if (existing) return { network: existing, fallbackReason: null };
-    const result = yield* Effect.promise(() => listTeamMemberIdsWithTimeout(
-      input.teamDirectory!,
-      input.billingTeamId!,
-      input.directoryTimeoutMs,
-    ));
+    const result = yield* listTeamMemberIdsWithTimeout(input.teamDirectory!, input.billingTeamId!, input.directoryTimeoutMs);
     if ("error" in result) return { network: null, fallbackReason: result.error === "timeout" ? "directory_timeout" as const : "directory_error" as const };
     if (result.memberIds === null) return { network: null, fallbackReason: "directory_error" as const };
     if (result.memberIds.length <= 1) return { network: null, fallbackReason: "solo_team" as const };
@@ -349,7 +345,7 @@ function resolveTeamNetwork(input: {
     const slug = networkSlugForTeam(input.billingTeamId);
     const network = yield* input.providers.ensureNetwork(input.provider, {
       slug,
-      displayName: "cmux team machines",
+      displayName: slug,
       membersRule: false,
     });
     const row = yield* input.repo.upsertTeamNetwork({
@@ -855,22 +851,19 @@ function attachTeamNetwork(input: {
   readonly provider: ProviderId;
   readonly network: CloudVmTeamNetworkRow;
   readonly prior: CloudVmTunnelTeamNetworkRow & { readonly teamNetwork: CloudVmTeamNetworkRow } | undefined;
+  readonly liveAttachment: ProviderTunnelAttachment | undefined;
 }): Effect.Effect<boolean, never> {
   const operation = Effect.gen(function* () {
-    let attachment: ProviderTunnelAttachment | undefined;
-    if (!input.tunnel.attachments?.some((item) => item.networkId === input.network.providerNetworkId)) {
+    let attachment = input.liveAttachment;
+    if (!attachment) {
       if (!input.providers.attachTunnelNetwork) return false;
+      if (!input.prior) {
+        yield* input.repo.insertTunnelTeamNetwork({ tunnelId: input.tunnelId, teamNetworkId: input.network.id, addressV4: null, addressV6: null });
+      }
       attachment = yield* input.providers.attachTunnelNetwork(input.provider, input.tunnel.id, input.network.providerNetworkId);
-    } else {
-      attachment = input.tunnel.attachments.find((item) => item.networkId === input.network.providerNetworkId);
     }
-    if (input.prior && input.tunnel.attachments?.some((item) => item.networkId === input.network.providerNetworkId)) return true;
-    yield* input.repo.insertTunnelTeamNetwork({
-      tunnelId: input.tunnelId,
-      teamNetworkId: input.network.id,
-      addressV4: attachment?.addressV4 ?? input.prior?.addressV4,
-      addressV6: attachment?.addressV6 ?? input.prior?.addressV6,
-    });
+    const matchesPrior = input.prior?.addressV4 === attachment.addressV4 && input.prior.addressV6 === attachment.addressV6;
+    if (!matchesPrior) yield* input.repo.insertTunnelTeamNetwork({ tunnelId: input.tunnelId, teamNetworkId: input.network.id, addressV4: attachment.addressV4, addressV6: attachment.addressV6 });
     return true;
   });
   return operation.pipe(Effect.catchAll((error) =>
@@ -915,16 +908,19 @@ function reconcileTunnelTeamNetworks(input: {
     const repo = teamNetworkRepo(input.repository);
     if (!repo || !input.providers.attachTunnelNetwork) return [];
     const recorded = yield* repo.listTunnelTeamNetworks(input.tunnelId).pipe(Effect.catchAll(() => Effect.succeed([] as Array<CloudVmTunnelTeamNetworkRow & { readonly teamNetwork: CloudVmTeamNetworkRow }>)));
+    const recordedById = new Map(recorded.map((row) => [row.teamNetworkId, row]));
+    const liveByNetworkId = new Map((input.tunnel.attachments ?? []).map((attachment) => [attachment.networkId, attachment]));
     const desiredResult = yield* repo.listTeamNetworks(input.teamIds, input.provider).pipe(Effect.either);
-    if (desiredResult._tag === "Left") return recorded.flatMap((row) => [row.teamNetwork]);
+    if (desiredResult._tag === "Left") return recorded.flatMap((row) => liveByNetworkId.has(row.teamNetwork.providerNetworkId) ? [row.teamNetwork] : []);
     const desired = desiredResult.right;
+    const desiredIds = new Set(desired.map((network) => network.id));
     const attached: CloudVmTeamNetworkRow[] = [];
     for (const network of desired) {
-      const prior = recorded.find((row) => row.teamNetworkId === network.id);
-      if (yield* attachTeamNetwork({ providers: input.providers, repo, tunnel: input.tunnel, tunnelId: input.tunnelId, provider: input.provider, network, prior })) attached.push(network);
+      const prior = recordedById.get(network.id);
+      if (yield* attachTeamNetwork({ providers: input.providers, repo, tunnel: input.tunnel, tunnelId: input.tunnelId, provider: input.provider, network, prior, liveAttachment: liveByNetworkId.get(network.providerNetworkId) })) attached.push(network);
     }
     for (const row of recorded) {
-      if (!desired.some((network) => network.id === row.teamNetworkId)) yield* detachStaleTeamNetwork({ providers: input.providers, repo, tunnel: input.tunnel, tunnelId: input.tunnelId, provider: input.provider, attachment: row });
+      if (!desiredIds.has(row.teamNetworkId)) yield* detachStaleTeamNetwork({ providers: input.providers, repo, tunnel: input.tunnel, tunnelId: input.tunnelId, provider: input.provider, attachment: row });
     }
     return attached;
   });
