@@ -35,6 +35,9 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
         didSet {
             if !arguments.isEmpty {
                 rejectionReason = nil
+                if Self.isRejectedSourceMarker(source) {
+                    source = nil
+                }
             }
         }
     }
@@ -53,6 +56,28 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
     /// before the field existed keep decoding, absent on a capture that produced
     /// a usable argv, and never set alongside one.
     public private(set) var rejectionReason: AgentLaunchCaptureRejectionReason?
+
+    /// Whether this record explicitly rejects its launch capture as restore evidence.
+    ///
+    /// ``AgentLaunchCaptureRejectionReason/argvUnavailable`` describes an absent
+    /// candidate and intentionally does not invalidate the historical environment
+    /// or default fallback. PID-only mismatch and shell-wrapper grounds are also
+    /// diagnostic fallback failures rather than positive launch-capture
+    /// rejections. Explicit capture failures, sanitizer rejection, unknown
+    /// grounds, and the legacy `source` verdict fail closed for resume and fork.
+    public var isRejectedCapture: Bool {
+        guard arguments.isEmpty else { return false }
+        if let rejectionReason {
+            return rejectionReason.isPositiveCaptureRejection
+        }
+        return Self.isRejectedSourceMarker(source)
+    }
+
+    /// A `source: "rejected"` marker beside a usable argv contradicts itself the
+    /// same way a rejection ground would, so it is dropped with the ground.
+    static func isRejectedSourceMarker(_ source: String?) -> Bool {
+        source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "rejected"
+    }
 
     /// Creates a structured captured launch.
     ///
@@ -85,7 +110,7 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
         self.environment = environment
         self.verificationHome = verificationHome
         self.capturedAt = capturedAt
-        self.source = source
+        self.source = !arguments.isEmpty && Self.isRejectedSourceMarker(source) ? nil : source
         self.rejectionReason = nil
     }
 
@@ -130,7 +155,8 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
     /// Decodes a stored record, keeping it as written except for the one
     /// combination cmux never writes.
     ///
-    /// A record that carries both a usable argv and a rejection ground is
+    /// A record that carries both a usable argv and a rejection ground (or the
+    /// legacy `source: "rejected"` marker) is
     /// self-contradictory: the argv is the actionable half, so the ground is
     /// dropped rather than surfaced through `sessions --json` next to a launch
     /// it does not describe. Every other record round-trips byte for byte,
@@ -149,7 +175,8 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
         environment = try container.decodeIfPresent([String: String].self, forKey: .environment)
         verificationHome = try container.decodeIfPresent(String.self, forKey: .verificationHome)
         capturedAt = try container.decodeIfPresent(TimeInterval.self, forKey: .capturedAt)
-        source = try container.decodeIfPresent(String.self, forKey: .source)
+        let storedSource = try container.decodeIfPresent(String.self, forKey: .source)
+        source = !arguments.isEmpty && Self.isRejectedSourceMarker(storedSource) ? nil : storedSource
         let storedRejectionReason = try container.decodeIfPresent(
             AgentLaunchCaptureRejectionReason.self,
             forKey: .rejectionReason

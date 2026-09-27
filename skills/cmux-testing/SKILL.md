@@ -16,7 +16,7 @@ even `verify-local.py --help` and `--list` load repository code.
 | Run the full CI static recipe | `python3 scripts/verify-local.py --all` |
 | Parse current Swift edits | `python3 scripts/verify-local.py --only swift-syntax --swift-changed` |
 | Check new Swift test-file wiring | `python3 scripts/verify-local.py --only test-wiring` |
-| Run a UI test and look at its screenshots | `python3 scripts/ci/dispatch-focused-test.py cmuxUITests/Class --ref <sha> --frames` ([guide](references/ui-test-frames.md)) |
+| See what a UI test did, one frame per action | `scripts/ui-test ClassName` or `scripts/ui-test <run URL>` ([guide](references/ui-test-frames.md)) |
 
 Add a base ref after `--swift-changed` to include committed changes. Use `--list`
 to find other checks and `--help` for options. Parsing checks syntax; it doesn't
@@ -33,10 +33,14 @@ Keep a focused command that fails on the reported symptom, then rerun it after
 the repair. Setup failures and zero executed tests don't demonstrate the bug.
 Exercise one behavior at a time so a failure identifies what needs fixing.
 
-Keep the failing test and repair in separate commits. Record both SHAs and the
-red/green command; push both together when reproduced locally. Follow the root
-[regression policy](../../CLAUDE.md#regression-test-commits) for CI-only failures
-and final-head checks.
+Keep two commits: first the failing behavioral regression, then the fix. Run
+the same focused command on both and record the commit SHAs, the expected
+failure and the passing result. A setup failure or zero executed tests is not
+regression proof. When the proof is available locally, push both commits
+together after the fix passes; a separate hosted CI run on the deliberately
+broken intermediate commit is unnecessary. If the failure only reproduces in CI,
+use that lane and keep its receipts. Required CI and review still apply to the
+final pushed head.
 
 ## Test wiring
 
@@ -76,3 +80,9 @@ Follow [build-for-testing and execution guidance](references/local-vs-ci-validat
 report skipped/unsupported checks explicitly.
 
 For remote tmux sizing changes, use the [E2E recipe](references/remote-tmux-sizing-e2e.md).
+
+## PR CI labels
+
+Normal PR CI already runs the suites a diff edits or touches. `full-ci` and
+`unit-ci` are not review or merge requirements; see
+[PR CI coverage](references/pr-ci-coverage.md) before adding either.

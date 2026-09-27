@@ -1068,7 +1068,9 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           path: .e2e-workflow
-          sparse-checkout: .github/actions/e2e-run-tests
+          sparse-checkout: |
+            .github/actions/e2e-run-tests
+            scripts/ci/e2e-frames.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -1252,7 +1254,9 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           path: .e2e-workflow
-          sparse-checkout: .github/actions/e2e-run-tests
+          sparse-checkout: |
+            .github/actions/e2e-run-tests
+            scripts/ci/e2e-frames.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 

@@ -290,7 +290,26 @@ class WarmKeys(Fixture):
         self.seed(E, fingerprint="other", when=40)  # another Xcode: never adopted here
         self.seed("f" * 40, when=50, manifest=False)  # incomplete
         self.assertEqual(self.keys(), {"runner": "cmux11s-glaeda-1", "pool": "glaeda-root-std-xcode-26.6",
-                                       "keys": ["a" * 12, "c" * 12, "d" * 12, "b" * 12]})
+                                       "keys": ["a" * 12, "c" * 12, "d" * 12, "b" * 12],
+                                       "roots": [{"root": 1, "merged_onto": A}]})
+
+    def test_roots_carry_what_the_hook_reads_from_every_stamp(self):
+        self.kept(merged_onto=A, pr="7")
+        stamp = json.loads((self.store / "stamp.json").read_text())
+        stamp.update(pr_app_swift_files=["Sources/A.swift"], pr_app_swift_total=1, pr_package_interface=False)
+        (self.store / "stamp.json").write_text(json.dumps(stamp))
+        other = self.store / "cmux-ci-2"
+        (other / "derived-data").mkdir(parents=True)
+        (other / "stamp.json").write_text(json.dumps({"fingerprint": f"x-{state.STATE_VERSION}", "merged_onto": B,
+                                                      "pr": 9}))
+        empty = self.store / "cmux-ci-3"
+        empty.mkdir()
+        roots = self.keys(cache=False)["roots"]
+        self.assertEqual(roots, [{"root": 1, "merged_onto": A, "pr": 7, "pr_app_swift_files": ["Sources/A.swift"],
+                                  "pr_app_swift_total": 1, "pr_package_interface": False},
+                                 {"root": 2, "merged_onto": B, "pr": 9}, {"root": 3}])
+        # Listed from root 2's store, the same roots.
+        self.assertEqual(state.warm_keys(other, "r", "p")["roots"], roots)
 
     def test_at_most_eight_keys_without_repeats(self):
         self.kept()
@@ -384,7 +403,8 @@ class WarmKeys(Fixture):
         self.assertFalse((self.store / "out").exists())
         jobs = [{"name": "CI / " + owned_warm_state.ADMISSION_JOB, "runner_name": "cmux11s-glaeda-1",
                  "workflow_name": owned_warm_state.CI_WORKFLOW}]
-        self.assertEqual(owned_warm_state.record(document, jobs), ("cmux11s-glaeda-1", ["a" * 12, "b" * 12]))
+        self.assertEqual(owned_warm_state.record(document, jobs),
+                         ("cmux11s-glaeda-1", ["a" * 12, "b" * 12], [{"root": 1, "merged_onto": A}]))
 
     def test_main_never_fails(self):
         output = io.StringIO()
