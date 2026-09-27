@@ -45,6 +45,9 @@ const openVmCmuxRemote = mock(() => ({ workflow: "cmux-remote" }));
 const approveVmCmuxRemoteEnrollment = mock(() => ({ workflow: "cmux-remote-approve" }));
 const restoreVm = mock(() => ({ workflow: "restore" }));
 const snapshotVm = mock(() => ({ workflow: "snapshot" }));
+const resolveEnvLayers = mock(() => ({ workflow: "env.resolve" }));
+const recordEnvLayer = mock(() => ({ workflow: "env.record" }));
+const listEnvLayers = mock(() => ({ workflow: "env.list" }));
 const revokeUserVmAccess = mock(() => ({ workflow: "revoke-access" }));
 const deleteVmPublicationsForVmDeletion = mock(async () => ({
   publications: 0,
@@ -94,6 +97,9 @@ const realRestoreVm = workflowsModule.restoreVm;
 const realRunVmWorkflow = workflowsModule.runVmWorkflow;
 const realRunVmWorkflowExit = workflowsModule.runVmWorkflowExit;
 const realSnapshotVm = workflowsModule.snapshotVm;
+const realResolveEnvLayers = workflowsModule.resolveEnvLayers;
+const realRecordEnvLayer = workflowsModule.recordEnvLayer;
+const realListEnvLayers = workflowsModule.listEnvLayers;
 const realRevokeUserVmAccess = workflowsModule.revokeUserVmAccess;
 const realVmWorkflowLive = workflowsModule.VmWorkflowLive;
 const vmPublicationDeletionModule = await import(
@@ -167,6 +173,12 @@ mock.module("../services/vms/workflows", () => ({
   }) as typeof realRunVmWorkflowExit,
   snapshotVm: ((...args: Parameters<typeof realSnapshotVm>) =>
     useWorkflowStubs ? callMock(snapshotVm, args) : realSnapshotVm(...args)) as typeof realSnapshotVm,
+  resolveEnvLayers: ((...args: Parameters<typeof realResolveEnvLayers>) =>
+    useWorkflowStubs ? callMock(resolveEnvLayers, args) : realResolveEnvLayers(...args)) as typeof realResolveEnvLayers,
+  recordEnvLayer: ((...args: Parameters<typeof realRecordEnvLayer>) =>
+    useWorkflowStubs ? callMock(recordEnvLayer, args) : realRecordEnvLayer(...args)) as typeof realRecordEnvLayer,
+  listEnvLayers: ((...args: Parameters<typeof realListEnvLayers>) =>
+    useWorkflowStubs ? callMock(listEnvLayers, args) : realListEnvLayers(...args)) as typeof realListEnvLayers,
   revokeUserVmAccess: ((...args: Parameters<typeof realRevokeUserVmAccess>) =>
     useWorkflowStubs ? callMock(revokeUserVmAccess, args) : realRevokeUserVmAccess(...args)) as typeof realRevokeUserVmAccess,
 }));
@@ -218,6 +230,8 @@ const execRoute = await import("../app/api/vm/[id]/exec/route");
 const forkRoute = await import("../app/api/vm/[id]/fork/route");
 const _snapshotRoute = await import("../app/api/vm/[id]/snapshot/route");
 const restoreRoute = await import("../app/api/vm/restore/route");
+const envLayersRoute = await import("../app/api/vm/env/layers/route");
+const envResolveRoute = await import("../app/api/vm/env/layers/resolve/route");
 const revokeAccessRoute = await import("../app/api/vm/leases/revoke/route");
 const {
   VmAccountDeletionInProgressError,
@@ -271,6 +285,9 @@ beforeEach(() => {
   openAttachEndpoint.mockClear();
   restoreVm.mockClear();
   snapshotVm.mockClear();
+  resolveEnvLayers.mockClear();
+  recordEnvLayer.mockClear();
+  listEnvLayers.mockClear();
   revokeUserVmAccess.mockClear();
   deleteVmPublicationsForVmDeletion.mockClear();
   deleteVmPublicationsForVmDeletion.mockResolvedValue({
@@ -434,6 +451,35 @@ describe("VM REST auth", () => {
       expect(response.status).toBe(401);
       expect(await response.json()).toEqual({ error: "unauthorized" });
     }
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("rejects unauthenticated env layer routes before reaching workflows", async () => {
+    const responses = await Promise.all([
+      envResolveRoute.POST(new Request("https://cmux.test/api/vm/env/layers/resolve", {
+        method: "POST",
+        body: JSON.stringify({ chainHashes: ["hash"] }),
+      })),
+      envLayersRoute.POST(new Request("https://cmux.test/api/vm/env/layers", {
+        method: "POST",
+        body: JSON.stringify({
+          baseImageId: "img",
+          chainHash: "hash",
+          stepIndex: 0,
+          specDigest: "digest",
+          snapshotId: "snap",
+        }),
+      })),
+      envLayersRoute.GET(new Request("https://cmux.test/api/vm/env/layers")),
+    ]);
+
+    for (const response of responses) {
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: "unauthorized" });
+    }
+    expect(resolveEnvLayers).not.toHaveBeenCalled();
+    expect(recordEnvLayer).not.toHaveBeenCalled();
+    expect(listEnvLayers).not.toHaveBeenCalled();
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 

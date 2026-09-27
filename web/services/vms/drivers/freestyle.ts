@@ -1250,6 +1250,22 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
+  async deleteSnapshotById(snapshotId: string): Promise<void> {
+    return withVmSpan(
+      "cmux.vm.provider.delete_snapshot_by_id",
+      "provider",
+      { "cmux.snapshot.id": snapshotId },
+      async () => {
+        try {
+          const fs = this.deps.client();
+          await fs.vms.snapshots.delete(snapshotId);
+        } catch (err) {
+          throw new ProviderError("freestyle", `deleteSnapshotById(${snapshotId})`, err);
+        }
+      },
+    );
+  }
+
   async restore(snapshotId: string, options?: RestoreOptions): Promise<VMHandle> {
     const tlsRules = freestyleEdgeRules(options?.edgeRules);
     return withVmSpan(
