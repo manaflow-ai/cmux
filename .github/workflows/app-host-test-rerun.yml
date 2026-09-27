@@ -283,7 +283,9 @@ jobs:
             --package-root "$PWD/Packages" \
             --package-root "$PWD/vendor" \
             --package-root "$PWD/Examples" \
-            --package-root "$PWD/.ci-source-packages/checkouts"
+            --package-root "$PWD/.ci-source-packages/checkouts" \
+            --xcframework-root "$PWD/.ci-source-packages/artifacts" \
+            --arch "$PRODUCT_ARCH"
           rm -f "$bundle/Contents/MacOS/cmuxTests"
           compile() {
             xcodebuild -project cmux.xcodeproj -target cmuxTests -configuration Debug \
