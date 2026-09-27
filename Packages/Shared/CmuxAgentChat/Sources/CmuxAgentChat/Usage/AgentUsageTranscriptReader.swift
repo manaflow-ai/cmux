@@ -25,8 +25,6 @@ struct AgentUsageTranscriptReader: Sendable {
     struct SessionCursor: Sendable {
         var main: AgentUsageFileCursor?
         var subagents: [String: AgentUsageFileCursor] = [:]
-        /// Cached listing of the subagents directory, keyed by its mtime.
-        var subagentDirectoryModificationNanos: Int64?
         var subagentNames: [String] = []
         var lastUse: UInt64 = 0
     }
@@ -107,17 +105,15 @@ struct AgentUsageTranscriptReader: Sendable {
         ((path as NSString).deletingPathExtension as NSString).appendingPathComponent("subagents")
     }
 
-    /// Re-lists the subagents directory only when its mtime changed (a new
-    /// file changes it; appends to existing files do not).
+    /// Re-lists the bounded subagent directory on every sample. Files
+    /// themselves still use stat/inode cursors, so unchanged transcripts are
+    /// not reopened. Directory mtimes can collide at filesystem timestamp
+    /// resolution and are not reliable discovery cursors.
     private func refreshSubagentNames(of session: inout SessionCursor, directory: String) {
-        guard let info = Self.statInfo(directory) else {
-            session.subagentDirectoryModificationNanos = nil
+        guard Self.statInfo(directory) != nil else {
             session.subagentNames = []
             return
         }
-        let modified = Self.modificationNanos(info)
-        guard modified != session.subagentDirectoryModificationNanos else { return }
-        session.subagentDirectoryModificationNanos = modified
         session.subagentNames = ((try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? [])
             .filter { $0.hasPrefix("agent-") && $0.hasSuffix(".jsonl") }
             .sorted()

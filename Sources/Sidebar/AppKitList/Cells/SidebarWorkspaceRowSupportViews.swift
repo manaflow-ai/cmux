@@ -444,6 +444,7 @@ final class SidebarRowIconTextLine: NSView {
 
     private func resetPrimaryContent() {
         textView.isHidden = true
+        textView.toolTip = nil
         textView.stringValue = ""
         textView.attributedStringValue = NSAttributedString(string: "")
         metadataButton.isHidden = true

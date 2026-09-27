@@ -130,6 +130,43 @@ struct AgentUsageSamplerTests {
         return url
     }
 
+    @Test func newSubagentIsDiscoveredWhenDirectoryMtimeDoesNotChange() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = try writeSession(in: directory, subagentCount: 1)
+        let subagents = directory.appendingPathComponent("session/subagents")
+        let originalModificationDate = try #require(
+            FileManager.default.attributesOfItem(atPath: subagents.path)[.modificationDate] as? Date
+        )
+        let sampler = AgentUsageSampler()
+
+        let first = try #require(
+            await sampler.sample(transcriptPath: url.path, source: .claude)?.estimatedCost
+        )
+        #expect(!first.isLowerBound)
+        #expect(abs(first.usd - 0.0255) < 1e-9)
+
+        let secondLine = Fixture.claudeAssistant(
+            id: "msg_sub_same_mtime",
+            input: 0,
+            output: 1000,
+            isSidechain: true
+        )
+        try Data((secondLine + "\n").utf8).write(
+            to: subagents.appendingPathComponent("agent-same-mtime.jsonl")
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: originalModificationDate],
+            ofItemAtPath: subagents.path
+        )
+
+        let second = try #require(
+            await sampler.sample(transcriptPath: url.path, source: .claude)?.estimatedCost
+        )
+        #expect(!second.isLowerBound)
+        #expect(abs(second.usd - 0.0505) < 1e-9)
+    }
+
     @Test func subagentReadsRespectTheSessionBudgetAndSkipUnchangedFiles() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
