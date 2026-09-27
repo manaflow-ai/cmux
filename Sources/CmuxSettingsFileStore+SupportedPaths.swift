@@ -11,6 +11,7 @@ extension CmuxSettingsFileStore {
         PaneChromeSettings.activePaneBorderColorKey,
         "app.language",
         "app.appearance",
+        "app.accentColor",
         "app.appIcon",
         "app.windowTitleTemplate",
         "app.menuBarOnly",

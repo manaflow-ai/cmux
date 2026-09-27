@@ -599,6 +599,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         registryProvider: { [weak self] in self?.tabDragTransferRegistry }
     )
     private let systemAppearanceObserver = SystemAppearanceObserver()
+    /// Resolves `app.accentColor` once per change. Window roots, the sidebar
+    /// snapshot and AppKit chrome read ``accentColor`` from here.
+    let accentColorObserver = CmuxAccentColorObserver()
+    /// The resolved cmux accent for chrome drawing.
+    var accentColor: CmuxAccentColor { accentColorObserver.current }
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = MacSentryStartupPolicy.isRunningUnderXCTest(
         environment: ProcessInfo.processInfo.environment
@@ -1668,6 +1673,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         AppIconLaunchState.markDidFinishLaunching()
         AppearanceSettingsUserDefaultsObserver.shared.startObserving()
         systemAppearanceObserver.startObserving()
+        accentColorObserver.startObserving()
         BrowserSystemProxyWatcher.shared.startObserving()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)

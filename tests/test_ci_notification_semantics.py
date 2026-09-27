@@ -106,7 +106,7 @@ else:
                 self.assertNotEqual(result.returncode, 0, result.stdout)
 
     def run_packages(self, warning_package=""):
-        script = step_script("swift-package-tests", "Run Swift package unit tests")
+        script = f"bash '{ROOT / 'scripts/ci/package-test-lane.sh'}' packages\n"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for package in (ROOT / "Packages").glob("*/*"):

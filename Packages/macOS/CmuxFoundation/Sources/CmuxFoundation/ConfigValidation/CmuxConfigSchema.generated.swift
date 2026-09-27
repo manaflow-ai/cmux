@@ -547,6 +547,12 @@ enum CmuxEmbeddedConfigSchema {
           "default": "system",
           "description": "App appearance mode."
         },
+        "accentColor": {
+          "type": "string",
+          "enum": ["cmux", "system"],
+          "default": "cmux",
+          "description": "Accent for cmux-drawn chrome: the selected workspace, attention ring and pane flash, agent status, pane swap, canvas focus, and scroll markers. \"cmux\" uses cmux blue; \"system\" follows the macOS accent color and updates when it changes. workspaceColors.selectionColor and notifications.paneFlashColor still override their parts. Native controls always use the macOS accent."
+        },
         "appIcon": {
           "type": "string",
           "enum": ["automatic", "light", "dark"],

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxWorkspaces
 import SwiftUI
 
@@ -17,6 +18,7 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
         let usesMonochrome: Bool
         let fontScale: CGFloat
         let colorScheme: ColorScheme
+        let accent: CmuxAccentColor
         var differentiateWithoutColor = false
 
         var glyph: SidebarWorkspaceTaskStatusGlyphModel {
@@ -78,7 +80,7 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
         case .neutral:
             return neutralColor
         case .working:
-            return cmuxAccentNSColor(for: model.colorScheme)
+            return model.accent.nsColor(for: model.colorScheme)
         case .attention:
             // Loudest lane: full-strength attention accent between orange and red.
             return NSColor(srgbRed: 1.0, green: 0.42, blue: 0.2, alpha: 1)
