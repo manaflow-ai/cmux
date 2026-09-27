@@ -9,7 +9,11 @@ describe("changelog highlights route", () => {
     const response = await GET(new Request("https://cmux.test/api/changelog/highlights"));
     expect(response.status).toBe(200);
     const payload = (await response.json()) as ReturnType<typeof buildHighlights>;
-    expect(payload.releases.length).toBe(Object.keys(changelogMedia).length);
+    // Only shipped versions are announced; placeholder keys such as
+    // "Unreleased" (renamed at release cut) stay off the app's recap.
+    const shipped = Object.keys(changelogMedia).filter((key) => /^\d+(\.\d+)*$/.test(key));
+    expect(payload.releases.length).toBe(shipped.length);
+    expect(payload.releases.map((release) => release.version)).not.toContain("Unreleased");
     const versions = payload.releases.map((release) => release.version);
     const sorted = [...versions].sort((a, b) => {
       const left = a.split(".").map(Number);

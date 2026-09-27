@@ -6,6 +6,7 @@ import CmuxWorkspaces
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSwiftRenderUI
+import CmuxUpdater
 import CmuxFoundation
 import Foundation
 import OSLog
@@ -666,6 +667,18 @@ final class HostSettingsActions: SettingsHostActions {
 
     func openCloudMachinesBilling() {
         ProUpgradePresenter.present(source: .settingsCloudMachines)
+    }
+
+    func appChannelSwitchTarget() -> SettingsAppChannelSwitchTarget? {
+        switch AppDelegate.shared?.appChannelSwitchTarget {
+        case .nightly: .nightly
+        case .stable: .stable
+        case nil: nil
+        }
+    }
+
+    func switchAppChannel() {
+        AppDelegate.shared?.switchAppChannel(nil)
     }
 
     func mobilePhonePushSettings() -> MobilePhonePushSettingsSnapshot {

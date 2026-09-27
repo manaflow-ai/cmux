@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
 import Bonsplit
+import CmuxCloud
 import CmuxSettings
 import UserNotifications
 
@@ -1925,6 +1926,52 @@ final class NotificationDockBadgeTests: XCTestCase {
         store.clearNotifications(forTabId: tab)
         XCTAssertEqual(store.unreadCount(forTabId: tab), 0)
         XCTAssertNil(store.latestNotification(forTabId: tab))
+    }
+
+    func testWorkspaceLevelMarkReadKeepsOtherPanesUnread() {
+        let tab = UUID()
+        let surface = UUID()
+        let manualUnreadSurface = UUID()
+        let workspaceLevelNotification = TerminalNotification(
+            id: UUID(),
+            tabId: tab,
+            surfaceId: nil,
+            title: "Workspace level",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: false
+        )
+        let surfaceNotification = TerminalNotification(
+            id: UUID(),
+            tabId: tab,
+            surfaceId: surface,
+            title: "Surface scoped",
+            subtitle: "",
+            body: "",
+            createdAt: Date().addingTimeInterval(-1),
+            isRead: false
+        )
+
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([workspaceLevelNotification, surfaceNotification])
+        store.markWindowDockSurfaceUnread(windowId: tab, surfaceId: manualUnreadSurface)
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: tab, surfaceId: nil))
+        let previousObserver = store.readTargetObserver
+        var readTargets: [NotificationReadTarget] = []
+        store.readTargetObserver = { readTargets.append($0) }
+        defer { store.readTargetObserver = previousObserver }
+
+        store.markWorkspaceLevelNotificationsRead(forTabId: tab)
+
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: tab, surfaceId: nil))
+        // Cloud rows placed at the workspace level follow the same read.
+        XCTAssertEqual(readTargets, [.surface(workspaceID: tab, surfaceID: nil)])
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: tab, surfaceId: surface))
+        XCTAssertTrue(store.hasManualUnread(forTabId: tab, surfaceId: manualUnreadSurface))
+
+        store.clearNotifications(forTabId: tab)
+        store.clearWindowDockSurfaceUnread(windowId: tab, surfaceId: manualUnreadSurface)
     }
 
     func testClearLatestNotificationRemovesOnlyCurrentSidebarPreviewSource() {
