@@ -7,11 +7,27 @@ import json
 import os
 import platform
 import plistlib
+import re
 import subprocess
 import sys
 from pathlib import Path
 
-SCHEMES = {"cmux": "CMUX_UI_XCTESTRUN", "cmux-unit": "CMUX_APP_HOST_XCTESTRUN", "cmux-numeric-locale": "CMUX_NUMERIC_LOCALE_XCTESTRUN"}
+# Run directly by CI and loaded by path from tests; keep the sibling import
+# working under both.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import product_input_identity as product_inputs  # noqa: E402
+
+SCHEME_OUTPUTS = {
+    "cmux": "CMUX_UI_XCTESTRUN",
+    "cmux-unit": "CMUX_APP_HOST_XCTESTRUN",
+    # cmuxCLITests has no app host: its bundle is loaded by the platform's own
+    # xctest agent, so the manifest names no product as its test host.
+    "cmux-cli-tests": "CMUX_CLI_TESTS_XCTESTRUN",
+}
+OUTPUT_ALIASES = {
+    "CMUX_NUMERIC_LOCALE_XCTESTRUN": "CMUX_APP_HOST_XCTESTRUN",
+}
 RECEIPT = "cmux-test-products.json"
 
 
@@ -29,10 +45,53 @@ def identity() -> dict[str, str]:
     }
 
 
+def xcode_major(version: str | None) -> str | None:
+    """The major Xcode version from `xcodebuild -version`, e.g. "26".
+
+    Output that does not parse is compared whole.
+    """
+    match = re.match(r"Xcode (\d+)(?:\.|\s|$)", version or "")
+    return match.group(1) if match else version
+
+
+def xcode_release(version: str | None) -> tuple[int, ...] | None:
+    """The numeric Xcode release from `xcodebuild -version`, e.g. (26, 6)."""
+    match = re.match(r"Xcode (\d+(?:\.\d+)*)", version or "")
+    return tuple(int(part) for part in match.group(1).split(".")) if match else None
+
+
+def check_xcode(produced: str | None, current: str) -> None:
+    """Refuse products this job's Xcode cannot load.
+
+    A test bundle imports Testing.framework and XCTest symbols from the Xcode
+    that linked it, and an older Xcode's frameworks can lack them: a bundle
+    linked by 26.6 fails to dlopen under 26.3 before running any test. A
+    different major is refused outright; within one major, this job's Xcode
+    must be at least the producer's.
+    """
+    if xcode_major(produced) != xcode_major(current):
+        raise ValueError("test products xcode does not match this job")
+    built, running = xcode_release(produced), xcode_release(current)
+    if built and running and running < built:
+        def name(version: str | None) -> str:
+            return (version or "").splitlines()[0] if version else "unknown"
+
+        raise ValueError(
+            f"test products xcode is {name(produced)}, newer than this job's {name(current)}; "
+            "its test bundle cannot load here. Run this job on compile admission's pool with its Xcode."
+        )
+
+
 def manifests(products: Path) -> dict[str, Path]:
-    """Require one test manifest for each scheme, never silently select an old one."""
+    """Require one test manifest per scheme the active profile builds.
+
+    Exactly the profile's schemes, never a subset: a product missing a manifest
+    its key claims is a partial product, and a consumer restoring it would test
+    something that was never built. The scheme set comes from PRODUCT_PROFILES
+    so this check and the build cannot disagree.
+    """
     found = {}
-    for scheme in SCHEMES:
+    for scheme in product_inputs.profile_schemes():
         matches = list(products.glob(f"{scheme}_*.xctestrun"))
         if len(matches) != 1:
             raise ValueError(f"expected one {scheme} test manifest, found {len(matches)}")
@@ -66,6 +125,18 @@ def targets(value):
             yield from targets(item)
 
 
+def hosted_by_product(target) -> bool:
+    """False when the platform's xctest agent loads the bundle directly.
+
+    A unit-test target without TEST_HOST is hosted by
+    __PLATFORMS__/.../Agents/xctest, which lives inside Xcode and not inside
+    Build/Products. Such a target has no product test host to validate, only a
+    bundle.
+    """
+    host = target.get("TestHostPath", "")
+    return bool(host) and "__PLATFORMS__" not in host
+
+
 def validate_manifest(value, products: Path) -> None:
     """Prove that the relocated manifest references an existing app and test bundle."""
     found = list(targets(value))
@@ -74,7 +145,7 @@ def validate_manifest(value, products: Path) -> None:
     for target in found:
         host = target.get("TestHostPath", "").replace("__TESTROOT__", str(products))
         bundle = target["TestBundlePath"].replace("__TESTROOT__", str(products)).replace("__TESTHOST__", host)
-        paths = [("host", host), ("bundle", bundle)]
+        paths = [("host", host), ("bundle", bundle)] if hosted_by_product(target) else [("bundle", bundle)]
         if "UITargetAppPath" in target:
             app = target["UITargetAppPath"].replace("__TESTROOT__", str(products))
             paths.append(("UI target app", app))
@@ -96,9 +167,10 @@ def restore(derived: Path, current: dict[str, str]) -> dict[str, str]:
     """Reject mismatched products and relocate each test manifest for this worker."""
     products = derived / "Build" / "Products"
     receipt = json.loads((products / RECEIPT).read_text())
-    for key in ("revision", "xcode", "architecture"):
+    for key in ("revision", "architecture"):
         if receipt.get(key) != current[key]:
             raise ValueError(f"test products {key} does not match this job")
+    check_xcode(receipt.get("xcode"), current["xcode"])
     replacements = [(receipt["derived"], str(derived.resolve()))]
     replacements += [(receipt[key], current[key]) for key in ("checkout", "developer")]
     outputs = {}
@@ -106,7 +178,14 @@ def restore(derived: Path, current: dict[str, str]) -> dict[str, str]:
         value = map_strings(plistlib.loads(manifest.read_bytes()), replacements)
         validate_manifest(value, products)
         manifest.write_bytes(plistlib.dumps(value))
-        outputs[SCHEMES[scheme]] = str(manifest.resolve())
+        outputs[SCHEME_OUTPUTS[scheme]] = str(manifest.resolve())
+    # The numeric-locale gate selects only GhosttyNumericLocaleTests and
+    # disables parallel testing at invocation time. Its scheme has the same
+    # app/test product contract as cmux-unit; tests lock that equivalence.
+    # A profile without cmux-unit (the cli profile) has no numeric-locale gate.
+    for alias, source in OUTPUT_ALIASES.items():
+        if source in outputs:
+            outputs[alias] = outputs[source]
     return outputs
 
 

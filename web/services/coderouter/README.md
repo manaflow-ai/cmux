@@ -2,10 +2,16 @@
 
 Hosted model router for cmux Cloud VMs, the `cr` CLI, and direct API clients. The data plane serves the OpenAI Responses API (`/v1/responses`, `/v1/models`), the Anthropic Messages API (`/v1/messages`, `/v1/messages/count_tokens`, `/v1/models` for Anthropic clients) and the OpenCode provider proxy (`/api/coderouter/opencode/*`). Requests authenticate with a VM or CLI route token, or a long-lived `crk_` API key, then forward to one of the team's provider accounts with failover (`codexProxy.ts`, `claudeProxy.ts`, `opencodeProxy.ts`). The control plane under `/api/coderouter/*` manages accounts, sessions, API keys and usage.
 
-API keys are created through `POST /api/coderouter/api-keys` with a signed-in
-team member who has `manageAccounts` permission, and the plaintext key is
-returned once. `GET` lists only safe
-metadata. `DELETE /api/coderouter/api-keys/:id` revokes a key, while
+Provider accounts are team resources. Every team member may add, rename,
+disable, transfer and remove the team's shared accounts and their own private
+imports; only the importer changes a private account's sharing. No route
+returns a stored provider credential, so managing an account never reveals
+its secret.
+
+API keys are created through `POST /api/coderouter/api-keys` by a signed-in
+team member who holds Stack's `$manage_api_keys` permission (every user in
+their personal team), and the plaintext key is returned once. `GET` lists only safe
+metadata. `DELETE /api/coderouter/api-keys/:id` revokes a key under the same permission, while
 `DELETE /api/coderouter/api-keys/self` lets the key holder revoke its own key.
 Every model and route ledger row stores the key's opaque UUID, so usage can be
 aggregated per key without storing the secret. The `last_used_at` value in the

@@ -250,6 +250,45 @@ struct SocketTerminalBindingRegressionTests {
         }
     }
 
+    @Test func camelCaseSurfaceAliasCannotInjectIntoFocusedTerminal() async throws {
+        try await withAppContext { workspace in
+            let originalPanel = try #require(
+                workspace.focusedPanelId.flatMap { workspace.panels[$0] as? TerminalPanel }
+            )
+            let replacement = TerminalSurface(
+                id: originalPanel.id,
+                tabId: workspace.id,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                initialCommand: "/bin/cat"
+            )
+            defer {
+                replacement.teardownSurface()
+                GhosttyApp.terminalSurfaceRegistry.unregister(replacement)
+            }
+
+            try await waitForLiveSurface(replacement)
+            let marker = "camel-case-target-must-fail-\(UUID().uuidString)"
+            let envelope = try await socketEnvelopeUsingExecutionPolicy(
+                method: "terminal.input",
+                params: [
+                    "surfaceId": UUID().uuidString,
+                    "text": marker,
+                ]
+            )
+
+            if envelope["ok"] as? Bool == true {
+                try await waitForText(marker, in: replacement)
+                Issue.record("camelCase surfaceId silently injected input into the focused terminal")
+                return
+            }
+
+            let error = try #require(envelope["error"] as? [String: Any])
+            #expect(error["code"] as? String == "invalid_params")
+            #expect(replacement.visibleText()?.contains(marker) != true)
+        }
+    }
+
     private func waitForLiveSurface(_ surface: TerminalSurface) async throws {
         guard !surface.hasLiveSurface else { return }
         let previousOnRuntimeReady = surface.onRuntimeReady
@@ -316,6 +355,19 @@ struct SocketTerminalBindingRegressionTests {
                 continuation.resume(returning: controller.handleSocketLine(line))
             }
         }
+        return try decodeEnvelope(raw)
+    }
+
+    private func socketEnvelopeUsingExecutionPolicy(
+        method: String,
+        params: [String: Any]
+    ) async throws -> [String: Any] {
+        let request: [String: Any] = ["id": method, "method": method, "params": params]
+        let data = try JSONSerialization.data(withJSONObject: request)
+        let line = try #require(String(data: data, encoding: .utf8))
+        let raw = try #require(
+            await TerminalController.shared.processCommandUsingSocketExecutionPolicyAsync(line)
+        )
         return try decodeEnvelope(raw)
     }
 

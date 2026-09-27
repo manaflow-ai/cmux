@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
@@ -1819,16 +1820,14 @@ final class WindowBrowserSlotView: NSView {
             return
         }
 
+        // Retargeting snaps to the new zone; sliding the frame lags the pointer.
+        applyDropZoneOverlayFrame(targetFrame)
         bringInteractionLayersToFrontIfNeeded()
+        guard dropZoneOverlayView.alphaValue < 1 else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.18
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            if needsFrameUpdate {
-                dropZoneOverlayView.animator().frame = targetFrame
-            }
-            if dropZoneOverlayView.alphaValue < 1 {
-                dropZoneOverlayView.animator().alphaValue = 1
-            }
+            dropZoneOverlayView.animator().alphaValue = 1
         }
     }
 
@@ -4027,7 +4026,7 @@ final class WindowBrowserPortal: NSObject {
         for subview in hostView.subviews.reversed() {
             guard let container = subview as? WindowBrowserSlotView else { continue }
             guard !container.isHidden else { continue }
-            guard container.frame.contains(point) else { continue }
+            let containsPoint = container.frame.contains(point) || container.convert(container.bounds, to: nil).contains(windowPoint); guard containsPoint else { continue }
             guard let webView = entriesByWebViewId
                 .first(where: { _, entry in entry.containerView === container })?
                 .value

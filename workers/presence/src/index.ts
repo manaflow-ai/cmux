@@ -57,12 +57,15 @@ import {
 } from "./legacyReplies";
 import { captureSentryException } from "./sentry";
 import { rateLimitedJson } from "./retryAfterResponse";
+import { WorkspacePresence } from "./workspacePresenceDo";
+import { workspacePresenceRoute } from "./workspacePresenceRoute";
 
-export { TeamPresence, AccountControlPlane };
+export { TeamPresence, AccountControlPlane, WorkspacePresence };
 
 export interface Env extends AuthEnv, ControlPlaneEnv {
   TEAM_PRESENCE: DurableObjectNamespace<TeamPresence>;
   ACCOUNT_CONTROL_PLANE: DurableObjectNamespace<AccountControlPlane>;
+  WORKSPACE_PRESENCE: DurableObjectNamespace<WorkspacePresence>;
   CONNECTIVITY_INVALIDATION_SECRET?: string;
 }
 
@@ -105,6 +108,10 @@ const worker = {
 
     if (url.pathname === "/healthz") {
       return json({ ok: true, service: "cmux-presence" });
+    }
+
+    if (url.pathname === "/v1/workspace-presence") {
+      return workspacePresenceRoute(request, env);
     }
 
     if (url.pathname === "/v1/connectivity/subscribe") {

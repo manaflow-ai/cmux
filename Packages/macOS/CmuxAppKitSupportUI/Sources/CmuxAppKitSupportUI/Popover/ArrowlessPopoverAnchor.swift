@@ -67,7 +67,11 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
                 detachedGap: detachedGap
             )
         } else {
-            coordinator.dismiss()
+            // SwiftUI runs updateNSView inside its view update, and the binding
+            // is already false on this branch. Rewriting it here is a
+            // "Modifying state during view update" fault on every parent
+            // re-evaluation, including each sidebar workspace switch.
+            coordinator.dismiss(resetPresentation: false)
         }
     }
 

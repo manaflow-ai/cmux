@@ -67,7 +67,7 @@ class CloudHostnameTests(unittest.TestCase):
             "xcrun", "swiftc", "-swift-version", "6", "-warnings-as-errors",
             "-I", str(temporary), "-L", str(temporary), "-lCmuxFoundation",
             "-Xlinker", "-rpath", "-Xlinker", str(temporary),
-            str(root / "Sources/Cloud/CloudTuiClientPaths.swift"),
+            str(root / "Packages/macOS/CmuxCloudTui/Sources/CmuxCloudTui/CloudTuiClientPaths.swift"),
             str(root / "tests/fixtures/CloudHostnameFixture.swift"), "-o", str(fixture),
         ], check=True, capture_output=True)
         environment = {**os.environ, "DYLD_INSERT_LIBRARIES": self.library}

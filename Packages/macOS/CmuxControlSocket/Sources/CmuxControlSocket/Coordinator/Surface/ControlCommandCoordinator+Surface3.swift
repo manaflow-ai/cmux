@@ -26,7 +26,7 @@ extension ControlCommandCoordinator {
         return source == "process-detected" ? "manual" : source
     }
     // MARK: - resume.set
-    /// `surface.resume.set` — set (and run the approval flow for) a resume binding.
+    /// `surface.resume.set` — set a resume binding; never waits on approval UI (#13369).
     func surfaceResumeSet(_ params: [String: JSONValue]) -> ControlCallResult {
         if let error = surfaceResumeTargetValidationError(params) { return error }
         let routing = routingSelectors(params)
@@ -77,7 +77,6 @@ extension ControlCommandCoordinator {
             permissionMode: optionalTrimmedRawString(params, "permission_mode"),
             autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
             remoteWorkspaceID: remoteWorkspaceID,
-            remoteRelayParameters: remoteWorkspaceID == nil ? nil : params,
             resumeEvidenceProvenance: optionalTrimmedRawString(params, "resume_evidence_provenance")
         )
         return surfaceResumeResult(
@@ -210,9 +209,8 @@ extension ControlCommandCoordinator {
                 "resume_binding": surfaceResumeBindingPayload(snapshot.binding),
                 "restore_record": surfaceRestoreRecordPayload(snapshot.restoreRecord),
             ]
-            if let resumeClaimed = snapshot.resumeClaimed {
-                result["resume_claimed"] = .bool(resumeClaimed)
-            }
+            result["resume_claimed"] = snapshot.resumeClaimed.map(JSONValue.bool)
+            result["approval_required"] = snapshot.approvalRequired.map(JSONValue.bool)
             return .ok(.object(result))
         }
     }
@@ -253,7 +251,14 @@ extension ControlCommandCoordinator {
               case .array(let rawArguments)? = object["arguments"] else {
             return nil
         }
-        for key in ["launcher", "executable_path", "working_directory", "verification_home", "source"] {
+        for key in [
+            "launcher",
+            "external_launcher",
+            "executable_path",
+            "working_directory",
+            "verification_home",
+            "source",
+        ] {
             switch object[key] {
             case nil, .null, .string:
                 break
@@ -287,6 +292,9 @@ extension ControlCommandCoordinator {
         guard arguments.count == rawArguments.count, !arguments.isEmpty else { return nil }
         return ControlAgentLaunchCommand(
             launcher: rawString(object, "launcher"),
+            // Trimmed on the way in: the id is compared against `agents.launchers` declarations,
+            // which are normalized, so a padded value would silently resolve to nothing.
+            externalLauncher: optionalTrimmedRawString(object, "external_launcher"),
             executablePath: rawString(object, "executable_path"),
             arguments: arguments,
             workingDirectory: rawString(object, "working_directory"),
@@ -306,6 +314,7 @@ extension ControlCommandCoordinator {
         } ?? .null
         return .object([
             "launcher": orNull(command.launcher),
+            "external_launcher": orNull(command.externalLauncher),
             "executable_path": orNull(command.executablePath),
             "arguments": .array(command.arguments.map(JSONValue.string)),
             "working_directory": orNull(command.workingDirectory),

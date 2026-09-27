@@ -9,6 +9,13 @@ def git(*args):
     return subprocess.check_output(["git", *args], text=True).strip()
 
 
+GENERATED_CONTRACT_FILES = {
+    # quicktype emits one monolithic Codable model file for this wire contract;
+    # schema additions must change its generated line count atomically.
+    Path("Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/V2WireModels.swift"),
+}
+
+
 def main():
     base = git("merge-base", "HEAD", "origin/main")
     paths = set(git("diff", "--name-only", base, "--", "*.swift").splitlines())
@@ -16,7 +23,7 @@ def main():
     failures = []
     for name in sorted(paths):
         path = Path(name)
-        if not path.is_file():
+        if not path.is_file() or path in GENERATED_CONTRACT_FILES:
             continue
         old = subprocess.run(["git", "show", f"{base}:{name}"], capture_output=True, text=True)
         budget = max(500, len(old.stdout.splitlines())) if old.returncode == 0 else 500

@@ -1,4 +1,6 @@
+import CmuxCloud
 import AppKit
+import CmuxSurfaceCatalogModel
 import Foundation
 /// Closure bundle handed to Cloud outline rows for the nodes below a machine.
 struct CloudTreeNodeActions {
@@ -53,6 +55,7 @@ struct CloudTreeNodeActions {
     var setDeviceDiscovery: @MainActor (Bool) -> Void = { _ in }
     var setDeviceIncomingAccess: @MainActor (Bool) -> Void = { _ in }
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
+    var newDisplay: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
     /// Navigates a nested terminal through its owning Cloud workspace.
     var openRemoteTerminal: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ resource: SurfaceResourceID, _ view: SurfaceRemoteView?, _ openIn: UUID?) -> Void = { _, _, _, _, _ in }
@@ -153,7 +156,8 @@ struct CloudTreeNodeActions {
                             resource,
                             into: .workspace(id: workspaceID, placement: placement),
                             focus: true,
-                            reuseExisting: reuseExisting
+                            reuseExisting: reuseExisting,
+                            reuseInWorkspace: resource.kind == .display ? workspaceID : nil
                         )
                     }
                     let projection = opened.projection
@@ -165,10 +169,12 @@ struct CloudTreeNodeActions {
                 }
             },
             projectRemoteView: { resource, view, placement, reuseExisting in
+                // A daemon view must use the same captured destination as a pool resource.
+                let target = Result { try destination(placement) }
                 run(openingLabel(resource.machine)) { catalog in
                     _ = try await catalog.project(
                         resource,
-                        into: try destination(placement),
+                        into: try target.get(),
                         focus: true,
                         reuseExisting: reuseExisting,
                         remoteView: view
@@ -417,6 +423,18 @@ struct CloudTreeNodeActions {
         )
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
+        actions.newDisplay = { machine in
+            let target = Result { try destination(.split) }
+            run(String(format: String(localized: "cloud.display.creating", defaultValue: "Creating a display on %@…"), machineName(machine))) { catalog in
+                do {
+                    try await catalog.createDisplay(on: machine, into: target.get())
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    throw SurfaceCatalogError.unsupported(String(localized: "cloud.display.creationFailed", defaultValue: "The new display could not start. Refresh Displays, then retry. Existing displays are unchanged."))
+                }
+            }
+        }
         let navigationRun: CloudTreeTerminalNavigationCoordinator.Run = { label, operation in
             run(label) { catalog in try await operation(catalog) }
         }

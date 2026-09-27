@@ -15,6 +15,23 @@ private final class VMCreateCallCounter: @unchecked Sendable {
     }
 }
 
+private final class ProcessRunResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: CLINotifyProcessIntegrationRegressionTests.ProcessRunResult?
+
+    func store(_ result: CLINotifyProcessIntegrationRegressionTests.ProcessRunResult) {
+        lock.lock()
+        value = result
+        lock.unlock()
+    }
+
+    func load() -> CLINotifyProcessIntegrationRegressionTests.ProcessRunResult? {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
 extension CLINotifyProcessIntegrationRegressionTests {
     func testVMNewFailsWithAnActionableAuthErrorBeforeProvisioning() throws {
         let cliPath = try bundledCLIPath()
@@ -124,8 +141,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     result: [
                         "route": "ws://10.40.0.10:1337/v1/link",
                         "session": "cloud",
-                        "wireguard_hub_socket": "/tmp/cmux-wg-test.sock",
                         "trusted_carrier": true,
+                        "wireguard_hub_socket": "/tmp/cmux-wg-test.sock",
                     ]
                 )
             case "workspace.create":
@@ -732,13 +749,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fakeSSHPath = tempDirectory.appendingPathComponent("ssh").path
 
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let readyPath = tempDirectory.appendingPathComponent("ssh-ready").path
+        let releasePath = tempDirectory.appendingPathComponent("ssh-release").path
+        XCTAssertEqual(mkfifo(releasePath, 0o600), 0)
         try """
         #!/bin/sh
         stty -echo 2>/dev/null || true
         printf "lease@vm-ssh.freestyle.sh's password: " >&2
         IFS= read -r _cmux_password
         [ "$_cmux_password" = "lease-token" ] || exit 64
-        sleep 9
+        exec 3<> "$CMUX_FAKE_SSH_RELEASE"
+        : > "$CMUX_FAKE_SSH_READY"
+        IFS= read -r _cmux_release <&3
+        exec 3>&-
         printf 'CMUX_DELAYED_RELAY_OK\\n'
         exit 0
         """.write(toFile: fakeSSHPath, atomically: true, encoding: .utf8)
@@ -794,19 +817,47 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLOUD_TMUX_SESSION"] = "cmux-cloud"
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["CMUX_FAKE_SSH_READY"] = readyPath
+        environment["CMUX_FAKE_SSH_RELEASE"] = releasePath
         environment["PATH"] = "\(tempDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin"
 
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["vm", "ssh-attach", "--id", vmID, "--default-freestyle-sshd"],
-            environment: environment,
-            timeout: 15
-        )
+        let processFinished = expectation(description: "delayed successful SSH attach completed")
+        let resultBox = ProcessRunResultBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            resultBox.store(self.runProcess(
+                executablePath: cliPath,
+                arguments: ["vm", "ssh-attach", "--id", vmID, "--default-freestyle-sshd"],
+                environment: environment,
+                timeout: 15
+            ))
+            processFinished.fulfill()
+        }
 
-        wait(for: [serverHandled], timeout: 5)
+        guard waitForSocketFile(at: readyPath, timeout: 5) else {
+            XCTFail("fake SSH never reached credential checkpoint")
+            // runProcess has its own bounded timeout. Join it before leaving
+            // the test so no background XCTest work survives this failure.
+            wait(for: [processFinished], timeout: 25)
+            return
+        }
+        let releaseFD = Darwin.open(releasePath, O_WRONLY | O_NONBLOCK)
+        guard releaseFD >= 0 else {
+            XCTFail("fake SSH release FIFO has no reader (errno=\(errno))")
+            wait(for: [processFinished], timeout: 25)
+            return
+        }
+        defer { Darwin.close(releaseFD) }
+        var releaseByte: UInt8 = 0x0A
+        XCTAssertEqual(Darwin.write(releaseFD, &releaseByte, 1), 1)
+
+        wait(for: [processFinished, serverHandled], timeout: 15)
+        let result = try XCTUnwrap(resultBox.load())
         XCTAssertFalse(result.timedOut, result.stdout + result.stderr)
         XCTAssertEqual(result.status, 0, result.stdout + result.stderr)
-        XCTAssertTrue(result.stdout.contains("CMUX_DELAYED_RELAY_OK"), result.stdout + result.stderr)
+        XCTAssertTrue(
+            (result.stdout + result.stderr).contains("CMUX_DELAYED_RELAY_OK"),
+            result.stdout + result.stderr
+        )
         XCTAssertFalse(result.stderr.contains("credential prompt timed out"), result.stderr)
         XCTAssertFalse(result.stderr.lowercased().contains("password:"), result.stderr)
         XCTAssertFalse((result.stdout + result.stderr).contains("lease-token"))
@@ -1009,7 +1060,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stdout + result.stderr)
         XCTAssertNotEqual(result.status, 0, result.stdout + result.stderr)
-        XCTAssertTrue(result.stderr.contains("Retrying in now (attempt 1/1)."), result.stderr)
+        XCTAssertTrue(result.stderr.contains("Retrying now (attempt 1/1)."), result.stderr)
         XCTAssertEqual(
             state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String },
             ["vm.ssh_info", "vm.ssh_info"]
@@ -1068,20 +1119,29 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT"] = "86400"
         environment["CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS"] = "0.1"
 
-        let result = runProcess(
+        let child = try StreamingChildProcess(
             executablePath: cliPath,
             arguments: ["vm", "ssh-attach", "--id", vmID, "--default-freestyle-sshd"],
-            environment: environment,
-            timeout: 1
+            environment: environment
         )
+        defer { child.terminate() }
 
+        // The second countdown is the real signal that the attach kept retrying
+        // instead of exiting, so the test never waits out the retry budget.
+        XCTAssertTrue(
+            child.waitForStandardError(containing: "Retrying in 0.1s (attempt 2).", timeout: 20),
+            child.standardOutput + child.standardError
+        )
+        // The mock fulfills when its connection closes. Stop the persistent
+        // client after observing progress, before waiting for that teardown.
+        child.terminate()
         wait(for: [serverHandled], timeout: 5)
-        XCTAssertTrue(result.timedOut, result.stdout + result.stderr)
-        XCTAssertTrue(result.stderr.contains("Retrying in 0.1s (attempt 1)."), result.stderr)
-        XCTAssertFalse(result.stderr.contains("attempt 1/86400"), result.stderr)
+        XCTAssertTrue(child.standardError.contains("Retrying in 0.1s (attempt 1)."), child.standardError)
+        XCTAssertFalse(child.standardError.contains("attempt 1/86400"), child.standardError)
+        XCTAssertFalse(child.standardError.contains("/86400"), child.standardError)
         XCTAssertGreaterThanOrEqual(
             state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }.count,
-            1
+            2
         )
     }
 

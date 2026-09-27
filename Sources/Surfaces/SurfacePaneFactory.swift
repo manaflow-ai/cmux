@@ -1,5 +1,6 @@
 import Bonsplit
 import CmuxControlSocket
+import CmuxSurfaceCatalogModel
 import Foundation
 import WebKit
 
@@ -48,7 +49,7 @@ enum SurfacePaneFactory {
 
     /// The browser pane behind a projection, if it still exists and is a browser.
     static func browserPanel(panelID: UUID, in workspaceID: UUID) -> BrowserPanel? {
-        workspace(id: workspaceID)?.panels[panelID] as? BrowserPanel
+        workspace(id: workspaceID)?.browserPanelIncludingDock(for: panelID) ?? DockSplitStore.liveStore(containingPanel: panelID)?.browserPanel(for: panelID)
     }
 
     /// Sends an existing browser pane to `url` — the optimistic pane's second step, once

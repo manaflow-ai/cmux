@@ -1,4 +1,10 @@
+import CMUXMobileCore
+import CMUXAuthCore
+import CmuxAuthRuntime
+import CmuxCloud
 import CmuxCore
+import CmuxIrohTransport
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -10,6 +16,144 @@ import Testing
 @MainActor
 @Suite("Native Cloud layout projection preserves panels and focus")
 struct CloudNativeLayoutProjectionTests {
+    @Test("Sidebar closes match UUID case and reject missing targets or mismatched receipts",
+          arguments: [true, false], [true, false])
+    func sidebarCloseValidatesTarget(present: Bool, validReply: Bool) async throws {
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID.device(.init(deviceID: "close-test", tag: "test"))
+        let remoteID = UUID().uuidString
+        let target = UUID().uuidString
+        let other = UUID().uuidString
+        var closes = 0
+        let coordinator = DeviceWorkspaceLayoutCoordinator(machine: machine, catalog: catalog,
+            workspace: { _ in nil }, request: { method, params in
+                if method == "mobile.terminal.close" {
+                    closes += 1
+                    #expect(params["workspace_id"] as? String == remoteID)
+                    #expect(params["surface_id"] as? String == target.lowercased())
+                    return try JSONSerialization.data(withJSONObject: ["closed": true,
+                        "workspace_id": remoteID, "surface_id": validReply ? target : other])
+                }
+                #expect(method == "device.workspace.layout")
+                return try JSONEncoder().encode(DeviceWorkspaceLayoutSnapshot(workspaceID: remoteID,
+                    layout: .pane(id: "pane", surfaceIDs: present && closes == 0 ? [other, target] : [other],
+                        selectedSurfaceID: other), revision: String(closes), sequence: UInt64(closes)))
+            }, refresh: {}, isConnected: { true }, didAccept: {}, notificationCenter: NotificationCenter())
+        defer { coordinator.stop() }
+        do {
+            try await coordinator.closeTerminal(surfaceID: target.lowercased(), remoteWorkspaceID: remoteID)
+            #expect(present && validReply)
+        } catch {
+            #expect(!present || !validReply)
+        }
+        await coordinator.waitForIdle()
+        #expect(closes == (present ? 1 : 0))
+    }
+
+    @Test("Closing a mirrored Mac terminal updates its owner, while teardown only detaches",
+          arguments: [SurfaceProjectionEndReason.paneClosed, .workspaceTeardown, .replaced], [false, true])
+    func closingDeviceProjectionUpdatesSource(reason: SurfaceProjectionEndReason, mixed: Bool) async throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let viewer = try #require(manager.selectedWorkspace)
+        let pane = try #require(viewer.bonsplitController.allPaneIds.first)
+        let first = try #require(viewer.focusedPanelId)
+        let second = try #require(viewer.newTerminalSurface(inPane: pane, focus: false)?.id)
+        defer { viewer.teardownAllPanels(); manager.tabs = [] }
+        let instance = SurfaceDeviceInstanceID(deviceID: "close-owner", tag: "test")
+        let machine = SurfaceMachineID.device(instance)
+        let remoteID = UUID().uuidString
+        let remoteA = UUID().uuidString, remoteB = UUID().uuidString
+        let live = LiveWorkspaceFixture()
+        live.register(viewer)
+        let catalog = SurfaceCatalog(live: live)
+        let defaultsName = "DeviceProjectionClose-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let auth = makeDeviceTestAuth(defaults: defaults)
+        let record = DeviceDirectoryRecord(instance: instance, deviceName: "Source", platform: "mac",
+            bundleID: nil, presenceState: .online, isPaired: false, lastSeenAt: nil, routes: [],
+            ownerUserID: "test", accountTrust: .sameAccount)
+        let link = DeviceLink(record: record, runtime: DeviceLinkRuntime(tokens: HiveAccountTokenSource(
+            auth: auth, identity: AuthenticatedSessionIdentity(generation: 0, accountID: "test"), teamID: nil
+        )), authorization: UnpairedDeviceLayoutSource())
+        let provider = DeviceSurfaceProvider(record: record, link: link, catalog: catalog)
+        defer { provider.stop() }
+        catalog.register(provider)
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: remoteID, name: "Source", index: 0, focused: false)
+        for (panel, remote) in [(first, remoteA), (second, remoteB)] {
+            let resource = SurfaceResource(id: .init(machine: machine, kind: .terminal, key: remote),
+                title: remote, detail: nil, lifecycle: .running, agent: nil, remoteWorkspace: remoteWorkspace,
+                remoteViews: [SurfaceRemoteView(tabID: remote, workspace: remoteWorkspace)], port: nil, url: nil)
+            catalog.upsert(resource)
+            catalog.record(.init(resource: resource.id, workspaceID: viewer.id, panelID: panel,
+                remoteWorkspaceID: remoteID, remoteTabID: remote))
+        }
+        var source = DeviceWorkspaceLayoutSnapshot(workspaceID: remoteID,
+            layout: .pane(id: "source", surfaceIDs: [remoteA, remoteB], selectedSurfaceID: remoteA),
+            revision: "initial", sequence: 1)
+        var closes = 0
+        let coordinator = DeviceWorkspaceLayoutCoordinator(machine: machine, catalog: catalog,
+            workspace: { $0 == viewer.id ? viewer : nil },
+            request: { method, params in
+                if method == "mobile.terminal.close" {
+                    #expect(params["workspace_id"] as? String == remoteID)
+                    #expect(params["surface_id"] as? String == remoteB)
+                    closes += 1
+                    source = DeviceWorkspaceLayoutSnapshot(workspaceID: remoteID,
+                        layout: .pane(id: "source", surfaceIDs: [remoteA], selectedSurfaceID: remoteA),
+                        revision: "closed", sequence: 2)
+                    return try JSONSerialization.data(withJSONObject: ["closed": true,
+                        "workspace_id": remoteID, "surface_id": remoteB])
+                }
+                #expect(method == "device.workspace.layout")
+                return try JSONEncoder().encode(source)
+            }, refresh: {}, isConnected: { true }, didAccept: {}, notificationCenter: NotificationCenter())
+        provider.layoutSync = coordinator
+        coordinator.accept(source)
+        await coordinator.waitForIdle()
+        if mixed {
+            let localPane = try #require(viewer.bonsplitController.allPaneIds.first)
+            let localPanel = try #require(viewer.newTerminalSurface(inPane: localPane, focus: false))
+            let localResource = SurfaceResource(
+                id: .init(machine: .local, kind: .terminal, key: localPanel.id.uuidString),
+                title: "Local", detail: nil, lifecycle: .running, agent: nil,
+                remoteWorkspace: nil, remoteViews: nil, port: nil, url: nil
+            )
+            catalog.upsert(localResource)
+            catalog.record(.init(resource: localResource.id, workspaceID: viewer.id, panelID: localPanel.id))
+        }
+        // Route teardown through the catalog so the projection is removed
+        // before the provider receives the end event, matching production.
+        catalog.endProjections(panelID: second, reason: reason)
+        #expect(viewer.closePanel(second, force: true))
+        await coordinator.waitForIdle()
+        let shouldClose = reason == .paneClosed && !mixed
+        #expect(closes == (shouldClose ? 1 : 0))
+        #expect(try source.layout.validatedSurfaceIDs() == (shouldClose ? [remoteA] : [remoteA, remoteB]))
+        if shouldClose {
+            let mapping = [first.uuidString: remoteA]
+            #expect(try viewer.deviceWorkspaceLayoutSnapshot()?.remappingSurfaceIDs(mapping).hasSameArrangement(as: source.layout) == true)
+        }
+    }
+
+    private func makeDeviceTestAuth(defaults: UserDefaults) -> AuthCoordinator {
+        let config = AuthConfig(stack: CMUXAuthConfig(projectId: "test", publishableClientKey: "test"),
+            magicLinkCallbackURL: "http://127.0.0.1:1/auth/callback", apiBaseURL: "http://127.0.0.1:1")
+        return AuthCoordinator(
+            client: StackAuthClient(config: config, tokenStore: .memory, noAutomaticPrefetch: true),
+            sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: "session"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: "user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "team"),
+            anchor: AuthPresentationContextProvider(), config: config,
+            launch: AuthLaunchOptions(clearAuthRequested: false, mockDataEnabled: false, environment: [:], includesDevAuth: false))
+    }
+
+    private final class UnpairedDeviceLayoutSource: DeviceLinkAuthorizationSource {
+        var pairedDevices: [DevicePairedDevice] { [] }
+        let authorizationDidChangeNotification = Notification.Name("DeviceLayout-\(UUID().uuidString)")
+        func authorization(for instance: SurfaceDeviceInstanceID, route: CmxAttachRoute) -> CmxLegacyTailscaleAuthorizationEvidence? { nil }
+    }
+
     @Test func nativeMirrorTabInsertionHonorsTheSourceOrder() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.selectedWorkspace)
@@ -41,8 +185,11 @@ struct CloudNativeLayoutProjectionTests {
         let remoteID = UUID()
         let remoteA = UUID().uuidString
         let remoteB = UUID().uuidString
-        let catalog = SurfaceCatalog()
-        catalog.register(CloudPlacementTestProvider(machine: machine))
+        let live = LiveWorkspaceFixture()
+        live.register(viewer)
+        let catalog = SurfaceCatalog(live: live)
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
         let remoteWorkspace = SurfaceRemoteWorkspace(id: remoteID.uuidString, name: "Remote", index: 0, focused: false)
         for (panel, remote) in [(first, remoteA), (second, remoteB)] {
             let resource = SurfaceResource(id: .init(machine: machine, kind: .terminal, key: remote),
@@ -64,6 +211,7 @@ struct CloudNativeLayoutProjectionTests {
             apply: { _, next in source = next }, createTerminal: { _, _, _ in nil },
             publish: { receiver?.accept($0) }, notificationCenter: NotificationCenter())
         var writes = 0
+        var closeAttempts = 0
         var rejectNext = false
         var holdNext = false
         var release: CheckedContinuation<Void, Never>?
@@ -71,6 +219,10 @@ struct CloudNativeLayoutProjectionTests {
         let coordinator = DeviceWorkspaceLayoutCoordinator(machine: machine, catalog: catalog,
             workspace: { $0 == viewer.id ? viewer : nil },
             request: { method, params in
+                if method == "mobile.terminal.close" {
+                    closeAttempts += 1
+                    throw DeviceLinkError.notConnected
+                }
                 if method == "device.workspace.layout.apply" {
                     writes += 1
                     if rejectNext { rejectNext = false; throw DeviceLinkError.notConnected }
@@ -87,6 +239,13 @@ struct CloudNativeLayoutProjectionTests {
                 }
             }, refresh: {}, isConnected: { true }, didAccept: {}, notificationCenter: NotificationCenter())
         receiver = coordinator
+        provider.onProjectionEnd = { coordinator.projectionDidEnd($0, reason: $1) }
+        provider.materializeProjection = { resource, view, _ in
+            let pane = try #require(viewer.bonsplitController.allPaneIds.first)
+            let panel = try #require(viewer.newTerminalSurface(inPane: pane, focus: false))
+            return SurfaceProjection(resource: resource.id, workspaceID: viewer.id, panelID: panel.id,
+                remoteWorkspaceID: view?.workspace.id, remoteTabID: view?.tabID)
+        }
         defer { coordinator.stop(); entered.continuation.finish() }
         let initial = try #require(host.snapshot(for: remoteID))
         coordinator.accept(initial)
@@ -123,9 +282,21 @@ struct CloudNativeLayoutProjectionTests {
         #expect(try viewer.deviceWorkspaceLayoutSnapshot()?.remappingSurfaceIDs(mapping).hasSameArrangement(as: source) == true,
             "A failed write rolls the viewer back to the authoritative source layout")
         #expect(Set(viewer.panels.keys) == [first, second], "Layout reconciliation preserves terminal instances")
+
+        // Route teardown through the catalog so the projection is removed
+        // before the provider receives the end event, matching production.
+        catalog.endProjections(panelID: second, reason: .paneClosed)
+        #expect(viewer.closePanel(second, force: true))
+        await coordinator.waitForIdle()
+        #expect(closeAttempts == 1)
+        let restored = catalog.projections.filter { $0.workspaceID == viewer.id }
+        #expect(Set(restored.map(\.resource.key)) == [remoteA, remoteB], "A failed close restores the source terminal in the viewer")
+        let restoredMapping = Dictionary(uniqueKeysWithValues: restored.map { ($0.panelID.uuidString, $0.resource.key) })
+        #expect(try viewer.deviceWorkspaceLayoutSnapshot()?.remappingSurfaceIDs(restoredMapping).hasSameArrangement(as: source) == true)
     }
 
-    @Test func newWorkspaceActionKeepsTheSelectedDeviceContext() async throws {
+    @Test(arguments: [false, true])
+    func newWorkspaceActionKeepsTheSelectedDeviceContext(fromSidebar: Bool) async throws {
         let manager = TabManager(createInitialWorkspace: false)
         let workspace = Workspace(title: "Other Mac", initialSurface: .cloudVMLoading)
         manager.tabs = [workspace]
@@ -142,13 +313,22 @@ struct CloudNativeLayoutProjectionTests {
                 #expect(owner === manager)
                 targets.append(target)
             })
-        #expect(app.performNewWorkspaceAction(tabManager: manager))
-        #expect(!app.performNewWorkspaceAction(tabManager: manager))
+        if fromSidebar {
+            app.createWorkspaceAtEndFromSidebar(windowId: UUID(), tabManager: manager)
+            app.createWorkspaceAtEndFromSidebar(windowId: UUID(), tabManager: manager)
+        } else {
+            #expect(app.performNewWorkspaceAction(tabManager: manager))
+            #expect(!app.performNewWorkspaceAction(tabManager: manager))
+        }
         await operations.waitForPendingOperations()
         #expect(targets == [machine])
         #expect(manager.tabs.map(\.id) == [workspace.id], "The route must not create a local fallback workspace")
         app.deviceWorkspaceCreationCoordinator = nil
-        #expect(!app.performNewWorkspaceAction(tabManager: manager))
+        if fromSidebar {
+            app.createWorkspaceAtEndFromSidebar(windowId: UUID(), tabManager: manager)
+        } else {
+            #expect(!app.performNewWorkspaceAction(tabManager: manager))
+        }
         #expect(manager.tabs.map(\.id) == [workspace.id])
     }
 

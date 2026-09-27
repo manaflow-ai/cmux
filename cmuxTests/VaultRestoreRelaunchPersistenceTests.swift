@@ -278,7 +278,6 @@ struct VaultRestoreRelaunchPersistenceTests {
             panel: sourcePanel,
             snapshot: snapshot,
             manualResumeAvailable: true,
-            willRunStartupCommand: false,
             willRunStartupInput: false,
             resumeWorkingDirectory: launch.workingDirectory
         )

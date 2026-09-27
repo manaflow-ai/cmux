@@ -1,5 +1,7 @@
+import CmuxCloud
 import Bonsplit
 import CmuxControlSocket
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -365,11 +367,13 @@ struct CloudTerminalPlacementTests {
     @Test("An empty local sidebar group does not require a remote workspace")
     func emptyLocalGroupRetainsLocalBehavior() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
-            let catalog = SurfaceCatalog()
+            let live = LiveWorkspaceFixture()
+            defer { live.tearDown() }
+            let catalog = SurfaceCatalog(live: live)
             let provider = CloudTerminalPlacementTestProvider(machine: .local, catalog: catalog)
             catalog.register(provider)
             defer { provider.release.resolve(true); catalog.unregister(machine: .local) }
-            let originalDestination = UUID()
+            let originalDestination = live.id()
             var selectedDestination = originalDestination
             var failures: [String] = []
             var finished = false

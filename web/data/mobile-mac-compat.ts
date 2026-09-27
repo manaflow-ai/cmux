@@ -13,8 +13,8 @@
  * 0.64.20, and the rebuilt Iroh transport with 0.64.23. Every App Store
  * version (the `prod` build kind, starting at 1.0.0) now requires stable
  * 0.64.25 or the first published 0.64.25 nightly. Older TestFlight versions
- * retain the Mac releases they can actually use. In particular, BETA 1.0.4
- * build 20260817224846 is the last build that works with older Macs, while
+ * retain the Mac releases they can actually use. In particular, BETA 1.0.5
+ * build 20260914204800 is the last build that works with older Macs, while
  * the later INTERNAL 1.0.4 cut uses the rebuilt transport and needs 0.64.23.
  * Binaries built before the gate shipped ignore this list entirely, so
  * covering their versions is harmless.
@@ -73,6 +73,14 @@ export interface MobileMacCompatList {
   entries: MobileMacCompatEntry[];
 }
 
+// v0.64.25 includes the v2 backend, pairing opt-in, and persistent Mac
+// identity fixes. Run 35223379197, attempt 01, is its first published nightly.
+// Share these values with the 1.0.6 notice so its instructions match the gate.
+export const ios106MacRequirement = {
+  stableMinVersion: "0.64.25",
+  nightly: { minBaseVersion: "0.64.25", minBuild: "3522337919701" },
+} satisfies MobileMacCompatRequirement;
+
 export const mobileMacCompatList: MobileMacCompatList = {
   downloads: {
     // Keep in sync with DOWNLOAD_URL in web/app/lib/download.ts (data/ does
@@ -129,6 +137,7 @@ export const mobileMacCompatList: MobileMacCompatList = {
     },
     {
       minIOSVersion: "1.0.5",
+      maxIOSVersion: "1.0.5",
       stableMinVersion: "0.64.25",
       nightly: { minBaseVersion: "0.64.25", minBuild: "3522337919701" },
       buildKinds: {
@@ -146,6 +155,17 @@ export const mobileMacCompatList: MobileMacCompatList = {
           stableMinVersion: "0.64.25",
           nightly: { minBaseVersion: "0.64.25", minBuild: "3522337919701" },
         },
+      },
+    },
+    {
+      minIOSVersion: "1.0.6",
+      ...ios106MacRequirement,
+      buildKinds: {
+        dev: { stableMinVersion: "0.64.0" },
+        beta: ios106MacRequirement,
+        internal: ios106MacRequirement,
+        demo: { stableMinVersion: "0.64.23" },
+        prod: ios106MacRequirement,
       },
     },
   ],

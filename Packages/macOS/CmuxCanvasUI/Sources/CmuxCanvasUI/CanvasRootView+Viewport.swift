@@ -6,14 +6,16 @@ import CmuxCanvas
 extension CanvasRootView: CanvasViewportControlling {
     private static let discreteZoomAnimationKey = "cmux.canvas.discreteZoom"
     private static let discreteZoomAnimationDuration: TimeInterval = 0.2
+    static let overviewAnimationDuration: TimeInterval = 0.3
 
     public func modelDidChangeExternally(animated: Bool) {
         reconcilePanes()
         applyZOrder()
         recomputeDocumentGeometry()
-        if animated {
+        if shouldAnimate(animated) {
+            onMotionAnimationStarted?(Self.paneFrameAnimationDuration)
             NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.25
+                context.duration = Self.paneFrameAnimationDuration
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 context.allowsImplicitAnimation = true
                 for (paneID, paneView) in paneViews {
@@ -52,18 +54,26 @@ extension CanvasRootView: CanvasViewportControlling {
     }
 
     public func zoom(by factor: CGFloat) {
+        zoom(by: factor, animated: true)
+    }
+
+    public func zoom(by factor: CGFloat, animated: Bool) {
         // An explicit zoom invalidates the overview round-trip restore.
         overviewRestore = nil
         let target = min(
             max(scrollView.magnification * factor, scrollView.minMagnification),
             scrollView.maxMagnification
         )
-        setMagnification(target)
+        setMagnification(target, animated: animated)
     }
 
     public func resetZoom() {
+        resetZoom(animated: true)
+    }
+
+    public func resetZoom(animated: Bool) {
         overviewRestore = nil
-        setMagnification(1.0)
+        setMagnification(1.0, animated: animated)
     }
 
     public var currentMagnification: CGFloat {
@@ -148,11 +158,11 @@ extension CanvasRootView: CanvasViewportControlling {
     }
 
     /// Applies `magnification`, keeping the current viewport center fixed.
-    private func setMagnification(_ magnification: CGFloat) {
+    private func setMagnification(_ magnification: CGFloat, animated: Bool) {
         cancelDiscreteZoomAnimation()
         guard magnification != scrollView.magnification else { return }
         let center = currentCenterInCanvas
-        if shouldReduceMotionForDiscreteZoom() {
+        if !shouldAnimate(animated) {
             applyViewport(center: center, magnification: magnification, notifySettled: true)
             return
         }
@@ -205,6 +215,7 @@ extension CanvasRootView: CanvasViewportControlling {
         layer.sublayerTransform = CATransform3DIdentity
         CATransaction.commit()
 
+        onMotionAnimationStarted?(Self.discreteZoomAnimationDuration)
         let animation = CABasicAnimation(keyPath: "sublayerTransform")
         animation.fromValue = NSValue(caTransform3D: compensation)
         animation.toValue = NSValue(caTransform3D: CATransform3DIdentity)
@@ -249,17 +260,14 @@ extension CanvasRootView: CanvasViewportControlling {
     }
 
     public func toggleOverview() {
+        toggleOverview(animated: true)
+    }
+
+    public func toggleOverview(animated: Bool) {
         cancelDiscreteZoomAnimation()
         if let restore = overviewRestore {
             overviewRestore = nil
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.3
-                context.allowsImplicitAnimation = true
-                scrollView.animator().magnification = restore.magnification
-                scrollView.contentView.animator().setBoundsOrigin(restore.origin)
-                scrollView.reflectScrolledClipView(scrollView.contentView)
-            }
-            updateMinimap(reveal: true)
+            applyOverviewViewport(magnification: restore.magnification, origin: restore.origin, animated: animated)
             return
         }
         guard let content = model.contentBounds else { return }
@@ -281,11 +289,24 @@ extension CanvasRootView: CanvasViewportControlling {
             x: docCenter.x - clipSize.width / 2,
             y: docCenter.y - clipSize.height / 2
         )
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.3
-            context.allowsImplicitAnimation = true
-            scrollView.animator().magnification = fit
-            scrollView.contentView.animator().setBoundsOrigin(targetOrigin)
+        applyOverviewViewport(magnification: fit, origin: targetOrigin, animated: animated)
+    }
+
+    /// Moves to an overview (or back to the saved viewport), animated unless
+    /// the caller or Reduce Motion says otherwise.
+    private func applyOverviewViewport(magnification: CGFloat, origin: CGPoint, animated: Bool) {
+        if shouldAnimate(animated) {
+            onMotionAnimationStarted?(Self.overviewAnimationDuration)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = Self.overviewAnimationDuration
+                context.allowsImplicitAnimation = true
+                scrollView.animator().magnification = magnification
+                scrollView.contentView.animator().setBoundsOrigin(origin)
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
+        } else {
+            scrollView.magnification = magnification
+            scrollView.contentView.setBoundsOrigin(origin)
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
         updateMinimap(reveal: true)

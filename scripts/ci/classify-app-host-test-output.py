@@ -37,7 +37,7 @@ _APP_HOST_FAILURE_RE = re.compile(
     r"unexpected exit|communication with the test runner|"
     r"testmanagerd.*invalidated|Couldn't communicate with a helper|"
     r"Fatal error:|Program crashed|\*\*\*\s+Signal\s+\d+\b|"
-    r"Idle timed out|Post-test timed out)",
+    r"Idle timed out|Post-test timed out|Startup hang:)",
     re.IGNORECASE,
 )
 _APP_HOST_SIGNAL_RE = re.compile(
@@ -54,6 +54,19 @@ _ASSERTION_RE = re.compile(
     r"(?:✘ Test .* recorded an issue|Expectation failed|"
     r"XCTAssert.*failed|Test run with .* failed|"
     r"Executed \d+ tests?,\s+with [1-9]\d* failures?)",
+    re.IGNORECASE,
+)
+
+# A wrapper-level retry is safe only before test execution begins. Once an
+# invocation has started or summarized tests, a later invocation may add
+# evidence but may never erase that invocation's verdict.
+_TEST_EXECUTION_EVIDENCE_RE = re.compile(
+    r"(?:\bTest Suite ['\"].*['\"] started\b|"
+    r"\bTest Case ['\"].*['\"] started\b|"
+    r"\bTest run started\.|"
+    r"[◇◆✔✘▶]\s+Test .+ started\.|"
+    r"Executed\s+\d+\s+tests?\b|"
+    r"Test run with \d+ tests?\b)",
     re.IGNORECASE,
 )
 
@@ -137,6 +150,21 @@ def diagnose(output: str, exit_code: Optional[int] = None) -> Dict[str, object]:
     }
 
 
+def retry_safe(output: str) -> tuple[bool, str]:
+    """Allow a fresh xcodebuild invocation only before any test execution."""
+    clean_output = _ANSI_RE.sub("", output)
+    for line in io.StringIO(clean_output):
+        if _INCOMPLETE_TEST_RUN_RE.search(line):
+            return False, (
+                "retry blocked after incomplete test execution: " + _clean_line(line)
+            )
+
+    if _TEST_EXECUTION_EVIDENCE_RE.search(clean_output) or _ASSERTION_RE.search(clean_output):
+        return False, "retry blocked because this invocation contains test execution evidence"
+
+    return True, "retry-safe pre-test failure"
+
+
 def classify(output: str) -> tuple[bool, str]:
     """Require completed XCTest or Swift Testing summaries without failures."""
     for line in io.StringIO(output):
@@ -181,7 +209,9 @@ def main() -> int:
     parser.add_argument("output", type=Path)
     parser.add_argument("--suite", default="")
     parser.add_argument("--exit-code", type=int)
-    parser.add_argument("--diagnose", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--diagnose", action="store_true")
+    mode.add_argument("--retry-safe", action="store_true")
     args = parser.parse_args()
 
     output_path = args.output
@@ -190,6 +220,11 @@ def main() -> int:
     except OSError as error:
         print(f"could not read {output_path}: {error}", file=sys.stderr)
         return 2
+
+    if args.retry_safe:
+        safe, message = retry_safe(output)
+        print(message, file=sys.stdout if safe else sys.stderr)
+        return 0 if safe else 1
 
     if not args.diagnose:
         passed, message = classify(output)

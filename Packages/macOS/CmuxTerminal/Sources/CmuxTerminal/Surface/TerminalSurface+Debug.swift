@@ -124,6 +124,16 @@ extension TerminalSurface {
         needsConfirmCloseOverrideForTesting = value
     }
 
+    /// Pins whether the current renderer has presented a frame (test hook).
+    /// Clearing the in-flight probe drops a late acknowledgement, so the
+    /// warm/cold reveal policy sees exactly the state a test chose instead of
+    /// whatever the GPU managed to present before the test hid the portal.
+    @MainActor
+    public func setRendererPresentedFrameForTesting(_ presented: Bool) {
+        rendererPresentationState.inFlightToken = nil
+        rendererPresentationState.didPresentFrame = presented
+    }
+
     /// How many runtime-surface create attempts ran (test hook).
     @MainActor
     public func debugRuntimeSurfaceCreateAttemptCountForTesting() -> Int {

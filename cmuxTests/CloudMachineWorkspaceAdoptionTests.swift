@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -78,8 +80,13 @@ struct CloudMachineWorkspaceAdoptionTests {
             let pane = try #require(pending.bonsplitController.allPaneIds.first)
             let command = try #require(pending.newTerminalSurface(inPane: pane, focus: false,
                 initialCommand: "echo first-command", autoRefreshMetadata: false))
-            NewMachineSheetPresenter.closeReservedWorkspace(pending.id)
+            pending.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "newer-machine", isBase: false)
+            NewMachineSheetPresenter.closeReservedWorkspace(pending.id, machineID: "cancelled-machine")
             #expect(app.manager.tabs.contains { $0.id == pending.id })
+            #expect(pending.panels.count == 2 && pending.panels[command.id] === command)
+            #expect(pending.cloudVMBinding?.vmID == "newer-machine")
+            pending.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "cancelled-machine", isBase: false)
+            NewMachineSheetPresenter.closeReservedWorkspace(pending.id, machineID: "cancelled-machine")
             #expect(pending.panels.count == 1 && pending.panels[command.id] === command)
             #expect(pending.cloudVMBinding == nil)
             app.appDelegate.closeWorkspaces(forManagedCloudVMID: "cancelled-machine")
@@ -291,7 +298,7 @@ struct CloudMachineWorkspaceAdoptionTests {
             provider.beforeMaterialization = { entered.resolve(true); _ = await release.result }
             let attachment = Task { try await open(pending, provider: provider, catalog: catalog) }
             _ = await entered.result
-            NewMachineSheetPresenter.closeReservedWorkspace(pending.id)
+            NewMachineSheetPresenter.closeReservedWorkspace(pending.id, machineID: provider.machine.rawValue)
             #expect(pending.cloudVMBinding == nil)
             // A later explicit open has a different admission claim and must not
             // join the cancelled adoption or be discarded with its late result.
