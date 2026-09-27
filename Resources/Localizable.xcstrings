@@ -16036,49 +16036,49 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フィード終了プラン"
+            "value": "フィード：プランモード終了"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Feed 退出计划"
+            "value": "Feed 退出计划模式"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Exit-Plan einspeisen"
+            "value": "Feed: Planmodus verlassen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plan de sortie du flux"
+            "value": "Flux : quitter le mode plan"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خطة خروج الموجز"
+            "value": "Feed: الخروج من وضع التخطيط"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plan de salida del feed"
+            "value": "Feed: salir del modo plan"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "發送退出計畫"
+            "value": "發送結束計畫模式要求"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "피드 종료 계획"
+            "value": "피드 플랜 모드 종료"
           }
         }
       }
@@ -16107,7 +16107,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Berechtigung einspeisen"
+            "value": "Feed-Berechtigung"
           }
         },
         "fr": {
@@ -16119,13 +16119,13 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إذن الموجز"
+            "value": "إذن Feed"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permiso del feed"
+            "value": "Permiso del Feed"
           }
         },
         "zh-Hant": {
@@ -16166,7 +16166,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frage einspeisen"
+            "value": "Feed-Frage"
           }
         },
         "fr": {
@@ -16178,13 +16178,13 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سؤال الموجز"
+            "value": "سؤال Feed"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pregunta del feed"
+            "value": "Pregunta del Feed"
           }
         },
         "zh-Hant": {
@@ -16225,7 +16225,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frage einspeisen (4 Optionen)"
+            "value": "Feed-Frage (4 Optionen)"
           }
         },
         "fr": {
@@ -16237,13 +16237,13 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سؤال الموجز (4 خيارات)"
+            "value": "سؤال Feed (4 خيارات)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pregunta del feed (4 opciones)"
+            "value": "Pregunta del Feed (4 opciones)"
           }
         },
         "zh-Hant": {
@@ -16284,7 +16284,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frage einspeisen (Viele Optionen)"
+            "value": "Feed-Frage (viele Optionen)"
           }
         },
         "fr": {
@@ -16296,25 +16296,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سؤال الموجز (خيارات متعددة)"
+            "value": "سؤال Feed (خيارات متعددة)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pregunta del feed (muchas opciones)"
+            "value": "Pregunta del Feed (muchas opciones)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "發送提問（多項選擇）"
+            "value": "發送提問（多個選項）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "피드 질문 (많은 옵션)"
+            "value": "피드 질문 (옵션 많음)"
           }
         }
       }
@@ -16331,19 +16331,19 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フィード質問（複数質問）"
+            "value": "フィード質問（複数の質問）"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Feed 提问（多条）"
+            "value": "Feed 提问（多个问题）"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frage einspeisen (Mehrere)"
+            "value": "Feed-Frage (mehrere)"
           }
         },
         "fr": {
@@ -16355,25 +16355,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سؤال الموجز (متعدد)"
+            "value": "سؤال Feed (متعدد)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pregunta del feed (múltiple)"
+            "value": "Pregunta del Feed (múltiple)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "發送提問（多個）"
+            "value": "發送提問（多個問題）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "피드 질문 (다중)"
+            "value": "피드 질문 (여러 질문)"
           }
         }
       }
@@ -16402,7 +16402,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frage einspeisen (Mehrfachauswahl)"
+            "value": "Feed-Frage (Mehrfachauswahl)"
           }
         },
         "fr": {
@@ -16414,13 +16414,13 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سؤال الموجز (تحديد متعدد)"
+            "value": "سؤال Feed (تحديد متعدد)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pregunta del feed (selección múltiple)"
+            "value": "Pregunta del Feed (selección múltiple)"
           }
         },
         "zh-Hant": {
@@ -138135,7 +138135,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "新建云端机器…"
+            "value": "新建云主机…"
           }
         },
         "de": {
@@ -138171,7 +138171,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 클라우드 기기…"
+            "value": "새 클라우드 머신…"
           }
         }
       }
@@ -165420,7 +165420,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "應用程式內 (完整輸入)"
+            "value": "應用程式內（完整輸入）"
           }
         },
         "ko": {
@@ -167651,25 +167651,25 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Débogage du style de bouton de flux…"
+            "value": "Débogage du style des boutons du flux…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تصحيح أخطاء نمط زر الموجز…"
+            "value": "تصحيح نمط أزرار Feed…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Depuración de estilo de botón de feed…"
+            "value": "Depuración del estilo de botones del Feed…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "動態按鈕樣式偵錯…"
+            "value": "Feed 按鈕樣式偵錯…"
           }
         },
         "ko": {
@@ -167710,25 +167710,25 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Labo de l'éditeur de texte de flux…"
+            "value": "Labo des éditeurs de texte du flux…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مختبر محرر نصوص الموجز…"
+            "value": "مختبر محرر نصوص Feed…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Laboratorio del editor de texto del feed…"
+            "value": "Laboratorio de editores de texto del Feed…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "動態文字編輯器實驗室…"
+            "value": "Feed 文字編輯器實驗室…"
           }
         },
         "ko": {
@@ -205686,7 +205686,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nouveau volet de Dock"
+            "value": "Nouveau volet du Dock"
           }
         },
         "ar": {
@@ -206282,7 +206282,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فتح مستندات Dock"
+            "value": "فتح وثائق Dock"
           }
         },
         "es": {
@@ -206565,19 +206565,19 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keine Dock-Steuerungen"
+            "value": "Keine Dock-Steuerelemente"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucun contrôle de Dock"
+            "value": "Aucun contrôle du Dock"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا توجد عناصر تحكم لـ Dock"
+            "value": "لا توجد عناصر تحكم في Dock"
           }
         },
         "es": {
@@ -206630,7 +206630,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Volet de Dock vide"
+            "value": "Volet du Dock vide"
           }
         },
         "ar": {
@@ -206683,7 +206683,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Befehl für die Dock-Steuerung darf nicht leer sein."
+            "value": "Der Befehl eines Dock-Steuerelements darf nicht leer sein."
           }
         },
         "fr": {
@@ -206701,7 +206701,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El comando de control de Dock no debe estar vacío."
+            "value": "El comando del control del Dock no puede estar vacío."
           }
         },
         "zh-Hant": {
@@ -206742,7 +206742,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "ID für die Dock-Steuerung darf nicht leer sein."
+            "value": "Die ID eines Dock-Steuerelements darf nicht leer sein."
           }
         },
         "fr": {
@@ -206760,7 +206760,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El id de control de Dock no debe estar vacío."
+            "value": "El ID del control del Dock no puede estar vacío."
           }
         },
         "zh-Hant": {
@@ -206985,7 +206985,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "IDs für Dock-Steuerungen müssen eindeutig sein."
+            "value": "Die IDs der Dock-Steuerelemente müssen eindeutig sein."
           }
         },
         "fr": {
@@ -207003,7 +207003,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los id de control de Dock deben ser únicos."
+            "value": "Los ID de los controles del Dock deben ser únicos."
           }
         },
         "zh-Hant": {
@@ -207044,7 +207044,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock konnte nicht eingeblendet werden"
+            "value": "Das Dock konnte nicht eingeblendet werden"
           }
         },
         "fr": {
@@ -207655,7 +207655,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Globales Dock ist in einem anderen Fenster aktiv"
+            "value": "Das globale Dock ist in einem anderen Fenster aktiv"
           }
         },
         "fr": {
@@ -207667,7 +207667,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock العالمي نشط في نافذة أخرى"
+            "value": "Dock العام نشط في نافذة أخرى"
           }
         },
         "es": {
@@ -207738,7 +207738,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "程序坞"
+            "value": "Dock"
           }
         },
         "ko": {
@@ -207785,7 +207785,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock العالمي"
+            "value": "Dock العام"
           }
         },
         "es": {
@@ -207915,7 +207915,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "程序坞"
+            "value": "Dock"
           }
         },
         "ko": {
@@ -208062,13 +208062,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "信任此项目 Dock？"
+            "value": "信任此项目的 Dock？"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Projekt-Dock vertrauen?"
+            "value": "Dem Projekt-Dock vertrauen?"
           }
         },
         "fr": {
@@ -217289,7 +217289,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべてのフィードボタン種別をライブ調整します。"
+            "value": "すべての種類のフィードボタンをリアルタイムで調整します。"
           }
         },
         "zh-Hans": {
@@ -217313,7 +217313,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اضبط كل نوع من أزرار الموجز مباشرةً."
+            "value": "اضبط كل نوع من أزرار Feed مباشرةً."
           }
         },
         "es": {
@@ -217372,7 +217372,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أزرار الموجز"
+            "value": "أزرار Feed"
           }
         },
         "es": {
@@ -217490,7 +217490,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "نمط أزرار الموجز"
+            "value": "نمط أزرار Feed"
           }
         },
         "es": {
@@ -223839,7 +223839,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "محررات نصوص الموجز"
+            "value": "محررات نصوص Feed"
           }
         },
         "es": {
@@ -223857,7 +223857,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "피드백 텍스트 편집기"
+            "value": "피드 텍스트 편집기"
           }
         }
       }
@@ -224252,7 +224252,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مختبر محرر نصوص الموجز"
+            "value": "مختبر محرر نصوص Feed"
           }
         },
         "es": {
@@ -224270,7 +224270,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "피드백 텍스트 편집기 실험실"
+            "value": "피드 텍스트 편집기 실험실"
           }
         }
       }
@@ -231165,13 +231165,13 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud Machinesを使うにはサインインしてください"
+            "value": "クラウドマシンを使うにはサインインしてください"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "登录以使用云端机器"
+            "value": "登录以使用云主机"
           }
         },
         "de": {
@@ -245586,7 +245586,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "程序坞"
+            "value": "Dock"
           }
         },
         "ko": {
@@ -284508,7 +284508,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "程序坞"
+            "value": "Dock"
           }
         },
         "ko": {
@@ -284549,25 +284549,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الموجز"
+            "value": "Feed"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Canal"
+            "value": "Feed"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "動態"
+            "value": "Feed"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "动态"
+            "value": "Feed"
           }
         },
         "ko": {
@@ -292785,7 +292785,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "마지막 서피스를 닫을 때 워크스페이스 유지"
+            "value": "마지막 서피스를 닫을 때 작업 공간 유지"
           }
         },
         "uk": {
@@ -292927,25 +292927,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Befehlspalette durchsucht alle Oberflächen"
+            "value": "Alle Oberflächen in der Befehlspalette durchsuchen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La palette de commandes recherche dans toutes les surfaces d’affichage"
+            "value": "Rechercher dans toutes les surfaces d’affichage depuis la palette de commandes"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لوحة الأوامر تبحث في جميع الأسطح"
+            "value": "البحث في جميع الأسطح من لوحة الأوامر"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La paleta de comandos busca en todas las superficies"
+            "value": "Buscar en todas las superficies desde la paleta de comandos"
           }
         },
         "zh-Hant": {
@@ -293496,7 +293496,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "なし"
+            "value": "しない"
           }
         },
         "km": {
@@ -294738,7 +294738,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dateiablagen"
+            "value": "Beim Ablegen von Dateien"
           }
         },
         "en": {
@@ -294756,7 +294756,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dépôts de fichiers"
+            "value": "Glisser-déposer de fichiers"
           }
         },
         "it": {
@@ -295151,7 +295151,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pfadtext ablegen"
+            "value": "Pfad als Text einfügen"
           }
         },
         "en": {
@@ -295163,13 +295163,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Soltar texto de ruta"
+            "value": "Insertar la ruta como texto"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Déposer le chemin en texte"
+            "value": "Insérer le chemin en texte"
           }
         },
         "it": {
@@ -296116,7 +296116,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tab-Schließen-Taste ausblenden"
+            "value": "Schließen-Schaltfläche für Tabs ausblenden"
           }
         },
         "en": {
@@ -298506,7 +298506,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Minimaler Modus"
+            "value": "Minimalmodus"
           }
         },
         "fr": {
@@ -298524,7 +298524,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Modo mínimo"
+            "value": "Modo minimalista"
           }
         },
         "zh-Hant": {
@@ -298630,7 +298630,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ubicación de nuevo espacio de trabajo"
+            "value": "Ubicación de los nuevos espacios de trabajo"
           }
         },
         "fr": {
@@ -299868,7 +299868,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "첫 클릭으로 패인 포커스"
+            "value": "첫 클릭으로 분할 창에 포커스"
           }
         },
         "uk": {
@@ -299998,7 +299998,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pfad vom Anfang an kürzen"
+            "value": "Pfad am Anfang kürzen"
           }
         },
         "fr": {
@@ -300293,7 +300293,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Umbenennen wählt vorhandenen Namen aus"
+            "value": "Beim Umbenennen vorhandenen Namen auswählen"
           }
         },
         "en": {
@@ -300305,13 +300305,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renombrar selecciona el nombre existente"
+            "value": "Seleccionar el nombre existente al renombrar"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le renommage sélectionne le nom existant"
+            "value": "Sélectionner le nom existant lors du renommage"
           }
         },
         "it": {
@@ -303356,7 +303356,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سطري"
+            "value": "في سطر واحد"
           }
         },
         "bs": {
@@ -303386,13 +303386,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "En línea"
+            "value": "En una línea"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "En ligne"
+            "value": "Sur une ligne"
           }
         },
         "it": {
@@ -303636,7 +303636,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "堆疊分支與目錄"
+            "value": "分支與目錄分行顯示"
           }
         },
         "ko": {
@@ -304324,7 +304324,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vor dem Schließen eines Tabs per Schließen-Taste warnen"
+            "value": "Vor dem Schließen eines Tabs per Schließen-Schaltfläche warnen"
           }
         },
         "en": {
@@ -305108,7 +305108,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbeitsbereich-Arbeitsverzeichnis vererben"
+            "value": "Arbeitsverzeichnis des Arbeitsbereichs übernehmen"
           }
         },
         "fr": {
@@ -305445,7 +305445,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바에서 워크스페이스 제목 줄바꿈"
+            "value": "사이드바에서 작업 공간 제목 줄바꿈"
           }
         },
         "nb": {
@@ -305842,7 +305842,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agente de nombres"
+            "value": "Agente de asignación de nombres"
           }
         },
         "fr": {
@@ -306269,7 +306269,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مدعوم"
+            "value": "المدعومة"
           }
         },
         "es": {
@@ -306926,7 +306926,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Integración de Codex"
+            "value": "Integración con Codex"
           }
         },
         "zh-Hant": {
@@ -306938,7 +306938,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex 통합"
+            "value": "Codex 연동"
           }
         }
       }
@@ -307109,7 +307109,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Integración de Cursor"
+            "value": "Integración con Cursor"
           }
         },
         "zh-Hant": {
@@ -307280,13 +307280,13 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تكامل واجهة خط أوامر Gemini (CLI)"
+            "value": "تكامل Gemini CLI"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Integración de Gemini CLI"
+            "value": "Integración con Gemini CLI"
           }
         },
         "zh-Hant": {
@@ -307457,13 +307457,13 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تكامل واجهة خط أوامر Kiro (CLI)"
+            "value": "تكامل Kiro CLI"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Integración de Kiro CLI"
+            "value": "Integración con Kiro CLI"
           }
         },
         "zh-Hant": {
@@ -311121,7 +311121,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unteragent-Benachrichtigungen unterdrücken"
+            "value": "Subagenten-Benachrichtigungen unterdrücken"
           }
         },
         "en": {
@@ -311157,7 +311157,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "하위 에이전트 알림 억제"
+            "value": "하위 에이전트 알림 숨기기"
           }
         },
         "nb": {
@@ -311430,7 +311430,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nombrado automático de espacios de trabajo"
+            "value": "Asignación automática de nombres a espacios de trabajo"
           }
         },
         "fr": {
@@ -311846,7 +311846,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "云端机器"
+            "value": "云主机"
           }
         },
         "de": {
@@ -311864,7 +311864,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أجهزة سحابية"
+            "value": "الأجهزة السحابية"
           }
         },
         "es": {
@@ -312112,7 +312112,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "程序坞"
+            "value": "Dock"
           }
         },
         "ko": {
@@ -312194,7 +312194,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エクステンション"
+            "value": "拡張機能"
           }
         },
         "zh-Hans": {
@@ -312330,25 +312330,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الموجز"
+            "value": "Feed"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Canal"
+            "value": "Feed"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "動態"
+            "value": "Feed"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "动态"
+            "value": "Feed"
           }
         },
         "ko": {
@@ -312619,7 +312619,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbeitsbereich-To-Do-Steuerungen"
+            "value": "To-do-Steuerelemente für Arbeitsbereiche"
           }
         },
         "fr": {
@@ -312873,7 +312873,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "En línea"
+            "value": "Integrado"
           }
         },
         "zh-Hant": {
@@ -314432,7 +314432,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Browser-Arbeitsspeicherschoner"
+            "value": "Browser-Speichersparmodus"
           }
         },
         "fr": {
@@ -314444,19 +314444,19 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "موفر ذاكرة المتصفح"
+            "value": "توفير ذاكرة المتصفح"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ahorrador de memoria del navegador"
+            "value": "Ahorro de memoria del navegador"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "瀏覽器記憶體節省程式"
+            "value": "瀏覽器記憶體節省模式"
           }
         },
         "ko": {
@@ -324462,13 +324462,13 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المصيّر"
+            "value": "محرك العرض"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Representador"
+            "value": "Motor de renderizado"
           }
         },
         "zh-Hant": {
@@ -324725,7 +324725,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Habilitar tecla de acceso rápido para todo el sistema"
+            "value": "Activar atajo de teclado global"
           }
         },
         "zh-Hant": {
@@ -326691,7 +326691,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "한 수준"
+            "value": "한 단계"
           }
         }
       }
@@ -327452,7 +327452,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "轉寄通知至 iPhone"
+            "value": "將通知轉送到 iPhone"
           }
         },
         "ko": {
@@ -363201,13 +363201,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tastaturkürzel-Hinweise beim Halten von Modifikatortasten anzeigen"
+            "value": "Hinweise zu Tastaturkurzbefehlen beim Halten von Sondertasten anzeigen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher les indices de raccourcis en maintenant les touches de modification enfoncées"
+            "value": "Afficher les raccourcis en maintenant une touche de modification enfoncée"
           }
         },
         "ar": {
@@ -363301,7 +363301,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أقصى عرض للـ Dock"
+            "value": "الحد الأقصى لعرض Dock"
           }
         },
         "bs": {
@@ -363485,7 +363485,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "استخدام عرض Dock أقصى مخصص"
+            "value": "استخدام حد أقصى مخصص لعرض Dock"
           }
         },
         "bs": {
@@ -366295,7 +366295,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "외양에 맞춰 기본 테마 조정"
+            "value": "모양에 맞게 기본 테마 조정"
           }
         }
       }
@@ -366371,7 +366371,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "再起動時にエージェントセッションを再開"
+            "value": "再度開いたときにエージェントセッションを再開"
           }
         },
         "zh-Hans": {
@@ -366413,7 +366413,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "재열기 시 에이전트 세션 재개"
+            "value": "다시 열 때 에이전트 세션 재개"
           }
         }
       }
@@ -367039,13 +367039,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reunir el texto con saltos de línea fijos al copiar"
+            "value": "Unir el texto con saltos de línea forzados al copiar"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rejoindre les lignes coupées en dur lors de la copie"
+            "value": "Fusionner les lignes à retour forcé lors de la copie"
           }
         },
         "ja": {
@@ -367145,7 +367145,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "暴走メモリガードレール"
+            "value": "メモリ暴走ガードレール"
           }
         },
         "zh-Hans": {
@@ -367163,19 +367163,19 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Garde-fou pour mémoire hors de contrôle"
+            "value": "Garde-fou contre l’emballement de la mémoire"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حاجز حماية الذاكرة الجامحة"
+            "value": "الحماية من الاستهلاك المفرط للذاكرة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Protección contra memoria descontrolada"
+            "value": "Protección contra el consumo excesivo de memoria"
           }
         },
         "zh-Hant": {
@@ -367381,7 +367381,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オフスクリーン端末のメモリを回収"
+            "value": "画面外のターミナルのメモリを回収"
           }
         },
         "zh-Hans": {
@@ -367399,19 +367399,19 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Récupérer la mémoire du terminal hors écran"
+            "value": "Récupérer la mémoire des terminaux hors écran"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "استعادة ذاكرة الطرفية الخارجة عن الشاشة"
+            "value": "تحرير ذاكرة الطرفيات غير الظاهرة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reclama la memoria de las terminales fuera de pantalla"
+            "value": "Liberar la memoria de las terminales fuera de pantalla"
           }
         },
         "zh-Hant": {
@@ -368951,7 +368951,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "顯示終端機捲動軸"
+            "value": "顯示終端機捲軸"
           }
         },
         "ko": {
@@ -369534,7 +369534,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sitzungsinhaltsbreite"
+            "value": "Breite des Sitzungsinhalts"
           }
         },
         "fr": {
@@ -370574,7 +370574,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تركيز مربع النص في الطرفيات الجديدة"
+            "value": "تركيز TextBox في الطرفيات الجديدة"
           }
         },
         "bs": {
@@ -370592,7 +370592,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fokus auf TextBox bei neuen Terminals"
+            "value": "TextBox in neuen Terminals fokussieren"
           }
         },
         "en": {
@@ -370604,7 +370604,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enfocar el cuadro de texto en nuevas terminales"
+            "value": "Enfocar TextBox en las terminales nuevas"
           }
         },
         "fr": {
@@ -370688,7 +370688,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在新終端機上聚焦文字框"
+            "value": "在新終端機中聚焦 TextBox"
           }
         }
       }
@@ -371008,7 +371008,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إظهار مربع النص على الطرفيات الجديدة"
+            "value": "إظهار TextBox في الطرفيات الجديدة"
           }
         },
         "bs": {
@@ -371038,7 +371038,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar el cuadro de texto en nuevas terminales"
+            "value": "Mostrar TextBox en las terminales nuevas"
           }
         },
         "fr": {
@@ -371122,7 +371122,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在新終端機上顯示文字框"
+            "value": "在新終端機中顯示 TextBox"
           }
         }
       }
@@ -386407,7 +386407,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إظهار منصة الشريط الجانبي"
+            "value": "إظهار Dock في الشريط الجانبي"
           }
         },
         "es": {
@@ -386466,19 +386466,19 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إظهار موجز الشريط الجانبي"
+            "value": "إظهار Feed في الشريط الجانبي"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar feed de la barra lateral"
+            "value": "Mostrar el Feed de la barra lateral"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "顯示側邊欄動態"
+            "value": "顯示側邊欄 Feed"
           }
         }
       }
@@ -439299,7 +439299,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vollständiger offener Zugriff"
+            "value": "Uneingeschränkter Zugriff"
           }
         },
         "en": {
@@ -439317,7 +439317,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Accès ouvert complet"
+            "value": "Accès sans restriction"
           }
         },
         "it": {
@@ -459885,7 +459885,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الموجز"
+            "value": "مصدر التحديثات"
           }
         },
         "bs": {
@@ -459915,7 +459915,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Canal"
+            "value": "Fuente"
           }
         },
         "fr": {
@@ -459993,7 +459993,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "動態"
+            "value": "更新來源"
           }
         }
       }
@@ -461312,7 +461312,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خطأ في موجز التحديثات"
+            "value": "خطأ في مصدر التحديثات"
           }
         },
         "bs": {
@@ -461669,7 +461669,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "موجز تحديثات غير آمن"
+            "value": "مصدر تحديثات غير آمن"
           }
         },
         "bs": {
@@ -462150,7 +462150,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "موجز تحديثات غير صالح"
+            "value": "مصدر تحديثات غير صالح"
           }
         },
         "bs": {
@@ -467828,7 +467828,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nach aktuellem"
+            "value": "Nach dem aktuellen"
           }
         },
         "en": {
@@ -467858,13 +467858,13 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "現在の後"
+            "value": "現在の項目の後"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "현재 다음"
+            "value": "현재 항목 다음"
           }
         },
         "nb": {
@@ -467912,13 +467912,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "当前之后"
+            "value": "当前项之后"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "目前之後"
+            "value": "目前項目之後"
           }
         }
       }
@@ -518697,7 +518697,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "新建云机器"
+            "value": "新建云主机"
           }
         },
         "zh-Hant": {
@@ -518947,7 +518947,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "新建云机器"
+            "value": "新建云主机"
           }
         },
         "zh-Hant": {
@@ -519197,7 +519197,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "新建云机器"
+            "value": "新建云主机"
           }
         },
         "zh-Hant": {
@@ -521590,37 +521590,37 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Machines Cloud"
+            "value": "Machines cloud"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أجهزة Cloud"
+            "value": "الأجهزة السحابية"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Máquinas Cloud"
+            "value": "Máquinas en la nube"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 機器"
+            "value": "雲端機器"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "云机器"
+            "value": "云主机"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 머신"
+            "value": "클라우드 머신"
           }
         },
         "ja": {
@@ -543772,13 +543772,13 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un contrôle Dock GitHub Runs"
+            "value": "Un contrôle Dock pour GitHub Runs"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un control Dock de GitHub Runs"
+            "value": "Un control del Dock para GitHub Runs"
           }
         },
         "ar": {
@@ -543831,13 +543831,13 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un contrôle Dock Feed TUI"
+            "value": "Un contrôle Dock pour la TUI du flux"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un control Dock de Feed TUI"
+            "value": "Un control del Dock para Feed TUI"
           }
         },
         "ar": {
@@ -551992,7 +551992,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "创建时均分面板"
+            "value": "创建时均分窗格"
           }
         },
         "zh-Hant": {
