@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // readClaudeSettingsForTest parses a settings file.
@@ -45,7 +46,16 @@ func TestClaudeHookInstallKeepsUserSettingsAndIsIdempotent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
-	t.Setenv("CMUX_BUNDLED_CLI_PATH", "")
+	// A versioned bundled CLI must not be written into user settings; the
+	// stable entrypoint survives upgrades.
+	bundled := filepath.Join(home, "bundle", "cmux")
+	if err := os.MkdirAll(filepath.Dir(bundled), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bundled, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CMUX_BUNDLED_CLI_PATH", bundled)
 	cli := filepath.Join(home, ".cmux", "bin", "cmux")
 	if err := os.MkdirAll(filepath.Dir(cli), 0o755); err != nil {
 		t.Fatal(err)
@@ -158,4 +168,110 @@ func TestClaudeHookInstallFollowsSymlinkAndRefusesInvalidJSON(t *testing.T) {
 	if code := runClaudeHookInstall([]string{"install", "--bogus"}, &stdout, &stderr); code != 2 {
 		t.Fatalf("unknown flag exit = %d, want 2", code)
 	}
+}
+
+// TestClaudeHookUninstallWithoutSettingsFileIsNoOp leaves a missing file and its directory missing.
+func TestClaudeHookUninstallWithoutSettingsFileIsNoOp(t *testing.T) {
+	configDir := filepath.Join(t.TempDir(), "claude-config")
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	var stdout, stderr bytes.Buffer
+	if code := runClaudeHookInstall([]string{"uninstall"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("uninstall exit %d: %s", code, stderr.String())
+	}
+	if _, err := os.Stat(configDir); !os.IsNotExist(err) {
+		t.Fatalf("uninstall created %s: %v", configDir, err)
+	}
+}
+
+// TestClaudeHookInstallPreservesSettingsItDoesNotOwn keeps large numbers and empty user hooks, and skips no-op rewrites.
+func TestClaudeHookInstallPreservesSettingsItDoesNotOwn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	original := `{"cleanupPeriodDays": 9007199254740993, "hooks": {"Stop": [], "PreToolUse": [{"matcher": "Bash", "hooks": []}]}}`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	// Nothing of cmux's is installed yet, so uninstall must not touch the file.
+	if code := runClaudeHookInstall([]string{"uninstall", "--settings-file", path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("uninstall exit %d: %s", code, stderr.String())
+	}
+	if data, _ := os.ReadFile(path); string(data) != original {
+		t.Fatalf("no-op uninstall rewrote the file: %s", data)
+	}
+
+	if code := runClaudeHookInstall([]string{"install", "--settings-file", path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("install exit %d: %s", code, stderr.String())
+	}
+	installed, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(installed), "9007199254740993") {
+		t.Fatalf("install rounded a large integer:\n%s", installed)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp := info.ModTime().Add(-time.Hour)
+	if err := os.Chtimes(path, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	if code := runClaudeHookInstall([]string{"install", "--settings-file", path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("second install exit %d: %s", code, stderr.String())
+	}
+	if info, err := os.Stat(path); err != nil || !info.ModTime().Equal(stamp) {
+		t.Fatal("a repeat install rewrote an unchanged file")
+	}
+
+	if code := runClaudeHookInstall([]string{"uninstall", "--settings-file", path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("uninstall exit %d: %s", code, stderr.String())
+	}
+	var settings map[string]any
+	decoder := json.NewDecoder(strings.NewReader(string(mustReadFile(t, path))))
+	decoder.UseNumber()
+	if err := decoder.Decode(&settings); err != nil {
+		t.Fatal(err)
+	}
+	if settings["cleanupPeriodDays"] != json.Number("9007199254740993") {
+		t.Fatalf("cleanupPeriodDays = %v", settings["cleanupPeriodDays"])
+	}
+	hooks, _ := settings["hooks"].(map[string]any)
+	preToolUse, _ := hooks["PreToolUse"].([]any)
+	if len(preToolUse) != 1 {
+		t.Fatalf("uninstall dropped the user's empty hook group: %v", hooks)
+	}
+	for _, definition := range claudeRelayHookEvents {
+		for _, command := range installedHookCommands(settings, definition.event) {
+			if strings.Contains(command, claudeHookInstallMarker) {
+				t.Fatalf("uninstall left %q", command)
+			}
+		}
+	}
+}
+
+// TestClaudeHookInstallRefusesNonObjectHooks never replaces a hooks value it does not understand.
+func TestClaudeHookInstallRefusesNonObjectHooks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	original := `{"hooks": ["not", "an", "object"]}`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runClaudeHookInstall([]string{"install", "--settings-file", path}, &stdout, &stderr); code != 1 {
+		t.Fatalf("install exit = %d, want 1", code)
+	}
+	if data, _ := os.ReadFile(path); string(data) != original {
+		t.Fatalf("install changed the file: %s", data)
+	}
+}
+
+// mustReadFile reads a file or fails the test.
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }

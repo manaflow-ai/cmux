@@ -25,7 +25,6 @@ import (
 const claudeHookUserSettingsFlag = "--user-settings"
 
 const (
-	claudeHookTmuxTimeout = time.Second
 	// Hook commands run through `sh -c`, which may or may not exec, so Claude
 	// is at most a few hops above the hook process.
 	claudeHookAgentSearchDepth  = 4
@@ -135,23 +134,40 @@ type claudeHookTmuxRoute struct {
 type claudeHookTmuxProbe struct {
 	run     func(args ...string) (string, error)
 	environ func(pid int) map[string]string
+	// liveRelay maps a client's relay address to the one currently serving
+	// its persistent slot; nil keeps the address.
+	liveRelay func(socketPath string, clientPID int) string
 }
 
-// defaultClaudeHookTmuxProbe runs the host's tmux with a short timeout and
-// reads client environments from /proc.
-func defaultClaudeHookTmuxProbe() claudeHookTmuxProbe {
-	return claudeHookTmuxProbe{run: runClaudeHookTmux, environ: readProcEnviron}
+// defaultClaudeHookTmuxProbe runs the host's tmux under the hook's deadline
+// and reads client environments from /proc.
+func defaultClaudeHookTmuxProbe(deadline time.Time) claudeHookTmuxProbe {
+	return claudeHookTmuxProbe{
+		run:     func(args ...string) (string, error) { return runClaudeHookTmux(deadline, args...) },
+		environ: readProcEnviron,
+		liveRelay: func(socketPath string, clientPID int) string {
+			home, err := os.UserHomeDir()
+			if err != nil || home == "" {
+				return socketPath
+			}
+			return claudeHookLiveRelay(socketPath, clientPID, claudeRelayProcessTree, filepath.Join(home, ".cmux", "relay"))
+		},
+	}
 }
 
-// runClaudeHookTmux runs tmux against the server named by $TMUX.
-func runClaudeHookTmux(args ...string) (string, error) {
+// runClaudeHookTmux runs tmux against the server named by $TMUX. The command
+// is killed at deadline, and its output pipes are abandoned shortly after in
+// case a child of tmux still holds them.
+func runClaudeHookTmux(deadline time.Time, args ...string) (string, error) {
 	path, err := exec.LookPath("tmux")
 	if err != nil {
 		return "", err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), claudeHookTmuxTimeout)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
-	output, err := exec.CommandContext(ctx, path, args...).Output()
+	command := exec.CommandContext(ctx, path, args...)
+	command.WaitDelay = 100 * time.Millisecond
+	output, err := command.Output()
 	return string(output), err
 }
 
@@ -172,8 +188,10 @@ func readProcEnviron(pid int) map[string]string {
 }
 
 // discoverClaudeHookTmuxRoute finds the cmux surface attached to the tmux
-// session this hook runs in. The most recently active client that carries a
-// complete cmux relay environment wins.
+// session this hook runs in. Clients of the pane's session, or of a session
+// grouped with it, are candidates. A client whose current window holds the
+// pane is preferred, then the most recently active one; the first candidate
+// that carries a complete cmux relay environment wins.
 func discoverClaudeHookTmuxRoute(getenv func(string) string, probe claudeHookTmuxProbe) (claudeHookTmuxRoute, bool) {
 	if strings.TrimSpace(getenv("TMUX")) == "" || probe.run == nil || probe.environ == nil {
 		return claudeHookTmuxRoute{}, false
@@ -182,34 +200,49 @@ func discoverClaudeHookTmuxRoute(getenv func(string) string, probe claudeHookTmu
 	if pane := strings.TrimSpace(getenv("TMUX_PANE")); pane != "" {
 		displayArgs = append(displayArgs, "-t", pane)
 	}
-	sessionOutput, err := probe.run(append(displayArgs, "#{session_id}")...)
-	sessionID := strings.TrimSpace(sessionOutput)
-	if err != nil || sessionID == "" || strings.ContainsAny(sessionID, "\n\t") {
+	paneOutput, err := probe.run(append(displayArgs, "#{session_id}\t#{session_group}\t#{window_id}")...)
+	if err != nil {
 		return claudeHookTmuxRoute{}, false
 	}
-	clientOutput, err := probe.run("list-clients", "-t", sessionID, "-F", "#{client_pid}\t#{client_tty}\t#{client_activity}")
+	paneLine := strings.TrimRight(paneOutput, "\n")
+	paneFields := strings.Split(paneLine, "\t")
+	if len(paneFields) != 3 || paneFields[0] == "" || strings.Contains(paneLine, "\n") {
+		return claudeHookTmuxRoute{}, false
+	}
+	paneSession, paneGroup, paneWindow := paneFields[0], paneFields[1], paneFields[2]
+	clientOutput, err := probe.run("list-clients", "-F", "#{client_pid}\t#{client_tty}\t#{client_activity}\t#{session_id}\t#{session_group}\t#{window_id}")
 	if err != nil {
 		return claudeHookTmuxRoute{}, false
 	}
 	type client struct {
-		pid      int
-		tty      string
-		activity int64
+		pid       int
+		tty       string
+		activity  int64
+		showsPane bool
 	}
 	var clients []client
 	for _, line := range strings.Split(clientOutput, "\n") {
 		fields := strings.Split(strings.TrimSpace(line), "\t")
-		if len(fields) != 3 {
+		if len(fields) != 6 {
 			continue
 		}
 		pid, err := strconv.Atoi(fields[0])
 		if err != nil || pid <= 1 {
 			continue
 		}
+		sameSession := fields[3] == paneSession || (paneGroup != "" && fields[4] == paneGroup)
+		if !sameSession {
+			continue
+		}
 		activity, _ := strconv.ParseInt(fields[2], 10, 64)
-		clients = append(clients, client{pid: pid, tty: fields[1], activity: activity})
+		clients = append(clients, client{pid: pid, tty: fields[1], activity: activity, showsPane: paneWindow != "" && fields[5] == paneWindow})
 	}
-	sort.SliceStable(clients, func(i, j int) bool { return clients[i].activity > clients[j].activity })
+	sort.SliceStable(clients, func(i, j int) bool {
+		if clients[i].showsPane != clients[j].showsPane {
+			return clients[i].showsPane
+		}
+		return clients[i].activity > clients[j].activity
+	})
 	for _, candidate := range clients {
 		environment := probe.environ(candidate.pid)
 		route := claudeHookTmuxRoute{
@@ -219,8 +252,62 @@ func discoverClaudeHookTmuxRoute(getenv func(string) string, probe claudeHookTmu
 			clientTTY:   strings.TrimSpace(candidate.tty),
 		}
 		if route.socketPath != "" && route.workspaceID != "" && route.surfaceID != "" {
+			if probe.liveRelay != nil {
+				route.socketPath = probe.liveRelay(route.socketPath, candidate.pid)
+			}
 			return route, true
 		}
 	}
 	return claudeHookTmuxRoute{}, false
+}
+
+// claudeHookLiveRelay returns the relay that serves a tmux client now. A
+// client in a persistent remote terminal keeps the environment it started
+// with, so after a reconnect its relay port can be gone. The persistent
+// daemon above the client names its slot, and the relay directory records
+// which live port (with an auth file) leases that slot.
+func claudeHookLiveRelay(socketPath string, clientPID int, tree claudeProcessTree, relayDir string) string {
+	host, port, ok := strings.Cut(socketPath, ":")
+	if !ok || strings.HasPrefix(socketPath, "/") || port == "" {
+		return socketPath
+	}
+	if _, err := os.Stat(filepath.Join(relayDir, port+".auth")); err == nil {
+		return socketPath
+	}
+	slot := ""
+	current := tree.parent(clientPID)
+	for depth := 0; depth < claudeHookAgentSearchDepth && current > 1 && slot == ""; depth++ {
+		argv := tree.argv(current)
+		for index := 0; index+1 < len(argv); index++ {
+			if argv[index] == "--slot" {
+				slot = strings.TrimSpace(argv[index+1])
+				break
+			}
+		}
+		current = tree.parent(current)
+	}
+	if slot == "" {
+		return socketPath
+	}
+	leases, _ := filepath.Glob(filepath.Join(relayDir, "*.slot"))
+	best, bestTime := "", time.Time{}
+	for _, lease := range leases {
+		data, err := os.ReadFile(lease)
+		if err != nil || strings.TrimSpace(string(data)) != slot {
+			continue
+		}
+		livePort := strings.TrimSuffix(filepath.Base(lease), ".slot")
+		if _, err := strconv.Atoi(livePort); err != nil {
+			continue
+		}
+		info, err := os.Stat(filepath.Join(relayDir, livePort+".auth"))
+		if err != nil || (best != "" && !info.ModTime().After(bestTime)) {
+			continue
+		}
+		best, bestTime = livePort, info.ModTime()
+	}
+	if best == "" {
+		return socketPath
+	}
+	return host + ":" + best
 }

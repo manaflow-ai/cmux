@@ -170,12 +170,12 @@ func TestClaudeHookEnqueueParamsSendsResumeContextOnlyOnSessionStart(t *testing.
 // a tmux server that predates cmux: without CMUX_CLAUDE_PID in the pane, the
 // ancestors come from the Claude process the hook found above itself.
 func TestClaudeRelayResumeContextUsesDiscoveredAgentPID(t *testing.T) {
-	tree := srTmuxProcessTree()
+	tree := launcherTmuxProcessTree()
 	previousTree := claudeRelayProcessTree
 	claudeRelayProcessTree = tree
 	t.Cleanup(func() { claudeRelayProcessTree = previousTree })
 	paneEnv := claudeHookTestEnv(map[string]string{"TMUX": "/tmp/tmux-1000/default,100,0", "TMUX_PANE": "%0"})
-	probe, _ := fakeClaudeHookTmuxProbe("$0", "4102\t/dev/pts/4\t1\n", map[int]map[string]string{
+	probe, _ := fakeClaudeHookTmuxProbe("$0\t\t@0", "4102\t/dev/pts/4\t1\t$0\t\t@0\n", map[int]map[string]string{
 		4102: cmuxClientEnvironment("63518", "22222222-2222-4222-8222-222222222222"),
 	})
 	delivery, ok := resolveClaudeHookDelivery(claudeHookDelivery{
@@ -193,7 +193,7 @@ func TestClaudeRelayResumeContextUsesDiscoveredAgentPID(t *testing.T) {
 	if params["remote_cwd"] != "/home/u/repo" {
 		t.Fatalf("remote_cwd = %v", params["remote_cwd"])
 	}
-	want := [][]string{{"sr"}, {"tmux"}}
+	want := [][]string{{"launcher"}, {"tmux"}}
 	if got := params["ancestor_executables"]; !reflect.DeepEqual(got, want) {
 		t.Fatalf("ancestor_executables = %q, want %q (the launcher's argv values must not leave the host)", got, want)
 	}
