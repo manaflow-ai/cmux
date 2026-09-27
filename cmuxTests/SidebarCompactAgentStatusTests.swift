@@ -171,12 +171,12 @@ struct SidebarCompactAgentStatusTests {
     @Test
     func pullRequestColorsFollowMergeAndChecks() {
         let cases: [(SidebarPullRequestStatus, Glyph.Checks?, NSColor, String)] = [
-            (.open, .conflict, .systemOrange, "arrow.triangle.pull"),
-            (.open, .passing, .systemGreen, "arrow.triangle.pull"),
-            (.open, .failing, .systemRed, "arrow.triangle.pull"),
-            (.open, nil, .gray, "arrow.triangle.pull"),
-            (.merged, nil, .systemPurple, "arrow.triangle.merge"),
-            (.closed, nil, .gray, "arrow.triangle.pull"),
+            (.open, .conflict, .systemOrange, "cmux.pullrequest"),
+            (.open, .passing, .systemGreen, "cmux.pullrequest"),
+            (.open, .failing, .systemRed, "cmux.pullrequest"),
+            (.open, nil, .gray, "cmux.pullrequest"),
+            (.merged, nil, .systemPurple, "cmux.merge"),
+            (.closed, nil, .gray, "cmux.pullrequest"),
         ]
         for (status, checks, color, symbol) in cases {
             let glyph = Glyph.resolve(.init(
@@ -186,6 +186,20 @@ struct SidebarCompactAgentStatusTests {
             ))
             #expect(glyph.color(isActive: false, selected: .white, secondary: .gray) == color)
             #expect(glyph.symbolName == symbol)
+        }
+    }
+
+    @Test
+    func pullRequestGlyphsAreDrawnToFillTheirSquare() throws {
+        for drawn in [SidebarCompactStatusDrawnGlyph.pullRequest, .merge] {
+            let image = drawn.image(pointSize: 11)
+            #expect(image.size == NSSize(width: 11, height: 11))
+            #expect(image.isTemplate)
+            // SF's arrow.triangle.pull is under half as wide as it is tall.
+            let bounds = drawn.path(in: NSRect(x: 0, y: 0, width: 16, height: 16)).bounds
+            #expect(bounds.width > 10 && bounds.height > 12)
+            // Also accepted as a configured icon name.
+            #expect(SidebarCompactStatusGlyphImageView.image(symbol: drawn.rawValue, badge: nil, pointSize: 11) != nil)
         }
     }
 

@@ -122,8 +122,8 @@ struct SidebarCompactStatusGlyph: Equatable, Hashable {
     var defaultSymbolName: String {
         switch kind {
         case .error: return "exclamationmark.triangle.fill"
-        case .pullRequest(.merged): return "arrow.triangle.merge"
-        case .pullRequest: return "arrow.triangle.pull"
+        case .pullRequest(.merged): return SidebarCompactStatusDrawnGlyph.merge.rawValue
+        case .pullRequest: return SidebarCompactStatusDrawnGlyph.pullRequest.rawValue
         case .pending: return "circle.dashed"
         case .needsInput, .running, .unseen: return "circle.fill"
         case .idle: return "checkmark.circle"
@@ -471,9 +471,10 @@ final class SidebarCompactStatusGlyphImageView: NSImageView {
     @MainActor static func image(symbol: String, badge: String?, pointSize: CGFloat) -> NSImage? {
         let key = ImageKey(symbol: symbol, badge: badge, pointSize: pointSize)
         if let cached = imageCache[key] { return cached }
-        guard let base = RenderableSystemSymbol.configuredAppKitImage(
-            systemName: symbol, pointSize: pointSize, weight: .semibold
-        ) else { return nil }
+        guard let base = SidebarCompactStatusDrawnGlyph(rawValue: symbol)?.image(pointSize: pointSize)
+            ?? RenderableSystemSymbol.configuredAppKitImage(
+                systemName: symbol, pointSize: pointSize, weight: .semibold
+            ) else { return nil }
         guard let badge, let badgeImage = RenderableSystemSymbol.configuredAppKitImage(
             systemName: badge, pointSize: pointSize * 0.62, weight: .bold
         ) else {
@@ -587,5 +588,68 @@ extension SidebarCompactStatusGlyph {
         rows.compactMapValues { row in
             row.workspace.compactStatusGlyph.map { GroupMember(title: row.workspace.title, glyph: $0) }
         }
+    }
+}
+
+/// Glyphs SF Symbols lacks at sidebar size: its pull request and merge
+/// symbols are narrow and read as a broken letter at 11 pt. These are drawn
+/// in the familiar ring-and-line shape, filling the square. The raw values
+/// also work as `sidebar.compactStatusIcons` names.
+enum SidebarCompactStatusDrawnGlyph: String {
+    case pullRequest = "cmux.pullrequest"
+    case merge = "cmux.merge"
+
+    /// A template image `pointSize` square; the caller tints it.
+    func image(pointSize: CGFloat) -> NSImage {
+        let image = NSImage(size: NSSize(width: pointSize, height: pointSize), flipped: true) { rect in
+            NSColor.black.setStroke()
+            path(in: rect).stroke()
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
+    /// Drawn on a 16-unit grid, y down: two rings joined by a line on the
+    /// left, then either a line up from a third ring that turns into a
+    /// left-pointing arrow (pull request) or a curve into a ring (merge).
+    func path(in rect: NSRect) -> NSBezierPath {
+        let unit = min(rect.width, rect.height) / 16
+        func point(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
+            NSPoint(x: rect.minX + x * unit, y: rect.minY + y * unit)
+        }
+        let radius: CGFloat = 1.9
+        let path = NSBezierPath()
+        func ring(_ x: CGFloat, _ y: CGFloat) {
+            path.appendOval(in: NSRect(
+                x: rect.minX + (x - radius) * unit,
+                y: rect.minY + (y - radius) * unit,
+                width: 2 * radius * unit,
+                height: 2 * radius * unit
+            ))
+        }
+        ring(4, 3.2)
+        ring(4, 12.8)
+        path.move(to: point(4, 3.2 + radius))
+        path.line(to: point(4, 12.8 - radius))
+        switch self {
+        case .pullRequest:
+            ring(12, 12.8)
+            path.move(to: point(12, 12.8 - radius))
+            path.line(to: point(12, 6.2))
+            path.curve(to: point(9, 3.2), controlPoint1: point(12, 4.4), controlPoint2: point(10.8, 3.2))
+            path.line(to: point(7.2, 3.2))
+            path.move(to: point(9.1, 1.3))
+            path.line(to: point(7.2, 3.2))
+            path.line(to: point(9.1, 5.1))
+        case .merge:
+            ring(12, 9.5)
+            path.move(to: point(4, 3.2 + radius))
+            path.curve(to: point(12 - radius, 9.5), controlPoint1: point(4, 8.2), controlPoint2: point(6.5, 9.5))
+        }
+        path.lineWidth = 1.7 * unit
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        return path
     }
 }
