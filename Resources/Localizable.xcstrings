@@ -554974,55 +554974,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Moves and deletes by line or word with Command or Option and the arrow keys or Delete."
+            "value": "Make text editing keys work like other Mac apps. Press Option-Left Arrow (⌥←) or Option-Right Arrow (⌥→) to move by word, and Command-Left Arrow (⌘←) or Command-Right Arrow (⌘→) to move to the start or end of the line."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ermöglicht das zeilen- oder wortweise Bewegen und Löschen mit der Befehls- oder Wahltaste und den Pfeiltasten oder der Löschtaste."
+            "value": "Lass Tasten zur Textbearbeitung wie in anderen Mac-Apps funktionieren. Drücke Wahltaste-Linkspfeil (⌥←) oder Wahltaste-Rechtspfeil (⌥→), um die Einfügemarke wortweise zu bewegen, und Befehlstaste-Linkspfeil (⌘←) oder Befehlstaste-Rechtspfeil (⌘→), um sie an den Anfang oder das Ende der Zeile zu bewegen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permet de se déplacer et de supprimer par ligne ou par mot avec Commande ou Option et les flèches ou Supprimer."
+            "value": "Faites fonctionner les touches d’édition de texte comme dans les autres apps Mac. Appuyez sur Option-Flèche gauche (⌥←) ou Option-Flèche droite (⌥→) pour déplacer le point d’insertion d’un mot à l’autre, et sur Commande-Flèche gauche (⌘←) ou Commande-Flèche droite (⌘→) pour le placer au début ou à la fin de la ligne."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتيح التنقل والحذف سطرًا سطرًا أو كلمةً كلمة باستخدام Command أو Option مع مفاتيح الأسهم أو مفتاح الحذف."
+            "value": "اجعل مفاتيح تحرير النص تعمل كما في تطبيقات Mac الأخرى. اضغط على الخيار-السهم الأيسر (⌥←) أو الخيار-السهم الأيمن (⌥→) لنقل نقطة الإدراج كلمةً كلمة، وعلى الأوامر-السهم الأيسر (⌘←) أو الأوامر-السهم الأيمن (⌘→) لنقلها إلى بداية السطر أو نهايته."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permite moverse y borrar por líneas o palabras con Comando u Opción y las teclas de flecha o Eliminar."
+            "value": "Haz que las teclas de edición de texto funcionen como en otras apps de Mac. Pulsa Opción-Flecha izquierda (⌥←) u Opción-Flecha derecha (⌥→) para mover el punto de inserción palabra por palabra, y Comando-Flecha izquierda (⌘←) o Comando-Flecha derecha (⌘→) para moverlo al principio o al final de la línea."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用 Command 或 Option 鍵搭配方向鍵或 Delete 鍵，按行或字詞移動及刪除。"
+            "value": "讓文字編輯按鍵的運作方式與其他 Mac App 相同。按下 Option-向左鍵（⌥←）或 Option-向右鍵（⌥→）可以單字為單位移動插入點，按下 Command-向左鍵（⌘←）或 Command-向右鍵（⌘→）可將插入點移至行首或行尾。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用 Command 或 Option 键搭配箭头键或 Delete 键，按行或按词移动和删除。"
+            "value": "让文本编辑键的行为与其他 Mac App 一致。按下 Option-左箭头（⌥←）或 Option-右箭头（⌥→）可逐词移动插入点，按下 Command-左箭头（⌘←）或 Command-右箭头（⌘→）可将插入点移到行首或行尾。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command 또는 Option 키와 화살표 키 또는 Delete 키를 사용하여 줄 또는 단어 단위로 이동하거나 삭제합니다."
+            "value": "텍스트 편집 키가 다른 Mac 앱과 같이 작동하도록 합니다. Option-왼쪽 화살표(⌥←) 또는 Option-오른쪽 화살표(⌥→)를 누르면 삽입 지점이 단어 단위로 이동하고, Command-왼쪽 화살표(⌘←) 또는 Command-오른쪽 화살표(⌘→)를 누르면 줄의 시작 또는 끝으로 이동합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command キーまたは Option キーと、矢印キーまたは Delete キーを使って、行単位または単語単位で移動・削除します。"
+            "value": "テキスト編集キーをほかのMacアプリと同じように使えるようにします。Option+左矢印（⌥←）またはOption+右矢印（⌥→）を押すと挿入ポイントが単語単位で移動し、Command+左矢印（⌘←）またはCommand+右矢印（⌘→）を押すと行の先頭または末尾に移動します。"
           }
         }
       }

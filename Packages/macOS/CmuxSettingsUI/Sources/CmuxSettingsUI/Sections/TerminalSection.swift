@@ -456,7 +456,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.textEditingGestures"),
                 String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"),
-                subtitle: String(localized: "settings.terminal.textEditingGestures.subtitle", defaultValue: "Moves and deletes by line or word with Command or Option and the arrow keys or Delete.")
+                subtitle: String(localized: "settings.terminal.textEditingGestures.subtitle", defaultValue: "Make text editing keys work like other Mac apps. Press Option-Left Arrow (⌥←) or Option-Right Arrow (⌥→) to move by word, and Command-Left Arrow (⌘←) or Command-Right Arrow (⌘→) to move to the start or end of the line.")
             ) {
                 Toggle("", isOn: Binding(get: { textEditingGestures.current }, set: { textEditingGestures.set($0) }))
                     .labelsHidden()
