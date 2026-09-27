@@ -952,6 +952,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // are suppressed while forced; `managedAutoUpdateAllowsCheck()` explains.
         isDisabledByPolicy: { ManagedDevicePolicy().isEnforced(.disableAutoUpdate) }
     )
+    /// Shared by the app menu, command palette and Settings "Switch to Nightly/Stable" action.
+    private lazy var appChannelSwitchPresenter = AppChannelSwitchPresenter(
+        requestQuit: { AppDelegate.requestApplicationTermination() }
+    )
     private let titlebarControlsLayoutModel = TitlebarControlsLayoutModel()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
         updateLog: updateLog,
@@ -10598,6 +10602,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard managedAutoUpdateAllowsCheck() else { return }
         updateController.model.setOverrideState(nil)
         updateController.checkForUpdatesInCustomUI()
+    }
+
+    /// The release app this one can switch to: NIGHTLY from stable, stable from NIGHTLY,
+    /// and none for tagged development builds.
+    var appChannelSwitchTarget: AppChannelSwitchTarget? {
+        AppChannelSwitchTarget.counterpart(ofBundleIdentifier: Bundle.main.bundleIdentifier)
+    }
+
+    /// Opens the other release app, installing it first when missing.
+    @objc func switchAppChannel(_ sender: Any?) {
+        guard let target = appChannelSwitchTarget, managedAutoUpdateAllowsCheck() else { return }
+        appChannelSwitchPresenter.start(target: target)
     }
 
     func openWelcomeWorkspace() {
