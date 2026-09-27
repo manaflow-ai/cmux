@@ -23,6 +23,10 @@ on:
         description: "Timeout in minutes for building and for testing; the build job, which also runs the tests, gets twice this"
         required: false
         default: "45"
+      dogfood_scenario:
+        description: "Base64 JSON scenario for cmuxUITests/DogfoodScenarioUITests (scripts/run-e2e.sh --scenario builds it); empty otherwise"
+        required: false
+        default: ""
       record_video:
         description: Record the virtual display during UI tests
         required: false
@@ -45,9 +49,11 @@ on:
 # `auto` as the 6vcpu default even when the runner job routes the run to
 # the 12vcpu pool. Every auto dispatch of one ref and filter still shares a
 # group, so a newer one still cancels the older wherever it landed. run-e2e.sh
-# names the pool it chose explicitly, so its titles are exact.
+# names the pool it chose explicitly, so its titles are exact. A dogfood
+# scenario run adds its dispatch id: agents dispatch several tours of one
+# commit at once, and each must not cancel the others.
 concurrency:
-  group: e2e-${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
+  group: e2e-${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}${{ inputs.dogfood_scenario && format('-{0}', inputs.dispatch_id) || '' }}
   cancel-in-progress: true
 
 # This lane checks out and compiles a dispatcher-chosen ref, so it should hold
@@ -1098,6 +1104,7 @@ jobs:
           record-video: ${{ needs.filter.outputs.record_video }}
           test-filter: ${{ inputs.test_filter }}
           test-timeout: ${{ inputs.test_timeout || '120' }}
+          dogfood-scenario: ${{ inputs.dogfood_scenario }}
           ref-display: ${{ inputs.ref || github.ref_name }}
           source-revision: ${{ needs.resolve-ref.outputs.sha }}
           artifact-id: ${{ steps.upload-product.outputs.artifact-id }}
@@ -1308,6 +1315,7 @@ jobs:
           record-video: ${{ needs.filter.outputs.record_video }}
           test-filter: ${{ inputs.test_filter }}
           test-timeout: ${{ inputs.test_timeout || '120' }}
+          dogfood-scenario: ${{ inputs.dogfood_scenario }}
           ref-display: ${{ inputs.ref || github.ref_name }}
           source-revision: ${{ needs.resolve-ref.outputs.sha }}
           artifact-id: ${{ needs.build.outputs.artifact_id }}

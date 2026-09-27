@@ -218,6 +218,30 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertIn("/actions/runs/123", result.stdout)
         self.assertNotIn("/actions/runs/999", result.stdout)
 
+    def test_a_scenario_dispatches_the_dogfood_test_with_the_encoded_tour(self):
+        import base64
+        tour = {"steps": [{"shot": "start"}, {"key": "t", "modifiers": ["command"]}]}
+        path = self.root / "tour.json"
+        path.write_text(json.dumps(tour))
+        result = self.launch("--scenario", str(path))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        dispatch = self.dispatch()
+        self.assertEqual(dispatch["test_filter"], "cmuxUITests/DogfoodScenarioUITests")
+        self.assertEqual(json.loads(base64.b64decode(dispatch["dogfood_scenario"])), tour)
+
+    def test_a_scenario_without_steps_is_refused_before_dispatch(self):
+        path = self.root / "tour.json"
+        path.write_text(json.dumps({"launch": {}}))
+        result = self.launch("--scenario", str(path))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("steps", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists())
+
+    def test_a_run_needs_a_selector_or_a_scenario(self):
+        result = self.launch()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--scenario", result.stderr)
+
     def test_only_unpinned_runs_without_full_build_look_for_ci_products(self):
         for args in (["cmuxTests/ExampleTests"], ["cmuxTests/ExampleTests", "--full-build"],
                      ["cmuxTests/ExampleTests", "--runner", SMALL], ["ExampleUITests"],

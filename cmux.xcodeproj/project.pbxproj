@@ -1716,6 +1716,7 @@
 		904090409040904090409041 /* DockUnreadPanelProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 904090409040904090409042 /* DockUnreadPanelProjection.swift */; };
 		904090409040904090409045 /* DockUnreadProjectionContextBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 904090409040904090409046 /* DockUnreadProjectionContextBridge.swift */; };
 		D86860000000000000000001 /* DockWorkingDirectoryInheritanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86860000000000000000002 /* DockWorkingDirectoryInheritanceTests.swift */; };
+		D0F00D01A1B2C3D4E5F60719 /* DogfoodScenarioUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F00D00A1B2C3D4E5F60719 /* DogfoodScenarioUITests.swift */; };
 		D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */; };
 		D10799040000000000000001 /* DragPasteboardCapabilityCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10799030000000000000001 /* DragPasteboardCapabilityCleaner.swift */; };
 		0BD2AA506F906B6A5382A280 /* DuplicateInstanceHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5647CF47CFF9FE064EB0A704 /* DuplicateInstanceHandlerTests.swift */; };
@@ -5724,6 +5725,7 @@
 		904090409040904090409042 /* DockUnreadPanelProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockUnreadPanelProjection.swift; sourceTree = "<group>"; };
 		904090409040904090409046 /* DockUnreadProjectionContextBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockUnreadProjectionContextBridge.swift; sourceTree = "<group>"; };
 		D86860000000000000000002 /* DockWorkingDirectoryInheritanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockWorkingDirectoryInheritanceTests.swift; sourceTree = "<group>"; };
+		D0F00D00A1B2C3D4E5F60719 /* DogfoodScenarioUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DogfoodScenarioUITests.swift; sourceTree = "<group>"; };
 		D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOverlayRoutingPolicy.swift; sourceTree = "<group>"; };
 		D10799030000000000000001 /* DragPasteboardCapabilityCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragPasteboardCapabilityCleaner.swift; sourceTree = "<group>"; };
 		5647CF47CFF9FE064EB0A704 /* DuplicateInstanceHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DuplicateInstanceHandlerTests.swift"; sourceTree = "<group>"; };
@@ -8358,6 +8360,7 @@
 			isa = PBXGroup;
 			children = (
 				B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */,
+				D0F00D00A1B2C3D4E5F60719 /* DogfoodScenarioUITests.swift */,
 				FEED0000000000000000F008 /* FeedSidebarUITests.swift */,
 				140240000000000000000001 /* HookPromptLengthUITests.swift */,
 				B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */,
@@ -15644,6 +15647,7 @@
 				C0DE32470000000000000005 /* CommandPaletteIdentifierClipboardUITests.swift in Sources */,
 				D10000000000000000B00000 /* ControlSocketReadinessUITestSupport.swift in Sources */,
 				B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */,
+				D0F00D01A1B2C3D4E5F60719 /* DogfoodScenarioUITests.swift in Sources */,
 				FEED0000000000000000F009 /* FeedSidebarUITests.swift in Sources */,
 				D0E0F0B4A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift in Sources */,
 				FE00AA10C1B2C3D4E5F60718 /* FocusHistoryShortcutUITests.swift in Sources */,
