@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-import CmuxRemoteWorkspace
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -101,9 +100,11 @@ struct RemoteTmuxBrowserProxyRegistryTests {
         await transport.setBlocksOpen(true)
         let registry = registry(using: transport)
         let host = RemoteTmuxHost(destination: "registry-rebuild-\(UUID().uuidString)@host")
-        var publishedEndpoints: [BrowserProxyEndpoint?] = []
+        var readyEndpointCount = 0
         registry.onEndpointChange = { _, endpoint in
-            publishedEndpoints.append(endpoint)
+            if endpoint != nil {
+                readyEndpointCount += 1
+            }
         }
 
         let stale = registry.acquire(host: host, workspaceID: UUID())
@@ -121,10 +122,10 @@ struct RemoteTmuxBrowserProxyRegistryTests {
             Issue.record("Expected cancellation, got \(error)")
         }
 
-        for _ in 0..<100 where publishedEndpoints.compactMap({ $0 }).isEmpty {
+        for _ in 0..<100 where readyEndpointCount == 0 {
             await Task.yield()
         }
-        #expect(publishedEndpoints.compactMap({ $0 }).count == 1)
+        #expect(readyEndpointCount == 1)
         let openedTwice = await transport.openCount()
         #expect(openedTwice == 2)
     }
