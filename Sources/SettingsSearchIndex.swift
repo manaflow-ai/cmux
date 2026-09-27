@@ -151,8 +151,7 @@ enum SettingsSearchIndex {
             String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"),
             [
                 "automation.workspaceAutoNaming automation.autoNamingAgent workspace auto naming auto name ai naming names rename workspace rename tab title titles generated name agent summarizer summarize conversation",
-                String(localized: "settings.automation.workspaceAutoNaming.subtitleOn", defaultValue: "Workspaces and tabs are named from agent conversations."),
-                String(localized: "settings.automation.workspaceAutoNaming.subtitleOff", defaultValue: "Workspace and tab names are never generated."),
+                String(localized: "settings.automation.workspaceAutoNaming.subtitle", defaultValue: "Generates workspace and tab titles from agent conversations."),
                 String(localized: "settings.automation.workspaceAutoNaming.note", defaultValue: "When enabled, cmux summarizes supported agent sessions into short workspace and tab names using each agent's own binary, refreshed as the topic shifts. Manual renames always win and stop auto-naming for that workspace or tab. Uses your agent account for the short summarization calls."),
                 String(localized: "settings.automation.autoNamingAgent", defaultValue: "Naming Agent"),
                 String(localized: "settings.automation.autoNamingAgent.auto", defaultValue: "Automatic")

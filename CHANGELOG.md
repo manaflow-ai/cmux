@@ -5,7 +5,7 @@ All notable changes to cmux are documented here.
 ## Unreleased
 
 ### Added
-- Settings > Workspace Colors > Subtle Selection Highlight (`workspaceColors.subtleSelection`, off by default) draws the sidebar's selected workspace as a faint accent tint with a thin edge instead of a solid blue block, neutral while the window is inactive and stronger under Increase Contrast ([#14890](https://github.com/manaflow-ai/cmux/pull/14890))
+- `cmux session move <session-id> --to <ssh-destination|local>` moves a stopped Claude Code session, its transcript, memory and git working tree, between this Mac and an SSH host and resumes it there ([#14959](https://github.com/manaflow-ai/cmux/pull/14959))
 - Claude Code and Codex agents on a `cmux ssh` host show Running, Needs input, or Idle in the sidebar; cmux installs their hooks on the host when the Integrations toggles are on ([#14902](https://github.com/manaflow-ai/cmux/pull/14902))
 - Settings > Terminal > Reflow Hard-Wrapped Text on Copy (`terminal.reflowHardWrapOnCopy`, off by default) rejoins lines a program wrapped at exactly the terminal width when you copy ([#6923](https://github.com/manaflow-ai/cmux/pull/6923)) -- thanks @mvanhorn!
 - Pi is offered in the Machines Open Cloud Agent menu, `vm.cloud_agent_open`, and `cmux vm prompt --open pi` ([#14819](https://github.com/manaflow-ai/cmux/pull/14819)) -- thanks @aliyansajid!
@@ -13,9 +13,15 @@ All notable changes to cmux are documented here.
 - Global search finds text in the scrollback of open terminals, and Return on a terminal hit opens that pane's find bar on the match ([#11665](https://github.com/manaflow-ai/cmux/pull/11665)) -- thanks @smoreg!
 
 ### Changed
+- Each Settings toggle and picker row shows one fixed subtitle instead of text that changes with the selected value, and localized Settings titles and Feed, Dock, and Cloud Machines labels use corrected wording ([#14883](https://github.com/manaflow-ai/cmux/pull/14883)) -- thanks @agoodkind!
 - The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
 
 ### Fixed
+- VoiceOver no longer reads a symbol name such as "gearshape" or "Mostly Cloudy" before each Settings sidebar entry ([#14989](https://github.com/manaflow-ai/cmux/pull/14989))
+- VoiceOver now names the browser toolbar's Back, Forward, Reload/Stop, Developer Tools, Profile, and Theme buttons and the notification clear buttons, no longer reads internal command ids on command palette rows, and the Xcode project panel's reload, dismiss, picker, and status text is localized ([#14926](https://github.com/manaflow-ai/cmux/pull/14926)).
+- The Settings notification sound preview button has a tooltip and VoiceOver label, and German, French, Spanish, Arabic, Korean, and Chinese menus and buttons no longer show the wrong sense of Clear, Open, Back, Refresh, Preview, Rename, Stop, or Fork (for example German "Klar" instead of "Löschen", or Spanish "Abierto" instead of "Abrir") ([#14983](https://github.com/manaflow-ai/cmux/pull/14983)).
+- In canvas mode, panes an agent or the CLI creates no longer scroll the canvas away from what you're watching, socket canvas commands apply without animation, and canvas pans and the overview toggle respect Reduce Motion ([#14939](https://github.com/manaflow-ai/cmux/pull/14939))
+- Hovering a command palette or session index row no longer looks as strong as (or erases) the selection; terminal and browser find fields show a focus stroke; group header unread badges follow the Notification Badge color; and the feed's Deny and Allow Once buttons stay visible in both light and dark mode ([#14941](https://github.com/manaflow-ai/cmux/pull/14941)).
 - Hovering a sidebar workspace swaps its unread badge for the close button in the same frame, feed selection with j/k no longer eases between rows, clearing a notification closes the gap at once, and holding Command no longer animates unrelated right sidebar changes ([#14927](https://github.com/manaflow-ai/cmux/pull/14927)).
 - In a split, a pane you switch to no longer shows a dimmed frame before it brightens; the unfocused-pane dim now changes in the same frame as focus ([#14892](https://github.com/manaflow-ai/cmux/pull/14892)).
 - Clicking a sidebar workspace keeps its highlight steady while the selection lands, instead of flickering off when the pointer moves away, and rapid clicks never show two rows selected ([#14871](https://github.com/manaflow-ai/cmux/pull/14871)).

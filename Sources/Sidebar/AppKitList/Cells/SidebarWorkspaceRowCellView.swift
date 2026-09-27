@@ -744,14 +744,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         badgeVisible: Bool,
         spinnerVisible: Bool
     ) {
-        let badgeFill: NSColor = {
-            if let hex = model.settings.notificationBadgeColorHex, let color = NSColor(hex: hex) {
-                return color
-            }
-            return model.isActive
+        let badgeFill = cmuxNotificationBadgeNSColor(
+            hex: model.settings.notificationBadgeColorHex,
+            fallback: model.isActive
                 ? palette.primaryText.withAlphaComponent(0.25)
                 : cmuxAccentNSColor(for: palette.colorScheme)
-        }()
+        )
         let badgeText: NSColor = model.isActive ? palette.primaryText : .white
         let badgeFont = NSFont.systemFont(ofSize: model.scaled(9), weight: .semibold)
 
@@ -1181,6 +1179,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 self?.contextMenuVisible = false
                 self?.updateCloseVisibility()
                 didClose?()
+            },
+            beginInlineRename: { [weak self] in
+                self?.beginInlineRename()
             }
         )
     }

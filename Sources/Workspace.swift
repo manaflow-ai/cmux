@@ -21,6 +21,7 @@ import CmuxAgentChat
 import CmuxSettings
 import CmuxBrowser
 import CmuxCanvasUI
+import CmuxCommandPalette
 import CmuxPanes
 import CmuxSidebar
 import CmuxNotifications
@@ -12749,30 +12750,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
     }
 
-    private func promptRenamePanel(tabId: TabID) {
+    /// Bonsplit tabs have no inline title editor, so a tab's "Rename Tab"
+    /// opens the palette rename editor for that exact tab (not the focused one).
+    private func requestPaletteRenamePanel(tabId: TabID) {
         guard let panelId = panelIdFromSurfaceId(tabId),
               let panel = panels[panelId] else { return }
-
-        let alert = NSAlert()
-        alert.messageText = String(localized: "alert.renameTab.title", defaultValue: "Rename Tab")
-        alert.informativeText = String(localized: "alert.renameTab.message", defaultValue: "Enter a custom name for this tab.")
         let currentTitle = panelCustomTitles[panelId] ?? panelTitles[panelId] ?? panel.displayTitle
-        let input = NSTextField(string: currentTitle)
-        input.placeholderString = String(localized: "alert.renameTab.placeholder", defaultValue: "Tab name")
-        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
-        alert.addButton(withTitle: String(localized: "alert.renameTab.rename", defaultValue: "Rename"))
-        alert.addButton(withTitle: String(localized: "alert.cancel", defaultValue: "Cancel"))
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        let response = alert.runCmuxModal(
-            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(id)
-        ) { _ in
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
-        guard response == .alertFirstButtonReturn else { return }
-        setPanelCustomTitle(panelId: panelId, title: input.stringValue)
+        AppDelegate.shared?.requestCommandPaletteRename(
+            CommandPaletteRenameTarget(
+                kind: .tab(workspaceId: id, panelId: panelId),
+                currentName: currentTitle
+            ),
+            preferredWindow: AppDelegate.shared?.mainWindowContainingWorkspace(id),
+            source: "tabContextMenu.rename"
+        )
     }
 
     private static let bonsplitMoveNewWorkspaceDestinationId = "new-workspace"
@@ -14753,7 +14744,7 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Bonsplit.Tab, inPane pane: PaneID) {
         switch action {
         case .rename:
-            promptRenamePanel(tabId: tab.id)
+            requestPaletteRenamePanel(tabId: tab.id)
         case .clearName:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             setPanelCustomTitle(panelId: panelId, title: nil)
