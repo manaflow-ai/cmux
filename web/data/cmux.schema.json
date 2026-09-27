@@ -679,6 +679,11 @@
           "descriptionKey": "schemaDescriptions.app.warnBeforeClosingTabXButton",
           "description": "Show a confirmation before closing a tab with the tab close button."
         },
+        "warnBeforeClosingWorkspace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a confirmation before closing a workspace with a running process, or several workspaces at once. Pinned workspaces still ask when this is off."
+        },
         "hideTabCloseButton": {
           "type": "boolean",
           "default": false,

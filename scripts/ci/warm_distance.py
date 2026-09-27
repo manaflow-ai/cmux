@@ -216,6 +216,7 @@ def start_distance(current: Mapping[str, list], start: Mapping[str, list] | None
 _deadline: list[float] = [float("inf")]
 GIT_TIMEOUT_SECONDS = 10
 FETCH_TIMEOUT_SECONDS = 20
+FETCH_RESERVE_SECONDS = 2  # of the picker's budget, kept for the diffs after the base fetch
 RECORD_BUDGET_SECONDS = 60
 PICKER_BUDGET_SECONDS = 8
 
@@ -235,6 +236,11 @@ def git(workspace: Path, *args: str, timeout: float = GIT_TIMEOUT_SECONDS) -> st
 
 def have_commit(workspace: Path, sha: str) -> bool:
     return bool(sha) and git(workspace, "cat-file", "-e", f"{sha}^{{commit}}") is not None
+
+
+def have_tree(workspace: Path, sha: str) -> bool:
+    """SHA's commit and its root tree are in the checkout (a --filter=tree:0 history has the commit only)."""
+    return have_commit(workspace, sha) and git(workspace, "cat-file", "-e", f"{sha}^{{tree}}") is not None
 
 
 def ensure_commit(workspace: Path, sha: str) -> bool:
@@ -624,7 +630,7 @@ HOOK_DEFAULT_MODEL = {"near_app_swift_files": 5, "hot_files": [],
 HOOK_MAX_FILES = 400
 # Distinct kept merge bases compared per decision (one tree diff each; one fetch brings all that are missing).
 MAX_ROUTE_BASES = 24
-DISTANCE_BUDGET_SECONDS = 15
+DISTANCE_BUDGET_SECONDS = 30  # two fetch attempts of ~14 s: a checkout fetch took 11.5 s on a slow runner
 WARM_SHA = re.compile(r"[0-9a-f]{40}")
 
 
@@ -718,12 +724,47 @@ def hook_root_cost(changes: tuple[set[str], bool] | None, stamp: Mapping[str, An
     return (model.get("kept") or {}).get(name, model["tiers"][name]), name, count
 
 
-def fetch_bases(workspace: Path, shas: Iterable[str]) -> None:
-    """The commits and trees (no blobs) of SHAS the checkout lacks, in one shallow fetch."""
-    missing = sorted({sha for sha in shas if WARM_SHA.fullmatch(sha) and not have_commit(workspace, sha)})
-    if missing:
-        git(workspace, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--depth=1", "--filter=blob:none",
-            "origin", *missing, timeout=FETCH_TIMEOUT_SECONDS)
+def fetch_bases(workspace: Path, shas: Iterable[str]) -> dict[str, Any]:
+    """The commits and trees (no blobs) of SHAS the checkout lacks, in one shallow fetch, tried twice.
+
+    On 2026-09-27 the one fetch failed on some picker runs (1 of 14 bases compared), and every root of
+    every mini then cost the unknown start, so distance routing never pinned. A second attempt takes
+    what the first left missing. Returns what happened, for the decision record: the bases missing,
+    the seconds, and the last failure's stderr tail."""
+    # The tree, not only the commit: the changes job's delta_since_green.py fetches main's history with
+    # --filter=tree:0, so most kept bases were present as bare commits, never fetched, and their diffs
+    # failed (09-27 18Z: 13 of 15 bases uncomparable on #15003's run). --refetch makes the server send
+    # the trees of a commit the checkout already has.
+    missing = sorted({sha for sha in shas if WARM_SHA.fullmatch(sha) and not have_tree(workspace, sha)})
+    report: dict[str, Any] = {"missing": len(missing), "attempts": 0}
+    started = time.monotonic()
+    env = {**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"}
+    for attempt in range(2):
+        if not missing:
+            break
+        # Leave room for a second attempt and the diffs (tens of milliseconds each) after a slow failure.
+        timeout = min(FETCH_TIMEOUT_SECONDS, (_deadline[0] - time.monotonic() - FETCH_RESERVE_SECONDS) / (2 - attempt))
+        if timeout <= 0:
+            report["error"] = "no time left"
+            break
+        report["attempts"] += 1
+        try:
+            result = subprocess.run(["git", "-C", str(workspace), "fetch", "--quiet", "--no-tags",
+                                     "--no-write-fetch-head", "--refetch", "--depth=1", "--filter=blob:none",
+                                     "origin", *missing],
+                                    capture_output=True, text=True, timeout=timeout, env=env)
+            if result.returncode != 0:
+                report["error"] = f"exit {result.returncode}: {result.stderr.strip()[-300:]}"
+            else:
+                report.pop("error", None)
+        except subprocess.TimeoutExpired:
+            report["error"] = f"timed out after {timeout:.0f} s"
+        except OSError as error:
+            report["error"] = f"{type(error).__name__}: {error}"[:300]
+        missing = [sha for sha in missing if not have_tree(workspace, sha)]
+    report["left"] = len(missing)
+    report["seconds"] = round(time.monotonic() - started, 1)
+    return report
 
 
 def main_changes(workspace: Path, old: str, new: str) -> tuple[set[str], bool] | None:
@@ -875,6 +916,7 @@ def picker_distance_route(runners: Sequence[Mapping[str, Any]], root: str, *, me
     base = (merged_onto or "").strip().lower()
     number = int(pr_number) if (pr_number or "").strip().isdigit() else None
     diffs: dict[str, tuple[set[str], bool] | None] = {}
+    fetched: dict[str, Any] = {}
     _deadline[0] = time.monotonic() + DISTANCE_BUDGET_SECONDS
     try:
         own_files = pull_request_files(workspace, base, fetch=False) if base else None
@@ -886,7 +928,7 @@ def picker_distance_route(runners: Sequence[Mapping[str, Any]], root: str, *, me
         bases = [*sorted(parked_bases - {"", base}), *bases][:MAX_ROUTE_BASES]
         if WARM_SHA.fullmatch(base):
             if bases:
-                fetch_bases(workspace, bases)
+                fetched = fetch_bases(workspace, bases)
             diffs = {onto: main_changes(workspace, onto, base) for onto in bases}
             diffs[base] = (set(), False)
     finally:
@@ -912,13 +954,15 @@ def picker_distance_route(runners: Sequence[Mapping[str, Any]], root: str, *, me
                                     now=now, max_wait=routed_wait_limit(queue_rounds), runner_label=runner_label,
                                     member=member)
     decision["job_tier"] = job_tier
-    decision["bases"] = {"compared": sum(1 for value in diffs.values() if value is not None), "total": len(diffs)}
+    decision["bases"] = {"compared": sum(1 for value in diffs.values() if value is not None), "total": len(diffs),
+                         "fetch": fetched}
     return (json.dumps([root, runner_label(name)], separators=(",", ":")) if name else ""), decision
 
 
 def route_record(decision: Mapping[str, Any]) -> dict[str, Any]:
     """The picker's decision as admission records it (`route.picker`, for ci-dash's Estimates view), bounded:
-    mode, chosen runner ("" for the root label), predicted and baseline compile seconds, and the candidates."""
+    mode, chosen runner ("" for the root label), predicted and baseline compile seconds, the candidates, and
+    (distance mode) how many kept merge bases it could compare and how their fetch went."""
     candidates = []
     for row in (decision.get("candidates") or [])[:12]:
         if isinstance(row, Mapping):
@@ -934,7 +978,16 @@ def route_record(decision: Mapping[str, Any]) -> dict[str, Any]:
         predicted = picked[0]["cost"] if picked else decision.get("baseline_seconds")
     return {"mode": decision.get("mode") or "key", "chosen": chosen, "predicted": predicted,
             "baseline": decision.get("baseline", decision.get("baseline_seconds")), "tier": decision.get("tier"),
-            "job_tier": decision.get("job_tier"), "candidates": candidates, "why": str(decision.get("why") or "")[:200]}
+            "job_tier": decision.get("job_tier"), "candidates": candidates, "why": str(decision.get("why") or "")[:200],
+            **({"bases": bases_record(decision["bases"])} if isinstance(decision.get("bases"), Mapping) else {})}
+
+
+def bases_record(bases: Mapping[str, Any]) -> dict[str, Any]:
+    """The decision's base comparison, bounded: compared of total, and the fetch's outcome."""
+    fetch = bases.get("fetch") if isinstance(bases.get("fetch"), Mapping) else {}
+    return {"compared": bases.get("compared"), "total": bases.get("total"),
+            "fetch": {key: (str(fetch[key])[:160] if key == "error" else fetch[key])
+                      for key in ("missing", "left", "attempts", "seconds", "error") if key in fetch}}
 
 
 # Fitting ----------------------------------------------------------------------------------------------------

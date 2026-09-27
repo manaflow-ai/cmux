@@ -73,6 +73,12 @@ enum SettingsSearchIndex {
         ),
         setting(
             .app,
+            "warn-before-closing-workspace",
+            String(localized: "settings.app.warnBeforeClosingWorkspace", defaultValue: "Warn Before Closing Workspace"),
+            "cmd shift w close workspace confirmation running process"
+        ),
+        setting(
+            .app,
             "hide-tab-close-button",
             String(localized: "settings.app.hideTabCloseButton", defaultValue: "Hide Tab Close Button"),
             "hide x button close tab"
@@ -187,6 +193,7 @@ enum SettingsSearchIndex {
         setting(.browser, "history", String(localized: "settings.browser.history", defaultValue: "Browsing History"), "clear visited suggestions"),
         setting(.globalHotkey, "enable-hotkey", String(localized: "settings.globalHotkey.enable", defaultValue: "Enable System-Wide Hotkey"), "global shortcut show hide windows"),
         setting(.globalHotkey, "shortcut", String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey"), "keyboard recorder command option control"),
+        setting(.keyboardShortcuts, "base-keymap", String(localized: "settings.shortcuts.baseKeymap", defaultValue: "Base Keymap"), "preset iterm2 terminal tmux keybindings"),
         setting(.keyboardShortcuts, "shortcut-chords", String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"), "tmux multi step keybindings"),
         setting(.keyboardShortcuts, "pane-resize-step", String(localized: "settings.shortcuts.paneResizeStep", defaultValue: "Pane Resize Step"), "resize pane split step pixels keyboard repeat"),
         setting(.keyboardShortcuts, "reset-defaults", String(localized: "settings.shortcuts.resetDefaults", defaultValue: "Reset Default Shortcuts"), "restore built in builtin defaults keybindings hotkeys chords commands"),
@@ -251,6 +258,7 @@ enum SettingsSearchIndex {
         "app.warnBeforeQuit": settingID(for: .app, idSuffix: "warn-before-quit"),
         "app.warnBeforeClosingTab": settingID(for: .app, idSuffix: "warn-before-closing-tab"),
         "app.warnBeforeClosingTabXButton": settingID(for: .app, idSuffix: "warn-before-closing-tab-x-button"),
+        "app.warnBeforeClosingWorkspace": settingID(for: .app, idSuffix: "warn-before-closing-workspace"),
         "app.hideTabCloseButton": settingID(for: .app, idSuffix: "hide-tab-close-button"),
         "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),
         "app.commandPaletteSearchesAllSurfaces": settingID(for: .app, idSuffix: "palette-search-all"),

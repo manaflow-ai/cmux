@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 import CmuxTerminalImport
 import Darwin
 
@@ -115,18 +116,15 @@ extension CMUXCLI {
         let themeDirectory = configURL.deletingLastPathComponent().appendingPathComponent("themes", isDirectory: true)
         let plan = GhosttyImportMapper(fontResolver: CoreTextFontFamilyResolver())
             .plan(for: settings, themeDirectory: themeDirectory)
-        let currentContents = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
-        let patch = GhosttyConfigPatcher().apply(
-            plan.settings,
-            to: currentContents,
-            header: "Imported from \(source.displayName) by cmux import"
-        )
-        let currentTheme = lastThemeDirective(in: currentContents)
+        let themeFile = CmuxManagedThemeConfigFile(url: configURL)
+        let currentContents = try themeFile.readContents() ?? ""
+        let patch = GhosttyConfigDiffer().diff(plan.settings, against: currentContents)
+        let currentTheme = try themeFile.managedThemeValue()
 
         if jsonOutput {
             let shouldWrite = !dryRun && !plan.isEmpty
             if shouldWrite {
-                try writeImportPlan(plan, patch: patch, configURL: configURL, targetBundleIdentifier: targetBundleIdentifier)
+                try writeImportPlan(plan, patch: patch, configURL: configURL)
                 _ = reloadThemesIfPossible(
                     socketPath: socketPath,
                     targetBundleIdentifier: targetBundleIdentifier,
@@ -143,7 +141,7 @@ extension CMUXCLI {
                 "theme_files": plan.themeFiles.map(\.url.path),
                 "theme": ["old": currentTheme ?? NSNull(), "new": plan.themeValue ?? NSNull()] as [String: Any],
                 "changes": patch.changes.map { change -> [String: Any] in
-                    ["key": change.key, "old": change.oldValues, "new": change.newValue]
+                    ["key": change.key, "old": change.oldValues, "new": change.newValues]
                 },
                 "notes": plan.notes,
             ]
@@ -202,7 +200,7 @@ extension CMUXCLI {
             }
         }
 
-        try writeImportPlan(plan, patch: patch, configURL: configURL, targetBundleIdentifier: targetBundleIdentifier)
+        try writeImportPlan(plan, patch: patch, configURL: configURL)
         _ = reloadThemesIfPossible(
             socketPath: socketPath,
             targetBundleIdentifier: targetBundleIdentifier,
@@ -211,11 +209,13 @@ extension CMUXCLI {
         print("Imported and reloaded cmux. Padding and scrollback apply to new terminals. Lines marked - above were the previous values.")
     }
 
+    /// Writes theme files, then each setting through cmux's shared config
+    /// writer (which keeps a list key's lines together where the key first
+    /// appeared), then selects the theme through the managed theme block.
     private func writeImportPlan(
         _ plan: GhosttyImportPlan,
-        patch: GhosttyConfigPatch,
-        configURL: URL,
-        targetBundleIdentifier: String
+        patch: GhosttyConfigDiff,
+        configURL: URL
     ) throws {
         let fileManager = FileManager.default
         for file in plan.themeFiles {
@@ -226,19 +226,15 @@ extension CMUXCLI {
             )
             try file.contents.write(to: file.url, atomically: true, encoding: .utf8)
         }
-        if patch.hasChanges {
-            try fileManager.createDirectory(
-                at: configURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true,
-                attributes: nil
-            )
-            try patch.contents.write(to: configURL, atomically: true, encoding: .utf8)
+        let editor = CmuxGhosttyConfigSettingEditor()
+        for setting in plan.settings {
+            guard let change = patch.changes.first(where: { $0.key == setting.key }), !change.isUnchanged else {
+                continue
+            }
+            try editor.writeSetting(key: setting.key, values: setting.values, to: configURL, fileManager: fileManager)
         }
         if let themeValue = plan.themeValue {
-            _ = try writeManagedThemeOverride(
-                rawThemeValue: themeValue,
-                targetBundleIdentifier: targetBundleIdentifier
-            )
+            try CmuxManagedThemeConfigFile(url: configURL).write(rawThemeValue: themeValue)
         }
     }
 

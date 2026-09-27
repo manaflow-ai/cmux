@@ -17,6 +17,8 @@ even `verify-local.py --help` and `--list` load repository code.
 | Parse current Swift edits | `python3 scripts/verify-local.py --only swift-syntax --swift-changed` |
 | Check new Swift test-file wiring | `python3 scripts/verify-local.py --only test-wiring` |
 | See what a UI test did, one frame per action | `scripts/ui-test ClassName` or `scripts/ui-test <run URL>` ([guide](references/ui-test-frames.md)) |
+| Render view code to PNGs in seconds, light and dark, without building the app | `scripts/ui-lab/ui-lab.py <harness> [--watch]` ([guide](references/ui-lab.md)) |
+| Dogfood the app from CI: drive it with a JSON tour and get screenshots and accessibility trees | `scripts/run-e2e.sh --scenario dogfood/scenarios/<tour>.json --ref <sha> --frames` ([guide](references/dogfood-scenarios.md)) |
 
 Add a base ref after `--swift-changed` to include committed changes. Use `--list`
 to find other checks and `--help` for options. Parsing checks syntax; it doesn't
@@ -49,7 +51,7 @@ membership in `cmux.xcodeproj/project.pbxproj`. Add through Xcode or follow a wi
 sibling, then run the wiring check above: an unwired file can otherwise produce
 a misleading zero-test pass.
 
-After creating, renaming, or deleting a direct `cmuxTests/*.swift` file, run `./scripts/sync-test-wiring`. It deterministically reconciles the `PBXFileReference`, `PBXBuildFile`, `cmuxTests` group child, and `cmuxTests` Sources membership; `--check` performs the same validation without writing. Foreign target membership is rejected with an explicit diagnostic. The `workflow-guard-tests` CI job still runs `./scripts/lint-pbxproj-test-wiring.sh` as a defensive Sources-phase guard.
+After creating, renaming, or deleting a direct `cmuxTests/*.swift` file, run `./scripts/sync-test-wiring`. It deterministically reconciles the `PBXFileReference`, `PBXBuildFile`, `cmuxTests` group child, and `cmuxTests` Sources membership; `--check` performs the same validation without writing. Foreign target membership is rejected with an explicit diagnostic. New `Sources/**/*.swift` app files are wired with `./scripts/wire-app-sources.py` (`--check` lists unwired ones); run it after any merge that took main's `project.pbxproj`, which drops a branch's app-source entries. The `workflow-guard-tests` CI job still runs `./scripts/lint-pbxproj-test-wiring.sh` as a defensive Sources-phase guard.
 
 ## Test quality
 
