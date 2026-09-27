@@ -1306,7 +1306,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var closedWindowHistorySuppressedWindowIds: Set<UUID> = []
 #if DEBUG
     var closeMainWindowContainingTabIdObserverForTesting: ((UUID, Bool) -> Void)?
+    /// Test seam: reports each main-window should-close request and whether the
+    /// user already confirmed that close through a cmux dialog.
+    var mainWindowShouldCloseObserverForTesting: ((NSWindow, Bool) -> Void)?
 #endif
+    /// Main windows whose close the user already accepted in a cmux dialog
+    /// ("Close window?", "Close workspace?", ...). While a window is in this set,
+    /// the should-close path treats the close as confirmed, so closing the last
+    /// window does not stack a second "Quit cmux?" dialog on the first.
+    private var preconfirmedMainWindowCloses: Set<ObjectIdentifier> = []
     // Avoid showing the quit warning twice after confirmation.
     private var isQuitWarningConfirmed = false
     // One-shot guard for deferred terminate replies.
@@ -6713,8 +6721,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         guard confirmCloseMainWindow(window) else { return true }
-        window.performClose(nil)
+        performPreconfirmedMainWindowClose(window)
         return true
+    }
+
+    /// Closes a main window whose close the user already confirmed. The
+    /// window-should-close path still applies its last-window policy, but it
+    /// does not ask the user a second time.
+    func performPreconfirmedMainWindowClose(_ window: NSWindow) {
+        withPreconfirmedMainWindowClose(window) {
+            window.performClose(nil)
+        }
+    }
+
+    private func withPreconfirmedMainWindowClose(_ window: NSWindow?, _ body: () -> Void) {
+        guard let window else {
+            body()
+            return
+        }
+        let key = ObjectIdentifier(window)
+        let inserted = preconfirmedMainWindowCloses.insert(key).inserted
+        defer {
+            if inserted { preconfirmedMainWindowCloses.remove(key) }
+        }
+        body()
+    }
+
+    private func isMainWindowClosePreconfirmed(_ window: NSWindow) -> Bool {
+        preconfirmedMainWindowCloses.contains(ObjectIdentifier(window))
     }
 
     private func orderedMainWindowSummaries(referenceWindowId: UUID?) -> [MainWindowSummary] {
@@ -18442,6 +18476,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ candidateWindow: NSWindow,
         onCancel: (() -> Void)?
     ) -> Bool {
+        let closeAlreadyConfirmed = isMainWindowClosePreconfirmed(candidateWindow)
+#if DEBUG
+        mainWindowShouldCloseObserverForTesting?(candidateWindow, closeAlreadyConfirmed)
+#endif
         // XCTest has no UI for the warn-before-quit dialog and would either block
         // on runModal or have NSApp.terminate kill the test process.
         if isRunningUnderXCTest(ProcessInfo.processInfo.environment) { return true }
@@ -18456,6 +18494,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard authoritativeRoutes.count == 1,
               authoritativeRoutes[0].window === candidateWindow else {
             return true
+        }
+
+        // The user already accepted a close dialog for this window, so that
+        // answer covers the quit it turns into. Asking again would show two
+        // dialogs for one action.
+        if closeAlreadyConfirmed {
+            isQuitWarningConfirmed = true
+            Self.requestApplicationTermination()
+            return false
         }
 
         // Use the same quit policy as Cmd+Q and app termination. When the
@@ -18845,6 +18892,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func closeMainWindowContainingTabId(
         _ tabId: UUID,
         recordHistory: Bool = true,
+        closeAlreadyConfirmed: Bool = false,
         onCancelled: (() -> Void)? = nil
     ) {
 #if DEBUG
@@ -18860,15 +18908,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             if let exactWindow,
                NSApp.windows.contains(where: { $0 === exactWindow }) {
-                if let onCancelled,
-                   !handleMainTerminalWindowCloseRequest(
-                       exactWindow,
-                       windowId: windowId,
-                       onCancel: onCancelled
-                   ) {
-                    return
+                var vetoed = false
+                withPreconfirmedMainWindowClose(closeAlreadyConfirmed ? exactWindow : nil) {
+                    if let onCancelled,
+                       !handleMainTerminalWindowCloseRequest(
+                           exactWindow,
+                           windowId: windowId,
+                           onCancel: onCancelled
+                       ) {
+                        vetoed = true
+                        return
+                    }
+                    exactWindow.performClose(nil)
                 }
-                exactWindow.performClose(nil)
+                if vetoed { return }
                 if !recordHistory,
                    !hasCommittedMainWindowClose(exactWindow) {
                     closedWindowHistorySuppressedWindowIds.remove(windowId)
