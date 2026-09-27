@@ -8,6 +8,7 @@ on:
       - .github/workflows/ci.yml
       - .github/workflows/ci-macos.yml
       - .github/workflows/nightly.yml
+      - .github/workflows/seed-derived-data.yml
       - .github/workflows/ci-cache-receipts.yml
       - scripts/ci/cache_restore_receipt.py
       - scripts/check-test-determinism.py
@@ -21,6 +22,7 @@ on:
       - .github/workflows/ci.yml
       - .github/workflows/ci-macos.yml
       - .github/workflows/nightly.yml
+      - .github/workflows/seed-derived-data.yml
       - .github/workflows/ci-cache-receipts.yml
       - scripts/ci/cache_restore_receipt.py
       - scripts/check-test-determinism.py

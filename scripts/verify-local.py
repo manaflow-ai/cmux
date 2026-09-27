@@ -32,6 +32,8 @@ CHECKS = (
     ("launch-policy", "static_analysis", "Generated Claude launch policy", ["python3", "scripts/generate-claude-launch-environment-policy.py", "--check"]),
     ("test-wiring", "static_analysis", "Swift test wiring and regression guard", ["bash", "tests/test_ci_pbxproj_test_wiring.sh"]),
     ("package-groups", "static_analysis", "Workspace Swift package groups", ["python3", "scripts/check-workspace-package-groups.py", "--check"]),
+    ("remote-tmux-waits-tests", "static_analysis", "Remote-tmux time-based wait lint tests", ["bash", "scripts/lint-remote-tmux-no-polling.test.sh"]),
+    ("remote-tmux-waits", "static_analysis", "Remote-tmux time-based waits", ["bash", "scripts/lint-remote-tmux-no-polling.sh"]),
     ("feature-flags", "static_analysis", "Feature flag policy", ["python3", "scripts/lint-feature-flags.py"]),
 )
 
@@ -59,6 +61,9 @@ CHECK_INPUTS = {
     "test-wiring": ("scripts/lint-pbxproj-test-wiring.sh", "cmuxTests/*",
                     "cmux.xcodeproj/project.pbxproj"),
     "package-groups": ("Packages/*", "cmux.xcworkspace/contents.xcworkspacedata"),
+    "remote-tmux-waits-tests": ("scripts/lint-remote-tmux-no-polling.sh",),
+    "remote-tmux-waits": ("Sources/*RemoteTmux*", "Packages/*RemoteTmux*",
+                          "scripts/remote-tmux-polling-baseline.txt"),
     "feature-flags": ("web/*", "Sources/*", "Packages/*", "ios/*", "CLI/*",
                       "scripts/retired-feature-flags.txt"),
 }

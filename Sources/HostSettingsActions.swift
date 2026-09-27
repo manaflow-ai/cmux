@@ -13,15 +13,12 @@ import SwiftUI
 
 nonisolated private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
 
-/// App-side implementation of the package's `SettingsHostActions`
-/// protocol. Routes UI-triggered actions to the existing host
-/// services (`BrowserHistoryStore`, `BrowserDataImportCoordinator`,
-/// `TerminalNotificationStore`, etc.) so the package doesn't need to
-/// depend on them directly.
+/// Routes Settings actions to app-owned services, keeping the package independent.
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
     let computersActions: ComputersSettingsActions
     private let configFileURL: URL
+    private let browserDataImportCoordinator: BrowserDataImportCoordinator
     private let automationConfigStore: AutomationConfigStore
     private let openAutomationRulesFile: @MainActor (URL) -> Void
     private let reportAutomationRulesError: @MainActor (Error) -> Void
@@ -61,6 +58,7 @@ final class HostSettingsActions: SettingsHostActions {
     init(
         configFileURL: URL,
         computerUseRuntimeService: ComputerUseRuntimeService,
+        browserDataImportCoordinator: BrowserDataImportCoordinator,
         automationConfigStore: AutomationConfigStore = AutomationConfigStore(),
         openAutomationRulesFile: @escaping @MainActor (URL) -> Void = {
             PreferredEditorService(defaults: .standard).open($0)
@@ -87,6 +85,7 @@ final class HostSettingsActions: SettingsHostActions {
         self.openAutomationRulesFile = openAutomationRulesFile
         self.reportAutomationRulesError = reportAutomationRulesError
         self.computerUseRuntimeService = computerUseRuntimeService
+        self.browserDataImportCoordinator = browserDataImportCoordinator
         self.runComputerUseOnboardingAction = runComputerUseOnboardingAction
         startObservingAppIconMode()
     }
@@ -567,7 +566,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func openBrowserImportFlow() {
-        BrowserDataImportCoordinator.shared.presentImportDialog()
+        browserDataImportCoordinator.presentImportDialog()
     }
 
     func requestNotificationAuthorization() {

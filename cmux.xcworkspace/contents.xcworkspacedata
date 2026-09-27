@@ -47,6 +47,9 @@
          location = "group:CmuxSyntaxHighlighting">
       </FileRef>
       <FileRef
+         location = "group:CmuxTerminalPrediction">
+      </FileRef>
+      <FileRef
          location = "group:CmuxWorkspacePresence">
       </FileRef>
    </Group>

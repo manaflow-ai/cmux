@@ -5,6 +5,7 @@ import json
 import pathlib
 import sys
 import unittest
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/main_regression_attribution.py"
@@ -322,6 +323,15 @@ class ReportTests(unittest.TestCase):
         attributions = {"S/x()": MODULE.suspects_for("S/x()", tied)}
         self.assertEqual(len(attributions["S/x()"][0]), len(tied))
         self.assertEqual(MODULE.comment_plan(failures, attributions), [])
+
+    def test_the_comment_cap_skips_suspects_already_told(self):
+        prs = [pr(n, reached={"S"}) for n in range(1, MODULE.MAX_COMMENTED_PRS + 3)]
+        plan = [(p, ["S/x()"], {}, {}) for p in prs]
+        told = {p.number for p in prs[:MODULE.MAX_COMMENTED_PRS]}
+        chosen = MODULE.untold(plan, lambda p, tests: p.number in told)
+        self.assertEqual([p.number for p, _, _, _ in chosen], [MODULE.MAX_COMMENTED_PRS + 1, MODULE.MAX_COMMENTED_PRS + 2])
+        chosen = MODULE.untold(plan, lambda p, tests: False)
+        self.assertEqual(len(chosen), MODULE.MAX_COMMENTED_PRS)
 
     def test_a_pull_request_hears_once_per_test_set_and_once_per_range(self):
         told = ["intro", MODULE.marker(2, ["a", "b"], "p..h")]

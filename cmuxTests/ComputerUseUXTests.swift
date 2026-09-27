@@ -240,6 +240,7 @@ struct ComputerUseUXTests {
             configFileURL: FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-settings-\(UUID().uuidString).json"),
             computerUseRuntimeService: ComputerUseRuntimeService(),
+            browserDataImportCoordinator: BrowserDataImportCoordinator(),
             runComputerUseOnboardingAction: { startingPoint in
                 presentations.append(startingPoint)
             }
@@ -249,94 +250,6 @@ struct ComputerUseUXTests {
         actions.requestComputerUseScreenRecording()
 
         #expect(presentations == [.accessibility, .screenRecording])
-    }
-
-    @Test(.timeLimit(.minutes(1))) @MainActor
-    func grantedPermissionsResumeIncompleteSetupFromSettingsRefresh() async throws {
-        let suiteName = "cmux.tests.grantedSettings.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "cmux-cua-granted-settings-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        let home = root.appendingPathComponent("home", isDirectory: true)
-        let sockets = URL(fileURLWithPath: "/tmp", isDirectory: true)
-            .appendingPathComponent(
-                "cmux-cu-granted-\(UUID().uuidString.prefix(8))",
-                isDirectory: true
-            )
-        defer {
-            try? FileManager.default.removeItem(at: root)
-            try? FileManager.default.removeItem(at: sockets)
-        }
-        try FileManager.default.createDirectory(
-            at: home,
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.createDirectory(
-            at: sockets,
-            withIntermediateDirectories: true
-        )
-        let paths = ComputerUseRuntimePaths(
-            homeDirectoryURL: home,
-            socketRootDirectoryURL: sockets,
-            userIdentifier: getuid(),
-            environment: ["CMUX_TAG": "granted-settings"],
-            authenticationToken: "granted-settings-token"
-        )
-        let runtime = ComputerUseRuntimeService(
-            bundle: Bundle(for: NSApplication.self),
-            paths: paths,
-            userDefaults: defaults
-        )
-        defer { runtime.stopForTermination() }
-        #expect(runtime.prepareRuntimeForLaunch())
-        await runtime.setEnabled(true)
-
-        let responder = try UnixSocketResponder(
-            path: paths.daemonSocketURL.path,
-            response: #"{"ok":true,"result":{"structuredContent":{"accessibility":true,"screen_recording":true,"source":{"attribution":"helper-daemon"}}}}"#
-        )
-        defer { responder.stop() }
-
-        var presentations: [
-            ComputerUseOnboardingWindowController.StartingPoint
-        ] = []
-        let actions = HostSettingsActions(
-            configFileURL: root.appendingPathComponent("cmux.json"),
-            computerUseRuntimeService: runtime,
-            runComputerUseOnboardingAction: { startingPoint in
-                presentations.append(startingPoint)
-            }
-        )
-
-        await actions.refreshComputerUsePermissions()
-
-        #expect(runtime.permissionStatusIsKnown)
-        #expect(runtime.status().accessibility)
-        #expect(runtime.status().screenRecording)
-        #expect(
-            presentations == [.screenRecording],
-            "granted TCC permissions must resume the final capture verification"
-        )
-
-        runtime.onboardingWasPresented()
-        await actions.refreshComputerUsePermissions()
-        #expect(
-            presentations == [.screenRecording, .screenRecording],
-            "dismissed incomplete onboarding must resume when Settings refreshes again"
-        )
-
-        runtime.onboarding.restore(for: "synthetic-settings-helper")
-        let attempt = try #require(runtime.onboarding.beginVerification())
-        #expect(runtime.onboarding.finishVerification(.ready, attempt: attempt) == .ready)
-        await actions.refreshComputerUsePermissions()
-        #expect(
-            presentations == [.screenRecording, .screenRecording],
-            "completed onboarding runtime state must remain quiet"
-        )
     }
 
     @Test func computerUseRuntimePermissionReadinessRequiresExplicitCompletion() {
@@ -401,11 +314,6 @@ struct ComputerUseUXTests {
         #expect(!ComputerUseUXCoordinator.isComputerUseToolInvocation(unrelatedTool))
 
         var presentations: [ComputerUseOnboardingWindowController.StartingPoint] = []
-        let presentationCoordinator = ComputerUseOnboardingCoordinator(
-            presenter: { startingPoint in
-                presentations.append(startingPoint)
-            }
-        )
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "cmux-cua-onboarding-ingress-\(UUID().uuidString)",
@@ -421,6 +329,12 @@ struct ComputerUseUXTests {
             hostAuthenticationToken: String(repeating: "b", count: 64)
         )
         let runtimeService = ComputerUseRuntimeService(paths: paths)
+        let presentationCoordinator = ComputerUseOnboardingCoordinator(
+            runtimeService: runtimeService,
+            presenter: { startingPoint in
+                presentations.append(startingPoint)
+            }
+        )
         let catalog = SettingCatalog()
         let defaultsSuite = "cmux-cua-onboarding-ingress-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsSuite))

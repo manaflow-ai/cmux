@@ -20,6 +20,8 @@ DEFAULT_RUNNER = re.search(
 ).group(1)
 HEAD = "a" * 40
 REMOTE_HEAD = "b" * 40
+BASE = "f" * 40
+MERGE = "9" * 40
 SMALL = "blacksmith-6vcpu-macos-26"
 LARGE = "blacksmith-12vcpu-macos-26"
 
@@ -65,7 +67,7 @@ def queue(*, small=0, large=0, old=0, small_running=10, large_running=0, old_run
 IDLE = json.dumps(queue())
 BUSY_LARGE = json.dumps(queue(large=3))
 FAKE_GH =r'''#!/usr/bin/env python3
-import json, os, pathlib, sys
+import json, os, pathlib, re, sys
 args = sys.argv[1:]
 root = pathlib.Path(os.environ["LAUNCHER_TEST_DIR"])
 with (root / "calls.jsonl").open("a") as f:
@@ -83,6 +85,17 @@ if args[0] == "api" and "/actions/" in args[-1]:
     if "/actions/runs?head_sha=" in endpoint:
         # CI runs of the tested commit, for reusing their app-host products.
         print(json.dumps({"workflow_runs": json.loads(os.environ.get("LAUNCHER_CI_RUNS", "[]"))}))
+    elif re.search(r"/actions/runs/[0-9]+/artifacts", endpoint):
+        # LAUNCHER_CI_ARTIFACTS_AFTER: what later listings return, as products appear.
+        seen = root / "artifact-reads"
+        later = seen.exists() and "LAUNCHER_CI_ARTIFACTS_AFTER" in os.environ
+        seen.touch()
+        name = "LAUNCHER_CI_ARTIFACTS_AFTER" if later else "LAUNCHER_CI_ARTIFACTS"
+        print(json.dumps({"artifacts": json.loads(os.environ.get(name, "[]"))}))
+    elif re.search(r"/actions/runs/[0-9]+/jobs", endpoint):
+        print(json.dumps({"jobs": json.loads(os.environ.get("LAUNCHER_CI_JOBS", "[]"))}))
+    elif re.search(r"/actions/runs/[0-9]+$", endpoint):
+        print(json.dumps({"status": os.environ.get("LAUNCHER_CI_STATUS", "completed")}))
     elif "/actions/artifacts?" in endpoint:
         artifacts = [] if queue is None else [{
             "id": 77, "expired": False, "created_at": stamp(queue["age"] - 1),
@@ -158,7 +171,13 @@ class FocusedLauncherTests(unittest.TestCase):
         self.bin.mkdir()
         for name, source in {
             "gh": FAKE_GH,
-            "git": '#!/bin/sh\ncase "$*" in\n*status*) printf "%s" "${LAUNCHER_DIRTY:-}";;\n*) printf "%s\\n" "' + HEAD + '";;\nesac\n',
+            # `cat-file commit` answers for a pull request merge: base, then HEAD.
+            "git": '#!/bin/sh\ncase "$*" in\n*status*) printf "%s" "${LAUNCHER_DIRTY:-}";;\n'
+                   '*"cat-file commit"*) printf "tree t\\nparent %s\\nparent %s\\n\\nmerge\\n" "' + BASE + '" "' + HEAD + '";;\n'
+                   # Product identities: equal for every revision with LAUNCHER_SAME_INPUTS, else unknown.
+                   '*ls-tree*) [ -n "${LAUNCHER_SAME_INPUTS:-}" ] || exit 1; printf "100644 blob %s\\tSources/A.swift\\n" "' + "1" * 40 + '";;\n'
+                   'show\\ *:*) cat "' + str(ROOT) + '/${2#*:}";;\n'
+                   '*) printf "%s\\n" "' + HEAD + '";;\nesac\n',
             "sleep": "#!/bin/sh\nexit 0\n",
             # No shared waiter daemon unless a test says so: --wait falls back to gh.
             "glaeda-gh": '#!/bin/sh\nprintf "%s\\n" "$*" >> "$LAUNCHER_TEST_DIR/glaeda.calls"\nexit "${LAUNCHER_GLAEDA_STATUS:-3}"\n',
@@ -194,16 +213,131 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertIn("/actions/runs/123", result.stdout)
         self.assertNotIn("/actions/runs/999", result.stdout)
 
-    def test_only_unpinned_cmux_tests_look_for_ci_products(self):
+    def test_only_unpinned_runs_without_full_build_look_for_ci_products(self):
         for args in (["cmuxTests/ExampleTests"], ["cmuxTests/ExampleTests", "--full-build"],
-                     ["cmuxTests/ExampleTests", "--runner", SMALL], ["ExampleUITests"]):
+                     ["cmuxTests/ExampleTests", "--runner", SMALL], ["ExampleUITests"],
+                     ["ExampleUITests", "--full-build"], ["ExampleUITests", "--runner", SMALL]):
             with self.subTest(args=args):
                 (self.root / "calls.jsonl").unlink(missing_ok=True)
                 result = self.launch(*args)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 looked = any("head_sha=" in call[-1] for call in self.calls() if call[:1] == ["api"])
-                self.assertEqual(looked, args == ["cmuxTests/ExampleTests"])
+                self.assertEqual(looked, args in (["cmuxTests/ExampleTests"], ["ExampleUITests"]))
                 self.assertEqual(self.dispatch()["ref"], HEAD)
+
+    PR_CI = {"id": 500, "path": ".github/workflows/ci.yml", "event": "pull_request", "status": "completed",
+             "head_sha": HEAD, "created_at": "2026-09-25T00:00:00Z", "html_url": "https://x/runs/500",
+             "head_repository": {"full_name": "manaflow-ai/cmux"},
+             "referenced_workflows": [{"ref": "refs/pull/7/merge", "sha": MERGE}]}
+    PRODUCTS = [{"id": 7, "name": "app-host-products-v1-k-1", "expired": False}]
+    ADMISSION_26 = [{"name": "macos / macOS compile admission", "labels": ["glaeda-root-std-xcode-26.6"]}]
+
+    def ci_env(self, run=None, *, artifacts=PRODUCTS, jobs=ADMISSION_26, status="completed"):
+        return {
+            "CMUX_CI_E2E_OWNED_UI": "1",
+            "LAUNCHER_CI_RUNS": json.dumps([run or self.PR_CI]),
+            "LAUNCHER_CI_ARTIFACTS": json.dumps(artifacts),
+            "LAUNCHER_CI_JOBS": json.dumps(jobs),
+            "LAUNCHER_CI_STATUS": status,
+        }
+
+    def test_a_ui_run_of_a_pull_request_head_tests_the_merge_ci_compiled(self):
+        result = self.launch("ExampleUITests", **self.ci_env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["ref"], MERGE)
+        self.assertIn(f"Testing {MERGE}, the merge of {HEAD}", result.stdout)
+        self.assertEqual(self.dispatch()["record_video"], "true")
+        # An owned std Mac compiled it; only an owned Mac of its class shares its toolchain.
+        self.assertEqual(self.dispatch()["runner"], MINI)
+
+    def test_a_merge_with_the_heads_product_inputs_keeps_the_head(self):
+        result = self.launch("ExampleUITests", LAUNCHER_SAME_INPUTS="1", **self.ci_env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["ref"], HEAD)
+        self.assertNotIn("the merge of", result.stdout)
+        self.assertEqual(self.dispatch()["runner"], MINI)
+
+    def test_an_owned_product_is_not_adopted_while_ui_runs_stay_off_owned_macs(self):
+        result = self.launch("ExampleUITests", **{**self.ci_env(), "CMUX_CI_E2E_OWNED_UI": ""})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["ref"], HEAD)
+        self.assertNotEqual(self.dispatch().get("runner"), MINI)
+
+    def test_a_failed_wait_for_the_heads_own_product_pins_no_pool(self):
+        building = {**self.PR_CI, "status": "in_progress"}
+        result = self.launch("ExampleUITests", LAUNCHER_SAME_INPUTS="1",
+                             **self.ci_env(building, artifacts=[], status="completed"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["ref"], HEAD)
+        self.assertNotEqual(self.dispatch().get("runner"), MINI)
+        self.assertNotIn("the pool family", result.stdout)
+
+    def test_a_blacksmith_product_keeps_the_ui_run_on_blacksmith_macos_26(self):
+        for label in (SMALL, LARGE):
+            with self.subTest(label):
+                jobs = [{"name": "macos / macOS compile admission", "labels": [label]}]
+                result = self.launch("ExampleUITests", **self.ci_env(jobs=jobs))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.dispatch()["ref"], MERGE)
+                self.assertIn(self.dispatch()["runner"], (SMALL, LARGE))
+
+    def test_a_ui_run_ignores_main_ci_dispatches_test_e2e_cannot_adopt(self):
+        main_ci = {**self.PR_CI, "event": "workflow_dispatch", "status": "in_progress", "referenced_workflows": []}
+        result = self.launch("ExampleUITests", **self.ci_env(main_ci, artifacts=[]))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["ref"], HEAD)
+        self.assertNotIn("waiting", result.stdout)
+
+    def test_a_ui_run_waits_for_products_ci_is_still_compiling(self):
+        building = {**self.PR_CI, "status": "in_progress"}
+        result = self.launch("ExampleUITests", **self.ci_env(building, artifacts=[], status="in_progress"),
+                             LAUNCHER_CI_ARTIFACTS_AFTER=json.dumps(self.PRODUCTS))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("waiting for its app-host products", result.stdout)
+        self.assertEqual(self.dispatch()["ref"], MERGE)
+
+    def test_a_ui_run_stops_waiting_once_admission_lands_on_macos_15(self):
+        building = {**self.PR_CI, "status": "in_progress"}
+        jobs = [{"name": "macos / macOS compile admission", "labels": [OLD]}]
+        result = self.launch("ExampleUITests", **self.ci_env(building, artifacts=[], jobs=jobs, status="in_progress"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cannot use", result.stderr)
+        self.assertEqual(self.dispatch()["ref"], HEAD)
+
+    def test_a_fallback_to_the_head_still_refuses_a_known_head_failure(self):
+        building = {**self.PR_CI, "status": "in_progress"}
+        result = self.launch("ExampleUITests", **self.ci_env(building, artifacts=[], status="completed"),
+                             LAUNCHER_PRIOR_RUNS=self._prior("failure", selector="ExampleUITests"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already failed", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_a_ui_run_ignores_products_it_could_not_adopt(self):
+        cases = {
+            "fork": {"run": {**self.PR_CI, "head_repository": {"full_name": "someone/cmux"}}},
+            "macos 15": {"jobs": [{"name": "macos / macOS compile admission", "labels": [OLD]}]},
+            "owned xcode without a choice": {"jobs": [{"name": "macos / macOS compile admission",
+                                                        "labels": ["glaeda-root-std-xcode-27.0"]}]},
+            "no products": {"artifacts": []},
+            "no recorded merge": {"run": {**self.PR_CI, "referenced_workflows": []}},
+        }
+        for name, overrides in cases.items():
+            with self.subTest(name):
+                result = self.launch("ExampleUITests", **self.ci_env(**overrides))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.dispatch()["ref"], HEAD)
+
+    def test_a_ui_run_falls_back_to_the_head_when_ci_ends_without_products(self):
+        building = {**self.PR_CI, "status": "in_progress"}
+        result = self.launch("ExampleUITests", **self.ci_env(building, artifacts=[], status="completed"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["ref"], HEAD)
+        self.assertIn(f"compiling {HEAD} instead", result.stderr)
+
+    def test_full_build_tests_the_head_of_a_pull_request(self):
+        result = self.launch("ExampleUITests", "--full-build", **self.ci_env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["ref"], HEAD)
 
     def test_explicit_remote_ref_is_resolved_before_dispatch(self):
         result = self.launch("cmuxTests/ExampleTests/testOne", "--ref", "topic/fix")
@@ -1028,7 +1162,9 @@ class FakeActions:
 
     def pull_request_runs_since(self, since, *, exclude_run_id):
         self._call("ci.yml runs")
-        return self.pool.pr_runner_pool.count_in_flight(self.state["pr_runs"], exclude_run_id=exclude_run_id)
+        # Runs with a created_at are filtered like the API's created>= query.
+        runs = [run for run in self.state["pr_runs"] if str(run.get("created_at") or since) >= since]
+        return self.pool.pr_runner_pool.count_in_flight(runs, exclude_run_id=exclude_run_id)
 
 
 class WorkflowRunnerPoolTests(unittest.TestCase):
@@ -1245,6 +1381,8 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN")}
         values = {
             "${{ github.token }}": "",
+            # The routing App's token; empty, as when the mint step is skipped.
+            "${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}": "",
             "${{ github.repository }}": "manaflow-ai/cmux",
             "${{ inputs.runner }}": requested,
             "${{ vars.MACOS_RUNNER_TESTS }}": variable,
@@ -1344,6 +1482,90 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
             test_filter=test_filter, owned_ui=owned_ui,
             measure=lambda: self.pool.measure_load(client, now=NOW), now=NOW,
         )
+
+    def live(self, idle, *, running=8, e2e_runs=(), pr_runs=(), online=None):
+        """An `auto` cmuxTests pick with `idle` owned runners read live, over a snapshot showing the pool full."""
+        state = queue(age=20)
+        state["pools"][MINI] = {"queued": 3, "running": running, "committed": running}
+        state["e2e_runs"], state["pr_runs"] = list(e2e_runs), list(pr_runs)
+        client = FakeActions(state)
+        logs = []
+        label = self.pool.resolve(
+            "auto", "", overflow="", order="", max_queued="",
+            owned="1", owned_slots=json.dumps({MINI: 8}), pr_xcode_app="/Applications/Xcode_26.6.app",
+            test_filter="cmuxTests/ExampleTests",
+            measure=lambda: self.pool.measure_load(client, now=NOW, live_owned={MINI: idle},
+                                                   live_online=None if online is None else {MINI: online}),
+            now=NOW,
+            log=logs.append,
+        )
+        return label, logs, client
+
+    def test_live_idle_runners_replace_a_stale_snapshot(self):
+        # The snapshot says 8 of 8 running and 3 queued; the runners API shows 2 idle.
+        label, logs, _ = self.live(2)
+        self.assertEqual(label, MINI)
+        self.assertIn("read live from the runners API", logs[-1])
+        # None idle live: Blacksmith, whatever the slot count says.
+        self.assertIn(self.live(0)[0], self.pool.E2E_POOLS)
+
+    def test_live_capacity_is_the_online_runners_not_the_slot_count(self):
+        # CI_OWNED_POOL_SLOTS says 8; two runners are online, one of them idle.
+        label, logs, _ = self.live(1, online=2)
+        self.assertEqual(label, MINI)
+        self.assertIn("1 of 2 owned machines free", logs[-1])
+        # Without the online counts the slot count stays the capacity.
+        self.assertIn("1 of 8 owned machines free", self.live(1)[1][-1])
+
+    def test_live_counts_only_the_windows_runs_against_owned_machines(self):
+        window = NOW - __import__("datetime").timedelta(minutes=self.pool.pr_runner_pool.LIVE_WINDOW_MINUTES)
+        stamp = lambda moment: moment.strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+        old, new = stamp(window - __import__("datetime").timedelta(minutes=5)), stamp(NOW)
+        title = f"cmuxTests/A on {MINI} @ main"
+        # Five older PR runs are Blacksmith-only by now: one idle machine is still free.
+        prs = [{"id": 100 + n, "status": "in_progress", "created_at": old} for n in range(5)]
+        self.assertEqual(self.live(1, pr_runs=prs)[0], MINI)
+        # An older E2E run naming the pool may still be waiting in `sibling` with no Mac:
+        # it keeps its machine, so the one idle runner is taken.
+        waiting = [{"id": 9, "status": "in_progress", "display_title": title, "created_at": old}]
+        self.assertIn(self.live(1, e2e_runs=waiting)[0], self.pool.E2E_POOLS)
+        self.assertEqual(self.live(2, e2e_runs=waiting)[0], MINI)
+        # The window costs one more runs listing, and nothing else.
+        self.assertEqual(self.live(1)[2].paths, ["artifacts", "artifact zip", "test-e2e.yml runs", "ci.yml runs",
+                                                  "ci.yml runs"])
+
+    def test_live_owned_needs_the_token_and_owned_pools(self):
+        read = self.pool.read_live_owned
+        self.assertIsNone(read("manaflow-ai/cmux", {}, "1", "/Applications/Xcode_26.6.app"))
+        self.assertIsNone(read("manaflow-ai/cmux", {"ROUTE_TOKEN": "t"}, "", "/Applications/Xcode_26.6.app"))
+        runners = [{"status": "online", "busy": False, "labels": [{"name": MINI}]},
+                   {"status": "online", "busy": True, "labels": [{"name": MINI}]}]
+        with mock.patch.object(self.pool.pr_runner_pool.GitHub, "runners", return_value=runners):
+            idle, online = read("manaflow-ai/cmux", {"ROUTE_TOKEN": "t"}, "1", "/Applications/Xcode_26.6.app")
+            self.assertEqual((idle[MINI], online[MINI]), (1, 2))
+        with mock.patch.object(self.pool.pr_runner_pool.GitHub, "runners", side_effect=RuntimeError("403")), \
+                mock.patch("sys.stderr"):
+            self.assertIsNone(read("manaflow-ai/cmux", {"ROUTE_TOKEN": "t"}, "1", "/Applications/Xcode_26.6.app"))
+
+    def test_the_workflow_mints_the_routing_token_for_auto_only(self):
+        steps = self.jobs[next(name for name, job in self.jobs.items()
+                               if any(step.get("id") == "pool" for step in job.get("steps", [])))]["steps"]
+        ids = [step.get("id") for step in steps]
+        mint = steps[ids.index("route-token")]
+        self.assertLess(ids.index("route-token"), ids.index("pool"))
+        self.assertIs(mint["continue-on-error"], True)
+        self.assertIn("github.repository_owner == 'manaflow-ai'", mint["if"])
+        self.assertIn("inputs.runner == 'auto'", mint["if"])
+        self.assertEqual(mint["with"]["permission-administration"], "read")
+        self.assertEqual(mint["with"]["permission-organization-self-hosted-runners"], "read")
+        # The mint is all or nothing: without the org permission the second asks for the repository's alone.
+        fallback = steps[ids.index("route-token-repo")]
+        self.assertEqual(ids.index("route-token-repo"), ids.index("route-token") + 1)
+        self.assertEqual(fallback["if"], "steps.route-token.outcome == 'failure'")
+        self.assertIs(fallback["continue-on-error"], True)
+        self.assertNotIn("permission-organization-self-hosted-runners", fallback["with"])
+        self.assertEqual(steps[ids.index("pool")]["env"]["ROUTE_TOKEN"],
+                         "${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}")
 
     def test_an_owned_mac_with_a_free_slot_comes_first(self):
         self.assertEqual(self.owned(), MINI)
@@ -1533,6 +1755,17 @@ class CIProductReuseTests(unittest.TestCase):
         with mock.patch.object(self.dispatch, "planned_products", return_value=self.PLAN):
             self.assertIsNone(self.reuse())
         self.find_run.assert_not_called()
+
+    def test_any_owned_class_maps_to_the_owned_choice_test_e2e_offers(self):
+        for label in ("glaeda-root-std-xcode-26.6", "glaeda-root-light-xcode-26.6", "glaeda-xl-xcode-26.6"):
+            with self.subTest(label):
+                self.dispatch.rerun.gh_api.side_effect = lambda path, label=label: {
+                    "jobs": [{"name": "macos / macOS compile admission", "labels": [label]}]}
+                with mock.patch.dict(os.environ, {"CMUX_CI_E2E_OWNED_UI": "1"}):
+                    self.assertEqual(self.dispatch.product_family({"id": 5}), MINI)
+                with mock.patch.dict(os.environ, {"CMUX_CI_E2E_OWNED_UI": "0"}):
+                    self.assertIsNone(self.dispatch.product_family({"id": 5}))
+        self.assertIsNone(self.dispatch.owned_class(SMALL))
 
     def test_selectors_the_rerun_cannot_express_fall_back_to_a_full_build(self):
         with mock.patch.object(self.dispatch, "planned_products") as plan:

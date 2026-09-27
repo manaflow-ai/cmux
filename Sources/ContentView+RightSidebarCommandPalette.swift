@@ -11,6 +11,9 @@ extension ContentView {
         if let rightSidebarModeAction = commandPaletteRightSidebarModeShortcutAction(forCommandID: commandId) {
             return rightSidebarModeAction
         }
+        if let parityCommand = ShortcutParityPaletteCommand(rawValue: commandId) {
+            return parityCommand.shortcutAction
+        }
 
         switch commandId {
         case Self.commandPaletteAuthTeamPickerCommandId:
@@ -55,6 +58,8 @@ extension ContentView {
             return .editWorkspaceDescription
         case "palette.markWorkspaceDone":
             return .markWorkspaceDone
+        case WorkspaceTodoPaletteCommands.cycleWorkspaceStatusCommandId:
+            return .cycleWorkspaceStatus
         case "palette.nextWorkspace":
             return .nextSidebarTab
         case "palette.previousWorkspace":

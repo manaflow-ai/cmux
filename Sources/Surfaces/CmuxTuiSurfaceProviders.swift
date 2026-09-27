@@ -1269,16 +1269,16 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// Turn a VM-local browser URL into the same URL on the VM private address.
     /// Path, query, fragment, scheme, and port stay unchanged.
-    nonisolated static func privateBrowserURL(_ raw: String, privateAddress: String) -> String? {
+    nonisolated static func privateBrowserURL(_ raw: String, privateAddress: String, allowLoopback: Bool = false) -> String? {
         guard let parts = URLComponents(string: raw),
               RemoteLoopbackProxyAlias.isLoopbackHost(parts.host ?? "") else { return nil }
-        return CloudPortRoutePlan.privateURL(raw, address: privateAddress)?.absoluteString
+        return CloudPortRoutePolicy().privateURL(raw, address: privateAddress, allowLoopback: allowLoopback)?.absoluteString
     }
 
     /// Shared Cloud terminal-link conversion for Workspace and Dock containers.
     nonisolated static func cloudTerminalLinkTarget(url: URL, resource: SurfaceResource, privateAddress: String) -> CloudTerminalLinkTarget? {
-        guard resource.kind == .terminal, resource.machine.cloudMachineID != nil,
-              let rewritten = privateBrowserURL(url.absoluteString, privateAddress: privateAddress),
+        guard resource.kind == .terminal, resource.machine.tuiMachineID != nil,
+              let rewritten = privateBrowserURL(url.absoluteString, privateAddress: privateAddress, allowLoopback: resource.machine.isSSH),
               let privateURL = URL(string: rewritten) else { return nil }
         return CloudTerminalLinkTarget(url: privateURL)
     }
@@ -1301,7 +1301,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                     port: port
                 )
             } else if let raw = resource.url {
-                updated.url = privateBrowserURL(raw, privateAddress: privateAddress)
+                updated.url = privateBrowserURL(raw, privateAddress: privateAddress, allowLoopback: resource.machine.isSSH)
             }
         case .terminal:
             break

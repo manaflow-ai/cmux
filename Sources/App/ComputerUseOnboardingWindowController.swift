@@ -157,7 +157,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     func present(startingAt startingPoint: StartingPoint = .overview) {
-        runtimeService.onboardingWasPresented()
         stopSystemSettingsObservation()
         completionDismissTask?.cancel()
         completionDismissTask = nil

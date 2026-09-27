@@ -77,11 +77,15 @@ MAX_OPEN_ITEMS = 10
 MAX_FINISHED_ITEMS = 20
 KEEP_SEEN_RUNS = 200
 DISPATCH_TIMEOUT_SECONDS = 8 * 60
+# One gh call; a hung one must not eat the job's time budget.
+GH_TIMEOUT_SECONDS = 120
 # The step that runs the selected tests, in app-host-test-rerun.yml and
 # test-e2e.yml. A failure anywhere else is not the test's verdict...
 TEST_STEP = "Run selected tests"
 # ...except test-e2e.yml's selector resolution, which fails when the built
 # tests do not include the selector: the test does not exist at that commit.
+# test-e2e.yml runs both inside one action, so both of its steps fail when a
+# selector does not resolve, and this one decides.
 RESOLVE_STEP = "Resolve selectors against the built tests"
 # Kept under GitHub's 65,536-character comment limit with room for one more
 # dispatch's worth of state.
@@ -475,10 +479,10 @@ def classify(run: Mapping[str, object], failed_steps: Callable[[], list[str]]) -
         return "pass"
     if run.get("conclusion") == "failure":
         failed = failed_steps()
-        if TEST_STEP in failed:
-            return "fail"
         if RESOLVE_STEP in failed:
             return "absent"
+        if TEST_STEP in failed:
+            return "fail"
     return "error"
 
 
@@ -584,7 +588,15 @@ def pr_updates(
 
 
 def gh(args: list[str]) -> str:
-    return subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
+    try:
+        return subprocess.run(
+            ["gh", *args], check=True, capture_output=True, text=True, timeout=GH_TIMEOUT_SECONDS
+        ).stdout
+    except subprocess.TimeoutExpired as error:
+        # Report it as a failed call, which the run poll and the writes already handle.
+        raise subprocess.CalledProcessError(
+            124, error.cmd, stderr=f"timed out after {GH_TIMEOUT_SECONDS}s"
+        ) from error
 
 
 def graphql(query: str, **variables: object) -> dict:

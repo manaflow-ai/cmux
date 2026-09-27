@@ -189,7 +189,10 @@ Rules of the runtime:
 - Right-click menus: `.contextMenu([Button("Pin", fn), Divider(),
   Menu("Move", [...]), Button("Close", fn).destructive()])` on any view. Menu
   items are ordinary Button/Menu/Divider nodes, so labels and actions can be
-  live bindings (`Button(() => w().pinned ? "Unpin" : "Pin", ...)`). Useful
+  live bindings (`Button(() => w().pinned ? "Unpin" : "Pin", ...)`). The menu
+  opens only over the view it is attached to, so put it on the row's outer
+  HStack when right-clicking anywhere on the row, including the empty space a
+  Spacer fills, should open it. Useful
   verbs: `workspace.action` (pin/unpin, mark_read/mark_unread,
   move_up/move_down/move_top, close_others, set/clear color and description),
   `workspace.close`, `workspace.move_to_window`, `workspace.group.action`
@@ -304,7 +307,17 @@ with:
   current working/needs-input state began), `title` (first user prompt),
   `panelId` (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting
   tab's `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
-  `transcriptPath`, and `pid`.
+  `transcriptPath`, `pid`, and `children` (nested subagent runs under the
+  session, oldest first; omitted when none). Each `children[k]` has `id`
+  (stable for the child's lifetime), `running` (Bool), and `startedEpoch`;
+  when available it adds `label` and `endedEpoch` (set when the child
+  settles; settled children are pruned after a short retention). Headless
+  OMP/Pi subagents run inside the parent's process, so they appear here via
+  `cmux hooks omp|pi subagent-start|subagent-stop` with JSON
+  `{"session_id": "<parent session>", "agent_id": "<stable child id>",
+  "description": "<child label>"}`: start opens the child on the parent
+  record, stop closes it by `agent_id` (or the oldest running child when the
+  id is absent).
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
   `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
   `dirty`, `ports` (array of Int).

@@ -63,6 +63,22 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
 
+      - name: Validate the local and fast guard runner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_run_guards.py
+
+      - name: Validate the CI timing readout
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_timing_readout.py
+
+      - name: Validate the repository variable check
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_check_repo_variables.py
+
+      - name: Validate guard failure attribution
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_guard_attribution.py
+
       - name: Validate the report-only reverse test impact selector
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_reverse_test_impact.py
@@ -175,9 +191,17 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_settings_configuration_review_paths.py
 
+      - name: Validate cmux.json schema covers supported settings and shortcut actions
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_cmux_schema_parity.py
+
       - name: Validate Localizable.xcstrings catalog structure
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_localizable_xcstrings_structure.py
+
+      - name: Validate Resources property lists have unique keys
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_resources_plist_unique_keys.py
 
       - name: Validate .xcstrings merge driver
         if: ${{ matrix.group == 'preflight' }}
@@ -372,6 +396,18 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_receipt.py
 
+      - name: Validate PR catch-up merge and its workflow
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_catch_up_pr.py
+
+      - name: Validate automatic PR catch-up selection
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_auto_catch_up_select.py
+
+      - name: Validate merge-main's green base and guard failure labels
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_merge_main.py
+
       - name: Validate main full-suite failure reruns and bisects
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_regression_bisect.py
@@ -384,21 +420,37 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
 
+      - name: Validate delta CI from the last green head
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_delta_since_green.py
+
       - name: Validate late placement onto idle root runners
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_late_placement.py
+
+      - name: Validate spread-first compile admission placement
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_admission_placement.py
 
       - name: Validate owned Mac build state
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_build_state.py
 
+      - name: Validate warm-state distance recording and routing
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_warm_distance.py
+
+      - name: Validate the owned idle catch-up build
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_catch_up.py
+
       - name: Validate the persistent-pool rescue
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
 
-      - name: Validate the owned Mac warm labels
+      - name: Validate the owned Mac warm state
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_owned_warm_labels.py
+        run: python3 tests/test_ci_owned_warm_state.py
 
       - name: Validate CI health report
         if: ${{ matrix.group == 'ci' }}
@@ -552,6 +604,10 @@ jobs:
       - name: Validate notification semantics gates
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_notification_semantics.py
+
+      - name: Validate package test bisect
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_package_bisect.py
 
       - name: Validate app-host test failure classification
         if: ${{ matrix.group == 'app-host-process' }}
@@ -738,6 +794,10 @@ jobs:
       - name: Validate Ghostty Zig version synchronization
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ghostty_zig_version_sync.sh
+
+      - name: Validate GhosttyKit source-build Zig requirement
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: python3 tests/test_ensure_ghosttykit_zig.py
 
       - name: Validate bundled-resource incremental outputs
         if: ${{ matrix.group == 'quality-runtime' }}

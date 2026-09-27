@@ -1,3 +1,4 @@
+import CmuxBrowser
 import Combine
 import CmuxFoundation
 import CmuxSettings

@@ -36,7 +36,8 @@ there wherever it landed; run-e2e.sh names its pool, so its titles are exact.
 
 API budget: at most four requests per decision, never retried or polled (the
 artifact listing, its download, and one page each of E2E and pull request CI
-runs since the snapshot). The GITHUB_TOKEN allows about 1000 requests an hour
+runs since the snapshot), plus one for the pull request runs of the live
+window when the runners are read live (below). The GITHUB_TOKEN allows about 1000 requests an hour
 for the whole repository, so listing jobs here is out of reach.
 
 Anything uncertain stays on the 6vcpu default: an API error, a missing, stale
@@ -51,8 +52,8 @@ the choice exactly as they do for pull requests: only when
 (vars.CMUX_CI_XCODE_APP_PR), ahead of Blacksmith, on a snapshot younger than
 pr_runner_pool.MAX_SNAPSHOT_MINUTES, and by pull request CI's queue rule
 (vars.CI_PR_POOL_QUEUE_ROUNDS, `--queue-rounds`): an owned pool takes the run
-while its job starts there within that many job lengths and no later than on
-the best Blacksmith pool, and the queue stays within machines x (1 + rounds)
+while its job starts there within that many job lengths, whatever
+Blacksmith's wait, and the queue stays within machines x (1 + rounds)
 (pr_runner_pool.owned_room()). Without the rounds the picker used the kill
 switch rule, which counts every in-flight run's whole future peak (the
 janitor's `committed`) as taken now: on 2026-09-25 that read 43 of 32 std
@@ -70,6 +71,22 @@ fewest-queued fallback: with no room within the rounds the run takes Blacksmith.
 that waits on, or is refused by, an owned Mac is re-run on Blacksmith by
 ci-owned-pool-rescue.yml; every re-run attempt takes retry_runner(). That
 holds for an explicit owned runner too: it is the one pick that is moved.
+
+Live owned capacity: with the org App's token (ROUTE_TOKEN; test-e2e.yml mints
+it for this repository's runs while owned pools are on), the owned pools are
+counted from the runners API as pull request CI counts them
+(pr_runner_pool.live_owned_free, live_online and live_pools): idle runners
+carrying the label are its free machines, and the online ones its capacity.
+An App without the organization runners permission gets a repository-only
+token (test-e2e.yml's second mint), as pull request CI does. Only the pull request runs of the last
+pr_runner_pool.LIVE_WINDOW_MINUTES are charged to the owned pools, since an
+older run's jobs are already on runners and show busy there; the rest of the
+snapshot window counts on the Blacksmith pools only. Every in-flight E2E run
+naming an owned pool is still charged there: one can wait in its `sibling`
+job for a same-commit compile for up to 30 minutes holding no Mac yet, so the
+runners API cannot see it. That errs high by the few E2E runs already
+running. Without the token, or on any error listing runners, the snapshot decides as before. The listing uses
+the App's own request budget, not the GITHUB_TOKEN's.
 An `auto` run started from the Actions UI is titled with the 6vcpu default,
 so the replay counts it there even when it took an owned Mac; run-e2e.sh
 names the pool it chose, so its runs are counted where they are.
@@ -127,6 +144,12 @@ class PoolLoad:
     e2e_since: Mapping[str, int] = dataclasses.field(default_factory=dict)
     # In-flight pull request CI runs created since the snapshot.
     pull_requests_since: int = 0
+    # Idle runners per owned label, read live (None: the snapshot decides),
+    # the online ones (its capacity; None: the slot counts), and the pull
+    # request runs of the live window, the only ones charged to an owned pool then.
+    live_owned: Mapping[str, int] | None = None
+    live_online: Mapping[str, int] | None = None
+    pull_requests_recent: int = 0
 
 
 class ApiClient(Protocol):
@@ -195,19 +218,29 @@ def e2e_by_pool(runs: Sequence[Mapping[str, Any]], *, exclude_run_id: int | None
     return counts
 
 
-def measure_load(client: ApiClient, *, now: dt.datetime, exclude_run_id: int | None = None) -> PoolLoad | None:
+def measure_load(client: ApiClient, *, now: dt.datetime, exclude_run_id: int | None = None,
+                 live_owned: Mapping[str, int] | None = None,
+                 live_online: Mapping[str, int] | None = None) -> PoolLoad | None:
     """The janitor snapshot and the runs since it, or None when there is no usable snapshot.
 
-    Raises (from the client) on an API failure.
+    With `live_owned` (idle runners per owned label; `live_online`, the online
+    ones), the runs of the live window are counted too. Raises (from the client) on an API failure.
     """
     snapshot = client.snapshot(now=now)
     if not isinstance(snapshot, Mapping) or not snapshot.get("generated_at"):
         return None
     since = str(snapshot["generated_at"])
-    return PoolLoad(
+    load = PoolLoad(
         snapshot,
         e2e_by_pool(client.runs_since(E2E_WORKFLOW, since), exclude_run_id=exclude_run_id),
         client.pull_request_runs_since(since, exclude_run_id=exclude_run_id),
+    )
+    if live_owned is None:
+        return load
+    window = pr_runner_pool.iso(now - dt.timedelta(minutes=pr_runner_pool.LIVE_WINDOW_MINUTES))
+    return dataclasses.replace(
+        load, live_owned=live_owned, live_online=live_online,
+        pull_requests_recent=client.pull_request_runs_since(window, exclude_run_id=exclude_run_id),
     )
 
 
@@ -223,22 +256,34 @@ def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.da
     pools = [label for label in limits.order if e2e_pool(label)]
     if not pools:
         return pr_runner_pool.Choice("", "", f"{ORDER_VARIABLE} names no macOS 26 pool")
+    snapshot, capacity = live_view(load, owned_slots)
+    live = load.live_owned is not None
     placed: dict[str, int] = {}
+    owned_since: dict[str, int] = {}
     for label, count in load.e2e_since.items():
-        # A run on an owned pool's root runners holds one of its machines.
-        placed[pr_runner_pool.pool_label(label)] = placed.get(pr_runner_pool.pool_label(label), 0) + count
-    routed = load.pull_requests_since
+        # A run on an owned pool's root runners holds one of its machines. On an
+        # owned pool it is charged the E2E_JOBS it holds, as a pull request run is
+        # charged its marker's peak; `placed` would charge a replayed PR run's.
+        pool = pr_runner_pool.pool_label(label)
+        target = owned_since if pr_runner_pool.persistent(pool) else placed
+        target[pool] = target.get(pool, 0) + count * (E2E_JOBS if target is owned_since else 1)
+    routed, ephemeral = load.pull_requests_since, 0
+    if live:
+        # Only the window's pull request runs may still take an owned machine;
+        # the older ones count on the Blacksmith pools only.
+        routed = min(routed, load.pull_requests_recent)
+        ephemeral = load.pull_requests_since - routed
     lane = pr_routing_off(load.snapshot)
     if lane is not None:
         # Pull request runs are not being routed, so each stays on its lane.
-        placed[lane] = placed.get(lane, 0) + routed
-        routed = 0
+        placed[lane] = placed.get(lane, 0) + routed + ephemeral
+        routed = ephemeral = 0
     def rule(settings: pr_runner_pool.Settings, choose_from: list[str]) -> pr_runner_pool.Choice:
         return pr_runner_pool.decide(
-            load.snapshot, settings, now=now, xcode_pins={},
-            routed_since=routed, auto_xcode=True,
-            placed=placed, choose_from=choose_from,
-            owned_slots=owned_slots or {}, jobs=jobs, root_jobs=jobs,
+            snapshot, settings, now=now, xcode_pins={},
+            routed_since=routed, ephemeral_since=ephemeral, auto_xcode=True,
+            placed=placed, owned_since=owned_since, choose_from=choose_from,
+            owned_slots=capacity, jobs=jobs, root_jobs=jobs,
         )
 
     choice = rule(limits, pools)
@@ -251,7 +296,25 @@ def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.da
         if len(blacksmith) < len(pools):
             choice = dataclasses.replace(choice, reason=f"no owned pool within {limits.queue_rounds} queue "
                                                         f"round(s); {choice.reason}")
+    if live and pr_runner_pool.persistent(choice.runner):
+        choice = dataclasses.replace(choice, reason=f"{choice.reason}; owned machines read live from the runners API")
     return choice
+
+
+def live_view(load: PoolLoad, owned_slots: Mapping[str, int] | None) -> tuple[Mapping[str, Any], dict[str, int]]:
+    """The snapshot and owned capacities decide() reads: the owned counts read live when the runners were.
+
+    Idle runners replace the snapshot's owned counts, and online ones the
+    slot counts, as pull request CI reads them (pr_runner_pool.choose). No
+    older runs are passed (`older={}`): a fully busy owned label is not
+    charged the queued jobs of pull request runs from before the live
+    window, so it may look shorter than it is; ci-owned-pool-rescue.yml
+    moves a job that then waits too long.
+    """
+    capacity = dict(owned_slots or {})
+    if load.live_owned is None:
+        return load.snapshot, capacity
+    return pr_runner_pool.live_pools(load.snapshot, load.live_owned or {}, capacity, {}, load.live_online)
 
 
 def pr_routing_off(snapshot: Mapping[str, Any]) -> str | None:
@@ -305,7 +368,9 @@ def auto_runner(
             log(f"{choice.reason}; staying on {SMALL_RUNNER}")
             return default
         shown = [label for label in limits.order if pr_runner_pool.persistent(label)] + list(E2E_POOLS)
-        queue = "; ".join(pr_runner_pool.describe(load.snapshot, label, owned_slots) for label in shown)
+        # The counts decide() read: live for the owned labels when the runners were read.
+        seen, capacity = live_view(load, owned_slots)
+        queue = "; ".join(pr_runner_pool.describe(seen, label, capacity) for label in shown)
     except Exception as error:  # noqa: BLE001 - every failure is fail-safe
         log(f"could not read the runner queue ({error}); staying on {SMALL_RUNNER}")
         return default
@@ -352,6 +417,28 @@ def resolve(
     ) or SMALL_RUNNER
 
 
+def read_live_owned(repo: str, env: Mapping[str, str], owned: str | None,
+                    pr_xcode_app: str | None) -> tuple[dict[str, int], dict[str, int]] | None:
+    """Idle and online runners per owned label (and its root label) from the runners API, or None.
+
+    Needs the org App's token (ROUTE_TOKEN) and owned pools on; any error
+    leaves the snapshot to decide.
+    """
+    token = (env.get("ROUTE_TOKEN") or "").strip()
+    if not token or not repo or (owned or "").strip() != "1":
+        return None
+    labels = pr_runner_pool.owned_pools(pr_xcode_app)
+    labels += tuple(pr_runner_pool.root_label(label) for label in labels)
+    if not labels:
+        return None
+    try:
+        runners = pr_runner_pool.GitHub(token, repo).runners()
+    except Exception as error:  # noqa: BLE001 - the snapshot path still decides
+        print(f"could not list runners ({error}); using the snapshot", file=sys.stderr)
+        return None
+    return pr_runner_pool.live_owned_free(runners, labels), pr_runner_pool.live_online(runners, labels)
+
+
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None) -> int:
     env = os.environ if env is None else env
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -381,8 +468,12 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     def measure() -> PoolLoad | None:
         if not token or not repo:
             raise RuntimeError("GH_TOKEN and GH_REPO are required")
+        # A run no owned pool may take (a UI filter without owned_ui) reads no runners.
+        owned = args.owned if owned_target(args.test_filter, args.owned_ui) else ""
+        idle, online = read_live_owned(repo, env, owned, args.pr_xcode_app) or (None, None)
         return measure_load(pr_runner_pool.GitHub(token, repo), now=now,
-                            exclude_run_id=int(run_id) if run_id.isdigit() else None)
+                            exclude_run_id=int(run_id) if run_id.isdigit() else None,
+                            live_owned=idle, live_online=online)
 
     print(resolve(
         args.requested, args.variable,

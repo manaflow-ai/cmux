@@ -1851,6 +1851,42 @@ struct SidebarAppKitRowCellTests {
         #expect(applies == 1)
     }
 
+    /// Closing a workspace reloads the table, so every visible row gets a
+    /// fresh or recycled cell. None of them may paint the close button
+    /// unless the pointer is on that row.
+    @Test
+    func closeButtonStaysConcealedOnFreshUnhoveredCell() {
+        let cell = SidebarWorkspaceRowTableCellView()
+        #expect(cell.closeButtonPaintForTesting.isHidden)
+        #expect(cell.closeButtonPaintForTesting.alpha == 0)
+
+        let configured = Self.configuredCell(model: Self.makeModel())
+        #expect(configured.closeButtonPaintForTesting.isHidden)
+        #expect(configured.closeButtonPaintForTesting.alpha == 0)
+    }
+
+    @Test
+    func recycledHoveredCellSnapsCloseButtonHidden() {
+        let cell = Self.configuredCell(model: Self.makeModel())
+        cell.enforcePointerHovering(true)
+        #expect(!cell.closeButtonPaintForTesting.isHidden)
+
+        cell.prepareForReuse()
+        #expect(cell.closeButtonPaintForTesting.isHidden)
+        #expect(cell.closeButtonPaintForTesting.alpha == 0)
+
+        let nextModel = Self.makeModel()
+        cell.configure(
+            model: nextModel,
+            actions: Self.makeActions(model: nextModel),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        #expect(cell.closeButtonPaintForTesting.isHidden)
+        #expect(cell.closeButtonPaintForTesting.alpha == 0)
+    }
+
     @Test
     func shortcutHintPillKeepsVisibleDuringFadeOut() async throws {
         let pill = SidebarShortcutHintPillView(reduceMotionProvider: { false })
@@ -1980,6 +2016,41 @@ struct SidebarAppKitRowCellTests {
         activeCell.showOptimisticDeselection()
         #expect(activeApplied == [false])
         #expect(activeCell.currentModelForMeasurement?.isActive == true)
+    }
+
+    /// Moving the pointer off a just-clicked row repaints it for hover. That
+    /// repaint used the stored (still unselected) model and snapped the
+    /// highlight off until the selection render landed.
+    @Test
+    func hoverRepaintKeepsOptimisticSelection() {
+        let cell = Self.configuredCell(model: Self.makeModel(isActive: false))
+        var appliedActive: [Bool] = []
+        cell.applyModelProbeForTesting = { appliedActive.append($0.isActive) }
+
+        cell.showOptimisticSelectionHighlight()
+        cell.enforcePointerHovering(true)
+        cell.enforcePointerHovering(false)
+
+        #expect(appliedActive == [true, true, true])
+        #expect(cell.hasOptimisticSelectionForTesting)
+
+        cell.restoreStoredModelPaint()
+        #expect(appliedActive.last == false)
+        #expect(!cell.hasOptimisticSelectionForTesting)
+    }
+
+    /// Rapid clicks: the previous click's row is only optimistically
+    /// highlighted, so the next click's peel must see the painted state.
+    @Test
+    func optimisticDeselectionPeelsOptimisticallyHighlightedRow() {
+        let cell = Self.configuredCell(model: Self.makeModel(isActive: false))
+        var appliedActive: [Bool] = []
+        cell.applyModelProbeForTesting = { appliedActive.append($0.isActive) }
+
+        cell.showOptimisticSelectionHighlight()
+        cell.showOptimisticDeselection()
+
+        #expect(appliedActive == [true, false])
     }
 
     @Test

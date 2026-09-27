@@ -86,6 +86,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
 from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
+from pr_runner_pool import GitHub as PoolClient  # noqa: E402
+import owned_warm_state  # noqa: E402
 
 
 API = "https://api.github.com"
@@ -288,7 +290,7 @@ def counted_pools(pool: str) -> tuple[str, ...]:
     return (pool, pool_label(pool)) if pool_label(pool) != pool else (pool,)
 
 
-def marker_peaks(marker: tuple[str, int], owned_jobs: Sequence[Mapping[str, Any]]) -> list[tuple[str, int]]:
+def marker_peaks(marker: tuple[str, int, int], owned_jobs: Sequence[Mapping[str, Any]]) -> list[tuple[str, int]]:
     """The peak a run's marker reserves on each pool it counts toward.
 
     ci.yml's marker names the pool label and every owned machine the run
@@ -299,7 +301,7 @@ def marker_peaks(marker: tuple[str, int], owned_jobs: Sequence[Mapping[str, Any]
     An E2E marker names the root label when the run took one, which is also
     one of the pool's machines.
     """
-    pool, peak = marker
+    pool, peak = marker[0], marker[1]
     if pool_label(pool) != pool:
         return [(pool, peak), (pool_label(pool), peak)]
     side = sum(1 for job in owned_jobs if owned_label(job) in (pool, side_label(pool)))
@@ -387,19 +389,28 @@ POOL_SETTINGS_ENV = {
 
 MAX_ARTIFACT_PAGES = 5
 # ci.yml's `changes` job uploads this marker when the picker chose an owned
-# pool: macos-pool-persistent-<run>-<attempt>-<jobs>-<pool>.
+# pool: macos-pool-persistent-<run>-<attempt>-<jobs>p<placed>-<pool>, where
+# <jobs> is the machines held at peak and <placed> the owned jobs placed
+# (post-admission jobs reuse admission's machine, so placed can exceed jobs).
+# The E2E and iOS markers, and ones uploaded before `p<placed>`, omit it.
 # workflow_dispatch workflows whose runner job may pick an owned pool and upload it.
 OWNED_DISPATCH_WORKFLOWS = ("/test-e2e.yml", "/test-ios.yml", "/ios-screenshots.yml")
-OWNED_MARKER = re.compile(r"macos-pool-persistent-(?P<run>[0-9]+)-(?P<attempt>[0-9]+)-(?P<jobs>[0-9]+)-(?P<pool>.+)")
+OWNED_MARKER = re.compile(r"macos-pool-persistent-(?P<run>[0-9]+)-(?P<attempt>[0-9]+)-(?P<jobs>[0-9]+)"
+                          r"(?:p(?P<placed>[0-9]+))?-(?P<pool>.+)")
 
 
-def owned_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str, int] | None:
-    """(pool, peak jobs) from this attempt's owned-pool marker, or None."""
+def owned_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str, int, int] | None:
+    """(pool, peak jobs, placed jobs) from this attempt's owned-pool marker, or None.
+
+    A marker without a placed count places as many jobs as its peak.
+    """
     for name in names:
         match = OWNED_MARKER.fullmatch(str(name))
         if (match and int(match["run"]) == run.get("id") and int(match["attempt"]) == (run.get("run_attempt") or 1)
                 and owned_pool(match["pool"])):
-            return match["pool"], min(int(match["jobs"]), MAX_RUN_JOBS)
+            peak = min(int(match["jobs"]), MAX_RUN_JOBS)
+            placed = min(int(match["placed"]), MAX_RUN_JOBS) if match["placed"] is not None else peak
+            return match["pool"], peak, placed
     return None
 
 
@@ -431,8 +442,8 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
     (pr_runner_pool.LIGHT_RETRY_ATTEMPT), publishing its own marker. A re-run
     of failed jobs publishes none, so with the variable off attempt 2 costs
     no listing. Later attempts never hold one. Its other macOS jobs say nothing:
-    swift-package-tests always runs on a Blacksmith pool beside a run on an
-    owned one.
+    swift-package-tests usually runs on a Blacksmith pool beside a run on an
+    owned one (only a run that builds no Release helper places it there).
     """
     if (run.get("run_attempt") or 1) > (2 if light_retry else 1):
         return False
@@ -451,7 +462,7 @@ def pool_load_snapshot(
     *,
     now: dt.datetime,
     settings: Mapping[str, str] | None = None,
-    markers: Mapping[int, tuple[str, int]] | None = None,
+    markers: Mapping[int, tuple[str, int, int]] | None = None,
     capability_markers: Mapping[int, tuple[str, int]] | None = None,
 ) -> dict[str, Any]:
     """Per-pool macOS demand from the jobs this sweep already listed.
@@ -469,7 +480,7 @@ def pool_load_snapshot(
     that label (runner_pool); its counts are how pr_runner_pool.py knows how
     many of the pool's machines are taken. An owned pool also gets
     `committed`: for each run holding it, the larger of the jobs seen there
-    and the peak its marker declares (`markers`, run id -> (pool, jobs)), so
+    and the peak its marker declares (`markers`, run id -> (pool, jobs, placed)), so
     a run whose later jobs do not exist yet still counts them. A job on an
     owned pool's root runners (`glaeda-root-...`) counts toward both the root
     label and the pool (counted_pools()), and so does its run's marker
@@ -498,11 +509,12 @@ def pool_load_snapshot(
         # A run whose owned jobs all finished holds no owned machine, even while
         # its Blacksmith jobs (per-job placement) keep it in flight. Shard jobs
         # exist only after admission finishes, so the marker keeps reserving its
-        # peak until that many owned jobs have completed.
+        # peak until as many owned jobs as it placed have completed (more than
+        # its peak when the jobs after admission reuse admission's machine).
         owned_jobs = [job for job in jobs_by_run.get(run.get("id"), ()) if is_macos_job(job) and owned_label(job)]
         done = sum(1 for job in owned_jobs if job.get("status") == "completed")
         released = (bool(owned_jobs) and done == len(owned_jobs)
-                    and (not marker or done >= marker[1]))
+                    and (not marker or done >= marker[2]))
         if marker and run.get("status") != "completed" and not released:
             for label, peak in marker_peaks(marker, owned_jobs):
                 seen[label] = max(seen.get(label, 0), peak)
@@ -536,6 +548,14 @@ def pool_load_snapshot(
                     oldest[pool] = created
     for pool, created in oldest.items():
         pools[pool]["oldest_queued_minutes"] = max(0, int((now - created).total_seconds() // 60))
+    # Which job each owned runner is running and since when: pr_runner_pool.py's warm routing
+    # estimates a busy warm runner's wait from it (warm_distance.remaining_seconds()).
+    running: dict[str, dict[str, str]] = {}
+    for run in runs:
+        for job in jobs_by_run.get(run.get("id"), ()):
+            if job.get("status") in RUNNING_JOB_STATUSES and job.get("runner_name") and owned_label(job):
+                running[str(job["runner_name"])] = {"job": str(job.get("name") or ""),
+                                                    "started_at": str(job.get("started_at") or "")}
     for pool, count in committed.items():
         pools.setdefault(pool, {"queued": 0, "running": 0, "reserved_queued": 0,
                                 "oldest_queued_minutes": 0})["committed"] = count
@@ -543,6 +563,7 @@ def pool_load_snapshot(
         "version": POOL_LOAD_VERSION,
         "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "pools": dict(sorted(pools.items())),
+        "running": dict(sorted(running.items())),
         "settings": dict(settings or {}),
     }
 
@@ -1412,7 +1433,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         pool_settings = {key: os.environ.get(name, "") for name, key in POOL_SETTINGS_ENV.items()}
         # Owned pools on: one artifact listing per run that may hold one, for
         # the peak its marker declares. Off: no request at all.
-        markers: dict[int, tuple[str, int]] = {}
+        markers: dict[int, tuple[str, int, int]] = {}
         capability_markers: dict[int, tuple[str, int]] = {}
         if os.environ.get("PR_POOL_OWNED", "").strip() == "1":
             light_retry = os.environ.get("OWNED_LIGHT_RETRY", "").strip() == "1"
@@ -1431,11 +1452,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                     capability = capability_marker(run, names)
                     if capability:
                         capability_markers[run["id"]] = capability
-        args.pool_load.write_text(
-            json.dumps(pool_load_snapshot(runs, jobs_by_run, now=now, settings=pool_settings, markers=markers,
-                                          capability_markers=capability_markers),
-                       indent=2) + "\n",
-            encoding="utf-8")
+        snapshot = pool_load_snapshot(runs, jobs_by_run, now=now, settings=pool_settings, markers=markers,
+                                      capability_markers=capability_markers)
+        # Warm affinity on: which root runner kept a build of which main
+        # commits (owned_warm_state.py). A failure leaves `warm` out, and the
+        # picker then routes admission by the root label as before.
+        if os.environ.get("OWNED_WARM", "").strip() == "1":
+            try:
+                snapshot["warm"] = owned_warm_state.sweep(PoolClient(token, args.repo), jobs_by_run, now)
+            except Exception as error:  # noqa: BLE001 a routing hint never fails the sweep
+                print(f"queue-janitor: owned warm state: {error}", file=sys.stderr)
+        args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
 
     plan = build_plan(
         runs, jobs_by_run, prs_by_branch,

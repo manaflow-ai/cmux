@@ -53,6 +53,15 @@ struct cmuxApp: App {
             keychainAccessGroup: auth.keychainAccessGroup,
             diagnosticLog: diagnosticLog)
         Task { await irx.configure(auth: auth.coordinator) }
+        // iroh cannot observe every iOS network change on its own; forward
+        // each one so the transport drops dead paths now instead of after
+        // its heartbeat and path-idle timeouts (multi-second terminal stalls
+        // measured on Wi-Fi to cellular handoffs).
+        Task {
+            for await _ in reachability.allPathUpdates() {
+                await irx.notifyNetworkChange()
+            }
+        }
 
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
         // the simulator and on DEBUG device builds so on-device XCUITests can
@@ -105,7 +114,9 @@ struct cmuxApp: App {
             simulatorStreamLaneProvider: { request, panelID in
                 guard let panelUUID = UUID(uuidString: panelID) else { throw MobileIrohSimulatorStreamLaneError.invalidPanelID }
                 return try await irx.openSimulatorStreamLane(for: request, panelID: panelUUID)
-            }
+            },
+            // irx.serverEventByteStream merges every per-surface event lane.
+            independentEventsMergeSurfaceLanes: true
         )
 
         return AppCompositionRoot(
