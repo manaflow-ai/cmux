@@ -117,6 +117,13 @@ struct CloudSidebarAttentionLayoutTests {
     @Test("The real outline repaints unread and cleared rows without changing disclosure geometry",
           arguments: [220.0, 380.0])
     func outlineAttentionTransitions(width: Double) throws {
+        // The geometry below assumes 100%; never inherit another test's or the host's magnification.
+        let oldPercent = UserDefaults.standard.object(forKey: GlobalFontMagnification.percentKey)
+        UserDefaults.standard.set(100, forKey: GlobalFontMagnification.percentKey)
+        defer {
+            if let oldPercent { UserDefaults.standard.set(oldPercent, forKey: GlobalFontMagnification.percentKey) }
+            else { UserDefaults.standard.removeObject(forKey: GlobalFontMagnification.percentKey) }
+        }
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         fixture.window.setContentSize(NSSize(width: width, height: 560))
