@@ -196,6 +196,34 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func testRemoteShellPathWordKeepsASCIIPathsSingleQuoted() {
+        #expect(ProcessSSHFileExplorerTransport.remoteShellPathWord("/tmp/it's.md") == #"'/tmp/it'\''s.md'"#)
+    }
+
+    @Test
+    func testRemoteShellPathWordPreservesNFCBytesThroughProcessArguments() throws {
+        // https://github.com/manaflow-ai/cmux/issues/14891: Process decomposes
+        // argv to NFD, so a precomposed remote name must not appear literally.
+        for name in ["モデル.md", "보고서.md", "résumé.md", "отчёт.md", "it's é.md"] {
+            let path = "/tmp/nfd/" + name.precomposedStringWithCanonicalMapping
+            let word = ProcessSSHFileExplorerTransport.remoteShellPathWord(path)
+            let wordIsASCII = word.unicodeScalars.allSatisfy { $0.isASCII }
+            #expect(wordIsASCII)
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", "printf '%s' \(word)"]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            try process.run()
+            let output = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            #expect(process.terminationStatus == 0)
+            #expect(output == Data(path.utf8))
+        }
+    }
+
+    @Test
     func testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath() async throws {
         let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
         transport.listings["/home/dev"] = .success([

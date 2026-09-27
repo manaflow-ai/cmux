@@ -1920,12 +1920,24 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func shortcutHintPillUsesExplicitOpacityAnimationInsideDisabledTransaction() {
+    func shortcutHintPillAppearsWithoutFadeIn() {
         let pill = SidebarShortcutHintPillView(reduceMotionProvider: { false })
+
+        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+
+        #expect(!pill.isHidden)
+        #expect(pill.layer?.opacity == 1)
+        #expect((pill.layer?.animationKeys() ?? []).isEmpty)
+    }
+
+    @Test
+    func shortcutHintPillFadesOutWithExplicitOpacityAnimationInsideDisabledTransaction() {
+        let pill = SidebarShortcutHintPillView(reduceMotionProvider: { false })
+        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+        pill.configure(text: nil, fontSize: 9, emphasis: 1)
         CATransaction.commit()
 
         let hasOpacityAnimation = (pill.layer?.animationKeys() ?? []).contains { key in
