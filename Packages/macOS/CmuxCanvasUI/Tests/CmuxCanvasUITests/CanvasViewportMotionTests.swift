@@ -15,7 +15,9 @@ struct CanvasViewportMotionTests {
         let panelB = UUID()
         let root = makeRoot(panels: [panelA], focused: panelA)
         defer { root.teardown() }
-        root.shouldReduceMotionForDiscreteZoom = { false }
+        root.shouldReduceMotion = { false }
+        var animations: [TimeInterval] = []
+        root.onMotionAnimationStarted = { animations.append($0) }
         let originBefore = visibleRect(root).origin
 
         root.sync(descriptors: descriptors([panelA, panelB]), focusedPanelId: panelA, isWorkspaceVisible: true)
@@ -24,6 +26,7 @@ struct CanvasViewportMotionTests {
         settleAnimations()
 
         #expect(visibleRect(root).origin == originBefore)
+        #expect(animations.isEmpty)
     }
 
     @Test func focusedAddedPaneIsRevealedWithoutAnimation() throws {
@@ -31,39 +34,54 @@ struct CanvasViewportMotionTests {
         let panelB = UUID()
         let root = makeRoot(panels: [panelA], focused: panelA)
         defer { root.teardown() }
-        root.shouldReduceMotionForDiscreteZoom = { false }
+        root.shouldReduceMotion = { false }
+        var animations: [TimeInterval] = []
+        root.onMotionAnimationStarted = { animations.append($0) }
 
         root.sync(descriptors: descriptors([panelA, panelB]), focusedPanelId: panelB, isWorkspaceVisible: true)
 
         let paneB = try #require(root.model.frame(of: panelB))
         #expect(visibleRect(root).contains(root.documentRect(fromCanvas: paneB)))
+        #expect(animations.isEmpty)
+    }
+
+    @Test func revealPaneAnimatesWhenMotionIsAllowed() throws {
+        let panelA = UUID()
+        let panelB = UUID()
+        let root = makeRoot(panels: [panelA, panelB], frames: farApartFrames(panelA, panelB), focused: panelA)
+        defer { root.teardown() }
+        root.shouldReduceMotion = { false }
+        var animations: [TimeInterval] = []
+        root.onMotionAnimationStarted = { animations.append($0) }
+
+        root.revealPane(panelB, animated: true)
+
+        #expect(animations == [CanvasRootView.panAnimationDuration])
     }
 
     @Test func reduceMotionRevealsPaneImmediately() throws {
         let panelA = UUID()
         let panelB = UUID()
-        let root = makeRoot(
-            panels: [panelA, panelB],
-            frames: [
-                panelA: CGRect(x: 0, y: 0, width: 640, height: 360),
-                panelB: CGRect(x: 1_600, y: 0, width: 640, height: 360),
-            ],
-            focused: panelA
-        )
+        let root = makeRoot(panels: [panelA, panelB], frames: farApartFrames(panelA, panelB), focused: panelA)
         defer { root.teardown() }
-        root.shouldReduceMotionForDiscreteZoom = { true }
+        root.shouldReduceMotion = { true }
+        var animations: [TimeInterval] = []
+        root.onMotionAnimationStarted = { animations.append($0) }
 
         root.revealPane(panelB, animated: true)
 
         let paneB = try #require(root.model.frame(of: panelB))
         #expect(visibleRect(root).contains(root.documentRect(fromCanvas: paneB)))
+        #expect(animations.isEmpty)
     }
 
     @Test func reduceMotionAppliesExternalFrameChangesImmediately() throws {
         let panelA = UUID()
         let root = makeRoot(panels: [panelA], focused: panelA)
         defer { root.teardown() }
-        root.shouldReduceMotionForDiscreteZoom = { true }
+        root.shouldReduceMotion = { true }
+        var animations: [TimeInterval] = []
+        root.onMotionAnimationStarted = { animations.append($0) }
         let paneView = try #require(root.paneViews[CanvasPaneID(rawValue: panelA)])
 
         root.model.setFrame(CGRect(x: 40, y: 30, width: 500, height: 300), for: panelA)
@@ -71,9 +89,31 @@ struct CanvasViewportMotionTests {
 
         let target = try #require(root.model.frame(of: panelA))
         #expect(paneView.frame == root.documentRect(fromCanvas: target))
+        #expect(animations.isEmpty)
+    }
+
+    @Test func externalFrameChangesAnimateWhenMotionIsAllowed() throws {
+        let panelA = UUID()
+        let root = makeRoot(panels: [panelA], focused: panelA)
+        defer { root.teardown() }
+        root.shouldReduceMotion = { false }
+        var animations: [TimeInterval] = []
+        root.onMotionAnimationStarted = { animations.append($0) }
+
+        root.model.setFrame(CGRect(x: 40, y: 30, width: 500, height: 300), for: panelA)
+        root.modelDidChangeExternally(animated: true)
+
+        #expect(animations == [CanvasRootView.paneFrameAnimationDuration])
     }
 
     // MARK: Helpers
+
+    private func farApartFrames(_ first: UUID, _ second: UUID) -> [UUID: CGRect] {
+        [
+            first: CGRect(x: 0, y: 0, width: 640, height: 360),
+            second: CGRect(x: 1_600, y: 0, width: 640, height: 360),
+        ]
+    }
 
     private func visibleRect(_ root: CanvasRootView) -> CGRect {
         root.scrollView.contentView.documentVisibleRect

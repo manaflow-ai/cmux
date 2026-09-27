@@ -11,9 +11,10 @@ extension CanvasRootView: CanvasViewportControlling {
         reconcilePanes()
         applyZOrder()
         recomputeDocumentGeometry()
-        if animated {
+        if shouldAnimate(animated) {
+            onMotionAnimationStarted?(Self.paneFrameAnimationDuration)
             NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.25
+                context.duration = Self.paneFrameAnimationDuration
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 context.allowsImplicitAnimation = true
                 for (paneID, paneView) in paneViews {
@@ -152,7 +153,7 @@ extension CanvasRootView: CanvasViewportControlling {
         cancelDiscreteZoomAnimation()
         guard magnification != scrollView.magnification else { return }
         let center = currentCenterInCanvas
-        if shouldReduceMotionForDiscreteZoom() {
+        if shouldReduceMotion() {
             applyViewport(center: center, magnification: magnification, notifySettled: true)
             return
         }
