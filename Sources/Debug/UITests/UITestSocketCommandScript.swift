@@ -17,7 +17,8 @@ import Foundation
 ///   most recent `list_surfaces` returned (for `notify_target`). A line
 ///   starting with `{"` is a v2 JSON request; `{group}` is the group id the
 ///   most recent `workspace.group.create` returned, and an `"ok": false`
-///   reply counts as a failure.
+///   reply counts as a failure. `{pid}` is the app's own process id, a live
+///   PID for `set_agent_pid` (agent status rows show only for a live agent).
 /// - `CMUX_UI_TEST_SOCKET_COMMANDS_RESULT_PATH`: JSON written when done:
 ///   `{"done": "1", "replies": [...], "failed": "0|1"}`; wait on it before
 ///   asserting on the UI.
@@ -40,10 +41,11 @@ struct UITestSocketCommandScript: Equatable {
     /// Runs every command through `handle`, substituting `{last}`, and
     /// returns the replies in order.
     func run(
+        processIdentifier: Int32 = ProcessInfo.processInfo.processIdentifier,
         _ handle: (String) -> String,
         sleep: (Int) -> Void = { usleep(useconds_t(max(0, $0)) * 1000) }
     ) -> [String] {
-        var values: [String: String] = [:]
+        var values: [String: String] = ["pid": String(processIdentifier)]
         var replies: [String] = []
         for command in commands {
             if let milliseconds = Self.waitMilliseconds(command) {

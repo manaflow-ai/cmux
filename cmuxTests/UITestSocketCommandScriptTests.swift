@@ -127,6 +127,16 @@ struct UITestSocketCommandScriptTests {
     }
 
     @Test
+    func pidIsTheAppsOwnProcessId() throws {
+        let script = try #require(UITestSocketCommandScript(environment: [
+            UITestSocketCommandScript.commandsKey: "set_agent_pid claude_code {pid} --tab=x",
+        ]))
+        var sent: [String] = []
+        _ = script.run(processIdentifier: 4242) { sent.append($0); return "OK" }
+        #expect(sent == ["set_agent_pid claude_code 4242 --tab=x"])
+    }
+
+    @Test
     func v2ErrorRepliesCountAsFailures() {
         #expect(UITestSocketCommandScript.isFailure(#"{"id":"c","ok":false,"error":{"code":"not_found"}}"#))
         #expect(!UITestSocketCommandScript.isFailure(#"{"id":"c","ok":true,"result":{}}"#))
