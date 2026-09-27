@@ -11243,12 +11243,14 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
     init(
         defaults: UserDefaults = .standard,
         initialSidebarFontSize: CGFloat = GhosttyConfig.defaultSidebarFontSize,
-        accentColor: CmuxAccentColor = AppDelegate.shared?.accentColor ?? CmuxAccentColor(),
+        accentColor: CmuxAccentColor? = nil,
         sidebarFontSizeProvider: @escaping () async -> CGFloat = SidebarFontSizeProvider.loadFromGhosttyConfig
     ) {
         self.defaults = defaults
         self.sidebarFontSize = GhosttyConfig.clampedSidebarFontSize(initialSidebarFontSize)
-        self.accentColor = accentColor
+        // Read the app delegate's resolved accent here, on the main actor;
+        // a default argument would evaluate it in a nonisolated context.
+        self.accentColor = accentColor ?? AppDelegate.shared?.accentColor ?? CmuxAccentColor()
         self.sidebarFontSizeProvider = sidebarFontSizeProvider
         self.snapshot = SidebarTabItemSettingsSnapshot(
             defaults: defaults,

@@ -80,9 +80,18 @@ public struct UpdateAppearance: Sendable {
         }
     }
 
-    /// A darker shade of the host accent for secondary emphasis states.
+    /// A darker shade of the host accent for secondary emphasis states: the
+    /// accent's sRGB components scaled toward black, so the hue is kept.
+    /// (`NSColor.blended` mixes in a generic RGB space, which shifts the hue
+    /// once the result is shown in sRGB.)
     func accentDarkened(by fraction: CGFloat) -> Color {
-        let base = NSColor(accent)
-        return Color(nsColor: base.blended(withFraction: fraction, of: .black) ?? base)
+        guard let base = NSColor(accent).usingColorSpace(.sRGB) else { return accent }
+        let keep = 1 - max(0, min(fraction, 1))
+        return Color(nsColor: NSColor(
+            srgbRed: base.redComponent * keep,
+            green: base.greenComponent * keep,
+            blue: base.blueComponent * keep,
+            alpha: base.alphaComponent
+        ))
     }
 }
