@@ -19,6 +19,11 @@ on:
           - relay-expiry
           - direct-only
           - private-path
+      backend_base_url:
+        description: v2 broker Worker origin used by the app and gate
+        required: false
+        default: https://cmux-v2-staging.debussy.workers.dev
+        type: string
 
 permissions:
   contents: read
@@ -132,10 +137,13 @@ jobs:
             direct-only) TAG=irgdir ;;
             private-path) TAG=irgprv ;;
           esac
-          ./scripts/run-iroh-release-gate.sh \
-            --mode "${{ matrix.mode }}" \
-            --tag "$TAG" \
+          GATE_ARGS=(
+            --mode "${{ matrix.mode }}"
+            --tag "$TAG"
+            --staging-base-url "${{ inputs.backend_base_url }}"
             --report-output "$RUNNER_TEMP/iroh-release-gate-${{ matrix.mode }}.json"
+          )
+          ./scripts/run-iroh-release-gate.sh "${GATE_ARGS[@]}"
 
       - name: Upload redacted verdict
         if: ${{ always() }}
