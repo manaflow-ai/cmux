@@ -71,6 +71,10 @@ final class InterfaceDensityUITests: XCTestCase {
         let bell = titlebarButton("titlebarControl.showNotifications", in: app)
         moveMouseToTerminal(in: app)
         XCTAssertTrue(waitForHittable(bell), "An unread notification keeps the compact titlebar row visible.")
+        XCTAssertTrue(
+            waitForNotHittable(sidebarHelpButton(in: app)),
+            "Unread notifications pin only the titlebar; the footer actions stay folded."
+        )
         attachScreenshot(of: app, name: "compact, at rest, unread notification")
     }
 
@@ -120,6 +124,9 @@ final class InterfaceDensityUITests: XCTestCase {
         app.launch()
         app.activate()
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10))
+        // The pointer keeps its position between tests; start away from chrome
+        // so a previous test's hover does not carry over.
+        moveMouseToTerminal(in: app)
         if seedsUnread {
             XCTAssertTrue(waitForFile(atPath: dataPath, timeout: 8), "Unread notification setup did not run.")
         }
@@ -202,6 +209,9 @@ final class InterfaceDensityUITests: XCTestCase {
 
     @MainActor
     private func attachScreenshot(of app: XCUIApplication, name: String) {
+        // Assertions wait on state; the capture alone waits out the 0.14 s
+        // fade so it shows the settled chrome, not a frame mid-animation.
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
         let attachment = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways

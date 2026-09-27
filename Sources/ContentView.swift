@@ -15390,6 +15390,7 @@ struct SidebarFooterButtons: View {
     @AppStorage(InterfaceDensity.userDefaultsKey)
     private var interfaceDensityRawValue = InterfaceDensity.defaultValue.rawValue
     @State private var isHoveringFooter = false
+    @State private var isHoveringFoldedSlots = false
 
     private var presentationMode: WorkspacePresentationModeSettings.Mode {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode)
@@ -15405,9 +15406,7 @@ struct SidebarFooterButtons: View {
     private var foldedActionsHoverTarget: some View {
         Color.clear
             .contentShape(Rectangle())
-            .onHover { hovering in
-                if hovering { isHoveringFooter = true }
-            }
+            .onHover { isHoveringFoldedSlots = $0 }
     }
 
     /// Compact density fades the footer's action buttons until the pointer
@@ -15416,7 +15415,7 @@ struct SidebarFooterButtons: View {
     private var foldableActionsOpacity: Double {
         SidebarFooterFoldPolicy.showsFoldableActions(
             density: interfaceDensity,
-            isHoveringFooter: isHoveringFooter,
+            isHoveringFooter: isHoveringFooter || isHoveringFoldedSlots,
             isShowingShortcutHints: showModifierHoldHints && modifierKeyMonitor.isModifierPressed
         ) ? 1 : 0
     }
