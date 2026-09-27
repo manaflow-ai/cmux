@@ -29,7 +29,7 @@ struct AgentMovePathMapTests {
         #expect(ClaudeProjectSlug().slug(forWorkingDirectory: "/home/é") == "-home--")
     }
 
-    @Test func sshInvocationWrapsScriptInOneShellWord() {
+    @Test func sshInvocationSendsScriptOnStdin() {
         let target = AgentMoveSSHTarget(destination: "dev@box", port: "2222", identityFile: "/k", options: ["StrictHostKeyChecking=no"])
         let invocation = AgentMoveEndpoint.ssh(target).shellInvocation("echo 'hi'")
         #expect(invocation.arguments == [

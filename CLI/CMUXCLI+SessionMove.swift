@@ -353,7 +353,8 @@ struct SessionMoveRecordStore {
 }
 
 /// Runs move commands with `Process`, capturing output. Standard input is
-/// `/dev/null` so `ssh` never waits on the terminal.
+/// `/dev/null`, so `ssh` never waits on the terminal, unless the invocation
+/// carries `standardInput` (a remote script for `sh -s`), which goes to a pipe.
 struct AgentMoveProcessRunner: AgentMoveCommandRunning {
     func run(_ invocation: AgentMoveInvocation) throws -> AgentMoveCommandResult {
         let process = Process()
