@@ -450,11 +450,15 @@ class DetachTests(unittest.TestCase):
             host = debug / "Host App.app" / "Contents"
             (host / "PlugIns" / "cmuxTests.xctest").mkdir(parents=True)
             # Runtime copies can survive while Xcode removes importable build products.
-            (host / "Frameworks" / "Sparkle.framework").mkdir(parents=True)
+            for name in ("Sparkle", "Iroh", "Existing"):
+                (host / "Frameworks" / f"{name}.framework").mkdir(parents=True)
+            # A usable archived module wins; a resolved but unused variant must not leak in.
+            (debug / "Existing.framework" / "Modules").mkdir(parents=True)
+            (debug / "Existing.framework" / "Modules" / "module.modulemap").write_text("framework module Existing {}")
             artifacts = root / "resolved artifacts"
             expected = []
             excluded = []
-            for name in ("Sparkle", "Iroh"):
+            for name in ("Sparkle", "Iroh", "UnusedVariant", "Existing"):
                 xcframework = artifacts / name / f"{name}.xcframework"
                 libraries = []
                 for identifier, platform, architectures, variant in (
@@ -471,7 +475,7 @@ class DetachTests(unittest.TestCase):
                     if variant:
                         library["SupportedPlatformVariant"] = variant
                     libraries.append(library)
-                    (expected if identifier == "macos-universal" else excluded).append(framework.parent)
+                    (expected if identifier == "macos-universal" and name in ("Sparkle", "Iroh") else excluded).append(framework.parent)
                 (xcframework / "Info.plist").write_bytes(plistlib.dumps(dict(AvailableLibraries=libraries)))
             project = root / "project.pbxproj"
             project.write_text(PROJECT)
