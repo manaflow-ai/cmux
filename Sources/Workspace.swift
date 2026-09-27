@@ -4354,7 +4354,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     /// Whether `app.density` folds the pane tab bar's action buttons (new
     /// terminal, browser, splits) behind hover. Compact density does.
-    static func paneTabBarActionsFoldBehindHover(defaults: UserDefaults = .standard) -> Bool {
+    nonisolated static func paneTabBarActionsFoldBehindHover(defaults: UserDefaults = .standard) -> Bool {
         InterfaceDensity.stored(in: defaults).foldsActionsBehindHover
     }
 
