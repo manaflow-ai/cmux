@@ -528,7 +528,7 @@ actor MobileHostIrohApplicationLaneRouter {
     }
 
     private static let maximumInputFrameByteCount = 16 * 1_024
-    private static let maximumInputBufferByteCount = maximumInputFrameByteCount + 4
+    private static let maximumInputBufferByteCount = MobileTerminalInputFrame.maximumFrameBytes
 
     private let session: CmxIrohAdmittedServerSession
     private let artifactHandler: any MobileHostIrohArtifactLaneHandling
@@ -766,7 +766,7 @@ actor MobileHostIrohApplicationLaneRouter {
                     await reject(stream, errorCode: ErrorCode.invalidInput)
                     return true
                 }
-                for input in try decodeTerminalInputFrames(from: &buffer) {
+                for input in try MobileTerminalInputFrame.decode(from: &buffer) {
                     guard await sendTerminalInput(
                         input,
                         surfaceID: surfaceID
@@ -884,14 +884,20 @@ actor MobileHostIrohApplicationLaneRouter {
     }
 
     private nonisolated static func sendTerminalInput(
-        _ input: String,
+        _ input: MobileTerminalInputFrame,
         surfaceID: UUID
     ) async -> Bool {
-        await MainActor.run {
+        let receivedAtMicros = MobileTerminalByteTee.uptimeMicros()
+        return await MainActor.run {
             guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) else {
                 return false
             }
-            switch surface.sendInputResult(input) {
+            let result = MobileTerminalByteTee.shared.performMobileInput(
+                surfaceID: surfaceID,
+                sequence: input.sequence,
+                receivedAtMicros: receivedAtMicros
+            ) { surface.sendInputResult(input.text) }
+            switch result {
             case .sent:
                 // PTY output is observed by MobileTerminalByteTee, which
                 // schedules the normal render tick. A refresh here would
@@ -919,25 +925,9 @@ actor MobileHostIrohApplicationLaneRouter {
     nonisolated static func decodeTerminalInputFrames(
         from buffer: inout Data
     ) throws -> [String] {
-        var frames: [String] = []
-        while buffer.count >= 4 {
-            let frameLength = buffer.prefix(4).reduce(UInt32(0)) {
-                ($0 << 8) | UInt32($1)
-            }
-            guard frameLength > 0,
-                  frameLength <= UInt32(maximumInputFrameByteCount) else {
-                throw InputFrameError.invalidLength
-            }
-            let totalLength = 4 + Int(frameLength)
-            guard buffer.count >= totalLength else { break }
-            let payload = Data(buffer.dropFirst(4).prefix(Int(frameLength)))
-            guard let input = String(data: payload, encoding: .utf8) else {
-                throw InputFrameError.invalidUTF8
-            }
-            buffer.removeFirst(totalLength)
-            frames.append(input)
-        }
-        return frames
+        do { return try MobileTerminalInputFrame.decode(from: &buffer).map(\.text) }
+        catch MobileTerminalInputFrame.FrameError.invalidUTF8 { throw InputFrameError.invalidUTF8 }
+        catch { throw InputFrameError.invalidLength }
     }
 
     private nonisolated static func reject(

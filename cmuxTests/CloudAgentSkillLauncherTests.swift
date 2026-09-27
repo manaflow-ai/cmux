@@ -10,7 +10,7 @@ import Testing
 @Suite struct CloudAgentSkillLauncherTests {
     @Test func bundledSkillResourceExistsAndMentionsTheCLI() {
         let markdown = CloudAgentSkillLauncher.skillMarkdown()
-        #expect(markdown != nil, "Resources/cloud-agent-skill.md must ship in the app bundle")
+        #expect(markdown != nil, "the localized cloud-agent-skill.md resource must ship in the app bundle")
         #expect(markdown?.contains("cmux vm") == true)
         #expect(markdown?.contains("--help` is authoritative") == true)
     }
@@ -29,6 +29,18 @@ import Testing
             CloudAgentSkillLauncher.CodingAgent.opencode.argv(prompt: "p")
                 == ["opencode", "--prompt", "p"]
         )
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/14478: `cmux vm agent --agent pi`
+    /// worked, but the Machines menu and `vm.cloud_agent_open` rejected Pi.
+    /// Both resolve the agent through `CodingAgent`, by raw value and allCases.
+    @Test func piIsALaunchableCloudAgent() throws {
+        let pi = try #require(CloudAgentSkillLauncher.CodingAgent(rawValue: "pi"))
+        #expect(CloudAgentSkillLauncher.CodingAgent.allCases.contains(pi))
+        // Interactive session with the kickoff prompt as its first message;
+        // `pi -p` would print one reply and exit.
+        #expect(pi.argv(prompt: "p") == ["pi", "p"])
+        #expect(pi.displayName == "Pi")
     }
 
     @Test func installSkillFileWritesUnderTheGivenHome() throws {

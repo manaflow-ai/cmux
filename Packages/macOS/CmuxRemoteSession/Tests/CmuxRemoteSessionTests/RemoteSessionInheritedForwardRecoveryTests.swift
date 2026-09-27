@@ -382,11 +382,14 @@ struct RemoteSessionInheritedForwardRecoveryTests {
     private static func isMetadataOwnershipProbe(
         _ request: RemoteProcessRequest
     ) -> Bool {
-        request.arguments.last?.contains("tr -d") == true &&
-            request.arguments.last?.contains("auth_file=") == true &&
-            request.arguments.last?.contains(
-                "relay-startup-cancellation"
-            ) == true
+        guard request.arguments.last == "sh -s",
+              let stdin = request.stdin,
+              let script = String(data: stdin, encoding: .utf8) else {
+            return false
+        }
+        return script.contains("tr -d") &&
+            script.contains("auth_file=") &&
+            script.contains("relay-startup-cancellation")
     }
 
     private static func runShellScript(

@@ -1,3 +1,4 @@
+import CmuxBrowser
 import Foundation
 import WebKit
 
@@ -250,6 +251,15 @@ extension BrowserPanel {
             contentWorld: Self.mediaPlaybackContentWorld,
             name: mediaPlaybackMessageHandlerName
         )
+    }
+
+    func tearDownMediaPlaybackMessageHandler(for webView: WKWebView) {
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: mediaPlaybackMessageHandlerName,
+            contentWorld: Self.mediaPlaybackContentWorld
+        )
+        mediaPlaybackMessageHandler = nil
+        resetMediaPlaybackTracking()
     }
 
     /// Applies a per-frame playback report from the injected hook, aggregating

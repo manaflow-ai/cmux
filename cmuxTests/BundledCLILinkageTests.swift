@@ -1,6 +1,10 @@
 import XCTest
 
 enum BundledCLITestSupport {
+    static var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+    }
+
     static func bundledCLIPath(
         for bundleClass: AnyClass,
         file: StaticString = #filePath,

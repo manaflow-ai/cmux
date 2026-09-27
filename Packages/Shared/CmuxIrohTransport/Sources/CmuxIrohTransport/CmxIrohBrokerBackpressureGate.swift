@@ -531,7 +531,7 @@ public actor CmxIrohBrokerBackpressureGate {
     private static func remainingSeconds(floor: Floor, now: Date) -> Int {
         let remaining = floor.retryAt.timeIntervalSince(now)
         let original = floor.retryAt.timeIntervalSince(floor.recordedAt)
-        return max(1, CmxRetryAfterPolicy.roundedUpSeconds(min(remaining, original)))
+        return max(1, CmxRetryAfterPolicy().roundedUpSeconds(min(remaining, original)))
     }
 
     private static func normalizedRetryAfter(_ seconds: Int) -> Int {

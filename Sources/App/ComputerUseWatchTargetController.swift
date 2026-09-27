@@ -1,7 +1,9 @@
+import CmuxComputerUse
 import AppKit
 import Combine
 import Darwin
 import Foundation
+import CmuxFoundation
 
 // MARK: - Dedupe decision (pure, injectable)
 

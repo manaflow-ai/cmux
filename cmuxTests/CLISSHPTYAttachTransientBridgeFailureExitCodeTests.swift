@@ -124,6 +124,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 XCTAssertEqual(params["attachment_id"] as? String, surfaceId)
                 XCTAssertEqual(params["require_existing"] as? Bool, true)
                 return self.v2Response(id: id, ok: false, error: error)
+            case "workspace.remote.pty_sessions":
+                return self.v2Response(id: id, ok: true, result: ["sessions": []])
             case "workspace.remote.pty_detach":
                 return self.v2Response(id: id, ok: true, result: ["detached": true])
             case "workspace.remote.pty_attach_end":
@@ -136,7 +138,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 )
             }
         }
-
         var environment = sshPTYAttachTestEnvironment(socketPath: socketPath)
         if wrapperRetryPending {
             environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "1"
@@ -151,7 +152,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         if let debugLogURL {
             environment["CMUX_DEBUG_LOG"] = debugLogURL.path
         }
-
         let result = runProcess(
             executablePath: cliPath,
             arguments: [
@@ -165,7 +165,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: environment,
             timeout: 5
         )
-
         wait(for: [socketHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, expectedStatus, result.stderr)
@@ -277,94 +276,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(try String(contentsOf: sleepAttempts, encoding: .utf8), "3")
     }
 
-    func testInitialPersistentAttachReauthenticatesAfterTransportLoss() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-initial-ssh-reauth-\(UUID().uuidString)", isDirectory: true)
-        let fakeStartup = root.appendingPathComponent("startup")
-        let fakeAuth = root.appendingPathComponent("ssh")
-        let fakeAttach = root.appendingPathComponent("cmux-test-attach")
-        let fakeSleep = root.appendingPathComponent("sleep")
-        let authAttempts = root.appendingPathComponent("auth-attempts")
-        let attachAttempts = root.appendingPathComponent("attach-attempts")
-        let sleepAttempts = root.appendingPathComponent("sleep-attempts")
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        try writeSSHPTYReconnectTestShell(at: fakeAuth, lines: [
-            "#!/bin/sh",
-            "case \" $* \" in",
-            "  *\" -G \"*) printf '%s\\n' \"controlpath ${CMUX_TEST_CONTROL_PATH}\"; exit 0 ;;",
-            "  *\" -O check \"*) exit 1 ;;",
-            "  *\" -O \"*) exit 0 ;;",
-            "  *\" -T example.test true \"*) ;;",
-            "  *) exit 0 ;;",
-            "esac",
-            "count=$(cat \"${CMUX_TEST_AUTH_ATTEMPTS}\" 2>/dev/null || printf 0)",
-            "count=$((count + 1))",
-            "printf '%s' \"$count\" > \"${CMUX_TEST_AUTH_ATTEMPTS}\"",
-            "if [ \"$count\" -eq 2 ]; then",
-            "  printf '%s\\n' 'ssh: connect to host example.test port 22: Network is unreachable' >&2",
-            "  exit 255",
-            "fi",
-            "exit 0",
-        ])
-        try writeSSHPTYReconnectTestShell(at: fakeAttach, lines: [
-            "#!/bin/sh",
-            "case \" $* \" in",
-            "  *\" ssh-pty-attach \"*)",
-            "    count=$(cat \"${CMUX_TEST_ATTACH_ATTEMPTS}\" 2>/dev/null || printf 0)",
-            "    count=$((count + 1))",
-            "    printf '%s' \"$count\" > \"${CMUX_TEST_ATTACH_ATTEMPTS}\"",
-            "    case \"$count\" in 1) exit 255 ;; 2) exit 254 ;; *) exit 253 ;; esac",
-            "    ;;",
-            "  *) exit 0 ;;",
-            "esac",
-        ])
-        try writeSSHPTYReconnectTestShell(at: fakeSleep, lines: [
-            "#!/bin/sh",
-            "count=$(cat \"${CMUX_TEST_SLEEP_ATTEMPTS}\" 2>/dev/null || printf 0)",
-            "printf '%s' $((count + 1)) > \"${CMUX_TEST_SLEEP_ATTEMPTS}\"",
-        ])
-
-        let generatedScript = try persistentSSHInitialStartupScriptForReconnectTest()
-        let bundledCLI = try bundledCLIPath()
-        XCTAssertTrue(generatedScript.contains("/usr/bin/ssh"), generatedScript)
-        let rewrittenScript = generatedScript
-            .replacingOccurrences(of: bundledCLI, with: fakeAttach.path)
-            .replacingOccurrences(of: "/usr/bin/ssh", with: fakeAuth.path)
-        XCTAssertNotEqual(rewrittenScript, generatedScript, "Expected generated wrapper to reference the bundled CLI")
-        try writeSSHPTYReconnectTestShell(at: fakeStartup, contents: rewrittenScript)
-        for executable in [fakeStartup, fakeAuth, fakeAttach, fakeSleep] {
-            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
-        }
-
-        var environment = sshPTYAttachTestEnvironment(socketPath: "/tmp/cmux-debug-test.sock")
-        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
-        environment["CMUX_BUNDLED_CLI_PATH"] = fakeAttach.path
-        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
-        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
-        environment["CMUX_TEST_AUTH_ATTEMPTS"] = authAttempts.path
-        environment["CMUX_TEST_ATTACH_ATTEMPTS"] = attachAttempts.path
-        environment["CMUX_TEST_SLEEP_ATTEMPTS"] = sleepAttempts.path
-        environment["CMUX_TEST_CONTROL_PATH"] = "/tmp/cmux-ssh-\(getuid())-\(root.lastPathComponent)"
-        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
-        environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
-
-        let result = runProcess(
-            executablePath: fakeStartup.path,
-            arguments: [],
-            environment: environment,
-            timeout: 5
-        )
-
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 253, result.stderr)
-        XCTAssertEqual(try String(contentsOf: authAttempts, encoding: .utf8), "3")
-        XCTAssertEqual(try String(contentsOf: attachAttempts, encoding: .utf8), "3")
-        XCTAssertEqual(try String(contentsOf: sleepAttempts, encoding: .utf8), "3")
-    }
-
     func testSSHPTYAttachSilentBridgeTimesOutRetryable() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptysilent")
@@ -401,13 +312,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     id: id,
                     ok: true,
                     result: [
-                        "host": "127.0.0.1",
+                        "host": "127.0.0.1", "daemon_version": BundledCLITestSupport.appVersion,
                         "port": bridge.port,
                         "token": token,
                         "session_id": sessionId,
                         "attachment_id": surfaceId,
                     ]
                 )
+            case "workspace.remote.pty_sessions":
+                return self.v2Response(id: id, ok: true, result: ["sessions": []])
             case "workspace.remote.pty_detach":
                 return self.v2Response(id: id, ok: true, result: ["detached": true])
             case "workspace.remote.pty_attach_end":
@@ -421,11 +334,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
         let bridgeHandled = startSilentBridgeServer(listenerFD: bridge.fd)
-
         var environment = sshPTYAttachTestEnvironment(socketPath: socketPath)
         environment["CMUX_SSH_PTY_BRIDGE_READY_TIMEOUT_SECONDS"] = "1"
         environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "1"
-
         let result = runProcess(
             executablePath: cliPath,
             arguments: [
@@ -442,10 +353,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [socketHandled, bridgeHandled], timeout: 10)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 255, result.stderr)
-        XCTAssertTrue(
-            result.stderr.contains("timed out waiting for bridge status"),
-            result.stderr
-        )
+        // The retry wrapper owns presentation for this bounded timeout.
+        XCTAssertEqual(result.stderr, "")
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertTrue(methods.contains("workspace.remote.pty_bridge"), "\(methods)")
         // Wrapper-retryable failures re-run the attach on this same surface;

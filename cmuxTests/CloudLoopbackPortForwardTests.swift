@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 import Network
 import Testing
@@ -51,13 +52,15 @@ struct CloudLoopbackPortForwardTests {
         /// A unix socket path when the hub listens the way the real one does,
         /// else a loopback TCP port.
         private let unixSocketPath: String?
+        private let serveClient: (@Sendable (NWConnection) async throws -> Void)?
         var endpoint: NWEndpoint {
             if let unixSocketPath { return .unix(path: unixSocketPath) }
             return .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
         }
 
-        init(unixSocketPath: String? = nil) throws {
+        init(unixSocketPath: String? = nil, serveClient: (@Sendable (NWConnection) async throws -> Void)? = nil) throws {
             self.unixSocketPath = unixSocketPath
+            self.serveClient = serveClient
             let parameters = NWParameters.tcp
             if let unixSocketPath {
                 parameters.requiredLocalEndpoint = .unix(path: unixSocketPath)
@@ -118,6 +121,11 @@ struct CloudLoopbackPortForwardTests {
                 }
                 try await connection.sendAll(Data([SocksV5Client.version, code, 0x00, SocksV5Client.addressTypeIPv4, 0, 0, 0, 0, 0, 0]))
                 guard code == SocksV5Client.replySucceeded else {
+                    connection.cancel()
+                    return
+                }
+                if let serveClient {
+                    try await serveClient(connection)
                     connection.cancel()
                     return
                 }

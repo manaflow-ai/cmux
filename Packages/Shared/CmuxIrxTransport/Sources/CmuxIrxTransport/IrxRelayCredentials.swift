@@ -1,6 +1,6 @@
 public import Foundation
 
-/// One endpoint-bound relay credential (EdDSA JWT, ~300s TTL). The relay
+/// One endpoint-bound relay credential (EdDSA JWT, 30-minute lifetime). The relay
 /// closes authenticated connections at the credential's signed expiry, so the
 /// ONLY safe lifecycle is: refresh early, rotate with insertRelay alone
 /// (make-before-break), and never let a live endpoint hold an expired token.
@@ -8,7 +8,7 @@ public struct IrxRelayCredential: Codable, Equatable, Sendable {
     public var relayURL: String
     public var token: String
     public var expiresAt: Date
-    /// Server-suggested refresh time (typically expiry minus 60s).
+    /// Server-suggested refresh time (five minutes before expiry in v2).
     public var refreshAfter: Date
 
     public init(relayURL: String, token: String, expiresAt: Date, refreshAfter: Date) {
@@ -24,12 +24,14 @@ public struct IrxRelayCredential: Codable, Equatable, Sendable {
 }
 
 /// Pure refresh-policy decisions, unit-testable without clocks or network.
-public enum IrxRelayCredentialPolicy {
+public struct IrxRelayCredentialPolicy: Sendable {
+    public init() {}
+
     /// Refresh at min(server refreshAfter, expiry - 120s): earlier than the
     /// legacy stack's expiry-60s so one slow broker call or a short suspension
     /// never eats the entire margin. Jitter (0..10s, caller-supplied) prevents
     /// synchronized fleets.
-    public static func refreshDate(
+    public func refreshDate(
         for credential: IrxRelayCredential,
         jitter: TimeInterval
     ) -> Date {
@@ -41,7 +43,7 @@ public enum IrxRelayCredentialPolicy {
     /// On mint failure, use bounded exponential backoff independent of token
     /// expiry. A validated server Retry-After value remains an authoritative
     /// floor.
-    public static func retryDelay(
+    public func retryDelay(
         expiresAt: Date,
         now: Date,
         retryAfterSeconds: Int? = nil,

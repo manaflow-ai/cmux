@@ -1,0 +1,107 @@
+import CmuxSettings
+import SwiftUI
+
+public struct ComputersSection: View {
+    private let actions: ComputersSettingsActions
+    @State private var snapshot = ComputersSettingsSnapshot()
+    @State private var discoveryManaged = ManagedDevicePolicy().isDeviceDiscoveryDisabled
+    @State private var incomingAccessManaged = ManagedDevicePolicy().isIncomingDeviceAccessDisabled
+    @State private var isRefreshing = false
+
+    public init(hostActions: SettingsHostActions, defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
+        actions = hostActions.computersSettingsActions()
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text(String(localized: "settings.section.computers", defaultValue: "Computers"))
+                    .font(.headline)
+                    .accessibilityIdentifier("SettingsComputersHeading")
+                Spacer()
+                if isRefreshing { ProgressView().controlSize(.small) }
+                Button(String(localized: "settings.computers.refresh", defaultValue: "Refresh")) {
+                    Task { await refresh() }
+                }
+                .disabled(isRefreshing || !snapshot.isSignedIn || !discoveryEnabled)
+                .accessibilityIdentifier("SettingsComputersRefresh")
+                optionsMenu
+            }
+            .settingsSearchAnchors([SettingsSectionID.computersSubsectionAnchorID])
+            SettingsCard {
+                if !snapshot.isSignedIn {
+                    SettingsCardNote(String(localized: "settings.computers.signIn", defaultValue: "Sign in to the same account on both Macs to discover and connect to them."))
+                } else if !discoveryEnabled {
+                    SettingsCardNote(String(localized: "devices.discovery.settingsDisabled", defaultValue: "Turn on Discover other Macs to see your devices."))
+                } else if snapshot.computers.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label(String(localized: "devices.empty.title", defaultValue: "No other Macs yet"), systemImage: "desktopcomputer")
+                            .font(.callout.weight(.medium))
+                        Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and make it discoverable in Settings › Mobile › Computers."))
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(14)
+                } else {
+                    ForEach(snapshot.computers) { computer in
+                        ComputersSettingsRow(computer: computer, actions: actions, discoveryEnabled: discoveryEnabled)
+                        if computer.id != snapshot.computers.last?.id { SettingsCardDivider() }
+                    }
+                }
+            }
+            if let error = snapshot.error {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .textSelection(.enabled)
+            }
+        }
+        .task {
+            for await value in actions.updates() {
+                guard !Task.isCancelled else { break }
+                snapshot = value
+            }
+        }
+        .task { await refresh() }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                let policy = ManagedDevicePolicy()
+                discoveryManaged = policy.isDeviceDiscoveryDisabled
+                incomingAccessManaged = policy.isIncomingDeviceAccessDisabled
+            }
+        }
+    }
+
+    private var discoveryEnabled: Bool {
+        snapshot.discoveryEnabled && !discoveryManaged
+    }
+
+    private func refresh() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        await actions.refresh()
+    }
+
+    private var optionsMenu: some View {
+        Menu {
+            ComputerAccessMenuItems(
+                discoveryEnabled: snapshot.discoveryEnabled,
+                incomingAccessEnabled: snapshot.incomingAccessEnabled,
+                discoveryManaged: discoveryManaged,
+                incomingAccessManaged: incomingAccessManaged,
+                identifierPrefix: "SettingsComputers",
+                setDiscovery: { enabled in Task { await actions.setDiscoveryEnabled(enabled) } },
+                setIncomingAccess: { enabled in Task { await actions.setIncomingAccessEnabled(enabled) } }
+            )
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
+        .accessibilityLabel(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
+        .accessibilityIdentifier("SettingsComputersOptions")
+    }
+}

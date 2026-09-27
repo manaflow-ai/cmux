@@ -623,7 +623,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> UUID? {
-        guard !isRetired else { return nil }
+        guard !isRetired, kind != .browser || acceptsUnownedBrowserURL(initialRequest?.url ?? url) else { return nil }
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId, preferredPaneId: paneId)
         let resolvedBrowserProfileID = kind == .browser
@@ -706,7 +706,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         websiteDataStore: WKWebsiteDataStore? = nil,
         focus: Bool = true
     ) -> UUID? {
-        guard !isRetired else { return nil }
+        guard !isRetired, kind != .browser || acceptsUnownedBrowserURL(initialRequest?.url ?? url) else { return nil }
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId)
         let resolvedBrowserProfileID = kind == .browser
@@ -1107,7 +1107,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             focusPlacement: .rightSidebarDock,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .immediate,
-                willRunStartupCommand: false,
                 willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
             )
         )
@@ -1123,7 +1122,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             panel: terminal,
             snapshot: snapshot,
             manualResumeAvailable: true,
-            willRunStartupCommand: false,
             willRunStartupInput: initialInput != nil,
             resumeWorkingDirectory: snapshot.workingDirectory
         )
@@ -1332,8 +1330,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
               ) else {
             return false
         }
-        let title = change.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else { return true }
+        let title = AutomaticTerminalTitle(change.title)?.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let title, !title.isEmpty else { return true }
         guard shouldApplyRestoredPanelTitle(
             panelId: change.surfaceId,
             rawTitle: title

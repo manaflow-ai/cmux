@@ -137,8 +137,10 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// A relay-policy refresh failed. `b`, when present, is
     /// ``DiagnosticFailureKind``.
     case relayPolicyRefreshFailed = 39
-    /// The selected network path changed. `a` is ``DiagnosticPathKind``. The
-    /// foreground control session wins over background and feature sessions.
+    /// The selected network path changed. `a` is ``DiagnosticPathKind`` and `c`
+    /// is the positive, process-local session ID when the path belongs to an
+    /// admitted Iroh session. The foreground control session wins over
+    /// background and feature sessions.
     case selectedPathChanged = 40
     /// An established app-transport session closed. `a`, when present, is
     /// ``DiagnosticTransportKind``; `b`, when present, is
@@ -304,6 +306,14 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// A close carried a bounded remote reason token. `surface` is the peer
     /// alias, `a` is ``DiagnosticRemoteCloseReason``, and `c` is the session ID.
     case transportCloseReason = 79
+    /// One bounded terminal operation trace phase. `a` is the operation, `b`
+    /// is the phase, and `traceID` is the cross-process opaque identifier.
+    case terminalTrace = 80
+
+    /// A terminal phase began; `terminalWork` carries its typed metadata.
+    case terminalWorkStarted = 81
+    /// The phase returned; `ms` is elapsed time, not a PTY acknowledgement.
+    case terminalWorkFinished = 82
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.

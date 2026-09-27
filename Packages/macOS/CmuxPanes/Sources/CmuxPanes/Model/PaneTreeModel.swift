@@ -39,6 +39,7 @@ public final class PaneTreeModel<Panel> {
     /// Rebinding the same panel id to a new surface id removes any stale
     /// surface entries for that panel so focus and input never resolve two
     /// tabs to one live PTY.
+    @ObservationIgnored
     public private(set) var surfaceIdToPanelId: [TabID: UUID] = [:]
 
     /// Snapshot of the spatially ordered panel ids from the last geometry

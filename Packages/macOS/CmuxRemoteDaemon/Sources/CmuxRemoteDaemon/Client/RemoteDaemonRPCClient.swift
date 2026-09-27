@@ -146,6 +146,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     var ptySubscriptions: [String: PTYSubscription] = [:]
     var cliRequestsInFlight = 0
     var advertisedCapabilities: Set<String> = []
+    var advertisedVersion: String?
 
     /// Creates a client for one daemon transport.
     ///
@@ -197,6 +198,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
             let capabilities = (hello["capabilities"] as? [String]) ?? []
             stateQueue.sync {
                 advertisedCapabilities = Set(capabilities)
+                advertisedVersion = hello["version"] as? String
             }
             let missingCapabilities = Self.missingRequiredCapabilities(
                 Self.requiredCapabilities(for: configuration),
@@ -261,6 +263,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         streamSubscriptions.removeAll(keepingCapacity: false)
         ptySubscriptions.removeAll(keepingCapacity: false)
         advertisedCapabilities.removeAll(keepingCapacity: false)
+        advertisedVersion = nil
     }
 
     func failPTYSubscriptionsLocked(_ detail: String) {

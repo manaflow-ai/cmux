@@ -277,6 +277,7 @@ struct BrowserPanelView: View {
     /// theme and is never used to resolve browser toolbar colors.
     private let inheritedColorScheme: ColorScheme
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
+    @Environment(BrowserDataImportCoordinator.self) private var browserDataImportCoordinator: BrowserDataImportCoordinator?
     @Environment(\.paneDropZone) private var paneDropZone
     /// Held detector instance used to summarize installed browsers rather than
     /// the former `BrowserInstalledBrowserDetector` static namespace.
@@ -496,7 +497,7 @@ struct BrowserPanelView: View {
 
     private var shouldRenderOmnibarSuggestionsInPortal: Bool {
         hasVisibleOmnibarSuggestions &&
-            panel.shouldRenderWebView
+            panel.shouldAttachWebViewInUI
     }
 
     private var shouldRenderOmnibarSuggestionsInSwiftUI: Bool {
@@ -535,6 +536,12 @@ struct BrowserPanelView: View {
                 applyOmnibarEffects(effects)
             }
         )
+    }
+
+    private var reloadOrStopButtonLabel: String {
+        panel.isLoading
+            ? String(localized: "browser.stop", defaultValue: "Stop")
+            : String(localized: "browser.reload", defaultValue: "Reload")
     }
 
     private var developerToolsButtonHelp: String {
@@ -1050,7 +1057,7 @@ struct BrowserPanelView: View {
         // container. Rendering it here can hide it behind the portal-hosted WKWebView.
         VStack(spacing: 0) {
             omnibarHeaderView
-            CloudBrowserAccessView(panel: panel, backgroundColor: browserChromeBackgroundColor) {
+            CloudBrowserAccessView(panel: panel, backgroundColor: browserChromeBackgroundColor, isVisibleInUI: isVisibleInUI) {
                 webView
             }
         }
@@ -1070,65 +1077,73 @@ struct BrowserPanelView: View {
     }
 
     private var browserPanelLifecycleView: some View {
+        browserPanelLifecycleNotificationsView
+            .onChange(of: panel.focusFlashToken) {
+                triggerFocusFlashAnimation()
+            }
+            .onChange(of: panel.screenshotCopiedToken) { _, _ in
+                showScreenshotPageCopiedIndicator()
+            }
+            .onChange(of: panel.currentURL) { _, _ in
+                handleCurrentURLChange()
+            }
+            .onChange(of: panel.shouldRenderWebView) { _, _ in
+                handleRenderWebViewChange()
+            }
+            .onChange(of: panel.backgroundAppearanceRevision) { _, _ in
+                refreshBrowserChromeStyle()
+            }
+            .onChange(of: browserThemeModeRaw) { _, _ in
+                handleBrowserThemeModeRawChange()
+            }
+            .onChange(of: inheritedColorScheme) { _, _ in
+                handleInheritedColorSchemeChange()
+            }
+            .onChange(of: resolvedColorScheme) { _, _ in
+                handleResolvedColorSchemeChange()
+            }
+            .onChange(of: resolvedThemeBackgroundIdentity) { _, _ in
+                refreshBrowserChromeStyle()
+            }
+            .onChange(of: panel.pendingAddressBarFocusRequestId) { _, _ in
+                applyPendingAddressBarFocusRequestIfNeeded()
+            }
+            .onChange(of: chromeState.isOmnibarVisible) { _, isVisible in
+                handleOmnibarVisibilityChange(isVisible)
+            }
+            .onChange(of: showModifierHoldHints) { _, _ in
+                startFocusModeShortcutHintMonitorIfNeeded()
+            }
+    }
+
+    private var browserPanelLifecycleNotificationsView: some View {
+        browserPanelLifecyclePreferencesView
+            .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick)) { notification in
+                handleBrowserWebViewClickIntent(notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .ghosttySurfaceTabBarFontSizeDidChange)) { _ in
+                tabBarFontSize = GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
+            }
+            .onAppear {
+                handleBrowserPanelAppear()
+            }
+            .onDisappear {
+                handleBrowserPanelDisappear()
+            }
+    }
+
+    private var browserPanelLifecyclePreferencesView: some View {
         browserPanelBaseView
-        .coordinateSpace(name: "BrowserPanelViewSpace")
-        .onPreferenceChange(OmnibarPillFramePreferenceKey.self) { frame in
-            omnibarPillFrame = frame
-        }
-        .onPreferenceChange(BrowserAddressBarHeightPreferenceKey.self) { height in
-            addressBarHeight = height
-        }
-        .onPreferenceChange(BrowserAddressBarWidthPreferenceKey.self) { width in
-            addressBarWidth = width
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick)) { notification in
-            handleBrowserWebViewClickIntent(notification)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttySurfaceTabBarFontSizeDidChange)) { _ in
-            tabBarFontSize = GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
-        }
-        .onAppear {
-            handleBrowserPanelAppear()
-        }
-        .onDisappear {
-            handleBrowserPanelDisappear()
-        }
-        .onChange(of: panel.focusFlashToken) {
-            triggerFocusFlashAnimation()
-        }
-        .onChange(of: panel.screenshotCopiedToken) { _, _ in
-            showScreenshotPageCopiedIndicator()
-        }
-        .onChange(of: panel.currentURL) { _, _ in
-            handleCurrentURLChange()
-        }
-        .onChange(of: panel.shouldRenderWebView) { _, _ in
-            handleRenderWebViewChange()
-        }
-        .onChange(of: panel.backgroundAppearanceRevision) { _, _ in
-            refreshBrowserChromeStyle()
-        }
-        .onChange(of: browserThemeModeRaw) { _, _ in
-            handleBrowserThemeModeRawChange()
-        }
-        .onChange(of: inheritedColorScheme) { _, _ in
-            handleInheritedColorSchemeChange()
-        }
-        .onChange(of: resolvedColorScheme) { _, _ in
-            handleResolvedColorSchemeChange()
-        }
-        .onChange(of: resolvedThemeBackgroundIdentity) { _, _ in
-            refreshBrowserChromeStyle()
-        }
-        .onChange(of: panel.pendingAddressBarFocusRequestId) { _, _ in
-            applyPendingAddressBarFocusRequestIfNeeded()
-        }
-        .onChange(of: chromeState.isOmnibarVisible) { _, isVisible in
-            handleOmnibarVisibilityChange(isVisible)
-        }
-        .onChange(of: showModifierHoldHints) { _, _ in
-            startFocusModeShortcutHintMonitorIfNeeded()
-        }
+            .coordinateSpace(name: "BrowserPanelViewSpace")
+            .onPreferenceChange(OmnibarPillFramePreferenceKey.self) { frame in
+                omnibarPillFrame = frame
+            }
+            .onPreferenceChange(BrowserAddressBarHeightPreferenceKey.self) { height in
+                addressBarHeight = height
+            }
+            .onPreferenceChange(BrowserAddressBarWidthPreferenceKey.self) { width in
+                addressBarWidth = width
+            }
     }
 
     var body: some View {
@@ -1173,7 +1188,7 @@ struct BrowserPanelView: View {
 
             omnibarField
                 .accessibilityIdentifier("BrowserOmnibarPill")
-                .accessibilityLabel("Browser omnibar")
+                .accessibilityLabel(String(localized: "browser.omnibar.accessibilityLabel", defaultValue: "Address and search bar"))
 
             HStack(spacing: browserToolbarAccessorySpacing) {
                 if shouldShowToolbarImportHintChip {
@@ -1254,6 +1269,7 @@ struct BrowserPanelView: View {
             .disabled(!panel.canGoBack)
             .opacity(panel.canGoBack ? 1.0 : 0.4)
             .safeHelp(String(localized: "browser.goBack", defaultValue: "Go Back"))
+            .accessibilityLabel(String(localized: "browser.goBack", defaultValue: "Go Back"))
 
             Button(action: {
                 #if DEBUG
@@ -1269,6 +1285,7 @@ struct BrowserPanelView: View {
             .disabled(!panel.canGoForward)
             .opacity(panel.canGoForward ? 1.0 : 0.4)
             .safeHelp(String(localized: "browser.goForward", defaultValue: "Go Forward"))
+            .accessibilityLabel(String(localized: "browser.goForward", defaultValue: "Go Forward"))
 
             Button(action: handleReloadOrStopButtonAction) {
                 CmuxSystemSymbolImage(systemName: panel.isLoading ? "xmark" : "arrow.clockwise", pointSize: chromeMetrics.navigationIconFontSize, weight: .medium, tint: .primary)
@@ -1284,7 +1301,8 @@ struct BrowserPanelView: View {
                     handleHardRefreshButtonAction()
                 }
             }
-            .safeHelp(panel.isLoading ? String(localized: "browser.stop", defaultValue: "Stop") : String(localized: "browser.reload", defaultValue: "Reload"))
+            .safeHelp(reloadOrStopButtonLabel)
+            .accessibilityLabel(reloadOrStopButtonLabel)
 
             BrowserPDFDocumentToolbarButtons(
                 panel: panel,
@@ -1315,7 +1333,6 @@ struct BrowserPanelView: View {
         #endif
         return panel.recentDownloads
     }
-
     @ViewBuilder
     private var browserScreenshotCopiedIndicator: some View {
         if screenshotPageCopied {
@@ -1500,6 +1517,7 @@ struct BrowserPanelView: View {
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .safeHelp(developerToolsButtonHelp)
+        .accessibilityLabel(String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools"))
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
     }
 
@@ -1515,16 +1533,19 @@ struct BrowserPanelView: View {
         .popover(isPresented: $isBrowserProfileMenuPresented, arrowEdge: .bottom) {
             browserProfilePopover.browserChromePopoverAppearance(resolvedColorScheme)
         }
-        .safeHelp(
-            String(
-                format: String(
-                    localized: "browser.profile.buttonHelp",
-                    defaultValue: "Browser Profile: %@"
-                ),
-                panel.profileDisplayName
-            )
-        )
+        .safeHelp(browserProfileButtonLabel)
+        .accessibilityLabel(browserProfileButtonLabel)
         .accessibilityIdentifier("BrowserProfileButton")
+    }
+
+    private var browserProfileButtonLabel: String {
+        String(
+            format: String(
+                localized: "browser.profile.buttonHelp",
+                defaultValue: "Browser Profile: %@"
+            ),
+            panel.profileDisplayName
+        )
     }
 
     /// Low-frequency browser actions that do not need dedicated toolbar space.
@@ -1556,6 +1577,7 @@ struct BrowserPanelView: View {
             }
             .disabled(!panel.shouldRenderWebView)
             .accessibilityIdentifier("BrowserScreenshotSectionButton")
+            BrowserLocalFileFinderMenu(fileURL: panel.currentURL)
             if isChromeCompact {
                 Divider()
                 BrowserDesignModeOverflowMenuButton(
@@ -1601,16 +1623,19 @@ struct BrowserPanelView: View {
         .popover(isPresented: $isBrowserThemeMenuPresented, arrowEdge: .bottom) {
             browserThemeModePopover.browserChromePopoverAppearance(resolvedColorScheme)
         }
-        .safeHelp(
-            String(
-                format: String(
-                    localized: "browser.theme.buttonHelp",
-                    defaultValue: "Browser Theme: %@"
-                ),
-                browserThemeMode.displayName
-            )
-        )
+        .safeHelp(browserThemeModeButtonLabel)
+        .accessibilityLabel(browserThemeModeButtonLabel)
         .accessibilityIdentifier("BrowserThemeModeButton")
+    }
+
+    private var browserThemeModeButtonLabel: String {
+        String(
+            format: String(
+                localized: "browser.theme.buttonHelp",
+                defaultValue: "Browser Theme: %@"
+            ),
+            browserThemeMode.displayName
+        )
     }
 
     private var browserImportHintToolbarChip: some View {
@@ -1836,7 +1861,7 @@ struct BrowserPanelView: View {
         let useLocalInlineDeveloperToolsHosting = canvasInlineBrowserHosting
 
         return Group {
-            if panel.shouldRenderWebView {
+            if panel.shouldAttachWebViewInUI {
                 WebViewRepresentable(
                     panel: panel,
                     paneId: paneId,
@@ -1911,7 +1936,7 @@ struct BrowserPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay {
-            if panel.hasRecoverableWebContentTermination {
+            if panel.shouldRenderWebView, panel.hasRecoverableWebContentTermination {
                 webContentRecoveryOverlay
             }
         }
@@ -2370,7 +2395,7 @@ struct BrowserPanelView: View {
     private func presentImportDialogFromHint() {
         isBrowserImportHintPopoverPresented = false
         DispatchQueue.main.async {
-            BrowserDataImportCoordinator.shared.presentImportDialog(
+            browserDataImportCoordinator?.presentImportDialog(
                 defaultDestinationProfileID: panel.profileID
             )
         }
@@ -2379,7 +2404,7 @@ struct BrowserPanelView: View {
     private func presentImportDialogFromProfileMenu() {
         isBrowserProfileMenuPresented = false
         DispatchQueue.main.async {
-            BrowserDataImportCoordinator.shared.presentImportDialog(
+            browserDataImportCoordinator?.presentImportDialog(
                 defaultDestinationProfileID: panel.profileID
             )
         }
@@ -2465,9 +2490,8 @@ struct BrowserPanelView: View {
         }
 
         tasks.replaceOnMainActor(.emptyStateImportBrowserRefresh) {
-            let browsers = await Task.detached(priority: .utility) {
-                BrowserInstalledBrowserDetector().detectInstalledBrowsers()
-            }.value
+            guard let browserDataImportCoordinator else { return }
+            let browsers = await browserDataImportCoordinator.detectInstalledBrowsers()
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard emptyStateImportBrowserRefreshGeneration == generation,
@@ -5403,11 +5427,8 @@ struct OmnibarSuggestionsView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("BrowserOmnibarSuggestions.Row.\(idx)")
-                .accessibilityValue(
-                    idx == selectedIndex
-                        ? "selected \(item.listText)"
-                        : item.listText
-                )
+                .accessibilityValue(item.listText)
+                .accessibilityAddTraits(idx == selectedIndex ? .isSelected : [])
                 .onHover { hovering in
                     if hovering, idx != selectedIndex, isPointerDrivenSelectionEvent {
                         onHighlight(idx)

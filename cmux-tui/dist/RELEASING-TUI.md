@@ -29,7 +29,10 @@ scripts receive `--version`, so cutting a stable TUI release is just creating a
   on a separately published TUI package and must not silently degrade to a
   shell.
 - Windows TUI packages can still be built when the general release input
-  `include_windows` is enabled. The stable Rust machine-relay workflow excludes
+  `include_windows` is enabled. Stable and nightly releases default to Unix
+  until the experimental Windows package's registry publisher is configured;
+  the launcher advertises only the platforms included in its package set.
+  The stable Rust machine-relay workflow excludes
   Windows because `chatmux-relay` has no tested Windows PTY backend. Keep the
   chatmux Node relay as the Windows rollback lane until that backend exists.
 - PyPI `cmux`: platform wheels for `uvx cmux` / `pipx run cmux`.
@@ -141,7 +144,20 @@ extra build.
 
 ## Cutting a Stable Release
 
-Use `.github/workflows/cmux-tui-release-cut.yml` from `main`.
+Release tags require the maintainer identity under the repository's
+`release tags: Lawrence only (tag-is-consent)` ruleset. The release-cut
+workflow's default `GITHUB_TOKEN` cannot create them. Keep that protection:
+create and push an annotated `cmux-tui-vX.Y.Z` tag on the selected `main`
+revision using the maintainer's authenticated Git client. The tag push runs
+`cmux-tui-release.yml` without publishing. Once it succeeds, dispatch
+`tui-publish-npm.yml` and `tui-publish-pypi.yml` on that exact tag, passing the
+version and successful artifact run ID (and `confirm_tui_cmux=true` for npm).
+Complete both environment approvals, then verify registry delivery below.
+
+The older `.github/workflows/cmux-tui-release-cut.yml` flow can still recover
+the coordinated dispatch when the tag already exists at the workflow's source
+revision. Its tag-creation step requires a publishing identity permitted by
+the ruleset and otherwise fails:
 
 - Select `patch`, `minor`, or `major`, or provide an explicit `X.Y.Z` version.
 - The workflow reads the latest reachable `cmux-tui-vX.Y.Z` tag, validates the
@@ -158,6 +174,24 @@ Use `.github/workflows/cmux-tui-release-cut.yml` from `main`.
   rebuilds.
 - A manual `git push origin cmux-tui-vX.Y.Z` runs the artifact workflow without
   publishing. Use the release-cut workflow for a coordinated stable release.
+
+A successful release-cut or artifact run does not mean users received the
+release. Follow both publisher runs through their environment approvals and
+post-upload verification. `cmux-tui registry delivery` independently compares
+the newest stable tag with PyPI and npm, including all six non-yanked PyPI
+wheels. It runs after artifact completion and every six hours, with a two-hour
+grace period for compilation and approval. It never approves or publishes
+anything. This separate check avoids the circular wait between the artifact
+run and the publishers that require that run to have completed.
+
+For a local delivery check, run
+`python3 cmux-tui/scripts/check_release_delivery.py --grace-seconds 0`.
+After delivery, verify a clean `uvx --refresh cmux@latest` installation. An
+existing `uv tool install cmux==X.Y.Z` takes precedence for plain `uvx cmux`;
+replace that pin with `uv tool install --upgrade cmux` to update it. Session
+state written by newer development versions can require a newer stable
+package. Keep development runs in a dedicated `--session` instead of `main`;
+never reset personal state to make an older package start.
 
 ## Publishing
 
