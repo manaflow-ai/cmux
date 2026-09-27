@@ -4971,8 +4971,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         removeWhenEmpty: Bool = false
     ) -> Bool {
         // Synchronous lifecycle backstops cannot wait for the authoritative off-main load.
-        // Revalidate only the already-cached process generations and argv, and fail closed
-        // with an empty index when startup has not populated that cache yet.
+        // Revalidate only the already-cached process generations and argv (an empty agent
+        // index when startup has not populated that cache yet). No surface scan runs, so the
+        // surface binding index is unavailable and live bindings are not reconciled away.
         let resumeIndexes = ProcessDetectedResumeIndexes.cached(
             restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
         )
@@ -18040,6 +18041,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleId) {
             guard app.processIdentifier != currentPid else { continue }
+            guard Self.isDuplicateApplicationExecutable(
+                app.executableURL,
+                mainExecutableURL: Self.bundleExecutableURL(of: app)
+            ) else { continue }
             switch SingleInstanceConflictPolicy(environment: environment).action(
                 currentBundleURL: Bundle.main.bundleURL,
                 existingBundleURL: app.bundleURL
@@ -18090,15 +18095,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// The main executable of the bundle `app` was registered with, if any.
+    /// A helper that inherits cmux's bundle identifier runs some other
+    /// executable, so comparing against this rejects it without also
+    /// rejecting a cmux launched from a different bundle path.
+    nonisolated private static func bundleExecutableURL(of app: NSRunningApplication) -> URL? {
+        app.bundleURL.flatMap { Bundle(url: $0)?.executableURL }
+    }
+
+    /// Rejects helpers that inherit the application bundle identifier.
+    nonisolated static func isDuplicateApplicationExecutable(
+        _ executableURL: URL?,
+        mainExecutableURL: URL?
+    ) -> Bool {
+        guard let executableURL, let mainExecutableURL else { return false }
+        return executableURL.standardizedFileURL.resolvingSymlinksInPath() ==
+            mainExecutableURL.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
     private func observeDuplicateLaunches() {
         guard let bundleId = Bundle.main.bundleIdentifier else {
             StartupBreadcrumbLog.append("singleInstance.observe.skip", fields: ["reason": "missingBundleId"])
             return
         }
-        let embeddedCLIURL = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
         let currentPid = ProcessInfo.processInfo.processIdentifier
         StartupBreadcrumbLog.append(
             "singleInstance.observe.install",
@@ -18116,10 +18135,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard self != nil else { return }
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             guard app.bundleIdentifier == bundleId, app.processIdentifier != currentPid else { return }
-            if let executableURL = app.executableURL?
-                   .standardizedFileURL
-                   .resolvingSymlinksInPath(),
-               executableURL == embeddedCLIURL {
+            guard Self.isDuplicateApplicationExecutable(
+                app.executableURL,
+                mainExecutableURL: Self.bundleExecutableURL(of: app)
+            ) else {
                 return
             }
             // A relaunch of this same bundle is meant to replace us (its

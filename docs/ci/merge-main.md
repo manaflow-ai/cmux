@@ -1,7 +1,10 @@
 # Merging main into a branch
 
 `scripts/merge-main.sh` is how an agent or a person brings a branch up to date
-with main. It exists because of 2026-09-25: #14724 broke
+with main; use it instead of a raw `git merge origin/main`. Most branches never
+need it: [automatic catch-up](#automatic-catch-up) merges green main into open
+pull requests. Run it when you depend on something that just landed, or when
+catch-up commented that it could not resolve a conflict. It exists because of 2026-09-25: #14724 broke
 `tests/test_runner_label_policy.py` on main, a branch merged main in the hour
 before #14742 fixed it, its guards failed on push, the macOS admission gate
 declined compile admission, and nobody knew the failure was main's until the
@@ -34,7 +37,8 @@ What it does, in order:
    when it was written on this platform and did not skip the failed step.
 
 Guard failures never fail the command; the merge stands and the labels say
-what to fix. `--strict` exits 3 when the branch introduced one, and 2 when a
+what to fix. Fix the failures this branch introduced; the inherited ones are
+main's. `--strict` exits 3 when the branch introduced one, and 2 when a
 failure's origin is unknown or the guard run ended without step results.
 
 | Flag | Effect |
