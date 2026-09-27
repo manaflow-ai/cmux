@@ -186,6 +186,8 @@ extension CMUXCLI {
         "send-key",
         "send-key-panel",
         "send-panel",
+        "session",
+        "sessions",
         "set-app-focus",
         "set-buffer",
         "set-hook",
