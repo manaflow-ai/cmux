@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxCommandPalette
 import CmuxPanes
 import CmuxSettings
 import CmuxTerminal
@@ -18,9 +19,11 @@ enum DockShortcutCommand {
     case focusPane(NavigationDirection)
     case cyclePaneFocus(forward: Bool)
     case togglePaneZoom
+    case resizePane(ResizeDirection)
     case equalizeSplits
     case focusHistoryBack
     case focusHistoryForward
+    case focusHistoryLast
     case triggerFlash
     case renameSurface(presentingWindow: NSWindow?)
     case closeOtherTabsInPane
@@ -39,7 +42,7 @@ enum DockShortcutCommand {
 
     var isFocusHistoryNavigation: Bool {
         switch self {
-        case .focusHistoryBack, .focusHistoryForward:
+        case .focusHistoryBack, .focusHistoryForward, .focusHistoryLast:
             true
         default:
             false
@@ -85,22 +88,22 @@ extension DockSplitStore {
         case .togglePaneZoom:
             guard let pane = bonsplitController.focusedPaneId else { return false }
             return toggleDockPaneZoom(inPane: pane)
+        case .resizePane(let direction):
+            return resizeFocusedPane(direction: direction)
         case .equalizeSplits:
-            let result = PaneLayoutService().equalizeSplits(
-                in: bonsplitController.treeSnapshot(),
-                controller: bonsplitController
-            )
-            return result.foundSplit && result.allSucceeded
+            return equalizeDockSplits()
         case .focusHistoryBack:
             return focusHistoryNavigation.navigateBack()
         case .focusHistoryForward:
             return focusHistoryNavigation.navigateForward()
+        case .focusHistoryLast:
+            return focusHistoryNavigation.navigateToLastFocused()
         case .triggerFlash:
             guard let focusedPanelId else { return false }
             triggerUserInitiatedFocusFlash(panelId: focusedPanelId)
             return true
         case .renameSurface(let presentingWindow):
-            return promptRenameFocusedDockSurface(
+            return requestPaletteRenameFocusedDockSurface(
                 presentingWindow: presentingWindow
             )
         case .closeOtherTabsInPane:
@@ -174,6 +177,7 @@ extension DockSplitStore {
             tab = nil
         }
         guard let tab else { return true }
+        noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
         bonsplitController.selectTab(tab.id)
         applyFocusedShortcutSelection()
         return true
@@ -202,70 +206,40 @@ extension DockSplitStore {
         return panels[focusedPanelId] as? BrowserPanel
     }
 
-    private func promptRenameFocusedDockSurface(
+    private func requestPaletteRenameFocusedDockSurface(
         presentingWindow: NSWindow?
     ) -> Bool {
         guard let panelId = focusedPanelId,
               let tabId = surfaceId(forPanelId: panelId) else {
             return false
         }
-        return promptRenameDockSurface(
+        return requestPaletteRenameDockSurface(
             tabId: tabId,
             presentingWindow: presentingWindow
         )
     }
 
-    func promptRenameDockSurface(
+    /// Dock tabs have no inline title editor, so rename opens the palette
+    /// editor for this tab. The target carries the Dock owner id, which the
+    /// palette resolves back to this store.
+    func requestPaletteRenameDockSurface(
         tabId: TabID,
         presentingWindow: NSWindow?
     ) -> Bool {
         guard let panel = panel(for: tabId),
-              let tab = bonsplitController.tab(tabId) else {
+              let tab = bonsplitController.tab(tabId),
+              let app = AppDelegate.shared else {
             return false
         }
-
-        let alert = NSAlert()
-        alert.messageText = String(
-            localized: "alert.renameTab.title",
-            defaultValue: "Rename Tab"
+        app.requestCommandPaletteRename(
+            CommandPaletteRenameTarget(
+                kind: .tab(workspaceId: workspaceId, panelId: panel.id),
+                currentName: tab.title
+            ),
+            preferredWindow: presentingWindow,
+            source: "dock.renameTab"
         )
-        alert.informativeText = String(
-            localized: "alert.renameTab.message",
-            defaultValue: "Enter a custom name for this tab."
-        )
-        let input = NSTextField(string: tab.title)
-        input.placeholderString = String(
-            localized: "alert.renameTab.placeholder",
-            defaultValue: "Tab name"
-        )
-        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
-        alert.addButton(
-            withTitle: String(
-                localized: "alert.renameTab.rename",
-                defaultValue: "Rename"
-            )
-        )
-        alert.addButton(
-            withTitle: String(
-                localized: "alert.cancel",
-                defaultValue: "Cancel"
-            )
-        )
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        let response = alert.runCmuxModal(
-            presentingWindow: presentingWindow
-        ) { _ in
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
-        guard response == .alertFirstButtonReturn else { return true }
-
-        return setDockPanelCustomTitle(
-            panelId: panel.id,
-            title: input.stringValue
-        )
+        return true
     }
 
     @discardableResult
@@ -302,7 +276,10 @@ extension DockSplitStore {
         ) else {
             return false
         }
-        bonsplitController.focusPane(targetPaneId)
+        focusPaneFromDockInteraction(
+            targetPaneId,
+            window: NSApp.keyWindow ?? NSApp.mainWindow
+        )
         applyFocusedShortcutSelection()
         return true
     }
@@ -333,6 +310,7 @@ extension DockSplitStore {
             _ = toggleDockPaneZoom(inPane: zoomedPaneId)
         }
 
+        noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
         let didMove: Bool
         if let destinationPaneId {
             let destinationTabs =
@@ -353,7 +331,10 @@ extension DockSplitStore {
                 atIndex: insertionIndex
             )
             if didMove {
-                bonsplitController.focusPane(destinationPaneId)
+                focusPaneFromDockInteraction(
+                    destinationPaneId,
+                    window: NSApp.keyWindow ?? NSApp.mainWindow
+                )
                 bonsplitController.selectTab(tabId)
                 applyFocusedShortcutSelection()
             }
@@ -364,7 +345,10 @@ extension DockSplitStore {
                       movingTab: tabId,
                       insertFirst: directionalSplit.insertFirst
                   ) {
-            bonsplitController.focusPane(newPaneId)
+            focusPaneFromDockInteraction(
+                newPaneId,
+                window: NSApp.keyWindow ?? NSApp.mainWindow
+            )
             bonsplitController.selectTab(tabId)
             applyFocusedShortcutSelection()
             didMove = true

@@ -2,7 +2,7 @@ import Dispatch
 import Foundation
 
 /// Selects the branch source used by `includeIf.onbranch` evaluation.
-nonisolated enum GitConfigBranchContext: Sendable {
+enum GitConfigBranchContext: Sendable {
     /// Preserve the legacy direct-file behavior for standalone parser callers.
     case fileBacked
 

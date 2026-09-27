@@ -99,6 +99,31 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    @discardableResult
+    func removeRouteIfAuthorized(
+        macDeviceID: String,
+        route: CmxAttachRoute,
+        condition: MobilePairedMacRouteWriteCondition,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        let instanceTag: String?
+        switch condition {
+        case .matchingInstanceTag(let tag): instanceTag = tag
+        case .unclaimed: instanceTag = nil
+        }
+        guard isCompatible(instanceTag: instanceTag) else { return false }
+        return try await inner.removeRouteIfAuthorized(
+            macDeviceID: macDeviceID,
+            route: route,
+            condition: condition,
+            stackUserID: stackUserID,
+            teamID: teamID,
+            now: now
+        )
+    }
+
     func loadAll(
         stackUserID: String?,
         teamID: String?

@@ -182,6 +182,7 @@ impl SurfaceSessionScope {
             | MuxEvent::TerminalRegistryChanged { .. }
             | MuxEvent::PairingRequested(_)
             | MuxEvent::PairingResolved { .. }
+            | MuxEvent::MachineUsageChanged(_)
             | MuxEvent::Empty => true,
         }
     }
@@ -466,6 +467,7 @@ mod tests {
                 state: format!("one-{index}").into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: index,
             });
             broadcaster.emit(MuxEvent::AgentChanged {
@@ -473,6 +475,7 @@ mod tests {
                 state: format!("two-{index}").into(),
                 source: "socket".into(),
                 session: Some("agent-session".into()),
+                agent: None,
                 updated_at_ms: index,
             });
         }
@@ -493,6 +496,7 @@ mod tests {
                 state,
                 source,
                 session: Some(session),
+                agent: None,
                 updated_at_ms: 9_999,
             } if state.as_ref() == "two-9999"
                 && source.as_ref() == "socket"
@@ -558,6 +562,7 @@ mod tests {
             state: "working".into(),
             source: "hook".into(),
             session: None,
+            agent: None,
             updated_at_ms: 1,
         });
         broadcaster.emit(MuxEvent::SurfaceExited(4));

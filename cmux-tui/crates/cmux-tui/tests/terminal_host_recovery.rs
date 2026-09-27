@@ -48,6 +48,8 @@ struct RecoveryHarness {
     host_ready_delay_ms: Option<u64>,
     reconnect_completion_failures: Option<u64>,
     adoption_insert_failures: Option<u64>,
+    template_completion_failures: Option<u64>,
+    adopt_template_terminal: bool,
 }
 
 impl RecoveryHarness {
@@ -64,6 +66,8 @@ impl RecoveryHarness {
             host_ready_delay_ms: None,
             reconnect_completion_failures: None,
             adoption_insert_failures: None,
+            template_completion_failures: None,
+            adopt_template_terminal: false,
             dir,
         };
         harness.restart();
@@ -122,6 +126,8 @@ impl RecoveryHarness {
             host_ready_delay_ms: None,
             reconnect_completion_failures: None,
             adoption_insert_failures: None,
+            template_completion_failures: None,
+            adopt_template_terminal: false,
             dir,
         }
     }
@@ -151,6 +157,14 @@ impl RecoveryHarness {
         }
         if let Some(failures) = self.adoption_insert_failures {
             command.env("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES", failures.to_string());
+        }
+        if let Some(failures) = self.template_completion_failures {
+            command.env("CMUX_TUI_TEST_TEMPLATE_COMPLETION_FAILURES", failures.to_string());
+        }
+        if self.adopt_template_terminal {
+            command.env("CMUX_TUI_ADOPT_TEMPLATE_TERMINAL", "1");
+            command.env("CMUX_TUI_TEMPLATE_BOUND_FILE", self.dir.join("bound"));
+            command.env("CMUX_TUI_TEMPLATE_WORKSPACE_NAME", "Cloud");
         }
         command
     }
@@ -581,6 +595,151 @@ fn keep_on_exit_retains_tab_and_final_screen_until_close_and_degrades_on_restart
         }),
     );
     assert_eq!(detached_tab["ok"], false, "restart left a kept tab behind: {detached_tab}");
+}
+
+/// Regression for https://github.com/manaflow-ai/cmux/issues/11974.
+///
+/// The issue's Linux reproduction is intentionally kept verbatim here:
+///
+/// ```sh
+/// cmux server start --session repro --state /tmp/repro-state &
+///
+/// cmux --session repro workspace create --name w1   # creates screen+pane+tab+terminal
+/// cmux --session repro tab create terminal          # second tab, note its tab_id + terminal_id
+///
+/// # 1) detach the only view (documented behaviour: the terminal survives)
+/// cmux --session repro tab <tab_id> close
+/// cmux --session repro terminal list                # -> that terminal now has "tab_id": null
+///
+/// # 2) close the now view-less terminal -> session breaks
+/// cmux --session repro terminal <terminal_id> close # reports success, revision advances
+/// ```
+///
+/// Exercise the same lifecycle through the public resource API, then stop and
+/// restart the durable owner. Every list must remain usable and the unrelated
+/// first terminal must survive both the close and restart.
+#[test]
+fn tabless_terminal_close_tombstones_every_resource_row_and_restarts() {
+    let mut harness = RecoveryHarness::start("tabless-terminal-close");
+    let created = resource_request(
+        &harness.socket,
+        "tabless-workspace-create",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"w1",
+            "initial_content":"terminal",
+        }),
+        Some("tabless-workspace-create"),
+    );
+    let surviving_terminal = created["value"]["terminal_id"].as_str().unwrap().to_string();
+    let second = resource_request(
+        &harness.socket,
+        "tabless-tab-create",
+        "tab.create_terminal",
+        serde_json::json!({"machine":"current","session":"current"}),
+        Some("tabless-tab-create"),
+    );
+    let tab = second["value"]["tab_id"].as_str().unwrap().to_string();
+    let closing_terminal = second["value"]["terminal_id"].as_str().unwrap().to_string();
+
+    resource_request(
+        &harness.socket,
+        "tabless-tab-close",
+        "tab.close",
+        serde_json::json!({"machine":"current","session":"current","tab":tab}),
+        Some("tabless-tab-close"),
+    );
+    let terminals = resource_request(
+        &harness.socket,
+        "tabless-terminal-list-before-close",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let detached = terminals
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|terminal| terminal["id"] == closing_terminal)
+        .expect("detached terminal disappeared before explicit close");
+    assert!(
+        detached["tab_ids"].as_array().is_none_or(Vec::is_empty),
+        "terminal still had a tab view after tab.close: {detached}"
+    );
+
+    resource_request(
+        &harness.socket,
+        "tabless-terminal-close",
+        "terminal.close",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":closing_terminal,
+        }),
+        Some("tabless-terminal-close"),
+    );
+
+    for (index, operation) in [
+        "workspace.list",
+        "screen.list",
+        "pane.list",
+        "tab.list",
+        "terminal.list",
+        "notification.list",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let listed = resource_request(
+            &harness.socket,
+            &format!("tabless-list-{index}"),
+            operation,
+            serde_json::json!({"machine":"current","session":"current"}),
+            None,
+        );
+        assert!(listed.is_array(), "{operation} failed after tab-less close: {listed}");
+    }
+    let terminals = resource_request(
+        &harness.socket,
+        "tabless-survivor-before-restart",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    assert!(
+        terminals.as_array().unwrap().iter().any(|terminal| terminal["id"] == surviving_terminal),
+        "surviving terminal disappeared after tab-less close: {terminals}"
+    );
+    assert!(
+        !terminals.as_array().unwrap().iter().any(|terminal| terminal["id"] == closing_terminal)
+    );
+
+    let stop = Command::new(bin())
+        .args(["--json", "--session", &harness.session, "server", "stop", "--socket"])
+        .arg(&harness.socket)
+        .output()
+        .unwrap();
+    assert!(stop.status.success(), "server stop failed: {}", String::from_utf8_lossy(&stop.stderr));
+    let mut child = harness.child.take().unwrap();
+    child.wait().unwrap();
+    harness.restart();
+
+    let restarted = resource_request(
+        &harness.socket,
+        "tabless-survivor-after-restart",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    assert!(
+        restarted.as_array().unwrap().iter().any(|terminal| terminal["id"] == surviving_terminal),
+        "surviving terminal did not recover after restart: {restarted}"
+    );
+    assert!(
+        !restarted.as_array().unwrap().iter().any(|terminal| terminal["id"] == closing_terminal)
+    );
 }
 
 #[test]
@@ -4278,4 +4437,348 @@ fn decode_hex<const N: usize>(text: &str) -> anyhow::Result<[u8; N]> {
 
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
+}
+
+/// Every per-machine file the daemon creates under its state root. A cloned
+/// VM must never serve these from the snapshot it was restored from.
+fn state_identity(state: &Path) -> (Vec<u8>, Vec<u8>, String) {
+    let machine_id = fs::read(state.join("machine-id")).unwrap();
+    let pepper = fs::read(state.join("resource-effect-pepper")).unwrap();
+    let registry = walk_files(state)
+        .into_iter()
+        .find(|path| path.file_name().is_some_and(|name| name == "workspace-registry.sqlite3"))
+        .expect("workspace registry");
+    let connection = rusqlite::Connection::open_with_flags(
+        &registry,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let session: String = connection
+        .query_row("SELECT value FROM meta WHERE key = 'session_public_id'", [], |row| row.get(0))
+        .unwrap();
+    (machine_id, pepper, session)
+}
+
+/// The durable launch spec the registry recorded for a terminal host.
+fn registry_launch_spec(state: &Path, terminal_id: &str) -> serde_json::Value {
+    let registry = walk_files(state)
+        .into_iter()
+        .find(|path| path.file_name().is_some_and(|name| name == "workspace-registry.sqlite3"))
+        .expect("workspace registry");
+    let connection = rusqlite::Connection::open_with_flags(
+        &registry,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let spec: String = connection
+        .query_row(
+            "SELECT launch_spec_json FROM terminal_hosts WHERE terminal_id = ?1",
+            [terminal_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    serde_json::from_str(&spec).unwrap()
+}
+
+fn walk_files(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                pending.push(path);
+            } else {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+
+/// What a parked template host looked like before its daemon was wiped.
+struct ParkedTemplate {
+    terminal_id: String,
+    incarnation: String,
+    marker: String,
+    host_pid: u32,
+    identity: (Vec<u8>, Vec<u8>, String),
+    registry_id: serde_json::Value,
+}
+
+/// Start a terminal, then park its daemon the way the Cloud bake does: a
+/// fenced shutdown leaves the host alive, and everything under the state
+/// root except the host records is wiped.
+fn park_template_host(harness: &mut RecoveryHarness) -> ParkedTemplate {
+    let marker = format!("template-shell-{}", std::process::id());
+    let created = request(
+        &harness.socket,
+        serde_json::json!({"id": 1, "cmd": "run", "argv": ["/bin/cat"], "new_workspace": true}),
+    );
+    let original_surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 2, "cmd": "send", "surface": original_surface, "text": format!("{marker}\n")}),
+    );
+    assert!(wait_for_screen(&harness.socket, original_surface, &marker).contains(&marker));
+    let before = state_identity(&harness.state);
+    let registry_before = request(
+        &harness.socket,
+        serde_json::json!({"id": 3, "cmd": "list-workspaces"}),
+    )["registry_id"]
+        .clone();
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let host_pid = record.host_pid;
+
+    // Park the daemon the way the bake does: a fenced shutdown leaves the
+    // host alive, then everything but the host records is wiped.
+    let identify = request(&harness.socket, serde_json::json!({"id": 4, "cmd": "identify"}));
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 5,
+            "cmd": "shutdown-daemon",
+            "pid": identify["pid"].as_u64().unwrap(),
+            "generation": identify["generation"].as_str().unwrap(),
+        }),
+    );
+    let mut daemon = harness.child.take().unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(5));
+    while daemon.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "daemon did not exit after fenced shutdown");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let host_root = harness.host_root();
+    for entry in fs::read_dir(&harness.state).unwrap().flatten() {
+        let path = entry.path();
+        if path == host_root {
+            continue;
+        }
+        if path.is_dir() {
+            fs::remove_dir_all(&path).unwrap();
+        } else {
+            fs::remove_file(&path).unwrap();
+        }
+    }
+    let _ = fs::remove_file(&harness.socket);
+
+    ParkedTemplate {
+        terminal_id,
+        incarnation,
+        marker,
+        host_pid,
+        identity: before,
+        registry_id: registry_before,
+    }
+}
+
+/// A memory snapshot keeps the terminal host (and its shell) running while
+/// the daemon is parked and its per-machine state is wiped. A clone's daemon
+/// must adopt that warm host into a brand-new registry: same PTY and screen,
+/// fresh machine id, pepper, session id, and registry.
+#[test]
+fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
+    let mut harness = RecoveryHarness::start("template-adopt");
+    let ParkedTemplate {
+        terminal_id,
+        incarnation,
+        marker,
+        host_pid,
+        identity: before,
+        registry_id: registry_before,
+    } = park_template_host(&mut harness);
+    harness.adopt_template_terminal = true;
+    harness.restart();
+    // The binding is written before the daemon listens, and the public
+    // terminal list must already show the terminal it names. A client that
+    // listed nothing here (the Cloud prompt sync) created a second workspace.
+    // The warm host is claimed through the Cloud template path, not the
+    // migration import for hosts that predate the SQLite registry.
+    let spec = registry_launch_spec(&harness.state, &terminal_id);
+    assert_eq!(spec, serde_json::json!({"template_terminal": true}), "{spec}");
+    let bound = fs::read_to_string(harness.dir.join("bound")).unwrap();
+    let bound_terminal = bound
+        .lines()
+        .find_map(|line| line.strip_prefix("CMUX_TUI_TERMINAL_ID="))
+        .unwrap()
+        .to_string();
+    let listed = resource_request(
+        &harness.socket,
+        "template-terminal-list",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let listed_ids = listed
+        .as_array()
+        .unwrap_or_else(|| panic!("terminal.list failed: {listed}"))
+        .iter()
+        .filter_map(|terminal| terminal["id"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(listed_ids, vec![bound_terminal.as_str()], "{listed}");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
+    let adopted_surface = loop {
+        let resolved = request_response(
+            &harness.socket,
+            serde_json::json!({"id": 6, "cmd": "resolve-terminal", "terminal_id": terminal_id}),
+        );
+        let data = &resolved["data"];
+        if resolved["ok"] == true
+            && data["lifecycle"] == "running"
+            && data["terminal_incarnation"].as_str() == Some(incarnation.as_str())
+            && let Some(surface) = data["surface"].as_u64()
+        {
+            break surface;
+        }
+        if Instant::now() >= deadline {
+            let workspaces = request_response(
+                &harness.socket,
+                serde_json::json!({"id": 60, "cmd": "list-workspaces"}),
+            );
+            let records = load_terminal_host_records(&harness.host_root()).unwrap_or_default();
+            panic!(
+                "fresh daemon did not adopt the template host: resolved={resolved} workspaces={workspaces} records={}",
+                records.len()
+            );
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert!(wait_for_screen(&harness.socket, adopted_surface, &marker).contains(&marker));
+    assert_eq!(wait_for_host_records(&harness.host_root(), 1)[0].1.host_pid, host_pid);
+
+    let workspaces =
+        request(&harness.socket, serde_json::json!({"id": 7, "cmd": "list-workspaces"}));
+    assert_eq!(workspaces["workspaces"].as_array().unwrap().len(), 1, "{workspaces}");
+    assert_eq!(workspaces["workspaces"][0]["name"], "Cloud", "{workspaces}");
+    // The template settings configure this daemon only. A terminal it spawns
+    // must not inherit them (the Cloud user's shells and agents).
+    let env_file = harness.dir.join("template-child-env");
+    let run = resource_request(
+        &harness.socket,
+        "template-child-env",
+        "workspace.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspaces["workspaces"][0]["resource_id"],
+            "argv":["/bin/sh","-c",format!("env > '{}.tmp' && mv '{0}.tmp' '{0}'", env_file.display())],
+        }),
+        Some("template-child-env"),
+    );
+    assert!(run["value"]["terminal_id"].is_string(), "{run}");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while !env_file.exists() {
+        assert!(Instant::now() < deadline, "child never wrote its environment");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let child_env = fs::read_to_string(&env_file).unwrap();
+    for key in [
+        "CMUX_TUI_ADOPT_TEMPLATE_TERMINAL",
+        "CMUX_TUI_TEMPLATE_BOUND_FILE",
+        "CMUX_TUI_TEMPLATE_WORKSPACE_NAME",
+    ] {
+        assert!(
+            !child_env.lines().any(|line| line.starts_with(&format!("{key}="))),
+            "{key} leaked"
+        );
+    }
+    assert_ne!(workspaces["registry_id"], registry_before);
+    let after = state_identity(&harness.state);
+    assert_ne!(after.0, before.0, "machine id carried over from the template");
+    assert_ne!(after.1, before.1, "resource-effect pepper carried over from the template");
+    assert_ne!(after.2, before.2, "session id carried over from the template");
+    // The warm shell learns its new identity from the bound file.
+    let bound = fs::read_to_string(harness.dir.join("bound")).unwrap();
+    let term =
+        workspaces["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["content_resource_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+    assert_eq!(bound, format!("CMUX_TUI_SESSION_ID={}\nCMUX_TUI_TERMINAL_ID={term}\n", after.2),);
+
+    let typed = format!("after-template-{}", std::process::id());
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 8, "cmd": "send", "surface": adopted_surface, "text": format!("{typed}\n")}),
+    );
+    assert!(wait_for_screen(&harness.socket, adopted_surface, &typed).contains(&typed));
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 9, "cmd": "close-terminal", "terminal_id": terminal_id, "terminal_incarnation": incarnation}),
+    );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+/// Wait for the template binding, then check that it names the one listed
+/// terminal and that the warm host was adopted, not replaced.
+fn assert_template_bound_and_listed(harness: &RecoveryHarness, parked: &ParkedTemplate) {
+    let bound_path = harness.dir.join("bound");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while !bound_path.exists() {
+        assert!(Instant::now() < deadline, "the template adoption never published its binding");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let bound = fs::read_to_string(&bound_path).unwrap();
+    let bound_terminal = bound
+        .lines()
+        .find_map(|line| line.strip_prefix("CMUX_TUI_TERMINAL_ID="))
+        .unwrap()
+        .to_string();
+    let listed = resource_request(
+        &harness.socket,
+        "template-bound-list",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let listed_ids = listed
+        .as_array()
+        .unwrap_or_else(|| panic!("terminal.list failed: {listed}"))
+        .iter()
+        .filter_map(|terminal| terminal["id"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(listed_ids, vec![bound_terminal.as_str()], "{listed}");
+    assert_eq!(wait_for_host_records(&harness.host_root(), 1)[0].1.host_pid, parked.host_pid);
+    let spec = registry_launch_spec(&harness.state, &parked.terminal_id);
+    assert_eq!(spec, serde_json::json!({"template_terminal": true}), "{spec}");
+}
+
+#[test]
+fn template_binding_is_published_when_adoption_succeeds_on_retry() {
+    let mut harness = RecoveryHarness::start("template-adopt-retry");
+    let parked = park_template_host(&mut harness);
+    // The first topology insert fails, so the host is adopted by the
+    // asynchronous retry instead of the startup pass. That path must still
+    // commit the placement and tell the template shell its new identity.
+    harness.adoption_insert_failures = Some(1);
+    harness.adopt_template_terminal = true;
+    harness.restart();
+    assert_template_bound_and_listed(&harness, &parked);
+}
+
+#[test]
+fn template_completion_failure_at_startup_is_retried_without_aborting_the_daemon() {
+    let mut harness = RecoveryHarness::start("template-complete-startup");
+    let parked = park_template_host(&mut harness);
+    // Publishing the adopted template fails twice on the startup pass. The
+    // daemon must still start, and the completion must be retried until the
+    // placement is committed and the binding written.
+    harness.template_completion_failures = Some(2);
+    harness.adopt_template_terminal = true;
+    harness.restart();
+    assert_template_bound_and_listed(&harness, &parked);
+}
+
+#[test]
+fn template_completion_failure_after_adoption_retry_is_retried() {
+    let mut harness = RecoveryHarness::start("template-complete-retry");
+    let parked = park_template_host(&mut harness);
+    harness.adoption_insert_failures = Some(1);
+    harness.template_completion_failures = Some(2);
+    harness.adopt_template_terminal = true;
+    harness.restart();
+    assert_template_bound_and_listed(&harness, &parked);
 }

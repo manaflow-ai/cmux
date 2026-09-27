@@ -26,6 +26,9 @@ extension TabItemView {
         let context = snapshot.contextMenu
         let targetIds = context.targetWorkspaceIds
         let isMulti = targetIds.count > 1
+        let muteNotificationsLabel = context.allNotificationsMuted
+            ? (isMulti ? NotificationMuteMenuOption.unmuteWorkspaces : .unmuteWorkspace).title
+            : (isMulti ? NotificationMuteMenuOption.muteWorkspaces : .muteWorkspace).title
         let shouldPin = context.pinState?.pinned ?? !workspaceSnapshot.isPinned
         let reconnectLabel = contextMenuLabel(
             multi: String(localized: "contextMenu.reconnectWorkspaces", defaultValue: "Reconnect Workspaces"),
@@ -81,6 +84,17 @@ extension TabItemView {
         }
         .disabled(context.pinState == nil)
 
+        Button {
+            let requestedMuted = !actions.currentNotificationsMuted(targetIds)
+            actions.setNotificationsMuted(targetIds, requestedMuted)
+        } label: {
+            Label(
+                muteNotificationsLabel,
+                systemImage: context.allNotificationsMuted ? "bell" : "bell.slash"
+            )
+        }
+        .disabled(targetIds.isEmpty)
+
         workspaceGroupContextMenuSection(targetIds: targetIds, isMulti: isMulti)
 
         Divider()
@@ -91,12 +105,12 @@ extension TabItemView {
 
         if let key = renameWorkspaceShortcut.keyEquivalent {
             Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
-                promptRename()
+                beginInlineRenameFromContextMenu()
             }
             .keyboardShortcut(key, modifiers: renameWorkspaceShortcut.eventModifiers)
         } else {
             Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
-                promptRename()
+                beginInlineRenameFromContextMenu()
             }
         }
 

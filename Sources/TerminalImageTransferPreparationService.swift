@@ -2,8 +2,10 @@ import AppKit
 import Foundation
 
 /// Preserves accepted paste commands in a bounded FIFO outside the main actor.
-/// Every accepted command has one admission-to-completion deadline, including
-/// time spent waiting behind the active worker.
+/// Every accepted command has one deadline, including time spent waiting behind
+/// the active worker. Expiry cancels active work; completion awaits its teardown.
+/// A cancelled operation is reaped before returning so its caller retains any
+/// clipboard-read lease until that operation can no longer access pboard.
 actor TerminalImageTransferPreparationService {
     /// Cancellation must return only after any owned work terminates and is
     /// reaped so the service's single-operation resource bound remains true.
@@ -204,9 +206,11 @@ actor TerminalImageTransferPreparationService {
             return
         }
         activeJob = nil
-        if job.continuation == nil {
+        switch job.phase {
+        case .cancelling(let failure):
             cleanup(result)
-        } else {
+            resume(&job, returning: .failure(failure))
+        case .preparing:
             resume(&job, returning: .success(result))
         }
         startNextJobIfPossible()
@@ -218,7 +222,10 @@ actor TerminalImageTransferPreparationService {
     ) {
         guard var job = activeJob, job.id == jobID else { return }
         activeJob = nil
-        if job.continuation != nil {
+        switch job.phase {
+        case .cancelling(let cancellationFailure):
+            resume(&job, returning: .failure(cancellationFailure))
+        case .preparing:
             resume(&job, returning: .failure(failure))
         }
         startNextJobIfPossible()
@@ -245,14 +252,18 @@ actor TerminalImageTransferPreparationService {
         }
         guard var job = activeJob,
               job.id == jobID,
-              job.continuation != nil else {
+              case .preparing = job.phase else {
             return
         }
 
-        resume(&job, returning: .failure(failure))
+        job.phase = .cancelling(failure)
+        job.deadlineTask?.cancel()
+        job.deadlineTask = nil
         let operationTask = job.operationTask
-        // Keep the lane occupied until cancellation finishes terminating and
-        // reaping its worker; advancing sooner could overlap wedged workers.
+        // The caller owns a clipboard-read lease, not just this worker lane.
+        // Publishing failure here would release that lease and allow a write
+        // while the cancelled worker is still inside the pasteboard service.
+        // finish() delivers the saved failure after teardown and result cleanup.
         activeJob = job
         operationTask?.cancel()
     }
@@ -271,8 +282,7 @@ actor TerminalImageTransferPreparationService {
     ) {
         job.deadlineTask?.cancel()
         job.deadlineTask = nil
-        job.continuation?.resume(returning: outcome)
-        job.continuation = nil
+        job.continuation.resume(returning: outcome)
     }
 
     private func signalFailureIfNeeded(

@@ -29,7 +29,7 @@ struct CmxIrohPendingRevocationOutboxTests {
     }
 
     @Test(arguments: [
-        CmxIrohTrustBrokerClientError.connectivity,
+        CmxIrohTrustBrokerClientError.connectivity(nil),
         .rejected(statusCode: 503, code: "unavailable"),
     ])
     func transientFailureRetainsPendingRevocation(

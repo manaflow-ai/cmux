@@ -40,6 +40,8 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     let bottomDropIndicatorVisible: Bool
     /// Resolved cmux scheme used by native group-header chrome.
     let colorSchemeIsDark: Bool
+    /// Notification Badge color setting; nil falls back to the cmux accent.
+    let notificationBadgeColorHex: String?
 }
 
 /// Behavior bundle for one group header row; recreated per apply and excluded
@@ -61,4 +63,6 @@ struct SidebarGroupHeaderRowActions {
     let onDelete: () -> Void
     let onEditConfig: () -> Void
     let onOpenDocs: () -> Void
+    /// Resolves current notification availability for retained rows.
+    var notificationState: () -> NotificationState = { .unavailable }
 }

@@ -49,6 +49,9 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
 /// `SidebarWorkspaceDetailDefaults`, and `TerminalController`'s socket path).
 @MainActor
 final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProviding {
+    private let computerUseConfigStore = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
+    private let computerUseEnabledKey = SettingCatalog().computerUse.enabled
+
     func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {
         let integrations = AgentIntegrationSettingsStore(defaults: .standard)
         return TerminalSurfaceSpawnPolicy(
@@ -65,7 +68,11 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
             ampHooksEnabled: integrations.ampHooksEnabled,
             shellIntegrationEnabled: UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
             watchGitStatusEnabled: SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard),
-            showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: .standard)
+            showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: .standard),
+            // `DisableComputerUse` (MDM) wins over the user setting on every
+            // spawn, so a new agent launch never receives the tools.
+            computerUseEnabled: computerUseConfigStore.snapshotValue(for: computerUseEnabledKey)
+                && !ManagedDevicePolicy().isEnforced(.disableComputerUse)
         )
     }
 
@@ -121,6 +128,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     @MainActor
     func dropSurface(surfaceID: UUID) {
         MobileTerminalByteTee.shared.dropSurface(surfaceID: surfaceID)
+        TerminalPredictionCenter.shared.unregister(surfaceID: surfaceID)
     }
 }
 
@@ -158,6 +166,7 @@ extension TerminalSurfaceRuntimeFilesystem {
                     wrapperDirectoryURL: $0,
                     surfaceId: $1,
                     temporaryDirectory: $2,
+                    enabledCommands: $3,
                     hermesProfileAliasCatalog: hermesProfileAliasCatalog,
                     fileManager: fileManager
                 )

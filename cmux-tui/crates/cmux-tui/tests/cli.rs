@@ -10,7 +10,7 @@ use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::os::unix::ffi::OsStringExt;
 #[cfg(unix)]
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
+use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
@@ -533,7 +533,7 @@ fn server_lifecycle_help_and_typos_do_not_fall_back_to_startup_help() {
         lifecycle_cli(&["--socket", "--json", "server", "stpo"]);
     assert_eq!(output_flag_used_as_a_socket_value.status.code(), Some(2));
     let error = String::from_utf8(output_flag_used_as_a_socket_value.stderr).unwrap();
-    assert!(error.contains("Did you mean `stop`?"), "{error}");
+    assert!(error.contains("--socket needs a value"), "{error}");
     assert!(!error.trim_start().starts_with('{'), "{error}");
 
     let misplaced_start_option = lifecycle_cli(&["--term", "xterm-256color", "server", "start"]);
@@ -2644,6 +2644,101 @@ struct PtyChild {
 }
 
 #[cfg(unix)]
+struct CapturingPtyChild {
+    child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
+    writer: Option<Box<dyn Write + Send>>,
+    receiver: mpsc::Receiver<Vec<u8>>,
+    reader_thread: Option<std::thread::JoinHandle<()>>,
+}
+
+#[cfg(unix)]
+impl CapturingPtyChild {
+    fn start(args: &[&str]) -> Self {
+        let spawned = spawn_pty_child(args, &[]);
+        let writer = spawned.master.take_writer().unwrap();
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        let (sender, receiver) = mpsc::channel();
+        let reader_thread = std::thread::spawn(move || {
+            let mut buffer = [0; 8192];
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(read) => {
+                        if sender.send(buffer[..read].to_vec()).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        Self {
+            child: Some(spawned.child),
+            writer: Some(writer),
+            receiver,
+            reader_thread: Some(reader_thread),
+        }
+    }
+
+    fn wait_for_output(&self, marker: &str, timeout: Duration) -> Vec<u8> {
+        let marker = marker.as_bytes();
+        let deadline = Instant::now() + timeout;
+        let mut output = Vec::new();
+        while Instant::now() < deadline {
+            let remaining = deadline.checked_duration_since(Instant::now()).unwrap_or_default();
+            match self.receiver.recv_timeout(remaining) {
+                Ok(chunk) => {
+                    output.extend(chunk);
+                    if output.windows(marker.len()).any(|window| window == marker) {
+                        return output;
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => break,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        output
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        let writer = self.writer.as_mut().expect("scoped attach PTY writer is live");
+        writer.write_all(bytes).unwrap();
+        writer.flush().unwrap();
+    }
+
+    fn wait_for_exit(&mut self, timeout: Duration) -> Option<cmux_pty::ExitStatus> {
+        let mut child = self.child.take().expect("scoped attach child already waited");
+        let mut killer = child.clone_killer();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let _ = sender.send(child.wait());
+        });
+        match receiver.recv_timeout(timeout) {
+            Ok(status) => Some(status.unwrap()),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let _ = killer.kill();
+                None
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => None,
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for CapturingPtyChild {
+    fn drop(&mut self) {
+        self.writer.take();
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        if let Some(reader_thread) = self.reader_thread.take() {
+            let _ = reader_thread.join();
+        }
+    }
+}
+
+#[cfg(unix)]
 struct TestTempDir(PathBuf);
 
 #[cfg(unix)]
@@ -2848,24 +2943,37 @@ fn plain_launch_attaches_to_existing_local_session() {
 
 #[cfg(unix)]
 #[test]
-fn session_shutdown_exits_an_interactive_local_owner() {
+fn session_shutdown_exits_an_interactive_detached_owner_client() {
     let dir = TestTempDir::create("interactive-session-shutdown");
     let socket = dir.path().join("mux.sock");
     let socket_arg = socket.to_str().unwrap();
-    let mut owner =
-        PtyChild::start(&["--session", "interactive-session-shutdown", "--socket", socket_arg]);
+    let state = dir.path().join("state");
+    let state_arg = state.to_str().unwrap();
+    let config = dir.path().join("config.json");
+    fs::write(&config, r#"{"server":{"detached_owner":true}}"#).unwrap();
+    let mut client = PtyChild::start_with_env(
+        &[
+            "--session",
+            "interactive-session-shutdown",
+            "--socket",
+            socket_arg,
+            "--state",
+            state_arg,
+        ],
+        &[("CMUX_TUI_CONFIG", config.as_os_str())],
+    );
     wait_for_socket_path(&socket);
-    wait_for_owner_server_ready(&socket, &mut owner);
+    wait_for_owner_server_ready(&socket, &mut client);
 
     let shutdown =
         lifecycle_cli(&["--json", "--socket", socket_arg, "session", "current", "shutdown"]);
     assert_success(&shutdown);
     assert_eq!(json_output(&shutdown)["value"]["accepted"], true);
 
-    let status = owner
+    let status = client
         .wait_for_exit(Duration::from_secs(5))
-        .expect("interactive owner remained alive after session shutdown");
-    assert!(status.success(), "interactive owner exited unsuccessfully: {status}");
+        .expect("interactive client remained alive after detached owner shutdown");
+    assert!(status.success(), "interactive client exited unsuccessfully: {status}");
 }
 
 #[cfg(unix)]
@@ -2968,6 +3076,86 @@ fn explicit_attach_registers_a_full_session_tui_client() {
     }
 
     panic!("explicit attach never registered the full session");
+}
+
+#[cfg(unix)]
+#[test]
+fn scoped_terminal_attach_streams_pty_and_detaches_without_killing_terminal() {
+    let server = HeadlessServer::start("scoped-terminal-attach-lifecycle");
+    let created = json_cli(&server, &["tab", "create", "terminal"]);
+    assert_success(&created);
+    let terminal = json_output(&created)["value"]["terminal_id"]
+        .as_str()
+        .expect("terminal creation returns a terminal id")
+        .to_string();
+
+    let first_marker = "scoped_attach_lifecycle_marker";
+    let write = json_cli(
+        &server,
+        &["terminal", &terminal, "write", "--text", &format!("printf '{first_marker}\\n'\n")],
+    );
+    assert_success(&write);
+    assert!(
+        wait_for_screen(&server, &terminal, first_marker).contains(first_marker),
+        "daemon terminal did not produce the attach marker"
+    );
+
+    let socket = server.socket.to_str().unwrap();
+    let mut attached =
+        CapturingPtyChild::start(&["attach", "--socket", socket, "--terminal", &terminal]);
+    let output = attached.wait_for_output(first_marker, Duration::from_secs(10));
+    assert!(
+        output.windows(first_marker.len()).any(|window| window == first_marker.as_bytes()),
+        "scoped attach PTY did not replay terminal output: {}",
+        String::from_utf8_lossy(&output)
+    );
+
+    let clients_deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < clients_deadline {
+        let clients = json_cli(&server, &["client", "list"]);
+        if clients.status.success()
+            && json_output(&clients).as_array().is_some_and(|clients| {
+                clients.iter().any(|client| {
+                    client["client_kind"].as_str() == Some("tui")
+                        && client["attached_terminal_ids"].as_array().is_some_and(|ids| {
+                            ids.len() == 1 && ids[0].as_str() == Some(terminal.as_str())
+                        })
+                })
+            })
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let clients = json_output(&json_cli(&server, &["client", "list"]));
+    assert!(
+        clients.as_array().is_some_and(|clients| {
+            clients.iter().any(|client| {
+                client["client_kind"].as_str() == Some("tui")
+                    && client["attached_terminal_ids"].as_array().is_some_and(|ids| {
+                        ids.len() == 1 && ids[0].as_str() == Some(terminal.as_str())
+                    })
+            })
+        }),
+        "scoped attach did not register exactly one terminal: {clients}"
+    );
+
+    attached.write(b"\x02d");
+    let status = attached
+        .wait_for_exit(Duration::from_secs(10))
+        .expect("scoped attach did not exit after Ctrl-b d");
+    assert!(status.success(), "scoped attach exited unsuccessfully: {status}");
+
+    let second_marker = "scoped_attach_after_detach_marker";
+    let write = json_cli(
+        &server,
+        &["terminal", &terminal, "write", "--text", &format!("printf '{second_marker}\\n'\n")],
+    );
+    assert_success(&write);
+    assert!(
+        wait_for_screen(&server, &terminal, second_marker).contains(second_marker),
+        "daemon terminal stopped accepting input after scoped detach"
+    );
 }
 
 #[cfg(unix)]
@@ -3863,6 +4051,164 @@ fn plugin_install_use_and_list_work_against_local_git_repo() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn agent_plugin_install_use_and_remove_work_against_local_git_repo() {
+    let dir = unique_temp_dir("agent-plugin-install");
+    let source = dir.join("source");
+    // Keep the fixture executable out of git. The manager must build the
+    // staged checkout before it verifies the agent command.
+    fs::create_dir_all(&source).unwrap();
+    fs::write(
+        source.join("cmux-plugin.toml"),
+        r#"
+            [plugin]
+            name = "agent-fixture"
+            kind = "agent"
+            version = "0.1.0"
+            description = "Fixture agent detector"
+
+            [run]
+            command = ["bin/agent"]
+
+            [build]
+            command = ["/bin/sh", "build.sh"]
+        "#,
+    )
+    .unwrap();
+    fs::write(
+        source.join("build.sh"),
+        concat!(
+            "#!/bin/sh\n",
+            "mkdir -p bin\n",
+            "cat > bin/agent <<'EOF'\n",
+            "#!/bin/sh\n",
+            "exit 0\n",
+            "EOF\n",
+            "chmod 755 bin/agent\n"
+        ),
+    )
+    .unwrap();
+    git(&source, &["init"]);
+    git(&source, &["add", "."]);
+    git(
+        &source,
+        &[
+            "-c",
+            "user.name=cmux",
+            "-c",
+            "user.email=cmux@example.invalid",
+            "commit",
+            "-m",
+            "fixture",
+        ],
+    );
+
+    let data_home = dir.join("data");
+    let config_path = dir.join("config").join("mux.json");
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(&config_path, r#"{"future":{"keep":true},"agents":{"other":true}}"#).unwrap();
+    let missing_socket = dir.join("missing.sock");
+    let url = format!("file://{}", source.display());
+
+    let install = plugin_cli(
+        &data_home,
+        &config_path,
+        &[
+            "--json",
+            "--socket",
+            missing_socket.to_str().unwrap(),
+            "agent",
+            "plugin",
+            "install",
+            &url,
+        ],
+    );
+    assert_success(&install);
+    let installed = json_output(&install);
+    assert_eq!(installed["plugin"]["name"].as_str(), Some("agent-fixture"));
+    assert_eq!(installed["plugin"]["active"].as_bool(), Some(false));
+    assert!(installed["plugin"]["id"].as_str().unwrap().starts_with("agent_plugin_"));
+    assert_eq!(installed["plugin"]["enabled"].as_bool(), Some(true));
+
+    let installed_dir =
+        data_home.join("cmux").join("mux-plugins").join("agent").join("agent-fixture");
+    assert!(installed_dir.join("cmux-plugin.toml").is_file());
+    assert!(installed_dir.join("bin/agent").is_file());
+
+    let use_plugin = plugin_cli(
+        &data_home,
+        &config_path,
+        &[
+            "--json",
+            "--socket",
+            missing_socket.to_str().unwrap(),
+            "agent",
+            "plugin",
+            "use",
+            "agent-fixture",
+        ],
+    );
+    assert_success(&use_plugin);
+    let used = json_output(&use_plugin);
+    assert_eq!(used["plugin"]["name"].as_str(), Some("agent-fixture"));
+    assert_eq!(used["plugin"]["active"].as_bool(), Some(true));
+    let plugin_id = used["plugin"]["id"].as_str().unwrap().to_string();
+
+    let written: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert_eq!(written["future"]["keep"].as_bool(), Some(true));
+    assert_eq!(written["agents"]["other"].as_bool(), Some(true));
+    assert_eq!(written["agents"]["plugin"]["id"].as_str(), Some(plugin_id.as_str()));
+    let canonical_dir = fs::canonicalize(&installed_dir).unwrap();
+    assert_eq!(written["agents"]["plugin"]["cwd"].as_str(), Some(canonical_dir.to_str().unwrap()));
+    assert_eq!(
+        written["agents"]["plugin"]["command"][0].as_str(),
+        Some(canonical_dir.join("bin/agent").to_str().unwrap())
+    );
+    assert!(
+        written["agents"]["plugin"]["revision"]
+            .as_str()
+            .is_some_and(|value| { value.starts_with("sha256-") })
+    );
+
+    let list = plugin_cli(&data_home, &config_path, &["--json", "agent", "plugin", "list"]);
+    assert_success(&list);
+    let listed = json_output(&list);
+    assert_eq!(listed[0]["name"].as_str(), Some("agent-fixture"));
+    assert_eq!(listed[0]["active"].as_bool(), Some(true));
+
+    let builtin = plugin_cli(
+        &data_home,
+        &config_path,
+        &[
+            "--json",
+            "--socket",
+            missing_socket.to_str().unwrap(),
+            "agent",
+            "plugin",
+            "use",
+            "--builtin",
+        ],
+    );
+    assert_success(&builtin);
+    let written: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert!(written["agents"].get("plugin").is_none());
+    assert_eq!(written["future"]["keep"].as_bool(), Some(true));
+
+    let remove = plugin_cli(
+        &data_home,
+        &config_path,
+        &["--json", "agent", "plugin", "remove", "agent-fixture"],
+    );
+    assert_success(&remove);
+    assert_eq!(json_output(&remove)["plugin"]["enabled"].as_bool(), Some(false));
+    assert!(!installed_dir.exists());
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
 fn wait_for_screen(server: &HeadlessServer, terminal: &str, marker: &str) -> String {
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut last = String::new();
@@ -3881,8 +4227,13 @@ fn wait_for_screen(server: &HeadlessServer, terminal: &str, marker: &str) -> Str
 fn plugin_cli(data_home: &PathBuf, config_path: &PathBuf, args: &[&str]) -> Output {
     Command::new(bin())
         .args(args)
+        // Keep plugin builds and their Git subprocesses away from the real
+        // home directory. The config parent is created by each test and is
+        // unique to that test invocation.
+        .env("HOME", config_path.parent().expect("plugin config has a parent"))
         .env("XDG_DATA_HOME", data_home)
         .env("CMUX_MUX_CONFIG", config_path)
+        .env_remove("CMUX_TUI_CONFIG")
         .env_remove("CMUX_TUI_SOCKET")
         .output()
         .unwrap()
@@ -4062,6 +4413,8 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
         supports_set_defaults: true,
         supports_clear_history: true,
         supports_terminate_ack: false,
+        supports_input_ack: false,
+        supports_terminal_metadata: false,
     };
     let record_path = record.record_path(root);
     let live_path = record_path.with_extension(format!("{incarnation}-{host_start_nonce}.live"));
@@ -4087,4 +4440,132 @@ fn unique_temp_dir(name: &str) -> PathBuf {
 
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
+}
+
+#[cfg(unix)]
+const WG_HUB_TEST_PRIVATE_KEY: &str = "GDYq0RJ4LWL6jJhLMAlM1oHcCTdSiXPMZ4X5D8WzGdw=";
+#[cfg(unix)]
+const WG_HUB_TEST_PEER_KEY: &str = "Bo2I0OcpKnXtElGwH6EXV3MwDQctaIrFJ4tDX44DoWs=";
+
+#[cfg(unix)]
+fn write_wg_hub_config(dir: &std::path::Path, mode: u32) -> PathBuf {
+    let config = dir.join("wg.conf");
+    fs::write(
+        &config,
+        format!(
+            "[Interface]\nPrivateKey = {WG_HUB_TEST_PRIVATE_KEY}\nAddress = 100.64.0.1/32\nMTU = 1200\n\n[Peer]\nPublicKey = {WG_HUB_TEST_PEER_KEY}\nAllowedIPs = 10.0.0.0/8, fd00::/8\nEndpoint = 127.0.0.1:9\n"
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(mode)).unwrap();
+    config
+}
+
+#[cfg(unix)]
+#[test]
+fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
+    use base64::Engine;
+
+    let dir = TestTempDir::create("wg-hub");
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
+    let (contents, peer) = runtime.block_on(async {
+        let cmux_wg::testing::LoopbackPair { client, server, server_socket, .. } =
+            cmux_wg::testing::loopback_pair().await.unwrap();
+        let peer = cmux_wg::WgNet::start(server, server_socket).await.unwrap();
+        let encoder = base64::engine::general_purpose::STANDARD;
+        let contents = format!(
+            "[Interface]\nPrivateKey = {}\nAddress = 10.200.0.1/32\nMTU = 1200\n\n[Peer]\nPublicKey = {}\nAllowedIPs = 10.200.0.0/24, fdcc::/64\nEndpoint = {}\nPersistentKeepalive = 5\n",
+            encoder.encode(client.private_key.as_ref()),
+            encoder.encode(client.peer_public_key),
+            client.endpoint.unwrap(),
+        );
+        (contents, peer)
+    });
+    let config = dir.path().join("wg.conf");
+    fs::write(&config, contents).unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
+    let socket = dir.path().join("hub").join("wg.sock");
+    let mut child = Command::new(bin())
+        .args(["wg", "hub", "--config"])
+        .arg(&config)
+        .arg("--socket")
+        .arg(&socket)
+        .env("LC_ALL", "C")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    assert!(
+        !line.is_empty(),
+        "hub exited before printing readiness: {:?}",
+        child.wait_with_output()
+    );
+    let ready: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+    assert_eq!(ready["event"], "hub-ready", "{line}");
+    assert_eq!(ready["socket"], socket.to_str().unwrap(), "{line}");
+    assert_eq!(ready["routes"], serde_json::json!(["10.200.0.0/24", "fdcc::/64"]), "{line}");
+
+    let socket_meta = fs::metadata(&socket).unwrap();
+    assert!(socket_meta.file_type().is_socket());
+    assert_eq!(socket_meta.permissions().mode() & 0o777, 0o600);
+    assert_eq!(fs::metadata(socket.parent().unwrap()).unwrap().permissions().mode() & 0o777, 0o700);
+
+    // A live socket must be refused by a second hub.
+    let second = Command::new(bin())
+        .args(["wg", "hub", "--config"])
+        .arg(&config)
+        .arg("--socket")
+        .arg(&socket)
+        .env("LC_ALL", "C")
+        .output()
+        .unwrap();
+    assert!(!second.status.success(), "second hub on a live socket must fail");
+    assert!(socket.exists(), "the losing hub must not remove the live socket");
+
+    let pid = i32::try_from(child.id()).unwrap();
+    assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "hub did not exit after SIGTERM");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(status.success(), "hub exited unsuccessfully after SIGTERM: {status}");
+    assert!(!socket.exists(), "hub must remove its socket on exit");
+    runtime.block_on(peer.shutdown());
+}
+
+#[cfg(unix)]
+#[test]
+fn wg_hub_refuses_a_readable_config_and_missing_options() {
+    let dir = TestTempDir::create("wg-hub-perms");
+    let config = write_wg_hub_config(dir.path(), 0o644);
+    let socket = dir.path().join("wg.sock");
+    let output = Command::new(bin())
+        .args(["wg", "hub", "--config"])
+        .arg(&config)
+        .arg("--socket")
+        .arg(&socket)
+        .env("LC_ALL", "C")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("cannot read WireGuard config"), "{stderr}");
+    assert!(!socket.exists());
+
+    let missing = lifecycle_cli(&["wg", "hub", "--config", config.to_str().unwrap()]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8(missing.stderr).unwrap().contains("--socket"));
+
+    let help = lifecycle_cli(&["wg", "hub", "--help"]);
+    assert!(help.status.success());
+    assert!(String::from_utf8(help.stdout).unwrap().starts_with("USAGE: cmux wg hub"));
 }

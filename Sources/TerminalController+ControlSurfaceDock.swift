@@ -134,11 +134,15 @@ extension TerminalController {
             workingDirectory: kind == .terminal ? inputs.workingDirectory : nil,
             environment: inputs.startupEnvironment,
             tmuxStartCommand: kind == .terminal ? inputs.tmuxStartCommand : nil,
-            focus: focus,
+            initialInput: kind == .terminal ? inputs.initialInput : nil,
+            focus: false,
             preloadInitialNavigationInBackground: kind == .browser
         )
         guard let newPanelId else {
             return .createFailed
+        }
+        if focus {
+            dock.focusPanelFromDockInteraction(newPanelId, window: nil)
         }
         return .createdDock(
             windowID: dock.workspaceId,
@@ -455,6 +459,16 @@ extension TerminalController {
         }
         if let routedSurfaceID = routing.surfaceID {
             return (routedSurfaceID, false)
+        }
+        if let routedPaneID = routing.paneID {
+            guard let paneID = dock.bonsplitController.allPaneIds.first(where: {
+                $0.id == routedPaneID
+            }),
+            let tabID = dock.bonsplitController.selectedTab(inPane: paneID)?.id,
+            let panel = dock.panel(for: tabID) else {
+                return (nil, false)
+            }
+            return (panel.id, false)
         }
         return (dock.focusedPanelId, false)
     }

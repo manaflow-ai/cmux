@@ -4,15 +4,47 @@ import CmuxMobileRPC
 import Foundation
 import Testing
 @testable import CmuxMobileShell
+#if DEBUG
+import CmuxMobileShellReleaseGateSupport
+#endif
 
 @MainActor
 extension ReconnectRouteSelectionTests {
+    #if DEBUG
+    @Test func soakReconnectReplacesAnAlreadyHealthyConnection() async throws {
+        let fixture = try await makeRecoveryOwnerFixture()
+        defer { fixture.release() }
+        await fixture.router.setCapabilities([
+            "events.v1", "terminal.bytes.v1", "terminal.render_grid.v1",
+            "terminal.replay.v1", "workspace.actions.v1",
+        ])
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
+        _ = try #require(fixture.store.irohReleaseGateForegroundTarget())
+        let originalClient = try #require(fixture.store.remoteClient)
+
+        do {
+            _ = try await fixture.store.runIrohSoakUsageStep(cycle: 119, marker: "SOAK_RECONNECT")
+        } catch let failure as MobileIrohReleaseGateProbeFailure {
+            // This fixture has no native Iroh observation. The observable
+            // regression is whether the stress action actually replaces its
+            // live client before inspecting native connection evidence.
+            #expect(failure == .unauthenticatedIrohSession || failure == .continuityEvidenceUnavailable)
+        }
+
+        let replacement = try #require(fixture.store.remoteClient)
+        #expect(replacement !== originalClient)
+        #expect(fixture.store.connectionState == .connected)
+        #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
+    }
+    #endif
+
     @Test func establishedIrohSessionRedialsOnceAfterTransportDies() async throws {
         let fixture = try await makeRecoveryOwnerFixture()
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let initialReconnectGeneration = fixture.store.storedMacReconnectGeneration
         let firstClient = try #require(fixture.store.remoteClient)
         let first = try #require(fixture.box.get())
@@ -40,7 +72,7 @@ extension ReconnectRouteSelectionTests {
         await fixture.router.setWorkspaceIDs(["cmux-master", "hevy-cli"])
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let firstClient = try #require(fixture.store.remoteClient)
         let hevyWorkspace = try #require(
             fixture.store.workspaces.first { $0.rpcWorkspaceID.rawValue == "hevy-cli" }
@@ -69,7 +101,7 @@ extension ReconnectRouteSelectionTests {
         }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let firstClient = try #require(fixture.store.remoteClient)
 
         fixture.store.recoverDeadConnection(
@@ -78,6 +110,12 @@ extension ReconnectRouteSelectionTests {
         )
 
         #expect(await closeGate.waitUntilCloseStarted())
+        #expect(fixture.store.connectionState == .disconnected)
+        #expect(fixture.store.remoteClient == nil)
+        #expect(fixture.store.foregroundMacDeviceID == "test-mac")
+        #expect(!fixture.store.workspaces.isEmpty)
+        #expect(fixture.store.macConnectionStatus == .reconnecting)
+        #expect(fixture.store.isRecoveringConnection)
         #expect(fixture.factory.attemptedKinds() == [.iroh])
 
         await closeGate.release()
@@ -95,7 +133,7 @@ extension ReconnectRouteSelectionTests {
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let firstClient = try #require(fixture.store.remoteClient)
         fixture.store.suspendForegroundRefresh()
         fixture.clock.advance(by: 61)
@@ -237,7 +275,7 @@ extension ReconnectRouteSelectionTests {
         }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let firstClient = try #require(fixture.store.remoteClient)
         let backing = try #require(fixture.store.pairedMacStore as? BackingUpPairedMacStore)
         await backup.blockFutureFetches()
@@ -263,7 +301,7 @@ extension ReconnectRouteSelectionTests {
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let first = try #require(fixture.box.get())
         await first.close()
 
@@ -282,7 +320,7 @@ extension ReconnectRouteSelectionTests {
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let firstClient = try #require(fixture.store.remoteClient)
         // Keep every post-drop dial failing until the first owner reaches its
         // terminal failed phase. This avoids coupling the assertion to a
@@ -329,7 +367,7 @@ extension ReconnectRouteSelectionTests {
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let client = try #require(fixture.store.remoteClient)
         let generation = fixture.store.connectionGeneration
 
@@ -350,7 +388,7 @@ extension ReconnectRouteSelectionTests {
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let liveClient = try #require(fixture.store.remoteClient)
         let liveGeneration = fixture.store.connectionGeneration
 
@@ -368,7 +406,7 @@ extension ReconnectRouteSelectionTests {
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let foregroundKey = fixture.store.foregroundMacKey
         var staleState = try #require(fixture.store.workspacesByMac[foregroundKey])
         staleState.status = .unavailable
@@ -398,32 +436,50 @@ extension ReconnectRouteSelectionTests {
         )
     }
 
-    @Test func stalledWriteRedialsExactCurrentIrohClientOnce() async throws {
+    @Test func failedNetworkRefreshPreservesOpenIrohConnection() async throws {
         let fixture = try await makeRecoveryOwnerFixture()
         defer { fixture.release() }
-
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let client = try #require(fixture.store.remoteClient)
         let generation = fixture.store.connectionGeneration
+        fixture.store.stateSyncAuthorityClientID = nil
+        let nextList = await fixture.router.count(of: "mobile.workspace.list") + 1
+        await fixture.router.failWorkspaceListRequest(number: nextList)
+        fixture.store.recoverMobileConnection(trigger: .networkChange)
+        #expect(try await pollUntil { !fixture.store.connectionRecoveryOwner.isActive })
+        #expect(fixture.store.remoteClient === client)
+        #expect(fixture.store.connectionGeneration == generation)
+        #expect(fixture.store.macConnectionStatus == .connected)
+        #expect(!fixture.store.isRecoveringConnection)
+        #expect(await fixture.store.reloadWorkspaceListFromMac())
+        #expect(fixture.factory.attemptedKinds() == [.iroh])
+    }
 
+    @Test func operationFailurePreservesOpenIrohConnection() async throws {
+        // Production Iroh transports report native closure. Without that
+        // observation seam recoverDeadConnection treats the transport as dead
+        // and redials, so this fixture must expose it to model a live session.
+        let fixture = try await makeRecoveryOwnerFixture(observesTransportLiveness: true)
+        defer { fixture.release() }
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
+        #expect(try await pollUntil { !fixture.store.isRecoveringConnection })
+        let client = try #require(fixture.store.remoteClient)
+        let generation = fixture.store.connectionGeneration
         fixture.store.handleMacAvailabilityFailureIfCurrent(
             after: MobileShellConnectionError.transportWriteTimedOut,
             expectedClient: client,
             expectedGeneration: generation
         )
-
-        #expect(try await pollUntil {
-            guard let replacement = fixture.store.remoteClient else { return false }
-            let subscribeCount = await fixture.router.count(of: "mobile.events.subscribe")
-            return replacement !== client
-                && fixture.store.connectionState == .connected
-                && fixture.store.activeRoute?.kind == .iroh
-                && fixture.store.macConnectionStatus == .connected
-                && fixture.store.isRecoveringConnection == false
-                && subscribeCount >= 2
-        })
-        #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
+        // Exercise the connection after the failure, so preservation also
+        // proves that the installed client continues serving real requests.
+        #expect(await fixture.store.reloadWorkspaceListFromMac())
+        #expect(fixture.store.remoteClient === client)
+        #expect(fixture.store.connectionGeneration == generation)
+        #expect(fixture.store.connectionState == .connected)
+        #expect(!fixture.store.isRecoveringConnection)
+        #expect(fixture.factory.attemptedKinds() == [.iroh])
     }
 
     @Test func failedIrohRecoveryPreservesTheTypedFailureCategory() async throws {
@@ -431,7 +487,7 @@ extension ReconnectRouteSelectionTests {
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         await fixture.diagnosticLog.clear()
         fixture.factory.setConnectFailure(.timedOut)
         let first = try #require(fixture.box.get())
@@ -492,7 +548,7 @@ extension ReconnectRouteSelectionTests {
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         await fixture.diagnosticLog.clear()
         let client = try #require(fixture.store.remoteClient)
         let generation = fixture.store.connectionGeneration
@@ -616,7 +672,8 @@ extension ReconnectRouteSelectionTests {
     private func makeRecoveryOwnerFixture(
         backup: (any PairedMacBackingUp)? = nil,
         heldConnectAttempts: Set<Int> = [],
-        firstTransportCloseGate: LivenessTransportCloseGate? = nil
+        firstTransportCloseGate: LivenessTransportCloseGate? = nil,
+        observesTransportLiveness: Bool = false
     ) async throws -> RecoveryOwnerFixture {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -625,7 +682,8 @@ extension ReconnectRouteSelectionTests {
             router: router,
             box: box,
             heldConnectAttempts: heldConnectAttempts,
-            firstTransportCloseGate: firstTransportCloseGate
+            firstTransportCloseGate: firstTransportCloseGate,
+            observesTransportLiveness: observesTransportLiveness
         )
         let (inner, directory) = try makePairedMacStore()
         let diagnosticLog = DiagnosticLog(capacity: 128, role: .mobileClient)
@@ -721,6 +779,7 @@ private final class SequencedKindTransportFactory: CmxByteTransportFactory, @unc
     private let box: TransportBox
     private let heldConnectAttempts: Set<Int>
     private let firstTransportCloseGate: LivenessTransportCloseGate?
+    private let observesTransportLiveness: Bool
     private let lock = NSLock()
     private var kinds: [CmxAttachTransportKind] = []
     private var connectFailure: DiagnosticFailureKind?
@@ -731,12 +790,14 @@ private final class SequencedKindTransportFactory: CmxByteTransportFactory, @unc
         router: LivenessHostRouter,
         box: TransportBox,
         heldConnectAttempts: Set<Int>,
-        firstTransportCloseGate: LivenessTransportCloseGate?
+        firstTransportCloseGate: LivenessTransportCloseGate?,
+        observesTransportLiveness: Bool
     ) {
         self.router = router
         self.box = box
         self.heldConnectAttempts = heldConnectAttempts
         self.firstTransportCloseGate = firstTransportCloseGate
+        self.observesTransportLiveness = observesTransportLiveness
     }
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
@@ -756,6 +817,9 @@ private final class SequencedKindTransportFactory: CmxByteTransportFactory, @unc
             shouldHold: heldConnectAttempts.contains(attempt)
         )
         box.set(transport.base)
+        if observesTransportLiveness {
+            return LivenessObservingSequencedTransport(inner: transport)
+        }
         return transport
     }
 
@@ -836,6 +900,23 @@ private actor SequencedLivenessTransport: CmxByteTransport {
     func receive() async throws -> Data? { try await base.receive() }
     func send(_ data: Data) async throws { try await base.send(data) }
     func close() async { await base.close() }
+}
+
+/// Exposes the base transport's native closure snapshot, like production Iroh
+/// transports do. The plain sequenced wrapper deliberately omits it so tests
+/// that drive recoverDeadConnection on an open transport still redial.
+private actor LivenessObservingSequencedTransport: CmxByteTransportLivenessObserving {
+    let inner: SequencedLivenessTransport
+
+    init(inner: SequencedLivenessTransport) {
+        self.inner = inner
+    }
+
+    func connect() async throws { try await inner.connect() }
+    func receive() async throws -> Data? { try await inner.receive() }
+    func send(_ data: Data) async throws { try await inner.send(data) }
+    func close() async { await inner.close() }
+    func isTransportClosed() async -> Bool { await inner.base.isTransportClosed() }
 }
 
 private struct RecoveryConnectFailure: DiagnosticFailureProviding {

@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxIrxTransport
 import Foundation
@@ -14,14 +15,18 @@ enum MobileHostIrxTerminalLaneServer {
         static let invalidInput: UInt64 = 5
     }
 
-    private static let maximumInputFrameByteCount = 16 * 1_024
     private static let maximumInputBufferByteCount = 64 * 1_024
+
+    /// Called with the surface that received input, so the host can schedule
+    /// that surface's output stream first (keystroke echo).
+    typealias InteractiveSurfaceObserver = @Sendable (UUID) async -> Void
 
     static func serve(
         resourceID: String,
         cursor: UInt64?,
         stream: CmxIrohBidirectionalStream,
-        journal: IrxJournal
+        journal: IrxJournal,
+        onInteractiveSurface: @escaping InteractiveSurfaceObserver = { _ in }
     ) async {
         guard let surfaceID = terminalSurfaceID(resourceID),
             await MainActor.run(body: {
@@ -45,7 +50,11 @@ enum MobileHostIrxTerminalLaneServer {
                 return true
             }
             group.addTask {
-                await receiveInput(surfaceID: surfaceID, stream: stream)
+                await receiveInput(
+                    surfaceID: surfaceID,
+                    stream: stream,
+                    onInteractiveSurface: onInteractiveSurface
+                )
             }
             if await group.next() == true {
                 group.cancelAll()
@@ -56,6 +65,53 @@ enum MobileHostIrxTerminalLaneServer {
         }
         await stream.receiveStream.stop(errorCode: 0)
         journal.record("host-terminal", "lane-closed", ["surface": surfaceID.uuidString])
+    }
+
+    /// Serves render-grid input without opening a second byte-output stream.
+    /// The empty replay envelope establishes readiness and the input half then
+    /// stays open for fire-and-forget length-prefixed frames.
+    static func serveInputOnly(
+        resourceID: String,
+        stream: CmxIrohBidirectionalStream,
+        journal: IrxJournal,
+        onInteractiveSurface: @escaping InteractiveSurfaceObserver = { _ in }
+    ) async {
+        guard let surfaceID = terminalSurfaceID(resourceID),
+            await MainActor.run(body: {
+                GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) != nil
+            })
+        else {
+            await reject(stream, errorCode: ErrorCode.unsupportedResource)
+            return
+        }
+        do {
+            let currentSequence = await MainActor.run {
+                MobileTerminalByteTee.shared.replayState(surfaceID: surfaceID)?.seq ?? 0
+            }
+            let baseline = try CmxIrohTerminalOutputEnvelope(
+                kind: .replay,
+                retainedBaseSequence: currentSequence,
+                sequence: currentSequence,
+                currentSequence: currentSequence,
+                payload: Data()
+            )
+            try await stream.sendStream.send(
+                CmxIrohTerminalOutputEnvelopeCodec().encode(baseline)
+            )
+            // The phone keeps an input lane for the terminal it shows.
+            await onInteractiveSurface(surfaceID)
+            _ = await receiveInput(
+                surfaceID: surfaceID,
+                stream: stream,
+                onInteractiveSurface: onInteractiveSurface
+            )
+        } catch is CancellationError {
+            await stream.sendStream.reset(errorCode: 0)
+        } catch {
+            await reject(stream, errorCode: ErrorCode.invalidInput)
+        }
+        await stream.receiveStream.stop(errorCode: 0)
+        journal.record("host-terminal", "input-lane-closed", ["surface": surfaceID.uuidString])
     }
 
     private static func sendOutput(
@@ -163,7 +219,8 @@ enum MobileHostIrxTerminalLaneServer {
     /// on a clean input-side finish (output-only lanes stay open).
     private static func receiveInput(
         surfaceID: UUID,
-        stream: CmxIrohBidirectionalStream
+        stream: CmxIrohBidirectionalStream,
+        onInteractiveSurface: InteractiveSurfaceObserver
     ) async -> Bool {
         var buffer = Data()
         do {
@@ -178,10 +235,13 @@ enum MobileHostIrxTerminalLaneServer {
                     await reject(stream, errorCode: ErrorCode.invalidInput)
                     return true
                 }
-                for input in try MobileHostIrohApplicationLaneRouter
-                    .decodeTerminalInputFrames(from: &buffer)
+                for input in try MobileTerminalInputFrame.decode(from: &buffer)
                 {
-                    guard await deliverInput(input, surfaceID: surfaceID) else {
+                    await onInteractiveSurface(surfaceID)
+                    guard await deliverInput(
+                        input,
+                        surfaceID: surfaceID
+                    ) else {
                         await reject(stream, errorCode: ErrorCode.invalidInput)
                         return true
                     }
@@ -200,15 +260,29 @@ enum MobileHostIrxTerminalLaneServer {
         }
     }
 
-    private static func deliverInput(_ input: String, surfaceID: UUID) async -> Bool {
-        await MainActor.run {
+    private static func deliverInput(
+        _ input: MobileTerminalInputFrame,
+        surfaceID: UUID
+    ) async -> Bool {
+        // Stamped before the main-actor hop so the Mac's receive-to-accept
+        // stage includes any queueing behind other main-actor work.
+        let receivedAtMicros = MobileTerminalByteTee.uptimeMicros()
+        return await MainActor.run {
             guard
                 let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(
                     id: surfaceID)
             else { return false }
-            switch surface.sendInputResult(input) {
+            let result = MobileTerminalByteTee.shared.performMobileInput(
+                surfaceID: surfaceID,
+                sequence: input.sequence,
+                receivedAtMicros: receivedAtMicros
+            ) { surface.sendInputResult(input.text) }
+            switch result {
             case .sent:
-                surface.forceRefresh(reason: "mobileHost.irxTerminalLaneInput")
+                // PTY output is observed by MobileTerminalByteTee, which
+                // schedules the normal render tick. A refresh here would
+                // emit a duplicate full frame before the echo and make every
+                // key compete with the output lane's replay fence.
                 return true
             case .queued:
                 return true

@@ -131,10 +131,15 @@ extension FileDropOverlayView {
                   !DragOverlayRoutingPolicy.currentModifierFlags.contains(.shift),
                   let hintText = FileDropTextDestinationKind.editor.hintText(for: .preview),
                   let targetBounds = hintBadgeTargetBoundsUnderPoint(windowPoint) else {
-                hintBadgeView.hide()
+                hintPresentation.hideBadge()
                 return
             }
-            hintBadgeView.show(text: hintText, centeredIn: targetBounds, clippedTo: bounds)
+            hintPresentation.show(
+                sequenceNumber: sender.draggingSequenceNumber,
+                text: hintText,
+                centeredIn: targetBounds,
+                clippedTo: bounds
+            )
             return
         }
 
@@ -146,10 +151,15 @@ extension FileDropOverlayView {
         ), let kind,
            let hintText = kind.hintText(for: alternateBehavior),
            let targetBounds = hintBadgeTargetBoundsUnderPoint(windowPoint) else {
-            hintBadgeView.hide()
+            hintPresentation.hideBadge()
             return
         }
-        hintBadgeView.show(text: hintText, centeredIn: targetBounds, clippedTo: bounds)
+        hintPresentation.show(
+            sequenceNumber: sender.draggingSequenceNumber,
+            text: hintText,
+            centeredIn: targetBounds,
+            clippedTo: bounds
+        )
     }
 
     func textDropDestinationKindUnderPoint(_ windowPoint: NSPoint) -> FileDropTextDestinationKind? {
@@ -193,7 +203,7 @@ extension FileDropOverlayView {
             return insert(text, into: textView)
         }
         if let terminal = terminalUnderPoint(windowPoint) {
-            return insert(urls, into: terminal)
+            return insert(urls, into: terminal, pasteboard: sender.draggingPasteboard)
         }
         return false
     }
@@ -235,10 +245,11 @@ extension FileDropOverlayView {
         return true
     }
 
-    private func insert(_ urls: [URL], into terminal: GhosttyNSView) -> Bool {
+    private func insert(_ urls: [URL], into terminal: GhosttyNSView, pasteboard: NSPasteboard) -> Bool {
         FileDropTextDropController.performTerminalFileDrop(
             terminal: terminal,
-            urls: urls
+            urls: urls,
+            pasteboard: pasteboard
         )
     }
 

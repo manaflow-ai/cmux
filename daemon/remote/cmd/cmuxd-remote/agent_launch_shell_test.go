@@ -196,7 +196,7 @@ func TestClaudeTeamsShellWrapperRejectsUnknownDialectBeforeReplacingShell(t *tes
 	t.Setenv("CMUX_CLAUDE_TEAMS_SHIM_DIR", "")
 
 	err := configureClaudeTeamsShellWrapper(filepath.Join(root, "claude-teams-bin"))
-	if err == nil || !strings.Contains(err.Error(), "unsupported SHELL") {
+	if err == nil || !strings.Contains(err.Error(), "unsupported shell") || strings.Contains(err.Error(), root) {
 		t.Fatalf("configureClaudeTeamsShellWrapper error = %v", err)
 	}
 	if got := os.Getenv("SHELL"); got != unknownShell {
@@ -214,7 +214,7 @@ func TestClaudeTeamsShellWrapperRejectsReentryWithoutOriginalShell(t *testing.T)
 	t.Setenv("CMUX_CLAUDE_TEAMS_SHIM_DIR", "")
 
 	err := configureClaudeTeamsShellWrapper(shimDir)
-	if err == nil || !strings.Contains(err.Error(), "CMUX_CLAUDE_TEAMS_ORIGINAL_SHELL is missing") {
+	if err == nil || !strings.Contains(err.Error(), "lost its original shell") || strings.Contains(err.Error(), "CMUX_") {
 		t.Fatalf("configureClaudeTeamsShellWrapper error = %v", err)
 	}
 	if got := os.Getenv("CLAUDE_CODE_SHELL"); got != wrapperPath {

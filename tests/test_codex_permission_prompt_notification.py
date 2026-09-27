@@ -10,6 +10,10 @@ raised any notification, leaving a blocked codex seat silent indefinitely.
 These tests exercise the actual CLI delivery path (`cmux hooks feed`)
 against a fake socket: classification-only coverage cannot catch a broken
 or misrouted notify/clear dispatch.
+
+The native `cmux hooks codex notification` path is also covered after a
+completed turn: a message-less PermissionRequest must not replay the cached
+completion preview or put the session back into Idle.
 """
 
 from __future__ import annotations
@@ -21,26 +25,34 @@ import tempfile
 import time
 from pathlib import Path
 
+from agent_notification_test_utils import notification_view, resolution_view
 from claude_teams_test_utils import resolve_cmux_cli
 from test_codex_feed_hooks import (
     FAKE_SURFACE_ID,
     FAKE_WORKSPACE_ID,
     FakeCmuxSocket,
 )
+from test_codex_monitor_memory import test_codex_monitor_rss_reaches_a_plateau
 
-EXPECTED_NOTIFY_COMMAND = (
-    f"notify_target_async {FAKE_WORKSPACE_ID} {FAKE_SURFACE_ID} "
-    "Codex|Permission|shell needs approval|c=needs-permission;p=0"
-)
-EXPECTED_CLEAR_COMMAND = (
-    f"clear_notifications --tab={FAKE_WORKSPACE_ID} --panel={FAKE_SURFACE_ID}"
-)
+
+EXPECTED_NOTIFY = {
+    "kind": "agent.approval.requested", "source": "codex",
+    "workspace_id": FAKE_WORKSPACE_ID, "surface_id": FAKE_SURFACE_ID,
+    "title": "Codex", "subtitle": "Permission", "body": "shell needs approval",
+    "category": "needs-permission", "pending_work": False,
+    "request_identity": "approval-tool-1",
+}
+EXPECTED_RESOLUTION = {
+    "workspace_id": FAKE_WORKSPACE_ID, "surface_id": FAKE_SURFACE_ID,
+    "request_identity": "approval-tool-1",
+}
 
 
 def codex_payload(event: str) -> dict:
     return {
         "session_id": "codex-permission-prompt",
         "turn_id": "turn-1",
+        "tool_use_id": "approval-tool-1",
         "cwd": "/tmp/project",
         "hook_event_name": event,
         "tool_name": "shell",
@@ -64,6 +76,7 @@ def run_feed_hook_capture(
     surface_delivery_target: tuple[str, str] | None = None,
     method_delays: dict[str, float] | None = None,
     settle_seconds: float = 0,
+    payload: dict | None = None,
 ) -> tuple[dict, list, float]:
     """Runs `cmux hooks feed --source codex` and returns (stdout JSON,
     ordered received frames, elapsed seconds)."""
@@ -94,7 +107,7 @@ def run_feed_hook_capture(
                 "--event",
                 event,
             ],
-            input=json.dumps(codex_payload(event)),
+            input=json.dumps(payload if payload is not None else codex_payload(event)),
             capture_output=True,
             text=True,
             check=False,
@@ -128,6 +141,10 @@ def raw_commands(frames: list) -> list[str]:
     ]
 
 
+def notification_views(frames: list) -> list[dict]:
+    return [view for command in raw_commands(frames) if (view := notification_view(command)) is not None]
+
+
 def frame_index(frames: list, predicate) -> int:
     for index, frame in enumerate(frames):
         if predicate(frame):
@@ -143,15 +160,15 @@ def test_permission_request_sends_gated_notification_before_feed_push(
     )
     if stdout != {}:
         raise AssertionError(f"PermissionRequest must stay non-blocking: {stdout!r}")
-    commands = raw_commands(frames)
-    if EXPECTED_NOTIFY_COMMAND not in commands:
+    commands = notification_views(frames)
+    if EXPECTED_NOTIFY not in commands:
         raise AssertionError(
             f"missing gated permission notification, got raw commands {commands!r}"
         )
     notify_index = frame_index(
         frames,
         lambda frame: "raw" in frame
-        and strip_capability_prefix(frame["raw"]) == EXPECTED_NOTIFY_COMMAND,
+        and notification_view(strip_capability_prefix(frame["raw"])) == EXPECTED_NOTIFY,
     )
     feed_index = frame_index(frames, lambda frame: frame.get("method") == "feed.push")
     if feed_index == -1:
@@ -163,21 +180,21 @@ def test_permission_request_sends_gated_notification_before_feed_push(
         )
 
 
-def test_post_tool_use_clears_pane_before_feed_push(cli_path: str, root: Path) -> None:
+def test_post_tool_use_resolves_exact_request_before_feed_push(cli_path: str, root: Path) -> None:
     stdout, frames, _ = run_feed_hook_capture(
         cli_path, root / "cmux-clear.sock", "PostToolUse"
     )
     if stdout != {}:
         raise AssertionError(f"PostToolUse must stay non-blocking: {stdout!r}")
-    commands = raw_commands(frames)
-    if EXPECTED_CLEAR_COMMAND not in commands:
+    commands = [view for command in raw_commands(frames) if (view := resolution_view(command)) is not None]
+    if EXPECTED_RESOLUTION not in commands:
         raise AssertionError(
             f"missing resolved-approval clear, got raw commands {commands!r}"
         )
     clear_index = frame_index(
         frames,
         lambda frame: "raw" in frame
-        and strip_capability_prefix(frame["raw"]) == EXPECTED_CLEAR_COMMAND,
+        and resolution_view(strip_capability_prefix(frame["raw"])) == EXPECTED_RESOLUTION,
     )
     feed_index = frame_index(frames, lambda frame: frame.get("method") == "feed.push")
     if feed_index == -1:
@@ -199,10 +216,22 @@ def test_pre_tool_use_sends_no_attention_command(cli_path: str, root: Path) -> N
     offenders = [
         command
         for command in raw_commands(frames)
-        if command.startswith("notify_target_async") or command.startswith("clear_notifications")
+        if notification_view(command) is not None or resolution_view(command) is not None
+        or command.startswith("notify_target_async") or command.startswith("clear_notifications")
     ]
     if offenders:
         raise AssertionError(f"PreToolUse must not touch notifications: {offenders!r}")
+
+
+def test_native_request_identity_aliases_share_semantic_key(cli_path: str, root: Path) -> None:
+    for alias in ("toolUseID", "toolCallId", "requestId"):
+        payload = codex_payload("PermissionRequest")
+        payload[alias] = payload.pop("tool_use_id")
+        _, frames, _ = run_feed_hook_capture(
+            cli_path, root / f"cmux-alias-{alias}.sock", "PermissionRequest", payload=payload
+        )
+        if notification_views(frames) != [EXPECTED_NOTIFY]:
+            raise AssertionError(f"native identity alias {alias} was lost: {frames!r}")
 
 
 def test_permission_notification_is_acknowledged_before_hook_returns(
@@ -218,7 +247,7 @@ def test_permission_notification_is_acknowledged_before_hook_returns(
     )
     if stdout != {}:
         raise AssertionError(f"PermissionRequest must stay non-blocking: {stdout!r}")
-    if EXPECTED_NOTIFY_COMMAND not in raw_commands(frames):
+    if EXPECTED_NOTIFY not in notification_views(frames):
         raise AssertionError(f"missing gated permission notification: {frames!r}")
     if elapsed < delay - 0.1:
         raise AssertionError(
@@ -246,7 +275,7 @@ def test_permission_notification_survives_slow_authentication(
     )
     if stdout != {}:
         raise AssertionError(f"PermissionRequest must stay non-blocking: {stdout!r}")
-    if EXPECTED_NOTIFY_COMMAND not in raw_commands(frames):
+    if EXPECTED_NOTIFY not in notification_views(frames):
         raise AssertionError(
             "notification was dropped behind a slow authentication handshake: "
             f"{frames!r}"
@@ -275,16 +304,13 @@ def test_permission_notification_targets_rehomed_pane(cli_path: str, root: Path)
         raise AssertionError(f"hook did not probe the live delivery target: {frames!r}")
     if resolve_frame.get("params", {}).get("surface_id") != FAKE_SURFACE_ID:
         raise AssertionError(f"probe must carry the ambient surface identity: {resolve_frame!r}")
-    expected = (
-        f"notify_target_async {live_workspace} {live_surface} "
-        "Codex|Permission|shell needs approval|c=needs-permission;p=0"
-    )
-    commands = raw_commands(frames)
+    expected = dict(EXPECTED_NOTIFY, workspace_id=live_workspace, surface_id=live_surface)
+    commands = notification_views(frames)
     if expected not in commands:
         raise AssertionError(
             f"notification did not target the re-homed pane: {commands!r}"
         )
-    stale = [c for c in commands if c.startswith(f"notify_target_async {FAKE_WORKSPACE_ID}")]
+    stale = [c for c in commands if c["workspace_id"] == FAKE_WORKSPACE_ID]
     if stale:
         raise AssertionError(f"notification used stale ambient identities: {stale!r}")
 
@@ -307,10 +333,107 @@ def test_stalled_live_target_probe_does_not_starve_notification(
     )
     if stdout != {}:
         raise AssertionError(f"PermissionRequest must stay non-blocking: {stdout!r}")
-    if EXPECTED_NOTIFY_COMMAND not in raw_commands(frames):
+    if EXPECTED_NOTIFY not in notification_views(frames):
         raise AssertionError(
             f"a stalled live-target probe starved the notification: {frames!r}"
         )
+
+
+def test_native_permission_request_does_not_replay_previous_completion(
+    cli_path: str, root: Path
+) -> None:
+    # Exercise the stored-summary fallback in the native hook adapter, which
+    # `hooks feed --event PermissionRequest` does not pass through. Bootstrap
+    # with real hooks so the session store and foreground turn ledger agree.
+    for label, message, expected_body in (
+        ("missing", None, "Approval needed"),
+        ("blank", " \n\t ", "Approval needed"),
+        ("explicit", "Approve the synthetic command", "Approve the synthetic command"),
+    ):
+        state_root = root / label
+        state_root.mkdir()
+        socket_path = state_root / "cmux.sock"
+        session_id = "33333333-3333-4333-8333-333333333333"
+        previous_reply = "Synthetic task A is finished"
+        env = {
+            key: value for key, value in os.environ.items()
+            if not key.startswith(("CMUX_", "CODEX_", "CLAUDE_"))
+        }
+        env.update({
+            "HOME": str(state_root),
+            "CODEX_HOME": str(state_root),
+            "XDG_CONFIG_HOME": str(state_root),
+            "XDG_STATE_HOME": str(state_root),
+            "CMUX_AGENT_HOOK_STATE_DIR": str(state_root),
+            "CMUX_WORKSPACE_ID": FAKE_WORKSPACE_ID,
+            "CMUX_SURFACE_ID": FAKE_SURFACE_ID,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        })
+
+        def run_hook(command: str, event: str, **fields) -> None:
+            result = subprocess.run(
+                [cli_path, "--socket", str(socket_path), "hooks", "codex", command],
+                input=json.dumps({
+                    "session_id": session_id,
+                    "cwd": str(state_root),
+                    "hook_event_name": event,
+                    **fields,
+                }),
+                capture_output=True, text=True, env=env, timeout=15,
+            )
+            if result.returncode != 0 or json.loads(result.stdout.strip() or "{}") != {}:
+                raise AssertionError(
+                    f"{label}: {command} failed: exit={result.returncode}, "
+                    f"stdout={result.stdout!r}, stderr={result.stderr!r}"
+                )
+
+        def session_record() -> dict:
+            state_path = state_root / "codex-hook-sessions.json"
+            return json.loads(state_path.read_text())["sessions"][session_id]
+
+        with FakeCmuxSocket(
+            socket_path, None,
+            surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID),
+        ) as fake:
+            run_hook("session-start", "SessionStart")
+            run_hook("prompt-submit", "UserPromptSubmit", turn_id="turn-a", prompt="Task A")
+            run_hook("stop", "Stop", turn_id="turn-a", last_assistant_message=previous_reply)
+            completed = session_record()
+            if completed.get("lastBody") != previous_reply or completed.get("runtimeStatus") != "idle":
+                raise AssertionError(f"{label}: first turn did not complete: {completed!r}")
+
+            run_hook("prompt-submit", "UserPromptSubmit", turn_id="turn-b", prompt="Task B")
+            if session_record().get("runtimeStatus") != "running":
+                raise AssertionError(f"{label}: second turn did not start: {session_record()!r}")
+            frame_start = len(fake.frames)
+            run_hook(
+                "notification", "PermissionRequest", turn_id="turn-b",
+                tool_use_id="approval-tool-b", tool_name="shell",
+                tool_input={"command": "printf synthetic"},
+                **({"message": message} if message is not None else {}),
+            )
+            frames = list(fake.frames[frame_start:])
+
+        # Check persisted behavior first so running this against an older CLI
+        # fails on the stale preview itself, not its pre-journal wire format.
+        record = session_record()
+        expected_record = {
+            "lastSubtitle": "Permission", "lastBody": expected_body,
+            "lastNotificationStatus": "needsInput", "runtimeStatus": "needsInput",
+            "agentLifecycle": "needsInput",
+        }
+        actual_record = {key: record.get(key) for key in expected_record}
+        if actual_record != expected_record:
+            raise AssertionError(
+                f"{label}: approval must replace the previous completion; "
+                f"expected {expected_record!r}, got {actual_record!r}"
+            )
+        expected_notification = dict(
+            EXPECTED_NOTIFY, body=expected_body, request_identity="approval-tool-b"
+        )
+        notifications = notification_views(frames)
+        if notifications != [expected_notification]:
+            raise AssertionError(f"{label}: wrong approval notification: {notifications!r}")
 
 
 def main() -> int:
@@ -325,13 +448,16 @@ def main() -> int:
     ) as td:
         root = Path(td)
         try:
+            test_native_permission_request_does_not_replay_previous_completion(cli_path, root)
             test_permission_request_sends_gated_notification_before_feed_push(cli_path, root)
-            test_post_tool_use_clears_pane_before_feed_push(cli_path, root)
+            test_post_tool_use_resolves_exact_request_before_feed_push(cli_path, root)
             test_pre_tool_use_sends_no_attention_command(cli_path, root)
+            test_native_request_identity_aliases_share_semantic_key(cli_path, root)
             test_permission_notification_is_acknowledged_before_hook_returns(cli_path, root)
             test_permission_notification_survives_slow_authentication(cli_path, root)
             test_permission_notification_targets_rehomed_pane(cli_path, root)
             test_stalled_live_target_probe_does_not_starve_notification(cli_path, root)
+            test_codex_monitor_rss_reaches_a_plateau(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")
             return 1

@@ -8,7 +8,7 @@ import SwiftUI
 /// Default Search Engine, conditional Custom Search Engine fields,
 /// Show Search Suggestions, Browser Theme, Browser Memory Saver +
 /// Memory Saver Delay, Open Terminal Links / Intercept open,
-/// conditional Hosts / External Patterns text editors, HTTP Hosts
+/// conditional Hosts editor and the External Patterns text editor, HTTP Hosts
 /// Allowed in Embedded Browser editor, URL Allowlist editor, Import Browser Data
 /// subsection, React Grab Version, Browsing History.
 @MainActor
@@ -54,6 +54,10 @@ public struct BrowserSection: View {
             browserDisabledUserDefaultsKey: BrowserCatalogSection().disabled.userDefaultsKey
         )
     @State private var browserURLAllowlistManagedByPolicy = BrowserURLAllowlistPolicy().isManaged
+    /// The effective allowlist policy, re-read on
+    /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)`` so the
+    /// managed note tracks `BrowserAllowLocalhost` / `BrowserAllowLocalFiles`.
+    @State private var urlAllowlistPolicy = BrowserURLAllowlistPolicy()
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -112,6 +116,7 @@ public struct BrowserSection: View {
                 let policy = BrowserURLAllowlistPolicy()
                 let wasManaged = browserURLAllowlistManagedByPolicy
                 browserURLAllowlistManagedByPolicy = policy.isManaged
+                urlAllowlistPolicy = policy
                 if policy.isManaged || wasManaged {
                     urlAllowlistDraft = effectiveURLAllowlistText(
                         for: urlAllowlist,
@@ -134,9 +139,7 @@ public struct BrowserSection: View {
                 String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"),
                 subtitle: browserManagedByPolicy
                     ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
-                    : !disabled.current
-                    ? String(localized: "settings.browser.enabled.subtitleOn", defaultValue: "Browser tabs, terminal link clicks, and intercepted open commands can use the embedded browser.")
-                    : String(localized: "settings.browser.enabled.subtitleOff", defaultValue: "Browser tabs and link interception are disabled. Links open in your default browser.")
+                    : String(localized: "settings.browser.enabled.subtitle", defaultValue: "Opens browser tabs and links from terminals in the cmux browser.")
             ) {
                 Toggle(
                     "",
@@ -207,7 +210,7 @@ public struct BrowserSection: View {
             SettingsCardRow(
                 configurationReview: .json("browser.theme"),
                 String(localized: "settings.browser.theme", defaultValue: "Browser Theme"),
-                subtitle: browserThemeSubtitle(theme.current),
+                subtitle: String(localized: "settings.browser.theme.subtitle", defaultValue: "Choose light or dark pages for sites that support both. System matches the app appearance."),
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(get: { theme.current }, set: { theme.set($0) })) {
@@ -251,9 +254,7 @@ public struct BrowserSection: View {
             SettingsCardRow(
                 configurationReview: .json("browser.discardHiddenWebViews"),
                 String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Browser Memory Saver"),
-                subtitle: discardEnabled.current
-                    ? String(localized: "settings.browser.hiddenWebViewDiscard.subtitleOn", defaultValue: "Hidden browser tabs release page memory after the delay below, then restore when shown again.")
-                    : String(localized: "settings.browser.hiddenWebViewDiscard.subtitleOff", defaultValue: "Hidden browser tabs keep page memory until closed.")
+                subtitle: String(localized: "settings.browser.hiddenWebViewDiscard.subtitle", defaultValue: "Frees memory from browser tabs hidden longer than the delay. They reload when shown again.")
             ) {
                 Toggle("", isOn: Binding(get: { discardEnabled.current }, set: { discardEnabled.set($0) }))
                     .labelsHidden()
@@ -323,7 +324,7 @@ public struct BrowserSection: View {
                     .controlSize(.small)
             }
 
-            // Hosts + External Patterns (only when relevant)
+            // Hosts (only when terminal routing is enabled)
             if openTermLinks.current || interceptOpen.current {
                 SettingsCardDivider()
                 hostnameEditor(
@@ -332,14 +333,14 @@ public struct BrowserSection: View {
                     json: "browser.hostsToOpenInEmbeddedBrowser",
                     model: hosts
                 )
-                SettingsCardDivider()
-                hostnameEditor(
-                    title: String(localized: "settings.browser.externalPatterns", defaultValue: "URLs to Always Open Externally"),
-                    subtitle: String(localized: "settings.browser.externalPatterns.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring, or prefix with `re:` for regex (for example: openai.com/usage, re:^https?://[^/]*\\.example\\.com/(billing|usage))."),
-                    json: "browser.urlsToAlwaysOpenExternally",
-                    model: external
-                )
             }
+            SettingsCardDivider()
+            hostnameEditor(
+                title: String(localized: "settings.browser.externalPatterns", defaultValue: "URLs to Always Open Externally"),
+                subtitle: String(localized: "settings.browser.externalPatterns.subtitle", defaultValue: "Applies to browser-page link clicks, terminal link clicks, and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring; `*`/`?` are wildcards, and regex rules containing them must use the `re:` prefix (legacy `.*`/`.+` rules remain supported) (for example: example.com, *example.com*, .*example\\.com.*, re:^https?://[^/]*\\.example\\.com/(billing|usage))."),
+                json: "browser.urlsToAlwaysOpenExternally",
+                model: external
+            )
             SettingsCardDivider()
 
             // HTTP Hosts Allowed in Embedded Browser
@@ -530,9 +531,16 @@ public struct BrowserSection: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            Text(String(localized: "settings.browser.urlAllowlist.description", defaultValue: "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or, when no managed policy applies, clear the list to allow all web origins. Invalid-only values fail closed. Internal cmux documents remain available."))
+            Text(String(localized: "settings.browser.urlAllowlist.description", defaultValue: "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or, when no managed policy applies, clear the list to allow all web origins. Invalid-only values fail closed. Internal cmux documents remain available. Under a managed policy, localhost and local files stay available unless your organization turns them off."))
                 .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
+            if browserURLAllowlistManagedByPolicy {
+                Text(managedURLAllowlistNote)
+                    .cmuxFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("SettingsBrowserURLAllowlistManagedNote")
+            }
             TextEditor(text: $urlAllowlistDraft)
                 .cmuxFont(size: 12, weight: .regular, design: .monospaced)
                 .frame(minHeight: 86)
@@ -603,6 +611,34 @@ public struct BrowserSection: View {
     ) -> String {
         guard policy.isManaged else { return model.current }
         return policy.patterns.map(\.rawValue).joined(separator: "\n")
+    }
+
+    /// What a managed list permits beyond its rules, in the admin's own terms:
+    /// localhost and local files are on by default and each can be turned off
+    /// by a profile.
+    private var managedURLAllowlistNote: String {
+        switch (urlAllowlistPolicy.allowsLocalhost, urlAllowlistPolicy.allowsLocalFiles) {
+        case (true, true):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localDefaultsOn",
+                defaultValue: "Your organization manages this list. localhost (any port) and local files stay available in addition to the rules above."
+            )
+        case (false, true):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localhostOff",
+                defaultValue: "Your organization manages this list and blocks localhost. Local files stay available."
+            )
+        case (true, false):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localFilesOff",
+                defaultValue: "Your organization manages this list and blocks local files. localhost (any port) stays available."
+            )
+        case (false, false):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localDefaultsOff",
+                defaultValue: "Your organization manages this list and blocks localhost and local files."
+            )
+        }
     }
 
     private var urlAllowlistHint: some View {
@@ -711,14 +747,6 @@ public struct BrowserSection: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .accessibilityIdentifier("SettingsBrowserImportSection")
-    }
-
-    private func browserThemeSubtitle(_ mode: BrowserThemeMode) -> String {
-        if mode == .system {
-            return String(localized: "settings.browser.theme.subtitleSystem", defaultValue: "System follows app and macOS appearance.")
-        }
-        let name = themeDisplayName(mode)
-        return String(localized: "settings.browser.theme.subtitleForced", defaultValue: "\(name) forces that color scheme for compatible pages.")
     }
 
     private func themeDisplayName(_ mode: BrowserThemeMode) -> String {

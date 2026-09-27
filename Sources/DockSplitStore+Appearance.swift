@@ -87,6 +87,7 @@ extension DockSplitStore {
                 sharesWindowBackdrop: sharesWindowBackdrop,
                 renderingMode: renderingMode,
                 paneBorderColorHex: PaneChromeSettings.paneBorderColorHex(),
+                splitDividerColor: config.splitDividerColor,
                 chromeBackgroundColor: chromeBackgroundColor,
                 chromeHost: windowAppearance == nil ? .workspace : .dock
             ),

@@ -6,6 +6,16 @@ import CmuxMobileRPC
 @testable import CmuxMobileShellUI
 import CmuxMobileShellModel
 import CmuxMobileTransport
+
+/// Named rather than resolved. `CmxPairingURLSchemeResolver` reads
+/// `Bundle.main`, which in an xctest process is the test runner and not a cmux
+/// build, so `encodedURL()` throws `invalidURL` whenever this target runs in an
+/// iOS Simulator without a host app. This is the untagged development scheme,
+/// the same value the host fallback produced.
+private let pairingScheme = CmxPairingURLScheme(
+    rawValue: "cmux-ios-dev.cmux.ios"
+)
+
 import CmuxMobileWorkspace
 import Foundation
 import StackAuth
@@ -188,7 +198,10 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore.preview()
 
     store.signIn()
-    let result = await store.connectPairingURLResult(try payload.encodedURL().absoluteString)
+    let result = await store.connectPairingURLResult(
+        try payload.encodedURL(pairingURLScheme: pairingScheme)
+            .absoluteString
+    )
 
     #expect(result == .needsUserApproval)
     #expect(store.pairingVersionWarning?.contains("unknown compatibility") == true)
@@ -388,6 +401,7 @@ final class TerminalOutputCollector {
     )
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: "active-workspace", title: "Active Workspace"),
+        try rpcHostStatusFrame(renderGrid: false, macDeviceID: "active-mac"),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback, .tailscale],
@@ -414,6 +428,7 @@ final class TerminalOutputCollector {
     #expect(firstResult == .connected)
     #expect(store.connectionState == .connected)
     #expect(store.activeTicket?.macDeviceID == "active-mac")
+    let requestCountBeforeWarning = try await responses.sentRequests().count
 
     let warningResult = await store.connectPairingURLResult(
         "cmux-ios://attach?v=2&pc=2&av=0.65.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
@@ -423,7 +438,7 @@ final class TerminalOutputCollector {
     #expect(store.connectionState == .connected)
     #expect(store.activeTicket?.macDeviceID == "active-mac")
     #expect(store.pairingVersionWarning != nil)
-    #expect(try await responses.sentRequests().count == 1)
+    #expect(try await responses.sentRequests().count == requestCountBeforeWarning)
 
     store.cancelPairing()
 
@@ -547,6 +562,7 @@ final class TerminalOutputCollector {
                 ],
             ]
         ),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -617,6 +633,7 @@ final class TerminalOutputCollector {
                 ],
             ]
         ),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -634,7 +651,7 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func manualHostPairingRejectsTailscaleMagicDNSWithoutSendingAuth() async throws {
+@Test func manualHostPairingRejectsTailscaleMagicDNSWithNumericGuidance() async throws {
     let responses = ScriptedTransportResponses([])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
@@ -648,6 +665,7 @@ final class TerminalOutputCollector {
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
     #expect(store.activeRoute == nil)
+    #expect(store.connectionError == "For Tailscale pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported.")
     #expect(try await responses.sentRequests().isEmpty)
 }
 
@@ -671,7 +689,7 @@ final class TerminalOutputCollector {
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
+    #expect(store.connectionError == "For Tailscale pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported.")
     #expect(try await responses.sentRequests().isEmpty)
 }
 
@@ -695,51 +713,51 @@ final class TerminalOutputCollector {
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
+    #expect(store.connectionError == "For Tailscale pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported.")
     #expect(try await responses.sentRequests().isEmpty)
 }
 
 @MainActor
-@Test func manualHostPairingRejectsTailscaleBeforeLegacyProbeOrFallback() async throws {
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingAuthorizesExactNumericTailscaleDestination() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "manual-workspace", title: "Work Workspace"),
+        try rpcHostStatusFrame(renderGrid: false),
+    ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
-        stackAccessToken: "stack-token-for-fallback"
+        stackAccessToken: "test-stack-token"
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
     await store.connectManualHost(name: "Work Mac", host: "100.71.210.41", port: 15432)
 
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.activeRoute == nil)
-    #expect(try await responses.sentRequests().isEmpty)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.activeRoute?.kind == .tailscale)
+    let requests = try await responses.sentRequests()
+    #expect(requests.first?.method == "workspace.list")
+    #expect(requests.first?.stackAccessToken == "test-stack-token")
 }
 
 @MainActor
-@Test func manualHostPairingRejectsTailscaleWithFreshPairingGuidance() async throws {
-    let route = try CmxAttachRoute(
-        id: "tailscale",
-        kind: .tailscale,
-        endpoint: .hostPort(host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
-    )
+@Test func manualHostPairingRejectsMagicDNSBeforeDialing() async throws {
+    let responses = ScriptedTransportResponses([])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
-        transportFactory: HangingTransportFactory(),
-        pairingRequestTimeoutNanoseconds: 1_000_000
+        transportFactory: ScriptedTransportFactory(responses: responses)
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
     await store.connectManualHost(name: "Slow Mac", host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
 
-    #expect(route.kind == .tailscale)
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
-    #expect(store.connectionErrorGuidance == "Open the pairing window on your Mac and scan a fresh QR or link.")
+    #expect(store.connectionError == "For Tailscale pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported.")
+    #expect(store.connectionErrorGuidance == nil)
+    #expect(try await responses.sentRequests().isEmpty)
 }
 
 @MainActor
@@ -759,7 +777,7 @@ final class TerminalOutputCollector {
     )
 
     store.signIn()
-    await store.connectManualHost(name: "Work Mac", host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    await store.connectManualHost(name: "Work Mac", host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
 
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
@@ -775,7 +793,10 @@ final class TerminalOutputCollector {
 
 @MainActor
 @Test func qrPairingWhileOfflineFailsFastWithoutDial() async throws {
-    let route = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    // The preflight runs only when the ticket has a route this build may
+    // dial. A scanned QR under Automatic dials Iroh, never a raw Tailscale
+    // host, so the route here is Iroh.
+    let route = try irohPeerRoute()
     let ticket = try CmxAttachTicket(
         workspaceID: UUID().uuidString,
         terminalID: nil,
@@ -787,7 +808,7 @@ final class TerminalOutputCollector {
     )
     let dials = TransportDialRecorder()
     let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
+        supportedRouteKinds: [.iroh],
         transportFactory: RecordingNeverConnectTransportFactory(dials: dials)
     )
     let store = CMUXMobileShellStore(
@@ -815,7 +836,10 @@ final class TerminalOutputCollector {
     // with no dial — reconnecting and rescanning the same code is expected
     // to work, so "offline" is the honest, actionable message.
     let ticketExpiresAt = Date().addingTimeInterval(60)
-    let route = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    // The preflight runs only when the ticket has a route this build may
+    // dial. A scanned QR under Automatic dials Iroh, never a raw Tailscale
+    // host, so the route here is Iroh.
+    let route = try irohPeerRoute()
     let ticket = try CmxAttachTicket(
         workspaceID: UUID().uuidString,
         terminalID: nil,
@@ -828,7 +852,7 @@ final class TerminalOutputCollector {
     )
     let dials = TransportDialRecorder()
     let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
+        supportedRouteKinds: [.iroh],
         transportFactory: RecordingNeverConnectTransportFactory(dials: dials),
         now: { ticketExpiresAt.addingTimeInterval(1) }
     )
@@ -882,6 +906,7 @@ final class TerminalOutputCollector {
     let responses = ScriptedTransportResponses([
         try rpcAttachTicketFrame(route: attachRoute, workspaceID: "local-workspace"),
         try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -924,6 +949,7 @@ final class TerminalOutputCollector {
     let responses = ScriptedTransportResponses([
         try rpcAttachTicketFrame(route: attachRoute, workspaceID: "local-workspace"),
         try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -960,6 +986,7 @@ final class TerminalOutputCollector {
     let responses = ScriptedTransportResponses([
         try rpcAttachTicketFrame(route: attachRoute, workspaceID: "local-workspace"),
         try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1004,7 +1031,7 @@ final class TerminalOutputCollector {
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
+    #expect(store.connectionError == "This pairing route is not trusted. Enter the Mac's numeric Tailscale IP and port, or scan its pairing QR.")
     #expect(try await responses.sentRequests().isEmpty)
 }
 
@@ -1025,6 +1052,7 @@ final class TerminalOutputCollector {
             title: "Live Workspace",
             terminalID: "live-terminal"
         ),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1072,6 +1100,7 @@ final class TerminalOutputCollector {
     let responses = ScriptedTransportResponses([
         try rpcErrorFrame(message: "ticket unavailable"),
         try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1103,6 +1132,7 @@ final class TerminalOutputCollector {
     )
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace"),
+        try rpcHostStatusFrame(renderGrid: false, macDeviceID: ticket.macDeviceID),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1111,9 +1141,10 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
-    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    let connected = await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
     let requests = try await responses.sentRequests()
+    try #require(connected, Comment(rawValue: "Connection failed: \(store.connectionError ?? "unknown"); methods: \(requests.compactMap(\.method))"))
     let workspaceList = try #require(requests.first { $0.method == "workspace.list" })
     #expect(workspaceList.workspaceID == nil)
     #expect(workspaceList.attachToken == "ticket-secret")
@@ -1174,6 +1205,7 @@ final class TerminalOutputCollector {
                 ],
             ]
         ),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1247,6 +1279,7 @@ final class TerminalOutputCollector {
                 ],
             ]
         ),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1283,6 +1316,7 @@ final class TerminalOutputCollector {
     let responses = ScriptedTransportResponses([
         try rpcErrorFrame(message: "Full list not supported"),
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace", terminalID: terminalID),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1318,6 +1352,7 @@ final class TerminalOutputCollector {
     )
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace", terminalID: terminalID),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1789,8 +1824,9 @@ final class TerminalOutputCollector {
 @Test func scannedLoopbackPairingCodeIsRejectedWithGuidance() async throws {
     // "QR shouldn't work for localhost": a scanned/pasted v2 code whose
     // routes point at the phone itself fails closed with copy that names the
-    // actual fix (Iroh), instead of dialing 127.0.0.1 and burning the
-    // whole request timeout before a generic connect error.
+    // actual fix (scan a fresh code from the Mac's pairing window), instead
+    // of dialing 127.0.0.1 and burning the whole request timeout before a
+    // generic connect error.
     let store = CMUXMobileShellStore.preview()
 
     store.signIn()
@@ -1799,9 +1835,9 @@ final class TerminalOutputCollector {
     #expect(result == .failed)
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
-    #expect(store.connectionError?.contains("Iroh") == true)
-    // The loopback failure must name the fix (Iroh), not fall through to
-    // the generic invalid-code copy.
+    // The loopback failure must name the fix, not fall through to the
+    // generic invalid-code copy.
+    #expect(store.connectionError == MobilePairingFailureCategory.loopbackRejected.message)
     #expect(store.connectionError != MobilePairingFailureCategory.invalidCode.message)
 }
 
@@ -1836,8 +1872,11 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func manualHostPairingRejectsTailscaleIPWithoutSendingStackToken() async throws {
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingNumericTailscaleSendsBearerOnlyAfterExactAuthorization() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "manual-workspace", title: "Work Workspace"),
+        try rpcHostStatusFrame(renderGrid: false),
+    ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
@@ -1848,12 +1887,11 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectManualHost(name: "Work Mac", host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
 
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.activeTicket == nil)
-    #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
-    #expect(try await responses.sentRequests().isEmpty)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.activeRoute?.kind == .tailscale)
+    let requests = try await responses.sentRequests()
+    #expect(requests.first?.stackAccessToken == "stack-token-for-tailscale-ip")
 }
 
 @MainActor
@@ -1876,7 +1914,7 @@ final class TerminalOutputCollector {
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
+    #expect(store.connectionError == "For Tailscale pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported.")
     #expect(try await responses.sentRequests().isEmpty)
 }
 
@@ -1933,6 +1971,7 @@ final class TerminalOutputCollector {
                 ],
             ]
         ),
+        try rpcHostStatusFrame(renderGrid: false),
         try rpcErrorFrame(message: "Terminal surface is not ready"),
     ])
     let runtime = testRuntime(
@@ -1982,6 +2021,7 @@ final class TerminalOutputCollector {
                 ],
             ]
         ),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -2038,6 +2078,7 @@ final class TerminalOutputCollector {
                 ],
             ]
         ),
+        try rpcHostStatusFrame(renderGrid: false),
         try rpcErrorFrame(message: "Terminal surface is not ready"),
     ])
     let runtime = testRuntime(
@@ -2303,6 +2344,54 @@ struct TerminalStreamTests {
 }
 
 @MainActor
+@Test func inlineReplyUsesPasteAndASeparateSubmitKey() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(
+            workspaceID: "live-workspace",
+            title: "Live Workspace",
+            terminalID: "live-terminal"
+        ),
+        try rpcHostStatusFrame(renderGrid: false),
+        try rpcResultFrame(result: ["submitted": true]),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    let sent = await store.sendTerminalPaste(
+        "reply from notification",
+        workspaceID: MobileWorkspacePreview.ID(rawValue: "live-workspace"),
+        terminalID: MobileTerminalPreview.ID(rawValue: "live-terminal")
+    )
+
+    #expect(sent)
+    let pasteRequest = try #require(await responses.sentRequests().first { $0.method == "terminal.paste" })
+    let pastedText = try #require(pasteRequest.text)
+    #expect(pastedText == "reply from notification")
+    #expect(pasteRequest.submitKey == "return")
+    #expect(!pastedText.contains("\r"))
+}
+
+@MainActor
 @Test func rawTerminalInputDoesNotAppendCarriageReturn() async throws {
     let route = try CmxAttachRoute(
         id: "debug_loopback",
@@ -2481,7 +2570,13 @@ struct TerminalStreamTests {
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
     let subscribeRequests = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
-    #expect(subscribeRequests.first?.topics == ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"])
+    // Render-grid transport: grid frames, never the raw byte stream. The rest
+    // of the topic list (sync, notifications, browser, simulator) grows with
+    // features and is owned by `TerminalOutputTransport.eventTopics`.
+    let topics = try #require(subscribeRequests.first?.topics)
+    #expect(topics == MobileShellComposite.TerminalOutputTransport.renderGrid.eventTopics)
+    #expect(topics.contains("terminal.render_grid"))
+    #expect(!topics.contains("terminal.bytes"))
 
     collector.mount(store: store, surfaceID: "live-terminal")
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
@@ -3109,6 +3204,19 @@ private func rpcAttachTicketFrame(
     return try rpcResultFrame(result: ["ticket": ticketObject])
 }
 
+private func irohPeerRoute() throws -> CmxAttachRoute {
+    try CmxAttachRoute(
+        id: "iroh",
+        kind: .iroh,
+        endpoint: .peer(
+            id: String(repeating: "a", count: 64),
+            relayHint: nil,
+            directAddrs: [],
+            relayURL: nil
+        )
+    )
+}
+
 private func hostPortRoute(
     kind: CmxAttachTransportKind,
     host: String,
@@ -3230,6 +3338,9 @@ private actor SupersededAttachURLRouter: RequestAwareTransportRouter {
     private var firstWorkspaceListRequestWaiters: [CheckedContinuation<Void, Never>] = []
     private var firstWorkspaceListReleaseContinuation: CheckedContinuation<Void, Never>?
     private var requests: [RecordedRPCRequest] = []
+    /// Mac ids whose workspace list was served, in order; each connection's
+    /// host-status probe follows its own list response.
+    private var servedMacDeviceIDs: [String] = []
 
     func record(_ request: RecordedRPCRequest) {
         requests.append(request)
@@ -3259,17 +3370,24 @@ private actor SupersededAttachURLRouter: RequestAwareTransportRouter {
             if workspaceListRequestCount == 1 {
                 markFirstWorkspaceListRequested()
                 await waitForFirstWorkspaceListRelease()
+                servedMacDeviceIDs.append("first-mac")
                 return try rpcWorkspaceListFrame(
                     workspaceID: "first-workspace",
                     title: "First Workspace",
                     terminalID: "first-terminal"
                 )
             }
+            servedMacDeviceIDs.append("second-mac")
             return try rpcWorkspaceListFrame(
                 workspaceID: "second-workspace",
                 title: "Second Workspace",
                 terminalID: "second-terminal"
             )
+        case "mobile.host.status":
+            guard !servedMacDeviceIDs.isEmpty else {
+                return try rpcErrorFrame(message: "Host status before workspace list")
+            }
+            return try rpcHostStatusFrame(renderGrid: false, macDeviceID: servedMacDeviceIDs.removeFirst())
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }
@@ -3309,6 +3427,8 @@ private actor RemoteCreateTerminalRouter: RequestAwareTransportRouter {
             return try rpcTwoWorkspaceListFrame()
         case "terminal.create":
             return try rpcTerminalCreateScopedFrame()
+        case "mobile.host.status":
+            return try rpcHostStatusFrame(renderGrid: false)
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }
@@ -3351,6 +3471,8 @@ private actor DelayedRemoteCreateTerminalRouter: RequestAwareTransportRouter {
             markTerminalCreateRequested()
             await waitForTerminalCreateRelease()
             return try rpcTerminalCreateScopedFrame()
+        case "mobile.host.status":
+            return try rpcHostStatusFrame(renderGrid: false)
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }
@@ -3394,6 +3516,8 @@ private actor RemoteCreateWorkspaceRouter: RequestAwareTransportRouter {
             )
         case "workspace.create":
             return try rpcWorkspaceCreateFrame()
+        case "mobile.host.status":
+            return try rpcHostStatusFrame(renderGrid: false)
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }
@@ -3745,6 +3869,7 @@ private actor ScriptedTransportResponses {
                 maxScrollbackRows: params["max_scrollback_rows"] as? Int,
                 clientID: params["client_id"] as? String,
                 text: params["text"] as? String,
+                submitKey: params["submit_key"] as? String,
                 topics: params["topics"] as? [String],
                 hasAuth: auth != nil,
                 attachToken: auth?["attach_token"] as? String,
@@ -3764,6 +3889,7 @@ private struct RecordedRPCRequest: Sendable {
     var maxScrollbackRows: Int?
     var clientID: String?
     var text: String?
+    var submitKey: String?
     var topics: [String]?
     var hasAuth: Bool
     var attachToken: String?
@@ -3784,6 +3910,7 @@ private func recordedRPCRequest(from payload: Data) throws -> RecordedRPCRequest
         maxScrollbackRows: params["max_scrollback_rows"] as? Int,
         clientID: params["client_id"] as? String,
         text: params["text"] as? String,
+        submitKey: params["submit_key"] as? String,
         topics: params["topics"] as? [String],
         hasAuth: auth != nil,
         attachToken: auth?["attach_token"] as? String,
@@ -4130,13 +4257,30 @@ struct InertPushRegistration: PushRegistering {
     ) async {}
 }
 
-@MainActor func deeplinkTestStore() -> CMUXMobileShellStore {
+@MainActor func deeplinkTestStore(
+    connectionState: MobileConnectionState = .connected
+) -> CMUXMobileShellStore {
     CMUXMobileShellStore(
         runtime: testRuntime(
             transportFactory: RecordingNeverConnectTransportFactory(dials: TransportDialRecorder())
         ),
+        connectionState: connectionState,
         reachability: OfflineReachability()
     )
+}
+
+/// Models a (re)attach delivering its workspace snapshot: the live
+/// connection, the foreground Mac's status, and a fresh list. The push
+/// coordinator navigates only on an authoritative list, and setting
+/// `connectionState` alone leaves the Mac status unavailable, which is the
+/// retained-cache state during recovery.
+@MainActor func deliverConnectedWorkspaceSnapshot(
+    to store: CMUXMobileShellStore,
+    _ workspaces: [MobileWorkspacePreview] = PreviewMobileHost.workspaces
+) {
+    store.connectionState = .connected
+    store.macConnectionStatus = .connected
+    store.replaceForegroundWorkspaceState(workspaces)
 }
 
 /// Cold launch from a notification tap: `didReceive` fires before the root
@@ -4164,23 +4308,26 @@ struct InertPushRegistration: PushRegistering {
 /// driven by the root view's workspace-list change hook.
 @Test @MainActor func notificationTapBeforeAttachAppliesWhenWorkspaceArrives() async throws {
     let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
-    let store = deeplinkTestStore()
+    // Not attached yet. A connected store with an empty list would be an
+    // authoritative "workspace is gone" and correctly spend the tap.
+    let store = deeplinkTestStore(connectionState: .disconnected)
     coordinator.bind(store: store)
 
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
     // Target not loaded yet: no navigation to an absent workspace.
     #expect(store.selectedWorkspaceID == nil)
+    #expect(coordinator.tabUnavailableAlert == nil)
 
-    store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
+    deliverConnectedWorkspaceSnapshot(to: store)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
     #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
 }
 
-/// A parked tap expires: navigating minutes later would yank the user out of
-/// whatever they moved on to.
-@Test @MainActor func notificationTapExpiresInsteadOfNavigatingLate() async throws {
+/// A parked tap remains recoverable after the deadline while its Mac is still
+/// disconnected. The deadline cannot prove that the tab was deleted.
+@Test @MainActor func notificationTapRemainsRecoverableWhileDisconnected() async throws {
     nonisolated(unsafe) var currentTime = Date(timeIntervalSince1970: 1_000_000)
     let coordinator = MobilePushCoordinator(
         registration: InertPushRegistration(),
@@ -4189,12 +4336,76 @@ struct InertPushRegistration: PushRegistering {
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
 
     currentTime = currentTime.addingTimeInterval(121)
-    let store = deeplinkTestStore()
+    let store = deeplinkTestStore(connectionState: .disconnected)
     store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
     coordinator.bind(store: store)
 
     #expect(store.selectedWorkspaceID == nil)
     #expect(store.selectedTerminalID == nil)
+    #expect(coordinator.tabUnavailableAlert == nil)
+
+    deliverConnectedWorkspaceSnapshot(to: store)
+    coordinator.workspacesDidChange()
+    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
+    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
+}
+
+/// A tap received while its Mac is disconnected must stay parked. Once the
+/// connection recovers, the same tap selects the exact terminal without a
+/// second notification tap.
+@Test @MainActor func notificationTapWaitsForConnectionRecovery() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore(connectionState: .disconnected)
+    store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
+
+    #expect(store.selectedWorkspaceID == nil)
+    #expect(store.selectedTerminalID == nil)
+    #expect(coordinator.tabUnavailableAlert == nil)
+
+    deliverConnectedWorkspaceSnapshot(to: store)
+    coordinator.workspacesDidChange()
+
+    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
+    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
+}
+
+/// Once a connected workspace snapshot proves the pushed terminal is gone, the
+/// coordinator clears the parked request and exposes a one-shot alert instead
+/// of navigating into a workspace that cannot show the requested tab.
+@Test @MainActor func notificationTapAlertsWhenTabIsUnavailable() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
+    store.replaceForegroundWorkspaceState([
+        MobileWorkspacePreview(id: "workspace-docs", name: "Docs", terminals: [])
+    ])
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
+
+    #expect(store.selectedWorkspaceID == nil)
+    #expect(store.selectedTerminalID == nil)
+    #expect(coordinator.tabUnavailableAlert != nil)
+
+    coordinator.dismissTabUnavailableAlert()
+    #expect(coordinator.tabUnavailableAlert == nil)
+}
+
+@Test @MainActor func notificationTapAlertsWhenWorkspaceIsUnavailable() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
+    store.replaceForegroundWorkspaceState([
+        MobileWorkspacePreview(id: "workspace-home", name: "Home", terminals: [])
+    ])
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(workspaceId: "workspace-gone", surfaceId: "terminal-notes")
+
+    #expect(store.selectedWorkspaceID == nil)
+    #expect(store.selectedTerminalID == nil)
+    #expect(coordinator.tabUnavailableAlert != nil)
 }
 
 /// A surface-only tap (no workspaceId in the payload) must wait for the
@@ -4204,14 +4415,15 @@ struct InertPushRegistration: PushRegistering {
 /// retry, stranding the user on the home screen.
 @Test @MainActor func surfaceOnlyNotificationTapWaitsForOwningWorkspace() async throws {
     let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
-    let store = deeplinkTestStore()
+    let store = deeplinkTestStore(connectionState: .disconnected)
     coordinator.bind(store: store)
 
     coordinator.handleTap(workspaceId: nil, surfaceId: "terminal-notes")
     // Nothing loaded yet: the tap must stay parked, not be spent.
     #expect(store.selectedTerminalID == nil)
+    #expect(coordinator.tabUnavailableAlert == nil)
 
-    store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
+    deliverConnectedWorkspaceSnapshot(to: store)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -4224,7 +4436,7 @@ struct InertPushRegistration: PushRegistering {
 /// pointing the store at a non-existent surface.
 @Test @MainActor func notificationTapKeepsTerminalParkedUntilItsSnapshotArrives() async throws {
     let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
-    let store = deeplinkTestStore()
+    let store = deeplinkTestStore(connectionState: .disconnected)
     coordinator.bind(store: store)
 
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
@@ -4233,11 +4445,12 @@ struct InertPushRegistration: PushRegistering {
     ])
     coordinator.workspacesDidChange()
 
-    // Workspace navigation happens now; the absent terminal is not selected.
-    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
+    // The workspace snapshot is incomplete and its connection is down, so the
+    // tap remains parked without selecting a stale workspace or terminal.
+    #expect(store.selectedWorkspaceID == nil)
     #expect(store.selectedTerminalID == nil)
 
-    store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
+    deliverConnectedWorkspaceSnapshot(to: store)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))

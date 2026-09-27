@@ -528,7 +528,7 @@ actor MobileHostIrohApplicationLaneRouter {
     }
 
     private static let maximumInputFrameByteCount = 16 * 1_024
-    private static let maximumInputBufferByteCount = maximumInputFrameByteCount + 4
+    private static let maximumInputBufferByteCount = MobileTerminalInputFrame.maximumFrameBytes
 
     private let session: CmxIrohAdmittedServerSession
     private let artifactHandler: any MobileHostIrohArtifactLaneHandling
@@ -605,7 +605,7 @@ actor MobileHostIrohApplicationLaneRouter {
     ) async {
         let laneClass: MobileHostIrohApplicationLaneQuota.LaneClass
         switch lane {
-        case .terminal:
+        case .terminal, .terminalInput:
             laneClass = .terminal
         case .artifact:
             laneClass = .artifact
@@ -629,6 +629,11 @@ actor MobileHostIrohApplicationLaneRouter {
                 await Self.handleTerminalLane(
                     resourceID: resourceID,
                     cursor: cursor,
+                    stream: stream
+                )
+            case let .terminalInput(resourceID):
+                await Self.handleTerminalInputLane(
+                    resourceID: resourceID,
                     stream: stream
                 )
             case let .artifact(resourceID, offset):
@@ -702,6 +707,46 @@ actor MobileHostIrohApplicationLaneRouter {
         await stream.receiveStream.stop(errorCode: 0)
     }
 
+    /// Serves render-grid input without opening a second byte-output stream.
+    /// The empty replay envelope establishes readiness and the input half then
+    /// stays open for fire-and-forget length-prefixed frames.
+    private nonisolated static func handleTerminalInputLane(
+        resourceID: CmxIrohResourceID,
+        stream: CmxIrohBidirectionalStream
+    ) async {
+        guard let surfaceID = terminalSurfaceID(resourceID),
+              await MainActor.run(body: {
+                  GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) != nil
+              }) else {
+            await reject(stream, errorCode: ErrorCode.unsupportedResource)
+            return
+        }
+        do {
+            let currentSequence = await MainActor.run {
+                MobileTerminalByteTee.shared.replayState(surfaceID: surfaceID)?.seq ?? 0
+            }
+            let baseline = try CmxIrohTerminalOutputEnvelope(
+                kind: .replay,
+                retainedBaseSequence: currentSequence,
+                sequence: currentSequence,
+                currentSequence: currentSequence,
+                payload: Data()
+            )
+            try await stream.sendStream.send(
+                CmxIrohTerminalOutputEnvelopeCodec().encode(baseline)
+            )
+            _ = await receiveTerminalInput(
+                surfaceID: surfaceID,
+                stream: stream
+            )
+        } catch is CancellationError {
+            await stream.sendStream.reset(errorCode: 0)
+        } catch {
+            await reject(stream, errorCode: ErrorCode.invalidInput)
+        }
+        await stream.receiveStream.stop(errorCode: 0)
+    }
+
     /// Returns `true` when the complete lane should close. A clean input-side
     /// finish returns false because the client may intentionally retain an
     /// output-only terminal stream.
@@ -721,8 +766,11 @@ actor MobileHostIrohApplicationLaneRouter {
                     await reject(stream, errorCode: ErrorCode.invalidInput)
                     return true
                 }
-                for input in try decodeTerminalInputFrames(from: &buffer) {
-                    guard await sendTerminalInput(input, surfaceID: surfaceID) else {
+                for input in try MobileTerminalInputFrame.decode(from: &buffer) {
+                    guard await sendTerminalInput(
+                        input,
+                        surfaceID: surfaceID
+                    ) else {
                         await reject(stream, errorCode: ErrorCode.invalidInput)
                         return true
                     }
@@ -836,16 +884,25 @@ actor MobileHostIrohApplicationLaneRouter {
     }
 
     private nonisolated static func sendTerminalInput(
-        _ input: String,
+        _ input: MobileTerminalInputFrame,
         surfaceID: UUID
     ) async -> Bool {
-        await MainActor.run {
+        let receivedAtMicros = MobileTerminalByteTee.uptimeMicros()
+        return await MainActor.run {
             guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) else {
                 return false
             }
-            switch surface.sendInputResult(input) {
+            let result = MobileTerminalByteTee.shared.performMobileInput(
+                surfaceID: surfaceID,
+                sequence: input.sequence,
+                receivedAtMicros: receivedAtMicros
+            ) { surface.sendInputResult(input.text) }
+            switch result {
             case .sent:
-                surface.forceRefresh(reason: "mobileHost.irohTerminalLaneInput")
+                // PTY output is observed by MobileTerminalByteTee, which
+                // schedules the normal render tick. A refresh here would
+                // emit a duplicate full frame before the echo and make every
+                // key compete with the output lane's replay fence.
                 return true
             case .queued:
                 return true
@@ -868,25 +925,9 @@ actor MobileHostIrohApplicationLaneRouter {
     nonisolated static func decodeTerminalInputFrames(
         from buffer: inout Data
     ) throws -> [String] {
-        var frames: [String] = []
-        while buffer.count >= 4 {
-            let frameLength = buffer.prefix(4).reduce(UInt32(0)) {
-                ($0 << 8) | UInt32($1)
-            }
-            guard frameLength > 0,
-                  frameLength <= UInt32(maximumInputFrameByteCount) else {
-                throw InputFrameError.invalidLength
-            }
-            let totalLength = 4 + Int(frameLength)
-            guard buffer.count >= totalLength else { break }
-            let payload = Data(buffer.dropFirst(4).prefix(Int(frameLength)))
-            guard let input = String(data: payload, encoding: .utf8) else {
-                throw InputFrameError.invalidUTF8
-            }
-            buffer.removeFirst(totalLength)
-            frames.append(input)
-        }
-        return frames
+        do { return try MobileTerminalInputFrame.decode(from: &buffer).map(\.text) }
+        catch MobileTerminalInputFrame.FrameError.invalidUTF8 { throw InputFrameError.invalidUTF8 }
+        catch { throw InputFrameError.invalidLength }
     }
 
     private nonisolated static func reject(

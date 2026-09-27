@@ -93,7 +93,12 @@ describe("VM reconcile cron route", () => {
       skipped: 1,
       skippedNoGetStatus: false,
     });
-    expect(reconcileVmProviderStatuses).toHaveBeenCalledWith();
+    // Machines the provider reports gone get their coderouter tokens revoked,
+    // so the cron hands the workflow the model-plane revoker.
+    const reconcileCalls = (reconcileVmProviderStatuses as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect(reconcileCalls).toHaveLength(1);
+    const reconcileInput = reconcileCalls[0]?.[0] as { modelPlane?: { revoke?: unknown } } | undefined;
+    expect(typeof reconcileInput?.modelPlane?.revoke).toBe("function");
     expect(runVmWorkflow).toHaveBeenCalledWith({ workflow: "vm-reconcile" });
   });
 });

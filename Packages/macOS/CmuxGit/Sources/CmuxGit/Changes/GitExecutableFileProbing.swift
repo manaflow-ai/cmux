@@ -1,13 +1,13 @@
 import Darwin
 
 /// The filesystem seam used to discover executable Git installations.
-nonisolated protocol GitExecutableFileProbing: Sendable {
+protocol GitExecutableFileProbing: Sendable {
     /// Returns whether `path` is an executable regular file.
     func isExecutableFile(atPath path: String) -> Bool
 }
 
 /// Probes executable paths through Foundation's filesystem API.
-nonisolated struct SystemGitExecutableFileProbe: GitExecutableFileProbing {
+struct SystemGitExecutableFileProbe: GitExecutableFileProbing {
     func isExecutableFile(atPath path: String) -> Bool {
         var metadata = stat()
         return stat(path, &metadata) == 0

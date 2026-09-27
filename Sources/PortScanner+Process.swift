@@ -536,6 +536,50 @@ extension PortScanner {
     }
 
     func runLsof(pidsCsv: String) async -> PortLsofScanResult {
+        let pids = pidsCsv.split(separator: ",").compactMap { Int($0) }
+        guard pids.count > 256 else { return await runLsofChunk(pidsCsv: pidsCsv) }
+        var values: [Int: Set<Int>] = [:]
+        var incomplete: Set<Int> = []
+        var complete = true
+        for chunk in Self.lsofPIDChunks(pids) {
+            let result = await runLsofChunk(pidsCsv: chunk.map(String.init).joined(separator: ","))
+            for (pid, ports) in result.values { values[pid, default: []].formUnion(ports) }
+            incomplete.formUnion(result.incompletePIDs)
+            complete = complete && result.globallyComplete
+        }
+        return PortLsofScanResult(values: values, globallyComplete: complete, incompletePIDs: incomplete)
+    }
+
+    // Keep the complete argv entry below the platform's practical exec limit.
+    // The chunk builder below accounts for separators as it appends, so it
+    // never copies or re-serializes the growing prefix.
+    static let lsofArgumentByteBudget = 32 * 1024
+    static let lsofArgumentOverhead = 256
+
+    static func lsofPIDChunks(_ pids: [Int]) -> [[Int]] {
+        guard !pids.isEmpty else { return [] }
+        var chunks: [[Int]] = []
+        var chunk: [Int] = []
+        var chunkBytes = 0
+        for pid in pids {
+            let pidBytes = String(pid).utf8.count
+            let additionalBytes = chunk.isEmpty ? pidBytes : pidBytes + 1
+            if !chunk.isEmpty,
+               chunkBytes + additionalBytes + lsofArgumentOverhead > lsofArgumentByteBudget
+            {
+                chunks.append(chunk)
+                chunk = []
+                chunkBytes = 0
+            }
+            let separatorBytes = chunk.isEmpty ? 0 : 1
+            chunk.append(pid)
+            chunkBytes += pidBytes + separatorBytes
+        }
+        if !chunk.isEmpty { chunks.append(chunk) }
+        return chunks
+    }
+
+    private func runLsofChunk(pidsCsv: String) async -> PortLsofScanResult {
         let result = await commandRunner.run(
             directory: "/",
             executable: "/usr/sbin/lsof",

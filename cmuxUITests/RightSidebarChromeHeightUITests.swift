@@ -13,12 +13,11 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
-        app.launchArguments += ["-workspacePresentationMode", "minimal"]
+        app.launchArguments += ["-workspacePresentationMode", "minimal", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launchArguments += ["-rightSidebar.beta.feed.enabled", "YES"]
         app.launchArguments += ["-rightSidebar.beta.dock.enabled", "YES"]
         app.launch()
         defer { app.terminate() }
-
         if app.state == .runningBackground {
             app.activate()
         }
@@ -40,7 +39,8 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         let sessionsButton = app.buttons["RightSidebarModeButton.sessions"]
         XCTAssertTrue(sessionsButton.waitForExistence(timeout: 5))
         sessionsButton.click()
-
+        let reloadButton = app.buttons["Reload Vault"]
+        XCTAssertTrue(reloadButton.waitForExistence(timeout: 5) && reloadButton.label == "Reload Vault", "Expected an accessible Vault reload control in the sessions mode")
         guard let geometry = waitForJSONNumber("rightSidebarSecondaryBarWidth", greaterThan: 1, atPath: dataPath, timeout: 5),
               let modeBarHeight = Double(geometry["rightSidebarModeBarHeight"] ?? ""),
               let secondaryBarHeight = Double(geometry["rightSidebarSecondaryBarHeight"] ?? "") else {
@@ -55,19 +55,19 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
             "rightSidebarModeControl_sessionsHeight",
             "rightSidebarSecondaryControl_directoryHeight",
             "rightSidebarSecondaryControl_agentHeight",
-            "rightSidebarSecondaryControl_scopeHeight",
+            "rightSidebarVaultViewMenuHeight",
         ]
         guard let controlGeometry = waitForJSONNumbers(controlHeightKeys, greaterThan: 1, atPath: dataPath, timeout: 5),
               let modeControlHeight = Double(controlGeometry["rightSidebarModeControl_sessionsHeight"] ?? ""),
               let directoryControlHeight = Double(controlGeometry["rightSidebarSecondaryControl_directoryHeight"] ?? ""),
               let agentControlHeight = Double(controlGeometry["rightSidebarSecondaryControl_agentHeight"] ?? ""),
-              let scopeControlHeight = Double(controlGeometry["rightSidebarSecondaryControl_scopeHeight"] ?? "") else {
+              let viewMenuControlHeight = Double(controlGeometry["rightSidebarVaultViewMenuHeight"] ?? "") else {
             XCTFail("Timed out waiting for right sidebar control geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
             return
         }
         XCTAssertEqual(directoryControlHeight, modeControlHeight, accuracy: 0.5, "Expected By folder pill to match mode button height. geometry=\(controlGeometry)")
         XCTAssertEqual(agentControlHeight, modeControlHeight, accuracy: 0.5, "Expected By agent pill to match mode button height. geometry=\(controlGeometry)")
-        XCTAssertEqual(scopeControlHeight, modeControlHeight, accuracy: 0.5, "Expected This folder only control to match mode button height. geometry=\(controlGeometry)")
+        XCTAssertEqual(viewMenuControlHeight, modeControlHeight, accuracy: 0.5, "Expected the Vault view menu control to match mode button height. geometry=\(controlGeometry)")
 
         let feedButton = app.buttons["RightSidebarModeButton.feed"]
         XCTAssertTrue(feedButton.waitForExistence(timeout: 5))

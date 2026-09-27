@@ -747,7 +747,6 @@ final class FinderFileDropRegressionTests: XCTestCase {
         let pasteboard = NSPasteboard(name: .init("cmux-test-file-preview-transfer-drop-\(UUID().uuidString)"))
         pasteboard.clearContents()
         pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
-        pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
 
         XCTAssertFalse(DragOverlayRoutingPolicy.hasFileURL(pasteboard.types))
         XCTAssertTrue(DragOverlayRoutingPolicy.hasFileDropPayload(pasteboard.types))

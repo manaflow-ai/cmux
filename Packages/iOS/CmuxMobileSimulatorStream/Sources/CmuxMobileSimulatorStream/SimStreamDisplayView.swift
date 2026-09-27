@@ -98,12 +98,12 @@
         }
 
         private func normalizedPoint(for touch: UITouch) -> CGPoint? {
-            SimStreamTouchMapping.normalizedPoint(
+            SimStreamTouchMapping().normalizedPoint(
                 touch.location(in: self), pixelSize: configPixelSize, in: bounds)
         }
 
         private func clampedNormalizedPoint(for touch: UITouch) -> CGPoint {
-            SimStreamTouchMapping.clampedNormalizedPoint(
+            SimStreamTouchMapping().clampedNormalizedPoint(
                 touch.location(in: self), pixelSize: configPixelSize, in: bounds) ?? .zero
         }
 

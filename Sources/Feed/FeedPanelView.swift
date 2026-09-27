@@ -655,13 +655,14 @@ private struct FeedRowSurface: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(rowBackgroundFill)
-        .animation(.easeOut(duration: 0.14), value: isHovered)
-        .animation(.easeOut(duration: 0.14), value: isSelected)
+        // Only the hover fill fades. Selection moves with j/k and lands in
+        // the next frame, and the row content never animates.
+        .background {
+            rowBackgroundFill
+                .animation(.easeOut(duration: 0.14), value: isHovered)
+        }
         .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.14)) {
-                isHovered = hovering
-            }
+            isHovered = hovering
         }
     }
 
@@ -962,12 +963,12 @@ struct FeedRowActions {
             },
             jump: { workstreamId in
                 Task { @MainActor in
-                    _ = FeedCoordinator.shared.focusIfPossible(workstreamId: workstreamId)
+                    _ = await FeedCoordinator.shared.focusIfPossible(workstreamId: workstreamId)
                 }
             },
             sendText: { workstreamId, text in
                 Task { @MainActor in
-                    FeedCoordinator.shared.sendTextToWorkstream(
+                    _ = await FeedCoordinator.shared.sendTextToWorkstream(
                         workstreamId: workstreamId,
                         text: text
                     )
@@ -1534,7 +1535,7 @@ private struct PermissionActionArea: View {
                     Text(primary)
                         .cmuxFont(size: 11, design: .monospaced)
                         .foregroundColor(.primary.opacity(0.95))
-                        .textSelection(.enabled)
+                        .copyOnlyTextSelection(for: primary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -2116,6 +2117,22 @@ struct FeedButton: View {
 #endif
     }
 
+    /// Edge for solid pills. The white Allow Once pill sits on a white panel in
+    /// light mode and the black Deny pill on a dark panel in dark mode, so both
+    /// get a hairline in `Color.primary`, which flips with the appearance and
+    /// shows exactly where the fill matches the panel.
+    static func solidBorderOpacity(for kind: Kind) -> Double {
+        switch kind {
+        case .dark, .light: return 0.18
+        case .ghost, .soft, .primary, .success, .warning, .destructive: return 0
+        }
+    }
+
+    private var solidBorder: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .stroke(Color.primary.opacity(Self.solidBorderOpacity(for: kind)), lineWidth: 1)
+    }
+
     @ViewBuilder
     private var buttonBorder: some View {
 #if DEBUG
@@ -2123,7 +2140,7 @@ struct FeedButton: View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         switch generation >= 0 ? FeedButtonDebugSettings.visualStyle : .solid {
         case .solid:
-            EmptyView()
+            solidBorder
         case .standardGlass:
             shape.stroke(Color.white.opacity(0.12), lineWidth: FeedButtonDebugSettings.borderWidth)
         case .standardTintedGlass:
@@ -2162,7 +2179,7 @@ struct FeedButton: View {
             EmptyView()
         }
 #else
-        EmptyView()
+        solidBorder
 #endif
     }
 

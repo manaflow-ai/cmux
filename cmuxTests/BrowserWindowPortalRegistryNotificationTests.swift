@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Testing
 import WebKit
 
@@ -90,7 +91,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
 
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
         contentView.addSubview(anchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
 
         var notificationCount = 0
         let observer = NotificationCenter.default.addObserver(
@@ -100,28 +101,48 @@ struct BrowserWindowPortalRegistryNotificationTests {
         ) { _ in
             notificationCount += 1
         }
+        var presentabilityCount = 0
+        let presentabilityObserver = NotificationCenter.default.addObserver(
+            forName: .browserPortalDidBecomePresentable,
+            object: webView,
+            queue: nil
+        ) { _ in
+            presentabilityCount += 1
+        }
         defer {
             NotificationCenter.default.removeObserver(observer)
+            NotificationCenter.default.removeObserver(presentabilityObserver)
             BrowserWindowPortalRegistry.detach(webView: webView)
         }
 
-        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        // Start hidden so the first visible transition exercises the
+        // presentability notification contract explicitly. A freshly created
+        // slot is already unhidden at the AppKit level and therefore has no
+        // hidden-to-visible transition to report.
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: false)
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
         advanceAnimations()
-        #expect(notificationCount == 1)
+        BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: true, zPriority: 0)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        advanceAnimations()
+        let baselineNotificationCount = notificationCount
+        #expect(baselineNotificationCount == 2)
+        #expect(presentabilityCount >= 1)
+        #expect(BrowserWindowPortalRegistry.isPresented(webView))
 
         BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: true, zPriority: 0)
         #expect(
-            notificationCount == 1,
+            notificationCount == baselineNotificationCount,
             "Reapplying an unchanged portal visibility snapshot should not wake Workspace layout follow-up"
         )
 
         BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: false, zPriority: 0)
-        #expect(notificationCount == 2)
+        #expect(notificationCount == baselineNotificationCount + 1)
+        #expect(!BrowserWindowPortalRegistry.isPresented(webView))
 
         BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: false, zPriority: 0)
         #expect(
-            notificationCount == 2,
+            notificationCount == baselineNotificationCount + 1,
             "Repeated hidden-state updates should not post duplicate registry-change notifications"
         )
 
@@ -134,14 +155,14 @@ struct BrowserWindowPortalRegistryNotificationTests {
         advanceAnimations()
         #expect(slot.isHidden)
         #expect(
-            notificationCount == 3,
+            notificationCount == baselineNotificationCount + 2,
             "A hidden visibility state whose slot still needs presentation sync should notify exactly once"
         )
 
         BrowserWindowPortalRegistry.hide(webView: webView, source: "unitTest")
         advanceAnimations()
         #expect(
-            notificationCount == 3,
+            notificationCount == baselineNotificationCount + 2,
             "A repeated hide after state and presentation are already hidden should not notify"
         )
     }
@@ -161,7 +182,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
 
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
         contentView.addSubview(anchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         defer { BrowserWindowPortalRegistry.detach(webView: webView) }
 
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
@@ -298,7 +319,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
         NSLayoutConstraint.activate(firstHostConstraints)
         firstHost.layoutSubtreeIfNeeded()
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         defer { BrowserWindowPortalRegistry.detach(webView: webView) }
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
         await waitForNextMainTurn()
@@ -457,7 +478,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
         let anchor = NSView(frame: NSRect(x: 24, y: 24, width: 360, height: 220))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         defer { BrowserWindowPortalRegistry.detach(webView: webView) }
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)

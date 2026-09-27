@@ -236,7 +236,7 @@ while (performance.now() < deadline) {
     text = await Bun.file(logPath).text();
   } catch (_) {}
   const completed = text.split("\\n").filter((line) => line.startsWith("end ")).length;
-  if (completed >= 7) break;
+  if (completed >= 5) break;
   await new Promise((resolve) => setTimeout(resolve, 10));
 }
 """
@@ -266,8 +266,6 @@ while (performance.now() < deadline) {
     completed = [line for line in calls if line.startswith("end ")]
     expected = (
         "hooks pi session-start",
-        "--json surface resume set",
-        "--json surface resume get",
         "hooks pi prompt-submit",
         "hooks feed --source pi --event PostToolUse",
         "hooks pi notification",
@@ -473,12 +471,17 @@ await handlers.get("session_shutdown")({ reason: "test complete" }, ctx);
         print(f"FAIL: Pi turn-transition harness failed: {result.stderr!r}")
         return 1
     calls = transition_log.read_text(encoding="utf-8").splitlines()
+    prompts = [json.loads(line.split('|', 1)[1]) for line in calls
+               if 'hooks pi prompt-submit ' in line]
+    if len(prompts) != 2 or prompts[0]['turn_id'] == prompts[1]['turn_id']:
+        print(f"FAIL: Pi turns did not receive distinct IDs: {calls!r}")
+        return 1
     first_stop = next(
         (
             index
             for index, line in enumerate(calls)
             if "hooks pi stop" in line
-            and '"turn_id":"pi-turn-transition-session:turn-1"' in line
+            and json.loads(line.split('|', 1)[1])['turn_id'] == prompts[0]['turn_id']
         ),
         None,
     )
@@ -487,7 +490,7 @@ await handlers.get("session_shutdown")({ reason: "test complete" }, ctx);
             index
             for index, line in enumerate(calls)
             if "hooks pi prompt-submit" in line
-            and '"turn_id":"pi-turn-transition-session:turn-2"' in line
+            and json.loads(line.split('|', 1)[1])['turn_id'] == prompts[1]['turn_id']
         ),
         None,
     )
@@ -2423,8 +2426,8 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
         return 1
     calls = moved_log.read_text(encoding="utf-8").splitlines()
     resume_calls = [line for line in calls if "surface resume" in line]
-    if len(resume_calls) != 3:
-        print(f"FAIL: moved-surface harness missed resume set/get/clear: {calls!r}")
+    if len(resume_calls) != 1 or "surface resume clear" not in resume_calls[0]:
+        print(f"FAIL: moved-surface harness emitted unexpected resume mutations: {calls!r}")
         return 1
     moved_target = (
         "--workspace 00000000-0000-0000-0000-000000008674 "
@@ -2898,8 +2901,8 @@ for (const [value, expected] of parsingCases) {
 
 const commandTimeoutCases = [
   [["hooks", "pi", "session-start"], undefined, 15000],
-  [["hooks", "feed", "--source", "pi"], undefined, 4500],
-  [["hooks", "feed", "--source", "pi"], "25000", 4500],
+  [["hooks", "feed", "--source", "pi"], undefined, 5000],
+  [["hooks", "feed", "--source", "pi"], "25000", 5000],
   [["hooks", "feed", "--source", "pi"], "4200", 4200],
   [["hooks", "feed", "--source", "pi"], "1000", 1000],
 ];
@@ -3397,6 +3400,14 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
     for check in checks:
         if check(bun, root, extension_path) != 0:
             return 1
+    wakeup = subprocess.run(
+        [sys.executable, str(Path(__file__).with_name("test_pi_extension_wakeup.py"))],
+        env={**os.environ, "CMUX_TEST_PI_EXTENSION_PATH": str(extension_path)},
+        check=False,
+        timeout=30,
+    )
+    if wakeup.returncode != 0:
+        return wakeup.returncode
     print("PASS: Pi dispatch stays responsive, serialized, and fails stale surfaces once")
     return 0
 

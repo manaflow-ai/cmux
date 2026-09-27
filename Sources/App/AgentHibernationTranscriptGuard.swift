@@ -2,6 +2,7 @@ import CMUXAgentLaunch
 import Foundation
 
 enum AgentHibernationTranscriptGuard {
+    static let initialRestoreCheckDelaysNanoseconds: [UInt64] = [0, 250_000_000, 500_000_000, 1_000_000_000, 2_000_000_000]
     static let restoreCheckDelaysSeconds: [UInt64] = [20, 60, 180, 600]
     private static let maxScannedLineBytes = 16 * 1024 * 1024
 

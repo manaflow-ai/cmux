@@ -46,6 +46,15 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationSoundCustomFilePath"
     )
 
+    /// Canonical JSON for the sparse agent × alert-type sound matrix. The
+    /// string backing keeps cmux.json's nested object declarative while using
+    /// the existing managed UserDefaults import/backup machinery.
+    public let soundOverrides = DefaultsKey<String>(
+        id: "notifications.soundOverrides",
+        defaultValue: "{}",
+        userDefaultsKey: "notificationSoundOverrides"
+    )
+
     public let command = DefaultsKey<String>(
         id: "notifications.command",
         defaultValue: "",
@@ -92,14 +101,20 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationAgentIdleReminderEnabled"
     )
 
+    /// Catalog handle for the `notifications.hooks` path. The runtime reader
+    /// is the app's notification config parser, which decodes an array of
+    /// hook objects (`id`, `command`, `timeoutSeconds`, `enabled`); nothing
+    /// reads this key's typed value.
     public let hooks = JSONKey<[String: String]>(
         id: "notifications.hooks",
         defaultValue: [:]
     )
 
+    /// `"append"` (the runtime default when unset) adds project-local hooks
+    /// after inherited ones; `"replace"` drops the inherited hooks first.
     public let hooksMode = JSONKey<String>(
         id: "notifications.hooksMode",
-        defaultValue: "merge"
+        defaultValue: "append"
     )
 
     public init() {}

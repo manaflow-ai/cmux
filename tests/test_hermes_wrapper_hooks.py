@@ -280,9 +280,23 @@ if [[ -n "${FAKE_TUI_SESSION_IDS:-}" ]]; then
     : > "$TMPDIR/hermes-tui-active-session-extra.json"
   fi
   IFS=',' read -r -a fake_tui_session_ids <<< "$FAKE_TUI_SESSION_IDS"
+  first_tui_session=1
   for fake_tui_session_id in "${fake_tui_session_ids[@]}"; do
     printf '{"session_id":"%s"}\\n' "$fake_tui_session_id" > "$active_session_file"
-    sleep 0.25
+    if (( first_tui_session == 1 && ${#fake_tui_session_ids[@]} > 1 )); then
+      # Wait for the observable lifecycle event before replacing the
+      # authoritative active-session file. This keeps the fixture deterministic
+      # on loaded runners without synchronizing on the watcher's process shape.
+      for _ in {1..200}; do
+        if [[ -f "${FAKE_CMUX_CALLS_LOG:-}" ]] &&
+           /usr/bin/grep -a -q 'session-start' "$FAKE_CMUX_CALLS_LOG"; then
+          break
+        fi
+        /bin/sleep 0.01
+      done
+      first_tui_session=0
+    fi
+    /bin/sleep 0.25
   done
 fi
 if [[ "${FAKE_SAMPLE_TUI_WATCHER_CPU:-0}" == "1" ]]; then
@@ -687,6 +701,39 @@ def test_tui_gateway_registers_hooks_for_every_turn(failures: list[str]) -> None
     )
 
 
+def test_tui_python_wrapper_prefers_symlinked_venv_interpreter(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-hermes-python-test-") as td:
+        tmp = Path(td)
+        source_root = tmp / "hermes"
+        venv_bin = source_root / "venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        selected = tmp / "selected-interpreter"
+        selected.write_text(
+            "#!/bin/sh\n"
+            "printf '%s\\0' \"$@\" > \"$FAKE_SELECTED_ARGS\"\n",
+            encoding="utf-8",
+        )
+        selected.chmod(0o755)
+        (venv_bin / "python3").symlink_to(selected)
+        (venv_bin / "python").symlink_to(venv_bin / "python3")
+        args_log = tmp / "args"
+        env = os.environ.copy()
+        env["HERMES_PYTHON_SRC_ROOT"] = str(source_root)
+        env["FAKE_SELECTED_ARGS"] = str(args_log)
+        result = subprocess.run(
+            [str(SOURCE_TUI_PYTHON_WRAPPER), "-m", "tui_gateway.entry"],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        expect(result.returncode == 0, f"symlinked venv interpreter: wrapper failed: {result.stderr}", failures)
+        expect(
+            read_nul_values(args_log) == ["-m", "tui_gateway.entry"],
+            "symlinked venv interpreter: wrapper did not execute the venv Python",
+            failures,
+        )
+
+
 def test_tui_gateway_rejects_retired_cmux_python_wrapper(failures: list[str]) -> None:
     expected_events = [
         f"gateway:{event}:{turn}"
@@ -922,6 +969,7 @@ def main() -> int:
         test_tui_active_session_file_bridges_lifecycle(failures)
         test_tui_bridge_fails_closed_on_untrusted_session_files(failures)
         test_tui_gateway_registers_hooks_for_every_turn(failures)
+        test_tui_python_wrapper_prefers_symlinked_venv_interpreter(failures)
         test_tui_gateway_rejects_retired_cmux_python_wrapper(failures)
         test_bundled_wrappers_ignore_path_bash_shadow(failures)
         test_explicit_classic_cli_skips_tui_watcher(failures)

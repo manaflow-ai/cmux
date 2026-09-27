@@ -266,6 +266,7 @@ def _smoke_relay_launcher(
         '{"name":"smoke-machine","deviceId":"device-smoke","token":"token-smoke"}\n',
         encoding="utf-8",
     )
+    paired.chmod(0o600)
     paired_result = _run(
         [str(launcher), "--status", "--config", str(paired)],
         env=relay_env,

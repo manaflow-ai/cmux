@@ -88,11 +88,18 @@ public struct CloudMachinesSection: View {
                 ? String(localized: "settings.cloudMachines.plan.unavailable", defaultValue: "Sign in to see your plan.")
                 : String(localized: "settings.cloudMachines.plan.loading", defaultValue: "Loading…")
         }
+        guard let maxMachines = plan.maxMachines else {
+            let format = String(
+                localized: "settings.cloudMachines.plan.summary.unlimited",
+                defaultValue: "%1$@ · %2$d machines, no limit"
+            )
+            return String(format: format, plan.planLabel, plan.activeMachines)
+        }
         let format = String(
             localized: "settings.cloudMachines.plan.summary",
             defaultValue: "%1$@ · %2$d of %3$d machines"
         )
-        return String(format: format, plan.planLabel, plan.activeMachines, plan.maxMachines)
+        return String(format: format, plan.planLabel, plan.activeMachines, maxMachines)
     }
 
     private var manageButtonTitle: String {

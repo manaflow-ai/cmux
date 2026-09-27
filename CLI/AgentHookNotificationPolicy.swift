@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 enum AgentHookNotificationStatus: String, Codable {
@@ -14,8 +15,16 @@ enum AgentHookNotifyCategory: String {
     case idleReminder = "idle-reminder"
     case other
 
-    /// Delimiter-safe meta segment: `c=<category>;p=<0|1>`. `.other` is the
-    /// explicit ungated category and never rides the wire.
+    var soundAlertType: NotificationSoundAlertType? {
+        switch self {
+        case .turnComplete: return .turnDone
+        case .needsPermission, .idleReminder: return .needsInput
+        case .other: return nil
+        }
+    }
+
+    /// Legacy delimiter-safe meta segment: `c=<category>;p=<0|1>`. The
+    /// contextual overload below adds the agent and alert identity.
     func metaSegment(pending: Bool) -> String? {
         metaSegment(pending: pending, agentKind: nil, isSubagent: nil)
     }
@@ -23,7 +32,7 @@ enum AgentHookNotifyCategory: String {
     /// Extended meta segment carrying optional agent-event context for the
     /// app's notification-policy hooks:
     /// `c=<category>;p=<0|1>[;a=<agent-kind>][;n=<0|1>][;k=<uuid>]` (canonical
-    /// field order; `a=` is the stable lowercase agent slug, `n=` marks a
+    /// field order; `a=` is the case-preserving registry identifier, `n=` marks a
     /// nested subagent session, and `k=` is an opaque notification identity).
     /// An agent kind or correlation key that fails validation is dropped rather
     /// than risking the app-side parser folding the whole meta back into the
@@ -48,16 +57,45 @@ enum AgentHookNotifyCategory: String {
         return segment
     }
 
-    /// Mirror of the app-side `AgentNotificationMeta` slug grammar: 1-64
-    /// characters of `[a-z0-9._-]`. Both sides must agree exactly or the app
-    /// folds the meta back into the notification body.
+    /// Mirror of the app-side `AgentNotificationMeta` slug grammar: 1-64 ASCII
+    /// characters of `[A-Za-z0-9._-]`, excluding `.` and `..`. Both sides must
+    /// agree exactly or the app folds the meta back into the notification body.
     static func isValidAgentKindTag(_ value: String) -> Bool {
-        guard !value.isEmpty, value.count <= 64 else { return false }
-        return value.allSatisfy { character in
-            character.isASCII
-                && (character.isLowercase || character.isNumber
-                    || character == "." || character == "_" || character == "-")
+        NotificationSoundOverrideContext.isValidAgentID(value)
+    }
+
+    func metaSegment(
+        pending: Bool,
+        agentID: String,
+        alertType: NotificationSoundAlertType? = nil,
+        isSubagent: Bool? = nil,
+        correlationKey: String? = nil
+    ) -> String? {
+        let resolvedAlertType: NotificationSoundAlertType?
+        switch self {
+        case .turnComplete: resolvedAlertType = alertType ?? .turnDone
+        case .needsPermission, .idleReminder: resolvedAlertType = alertType ?? .needsInput
+        case .other: resolvedAlertType = alertType
         }
+        guard let resolvedAlertType,
+              let context = NotificationSoundOverrideContext(
+                  agentID: agentID,
+                  alertType: resolvedAlertType
+              ),
+              (self == .other
+                ? resolvedAlertType == .errorStalled
+                : soundAlertType == resolvedAlertType) else {
+            return nil
+        }
+        var segment = "c=\(rawValue);p=\(pending ? 1 : 0);a=\(context.agentID)"
+        if let isSubagent {
+            segment += ";n=\(isSubagent ? 1 : 0)"
+        }
+        segment += ";s=\(context.alertType.rawValue)"
+        if let correlationKey, Self.isValidCorrelationKey(correlationKey) {
+            segment += ";k=\(UUID(uuidString: correlationKey)?.uuidString.lowercased() ?? correlationKey)"
+        }
+        return segment
     }
 
     /// Correlation keys are opaque UUIDs used only to clear one notification.
@@ -83,7 +121,8 @@ enum AgentHookNotificationClassifier {
         displayName: String,
         signal: String,
         message: String,
-        isFallback: Bool
+        isFallback: Bool,
+        neutralErrorBody: String? = nil
     ) -> AgentHookNotificationSummary {
         let lower = "\(signal) \(message)".lowercased()
         if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt") {
@@ -100,10 +139,10 @@ enum AgentHookNotificationClassifier {
         }
         if lower.contains("error") || lower.contains("failed") || lower.contains("failure") || lower.contains("exception") {
             let body = message.isEmpty
-                ? String.localizedStringWithFormat(
+                ? (neutralErrorBody ?? String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.body.reportedError", defaultValue: "%@ reported an error"),
                     displayName
-                )
+                ))
                 : message
             return AgentHookNotificationSummary(
                 subtitle: String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error"),
@@ -387,7 +426,6 @@ enum AgentHookNotificationPolicy {
             (#"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#, "<email>"),
             (#"(?:~|/)[^\s\"']+"#, "<path>"),
             (#"\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16})\b"#, "<token>"),
-            (#"\b(?:sk|rk|sess|token|key|secret|api[_-]?key)[A-Za-z0-9._:-]{8,}\b"#, "<token>"),
             (#"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{12,}"#, "Bearer <token>"),
             (#"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"#, "<token>"),
             (#"(?i)\b(?:authorization|proxy-authorization)\s*:\s*[^\s'\";&|]+(?:\s+[^\s'\";&|]+)*"#, "<credential>:<token>"),
@@ -396,9 +434,12 @@ enum AgentHookNotificationPolicy {
             (#"(?i)--?(?:api[-_]?key|password|secret|token|authorization|cookie)(?:=|\s+)(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, "<credential>=<token>"),
             (#"(?i)(?:^|\s)(?:-u|--user)(?:=|\s+)(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, " <credential>"),
             (#"(?i)(?:^|\s)(?:--passphrase|--password|--pass|--auth|--credential)(?:=|\s+)(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, " <credential>"),
-            (#"(?i)(?:^|\s)(?:-a|-p|-pass)(?:=|\s+|(?=[^\s]))(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, " <credential>"),
+            (#"(?i)(?:^|\s)(?:-pass|-a|-p)(?:=|\s+|(?=[^\s]))(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, " <credential>"),
             (#"(?i)\b[A-Za-z_]*(?:api[_-]?key|password|secret|token|authorization|cookie)[A-Za-z0-9_]*\s*=\s*(?:'[^']*'|\"[^\"]*\"|[^\s;&|]+)"#, "<credential>=<token>"),
             (#"(?i)\b(?:api[_-]?key|password|secret|token|authorization|cookie)\s*=\s*[^\s;&|]+"#, "<credential>=<token>"),
+            // Consume credential options and their values before generic token
+            // matching can replace a token-like option name on its own.
+            (#"\b(?:sk|rk|sess|token|key|secret|api[_-]?key)[A-Za-z0-9._:-]{8,}\b"#, "<token>"),
             (#"\b[A-Za-z0-9_-]{24,}\b"#, "<token>"),
         ]
         return patterns.reduce(boundedValue) { partial, entry in

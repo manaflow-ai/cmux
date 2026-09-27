@@ -205,7 +205,8 @@ struct AgentExecutableResolver {
 
     private func isKnownCmuxAgentCommandShim(_ url: URL) -> Bool {
         let candidatePath = url.standardizedFileURL.path
-        for (key, rawPath) in environment where key.hasSuffix("_WRAPPER_SHIM") {
+        for (key, rawPath) in environment
+        where key.hasPrefix("CMUX_") && key.hasSuffix("_WRAPPER_SHIM") {
             let shimPath = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !shimPath.isEmpty else { continue }
             if candidatePath == URL(fileURLWithPath: shimPath, isDirectory: false).standardizedFileURL.path {
@@ -214,7 +215,8 @@ struct AgentExecutableResolver {
         }
 
         var shimRoots = environment.compactMap { key, rawPath -> String? in
-            guard key == "CMUX_AGENT_COMMAND_SHIM_ROOT" || key.hasSuffix("_WRAPPER_SHIM_ROOT") else {
+            guard key == "CMUX_AGENT_COMMAND_SHIM_ROOT"
+                || (key.hasPrefix("CMUX_") && key.hasSuffix("_WRAPPER_SHIM_ROOT")) else {
                 return nil
             }
             return rawPath

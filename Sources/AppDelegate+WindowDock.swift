@@ -2,6 +2,12 @@ import AppKit
 import CmuxTerminal
 
 extension AppDelegate.MainWindowContext {
+    /// Cancels work scoped to this context before the window owner releases it.
+    func teardownWindowOwnedWork() {
+        tabManager.workspaceSwitchCoordinator.cancel()
+        teardownWindowDock()
+    }
+
     /// The Dock for this window, created on first access and retained through
     /// context replacement. Session restore wins; otherwise global config seeds it.
     func windowDockStore(notificationStore: TerminalNotificationStore?) -> DockSplitStore {
@@ -40,10 +46,12 @@ extension AppDelegate.MainWindowContext {
         workspaceTerminalFontSizeCoordinator.attachWindowDock(dock)
     }
 
+    /// Restores the Dock belonging to this window from the session snapshot.
     func restoreWindowDockSessionSnapshot(
         _ snapshot: SessionWindowSnapshot?,
         notificationStore: TerminalNotificationStore?,
-        excludingStableIdentities: Set<UUID> = []
+        excludingStableIdentities: Set<UUID> = [],
+        deferBrowserPanels: Bool = false
     ) {
         let promptBatch = SurfaceResumeRunPromptBatch.shared
         promptBatch.beginRestorePass()
@@ -53,6 +61,7 @@ extension AppDelegate.MainWindowContext {
         windowDockStore(notificationStore: notificationStore).restoreSessionSnapshot(
             dockSnapshot,
             excludingStableIdentities: excludingStableIdentities,
+            deferBrowserPanels: deferBrowserPanels,
             sourceWorkspaceResolver: { [tabManager] originalId in
                 tabManager.restoredSessionWorkspace(
                     originalId: originalId,
@@ -65,12 +74,15 @@ extension AppDelegate.MainWindowContext {
     func windowDockSessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex?,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
+        downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool = false
     ) -> SessionSplitContainerSnapshot? {
         existingWindowDock()?.sessionSnapshot(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+            downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
+                downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable
         )
     }
 
@@ -98,16 +110,19 @@ extension AppDelegate.MainWindowContext {
 /// (`workspace_id`) self-describing: they name the window whose Dock they hit.
 
 extension AppDelegate {
+    /// Routes a window Dock restore to the context that owns `windowId`.
     func restoreWindowDockSessionSnapshot(
         forWindowId windowId: UUID,
         from snapshot: SessionWindowSnapshot?,
-        excludingStableIdentities: Set<UUID>
+        excludingStableIdentities: Set<UUID>,
+        deferBrowserPanels: Bool = false
     ) {
         mainWindowContexts.values.first(where: { $0.windowId == windowId })?
             .restoreWindowDockSessionSnapshot(
                 snapshot,
                 notificationStore: notificationStore,
-                excludingStableIdentities: excludingStableIdentities
+                excludingStableIdentities: excludingStableIdentities,
+                deferBrowserPanels: deferBrowserPanels
             )
     }
 
@@ -149,7 +164,7 @@ extension AppDelegate {
         if let context = mainWindowContext(forWindowId: windowId) {
             return context.windowDockStore(notificationStore: notificationStore)
         }
-        return recoverableMainWindowRoute(windowId: windowId)?.windowDock
+        return recoverableMainWindowRoute(windowId: windowId)?.liveWindowDock
     }
 
     /// The Dock of `tabManager`'s window, created on first access for a live
@@ -168,7 +183,7 @@ extension AppDelegate {
         if let dock = mainWindowContext(forWindowId: windowId)?.existingWindowDock() {
             return dock
         }
-        return recoverableMainWindowRoute(windowId: windowId)?.windowDock
+        return recoverableMainWindowRoute(windowId: windowId)?.liveWindowDock
     }
 
     /// The `TabManager` owning the window Dock owner id `id` (== its window id),
