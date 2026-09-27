@@ -2437,6 +2437,7 @@
 		E30760090000000000000002 /* PassthroughWindowOverlayContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760090000000000000001 /* PassthroughWindowOverlayContainerView.swift */; };
 		B864939F004D49CA990F581F /* PasteboardFileURLReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A2299E3E44F4D9FA3D6918D /* PasteboardFileURLReader.swift */; };
 		B88350000000000000000003 /* PasteboardThreadSignalingDataProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88350000000000000000004 /* PasteboardThreadSignalingDataProvider.swift */; };
+		010B33D14FFEA035BC3F0BF2 /* PasteLastScreenshotShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D87FDCA31298C3B71D50F9E7 /* PasteLastScreenshotShortcutTests.swift */; };
 		B8835700000000000000000B /* PastePreparationFailureProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835700000000000000000C /* PastePreparationFailureProbe.swift */; };
 		A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001424 /* PDFPreviewChromeDebugWindowController.swift */; };
 		1172B36873974E34BF55F452 /* PendingRemoteCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A3F55EC44084383A6EAFB91 /* PendingRemoteCreation.swift */; };
@@ -3526,6 +3527,7 @@
 		D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */; };
 		8997E0048997E0048997E004 /* TerminalPanel+AgentHibernation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997F0048997F0048997F004 /* TerminalPanel+AgentHibernation.swift */; };
 		A5F100000000000000000007 /* TerminalPanel+NotificationScroll.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F100000000000000000008 /* TerminalPanel+NotificationScroll.swift */; };
+		E67E14C8AD319F68E5ABFD0E /* TerminalPanel+PasteLastScreenshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE3792D6AED275EA7DB3EB0B /* TerminalPanel+PasteLastScreenshot.swift */; };
 		791101010000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791101020000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift */; };
 		5C0E5FB290CC1E5CE63F98DB /* TerminalPanel+ShellReadiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4983F8022A862E60F27778D /* TerminalPanel+ShellReadiness.swift */; };
 		ABB87B1A532D01C50C10F903 /* TerminalPanel+SurfaceSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAD8854A2CD1387725EEC0A /* TerminalPanel+SurfaceSelection.swift */; };
@@ -6427,6 +6429,7 @@
 		E30760090000000000000001 /* PassthroughWindowOverlayContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassthroughWindowOverlayContainerView.swift; sourceTree = "<group>"; };
 		4A2299E3E44F4D9FA3D6918D /* PasteboardFileURLReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardFileURLReader.swift; sourceTree = "<group>"; };
 		B88350000000000000000004 /* PasteboardThreadSignalingDataProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardThreadSignalingDataProvider.swift; sourceTree = "<group>"; };
+		D87FDCA31298C3B71D50F9E7 /* PasteLastScreenshotShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PasteLastScreenshotShortcutTests.swift"; sourceTree = "<group>"; };
 		B8835700000000000000000C /* PastePreparationFailureProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PastePreparationFailureProbe.swift; sourceTree = "<group>"; };
 		A5001424 /* PDFPreviewChromeDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PDFPreviewChromeDebugWindowController.swift; sourceTree = "<group>"; };
 		6A3F55EC44084383A6EAFB91 /* PendingRemoteCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingRemoteCreation.swift; sourceTree = "<group>"; };
@@ -7500,6 +7503,7 @@
 		D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneDropTargetView.swift; sourceTree = "<group>"; };
 		8997F0048997F0048997F004 /* TerminalPanel+AgentHibernation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+AgentHibernation.swift"; sourceTree = "<group>"; };
 		A5F100000000000000000008 /* TerminalPanel+NotificationScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+NotificationScroll.swift"; sourceTree = "<group>"; };
+		BE3792D6AED275EA7DB3EB0B /* TerminalPanel+PasteLastScreenshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+PasteLastScreenshot.swift"; sourceTree = "<group>"; };
 		791101020000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+SessionScrollbackReplay.swift"; sourceTree = "<group>"; };
 		D4983F8022A862E60F27778D /* TerminalPanel+ShellReadiness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+ShellReadiness.swift"; sourceTree = "<group>"; };
 		AAAD8854A2CD1387725EEC0A /* TerminalPanel+SurfaceSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+SurfaceSelection.swift"; sourceTree = "<group>"; };
@@ -10205,6 +10209,7 @@
 				A500RG00 /* ReactGrab.swift */,
 				A5001413 /* TerminalPanelView.swift */,
 				D4983F8022A862E60F27778D /* TerminalPanel+ShellReadiness.swift */,
+				BE3792D6AED275EA7DB3EB0B /* TerminalPanel+PasteLastScreenshot.swift */,
 				3CF6B32E82544240C8F118CE /* AgentRestoreRecoveryView.swift */,
 				8997D00C8997D00C8997D00C /* AgentHibernationPlaceholderMode.swift */,
 				C71500010000000000000001 /* SessionContentWidthModifier.swift */,
@@ -12175,6 +12180,7 @@
 				AA11C5ADC15512A75E032CCA /* TerminalSurfaceTestTeardown.swift */,
 				8E40AA0639D63F947BB321B4 /* UpdateRelaunchBlockersTests.swift */,
 				A634CA3FCA39C6F02FA78DC7 /* UpdateRelaunchAgentResumeTests.swift */,
+				D87FDCA31298C3B71D50F9E7 /* PasteLastScreenshotShortcutTests.swift */,
 				AFD49B60E1A7F637C0ADFEF4 /* TerminalPasteFailureNoticeTests.swift */,
 			);
 			path = cmuxTests;
@@ -14974,6 +14980,7 @@
 				D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */,
 				8997E0048997E0048997E004 /* TerminalPanel+AgentHibernation.swift in Sources */,
 				A5F100000000000000000007 /* TerminalPanel+NotificationScroll.swift in Sources */,
+				E67E14C8AD319F68E5ABFD0E /* TerminalPanel+PasteLastScreenshot.swift in Sources */,
 				791101010000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift in Sources */,
 				5C0E5FB290CC1E5CE63F98DB /* TerminalPanel+ShellReadiness.swift in Sources */,
 				ABB87B1A532D01C50C10F903 /* TerminalPanel+SurfaceSelection.swift in Sources */,
@@ -16384,6 +16391,7 @@
 				1F567ED5887A4EA9AB100001 /* PaneResizeShortcutTests.swift in Sources */,
 				C12813000000000000000211 /* ParkedReconnectRecordingRunner.swift in Sources */,
 				B88350000000000000000003 /* PasteboardThreadSignalingDataProvider.swift in Sources */,
+				010B33D14FFEA035BC3F0BF2 /* PasteLastScreenshotShortcutTests.swift in Sources */,
 				B8835700000000000000000B /* PastePreparationFailureProbe.swift in Sources */,
 					D1F0A00300000000000000C1 /* PhonePushPresenceGateTests.swift in Sources */,
 					D1F0A00400000000000000C1 /* PhonePushSerialDeliveryQueueTests.swift in Sources */,

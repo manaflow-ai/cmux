@@ -15421,6 +15421,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return handled
         }
 
+        if matchConfiguredShortcut(event: event, action: .pasteLastScreenshot) {
+            if performFocusedDockShortcut(
+                .pasteLastScreenshot,
+                action: .pasteLastScreenshot,
+                event: event
+            ) {
+                return true
+            }
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            if routedManager?.pasteLastScreenshotIntoFocusedTerminal() != true {
+                NSSound.beep()
+            }
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .clearScreenKeepScrollback) {
             if performFocusedDockShortcut(
                 .clearScreenKeepScrollback,
