@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import Foundation
 
@@ -64,6 +65,21 @@ extension AppSection {
             return String(
                 localized: "settings.app.fileDrop.defaultBehavior.preview.subtitle",
                 defaultValue: "Dragging files opens previews or split panes. Hold Shift over terminals and editors to insert path text."
+            )
+        }
+    }
+
+    func accentColorSubtitle(_ mode: CmuxAccentColorMode) -> String {
+        switch mode {
+        case .cmux:
+            return String(
+                localized: "settings.app.accentColor.cmux.subtitle",
+                defaultValue: "The selected workspace, attention ring, agent status, and other cmux highlights use cmux blue."
+            )
+        case .system:
+            return String(
+                localized: "settings.app.accentColor.system.subtitle",
+                defaultValue: "The selected workspace, attention ring, agent status, and other cmux highlights follow the macOS accent color."
             )
         }
     }

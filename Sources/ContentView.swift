@@ -11161,6 +11161,7 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
     private var sidebarFontSizeLoadTask: Task<Void, Never>?
     private var defaultsObserver: NSObjectProtocol?
     private var sidebarFontSizeObserver: NSObjectProtocol?
+    private var accentColorObserver: NSObjectProtocol?
 
     init(
         defaults: UserDefaults = .standard,
@@ -11175,6 +11176,15 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
             sidebarFontSize: sidebarFontSize
         )
         defaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.refreshSnapshot()
+            }
+        }
+        accentColorObserver = NotificationCenter.default.addObserver(
+            forName: CmuxAccentColor.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.refreshSnapshot()
             }
@@ -11198,6 +11208,9 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
         }
         if let sidebarFontSizeObserver {
             NotificationCenter.default.removeObserver(sidebarFontSizeObserver)
+        }
+        if let accentColorObserver {
+            NotificationCenter.default.removeObserver(accentColorObserver)
         }
     }
 
@@ -16668,7 +16681,7 @@ struct TabItemView: View, Equatable {
         }
         switch level {
         case .info: return .secondary
-        case .progress: return .blue
+        case .progress: return cmuxAccentColor()
         case .success: return .green
         case .warning: return .orange
         case .error: return .red
@@ -16963,6 +16976,7 @@ private struct SidebarMetadataEntryRow: View {
     let activeForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Group {
@@ -17002,13 +17016,12 @@ private struct SidebarMetadataEntryRow: View {
     }
 
     private var foregroundColor: Color {
-        if isActive,
-           let raw = entry.color,
-           Color(hex: raw) != nil {
+        let explicit = CmuxAccentColor.statusEntryColor(hex: entry.color, isDark: colorScheme == .dark)
+        if isActive, explicit != nil {
             return activeForegroundColor
         }
-        if let raw = entry.color, let explicit = Color(hex: raw) {
-            return explicit
+        if let explicit {
+            return Color(nsColor: explicit)
         }
         return isActive ? activeForegroundColor.opacity(0.84) : .secondary
     }

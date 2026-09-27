@@ -101,6 +101,16 @@ final class CanvasPaneView: NSView {
             contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         applyChromeColors()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(accentColorDidChange),
+            name: CmuxAccentColor.didChangeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func accentColorDidChange() {
+        applyChromeColors()
     }
 
     @available(*, unavailable)

@@ -784,7 +784,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             // yields to the selected foreground — otherwise agent-status
             // tints (blue "Running") vanish into the blue selection
             // highlight. Explicit colors only apply on unselected rows.
-            let explicitColor = entry.color.flatMap { NSColor(hex: $0) }
+            let explicitColor = CmuxAccentColor.statusEntryColor(
+                hex: entry.color,
+                isDark: palette.colorScheme == .dark
+            )
             let entryColor: NSColor
             if model.isActive {
                 entryColor = explicitColor != nil

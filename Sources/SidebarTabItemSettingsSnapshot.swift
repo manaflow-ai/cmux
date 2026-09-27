@@ -31,6 +31,9 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
     let workspaceTodoChecklistStyle: WorkspaceTodoChecklistStyle
+    /// Changes when the cmux accent resolves differently, so rows that draw
+    /// with it (selection, progress, agent status) reconfigure.
+    let accentColorFingerprint: String
 
     var usesLastSegmentPath: Bool { branchDirectory.usesLastSegmentPath }
     var showsSSH: Bool { details.showSSH }
@@ -93,6 +96,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         notificationBadgeColorHex = settings.value(for: workspaceColors.notificationBadgeColorHex).nilIfEmpty
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
         workspaceTodoChecklistStyle = settings.value(for: betaFeatures.workspaceTodosChecklistStyle)
+        accentColorFingerprint = CmuxAccentColorObserver.fingerprint(defaults: defaults)
     }
 
     private static func bool(
