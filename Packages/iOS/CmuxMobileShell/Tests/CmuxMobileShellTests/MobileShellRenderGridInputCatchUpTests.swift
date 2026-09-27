@@ -21,6 +21,11 @@ import Testing
 
     let collector = OutputCollector()
     collector.mount(store: store, surfaceID: "live-terminal")
+    // Host capabilities resolve before the event listener registers, and the
+    // RPC session drops an event frame that no listener is waiting for. Wait
+    // for the subscription so the frame reaches the terminal pipeline.
+    let subscribed = await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1)
+    #expect(subscribed, "connected render-grid transport must establish the event subscription")
     let transport = try #require(box.get())
     await transport.deliver(try renderGridEventFrame(
         surfaceID: "live-terminal",
@@ -77,6 +82,11 @@ import Testing
 
     let collector = OutputCollector()
     collector.mount(store: store, surfaceID: "live-terminal")
+    // Host capabilities resolve before the event listener registers, and the
+    // RPC session drops an event frame that no listener is waiting for. Wait
+    // for the subscription so the frame reaches the terminal pipeline.
+    let subscribed = await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1)
+    #expect(subscribed, "connected render-grid transport must establish the event subscription")
     let transport = try #require(box.get())
     await transport.deliver(try renderGridEventFrame(
         surfaceID: "live-terminal",

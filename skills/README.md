@@ -3,7 +3,7 @@
 Choose by the task: operating the installed app and changing its implementation
 use different instructions. Load the matching `SKILL.md`, then only the reference
 needed for the current operation. Installed CLI `--help` owns available commands
-and flags; repository instructions own build routing and shared-machine limits.
+and flags; repository instructions own build and test rules.
 
 ## Working on the repository
 
@@ -19,6 +19,7 @@ parsing, test compilation, executed tests and runtime evidence.
 | --- | --- |
 | Setup, tagged builds, project normalization | [cmux-dev-workflow](cmux-dev-workflow/SKILL.md) |
 | Tests, verification scope, target wiring | [cmux-testing](cmux-testing/SKILL.md) |
+| Which commit broke a test on main, stale test or regression | [cmux-test-bisect](cmux-test-bisect/SKILL.md) |
 | Package boundaries, Swift APIs and concurrency | [cmux-architecture](cmux-architecture/SKILL.md) |
 | Backend APIs, providers, database and migrations | [cmux-backend](cmux-backend/SKILL.md) |
 | Billing implementation, Stripe and entitlements | [cmux-billing](cmux-billing/SKILL.md) |

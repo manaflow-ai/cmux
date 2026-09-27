@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxFoundation
 import CmuxNotifications
 import Foundation
 @preconcurrency import UserNotifications
@@ -697,7 +698,7 @@ extension FeedCoordinator {
             key: statusKey,
             value: Self.needsInputStatusValue,
             icon: "bell.fill",
-            color: "#4C8DFF",
+            color: CmuxAccentColor.builtInAgentStatusHex,
             timestamp: Date()
         ), key: statusKey, panelId: panelId)
 
@@ -1234,7 +1235,7 @@ private extension FeedCoordinator {
             case .authorized, .provisional:
                 break
             case .notDetermined:
-                var authorizationOptions: UNAuthorizationOptions = [.alert]
+                var authorizationOptions: UNAuthorizationOptions = [.alert, .badge]
                 if effectiveEffects.sound {
                     authorizationOptions.insert(.sound)
                 }

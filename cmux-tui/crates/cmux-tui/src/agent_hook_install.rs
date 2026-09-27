@@ -55,6 +55,11 @@ const GEMINI_HOOK_TIMEOUT_MILLISECONDS: u64 = 5_000;
 const HERMES_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const HERMES_COMMAND_OUTPUT_BYTES: u64 = 4 * 1024 * 1024;
 
+/// Hidden cmux-tui argument that runs the embedded hook helper. A host that
+/// received only the cmux-tui binary (SSH bootstrap, `install-self`) gets a
+/// launcher script at the helper path that re-enters cmux-tui with it.
+pub(crate) const HOOK_MODE_ARG: &str = "__agent-hook";
+
 /// Builds the helper command embedded in a provider's native hook config.
 fn helper_command(provider: &str, event: &str) -> String {
     format!("cmux-tui-hook {provider} {event}")
@@ -424,6 +429,9 @@ struct Context {
     home: PathBuf,
     data_home: PathBuf,
     helper_source: Option<PathBuf>,
+    /// This cmux-tui binary, which runs the helper through `HOOK_MODE_ARG`
+    /// when no standalone `cmux-tui-hook` ships beside it.
+    helper_launcher: Option<PathBuf>,
     path: Option<OsString>,
     environment: BTreeMap<String, OsString>,
 }
@@ -435,13 +443,21 @@ impl Context {
             .map(PathBuf::from)
             .context("HOME is required to install coding-agent hooks")?;
         let data_home = runtime_data_home(&home);
-        let helper_source = locate_helper_source(std::env::current_exe().ok().as_deref());
+        let current_exe = std::env::current_exe().ok();
+        let helper_source = locate_helper_source(current_exe.as_deref());
         let environment = PROVIDERS
             .iter()
             .filter_map(|provider| provider.override_env)
             .filter_map(|name| std::env::var_os(name).map(|value| (name.to_string(), value)))
             .collect();
-        Ok(Self { home, data_home, helper_source, path: std::env::var_os("PATH"), environment })
+        Ok(Self {
+            home,
+            data_home,
+            helper_source,
+            helper_launcher: current_exe,
+            path: std::env::var_os("PATH"),
+            environment,
+        })
     }
 
     fn installed_helper(&self) -> PathBuf {
@@ -479,11 +495,19 @@ fn runtime_data_home(home: &Path) -> PathBuf {
 }
 
 #[cfg(unix)]
-pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
+/// cmux-tui's own directory under the XDG data home (`~/.local/share/cmux-tui`).
+pub(crate) fn runtime_cmux_tui_data_home() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").filter(|value| !value.is_empty()).map(PathBuf::from)?;
-    Some(runtime_data_home(&home).join("cmux-tui/bin/cmux-tui-hook"))
+    Some(runtime_data_home(&home).join("cmux-tui"))
 }
 
+/// Where `agent hook install` places the detached `cmux-tui-hook` helper.
+#[cfg(unix)]
+pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
+    Some(runtime_cmux_tui_data_home()?.join("bin/cmux-tui-hook"))
+}
+
+/// Where `agent hook install` places the detached `cmux-tui-hook` helper.
 #[cfg(not(unix))]
 pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
     None
@@ -529,13 +553,18 @@ fn run_with_context(plan: &Plan, context: &Context) -> RunResult {
     let mut errors = Vec::new();
 
     if plan.action == Action::Install {
-        match context.helper_source.as_deref() {
-            Some(source) => {
+        match (context.helper_source.as_deref(), context.helper_launcher.as_deref()) {
+            (Some(source), _) => {
                 if let Err(error) = install_helper(source, &helper) {
                     errors.push(format!("helper: {error:#}"));
                 }
             }
-            None => {
+            (None, Some(executable)) => {
+                if let Err(error) = install_helper_launcher(executable, &helper) {
+                    errors.push(format!("helper: {error:#}"));
+                }
+            }
+            (None, None) => {
                 errors
                     .push("helper: cmux-tui-hook was not found beside cmux-tui or on PATH".into());
             }
@@ -1140,7 +1169,8 @@ fn set_hermes_plugin_enabled(context: &Context, enabled: bool) -> anyhow::Result
     Ok(())
 }
 
-fn locate_helper_source(current_exe: Option<&Path>) -> Option<PathBuf> {
+/// A `cmux-tui-hook` beside `current_exe`, else the first one on `PATH`.
+pub(crate) fn locate_helper_source(current_exe: Option<&Path>) -> Option<PathBuf> {
     current_exe
         .and_then(Path::parent)
         .map(|parent| parent.join("cmux-tui-hook"))
@@ -1158,7 +1188,8 @@ fn find_executable(binary: &str, path: Option<&std::ffi::OsStr>) -> Option<PathB
         .find(|candidate| is_executable_file(candidate))
 }
 
-fn is_executable_file(path: &Path) -> bool {
+/// Whether `path` is a regular file with an execute bit (any regular file off Unix).
+pub(crate) fn is_executable_file(path: &Path) -> bool {
     let Ok(metadata) = fs::metadata(path) else {
         return false;
     };
@@ -1185,8 +1216,13 @@ fn install_helper(source: &Path, destination: &Path) -> anyhow::Result<()> {
         "helper source size is invalid"
     );
     let bytes = fs::read(source).with_context(|| format!("read {}", source.display()))?;
+    install_helper_bytes(&bytes, destination)
+}
+
+/// Writes the helper unless an executable copy with these bytes is in place.
+fn install_helper_bytes(bytes: &[u8], destination: &Path) -> anyhow::Result<()> {
     ensure_replaceable_target(destination)?;
-    if fs::read(destination).ok().as_deref() == Some(bytes.as_slice()) {
+    if fs::read(destination).ok().as_deref() == Some(bytes) {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt as _;
@@ -1197,7 +1233,17 @@ fn install_helper(source: &Path, destination: &Path) -> anyhow::Result<()> {
         #[cfg(not(unix))]
         return Ok(());
     }
-    atomic_write(destination, &bytes, Some(0o755))
+    atomic_write(destination, bytes, Some(0o755))
+}
+
+/// The helper script for a host without a standalone `cmux-tui-hook`.
+fn helper_launcher_script(executable: &Path) -> anyhow::Result<String> {
+    let executable = executable.to_str().context("cmux-tui path is not valid UTF-8")?;
+    Ok(format!("#!/bin/sh\nexec {} {HOOK_MODE_ARG} \"$@\"\n", shell_quote(executable)))
+}
+
+fn install_helper_launcher(executable: &Path, destination: &Path) -> anyhow::Result<()> {
+    install_helper_bytes(helper_launcher_script(executable)?.as_bytes(), destination)
 }
 
 fn install_provider(
@@ -1806,6 +1852,55 @@ fn codex_hook_timeout(event: &str) -> u64 {
     } else {
         COMMAND_HOOK_TIMEOUT_SECONDS
     }
+}
+
+#[cfg(unix)]
+/// Claude's hook groups in exactly the shape `agent hook install claude`
+/// writes, for a launcher that passes them through `--settings`. With the
+/// detached helper available the commands are byte-identical to the installed
+/// ones, so Claude Code deduplicates them against a copy in the user's
+/// settings. `emit_binary` replaces each command with the CLI's
+/// `agent hook emit` for hosts that have no helper.
+pub(crate) fn claude_session_hook_settings(
+    emit_binary: Option<&Path>,
+) -> anyhow::Result<Map<String, Value>> {
+    let provider = *PROVIDERS
+        .iter()
+        .find(|provider| provider.id == "claude")
+        .context("the claude hook provider is missing")?;
+    let Format::Nested { timeout, .. } = provider.format else {
+        anyhow::bail!("the claude hook provider must use nested hooks");
+    };
+    let mut root = Map::new();
+    rewrite_json_hooks(&mut root, provider, true, timeout, true)?;
+    let Some(binary) = emit_binary else {
+        return Ok(root);
+    };
+    let binary = shell_quote(binary.to_str().context("the cmux-tui path is not UTF-8")?);
+    let hooks = root.get_mut("hooks").and_then(Value::as_object_mut).context("hooks missing")?;
+    for (event, groups) in hooks.iter_mut() {
+        let command = emit_hook_command(&binary, provider.id, event);
+        for group in groups.as_array_mut().into_iter().flatten() {
+            let handlers = group.get_mut("hooks").and_then(Value::as_array_mut);
+            for handler in handlers.into_iter().flatten() {
+                if let Some(handler) = handler.as_object_mut() {
+                    handler.insert("command".into(), Value::String(command.clone()));
+                }
+            }
+        }
+    }
+    Ok(root)
+}
+
+#[cfg(unix)]
+/// The `agent hook emit` fallback for `claude_session_hook_settings`. Its
+/// receipt is discarded because Claude Code adds hook stdout to the context.
+fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String {
+    format!(
+        "{quoted_binary} agent hook emit --source {} --event {} >/dev/null 2>&1||:;echo {{}};#{COMMAND_MARKER}",
+        shell_quote(provider),
+        shell_quote(event),
+    )
 }
 
 fn hook_command(provider: &str, event: &str) -> String {
@@ -2453,11 +2548,13 @@ fn codex_trust_state_verified(
     })
 }
 
-fn shell_quote(value: &str) -> String {
+/// Single-quotes a value for a POSIX shell command line.
+pub(crate) fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
+/// Replaces `path` through a synced temporary file and rename, with an optional Unix mode.
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
     ensure_replaceable_target(path)?;
     let parent = path.parent().context("installation path has no parent")?;
     fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
@@ -2525,6 +2622,7 @@ mod tests {
             home,
             data_home,
             helper_source: Some(helper),
+            helper_launcher: None,
             path: None,
             environment: BTreeMap::new(),
         }
@@ -3487,6 +3585,45 @@ esac
         let result = run_with_context(&uninstall, &context);
         assert!(!result.failed, "{}", result.value);
         assert!(fs::read(root.path().join("hermes-enabled")).unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_without_a_standalone_helper_writes_a_cmux_tui_launcher() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let root = tempfile::tempdir().unwrap();
+        let mut context = context(root.path());
+        context.helper_source = None;
+        context.helper_launcher = Some(root.path().join("it's bin/cmux-tui"));
+        let plan = Plan { action: Action::Install, providers: vec!["claude".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(!result.failed, "{}", result.value);
+        let helper = context.installed_helper();
+        assert_eq!(
+            fs::read_to_string(&helper).unwrap(),
+            format!(
+                "#!/bin/sh\nexec '{}/it'\\''s bin/cmux-tui' __agent-hook \"$@\"\n",
+                root.path().display()
+            )
+        );
+        assert_ne!(fs::metadata(&helper).unwrap().permissions().mode() & 0o111, 0);
+        let modified = fs::metadata(&helper).unwrap().modified().unwrap();
+        let again = run_with_context(&plan, &context);
+        assert!(!again.failed, "{}", again.value);
+        assert_eq!(again.value["providers"][0]["changed"], false, "{}", again.value);
+        assert_eq!(fs::metadata(&helper).unwrap().modified().unwrap(), modified);
+    }
+
+    #[test]
+    fn install_without_any_helper_reports_it() {
+        let root = tempfile::tempdir().unwrap();
+        let mut context = context(root.path());
+        context.helper_source = None;
+        let plan = Plan { action: Action::Install, providers: vec!["claude".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(result.failed, "{}", result.value);
+        assert!(result.value["errors"][0].as_str().unwrap().contains("cmux-tui-hook"));
     }
 
     #[test]
