@@ -107,4 +107,39 @@ struct CloudRestoreReplayGridTests {
         fixture.socket.send(["id": claim.id, "ok": true, "data": [:]])
         try await fixture.expectInputAfterPendingResponses(marker: "CLAIM_APPLIED")
     }
+
+    @Test
+    func typingIntoTheGeometryOwnerSendsOnlyOneWayInput() async throws {
+        let fixture = try CloudRestoreReplayFixture()
+        defer { fixture.close() }
+        try await fixture.setGrid(columns: 99, rows: 35)
+        fixture.setVisible(true)
+        fixture.setVisible(false)
+        try await fixture.attach(replay: Data("STATUS_READY".utf8))
+        fixture.setVisible(true)
+
+        let report = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+        #expect(report.cmd == "resize-surface")
+        fixture.socket.send(["id": report.id, "ok": true, "data": ["accepted": true, "outcome": "applied"]])
+        let claim = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+        #expect(claim.cmd == "set-client-sizing")
+        fixture.socket.send([
+            "event": "resized", "surface": 17, "cols": 99, "rows": 35,
+            "replay": Data("OWNER_GRID".utf8).base64EncodedString()
+        ])
+        fixture.socket.send(["id": claim.id, "ok": true, "data": [:]])
+        try await fixture.expectInputAfterPendingResponses(marker: "OWNER_CONFIRMED")
+
+        // Each keystroke used to re-claim geometry first, which put a
+        // set-client-sizing round trip ahead of every key. The owner's keys
+        // go out alone and ask for no reply, so a relay can send them as
+        // compact one-way input.
+        for key in ["l", "s", "\r"] {
+            fixture.type(key)
+            let input = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+            #expect(input.cmd == "send", "The confirmed owner re-claimed geometry for a keystroke")
+            #expect(input.inputBytes == Data(key.utf8))
+            #expect(input.noReply)
+        }
+    }
 }
