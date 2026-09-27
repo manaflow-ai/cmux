@@ -16,6 +16,7 @@ struct BrowserSearchOverlay: View {
     @State private var dragOffset: CGSize = .zero
     @State private var barSize: CGSize = .zero
     @State private var isSearchFieldFocused: Bool = true
+    @State private var isSearchFieldEditing: Bool = false
 
     private let padding: CGFloat = 8
 
@@ -30,6 +31,7 @@ struct BrowserSearchOverlay: View {
                     selectionOwner: searchState,
                     canApplyFocusRequest: canApplyFocusRequest,
                     onFieldDidFocus: onFieldDidFocus,
+                    onEditingChanged: { isSearchFieldEditing = $0 },
                     onEscape: onClose,
                     onReturn: { isShift in
                         if isShift {
@@ -45,6 +47,10 @@ struct BrowserSearchOverlay: View {
                     .padding(.vertical, 6)
                     .background(Color.primary.opacity(0.1))
                     .cornerRadius(6)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(isSearchFieldEditing ? cmuxAccentColor() : Color.clear, lineWidth: 1)
+                    )
                     .overlay(alignment: .trailing) {
                     if let selected = searchState.selected {
                         let totalText = searchState.total.map { String($0) } ?? "?"
@@ -205,6 +211,9 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
     let selectionOwner: AnyObject
     let canApplyFocusRequest: (UInt64) -> Bool
     let onFieldDidFocus: () -> Void
+    /// Actual editing state, reported by the field itself. `isFocused` is only
+    /// the focus request and can stay true when focus never lands.
+    let onEditingChanged: (Bool) -> Void
     let onEscape: () -> Void
     let onReturn: (_ isShift: Bool) -> Void
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
@@ -321,6 +330,13 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
         field.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
         field.placeholderString = String(localized: "search.placeholder", defaultValue: "Search")
         field.setAccessibilityIdentifier("BrowserFindSearchTextField")
+        field.cmuxOnEditingChanged = { [weak coordinator = context.coordinator] isEditing in
+            // Deferred like the isFocused writes: AppKit can report this while
+            // SwiftUI is updating the view.
+            DispatchQueue.main.async {
+                coordinator?.parent.onEditingChanged(isEditing)
+            }
+        }
         field.delegate = context.coordinator
         field.cmuxSelectionOwner = selectionOwner
         field.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }

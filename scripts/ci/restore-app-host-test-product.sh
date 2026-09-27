@@ -80,6 +80,11 @@ if [ "${CMUX_LAYER_RESTORED:-}" != "true" ]; then
   tar -xzf "$archive" -C "$CMUX_DERIVED_DATA_PATH"
 fi
 products="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug"
+# The product's Mach-O files look for package frameworks first at the
+# DerivedData they were compiled in. On an owned Mac that path can hold the
+# canonical root's kept build of another commit, so point them at this
+# product's own frameworks before anything below copies them.
+python3 scripts/ci/relocate_package_framework_rpaths.py "$products"
 stable="$RUNNER_TEMP/cmux-app-host-package-frameworks"
 stable_system="/private/tmp/cmux-app-host-package-frameworks"
 mkdir -p "$stable"

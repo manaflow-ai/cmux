@@ -109,7 +109,8 @@ extension VerticalTabsSidebar {
             isBeingDragged: dragState.draggedTabId == dragIdentity,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
-            colorSchemeIsDark: renderContext.environment.colorScheme == .dark
+            colorSchemeIsDark: renderContext.environment.colorScheme == .dark,
+            notificationBadgeColorHex: settings.notificationBadgeColorHex
         )
         let actions = makeWorkspaceGroupHeaderActions(
             groupId: group.id,
@@ -267,7 +268,8 @@ extension VerticalTabsSidebar {
             isBeingDragged: dragState.draggedTabId == dragIdentity,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
-            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
+            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets,
+            notificationBadgeColorHex: settings.notificationBadgeColorHex
         )
     }
 
@@ -318,6 +320,7 @@ extension VerticalTabsSidebar {
             isBeingDragged: snapshot.isBeingDragged,
             topDropIndicatorVisible: snapshot.topDropIndicatorVisible,
             bottomDropIndicatorVisible: snapshot.bottomDropIndicatorVisible,
+            notificationBadgeColorHex: snapshot.notificationBadgeColorHex,
             actions: actions,
             onContextMenuAppear: {},
             onContextMenuDisappear: {}
