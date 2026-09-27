@@ -830,6 +830,32 @@ final class HostSettingsActions: SettingsHostActions {
         CmuxGhosttyConfigSettingEditor().formattedFontSize(points)
     }
 
+    func terminalGhosttyOptions() async -> GhosttyTerminalOptionsSnapshot {
+        await Task.detached(priority: .userInitiated) {
+            let resolved = GhosttyConfig.resolvedDirectiveValues(forKeys: GhosttyTerminalOptions.configKeys)
+            let environment = ConfigSourceEnvironment.live()
+            var sourcePaths: [GhosttyTerminalOptionKey: String] = [:]
+            for (key, path) in resolved.lastSourcePaths {
+                guard let optionKey = GhosttyTerminalOptionKey(rawValue: key) else { continue }
+                sourcePaths[optionKey] = environment.abbreviatedPath(for: URL(fileURLWithPath: path))
+            }
+            return GhosttyTerminalOptionsSnapshot(
+                options: GhosttyTerminalOptions(directives: resolved.values),
+                sourcePaths: sourcePaths
+            )
+        }.value
+    }
+
+    func applyTerminalGhosttyOption(_ change: GhosttyTerminalOptionChange) async -> Bool {
+        let key = change.key.rawValue
+        guard await fontConfigWriter.write(key: key, values: change.configValues) else {
+            hostSettingsLogger.warning("failed to persist \(key, privacy: .public)")
+            return false
+        }
+        GhosttyApp.shared.reloadConfiguration(source: "settings.terminal.ghosttyOption")
+        return true
+    }
+
     func mobilePairingStatus() -> MobilePairingStatusSnapshot? {
         Self.mobilePairingSnapshot(from: MobileHostService.shared.statusSnapshot())
     }
@@ -1012,7 +1038,8 @@ final class MobileHostStatusObserverToken: @unchecked Sendable {
     }
 }
 
-/// Serializes cmux Ghostty config writes for the font-size settings so rapid
+/// Serializes cmux Ghostty config writes from Settings (font sizes and the
+/// Terminal section's Ghostty option rows) so rapid
 /// successive saves apply in submission order instead of racing.
 ///
 /// The Settings sliders fire a save on every release and Reset tap. Routed
@@ -1029,6 +1056,17 @@ private actor FontConfigWriter {
     func write(key: String, value: String) -> Bool {
         do {
             try ConfigSourceEnvironment.live().writeCmuxConfigSetting(key: key, value: value)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Writes one `key = value` line per value, replacing every existing
+    /// assignment to `key` (for list keys such as `font-family`).
+    func write(key: String, values: [String]) -> Bool {
+        do {
+            try ConfigSourceEnvironment.live().writeCmuxConfigSetting(key: key, values: values)
             return true
         } catch {
             return false
