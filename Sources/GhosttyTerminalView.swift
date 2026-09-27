@@ -6411,7 +6411,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         surface: ghostty_surface_t
     ) -> Bool {
         // An in-flight clipboard read queues later input behind the paste;
-        // acting now would edit the prompt ahead of it.
+        // acting now would edit the prompt ahead of it. The deferred event
+        // replays through keyDown, so Cmd+A typed during a paste read keeps
+        // Ghostty's whole-screen select_all.
         guard !keyboardCopyModeActive, !hasMarkedText(), !hasClipboardInputDeferral else { return false }
         let intent: TerminalPromptSelectionIntent
         switch KeyboardLayout.normalizedCharacters(for: event) {

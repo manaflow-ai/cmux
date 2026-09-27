@@ -108,8 +108,8 @@ public enum TerminalPromptSelectionIntent: Equatable, Sendable {
 /// instead of deleting, and a Right arrow at the end of a zsh buffer accepts
 /// an autosuggestion, so an edit that reaches into a suggestion does the
 /// wrong thing. It also assumes one cell per buffer character: a control
-/// character the line editor shows as `^X` takes two cells, so an edit
-/// across it sends one Backspace too many.
+/// character the line editor shows as `^X` takes two cells, and a literal
+/// Tab several, so an edit across one sends too many Backspaces.
 public struct TerminalPromptInputEdit: Equatable, Sendable {
     /// Left-arrow presses to send first.
     public let moveLeft: Int
@@ -302,9 +302,10 @@ private func terminalPromptSelectionCurrent(
 /// Maps a key-down event to a prompt selection intent.
 ///
 /// Cmd+A and Cmd+X are not mapped here: the terminal view matches them in
-/// its key-equivalent path, ahead of Ghostty's `select_all` binding. Control-bearing events never map, so Ctrl+C keeps
-/// reaching the shell. Option+arrow and Option+Delete do not map;
-/// word-wise selection needs the input text, which Ghostty does not export.
+/// its key-equivalent path, ahead of Ghostty's `select_all` binding.
+/// Control-bearing events never map, so Ctrl+C keeps reaching the shell.
+/// Option+arrow and Option+Delete do not map; word-wise selection needs the
+/// input text, which Ghostty does not export.
 /// Option-typed text (German `@`, accented letters) does map to insertion.
 ///
 /// Plain arrows and plain typing map too, but the resolver passes them
