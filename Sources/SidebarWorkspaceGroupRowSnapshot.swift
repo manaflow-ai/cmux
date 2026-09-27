@@ -40,4 +40,5 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
     let shouldCollectWorkspaceDropTargets: Bool
+    let notificationBadgeColorHex: String?
 }

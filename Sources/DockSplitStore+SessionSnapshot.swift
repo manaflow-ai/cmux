@@ -302,7 +302,7 @@ extension DockSplitStore {
             let shouldPersistScrollback = policy.shouldPersistSessionScrollback(
                 closeConfirmationRequired: Workspace.resolveCloseConfirmation(
                     shellActivityState: terminal.shellActivity.state,
-                    fallbackNeedsConfirmClose: terminal.needsConfirmClose()
+                    fallbackNeedsConfirmClose: terminal.surface.snapshotNeedsConfirmClose()
                 )
             ) && policy.shouldReplaySessionScrollback(
                 hasRestorableAgent: restorableAgent != nil,
