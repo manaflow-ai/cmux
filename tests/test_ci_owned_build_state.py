@@ -40,10 +40,6 @@ class Fixture(unittest.TestCase):
         self.source = base / "canonical" / "src"
         self.packages = self.source / ".ci-source-packages"
         self.workspace.mkdir()
-        # Parking (PR slots) needs free disk; off unless a test turns it on, so the host's disk never matters.
-        self.free = unittest.mock.patch("owned_build_state.free_gib", return_value=0.0)
-        self.free.start()
-        self.addCleanup(self.free.stop)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -324,47 +320,44 @@ class WarmKeys(Fixture):
         return ((store or self.store) / "derived-data" / "Build" / "marker").read_text()
 
     def test_keep_parks_another_pull_requests_build_and_check_swaps_it_back(self):
-        with unittest.mock.patch("owned_build_state.free_gib", return_value=500.0):
-            self.build("seven")
-            self.kept(merged_onto=A, pr="7")
-            self.build("nine")
-            self.assertEqual(self.kept(merged_onto=B, pr="9"), {"kept": "true", "parked": "pr-7"})
-            self.assertEqual(self.kept_marker(), "nine")
-            slot = self.store / "pr-builds" / "pr-7"
-            self.assertEqual(json.loads((slot / "stamp.json").read_text())["pr"], 7)
-            # warm-keys lists the parked build's pull request and publishes its stamp for the picker.
-            listed = self.keys(cache=False)
-            self.assertEqual(listed["keys"], ["b" * 12, "pr-9"])  # parked builds ride in `roots` only
-            self.assertEqual(listed["roots"], [{"root": 1, "merged_onto": B, "pr": 9,
-                                                "parked": [{"merged_onto": A, "pr": 7}]}])
-            # Pull request 7's next push swaps its build back in and parks 9's.
-            result = run(state.check, self.store, "fp", self.workspace, None, "7")
-            self.assertEqual((result["warm"], result["reason"]), ("true", "this pull request's parked build"))
-            self.assertEqual(self.kept_marker(), "seven")
-            self.assertEqual(json.loads((self.store / "stamp.json").read_text())["pr"], 7)
-            self.assertFalse(slot.exists())
-            self.assertTrue((self.store / "pr-builds" / "pr-9" / "derived-data").is_dir())
-            # A re-push of the kept pull request replaces its build in place, parking nothing.
-            self.build("seven again")
-            self.assertEqual(self.kept(merged_onto=A, pr="7"), {"kept": "true"})
+        self.build("seven")
+        self.kept(merged_onto=A, pr="7")
+        self.build("nine")
+        self.assertEqual(self.kept(merged_onto=B, pr="9"), {"kept": "true", "parked": "pr-7"})
+        self.assertEqual(self.kept_marker(), "nine")
+        slot = self.store / "pr-builds" / "pr-7"
+        self.assertEqual(json.loads((slot / "stamp.json").read_text())["pr"], 7)
+        # warm-keys lists the parked build's pull request and publishes its stamp for the picker.
+        listed = self.keys(cache=False)
+        self.assertEqual(listed["keys"], ["b" * 12, "pr-9"])  # parked builds ride in `roots` only
+        self.assertEqual(listed["roots"], [{"root": 1, "merged_onto": B, "pr": 9,
+                                            "parked": [{"merged_onto": A, "pr": 7}]}])
+        # Pull request 7's next push swaps its build back in and parks 9's.
+        result = run(state.check, self.store, "fp", self.workspace, None, "7")
+        self.assertEqual((result["warm"], result["reason"]), ("true", "this pull request's parked build"))
+        self.assertEqual(self.kept_marker(), "seven")
+        self.assertEqual(json.loads((self.store / "stamp.json").read_text())["pr"], 7)
+        self.assertFalse(slot.exists())
+        self.assertTrue((self.store / "pr-builds" / "pr-9" / "derived-data").is_dir())
+        # A re-push of the kept pull request replaces its build in place, parking nothing.
+        self.build("seven again")
+        self.assertEqual(self.kept(merged_onto=A, pr="7"), {"kept": "true"})
 
     def test_check_never_drops_a_main_build_for_a_parked_one(self):
-        with unittest.mock.patch("owned_build_state.free_gib", return_value=500.0):
-            self.build("seven")
-            self.kept(pr="7")
-            self.build("main")
-            self.kept(pr="")  # idle warming keeps main: 7 stays parked, main cannot be
-            result = run(state.check, self.store, "fp", self.workspace, None, "7")
+        self.build("seven")
+        self.kept(pr="7")
+        self.build("main")
+        self.kept(pr="")  # idle warming keeps main: 7 stays parked, main cannot be
+        result = run(state.check, self.store, "fp", self.workspace, None, "7")
         self.assertEqual(result["reason"], "kept DerivedData matches")
         self.assertEqual(self.kept_marker(), "main")
         self.assertTrue((self.store / "pr-builds" / "pr-7" / "derived-data").is_dir())
 
     def test_check_replaces_an_unreadable_kept_build_and_skips_an_expired_slot(self):
-        with unittest.mock.patch("owned_build_state.free_gib", return_value=500.0):
-            self.build("seven")
-            self.kept(pr="7")
-            self.build("nine")
-            self.kept(pr="9")
+        self.build("seven")
+        self.kept(pr="7")
+        self.build("nine")
+        self.kept(pr="9")
         (self.store / "stamp.json").write_text("{}")
         slot = self.store / "pr-builds" / "pr-7"
         os.utime(slot, (1, 1))
@@ -375,13 +368,12 @@ class WarmKeys(Fixture):
         self.assertEqual((result["reason"], self.kept_marker()), ("this pull request's parked build", "seven"))
 
     def test_keep_drops_a_stale_parked_build_of_its_own_pull_request(self):
-        with unittest.mock.patch("owned_build_state.free_gib", return_value=500.0):
-            self.build("seven")
-            self.kept(pr="7")
-            self.build("nine")
-            self.kept(pr="9")
-            self.build("seven, cold")
-            self.kept(pr="7")  # say its check could not unpark: the new build supersedes the parked one
+        self.build("seven")
+        self.kept(pr="7")
+        self.build("nine")
+        self.kept(pr="9")
+        self.build("seven, cold")
+        self.kept(pr="7")  # say its check could not unpark: the new build supersedes the parked one
         self.assertFalse((self.store / "pr-builds" / "pr-7").exists())
         self.assertEqual(self.kept_marker(), "seven, cold")
 
@@ -395,28 +387,57 @@ class WarmKeys(Fixture):
         self.assertEqual(sorted(path.name for path in (self.store / "pr-builds").iterdir()), ["pr-5"])
 
     def test_check_leaves_a_parked_build_of_another_fingerprint(self):
-        with unittest.mock.patch("owned_build_state.free_gib", return_value=500.0):
-            self.build("seven")
-            self.kept(pr="7")
-            self.build("nine")
-            self.kept(pr="9")
+        self.build("seven")
+        self.kept(pr="7")
+        self.build("nine")
+        self.kept(pr="9")
         result = run(state.check, self.store, "other-xcode", self.workspace, None, "7")
         self.assertNotEqual(result["reason"], "this pull request's parked build")
         self.assertEqual(self.kept_marker(), "nine")
         self.assertTrue((self.store / "pr-builds" / "pr-7").is_dir())
 
-    def test_no_parking_below_the_free_disk_floor(self):
-        self.build("seven")
-        self.kept(pr="7")
-        self.build("nine")
-        self.assertEqual(self.kept(pr="9"), {"kept": "true"})
-        self.assertFalse((self.store / "pr-builds" / "pr-7").exists())
+    def test_out_of_space_evicts_parked_builds_oldest_first_then_keeps(self):
+        for number in ("7", "8", "9"):
+            self.build(number)
+            self.kept(pr=number)
+        second = self.store / "cmux-ci-2" / "pr-builds" / "pr-5"
+        (second / "derived-data").mkdir(parents=True)
+        os.utime(second, (1, 1))
+        self.assertEqual([path.name for path in state.parked_slots(self.store)], ["pr-5", "pr-7", "pr-8"])
+        real, calls = state.clone, []
+
+        def full_once(source, destination):
+            calls.append(destination)
+            if len(calls) == 1:
+                raise OSError(28, "No space left on device")
+            real(source, destination)
+        self.build("ten")
+        with unittest.mock.patch("owned_build_state.clone", full_once):
+            self.assertEqual(self.kept(pr="10"), {"kept": "true", "parked": "pr-9"})
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([path.name for path in state.parked_slots(self.store)], ["pr-9"])
+        self.assertEqual(self.kept_marker(), "ten")
+        # With nothing to evict, the error stands.
+        state.evict_parked(self.store)
+        with unittest.mock.patch("owned_build_state.clone", side_effect=OSError(28, "No space left on device")):
+            with self.assertRaises(OSError):
+                self.kept(pr="11")
+
+    def test_evict_parked_takes_the_oldest_first(self):
+        for number in ("7", "8", "9"):
+            self.build(number)
+            self.kept(pr=number)
+        os.utime(self.store / "pr-builds" / "pr-8", (1, 1))
+        output = io.StringIO()
+        with unittest.mock.patch("sys.stdout", output):
+            self.assertEqual(state.main(["x", "evict-parked", str(self.store), "1"]), 0)
+        self.assertIn("pr-8", output.getvalue())
+        self.assertEqual([path.name for path in state.parked_slots(self.store)], ["pr-7"])
 
     def test_parked_builds_are_capped_by_count_and_age(self):
-        with unittest.mock.patch("owned_build_state.free_gib", return_value=500.0):
-            for number in ("1", "2", "3", "4"):
-                self.build(number)
-                self.kept(pr=number)
+        for number in ("1", "2", "3", "4"):
+            self.build(number)
+            self.kept(pr=number)
         self.assertEqual(sorted(path.name for path in (self.store / "pr-builds").iterdir()), ["pr-2", "pr-3"])
         stale = self.store / "pr-builds" / "pr-2"
         os.utime(stale, (1, 1))
