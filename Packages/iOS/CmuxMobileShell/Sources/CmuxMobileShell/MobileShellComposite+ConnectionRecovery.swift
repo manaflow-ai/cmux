@@ -125,6 +125,26 @@ extension MobileShellComposite {
                 break
             }
         }
+        // Automatic wake-ups arriving BEFORE the first stored-Mac restore for
+        // the current account/team scope are satisfied by that upcoming
+        // restore, exactly like the wake-ups coalesced into an active restore
+        // above. In that window auth bootstrap and paired-Mac hydration may
+        // still be in flight (the launch directory stream emits its initial
+        // snapshot within milliseconds of mount), so a recovery dial started
+        // here runs against half-initialized state. Its predictable failure
+        // arms the account cooldown, which then filters Iroh out of the real
+        // startup restore and settles it as noRoute while the Mac is
+        // reachable. Starting the first restore is owned by the app root's
+        // startup coordinator (see `currentTeamDidChange`); the foreground
+        // path already defers the same way in
+        // `recoverDisconnectedOnForegroundIfNeeded`.
+        if shouldDeferAutomaticRecoveryToFirstStoredMacRestore(trigger: trigger) {
+            MobileDebugLog.anchormux(
+                "connection.recovery deferred to first stored-Mac restore "
+                    + "trigger=\(trigger.description)"
+            )
+            return
+        }
         let connectionMethodChanged: Bool
         if case .connectionMethodChanged = trigger {
             connectionMethodChanged = true
@@ -159,6 +179,31 @@ extension MobileShellComposite {
            !connectionRecoveryOwner.isRedialingOrValidating {
             scheduleSecondaryAggregation()
         }
+    }
+
+    /// Whether an automatic recovery trigger must defer to the first
+    /// stored-Mac restore of the current account/team scope instead of
+    /// dialing independently. Explicit user intent (manual retry, a
+    /// connection-method change) never defers. Triggers carrying live
+    /// connection evidence only reach this entry disconnected, where the
+    /// upcoming restore satisfies them the same way.
+    private func shouldDeferAutomaticRecoveryToFirstStoredMacRestore(
+        trigger: RecoveryTrigger
+    ) -> Bool {
+        switch trigger {
+        case .manual, .connectionMethodChanged:
+            return false
+        case .networkChange, .presencePush, .directoryChanged, .foreground,
+             .liveness, .eventStreamEnded, .subscriptionStartFailed,
+             .transportWriteTimedOut, .automaticBackoffExpired:
+            break
+        }
+        return isSignedIn
+            && pairedMacStore != nil
+            && connectionState != .connected
+            && !didFinishStoredMacReconnectAttempt
+            && !didSettleExplicitForegroundConnect
+            && !isReconnectingStoredMac
     }
 
     /// Checks native connection state before promoting a feature failure to

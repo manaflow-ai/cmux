@@ -31,6 +31,7 @@ public struct AppSection: View {
     @State private var keepWorkspaceOpen: DefaultsValueModel<Bool>
     @State private var firstClick: DefaultsValueModel<Bool>
     @State private var focusHistoryIncludesPanesAndTabs: DefaultsValueModel<Bool>
+    @State private var equalizeSplitsOnCreate: DefaultsValueModel<Bool>
     @State private var fileDrop: DefaultsValueModel<FileDropDefaultBehavior>
     @State private var preferredEditor: DefaultsValueModel<String>
     @State private var openSupported: DefaultsValueModel<Bool>
@@ -63,7 +64,7 @@ public struct AppSection: View {
     @State private var customSoundFile: DefaultsValueModel<String>
     @State private var soundOverrides: DefaultsValueModel<String>
     @State private var soundOverridesModel: NotificationSoundOverridesModel
-    @State private var soundAgents: [NotificationSoundAgentOption] = []
+    private let soundAgentCache: NotificationSoundAgentCache
     @State private var telemetry: DefaultsValueModel<Bool>
     @State private var confirmQuit: DefaultsValueModel<ConfirmQuitMode>
     @State private var warnCloseTab: DefaultsValueModel<Bool>
@@ -83,10 +84,12 @@ public struct AppSection: View {
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         catalog: SettingCatalog,
-        hostActions: SettingsHostActions
+        hostActions: SettingsHostActions,
+        soundAgentCache: NotificationSoundAgentCache = NotificationSoundAgentCache()
     ) {
         self.catalog = catalog
         self.hostActions = hostActions
+        self.soundAgentCache = soundAgentCache
         _language = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.language))
         _appearance = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appearance))
         _appIcon = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon))
@@ -96,6 +99,7 @@ public struct AppSection: View {
         _keepWorkspaceOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.keepWorkspaceOpenWhenClosingLastSurface))
         _firstClick = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.focusPaneOnFirstClick))
         _focusHistoryIncludesPanesAndTabs = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.focusHistoryIncludesPanesAndTabs))
+        _equalizeSplitsOnCreate = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.equalizeSplitsOnCreate))
         _fileDrop = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.fileDropDefaultBehavior))
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
@@ -158,10 +162,8 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
-            if soundAgents.isEmpty {
-                soundAgents = await hostActions.notificationSoundAgentOptions()
-            }
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            await soundAgentCache.loadIfNeeded { await hostActions.notificationSoundAgentOptions() }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
         .task {
@@ -341,6 +343,24 @@ public struct AppSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsFocusHistoryIncludesPanesAndTabsToggle")
+            }
+            SettingsCardDivider()
+
+            // Equalize Splits on Create
+            SettingsCardRow(
+                configurationReview: .json("app.equalizeSplitsOnCreate"),
+                String(localized: "settings.app.equalizeSplitsOnCreate", defaultValue: "Equalize Splits on Create"),
+                subtitle: equalizeSplitsOnCreate.current
+                    ? String(localized: "settings.app.equalizeSplitsOnCreate.subtitleOn", defaultValue: "New splits resize the panes in that direction to equal sizes.")
+                    : String(localized: "settings.app.equalizeSplitsOnCreate.subtitleOff", defaultValue: "New splits take half of the pane they were created from.")
+            ) {
+                Toggle("", isOn: Binding(
+                    get: { equalizeSplitsOnCreate.current },
+                    set: { equalizeSplitsOnCreate.set($0) }
+                ))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsEqualizeSplitsOnCreateToggle")
             }
             SettingsCardDivider()
 
@@ -787,7 +807,7 @@ public struct AppSection: View {
                         soundOverrides.set(encoded)
                     },
                     hostActions: hostActions,
-                    agents: soundAgents
+                    agents: soundAgentCache.agents ?? []
                 )
                 .frame(minWidth: 510, maxWidth: .infinity, alignment: .leading)
             }

@@ -33,6 +33,14 @@ public struct WindowAppearanceSnapshot {
     /// dependent surface consume the same answer for a render pass.
     public let resolvedColorScheme: ColorScheme
 
+    /// The light/dark decision for the left sidebar's backdrop and content.
+    ///
+    /// A sidebar that shares the terminal backdrop follows the terminal
+    /// authority. A separate sidebar draws a material that resolves against
+    /// the app appearance, so its content must follow that same appearance or
+    /// text is drawn for a scheme its own background does not use.
+    public let sidebarColorScheme: ColorScheme
+
     /// Creates a resolved window appearance snapshot.
     public init(
         terminalBackgroundColor: NSColor,
@@ -42,12 +50,16 @@ public struct WindowAppearanceSnapshot {
         unifySurfaceBackdrops: Bool,
         sidebarSettings: SidebarBackdropSettingsSnapshot,
         windowGlassSettings: WindowGlassSettingsSnapshot,
-        resolvedColorScheme: ColorScheme? = nil
+        resolvedColorScheme: ColorScheme? = nil,
+        ambientColorScheme: ColorScheme? = nil
     ) {
         let resolvedScheme = resolvedColorScheme ?? Self.colorScheme(
             forTerminalBackgroundColor: terminalBackgroundColor,
             opacity: Double(Self.clampedOpacity(Double(terminalBackgroundOpacity)))
         )
+        let sidebarScheme = unifySurfaceBackdrops
+            ? resolvedScheme
+            : (ambientColorScheme ?? resolvedScheme)
         self.terminalBackgroundColor = terminalBackgroundColor
         self.terminalBackgroundOpacity = terminalBackgroundOpacity
         self.terminalBackgroundBlur = terminalBackgroundBlur
@@ -63,10 +75,11 @@ public struct WindowAppearanceSnapshot {
             tintOpacity: sidebarSettings.tintOpacity,
             cornerRadius: sidebarSettings.cornerRadius,
             blurOpacity: sidebarSettings.blurOpacity,
-            colorScheme: resolvedScheme
+            colorScheme: sidebarScheme
         )
         self.windowGlassSettings = windowGlassSettings
         self.resolvedColorScheme = resolvedScheme
+        self.sidebarColorScheme = sidebarScheme
     }
 
     /// Clamps opacity into the visible `0...1` range.
@@ -205,9 +218,9 @@ public struct WindowAppearanceSnapshot {
         resolvedColorScheme
     }
 
-    /// Color scheme used for sidebar content and Dock chrome.
+    /// Color scheme used for sidebar content.
     public var sidebarContentColorScheme: ColorScheme {
-        resolvedColorScheme
+        sidebarColorScheme
     }
 
     /// Returns the backdrop policy for one chrome role.

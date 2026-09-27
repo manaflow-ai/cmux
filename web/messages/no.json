@@ -424,6 +424,22 @@
       "savingRelaySettings": "Lagrer…"
     },
     "coderouterAccounts": {
+      "transferAction": "Overfør",
+      "transferringAction": "Overfører…",
+      "transferDialogTitle": "Overfør konto til et annet team",
+      "transferChooseBody": "Velg teamet som skal motta {account}. Den tilhører nå {source}.",
+      "transferDestinationLabel": "Mottakerteam",
+      "continueAction": "Fortsett",
+      "backAction": "Tilbake",
+      "transferConfirmTitle": "Overføre {account}?",
+      "transferConfirmBody": "{account} flyttes fra {source} til {destination}. Skymaskiner og medlemmer i {source} slutter å bruke den med en gang. Den beholder den nåværende delingsinnstillingen i {destination}.",
+      "transferConfirmAction": "Overfør konto",
+      "transferSuccess": "{account} er flyttet til {destination}.",
+      "transferError": "Kunne ikke overføre denne kontoen. Prøv igjen.",
+      "transferForbiddenError": "Du kan ikke lenger flytte kontoer til det teamet.",
+      "transferNotFoundError": "Denne kontoen er ikke lenger i dette teamet. Oppdater for å se hvor den er.",
+      "transferConflictError": "Kontoen endret seg under flyttingen. Oppdater og prøv igjen.",
+      "transferUnavailableError": "Overføringer er midlertidig utilgjengelige, eller kontoen oppdateres. Prøv igjen om et øyeblikk.",
       "shareWithTeam": "Del med teamet",
       "makePrivate": "Gjør privat",
       "privateImportHint": "Nye kontoer er private. Del en konto for å gjøre den tilgjengelig for teamets Cloud-VM-er.",
@@ -1120,8 +1136,11 @@
       "verifyItem2": "Ett innledende arbeidsområde allerede åpent",
       "verifyItem3": "Den Ghostty-drevne terminalen klar for inndata",
       "cliSetup": "CLI-oppsett",
-      "cliDesc": "cmux inkluderer et kommandolinjeverktøy for automatisering. I cmux-terminaler fungerer det automatisk. For å bruke CLI utenfor cmux, opprett en symbolsk lenke:",
+      "cliDesc": "cmux inkluderer et kommandolinjeverktøy for automatisering. I cmux-terminaler fungerer det automatisk. For å bruke det fra andre terminaler, åpne kommandopaletten (⌘⇧P) og kjør <strong>Skallkommando: Installer «cmux» i PATH</strong>. Den medfølgende CLI-en lenkes inn i /usr/local/bin, og du blir bedt om et administratorpassord hvis mappen krever det.",
+      "cliManual": "Eller opprett den symbolske lenken selv:",
       "cliThen": "Deretter kan du kjøre kommandoer som:",
+      "defaultTerminal": "Gjør cmux til standardterminalen din",
+      "defaultTerminalDesc": "For å åpne ssh://-lenker og skallskript fra Finder i cmux i stedet for Terminal, velg <strong>cmux > Make cmux the Default Terminal</strong> i menylinjen, eller kjør <strong>Make cmux the Default Terminal</strong> fra kommandopaletten.",
       "autoUpdates": "Automatiske oppdateringer",
       "autoUpdatesDesc": "cmux sjekker automatisk etter oppdateringer via Sparkle. Når en oppdatering er tilgjengelig, ser du en oppdateringsindikator i tittellinjen. Du kan også sjekke manuelt via cmux > Check for Updates i menylinjen.",
       "sessionRestore": "Sesjongjenoppretting (nåværende oppførsel)",
@@ -1763,6 +1782,7 @@
       "metaTitle": "Endringslogg",
       "versionTitle": "cmux {version} · Endringslogg",
       "releaseNavLabel": "Utgivelser rundt cmux {version}",
+      "tryIt": "Prøv det",
       "sections": {
         "added": "Lagt til",
         "changed": "Endret",
@@ -4054,5 +4074,15 @@
     "organization": "Organisasjon",
     "personalAccount": "personlig konto",
     "switchAccountButton": "Bruk en annen konto"
+  },
+  "MobileRelease106": {
+    "title": "Nytt i 1.0.6",
+    "releaseLabel": "1.0.6 · September 2026",
+    "connectionTitle": "Oppdaterte Mac-tilkoblinger",
+    "connectionDetail": "Denne oppdateringen bruker den nye tilkoblingstjenesten og Iroh-transport. Eldre Mac-bygg må oppdateres for å koble til.",
+    "updateTitle": "Oppdater cmux på Macen",
+    "updateDetail": "Krever cmux {stableVersion} eller nyere, eller NIGHTLY {nightlyVersion} eller nyere. Slå på iOS-sammenkobling i Innstillinger > Mobil på hver Mac.",
+    "rollbackTitle": "Må du beholde et eldre Mac-bygg?",
+    "rollbackDetail": "Bruk cmux BETA 1.0.5 ({rollbackBuild}) fra TestFlight > Tidligere bygg så lenge det er tilgjengelig. Velg akkurat dette bygget, siden senere bygg bruker en nyere tilkoblingstjeneste."
   }
 }

@@ -1,5 +1,7 @@
+import CmuxCloud
 import Bonsplit
 import CmuxRemoteSession
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import Foundation
 

@@ -1,4 +1,6 @@
+import CmuxCloud
 import AppKit
+import CmuxSurfaceCatalogModel
 import Foundation
 /// Closure bundle handed to Cloud outline rows for the nodes below a machine.
 struct CloudTreeNodeActions {
@@ -154,7 +156,8 @@ struct CloudTreeNodeActions {
                             resource,
                             into: .workspace(id: workspaceID, placement: placement),
                             focus: true,
-                            reuseExisting: reuseExisting
+                            reuseExisting: reuseExisting,
+                            reuseInWorkspace: resource.kind == .display ? workspaceID : nil
                         )
                     }
                     let projection = opened.projection

@@ -20,6 +20,25 @@ unpacked from an archive (GhosttyKit, SwiftPM binary artifacts) carry the
 archive's times, which may predate the producer's build. Correctness never depends on how close
 the adopted DerivedData is to this revision; distance only costs compile time.
 
+A time derived from content alone (no manifest) would be unsafe. llbuild
+compares stat info for equality, but swift-driver treats a clang header or
+module as changed only when it is newer than the last build's start, or with
+explicit modules than the module it built, and hashing does not change that.
+On Xcode 26.6 a header edited to an older time reran SwiftDriver and still
+built with the old header value, with explicit modules on and off; stamped
+now, it rebuilt. A time and size shared by two contents also
+kept the stale product. Canary: manaflow-ai/cmux actions run 36023385114.
+
+Directories are inputs too. Xcode signs a folder input such as
+`Assets.xcassets` by the times of everything in it, the directories included,
+so a checkout-time directory reruns the asset catalog, regenerates
+`GeneratedAssetSymbols.swift` and recompiles every `cmuxTests` file: 241 s
+against 50 s for an app source edit, measured on #14235. `record` also keeps
+each directory's time under `<path>/`, beside a digest of its entry names, and
+`replay` restores it only where those names are unchanged. Every file in it
+still carries its own replayed time, so a changed file inside keeps the folder
+out of date.
+
 `restore` adopts the newest DerivedData archive for KEY that a `main` run of
 this workflow published. Any miss, expiry or transfer failure is a cold build.
 """
@@ -65,14 +84,39 @@ def inputs(workspace: Path):
             yield path.relative_to(workspace).as_posix(), path
 
 
+def directories(workspace: Path):
+    """Each directory `inputs` walks, keyed `<path>/` (the workspace is `./`)."""
+    for root, children, _ in os.walk(workspace):
+        children[:] = sorted(
+            d for d in children if d not in SKIPPED_DIRECTORIES and not Path(root, d).is_symlink()
+        )
+        path = Path(root)
+        if path.is_symlink():
+            continue
+        yield path.relative_to(workspace).as_posix() + "/", path
+
+
+def listing(path: Path) -> str:
+    """Digest of a directory's entry names, which is what moves its time."""
+    return hashlib.sha256("\n".join(sorted(os.listdir(path))).encode()).hexdigest()
+
+
 def record(workspace: Path) -> dict[str, list]:
-    return {
+    recorded = {
         relative: [digest(path), path.stat().st_mtime_ns]
         for relative, path in inputs(workspace)
     }
+    for key, path in directories(workspace):
+        recorded[key] = [listing(path), path.stat().st_mtime_ns]
+    return recorded
 
 
 def replay(workspace: Path, recorded: dict[str, list]) -> tuple[int, int]:
+    """Replay recorded times; the counts are files only.
+
+    A manifest recorded before directories were kept has no `<path>/` keys,
+    and its directories keep the checkout time, as they always did.
+    """
     restored = changed = 0
     for relative, path in inputs(workspace):
         entry = recorded.get(relative)
@@ -82,6 +126,11 @@ def replay(workspace: Path, recorded: dict[str, list]) -> tuple[int, int]:
             continue
         os.utime(path, ns=(entry[1], entry[1]))
         restored += 1
+    # Setting a file's time never moves its directory's, so order is free.
+    for key, path in directories(workspace):
+        entry = recorded.get(key)
+        if entry is not None and entry[0] == listing(path):
+            os.utime(path, ns=(entry[1], entry[1]))
     return restored, changed
 
 

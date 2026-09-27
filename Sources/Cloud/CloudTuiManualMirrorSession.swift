@@ -1,3 +1,6 @@
+import CmuxCloud
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import CmuxCore
 import CmuxCloudImagePaste
@@ -20,7 +23,6 @@ final class CloudTuiManualMirrorSession {
     private(set) var remoteSurfaceID: UInt64
     let inputRouter: CloudTuiManualIOInputRouter
     let imagePaste = CloudImagePasteCoordinator()
-
     private let operations: CloudOperationRecorder?
     private var diagnosticContext: CloudOperationContext?
     private var creationAttachment: CloudCreationAttachment?
@@ -47,6 +49,9 @@ final class CloudTuiManualMirrorSession {
     private var attachResponseReceived = false
     private var claimInFlight = false
     private var geometryClaimed = false
+    private var geometryClaimBlockedByPeer = false
+    private var explicitGeometryClaimPending = false
+    private var geometryClaimLossPending = false
     private var geometryClaimEligible: Bool
     /// Older daemons do not know `set-client-sizing`. In that case the
     /// recorded `resize-surface` report is still useful, so the scheduler can
@@ -55,7 +60,6 @@ final class CloudTuiManualMirrorSession {
     /// Retained for diagnostics and for a future targeted detach. Closing the
     /// socket is still the cleanup fence for peers without lease support.
     private var remoteLease: String?
-    private var replayNeedsReset = false
     /// The last sidecar fed to the local surface; the next one is applied as a delta from it.
     private var appliedRemoteColors = CloudTuiRemoteColors()
     private var hasReceivedRemoteReplay = false
@@ -237,8 +241,8 @@ final class CloudTuiManualMirrorSession {
                     )
                 }
             }
-            geometryClaimed = false
-            geometryClaimEligible = false
+            (geometryClaimed, geometryClaimBlockedByPeer, geometryClaimLossPending) = (false, false, false)
+            explicitGeometryClaimPending = false
             claimUnsupported = false
             claimInFlight = false
             discardPendingSizingRequests()
@@ -283,9 +287,6 @@ final class CloudTuiManualMirrorSession {
     /// a reset screen.
     private func tearDownConnection() {
         watchdog.cancel()
-        if hasReceivedRemoteReplay {
-            replayNeedsReset = true
-        }
         connectTask?.cancel()
         connectTask = nil
         eventTask?.cancel()
@@ -297,7 +298,8 @@ final class CloudTuiManualMirrorSession {
         pendingRequests.removeAll(keepingCapacity: true)
         attachResponseReceived = false
         claimInFlight = false
-        geometryClaimed = false
+        (geometryClaimed, geometryClaimBlockedByPeer, geometryClaimLossPending) = (false, false, false)
+        explicitGeometryClaimPending = false
         claimUnsupported = false
         remoteLease = nil
         serverCapabilities.removeAll(keepingCapacity: true)
@@ -423,10 +425,7 @@ final class CloudTuiManualMirrorSession {
     /// is also used by the composed explicit-input callback.
     func claimGeometry() {
         guard surface?.isRendererPortalVisible == true else { return }
-        geometryClaimEligible = true
-        // Another local projection may have claimed the shared terminal since
-        // our last report. Treat an explicit focus/input edge as a fresh claim
-        // opportunity instead of trusting the stale local flag.
+        (geometryClaimEligible, geometryClaimBlockedByPeer, explicitGeometryClaimPending, geometryClaimLossPending) = (true, false, true, false)
         geometryClaimed = false
         claimUnsupported = false
         sendClaimIfNeeded()
@@ -566,15 +565,17 @@ final class CloudTuiManualMirrorSession {
                 inputRouter.updateSurfaceID(surfaceID)
             }
             guard surfaceID == remoteSurfaceID else { return }
-            applyReplay(bytes, reset: replayNeedsReset)
-            applyColors(colors)
-            replayNeedsReset = false
+            // A snapshot replaces the local VT state. Reset first so cells,
+            // cursor state, alternate-screen mode, and SGR from a prior
+            // restore cannot survive where the replacement is shorter.
+            applyReplay(bytes, colors: colors)
             hasReceivedRemoteReplay = true
             diagnosticReplayReceived = true
             if phase == .attached { finishDiagnostics() }
             updatePresentationEpisode()
             synchronizePresentation()
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
+            if geometryClaimLossPending { geometryClaimLossPending = false; geometryClaimBlockedByPeer = !explicitGeometryClaimPending && lastRemoteGrid != resizeScheduler.desired; geometryClaimed = geometryClaimed && !geometryClaimBlockedByPeer }
             reconcileRemoteGrid()
         case let .output(surfaceID, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
@@ -585,14 +586,14 @@ final class CloudTuiManualMirrorSession {
             // `resized` carries a replacement replay, not an incremental
             // output chunk. Resetting first prevents old rows/cursor state from
             // surviving a shrink or a reconnect.
-            applyReplay(bytes, reset: true)
-            applyColors(colors)
+            applyReplay(bytes, colors: colors)
             hasReceivedRemoteReplay = true
             diagnosticReplayReceived = true
             if phase == .attached { finishDiagnostics() }
             updatePresentationEpisode()
             synchronizePresentation()
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
+            if geometryClaimLossPending { geometryClaimLossPending = false; geometryClaimBlockedByPeer = !explicitGeometryClaimPending && lastRemoteGrid != resizeScheduler.desired; geometryClaimed = geometryClaimed && !geometryClaimBlockedByPeer }
             reconcileRemoteGrid()
         case let .colorsChanged(surfaceID, colors):
             guard surfaceID == remoteSurfaceID else { return }
@@ -620,16 +621,19 @@ final class CloudTuiManualMirrorSession {
             break
         }
     }
-
-    private func applyReplay(_ bytes: Data, reset: Bool) {
-        if reset {
-            // Drop every remote color before the reset rather than trusting
-            // RIS to do it: the replay's own sidecar re-applies the authored
-            // set in full, so the pane ends in the same state either way.
-            applyColors(CloudTuiRemoteColors())
-            surface?.processRemoteOutput(Self.replayReset)
+    private func applyReplay(_ bytes: Data, colors: CloudTuiRemoteColors?) {
+        // A sidecar replaces authored colors; an absent sidecar preserves them.
+        // Restore the authoritative set after resetting the replacement VT state.
+        let replayColors = colors ?? appliedRemoteColors
+        var replay = CloudTuiRemoteColors().oscDelta(from: appliedRemoteColors)
+        replay.append(Self.replayReset)
+        replay.append(bytes)
+        replay.append(replayColors.oscBytes)
+        appliedRemoteColors = replayColors
+        guard let surface else { return }
+        surface.processRemoteReplay(replay) { [weak surface] in
+            surface?.forceRefresh(reason: "cloud.replay.applied")
         }
-        surface?.processRemoteOutput(bytes)
     }
 
     /// The replay is theme-portable: it carries no palette or default-color
@@ -826,15 +830,12 @@ final class CloudTuiManualMirrorSession {
                 transitionToDisconnected(reason: .rejected("attachment superseded"))
                 return
             }
-            if outcome == "passive" {
-                // Another view owns this terminal's geometry. Keep the local
-                // sample, but make the explicit claim the next operation so a
-                // focused pane can take authority back deterministically.
-                geometryClaimed = false
+            if outcome == "passive" || (accepted == false && geometryClaimed && lastRemoteGrid != nil && lastRemoteGrid != requestedGrid) {
+                (geometryClaimed, geometryClaimBlockedByPeer, geometryClaimLossPending) = (false, !explicitGeometryClaimPending, false)
                 claimUnsupported = false
+            } else if accepted == false && geometryClaimed && lastRemoteGrid == nil {
+                geometryClaimLossPending = true
             }
-            // A report is useful even when it was passive. Hold the newest
-            // sample while the explicit geometry claim is in flight.
             let next = resizeScheduler.acknowledge(
                 requestedGrid,
                 canSend: geometryClaimed || claimUnsupported
@@ -850,6 +851,7 @@ final class CloudTuiManualMirrorSession {
             claimInFlight = false
             if ok, surface?.isRendererPortalVisible == true {
                 geometryClaimed = true
+                explicitGeometryClaimPending = false
                 claimUnsupported = false
             } else if Self.isUnsupportedClaimError(error) {
                 // Keep compatibility with protocol-v5/v6 peers. Their
@@ -968,10 +970,11 @@ final class CloudTuiManualMirrorSession {
               surface?.isRendererPortalVisible == true,
               surface?.isNativeViewInRealWindow == true,
               geometryClaimEligible,
+              !geometryClaimBlockedByPeer,
               !geometryClaimed,
               !claimUnsupported,
               !claimInFlight,
-              resizeScheduler.inFlight != nil || resizeScheduler.lastAcknowledged != nil,
+              resizeScheduler.lastAcknowledged != nil,
               let connection else { return }
         manualMirrorLogger.info("geometry terminal=\(self.terminalID, privacy: .private(mask: .hash)) decision=claim")
         claimInFlight = true

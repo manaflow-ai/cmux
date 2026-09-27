@@ -67,7 +67,12 @@ extension SidebarLazyLayoutScaleTests {
     @MainActor
     func testStationaryPointerChurnHasNoViewUpdateFaultsAndConverges() async throws {
         let logStart = Date()
-        let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
+        // Pointer ownership, hover scoping and convergence are per-row and
+        // per-event invariants, not list-length invariants: this mounts the
+        // overflowing 120-row list so the pointer still sits on a lazily
+        // realized row inside a scrollable list, without paying for 300
+        // workspace fixtures.
+        let harness = try await Self.mountSidebar(workspaceCount: Self.contractWorkspaceCount)
         defer { harness.tearDown() }
 
         await Self.drainMainRunLoop(for: harness.window)
@@ -109,7 +114,12 @@ extension SidebarLazyLayoutScaleTests {
         harness.counter.reset()
         let stormTargets = Array(harness.tabManager.tabs.prefix(3).map(\.id))
         let groupIds = harness.tabManager.workspaceGroups.map(\.id)
-        for i in 1...40 {
+        // 24 iterations is one full period of the churn pattern: 3 unread
+        // targets × 2 appearances × 4-iteration group toggle × the 8-step
+        // scroll sawtooth all realign at 24, so every combination the loop
+        // can produce is still produced. The previous 40 iterations repeated
+        // part of that cycle without reaching any state it had not covered.
+        for i in 1...24 {
             let target = stormTargets[i % stormTargets.count]
             harness.unread.apply(
                 totalUnreadCount: i,
@@ -150,7 +160,7 @@ extension SidebarLazyLayoutScaleTests {
         )
 
         harness.counter.reset()
-        await Self.drainMainRunLoop(for: harness.window, iterations: 30)
+        await Self.drainUntilRowWorkQuiesces(for: harness.window, counter: harness.counter)
         let quietEvals = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
         #expect(
             quietEvals < 20,
@@ -210,7 +220,12 @@ final class SidebarOverflowingScrollStatusChurnTests {
         let logStart = Date()
 
         harness.counter.reset()
-        for iteration in 0..<32 {
+        // 16 iterations is one full period of the reporter workload: the
+        // status add/remove phase flips every 8 iterations (statusTargets
+        // count) and the scroll sawtooth also has an 8-step period, so 16
+        // covers every target in both the added and removed state at both
+        // scroll directions. The previous 32 ran that same period twice.
+        for iteration in 0..<16 {
             let target = statusTargets[iteration % statusTargets.count]
             let key = "issue-6707.status"
             let snapshotBuildsBeforeMutation = harness.counter.workspaceSnapshotBuilds
@@ -278,7 +293,10 @@ final class SidebarOverflowingScrollStatusChurnTests {
         )
 
         harness.counter.reset()
-        await SidebarLazyLayoutScaleTests.drainMainRunLoop(for: harness.window, iterations: 40)
+        await SidebarLazyLayoutScaleTests.drainUntilRowWorkQuiesces(
+            for: harness.window,
+            counter: harness.counter
+        )
         let quietEvals = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
         #expect(
             quietEvals < 20,

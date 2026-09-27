@@ -1,3 +1,6 @@
+import CmuxAuthRuntime
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import CmuxSettings
 
@@ -5,6 +8,7 @@ import CmuxSettings
 extension CmuxTuiSurfaceProvider {
     convenience init(
         summary: VMSummary,
+        fileAccessTeamScope: AuthenticatedTeamScope? = nil,
         links: CloudMachineLinkManager,
         catalog: SurfaceCatalog,
         portForwards: CloudHubPortForwarder? = nil,
@@ -13,7 +17,7 @@ extension CmuxTuiSurfaceProvider {
         displayCoordinator: CloudDisplayCoordinator? = nil,
         browserPolicy: @escaping @MainActor () -> BrowserURLAllowlistPolicy = { BrowserURLAllowlistPolicy() }
     ) {
-        self.init(summary: .cloud(summary), links: links, catalog: catalog,
+        self.init(summary: .cloud(summary), fileAccessTeamScope: fileAccessTeamScope, links: links, catalog: catalog,
                   portForwards: portForwards, attachmentClock: attachmentClock,
                   portAccessStore: portAccessStore, displayCoordinator: displayCoordinator,
                   browserPolicy: browserPolicy)

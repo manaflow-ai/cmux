@@ -190,6 +190,15 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # Keep cargo's registry and cmux-tui/target between runs. Without it every
+      # Linux test run compiled the whole workspace (test (linux) about 921 s).
+      # verify-cmux-tui-hosted.sh dispatches on the branch under test, so a rerun on
+      # the same branch builds incrementally; branch caches never reach main's scope.
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-tui -> target
+
       - name: cargo fmt
         id: rustfmt-check
         working-directory: cmux-tui
@@ -248,6 +257,15 @@ jobs:
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # Keep cargo's registry and cmux-tui/target between runs. Without it every
+      # Linux test run compiled the whole workspace (test (linux) about 921 s).
+      # verify-cmux-tui-hosted.sh dispatches on the branch under test, so a rerun on
+      # the same branch builds incrementally; branch caches never reach main's scope.
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-tui -> target
 
       - name: Build test binaries
         working-directory: cmux-tui
@@ -462,6 +480,15 @@ jobs:
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # Keep cargo's registry and cmux-tui/target between runs. Without it every
+      # Linux test run compiled the whole workspace (test (linux) about 921 s).
+      # verify-cmux-tui-hosted.sh dispatches on the branch under test, so a rerun on
+      # the same branch builds incrementally; branch caches never reach main's scope.
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-tui -> target
 
       - name: Test isolated TUI test-runner policy
         run: python3 .github/scripts/test_run_cmux_tui_core_tests_isolated.py

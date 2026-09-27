@@ -1,8 +1,10 @@
+import CmuxCloud
 import CmuxCore
 import Foundation
 
 extension Workspace {
-    /// All managed SSH entrypoints converge here, including saved workspace descriptors.
+    /// Managed SSH entrypoints without a cmuxd-remote relay converge here, including saved
+    /// workspace descriptors. See `WorkspaceRemoteConfiguration.routesThroughSSHTui`.
     func configureSSHTuiConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool) -> Bool {
         AppDelegate.shared?.sshTuiWorkspaceCoordinator.disconnect(workspace: self)
         remoteSessionController?.stop()
@@ -86,7 +88,7 @@ extension Workspace {
     }
 
     var usesSSHTui: Bool {
-        remoteConfiguration.map { $0.transport == .ssh && $0.terminalTransport == .ssh && !$0.skipDaemonBootstrap } ?? false
+        remoteConfiguration?.routesThroughSSHTui ?? false
     }
 
     /// Resolves both Cloud and SSH projections through their registered provider.
@@ -94,5 +96,18 @@ extension Workspace {
         guard let projection = SurfaceCatalog.shared.projectionIncludingPendingRestore(forPanel: surfaceID),
               let provider = SurfaceCatalog.shared.provider(for: projection.resource.machine) as? CmuxTuiSurfaceProvider else { return nil }
         return provider.manualMirrorSessions[surfaceID]
+    }
+}
+
+extension WorkspaceRemoteConfiguration {
+    /// cmux-tui owns managed SSH connections, which carry no cmuxd-remote channel
+    /// (`workspace.ssh.open` and restored descriptors leave the relay unset). A
+    /// configuration that arrives with a relay or daemon endpoint was bootstrapped
+    /// by the legacy `workspace.remote.configure` flow, which the CLI still uses
+    /// when the SSH session has no TTY. It keeps that lifecycle so its relay and
+    /// terminal startup command are not dropped.
+    var routesThroughSSHTui: Bool {
+        transport == .ssh && terminalTransport == .ssh && !skipDaemonBootstrap &&
+            relayPort == nil && daemonWebSocketEndpoint == nil
     }
 }

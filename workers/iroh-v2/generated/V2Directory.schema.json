@@ -57,6 +57,15 @@
           "type": "null"
         }
       ]
+    },
+    "rules": {
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
     }
   },
   "required": [

@@ -1,5 +1,7 @@
+import CmuxCloud
 import CmuxAuthRuntime
 import AppKit
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 

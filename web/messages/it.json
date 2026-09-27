@@ -424,6 +424,22 @@
       "savingRelaySettings": "Salvataggio…"
     },
     "coderouterAccounts": {
+      "transferAction": "Trasferisci",
+      "transferringAction": "Trasferimento…",
+      "transferDialogTitle": "Trasferisci l’account a un altro team",
+      "transferChooseBody": "Scegli il team che riceverà {account}. Attualmente appartiene a {source}.",
+      "transferDestinationLabel": "Team di destinazione",
+      "continueAction": "Continua",
+      "backAction": "Indietro",
+      "transferConfirmTitle": "Trasferire {account}?",
+      "transferConfirmBody": "{account} passa da {source} a {destination}. Le macchine cloud e i membri di {source} smettono subito di usarlo. In {destination} mantiene l’impostazione di condivisione attuale.",
+      "transferConfirmAction": "Trasferisci account",
+      "transferSuccess": "{account} è stato spostato in {destination}.",
+      "transferError": "Impossibile trasferire questo account. Riprova.",
+      "transferForbiddenError": "Non puoi più spostare account in quel team.",
+      "transferNotFoundError": "Questo account non è più in questo team. Aggiorna per vedere dove si trova.",
+      "transferConflictError": "L’account è cambiato durante il trasferimento. Aggiorna e riprova.",
+      "transferUnavailableError": "I trasferimenti non sono temporaneamente disponibili, oppure l’account è in aggiornamento. Riprova tra poco.",
       "shareWithTeam": "Condividi con il team",
       "makePrivate": "Rendi privato",
       "privateImportHint": "I nuovi account sono privati. Condividi un account per renderlo disponibile alle VM Cloud di questo team.",
@@ -1120,8 +1136,11 @@
       "verifyItem2": "Un workspace iniziale già aperto",
       "verifyItem3": "Il terminale Ghostty pronto per l'input",
       "cliSetup": "Configurazione del CLI",
-      "cliDesc": "cmux include uno strumento a riga di comando per l'automazione. Nei terminali cmux funziona automaticamente. Per usare il CLI al di fuori di cmux, crea un link simbolico:",
+      "cliDesc": "cmux include uno strumento a riga di comando per l'automazione. Nei terminali cmux funziona automaticamente. Per usarlo da altri terminali, apri la tavolozza comandi (⌘⇧P) ed esegui <strong>Comando shell: installa 'cmux' nel PATH</strong>. Il CLI incluso viene collegato in /usr/local/bin e, se la cartella lo richiede, viene chiesta una password da amministratore.",
+      "cliManual": "Oppure crea tu il link simbolico:",
       "cliThen": "Poi puoi eseguire comandi come:",
+      "defaultTerminal": "Imposta cmux come terminale predefinito",
+      "defaultTerminalDesc": "Per aprire in cmux, invece che in Terminale, i link ssh:// e gli script shell dal Finder, scegli <strong>cmux > Make cmux the Default Terminal</strong> nella barra dei menu oppure esegui <strong>Make cmux the Default Terminal</strong> dalla tavolozza comandi.",
       "autoUpdates": "Aggiornamenti automatici",
       "autoUpdatesDesc": "cmux verifica automaticamente gli aggiornamenti tramite Sparkle. Quando un aggiornamento è disponibile, vedrai una pillola di aggiornamento nella barra del titolo. Puoi anche controllare manualmente tramite cmux > Controlla aggiornamenti nella barra dei menu.",
       "sessionRestore": "Ripristino sessione (comportamento attuale)",
@@ -1763,6 +1782,7 @@
       "metaTitle": "Registro modifiche",
       "versionTitle": "cmux {version} · Registro modifiche",
       "releaseNavLabel": "Versioni vicine a cmux {version}",
+      "tryIt": "Prova",
       "sections": {
         "added": "Aggiunte",
         "changed": "Modifiche",
@@ -4057,5 +4077,15 @@
     "organization": "Organizzazione",
     "personalAccount": "account personale",
     "switchAccountButton": "Usa un altro account"
+  },
+  "MobileRelease106": {
+    "title": "Novità di 1.0.6",
+    "releaseLabel": "1.0.6 · Settembre 2026",
+    "connectionTitle": "Connessioni Mac aggiornate",
+    "connectionDetail": "Questo aggiornamento usa il nuovo servizio di connessione e il trasporto Iroh. Le build Mac precedenti richiedono un aggiornamento per connettersi.",
+    "updateTitle": "Aggiorna cmux sul Mac",
+    "updateDetail": "Richiede cmux {stableVersion} o successivo, oppure NIGHTLY {nightlyVersion} o successivo. Abilita l’abbinamento iOS in Impostazioni > Mobile su ogni Mac.",
+    "rollbackTitle": "Devi mantenere una vecchia build Mac?",
+    "rollbackDetail": "Usa cmux BETA 1.0.5 ({rollbackBuild}) da TestFlight > Build precedenti finché è disponibile. Scegli esattamente questa build, perché quelle successive usano un servizio di connessione più recente."
   }
 }

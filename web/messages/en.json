@@ -414,6 +414,22 @@
       }
     },
     "coderouterAccounts": {
+      "transferAction": "Transfer",
+      "transferringAction": "Transferring…",
+      "transferDialogTitle": "Transfer account to another team",
+      "transferChooseBody": "Choose which team should receive {account}. It currently belongs to {source}.",
+      "transferDestinationLabel": "Destination team",
+      "continueAction": "Continue",
+      "backAction": "Back",
+      "transferConfirmTitle": "Transfer {account}?",
+      "transferConfirmBody": "{account} moves from {source} to {destination}. Cloud machines and members of {source} stop using it right away. It keeps its current sharing setting in {destination}.",
+      "transferConfirmAction": "Transfer account",
+      "transferSuccess": "Moved {account} to {destination}.",
+      "transferError": "Could not transfer this account. Try again.",
+      "transferForbiddenError": "You can no longer move accounts into that team.",
+      "transferNotFoundError": "This account is no longer in this team. Refresh to see where it is.",
+      "transferConflictError": "This account changed while it was moving. Refresh and try again.",
+      "transferUnavailableError": "Transfers are temporarily unavailable, or the account is refreshing. Try again in a moment.",
       "title": "Accounts",
       "description": "Shared accounts are available to this team’s Cloud VMs. Private accounts stay with the person who added them.",
       "accountsCount": "{count, plural, one {# account} other {# accounts}}",
@@ -2318,8 +2334,11 @@
       "verifyItem2": "One initial workspace already open",
       "verifyItem3": "The Ghostty-powered terminal ready for input",
       "cliSetup": "CLI setup",
-      "cliDesc": "cmux includes a command-line tool for automation. Inside cmux terminals it works automatically. To use the CLI from outside cmux, create a symlink:",
+      "cliDesc": "cmux includes a command-line tool for automation. Inside cmux terminals it works automatically. To use it from other terminals, open the command palette (⌘⇧P) and run <strong>Shell Command: Install 'cmux' in PATH</strong>. It links the bundled CLI into /usr/local/bin and asks for an administrator password if that folder needs one.",
+      "cliManual": "Or create the symlink yourself:",
       "cliThen": "Then you can run commands like:",
+      "defaultTerminal": "Make cmux your default terminal",
+      "defaultTerminalDesc": "To open ssh:// links and shell scripts from Finder in cmux instead of Terminal, choose <strong>cmux > Make cmux the Default Terminal</strong> in the menu bar, or run <strong>Make cmux the Default Terminal</strong> from the command palette.",
       "autoUpdates": "Auto-updates",
       "autoUpdatesDesc": "cmux checks for updates automatically via Sparkle. When an update is available you'll see an update pill in the titlebar. You can also check manually via cmux > Check for Updates in the menu bar.",
       "sessionRestore": "Session restore (current behavior)",
@@ -3214,6 +3233,7 @@
       "metaDescription": "cmux release notes and version history. New features, bug fixes, and changes for the native macOS terminal.",
       "versionTitle": "cmux {version} · Changelog",
       "releaseNavLabel": "Releases near cmux {version}",
+      "tryIt": "Try it",
       "sections": {
         "added": "Added",
         "changed": "Changed",
@@ -3304,7 +3324,7 @@
       "shadowConfig": "Shadow config",
       "shadowConfigDesc": "cmux omo uses a shadow config directory so your original OpenCode setup is unaffected:",
       "shadowStep1": "Copies your ~/.config/opencode/opencode.json with oh-my-opencode added to the plugin array",
-      "shadowStep2": "Symlinks node_modules, package.json, and bun.lock from the original directory",
+      "shadowStep2": "Links the other files in ~/.config/opencode that your opencode.json references, such as prompt files, and reuses your node_modules (agents, commands, and plugins already load from the original directory)",
       "shadowStep3": "Writes oh-my-opencode.json with tmux.enabled set to true",
       "shadowStep4": "Sets OPENCODE_CONFIG_DIR to the shadow directory before launching opencode",
       "envVars": "Environment variables",
@@ -5860,5 +5880,15 @@
     "organization": "Organization",
     "personalAccount": "personal account",
     "switchAccountButton": "Use a different account"
+  },
+  "MobileRelease106": {
+    "title": "What's New in 1.0.6",
+    "releaseLabel": "1.0.6 · September 2026",
+    "connectionTitle": "Updated Mac connections",
+    "connectionDetail": "This update uses the new connection service and Iroh transport. Older Mac builds need an update to connect.",
+    "updateTitle": "Update cmux on your Mac",
+    "updateDetail": "Requires cmux {stableVersion} or later, or NIGHTLY {nightlyVersion} or later. Enable iOS pairing in Settings > Mobile on each Mac.",
+    "rollbackTitle": "Need to keep an older Mac build?",
+    "rollbackDetail": "Use cmux BETA 1.0.5 ({rollbackBuild}) from TestFlight > Previous Builds while it remains available. Choose that exact build, since later builds use a newer connection service."
   }
 }

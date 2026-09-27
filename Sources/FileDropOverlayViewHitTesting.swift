@@ -131,10 +131,15 @@ extension FileDropOverlayView {
                   !DragOverlayRoutingPolicy.currentModifierFlags.contains(.shift),
                   let hintText = FileDropTextDestinationKind.editor.hintText(for: .preview),
                   let targetBounds = hintBadgeTargetBoundsUnderPoint(windowPoint) else {
-                hintBadgeView.hide()
+                hintPresentation.hideBadge()
                 return
             }
-            hintBadgeView.show(text: hintText, centeredIn: targetBounds, clippedTo: bounds)
+            hintPresentation.show(
+                sequenceNumber: sender.draggingSequenceNumber,
+                text: hintText,
+                centeredIn: targetBounds,
+                clippedTo: bounds
+            )
             return
         }
 
@@ -146,10 +151,15 @@ extension FileDropOverlayView {
         ), let kind,
            let hintText = kind.hintText(for: alternateBehavior),
            let targetBounds = hintBadgeTargetBoundsUnderPoint(windowPoint) else {
-            hintBadgeView.hide()
+            hintPresentation.hideBadge()
             return
         }
-        hintBadgeView.show(text: hintText, centeredIn: targetBounds, clippedTo: bounds)
+        hintPresentation.show(
+            sequenceNumber: sender.draggingSequenceNumber,
+            text: hintText,
+            centeredIn: targetBounds,
+            clippedTo: bounds
+        )
     }
 
     func textDropDestinationKindUnderPoint(_ windowPoint: NSPoint) -> FileDropTextDestinationKind? {

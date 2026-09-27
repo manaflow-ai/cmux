@@ -398,8 +398,10 @@ public struct MobileAuthComposition {
         return previous != resolvedProjectID
     }
 
+    /// The Simulator only ever mints sandbox device tokens, so a Release build
+    /// running there must register as sandbox or APNs rejects every push.
     private static var apnsEnvironment: String {
-        #if DEBUG
+        #if DEBUG || targetEnvironment(simulator)
         "sandbox"
         #else
         "production"

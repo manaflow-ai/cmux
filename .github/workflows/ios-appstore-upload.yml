@@ -25,6 +25,12 @@ permissions:
   contents: read
   actions: read
 
+# r2-cache.sh reads and writes through this URL. Without it every restore is
+# a miss and every save prints "nothing saved", so the package and
+# compilation caches from #14180 never filled (09-24/25: 0 hits, 344 misses).
+env:
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+
 jobs:
   decide:
     name: Check for new main revision

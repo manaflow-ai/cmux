@@ -27,7 +27,6 @@ public actor MobileIrxRuntimeComposition {
     let diagnosticLog: DiagnosticLog?
     let installation: MobileIrohV2InstallationStore
     let localPaths: MobileIrohV2LocalPathStore
-    let stateStore: V2FileStateStore
     let urlSession: URLSession
     weak var auth: AuthCoordinator?
     var activeScope: AuthenticatedTeamScope?
@@ -50,6 +49,8 @@ public actor MobileIrxRuntimeComposition {
     var expectedDeviceIDByPeer: [String: String] = [:]
     var controlLaneClaims = MobileIrxControlLaneClaims()
     var claimedEventSessions: [String: String] = [:]
+    /// One server-event lane acceptor per admitted session, keyed by peer.
+    var eventLaneHubs: [String: (sessionID: String, hub: IrxServerEventLaneHub)] = [:]
     var changeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
     var launchTime = Date()
     var backgroundTime: Date?
@@ -66,7 +67,6 @@ public actor MobileIrxRuntimeComposition {
         self.diagnosticLog = diagnosticLog
         localPaths = MobileIrohV2LocalPathStore(root: configuration.stateDirectory)
         installation = MobileIrohV2InstallationStore(configuration: configuration, accessGroup: keychainAccessGroup)
-        stateStore = V2FileStateStore(rootDirectory: configuration.stateDirectory, fileManager: FileManager())
         journal = IrxJournal(subsystem: "dev.cmux.ios", category: "iroh-v2",
             journalFileURL: configuration.stateDirectory.appendingPathComponent("iroh-v2-journal.jsonl"))
     }

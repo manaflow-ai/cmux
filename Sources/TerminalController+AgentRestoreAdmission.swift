@@ -61,7 +61,7 @@ extension TerminalController {
             )
         }
 
-        let writer = AgentRestoreCodexEvidence().inspect(
+        var writer = AgentRestoreCodexEvidence().inspect(
             record: record, sessionID: inputs.sessionID, effectiveHome: inputs.codexHome
         )
         let liveOwner: LiveAgentSessionOwner?
@@ -97,6 +97,15 @@ extension TerminalController {
                 request: request, inputs: inputs, decision: .targetChanged, startedAt: admissionStart
             )
         }
+        var writerCandidates: [CodexWriterProcessInspector.Candidate] = []
+        if liveOwner == nil, let observed = writer, observed.state == .active {
+            writerCandidates = CodexWriterProcessInspector().candidates(for: observed)
+            writer = AgentRestoreCodexEvidence().inspect(
+                record: record, sessionID: inputs.sessionID, effectiveHome: inputs.codexHome
+            )
+            if writer?.deviceAndInodeMatch(observed) != true { writerCandidates = [] }
+        }
+        let heldWriterCandidates = writer?.state == .active ? writerCandidates : nil
         let evidenceDecision = inputs.launchLeasePending ? .refreshEvidence : AgentRestoreEvidencePolicy().decision(
             hasLiveOwner: liveOwner != nil,
             indexComplete: indexComplete,
@@ -108,7 +117,8 @@ extension TerminalController {
             if evidenceDecision != .claimLaunch {
                 let changed = self.presentAgentRestoreRecovery(
                     workspaceID: inputs.workspaceID, surfaceID: inputs.surfaceID,
-                    state: liveOwner.map { .liveOwner(kind: inputs.kind, processID: $0.processID) } ?? .checking
+                    state: liveOwner.map { .liveOwner(kind: inputs.kind, processID: $0.processID) }
+                        ?? heldWriterCandidates.map { .writerLock(candidates: $0) } ?? .checking
                 )
                 if changed, let liveOwner {
                     AgentRestoreSuppressionJournal().record(

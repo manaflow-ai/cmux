@@ -66,6 +66,64 @@ final class GhosttyConfigTests: XCTestCase {
         let blue: Int
     }
 
+    /// Verifies cmux-managed shell integration leaves Ghostty's prompt cursor
+    /// feature disabled, preserving the user's configured cursor shape.
+    func testCmuxShellIntegrationDoesNotEnableGhosttyPromptCursor() {
+        guard let config = GhosttyApp.shared.config else {
+            XCTFail("Expected loaded Ghostty config")
+            return
+        }
+
+        var features: CUnsignedInt = 0
+        let key = "shell-integration-features"
+        XCTAssertTrue(
+            ghostty_config_get(config, &features, key, UInt(key.utf8.count)),
+            "Expected Ghostty to expose shell integration features"
+        )
+
+        // ShellIntegrationFeatures is packed; its first field is `cursor`.
+        // Clearing it prevents the prompt hook's bar-cursor escape sequence.
+        XCTAssertEqual(
+            features & 1,
+            0,
+            "cmux-managed shell integration must not switch prompts to a bar cursor"
+        )
+    }
+
+    /// Verifies the cursor override keeps every other shell-integration feature
+    /// the user configured. Ghostty parses `shell-integration-features` from
+    /// its defaults, so a bare `no-cursor` would reset them (#10670).
+    func testCmuxShellIntegrationOverridePreservesUserFeatures() {
+        _ = GhosttyApp.shared
+        guard let config = ghostty_config_new() else {
+            XCTFail("Expected a Ghostty config")
+            return
+        }
+        defer { ghostty_config_free(config) }
+
+        let userConfig = "shell-integration-features = no-title,sudo,ssh-terminfo"
+        userConfig.withCString { contents in
+            "/__cmux_test__/user.conf".withCString { path in
+                ghostty_config_load_string(config, contents, UInt(userConfig.utf8.count), path)
+            }
+        }
+        GhosttyApp.shared.loadCmuxShellIntegrationOverride(config)
+
+        var features: CUnsignedInt = 0
+        let key = "shell-integration-features"
+        XCTAssertTrue(ghostty_config_get(config, &features, key, UInt(key.utf8.count)))
+
+        // Ghostty's packed ShellIntegrationFeatures bit order:
+        // cursor, sudo, title, ssh-env, ssh-terminfo, path.
+        XCTAssertEqual(features & (1 << 0), 0, "cursor must be off")
+        XCTAssertNotEqual(features & (1 << 1), 0, "user-enabled sudo must survive")
+        XCTAssertEqual(features & (1 << 2), 0, "user-disabled title must stay off")
+        XCTAssertEqual(features & (1 << 3), 0, "ssh-env keeps its default")
+        XCTAssertNotEqual(features & (1 << 4), 0, "user-enabled ssh-terminfo must survive")
+        XCTAssertNotEqual(features & (1 << 5), 0, "path keeps its default")
+    }
+
+    /// Verifies bundled Ghostty resources take precedence over inherited paths.
     func testLaunchGhosttyResourcesPreferCurrentBundleOverInheritedEnvironment() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -1434,7 +1492,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
         XCTAssertEqual(colors.tabBarBackgroundHex, "#FDF6E3")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#FDF6E3")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
-        XCTAssertEqual(colors.borderHex, "#DED7C442")
+        XCTAssertEqual(colors.borderHex, "#B0A99642")
     }
 
     func testResolvedChromeColorsUsesDarkGhosttyBackground() {
@@ -1503,8 +1561,10 @@ final class WorkspaceChromeThemeTests: XCTestCase {
     }
 }
 
+// Bonsplit carries an equivalent fallback, but cmux always supplies
+// `borderHex`, so this resolver is the formula that actually runs.
 final class WindowChromeSeparatorColorTests: XCTestCase {
-    func testDarkChromeSeparatorMatchesBonsplitDerivation() {
+    func testDarkChromeSeparatorDerivation() {
         guard let backgroundColor = NSColor(hex: "#272822") else {
             XCTFail("Expected valid test color")
             return
@@ -1519,7 +1579,7 @@ final class WindowChromeSeparatorColorTests: XCTestCase {
         XCTAssertEqual(rgba.alpha, CGFloat(0.36), accuracy: 0.0001)
     }
 
-    func testLightChromeSeparatorMatchesBonsplitDerivation() {
+    func testLightChromeSeparatorDerivation() {
         guard let backgroundColor = NSColor(hex: "#FDF6E3") else {
             XCTFail("Expected valid test color")
             return
@@ -1528,10 +1588,44 @@ final class WindowChromeSeparatorColorTests: XCTestCase {
         let color = WindowChromeColorResolver().separatorColor(forChromeBackground: backgroundColor)
         let rgba = rgbaComponents(color)
 
-        XCTAssertEqual(rgba.red, CGFloat(253.0 / 255.0) - CGFloat(0.12), accuracy: 0.0001)
-        XCTAssertEqual(rgba.green, CGFloat(246.0 / 255.0) - CGFloat(0.12), accuracy: 0.0001)
-        XCTAssertEqual(rgba.blue, CGFloat(227.0 / 255.0) - CGFloat(0.12), accuracy: 0.0001)
+        XCTAssertEqual(rgba.red, CGFloat(253.0 / 255.0) - CGFloat(0.30), accuracy: 0.0001)
+        XCTAssertEqual(rgba.green, CGFloat(246.0 / 255.0) - CGFloat(0.30), accuracy: 0.0001)
+        XCTAssertEqual(rgba.blue, CGFloat(227.0 / 255.0) - CGFloat(0.30), accuracy: 0.0001)
         XCTAssertEqual(rgba.alpha, CGFloat(0.26), accuracy: 0.0001)
+    }
+
+    func testLightChromeSeparatorStaysPerceptible() {
+        let background = NSColor.white
+        let resolver = WindowChromeColorResolver()
+        let composited = resolver.compositedColor(
+            resolver.separatorColor(forChromeBackground: background),
+            over: background
+        )
+        // The separator is translucent, so only the composite is visible, and
+        // sRGB gamma nearly erases a small delta near white. Dark chrome
+        // measures ~7; light must not compress below this floor.
+        XCTAssertGreaterThanOrEqual(
+            lightness(background) - lightness(composited),
+            4.0
+        )
+    }
+
+    /// CIE L* of a color, the scale perceived separation is asserted in.
+    private func lightness(_ color: NSColor) -> CGFloat {
+        let rgba = rgbaComponents(color)
+
+        func linearized(_ component: CGFloat) -> CGFloat {
+            component <= 0.03928
+                ? component / 12.92
+                : CGFloat(pow(Double((component + 0.055) / 1.055), 2.4))
+        }
+
+        let luminance = 0.2126 * linearized(rgba.red)
+            + 0.7152 * linearized(rgba.green)
+            + 0.0722 * linearized(rgba.blue)
+        return luminance > 0.008856
+            ? 116 * CGFloat(pow(Double(luminance), 1.0 / 3.0)) - 16
+            : 903.3 * luminance
     }
 
     private func rgbaComponents(_ color: NSColor) -> (red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
@@ -4258,12 +4352,17 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             """
         )
 
+        // The integration only publishes to a running default tmux server.
+        let tmuxServer = try TmuxDefaultServerSocketFixture()
+        defer { withExtendedLifetime(tmuxServer) {} }
+
         _ = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,
             cmuxLoadShellIntegration: true,
             command: "_cmux_preexec tmux; print -r -- READY",
             extraEnvironment: [
                 "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMUX_TMPDIR": tmuxServer.tmuxTemporaryDirectory.path,
                 "CMUX_SOCKET_PATH": "/tmp/cmux-current.sock",
                 "CMUX_TAG": "feat-tmux-notification-attention-state",
                 "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
@@ -4305,12 +4404,17 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             """
         )
 
+        // The integration only publishes to a running default tmux server.
+        let tmuxServer = try TmuxDefaultServerSocketFixture()
+        defer { withExtendedLifetime(tmuxServer) {} }
+
         _ = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,
             cmuxLoadShellIntegration: true,
             command: "_cmux_preexec tmux; print -r -- READY",
             extraEnvironment: [
                 "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMUX_TMPDIR": tmuxServer.tmuxTemporaryDirectory.path,
                 "CMUX_SOCKET_PATH": "/tmp/cmux-current.sock",
                 "CMUX_TAG": "feat-tmux-notification-attention-state",
                 "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",

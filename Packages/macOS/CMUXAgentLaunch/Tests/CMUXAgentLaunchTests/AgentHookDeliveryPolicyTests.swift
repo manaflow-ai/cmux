@@ -32,6 +32,19 @@ struct AgentHookDeliveryPolicyTests {
         ))
     }
 
+    @Test("OMP and Pi headless subagent lifecycle is queue-safe")
+    func ompPiSubagentEventsSupportQueuedDelivery() {
+        for agent in ["omp", "pi"] {
+            #expect(policy.supportsQueuedDelivery(agent: agent, subcommand: "subagent-start"))
+            #expect(policy.supportsQueuedDelivery(agent: agent, subcommand: "subagent-stop"))
+        }
+        // Scoped to the headless wrappers: never a generic allowance.
+        #expect(!policy.supportsQueuedDelivery(agent: "future-agent", subcommand: "subagent-start"))
+        #expect(!policy.supportsQueuedDelivery(agent: "future-agent", subcommand: "subagent-stop"))
+        #expect(!policy.supportsQueuedDelivery(agent: "claude", subcommand: "subagent-start"))
+        #expect(!policy.supportsQueuedDelivery(agent: "codex", subcommand: "subagent-start"))
+    }
+
     @Test("Agent names produce stable ASCII PID environment keys")
     func pidEnvironmentKey() {
         #expect(policy.pidEnvironmentVariable(agentName: "claude") == "CMUX_CLAUDE_PID")

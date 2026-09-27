@@ -83,8 +83,8 @@ def test_assignment_survives_a_post_upload_failure() -> None:
     # Carry the upload step's own outcome -- what the dSYM steps below it
     # already use -- out of the job, so the next job can gate on the same fact.
     check(
-        "      uploaded: ${{ steps.upload.outcome }}\n" in upload,
-        "the upload job exports the upload step's outcome as `uploaded`",
+        "      uploaded: ${{ github.event.inputs.prepare_only != 'true' && steps.upload.outcome || 'skipped' }}\n" in upload,
+        "real uploads export the step outcome; prepared candidates cannot trigger assignment",
     )
 
     condition = "\n".join(

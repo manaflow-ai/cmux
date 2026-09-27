@@ -12,6 +12,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import web_validation as gate
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 
 class WebValidationTests(unittest.TestCase):

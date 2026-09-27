@@ -57,7 +57,24 @@ const metadataOperations = new Set(["replay", "artifactScan", "artifactList", "m
 const irohPathPropertyKeys = new Set(["path"]);
 const noAdditionalPropertyKeys = new Set<string>();
 
+// Per-hop stages and pacer state the phone adds to a latency window only when
+// that window measured them (Macs that stamp frames with host timing).
+const optionalTerminalStageNames = [
+  "host_accept", "host_capture", "host_dispatch",
+  "network_round_trip", "uplink", "downlink", "pacer_period",
+] as const;
+const optionalTerminalCountKeys = [
+  "pacer_sample_count", "pacer_emitted_count", "pacer_coalesced_count",
+  "pacer_shed_count", "pacer_period_max_ms",
+] as const;
+const optionalTerminalNumericKeys = [
+  ...optionalTerminalCountKeys,
+  ...optionalTerminalStageNames.flatMap((name) => [`${name}_p50_ms`, `${name}_p95_ms`, `${name}_p99_ms`]),
+];
+
 const allowedPropertyKeys = new Set([
+  ...optionalTerminalNumericKeys,
+  ...optionalTerminalStageNames.map((name) => `${name}_histogram`),
   "phase", "outcome", "duration_ms", "runtime_role", "user_usable",
   "failure", "transport", "platform", "client_channel", "app_version", "build_number",
   "bundle_identifier", "os_version", "device_model",
@@ -148,6 +165,8 @@ export type MobileTerminalLatencyWindow = {
   readonly windowMs: number;
   readonly inputFailedCount?: number;
   readonly histograms?: Readonly<Record<string, string>>;
+  /** Per-hop stage percentiles and pacer counters, present only when measured. */
+  readonly stageMetrics?: Readonly<Record<string, number>>;
   readonly inputCount: number;
   readonly outputCount: number;
   readonly presentedCount: number;
@@ -288,13 +307,26 @@ export function parseMobileTerminalLatencyWindow(candidate: unknown): MobileTerm
   const metadata = parseMetadata(properties);
   const numbers = parseTerminalNumbers(properties);
   const histograms = parseTerminalHistograms(properties);
-  if (!metadata || !numbers || histograms === null) return null;
+  const stageMetrics = parseOptionalTerminalMetrics(properties);
+  if (!metadata || !numbers || histograms === null || stageMetrics === null) return null;
   return {
     timestamp: candidate.timestamp,
     ...numbers,
     ...(histograms ? { histograms } : {}),
+    ...(stageMetrics ? { stageMetrics } : {}),
     ...metadata,
   };
+}
+
+function parseOptionalTerminalMetrics(properties: Record<string, unknown>): Record<string, number> | undefined | null {
+  const metrics: Record<string, number> = {};
+  for (const key of optionalTerminalNumericKeys) {
+    if (properties[key] === undefined) continue;
+    const value = unsignedInteger(properties[key]);
+    if (value === null) return null;
+    metrics[key] = value;
+  }
+  return Object.keys(metrics).length > 0 ? metrics : undefined;
 }
 
 const terminalNumericKeys = [
@@ -337,7 +369,8 @@ function parseTerminalHistograms(properties: Record<string, unknown>): Record<st
   if (!hasVersion) return undefined;
   if (properties.histogram_version !== 1) return null;
   const histograms: Record<string, string> = {};
-  for (const name of names) {
+  const present = optionalTerminalStageNames.filter((name) => properties[`${name}_histogram`] !== undefined);
+  for (const name of [...names, ...present]) {
     const raw = properties[`${name}_histogram`];
     if (typeof raw !== "string" || raw.length > 512) return null;
     try {
@@ -839,6 +872,7 @@ export async function emitMobileObservabilityEvents(
           "cmux.mobile.terminal.input_failed_count": observation.inputFailedCount,
           "cmux.mobile.terminal.histogram_version": observation.histograms ? 1 : undefined,
           ...Object.fromEntries(Object.entries(observation.histograms ?? {}).map(([name, counts]) => [`cmux.mobile.terminal.${name}_histogram`, counts])),
+          ...Object.fromEntries(Object.entries(observation.stageMetrics ?? {}).map(([key, value]) => [`cmux.mobile.terminal.${key}`, value])),
           "cmux.mobile.terminal.input_count": observation.inputCount,
           "cmux.mobile.terminal.output_count": observation.outputCount,
           "cmux.mobile.terminal.presented_count": observation.presentedCount,
