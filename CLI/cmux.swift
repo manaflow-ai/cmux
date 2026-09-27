@@ -5262,6 +5262,14 @@ struct CMUXCLI {
             if try runHooksNoSocketCommand(commandArgs: commandArgs) {
                 return
             }
+            if commandArgs == ["claude", "spool-forwarder"] {
+                await runAgentHookSpoolForwarder(
+                    agent: "claude",
+                    socketPath: resolvedSocketPath,
+                    socketPassword: socketPasswordArg
+                )
+                return
+            }
             if Self.hooksCommandNeedsCmuxTarget(commandArgs),
                processEnv["CMUX_SURFACE_ID"]?.isEmpty != false,
                processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,

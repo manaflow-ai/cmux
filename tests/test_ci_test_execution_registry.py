@@ -51,6 +51,16 @@ jobs:
 
 
 class RegistryBlastRadiusTests(unittest.TestCase):
+    def test_cli_product_lane_selects_the_hook_spool_regression(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/ci/run_python_test_lane.py"),
+             "--lane", "macos-cli-product", "--list"],
+            cwd=ROOT, capture_output=True, text=True, check=True,
+        )
+        self.assertEqual(result.stdout.splitlines(), ["tests/test_claude_hook_spool.py"])
+        errors, _, _ = validator.validate(ROOT, added={"tests/test_claude_hook_spool.py"})
+        self.assertEqual(errors, [])
+
     def make_root(self, *, tests: list[str], registry: str) -> Path:
         root = Path(tempfile.mkdtemp(prefix="cmux-test-execution-registry-"))
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
