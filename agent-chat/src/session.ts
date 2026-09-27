@@ -155,8 +155,10 @@ export interface SessionSummary {
   parentSessionId?: string;
   parentConversationId?: string;
   startRequestId?: string;
-  /** "transcript": a read-only view of an agent running in a cmux terminal. */
+  /** "transcript": a chat view of an agent running in a cmux terminal. */
   mode?: "transcript";
+  /** What that agent is waiting on in the terminal (permission, question). */
+  attention?: string | null;
 }
 export type CtrlJMode = "newline" | "menu";
 
@@ -241,6 +243,8 @@ export interface SessionState {
   compose(): void;
   reply(text: string): void;
   stop(): void;
+  /** Focuses the terminal pane behind a terminal chat view. */
+  focusTerminal(): void;
   setOption(id: string, value: OptionValue): void;
   fork(): void;
   handoff(): void;
@@ -351,6 +355,10 @@ export function useSession(): SessionState {
   } | null>(null);
   const pendingStartTimeoutRef = useRef<number | null>(null);
   const optimisticUsersRef = useRef<string[]>([]);
+  const sessionModeRef = useRef<SessionSummary["mode"]>(routedToTranscript ? "transcript" : undefined);
+  useEffect(() => {
+    if (session) sessionModeRef.current = session.mode;
+  }, [session]);
   const latestCwdRequestRef = useRef<CwdHarnessRequest | null>(null);
 
   const closeHandoffWindow = useCallback(() => {
@@ -504,6 +512,11 @@ export function useSession(): SessionState {
           case "session-status":
             if (msg.sessionId === sessionIdRef.current) {
               setSession((s) => (s ? { ...s, status: msg.status } : s));
+            }
+            break;
+          case "session-attention":
+            if (msg.sessionId === sessionIdRef.current) {
+              setSession((s) => (s ? { ...s, attention: typeof msg.attention === "string" ? msg.attention : null } : s));
             }
             break;
           case "session-title":
@@ -691,9 +704,18 @@ export function useSession(): SessionState {
     if (sessionIdRef.current) {
       if (sendRaw({ op: "send", sessionId: sessionIdRef.current, requestId: newClientRequestId("turn"), prompt: text })) {
         setSession((s) => (s ? { ...s, status: "running" } : s));
+        // A terminal view's prompt only reaches the event log when the agent's
+        // transcript records it; show it now and drop that echo when it lands.
+        if (sessionModeRef.current === "transcript") {
+          optimisticUsersRef.current.push(text);
+          setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
+        }
       }
     }
   }, [sendRaw, start]);
+  const focusTerminal = useCallback(() => {
+    if (sessionIdRef.current) sendRaw({ op: "focus-terminal", sessionId: sessionIdRef.current });
+  }, [sendRaw]);
   const stop = useCallback(() => {
     if (sessionIdRef.current) sendRaw({ op: "stop", sessionId: sessionIdRef.current });
   }, [sendRaw]);
@@ -771,6 +793,7 @@ export function useSession(): SessionState {
     compose,
     reply,
     stop,
+    focusTerminal,
     setOption,
     fork,
     handoff,

@@ -55,7 +55,7 @@ function useStickToBottom(scrollRef: RefObject<HTMLDivElement | null>, stickRef:
 }
 
 export function Chat() {
-  const { ready, connectionEpoch, providers, capabilities, providerOptions, session, routing, blocks, options, actions, commands, filesByCwd, fileDiffs, ctrlJ, forkPending, handoffPending, reply, stop, setOption, fork, handoff, compose, requestProviderOptions, requestProviderCommands, requestFiles, requestFileDiff } = useCtx();
+  const { ready, connectionEpoch, providers, capabilities, providerOptions, session, routing, blocks, options, actions, commands, filesByCwd, fileDiffs, ctrlJ, forkPending, handoffPending, reply, stop, focusTerminal, setOption, fork, handoff, compose, requestProviderOptions, requestProviderCommands, requestFiles, requestFileDiff } = useCtx();
   const [text, setText] = useState("");
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -128,6 +128,15 @@ export function Chat() {
     compose();
   };
 
+  const chatActions = (
+    <div className="chat-actions">
+      {running ? <button id="stop-btn" type="button" onClick={stop}>Stop</button> : null}
+      <button className="send" type="button" aria-label="Send" disabled={!text.trim()} onClick={submit}>
+        <ArrowUp />
+      </button>
+    </div>
+  );
+
   return (
     <section id="chat-view">
       <div id="messages" ref={scrollRef} onScroll={onScroll}>
@@ -143,19 +152,17 @@ export function Chat() {
           onFileDiff={(path) => { if (session) requestFileDiff(session.id, path); }}
         />
       </div>
-      {transcriptView ? (
-        <div id="chat-input-row">
-          <div className="transcript-notice" role="status">
-            <span className={running ? "transcript-dot running" : "transcript-dot"} aria-hidden="true" />
-            <span>{agentChatText(running ? "transcriptViewRunning" : "transcriptViewIdle")}</span>
-          </div>
-        </div>
-      ) : (
       <div id="chat-input-row">
         {routing?.phase === "handoff" ? (
           <div className="routing-notice" role="status">{agentChatText("continuedNewChat")}</div>
         ) : routing?.phase === "rerouted" ? (
           <div className="routing-notice" role="status">{agentChatText("movedServingRoute")}</div>
+        ) : null}
+        {transcriptView && session?.attention ? (
+          <div className="terminal-attention" role="status">
+            <span className="terminal-attention-text">{session.attention}</span>
+            <button className="terminal-attention-btn" type="button" onClick={focusTerminal}>{agentChatText("answerInTerminal")}</button>
+          </div>
         ) : null}
         <div id="chat-card">
           <div className="input-wrap chat-text-wrap">
@@ -177,30 +184,34 @@ export function Chat() {
             />
             {commandMenu.menu}
           </div>
-          <StatusRow
-            provider={session?.provider ?? "agent"}
-            providers={providers}
-            allProviderOptions={allProviderOptions}
-            loadingProviderIds={loadingProviderIds}
-            onProviderModelChange={switchHarnessModel}
-            cwd={session?.cwd ?? ""}
-            options={resolvedOptions}
-            onChange={setOption}
-            openOptionId={openOptionId}
-            setOpenOptionId={setOpenOptionId}
-            running={running}
-            trailing={(
-              <div className="chat-actions">
-                {running ? <button id="stop-btn" type="button" onClick={stop}>Stop</button> : null}
-                <button className="send" type="button" aria-label="Send" disabled={!text.trim()} onClick={submit}>
-                  <ArrowUp />
-                </button>
-              </div>
-            )}
-          />
+          {transcriptView ? (
+            // Terminal chat views drive the agent in the terminal: no model or
+            // option controls, just where the message goes and send/stop.
+            <div className="transcript-composer-row">
+              <span className="transcript-hint">
+                <span className={running ? "transcript-dot running" : "transcript-dot"} aria-hidden="true" />
+                <span>{agentChatText(running ? "transcriptViewRunning" : "transcriptViewIdle")}</span>
+              </span>
+              {chatActions}
+            </div>
+          ) : (
+            <StatusRow
+              provider={session?.provider ?? "agent"}
+              providers={providers}
+              allProviderOptions={allProviderOptions}
+              loadingProviderIds={loadingProviderIds}
+              onProviderModelChange={switchHarnessModel}
+              cwd={session?.cwd ?? ""}
+              options={resolvedOptions}
+              onChange={setOption}
+              openOptionId={openOptionId}
+              setOpenOptionId={setOpenOptionId}
+              running={running}
+              trailing={chatActions}
+            />
+          )}
         </div>
       </div>
-      )}
       {helpOpen ? <ShortcutOverlay provider={session?.provider ?? "agent"} options={resolvedOptions} running={running} ctrlJ={ctrlJ} onClose={() => setHelpOpen(false)} /> : null}
     </section>
   );

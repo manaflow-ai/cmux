@@ -1,15 +1,38 @@
-// Read-only transcript view: renders the JSONL transcript a terminal agent
-// (Claude Code, Codex) writes as it runs, so a cmux terminal can be shown as a
-// chat without starting a second agent process. The terminal stays the source
-// of truth; this adapter only tails the file and normalizes it into AgentEvent.
+// Terminal chat view: renders the JSONL transcript a terminal agent (Claude
+// Code, Codex) writes as it runs, so a cmux terminal can be shown as a chat
+// without starting a second agent process. The terminal stays the source of
+// truth: this adapter tails the file and normalizes it into AgentEvent, and
+// prompts and interrupts go to the terminal through the cmux control socket.
 import { open, stat } from "node:fs/promises";
 import type { Adapter, AgentEvent, OptionValue, SessionCtx } from "../types";
+import { cmuxRpc, type CmuxRpcResult } from "../cmux-rpc";
 import { tryParse, truncate } from "./lines";
 
 export type TranscriptAgent = "claude" | "codex";
 
-export const TRANSCRIPT_READ_ONLY_MESSAGE =
-  "This view mirrors the terminal session. Switch to the terminal to reply, approve permissions, or use slash commands.";
+/** The terminal agent session a transcript view drives. */
+export interface TranscriptTarget {
+  agentSessionId: string;
+  surfaceId?: string;
+}
+
+type Rpc = (method: string, params: Record<string, unknown>) => Promise<CmuxRpcResult>;
+let rpc: Rpc = cmuxRpc;
+
+export function setTranscriptRpcForTest(next: Rpc | null) {
+  rpc = next ?? cmuxRpc;
+}
+
+export function transcriptTarget(sess: SessionCtx): TranscriptTarget | undefined {
+  return sess.internal.transcriptTarget as TranscriptTarget | undefined;
+}
+
+/** Focuses the terminal pane that runs the agent (for prompts the view cannot answer). */
+export async function focusTranscriptTerminal(sess: SessionCtx): Promise<CmuxRpcResult> {
+  const surfaceId = transcriptTarget(sess)?.surfaceId;
+  if (!surfaceId) return { ok: false, error: "The terminal for this session is unknown." };
+  return rpc("surface.focus", { surface_id: surfaceId });
+}
 
 export interface TranscriptParser {
   readonly agent: TranscriptAgent;
@@ -447,13 +470,14 @@ export function attachTranscript(
   agent: TranscriptAgent,
   path: string,
   onTitle?: (title: string) => void,
-  opts: { pollMs?: number; initialWindowBytes?: number } = {},
+  opts: { pollMs?: number; initialWindowBytes?: number; onTick?: () => void } = {},
 ): TranscriptTail {
   const parser = transcriptParser(agent);
   const refreshStatus = () => {
     const st = transcriptState(sess);
     if (!st) return;
     sess.setStatus(transcriptLooksRunning(sess.events, st.lastWriteMs) ? "running" : "idle");
+    opts.onTick?.();
   };
   const tail = new TranscriptTail(path, (lines, mtimeMs) => {
     const st = transcriptState(sess);
@@ -471,7 +495,7 @@ export function attachTranscript(
     tail,
     parser,
     lastWriteMs: 0,
-    statusTimer: setInterval(refreshStatus, 5_000),
+    statusTimer: setInterval(refreshStatus, 2_000),
   };
   sess.internal.transcript = state;
   sess.internal.transcriptPath = path;
@@ -480,11 +504,24 @@ export function attachTranscript(
 }
 
 export const transcriptAdapter: Adapter = {
-  send(sess: SessionCtx) {
-    sess.emit({ kind: "status", text: TRANSCRIPT_READ_ONLY_MESSAGE });
+  // The prompt is typed into the terminal's agent (bracketed paste + submit,
+  // the delivery the iOS chat uses). The transcript then records it, which is
+  // what renders the user message, so nothing is emitted here on success.
+  async send(sess: SessionCtx, prompt: string) {
+    const target = transcriptTarget(sess);
+    if (!target) {
+      sess.emit({ kind: "error", message: "This view is not attached to a terminal session." });
+      return;
+    }
+    const res = await rpc("mobile.chat.send", { session_id: target.agentSessionId, text: prompt });
+    if (!res.ok) sess.emit({ kind: "error", message: `Couldn't send to the terminal: ${res.error}` });
   },
-  stop() {
-    // The agent runs in the terminal; interrupting it belongs there.
+  stop(sess: SessionCtx) {
+    const target = transcriptTarget(sess);
+    if (!target) return;
+    void rpc("mobile.chat.interrupt", { session_id: target.agentSessionId }).then((res) => {
+      if (!res.ok) sess.emit({ kind: "error", message: `Couldn't interrupt the terminal: ${res.error}` });
+    });
   },
   dispose(sess: SessionCtx) {
     const st = transcriptState(sess);

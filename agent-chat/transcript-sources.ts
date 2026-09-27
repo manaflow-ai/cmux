@@ -23,6 +23,10 @@ interface HookEntry {
   cwd?: string;
   transcriptPath?: string;
   updatedAt: number;
+  /** Hook runtime status: running, idle, needsInput, error. */
+  runtimeStatus?: string;
+  /** Latest notification body, e.g. the permission the agent is asking for. */
+  lastBody?: string;
 }
 
 const AGENTS: TranscriptAgent[] = ["claude", "codex"];
@@ -73,6 +77,8 @@ function readStore(env: Required<TranscriptSourceEnv>, agent: TranscriptAgent): 
       cwd: typeof v.cwd === "string" && v.cwd ? v.cwd : undefined,
       transcriptPath: typeof v.transcriptPath === "string" && v.transcriptPath ? v.transcriptPath : undefined,
       updatedAt: typeof v.updatedAt === "number" ? v.updatedAt : 0,
+      runtimeStatus: typeof v.runtimeStatus === "string" ? v.runtimeStatus : undefined,
+      lastBody: typeof v.lastBody === "string" ? v.lastBody : undefined,
     });
   }
   return { entries, activeBySurface };
@@ -198,4 +204,15 @@ export function resolveSessionTranscript(sessionId: string, env: TranscriptSourc
   if (misses.size > 256) misses.clear();
   misses.set(sessionId, now);
   return null;
+}
+
+/**
+ * What the agent is waiting on in its terminal (a permission prompt, a
+ * question, a picker), from the hook store, or null when it is not waiting.
+ */
+export function transcriptAttention(agent: TranscriptAgent, sessionId: string, env: TranscriptSourceEnv = {}): string | null {
+  if (!SESSION_ID.test(sessionId)) return null;
+  const entry = readStore(resolvedEnv(env), agent).entries.find((e) => e.sessionId === sessionId);
+  if (entry?.runtimeStatus !== "needsInput") return null;
+  return entry.lastBody?.trim() || "The agent is waiting for input in the terminal.";
 }

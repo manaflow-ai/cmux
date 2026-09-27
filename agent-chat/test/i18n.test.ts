@@ -21,6 +21,7 @@ const keys: AgentChatTextKey[] = [
   "continueElsewhere",
   "transcriptViewRunning",
   "transcriptViewIdle",
+  "answerInTerminal",
 ];
 const english = agentChatCopyForLocale("en");
 

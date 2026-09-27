@@ -16,8 +16,8 @@ import { claudeAdapter } from "./adapters/claude";
 import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
-import { attachTranscript, transcriptAdapter, type TranscriptAgent } from "./adapters/transcript";
-import { resolveSessionTranscript, resolveSurfaceTranscript, type TranscriptSource } from "./transcript-sources";
+import { attachTranscript, focusTranscriptTerminal, transcriptAdapter, type TranscriptAgent } from "./adapters/transcript";
+import { resolveSessionTranscript, resolveSurfaceTranscript, transcriptAttention, type TranscriptSource } from "./transcript-sources";
 import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
 import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
 import { discoverHarnesses } from "./harnesses";
@@ -173,8 +173,14 @@ interface Session extends SessionCtx {
   adapter: Adapter;
   sockets: Set<Bun.ServerWebSocket<WsData>>;
   createdAt: number;
-  /** Set for read-only views of a terminal agent's transcript. */
-  transcript?: { agent: TranscriptAgent; path: string; disposeTimer?: ReturnType<typeof setTimeout> };
+  /** Set for chat views of an agent running in a cmux terminal. */
+  transcript?: {
+    agent: TranscriptAgent;
+    path: string;
+    disposeTimer?: ReturnType<typeof setTimeout>;
+    /** What the agent is waiting on in the terminal (permission, question), if anything. */
+    attention?: string | null;
+  };
 }
 interface WsData {
   subscribed: string | null;
@@ -242,7 +248,7 @@ function sessionSummary(s: Session) {
     parentConversationId: s.parentConversationId,
     startRequestId: s.startRequestId,
     capabilities: s.transcript ? s.adapter.capabilities : capabilitiesFor(s.provider),
-    ...(s.transcript ? { mode: "transcript" as const } : {}),
+    ...(s.transcript ? { mode: "transcript" as const, attention: s.transcript.attention ?? null } : {}),
   };
 }
 
@@ -570,7 +576,7 @@ function emitDoneAfterFiles(sess: Session, evt: InternalDoneEvent) {
 
 function sendPrompt(sess: Session, prompt: string, requestId = crypto.randomUUID()) {
   if (sess.transcript) {
-    // Transcript views have no agent process; the adapter explains that.
+    // Typed into the terminal's agent; the transcript records the prompt.
     void sess.adapter.send(sess, prompt);
     return;
   }
@@ -638,6 +644,7 @@ function ensureTranscriptSession(source: TranscriptSource): Session {
     existing.events.length = 0;
     delete existing.internal.eventGenerations;
     existing.transcript.path = source.path;
+    existing.internal.transcriptTarget = { agentSessionId: source.sessionId, surfaceId: source.surfaceId };
     startTranscriptTail(existing, source);
     broadcastSessionHistory(existing);
     return existing;
@@ -647,6 +654,7 @@ function ensureTranscriptSession(source: TranscriptSource): Session {
     adapter: transcriptAdapter,
   });
   sess.transcript = { agent: source.agent, path: source.path };
+  sess.internal.transcriptTarget = { agentSessionId: source.sessionId, surfaceId: source.surfaceId };
   startTranscriptTail(sess, source);
   return sess;
 }
@@ -658,7 +666,18 @@ function startTranscriptTail(sess: Session, source: TranscriptSource) {
     broadcastSessions();
     const payload = JSON.stringify({ kind: "session-title", sessionId: sess.id, title });
     for (const ws of sess.sockets) ws.send(payload);
-  });
+  }, { onTick: () => refreshTranscriptAttention(sess, source) });
+}
+
+// Permission prompts, questions, and pickers live in the terminal and are not
+// in the transcript until answered; the hook store says when the agent waits.
+function refreshTranscriptAttention(sess: Session, source: TranscriptSource) {
+  if (!sess.transcript || !sess.sockets.size) return;
+  const attention = transcriptAttention(source.agent, source.sessionId);
+  if ((sess.transcript.attention ?? null) === attention) return;
+  sess.transcript.attention = attention;
+  const payload = JSON.stringify({ kind: "session-attention", sessionId: sess.id, attention });
+  for (const ws of sess.sockets) ws.send(payload);
 }
 
 function resolveTranscriptSessionById(id: string): Session | undefined {
@@ -2218,6 +2237,14 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
         events: sess.events,
       }));
       refreshSession(sess);
+      break;
+    }
+    case "focus-terminal": {
+      const sess = sessions.get(String(msg.sessionId));
+      if (!sess?.transcript) return;
+      Promise.resolve(focusTranscriptTerminal(sess)).then((res) => {
+        if (!res.ok) sess.emit({ kind: "error", message: `Couldn't focus the terminal: ${res.error}` });
+      });
       break;
     }
     case "stop": {

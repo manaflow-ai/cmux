@@ -339,6 +339,9 @@ extension AppDelegate {
                 "CMUX_AGENT_CHAT_PORT": "0",
                 "CMUX_AGENT_CHAT_STATE_FILE": stateFileURL.path,
                 "CMUX_AGENT_CHAT_LAUNCH_ID": launchId,
+                // Terminal chat views deliver prompts over this app's socket.
+                "CMUX_SOCKET_PATH": TerminalController.shared.activeSocketPath(preferredPath: SocketControlSettings.socketPath()),
+                "CMUX_BUNDLED_CLI_PATH": CLIForwardingLaunchRouter.bundledCLIURL()?.path ?? "",
             ]
         ) else {
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)

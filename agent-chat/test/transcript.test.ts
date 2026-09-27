@@ -2,10 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { attachTranscript, parseTranscriptText, transcriptAdapter, TranscriptTail, transcriptLooksRunning, toolDetail } from "../adapters/transcript";
+import { attachTranscript, focusTranscriptTerminal, parseTranscriptText, setTranscriptRpcForTest, transcriptAdapter, TranscriptTail, transcriptLooksRunning, toolDetail } from "../adapters/transcript";
 import { utimesSync } from "node:fs";
 import type { SessionCtx, SessionStatus } from "../types";
-import { claudeProjectSlug, resolveSessionTranscript, resolveSurfaceTranscript } from "../transcript-sources";
+import { claudeProjectSlug, resolveSessionTranscript, resolveSurfaceTranscript, transcriptAttention } from "../transcript-sources";
 import type { AgentEvent } from "../types";
 
 const jsonl = (...rows: unknown[]) => rows.map((r) => JSON.stringify(r)).join("\n") + "\n";
@@ -201,6 +201,41 @@ test("an old transcript opens idle even when its last turn has no end", async ()
   expect(statuses).not.toContain("running");
 });
 
+describe("terminal delivery", () => {
+  function fakeSession(target?: { agentSessionId: string; surfaceId?: string }) {
+    return {
+      events: [] as AgentEvent[],
+      internal: { transcriptTarget: target } as Record<string, unknown>,
+      emit(evt: AgentEvent) { this.events.push(evt); },
+      setStatus() {},
+    } as unknown as SessionCtx;
+  }
+  afterEach(() => setTranscriptRpcForTest(null));
+
+  test("send types the prompt into the terminal's agent session and echoes nothing itself", async () => {
+    const calls: [string, Record<string, unknown>][] = [];
+    setTranscriptRpcForTest(async (method, params) => { calls.push([method, params]); return { ok: true }; });
+    const sess = fakeSession({ agentSessionId: "claude-1234", surfaceId: "SURF" });
+    await transcriptAdapter.send(sess, "ship it");
+    transcriptAdapter.stop(sess);
+    await focusTranscriptTerminal(sess);
+    expect(calls).toEqual([
+      ["mobile.chat.send", { session_id: "claude-1234", text: "ship it" }],
+      ["mobile.chat.interrupt", { session_id: "claude-1234" }],
+      ["surface.focus", { surface_id: "SURF" }],
+    ]);
+    expect(sess.events).toEqual([]);
+  });
+
+  test("delivery failures surface as errors in the view", async () => {
+    setTranscriptRpcForTest(async () => ({ ok: false, error: "not_found" }));
+    const sess = fakeSession({ agentSessionId: "claude-1234" });
+    await transcriptAdapter.send(sess, "hi");
+    expect(sess.events).toEqual([{ kind: "error", message: "Couldn't send to the terminal: not_found" }]);
+    expect((await focusTranscriptTerminal(sess)).ok).toBe(false);
+  });
+});
+
 describe("transcript sources", () => {
   function fixture() {
     const home = tempDir();
@@ -222,7 +257,7 @@ describe("transcript sources", () => {
         "claude-active-0001": { surfaceId: "AAAAAAAA-0000-0000-0000-000000000001", transcriptPath: recorded, updatedAt: 10 },
         "claude-newer-0001": { surfaceId: "AAAAAAAA-0000-0000-0000-000000000001", transcriptPath: recorded, updatedAt: 99 },
         "claude-fallback-0001": { surfaceId: "BBBBBBBB-0000-0000-0000-000000000002", cwd: "/work/app.v2", updatedAt: 5 },
-        "claude-missing-0001": { surfaceId: "DDDDDDDD-0000-0000-0000-000000000004", transcriptPath: join(home, "gone.jsonl"), updatedAt: 5 },
+        "claude-missing-0001": { surfaceId: "DDDDDDDD-0000-0000-0000-000000000004", transcriptPath: join(home, "gone.jsonl"), updatedAt: 5, runtimeStatus: "needsInput", lastBody: "Claude needs your permission to use Bash" },
         "../escape": { surfaceId: "EEEEEEEE-0000-0000-0000-000000000005", transcriptPath: recorded, updatedAt: 5 },
       },
     }));
@@ -245,6 +280,12 @@ describe("transcript sources", () => {
     expect(resolveSurfaceTranscript("BBBBBBBB-0000-0000-0000-000000000002", env)?.path).toBe(join(projectDir, "claude-fallback-0001.jsonl"));
     expect(resolveSurfaceTranscript("CCCCCCCC-0000-0000-0000-000000000003", env)).toMatchObject({ agent: "codex", path: rollout, cwd: "/work/api" });
     expect(resolveSessionTranscript("codex-session-0001", env)?.path).toBe(rollout);
+  });
+
+  test("reports what the agent waits on in the terminal", () => {
+    const { env } = fixture();
+    expect(transcriptAttention("claude", "claude-missing-0001", env)).toBe("Claude needs your permission to use Bash");
+    expect(transcriptAttention("claude", "claude-active-0001", env)).toBeNull();
   });
 
   test("returns nothing for unknown surfaces, missing files, and invalid ids", () => {

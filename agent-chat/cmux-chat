@@ -6,7 +6,7 @@
 #   cmux-chat -p codex refactor foo    pick provider (claude/codex/opencode/pi/gemini)
 #   cmux-chat --split                  open as a split in the current workspace instead
 #   cmux-chat --no-open ...            print the URL only
-#   cmux-chat --terminal [--surface ID] read-only chat view of the agent in a
+#   cmux-chat --terminal [--surface ID] chat view of the agent running in a
 #                                      terminal ($CMUX_SURFACE_ID), as a split
 #
 # Starts the sidecar server (bun server.ts) if it isn't running.
