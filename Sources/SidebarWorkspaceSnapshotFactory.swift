@@ -161,6 +161,7 @@ struct SidebarWorkspaceSnapshotFactory {
             usesViewportAwarePath: settings.usesLastSegmentPath,
             showsAgentActivity: showsAgentActivity,
             compactsAgentStatus: settings.compactsAgentStatus,
+            compactStatusIcons: settings.compactStatusIcons,
             visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails
         )
     }
@@ -386,7 +387,8 @@ struct SidebarWorkspaceSnapshotFactory {
             branch: settings.showsGitBranch
                 ? workspace.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).first?.branch
                 : nil,
-            directory: directory
+            directory: directory,
+            iconOverrides: settings.compactStatusIcons
         )
     }
 

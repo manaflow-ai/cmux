@@ -757,7 +757,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         guard let glyph else { return }
         compactStatusGlyphView.configure(
             glyph,
-            pointSize: model.scaled(9),
+            pointSize: model.scaled(11),
             color: glyph.color(
                 isActive: model.isActive,
                 selected: palette.selectedForeground(0.95),
@@ -1175,7 +1175,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             x += glyphSize.width + titleRowSpacing
         }
         if !compactStatusGlyphView.isHidden {
-            let side = model.scaled(9) + 4
+            let side = model.scaled(11) + 4
             place(compactStatusGlyphView, size: NSSize(width: side, height: side), centerY: firstLineCenter)
             x += side + titleRowSpacing
         }

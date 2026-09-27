@@ -176,15 +176,32 @@ The glyph shows the loudest state that applies:
 | An agent reported an error | red warning triangle |
 | An agent needs input | yellow dot |
 | An agent is running | pulsing gray dot, in place of the loading spinner |
-| An agent is starting (no state reported yet) | hollow ring |
+| An agent is starting (no state reported yet) | dashed ring |
 | Unread notifications | blue dot, in place of the unread count badge |
-| Open pull request with a merge conflict | orange pull request glyph |
-| Open pull request with failing checks | red pull request glyph |
-| Open pull request with passing checks | green pull request glyph |
+| Open pull request with a merge conflict | orange pull request glyph with a "!" badge |
+| Open pull request with failing checks | red pull request glyph with an "x" badge |
+| Open pull request with passing checks | green pull request glyph with a check badge |
 | Open pull request, checks unknown | gray pull request glyph |
 | Merged pull request | purple merge glyph |
-| Closed pull request | gray pull request glyph |
-| Anything else | gray dot |
+| Closed pull request | gray pull request glyph with a minus badge |
+| Agent idle (done, seen) | gray checkmark |
+| Branch, no pull request | gray branch glyph |
+| Plain terminal | gray terminal glyph |
+
+Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF Symbol](https://developer.apple.com/sf-symbols/) name. The states are `error`, `needsInput`, `running`, `starting`, `unseen`, `pullRequestOpen`, `pullRequestPassing`, `pullRequestFailing`, `pullRequestConflict`, `pullRequestMerged`, `pullRequestClosed`, `idle`, `branch` and `terminal`. Colors stay the same; a configured symbol replaces the badge too, and a name that does not render falls back to the built-in symbol.
+
+```json
+{
+  "sidebar": {
+    "compactAgentStatus": true,
+    "compactStatusIcons": {
+      "terminal": "apple.terminal",
+      "needsInput": "hand.raised.fill",
+      "idle": "moon.zzz"
+    }
+  }
+}
+```
 
 - Default: `false`.
 - Only agent-owned status keys lose their rows (`claude_code`, `codex`, and the other built-in agent integrations). Status set with `cmux set-status` under any other key keeps its row.

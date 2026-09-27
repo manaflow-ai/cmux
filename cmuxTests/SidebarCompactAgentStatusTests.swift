@@ -93,7 +93,7 @@ struct SidebarCompactAgentStatusTests {
     func startingAgentIsAHollowRingAbovePullRequests() {
         let glyph = Glyph.resolve(.init(lifecycleStates: [.idle, .unknown], pullRequests: [Self.openPR]))
         #expect(glyph.kind == .pending)
-        #expect(glyph.symbolName == "circle")
+        #expect(glyph.symbolName == "circle.dashed")
         #expect(!glyph.pulses)
     }
 
@@ -119,13 +119,69 @@ struct SidebarCompactAgentStatusTests {
     }
 
     @Test
-    func everyCompactRowGetsAGlyphIdleIsAGrayDot() {
-        for input in [Glyph.Input(), Glyph.Input(lifecycleStates: [.idle]), Glyph.Input(branch: "main")] {
+    func settledRowsGetSymbolsNotDots() {
+        let cases: [(Glyph.Input, Glyph.Kind, String)] = [
+            (Glyph.Input(), .terminal, "terminal"),
+            (Glyph.Input(branch: "main"), .branch, "arrow.triangle.branch"),
+            (Glyph.Input(lifecycleStates: [.idle], branch: "main"), .idle, "checkmark.circle"),
+        ]
+        for (input, kind, symbol) in cases {
             let glyph = Glyph.resolve(input)
-            #expect(glyph.kind == .idle)
-            #expect(glyph.symbolName == "circle.fill")
+            #expect(glyph.kind == kind)
+            #expect(glyph.symbolName == symbol)
+            #expect(glyph.badgeSymbolName == nil)
             #expect(!glyph.pulses)
         }
+    }
+
+    @Test
+    func pullRequestStatesShareOneGlyphWithABadge() {
+        let badges: [(Glyph.Checks?, SidebarPullRequestStatus, String?)] = [
+            (.passing, .open, "checkmark.circle.fill"),
+            (.failing, .open, "xmark.circle.fill"),
+            (.conflict, .open, "exclamationmark.circle.fill"),
+            (nil, .open, nil),
+            (nil, .closed, "minus.circle.fill"),
+            (nil, .merged, nil),
+        ]
+        for (checks, status, badge) in badges {
+            let glyph = Glyph.resolve(.init(pullRequests: [.init(label: "PR", number: 3, status: status, checks: checks)]))
+            #expect(glyph.badgeSymbolName == badge)
+        }
+    }
+
+    @Test
+    func configuredIconsReplaceTheSymbolAndBadgeAndSurviveUnread() {
+        let icons = Glyph.validIconOverrides([
+            "terminal": " apple.terminal ",
+            "pullRequestFailing": "flame.fill",
+            "unseen": "envelope.badge.fill",
+            "notAState": "star",
+            "idle": "   ",
+        ])
+        #expect(icons == ["terminal": "apple.terminal", "pullRequestFailing": "flame.fill", "unseen": "envelope.badge.fill"])
+
+        let terminal = Glyph.resolve(.init(iconOverrides: icons))
+        #expect(terminal.symbolName == "apple.terminal")
+        #expect(terminal.defaultSymbolName == "terminal")
+        #expect(terminal.applyingUnread(1, latestNotificationText: nil).symbolName == "envelope.badge.fill")
+
+        let failing = Glyph.resolve(.init(
+            pullRequests: [.init(label: "PR", number: 3, status: .open, checks: .failing)],
+            iconOverrides: icons
+        ))
+        #expect(failing.symbolName == "flame.fill")
+        #expect(failing.badgeSymbolName == nil)
+        #expect(failing.color(isActive: false, selected: .white, secondary: .gray) == .systemRed)
+
+        let idle = Glyph.resolve(.init(lifecycleStates: [.idle], iconOverrides: icons))
+        #expect(idle.symbolName == "checkmark.circle")
+    }
+
+    @Test
+    func everyIconSlotHasADistinctState() {
+        #expect(Glyph.IconSlot.allCases.count == 14)
+        #expect(Set(Glyph.IconSlot.allCases.map(\.rawValue)).count == 14)
     }
 
     @Test

@@ -11,6 +11,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let usesViewportAwarePath: Bool
         let showsAgentActivity: Bool
         var compactsAgentStatus = false
+        var compactStatusIcons: [String: String] = [:]
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     }
 

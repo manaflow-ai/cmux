@@ -19,11 +19,15 @@ import SwiftUI
 /// 3. Running: pulsing gray dot. It replaces the row's loading spinner.
 /// 4. Starting (agent present, state not reported yet): hollow ring.
 /// 5. Done and unseen (unread notifications): blue dot. Applied by the row,
-///    which owns the unread count; see ``applyingUnread(_:)``.
-/// 6. Pull request: merged purple; open orange on a merge conflict, red when
-///    CI fails, green when CI passes, gray while checks are unknown; closed
-///    gray.
-/// 7. Otherwise: gray dot.
+///    which owns the unread count; see ``applyingUnread(_:latestNotificationText:)``.
+/// 6. Pull request: merged purple; open orange with a "!" badge on a merge
+///    conflict, red with an "x" badge when CI fails, green with a check badge
+///    when CI passes, gray while checks are unknown; closed gray with a minus.
+/// 7. Agent idle (done and seen): gray checkmark.
+/// 8. Branch, no pull request: gray branch.
+/// 9. Otherwise, a plain terminal: gray terminal.
+/// Only the three agent states Claude marks with dots (needs input, unseen,
+/// running) are dots; everything settled gets a symbol that says what it is.
 struct SidebarCompactStatusGlyph: Equatable {
     enum Kind: Equatable {
         case error
@@ -33,6 +37,8 @@ struct SidebarCompactStatusGlyph: Equatable {
         case unseen
         case pullRequest(PullRequestState)
         case idle
+        case branch
+        case terminal
     }
 
     enum PullRequestState: Equatable {
@@ -51,14 +57,91 @@ struct SidebarCompactStatusGlyph: Equatable {
     let kind: Kind
     /// One line per fact: agent statuses, pull requests, branch, directory.
     let tooltip: String
+    /// `sidebar.compactStatusIcons`: SF Symbol names by ``IconSlot`` raw value.
+    var iconOverrides: [String: String] = [:]
 
+    /// The customizable states; raw values are the `sidebar.compactStatusIcons`
+    /// keys in cmux.json.
+    enum IconSlot: String, CaseIterable {
+        case error
+        case needsInput
+        case running
+        case starting
+        case unseen
+        case pullRequestOpen
+        case pullRequestPassing
+        case pullRequestFailing
+        case pullRequestConflict
+        case pullRequestMerged
+        case pullRequestClosed
+        case idle
+        case branch
+        case terminal
+    }
+
+    var iconSlot: IconSlot {
+        switch kind {
+        case .error: return .error
+        case .needsInput: return .needsInput
+        case .running: return .running
+        case .pending: return .starting
+        case .unseen: return .unseen
+        case .pullRequest(.open(nil)): return .pullRequestOpen
+        case .pullRequest(.open(.passing)): return .pullRequestPassing
+        case .pullRequest(.open(.failing)): return .pullRequestFailing
+        case .pullRequest(.open(.conflict)): return .pullRequestConflict
+        case .pullRequest(.merged): return .pullRequestMerged
+        case .pullRequest(.closed): return .pullRequestClosed
+        case .idle: return .idle
+        case .branch: return .branch
+        case .terminal: return .terminal
+        }
+    }
+
+    /// Keeps entries whose key names a state and whose symbol name is not blank.
+    static func validIconOverrides(_ raw: [String: String]) -> [String: String] {
+        var valid: [String: String] = [:]
+        for (key, value) in raw where IconSlot(rawValue: key) != nil {
+            let symbol = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !symbol.isEmpty { valid[key] = symbol }
+        }
+        return valid
+    }
+
+    /// The configured symbol for this state, or nil for the built-in one.
+    var customSymbolName: String? {
+        iconOverrides[iconSlot.rawValue]
+    }
+
+    /// The symbol drawn: the configured one, else the built-in default.
     var symbolName: String {
+        customSymbolName ?? defaultSymbolName
+    }
+
+    var defaultSymbolName: String {
         switch kind {
         case .error: return "exclamationmark.triangle.fill"
         case .pullRequest(.merged): return "arrow.triangle.merge"
         case .pullRequest: return "arrow.triangle.pull"
-        case .pending: return "circle"
-        case .needsInput, .running, .unseen, .idle: return "circle.fill"
+        case .pending: return "circle.dashed"
+        case .needsInput, .running, .unseen: return "circle.fill"
+        case .idle: return "checkmark.circle"
+        case .branch: return "arrow.triangle.branch"
+        case .terminal: return "terminal"
+        }
+    }
+
+    /// A small symbol knocked into the glyph's lower trailing corner, for the
+    /// pull request states that share one base glyph.
+    var badgeSymbolName: String? {
+        // A configured symbol replaces the whole glyph, badge included.
+        guard customSymbolName == nil else { return nil }
+        switch kind {
+        case .pullRequest(.open(.passing)): return "checkmark.circle.fill"
+        case .pullRequest(.open(.failing)): return "xmark.circle.fill"
+        case .pullRequest(.open(.conflict)): return "exclamationmark.circle.fill"
+        case .pullRequest(.closed): return "minus.circle.fill"
+        default: return nil
         }
     }
 
@@ -75,10 +158,10 @@ struct SidebarCompactStatusGlyph: Equatable {
             .compactMap { $0?.isEmpty == false ? $0 : nil }
             .joined(separator: "\n")
         switch kind {
-        case .pullRequest, .idle:
-            return SidebarCompactStatusGlyph(kind: .unseen, tooltip: unreadTooltip)
+        case .pullRequest, .idle, .branch, .terminal:
+            return SidebarCompactStatusGlyph(kind: .unseen, tooltip: unreadTooltip, iconOverrides: iconOverrides)
         case .error, .needsInput, .running, .pending, .unseen:
-            return SidebarCompactStatusGlyph(kind: kind, tooltip: unreadTooltip)
+            return SidebarCompactStatusGlyph(kind: kind, tooltip: unreadTooltip, iconOverrides: iconOverrides)
         }
     }
 
@@ -100,6 +183,8 @@ struct SidebarCompactStatusGlyph: Equatable {
         var pullRequests: [PullRequest] = []
         var branch: String?
         var directory: String?
+        /// `sidebar.compactStatusIcons`, already validated.
+        var iconOverrides: [String: String] = [:]
     }
 
     private static let tooltipFormat = String(
@@ -123,10 +208,14 @@ struct SidebarCompactStatusGlyph: Equatable {
             case .merged: kind = .pullRequest(.merged)
             case .closed: kind = .pullRequest(.closed)
             }
-        } else {
+        } else if input.lifecycleStates.contains(.idle) || !input.agentEntries.isEmpty {
             kind = .idle
+        } else if input.branch != nil {
+            kind = .branch
+        } else {
+            kind = .terminal
         }
-        return SidebarCompactStatusGlyph(kind: kind, tooltip: tooltip(for: input))
+        return SidebarCompactStatusGlyph(kind: kind, tooltip: tooltip(for: input), iconOverrides: input.iconOverrides)
     }
 
     /// Agent hooks mark failures with the warning-triangle icon.
@@ -225,7 +314,8 @@ struct SidebarCompactStatusGlyph: Equatable {
         case .pullRequest(.open(.conflict)): return .systemOrange
         case .pullRequest(.open(.passing)): return .systemGreen
         case .pullRequest(.merged): return .systemPurple
-        case .running, .pending, .idle, .pullRequest(.open(nil)), .pullRequest(.closed): return secondary
+        case .running, .pending, .idle, .branch, .terminal, .pullRequest(.open(nil)), .pullRequest(.closed):
+            return secondary
         }
     }
 }
@@ -268,9 +358,8 @@ final class SidebarCompactStatusGlyphImageView: NSImageView {
     }
 
     func configure(_ glyph: SidebarCompactStatusGlyph, pointSize: CGFloat, color: NSColor) {
-        image = RenderableSystemSymbol.configuredAppKitImage(
-            systemName: glyph.symbolName, pointSize: pointSize, weight: .semibold
-        )
+        image = Self.image(symbol: glyph.symbolName, badge: glyph.badgeSymbolName, pointSize: pointSize)
+            ?? Self.image(symbol: glyph.defaultSymbolName, badge: nil, pointSize: pointSize)
         contentTintColor = color
         toolTip = glyph.tooltip.isEmpty ? nil : glyph.tooltip
         setAccessibilityElement(!glyph.tooltip.isEmpty)
@@ -280,6 +369,46 @@ final class SidebarCompactStatusGlyphImageView: NSImageView {
             pulses = glyph.pulses
             updatePulse()
         }
+    }
+
+    private struct ImageKey: Hashable {
+        let symbol: String
+        let badge: String?
+        let pointSize: CGFloat
+    }
+
+    @MainActor private static var imageCache: [ImageKey: NSImage] = [:]
+
+    /// The glyph's template image; a badge is knocked out of the base symbol's
+    /// lower trailing corner so it reads at sidebar size. Cached per key.
+    @MainActor static func image(symbol: String, badge: String?, pointSize: CGFloat) -> NSImage? {
+        let key = ImageKey(symbol: symbol, badge: badge, pointSize: pointSize)
+        if let cached = imageCache[key] { return cached }
+        guard let base = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: symbol, pointSize: pointSize, weight: .semibold
+        ) else { return nil }
+        guard let badge, let badgeImage = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: badge, pointSize: pointSize * 0.62, weight: .bold
+        ) else {
+            imageCache[key] = base
+            return base
+        }
+        let size = base.size
+        let composed = NSImage(size: size, flipped: false) { rect in
+            base.draw(in: rect)
+            let side = min(rect.width, rect.height) * 0.62
+            let badgeRect = NSRect(x: rect.maxX - side, y: rect.minY, width: side, height: side)
+            guard let context = NSGraphicsContext.current else { return true }
+            context.compositingOperation = .destinationOut
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: badgeRect.insetBy(dx: -1, dy: -1)).fill()
+            context.compositingOperation = .sourceOver
+            badgeImage.draw(in: badgeRect)
+            return true
+        }
+        composed.isTemplate = true
+        imageCache[key] = composed
+        return composed
     }
 
     override func viewDidMoveToWindow() {

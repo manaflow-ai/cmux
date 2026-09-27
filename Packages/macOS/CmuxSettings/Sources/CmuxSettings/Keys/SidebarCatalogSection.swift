@@ -175,6 +175,14 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarCompactAgentStatus"
     )
 
+    /// `sidebar.compactAgentStatus` glyph overrides: SF Symbol names keyed by
+    /// state (`needsInput`, `terminal`, `pullRequestFailing`, ...).
+    public let compactStatusIcons = DefaultsKey<[String: String]>(
+        id: "sidebar.compactStatusIcons",
+        defaultValue: [:],
+        userDefaultsKey: "sidebarCompactStatusIcons"
+    )
+
     public let showCustomMetadata = DefaultsKey<Bool>(
         id: "sidebar.showCustomMetadata",
         defaultValue: true,
