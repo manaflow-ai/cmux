@@ -139,7 +139,7 @@ public struct BrowserSection: View {
                 String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"),
                 subtitle: browserManagedByPolicy
                     ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
-                    : String(localized: "settings.browser.enabled.subtitle", defaultValue: "cmux can open browser tabs, and links opened from terminals open in the cmux browser.")
+                    : String(localized: "settings.browser.enabled.subtitle", defaultValue: "Opens browser tabs and links from terminals in the cmux browser.")
             ) {
                 Toggle(
                     "",
@@ -210,7 +210,7 @@ public struct BrowserSection: View {
             SettingsCardRow(
                 configurationReview: .json("browser.theme"),
                 String(localized: "settings.browser.theme", defaultValue: "Browser Theme"),
-                subtitle: String(localized: "settings.browser.theme.subtitle", defaultValue: "Sets the color scheme for pages that support light and dark modes. System follows the app appearance."),
+                subtitle: String(localized: "settings.browser.theme.subtitle", defaultValue: "Choose light or dark pages for sites that support both. System matches the app appearance."),
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(get: { theme.current }, set: { theme.set($0) })) {
@@ -254,7 +254,7 @@ public struct BrowserSection: View {
             SettingsCardRow(
                 configurationReview: .json("browser.discardHiddenWebViews"),
                 String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Browser Memory Saver"),
-                subtitle: String(localized: "settings.browser.hiddenWebViewDiscard.subtitle", defaultValue: "Browser tabs that stay hidden longer than the delay free their memory and reload when shown again.")
+                subtitle: String(localized: "settings.browser.hiddenWebViewDiscard.subtitle", defaultValue: "Frees memory from browser tabs hidden longer than the delay. They reload when shown again.")
             ) {
                 Toggle("", isOn: Binding(get: { discardEnabled.current }, set: { discardEnabled.set($0) }))
                     .labelsHidden()

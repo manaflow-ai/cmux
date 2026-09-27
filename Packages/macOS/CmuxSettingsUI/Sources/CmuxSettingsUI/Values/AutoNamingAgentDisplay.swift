@@ -10,7 +10,7 @@ enum AutoNamingAgentDisplay {
         if slug == AutoNamingAgentCatalog.autoSlug || AutoNamingAgentCatalog.summarizerSupported(slug: slug) {
             return String(
                 localized: "settings.automation.autoNamingAgent.subtitle",
-                defaultValue: "Automatic lets each session's own agent name it. A supported agent names every session and needs its command-line tool on the PATH."
+                defaultValue: "Automatic uses each session's own agent. Other supported agents need their command-line tool on the PATH."
             )
         }
         // An agent from the Other agents section cannot name sessions, so

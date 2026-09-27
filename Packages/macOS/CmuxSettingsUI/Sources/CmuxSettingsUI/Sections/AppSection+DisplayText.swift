@@ -42,7 +42,7 @@ extension AppSection {
         }
         return String(
             localized: "settings.app.warnBeforeClosingTabXButton.subtitle",
-            defaultValue: "cmux asks for confirmation before a tab close button closes a tab."
+            defaultValue: "Clicking a tab's close button asks for confirmation first."
         )
     }
 }

@@ -61,7 +61,7 @@ public struct TextBoxSection: View {
         SettingsCardRow(
             configurationReview: .json("terminal.showTextBoxOnNewTerminals"),
             String(localized: "settings.textBox.showOnNewTerminals", defaultValue: "Show TextBox on New Terminals"),
-            subtitle: String(localized: "settings.textBox.showOnNewTerminals.subtitle", defaultValue: "New terminal tabs, splits, and workspaces open with the TextBox visible.")
+            subtitle: String(localized: "settings.textBox.showOnNewTerminals.subtitle", defaultValue: "Opening a terminal tab, split, or workspace shows the TextBox.")
         ) {
             Toggle("", isOn: Binding(get: { showOnNewTerminals.current }, set: { showOnNewTerminals.set($0) }))
                 .labelsHidden()
@@ -78,7 +78,7 @@ public struct TextBoxSection: View {
         SettingsCardRow(
             configurationReview: .json("terminal.focusTextBoxOnNewTerminals"),
             String(localized: "settings.textBox.focusOnNewTerminals", defaultValue: "Focus TextBox on New Terminals"),
-            subtitle: String(localized: "settings.textBox.focusOnNewTerminals.subtitle", defaultValue: "New terminal tabs, splits, and workspaces start with keyboard focus in the TextBox.")
+            subtitle: String(localized: "settings.textBox.focusOnNewTerminals.subtitle", defaultValue: "Opening a terminal tab, split, or workspace puts keyboard focus in the TextBox.")
         ) {
             Toggle("", isOn: Binding(get: { focusOnNewTerminals.current }, set: { focusOnNewTerminals.set($0) }))
                 .labelsHidden()

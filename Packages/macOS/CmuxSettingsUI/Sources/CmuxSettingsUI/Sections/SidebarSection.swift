@@ -165,7 +165,7 @@ public struct SidebarSection: View {
     }
 
     private var rightMaxWidthSubtitle: String {
-        String(localized: "settings.sidebar.rightMaxWidth.subtitle", defaultValue: "The Dock in the right sidebar can grow up to this width while leaving room for terminals.")
+        String(localized: "settings.sidebar.rightMaxWidth.subtitle", defaultValue: "Lets the Dock in the right sidebar grow up to this width while leaving room for terminals.")
     }
 
     private func clampedRightMaxWidth(_ value: Double) -> Double {
@@ -258,7 +258,7 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.hideAllDetails"),
                 String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"),
-                subtitle: String(localized: "settings.app.hideAllSidebarDetails.subtitle", defaultValue: "Sidebar workspace rows show only the title and ignore the other detail settings.")
+                subtitle: String(localized: "settings.app.hideAllSidebarDetails.subtitle", defaultValue: "Shows only workspace titles in the sidebar.")
             ) {
                 Toggle("", isOn: Binding(get: { hideAll.current }, set: { hideAll.set($0) }))
                     .labelsHidden()
@@ -269,7 +269,7 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.wrapWorkspaceTitles"),
                 String(localized: "settings.app.wrapWorkspaceTitles", defaultValue: "Wrap Workspace Titles in Sidebar"),
-                subtitle: String(localized: "settings.app.wrapWorkspaceTitles.subtitle", defaultValue: "Long workspace titles in the sidebar wrap onto as many lines as they need.")
+                subtitle: String(localized: "settings.app.wrapWorkspaceTitles.subtitle", defaultValue: "Shows long workspace titles in full on multiple lines.")
             ) {
                 Toggle("", isOn: Binding(get: { wrapTitles.current }, set: { wrapTitles.set($0) }))
                     .labelsHidden()
@@ -325,7 +325,7 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.branchLayout"),
                 String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"),
-                subtitle: String(localized: "settings.app.sidebarBranchLayout.subtitle", defaultValue: "Sets whether the branches in a workspace row share one line or each use their own line."),
+                subtitle: String(localized: "settings.app.sidebarBranchLayout.subtitle", defaultValue: "Choose whether branches share one line or each get their own line."),
                 controlWidth: 196
             ) {
                 Picker("", selection: Binding(get: { branchVerticalLayout.current }, set: { branchVerticalLayout.set($0) })) {
@@ -341,7 +341,7 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.stackBranchDirectory"),
                 String(localized: "settings.app.stackBranchDirectory", defaultValue: "Stack Branch and Directory"),
-                subtitle: String(localized: "settings.app.stackBranchDirectory.subtitle", defaultValue: "The branch and the directory appear on separate lines.")
+                subtitle: String(localized: "settings.app.stackBranchDirectory.subtitle", defaultValue: "Shows the branch and directory on separate lines.")
             ) {
                 Toggle("", isOn: Binding(get: { SidebarCatalogSection.stacksBranchAndDirectory(vertical: branchVerticalLayout.current, explicit: stackBranchDir.current) }, set: { stackBranchDir.set($0) }))
                     .labelsHidden()
@@ -353,7 +353,7 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.pathLastSegmentOnly"),
                 String(localized: "settings.app.pathLastSegmentOnly", defaultValue: "Truncate Path From Start"),
-                subtitle: String(localized: "settings.app.pathLastSegmentOnly.subtitle", defaultValue: "Long paths show their end and drop characters from the start.")
+                subtitle: String(localized: "settings.app.pathLastSegmentOnly.subtitle", defaultValue: "Shortens long paths from the start to keep their end visible.")
             ) {
                 Toggle("", isOn: Binding(get: { pathLastOnly.current }, set: { pathLastOnly.set($0) }))
                     .labelsHidden()
@@ -441,7 +441,7 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.openPortLinksInCmuxBrowser"),
                 String(localized: "settings.app.openSidebarPortLinks", defaultValue: "Open Sidebar Port Links in cmux Browser"),
-                subtitle: String(localized: "settings.app.openSidebarPortLinks.subtitle", defaultValue: "Port links in the sidebar open in the cmux browser instead of the default browser.")
+                subtitle: String(localized: "settings.app.openSidebarPortLinks.subtitle", defaultValue: "Clicking a port link in the sidebar opens it in the cmux browser.")
             ) {
                 Toggle("", isOn: Binding(get: { portLinks.current }, set: { portLinks.set($0) }))
                     .labelsHidden()
@@ -520,6 +520,6 @@ public struct SidebarSection: View {
         if !prClickable {
             return String(localized: "settings.app.openSidebarPRLinks.subtitleDisabled", defaultValue: "Enable sidebar PR clickability to choose where PR links open.")
         }
-        return String(localized: "settings.app.openSidebarPRLinks.subtitle", defaultValue: "Pull request links in the sidebar open in the cmux browser instead of the default browser.")
+        return String(localized: "settings.app.openSidebarPRLinks.subtitle", defaultValue: "Clicking a pull request link in the sidebar opens it in the cmux browser.")
     }
 }

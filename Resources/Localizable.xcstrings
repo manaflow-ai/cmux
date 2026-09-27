@@ -11783,7 +11783,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Supported agents can see and control apps on this Mac."
+            "value": "Lets supported agents see and control apps on this Mac."
           }
         },
         "de": {
@@ -11795,7 +11795,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les agents pris en charge peuvent voir et contrôler les apps sur ce Mac."
+            "value": "Les agents pris en charge peuvent voir et contrôler les apps de ce Mac."
           }
         },
         "ar": {
@@ -11813,25 +11813,25 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "支援的代理程式可檢視並操作此 Mac 上的 App。"
+            "value": "允許支援的代理程式查看及操作此 Mac 上的 App。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "受支持的代理可以查看并控制这台 Mac 上的 App。"
+            "value": "允许受支持的代理查看并控制这台 Mac 上的 App。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "지원되는 에이전트가 이 Mac의 앱을 보고 제어할 수 있습니다."
+            "value": "지원되는 에이전트가 이 Mac의 앱을 보고 제어할 수 있게 합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "対応するエージェントが、このMac上のアプリを確認して操作できます。"
+            "value": "対応するエージェントが、この Mac のアプリの画面を見て操作できるようにします。"
           }
         }
       }
@@ -292838,55 +292838,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Closing the last surface in a workspace leaves the workspace open."
+            "value": "Closing the last surface in a workspace keeps the workspace open."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wird die letzte Oberfläche eines Arbeitsbereichs geschlossen, bleibt der Arbeitsbereich geöffnet."
+            "value": "Der Arbeitsbereich bleibt geöffnet, auch wenn seine letzte Oberfläche geschlossen wird."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La fermeture de la dernière surface d’affichage d’un espace de travail laisse l’espace de travail ouvert."
+            "value": "L’espace de travail reste ouvert après la fermeture de sa dernière surface d’affichage."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يؤدي إغلاق آخر سطح في مساحة العمل إلى إبقاء مساحة العمل مفتوحة."
+            "value": "تبقى مساحة العمل مفتوحة عند إغلاق آخر سطح فيها."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cerrar la última superficie de un espacio de trabajo deja el espacio de trabajo abierto."
+            "value": "El espacio de trabajo permanece abierto aunque se cierre su última superficie."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "關閉工作區中的最後一個介面時，工作區會保持開啟。"
+            "value": "即使關閉最後一個介面，工作區仍會保持開啟。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "关闭工作区中的最后一个表面时，工作区仍保持打开。"
+            "value": "即使关闭最后一个表面，工作区也会保持打开。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "워크스페이스의 마지막 서피스를 닫아도 워크스페이스는 열린 상태로 유지됩니다."
+            "value": "마지막 서피스를 닫아도 워크스페이스는 닫히지 않습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースの最後のサーフェスを閉じても、ワークスペースは開いたままです。"
+            "value": "最後のサーフェスを閉じても、ワークスペースは閉じません。"
           }
         }
       }
@@ -292962,55 +292962,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command palette search also matches terminal, browser, and Markdown surfaces in every workspace."
+            "value": "Includes terminal, browser, and Markdown surfaces from every workspace in command palette results."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Suche in der Befehlspalette findet auch Terminal-, Browser- und Markdown-Oberflächen in allen Arbeitsbereichen."
+            "value": "Die Befehlspalette findet auch Terminal-, Browser- und Markdown-Oberflächen in allen Arbeitsbereichen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La recherche de la palette de commandes trouve aussi les surfaces d’affichage de terminal, de navigateur et Markdown dans tous les espaces de travail."
+            "value": "La palette de commandes affiche aussi les surfaces d’affichage de terminal, de navigateur et Markdown de tous les espaces de travail."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يشمل البحث في لوحة الأوامر أيضًا أسطح الطرفية والمتصفح وMarkdown في كل مساحات العمل."
+            "value": "تعرض نتائج لوحة الأوامر أسطح الطرفية والمتصفح وMarkdown من جميع مساحات العمل."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La búsqueda de la paleta de comandos también encuentra superficies de terminal, navegador y Markdown en todos los espacios de trabajo."
+            "value": "La paleta de comandos también muestra las superficies de terminal, navegador y Markdown de todos los espacios de trabajo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "命令面板搜尋也會比對所有工作區中的終端機、瀏覽器和 Markdown 介面。"
+            "value": "在命令面板中也能找到所有工作區的終端機、瀏覽器和 Markdown 介面。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "命令面板搜索也会匹配所有工作区中的终端、浏览器和 Markdown 表面。"
+            "value": "在命令面板中也能找到所有工作区的终端、浏览器和 Markdown 表面。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "명령어 팔레트 검색은 모든 워크스페이스의 터미널, 브라우저, Markdown 서피스도 찾습니다."
+            "value": "명령어 팔레트에서 모든 워크스페이스의 터미널, 브라우저, Markdown 서피스도 찾을 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コマンドパレットの検索は、すべてのワークスペースのターミナル、ブラウザ、Markdownのサーフェスも対象にします。"
+            "value": "コマンドパレットで、すべてのワークスペースのターミナル、ブラウザ、Markdown のサーフェスも検索できます。"
           }
         }
       }
@@ -294839,55 +294839,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sets what happens when files are dragged onto a terminal or editor. Hold Shift while dragging to use the other option."
+            "value": "Choose what dropping files on a terminal or editor does. Holding Shift while dragging does the other."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legt fest, was passiert, wenn Dateien auf ein Terminal oder einen Editor gezogen werden. Bei gedrückter Umschalttaste während des Ziehens gilt die jeweils andere Option."
+            "value": "Wählen Sie, was beim Ablegen von Dateien auf einem Terminal oder Editor passiert. Wenn Sie beim Ziehen die Umschalttaste gedrückt halten, gilt die andere Option."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Définit ce qui se passe lorsque des fichiers sont glissés sur un terminal ou un éditeur. Si la touche Maj est maintenue pendant le glissement, l’autre option s’applique."
+            "value": "Choisissez ce qui se passe lorsque vous déposez des fichiers sur un terminal ou un éditeur. Si vous maintenez la touche Maj enfoncée pendant le glissement, l’autre option s’applique."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحدد ما يحدث عند سحب الملفات إلى طرفية أو محرر. يؤدي الضغط مع الاستمرار على مفتاح Shift أثناء السحب إلى استخدام الخيار الآخر."
+            "value": "اختر ما يحدث عند إفلات الملفات على طرفية أو محرر. يؤدي الضغط مع الاستمرار على مفتاح Shift أثناء السحب إلى تطبيق الخيار الآخر."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Define qué ocurre al arrastrar archivos a una terminal o un editor. Si se mantiene pulsada la tecla Mayúsculas al arrastrar, se usa la otra opción."
+            "value": "Elige qué ocurre al soltar archivos en una terminal o un editor. Si mantienes pulsada la tecla Mayúsculas al arrastrar, se usa la otra opción."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定將檔案拖移到終端機或編輯器上時的行為。拖移時按住 Shift 鍵可改用另一個選項。"
+            "value": "選擇將檔案拖放到終端機或編輯器時要執行的動作。拖移時按住 Shift 鍵可改用另一個動作。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "设置将文件拖到终端或编辑器上时的行为。拖动时按住 Shift 键可改用另一个选项。"
+            "value": "选择将文件拖放到终端或编辑器时执行的操作。拖动时按住 Shift 键可改用另一种操作。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "파일을 터미널이나 편집기로 드래그할 때의 동작을 설정합니다. 드래그하는 동안 Shift 키를 누르고 있으면 다른 옵션이 사용됩니다."
+            "value": "파일을 터미널이나 편집기에 드롭했을 때 수행할 동작을 선택합니다. 드래그 중에 Shift 키를 누르고 있으면 다른 쪽 동작을 수행합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ファイルをターミナルやエディタにドラッグしたときの動作を設定します。ドラッグ中に Shift キーを押したままにすると、もう一方のオプションが使われます。"
+            "value": "ファイルをターミナルやエディタにドロップしたときの動作を選択します。ドラッグ中に Shift キーを押したままにすると、もう一方の動作になります。"
           }
         }
       }
@@ -295547,55 +295547,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Back and forward also move focus to previously focused panes and tabs."
+            "value": "Using Back and Forward also returns to previous panes and tabs."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "„Zurück“ und „Vor“ bewegen den Fokus auch zu zuvor fokussierten Teilfenstern und Tabs."
+            "value": "Mit „Zurück“ und „Vor“ kehren Sie auch zu vorherigen Teilfenstern und Tabs zurück."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Précédent et Suivant déplacent aussi le focus vers les volets et les onglets précédemment actifs."
+            "value": "Précédent et Suivant ramènent aussi aux volets et aux onglets précédents."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ينقل «رجوع» و«تقدم» التركيز أيضًا إلى الأجزاء وعلامات التبويب التي كان التركيز عليها سابقًا."
+            "value": "ينتقل «رجوع» و«تقدم» أيضًا إلى الأجزاء وعلامات التبويب السابقة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Atrás y Adelante también mueven el enfoque a los paneles y pestañas enfocados anteriormente."
+            "value": "Atrás y Adelante también vuelven a los paneles y pestañas anteriores."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "返回與前進也會將焦點移至先前聚焦的窗格與標籤頁。"
+            "value": "使用「返回」與「前進」時，也會回到先前的窗格與標籤頁。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "后退和前进也会将焦点移到之前聚焦的窗格和标签页。"
+            "value": "“后退”和“前进”也会回到之前的窗格和标签页。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "뒤로 가기와 앞으로 가기도 이전에 포커스된 분할 창과 탭으로 포커스를 이동합니다."
+            "value": "뒤로 가기와 앞으로 가기로 이전 분할 창과 탭에도 돌아갈 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "戻る／進むで、以前フォーカスしていたペインとタブにもフォーカスが移動します。"
+            "value": "「戻る」と「進む」で、以前のペインやタブにも戻れます。"
           }
         }
       }
@@ -295915,55 +295915,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All text in cmux scales by this percentage. Command-Equal sign and Command-Hyphen still zoom the focused pane."
+            "value": "Scales all text in cmux. Command-Equal sign and Command-Hyphen still zoom the focused pane."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der gesamte Text in cmux wird auf diesen Prozentsatz skaliert. Befehl-Gleichheitszeichen und Befehl-Bindestrich zoomen weiterhin das fokussierte Teilfenster."
+            "value": "Ändert die Größe des gesamten Texts in cmux. Mit Befehlstaste-Gleichheitszeichen und Befehlstaste-Bindestrich lässt sich das fokussierte Teilfenster weiterhin zoomen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tout le texte de cmux est mis à l’échelle selon ce pourcentage. Commande + signe égal et Commande + trait d’union modifient toujours le zoom du volet actif."
+            "value": "Modifie la taille de tout le texte de cmux. Commande + signe égal et Commande + trait d’union continuent de régler le zoom du volet actif."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتغير حجم كل النصوص في cmux بهذه النسبة المئوية. لا يزال Command-علامة المساواة وCommand-الواصلة يغيّران تكبير الجزء المركّز عليه."
+            "value": "يغيّر حجم جميع النصوص في cmux. ولا يزال الاختصاران Command-علامة المساواة وCommand-الواصلة يكبّران الجزء المركّز عليه ويصغّرانه."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Todo el texto de cmux se escala según este porcentaje. Comando + signo igual y Comando + guion siguen ajustando el zoom del panel enfocado."
+            "value": "Cambia el tamaño de todo el texto de cmux. Comando + signo igual y Comando + guion siguen ajustando el zoom del panel enfocado."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 中的所有文字都會依此百分比縮放。Command-等號和 Command-連字號仍會縮放聚焦的窗格。"
+            "value": "調整 cmux 中所有文字的大小。Command + 等號和 Command + 連字號仍可用來縮放目前聚焦的窗格。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 中的所有文本都按此百分比缩放。Command-等号和 Command-连字符仍会缩放聚焦的窗格。"
+            "value": "调整 cmux 中所有文本的大小。Command + 等号和 Command + 连字符仍可用于缩放当前聚焦的窗格。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux의 모든 텍스트 크기가 이 비율로 조절됩니다. Command-등호와 Command-하이픈은 여전히 포커스된 분할 창을 확대/축소합니다."
+            "value": "cmux의 모든 텍스트 크기를 조절합니다. 포커스된 분할 창은 계속 Command-등호와 Command-하이픈으로 확대/축소할 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux のすべてのテキストがこの割合で拡大縮小されます。Command + イコールと Command + ハイフンは引き続きフォーカス中のペインをズームします。"
+            "value": "cmux 内のすべてのテキストの大きさを変更します。フォーカス中のペインは、これまでどおり Command + イコールと Command + ハイフンで拡大縮小できます。"
           }
         }
       }
@@ -296039,55 +296039,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebar workspace rows show only the title and ignore the other detail settings."
+            "value": "Shows only workspace titles in the sidebar."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbeitsbereichszeilen in der Seitenleiste zeigen nur den Titel und ignorieren die anderen Detaileinstellungen."
+            "value": "Zeigt in der Seitenleiste nur die Titel der Arbeitsbereiche an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les lignes des espaces de travail dans la barre latérale affichent uniquement le titre et ignorent les autres réglages de détail."
+            "value": "Affiche uniquement les titres des espaces de travail dans la barre latérale."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعرض صفوف مساحات العمل في الشريط الجانبي العنوان فقط وتتجاهل إعدادات التفاصيل الأخرى."
+            "value": "يعرض عناوين مساحات العمل فقط في الشريط الجانبي."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las filas de espacios de trabajo de la barra lateral muestran solo el título e ignoran los demás ajustes de detalle."
+            "value": "Muestra solo los títulos de los espacios de trabajo en la barra lateral."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "側邊欄的工作區列只顯示標題，並忽略其他詳細資訊設定。"
+            "value": "側邊欄只顯示工作區標題。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "侧边栏中的工作区行只显示标题，并忽略其他详细信息设置。"
+            "value": "侧边栏只显示工作区标题。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바의 워크스페이스 행에 제목만 표시되고 다른 세부 정보 설정은 무시됩니다."
+            "value": "사이드바에 워크스페이스 제목만 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーのワークスペース行にはタイトルだけが表示され、ほかの詳細表示の設定は無視されます。"
+            "value": "サイドバーにワークスペースのタイトルだけを表示します。"
           }
         }
       }
@@ -296223,55 +296223,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tabs never show a close button."
+            "value": "Removes the close button from tabs."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tabs zeigen nie eine Schließen-Taste an."
+            "value": "Tabs werden ohne Schließen-Taste angezeigt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les onglets n’affichent jamais de bouton de fermeture."
+            "value": "Les onglets s’affichent sans bouton de fermeture."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا تعرض علامات التبويب زر إغلاق أبدًا."
+            "value": "تظهر علامات التبويب دون زر إغلاق."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las pestañas nunca muestran un botón de cerrar."
+            "value": "Las pestañas se muestran sin el botón de cerrar."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "標籤頁不會顯示關閉按鈕。"
+            "value": "標籤頁上不顯示關閉按鈕。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "标签页不显示关闭按钮。"
+            "value": "标签页上不显示关闭按钮。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "탭에 닫기 버튼이 표시되지 않습니다."
+            "value": "탭에 닫기 버튼을 표시하지 않습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブに閉じるボタンを表示しません。"
+            "value": "タブの閉じるボタンを非表示にします。"
           }
         }
       }
@@ -298541,55 +298541,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The workspace title bar is hidden, and its controls move into the sidebar."
+            "value": "Hides the workspace title bar and shows its controls in the sidebar."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Titelleiste des Arbeitsbereichs ist ausgeblendet, und ihre Steuerelemente werden in die Seitenleiste verschoben."
+            "value": "Blendet die Titelleiste des Arbeitsbereichs aus und zeigt ihre Steuerelemente in der Seitenleiste an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barre de titre de l’espace de travail est masquée et ses commandes passent dans la barre latérale."
+            "value": "Masque la barre de titre de l’espace de travail et affiche ses commandes dans la barre latérale."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يكون شريط عنوان مساحة العمل مخفيًا، وتنتقل عناصر التحكم الخاصة به إلى الشريط الجانبي."
+            "value": "يخفي شريط عنوان مساحة العمل ويعرض عناصر التحكم الخاصة به في الشريط الجانبي."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barra de título del espacio de trabajo está oculta y sus controles pasan a la barra lateral."
+            "value": "Oculta la barra de título del espacio de trabajo y muestra sus controles en la barra lateral."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "工作區標題列會隱藏，其控制項會移至側邊欄。"
+            "value": "隱藏工作區標題列，改在側邊欄中顯示其控制項。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "工作区标题栏会隐藏，其控件会移到侧边栏。"
+            "value": "隐藏工作区标题栏，改为在侧边栏中显示其控件。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "워크스페이스 제목 표시줄이 숨겨지고 해당 컨트롤이 사이드바로 이동합니다."
+            "value": "워크스페이스 제목 막대를 숨기고, 제목 막대의 컨트롤을 사이드바에 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースのタイトルバーが非表示になり、そのコントロールがサイドバーに移動します。"
+            "value": "ワークスペースのタイトルバーを非表示にし、そのコントロールをサイドバーに表示します。"
           }
         }
       }
@@ -298719,55 +298719,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sets where new workspaces appear in the sidebar."
+            "value": "Choose where new workspaces appear in the sidebar."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legt fest, wo neue Arbeitsbereiche in der Seitenleiste erscheinen."
+            "value": "Wählen Sie, wo neue Arbeitsbereiche in der Seitenleiste erscheinen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Définit l’emplacement des nouveaux espaces de travail dans la barre latérale."
+            "value": "Choisissez où les nouveaux espaces de travail apparaissent dans la barre latérale."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحدد موضع ظهور مساحات العمل الجديدة في الشريط الجانبي."
+            "value": "اختر مكان ظهور مساحات العمل الجديدة في الشريط الجانبي."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Define dónde aparecen los nuevos espacios de trabajo en la barra lateral."
+            "value": "Elige dónde aparecen los nuevos espacios de trabajo en la barra lateral."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定新工作區在側邊欄中出現的位置。"
+            "value": "選擇新工作區要顯示在側邊欄的哪個位置。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "设置新工作区在侧边栏中出现的位置。"
+            "value": "选择新工作区在侧边栏中的显示位置。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 작업 공간이 사이드바에 표시되는 위치를 설정합니다."
+            "value": "새 작업 공간을 사이드바의 어디에 표시할지 선택합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しいワークスペースをサイドバーのどこに表示するかを設定します。"
+            "value": "新しいワークスペースをサイドバーのどこに表示するかを選択します。"
           }
         }
       }
@@ -299501,55 +299501,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pull request links in the sidebar open in the cmux browser instead of the default browser."
+            "value": "Clicking a pull request link in the sidebar opens it in the cmux browser."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pull-Request-Links in der Seitenleiste öffnen sich im cmux-Browser statt im Standardbrowser."
+            "value": "Pull-Request-Links in der Seitenleiste werden per Klick im cmux-Browser geöffnet."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les liens de pull request de la barre latérale s’ouvrent dans le navigateur cmux au lieu du navigateur par défaut."
+            "value": "Un clic sur un lien de pull request de la barre latérale l’ouvre dans le navigateur cmux."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تُفتح روابط طلبات السحب في الشريط الجانبي في متصفح cmux بدلًا من المتصفح الافتراضي."
+            "value": "تُفتح روابط طلبات السحب في الشريط الجانبي في متصفح cmux عند النقر عليها."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los enlaces de pull requests de la barra lateral se abren en el navegador de cmux en lugar del navegador predeterminado."
+            "value": "Los enlaces de pull request de la barra lateral se abren en el navegador de cmux al hacer clic en ellos."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "側邊欄中的 PR 連結會在 cmux 瀏覽器中開啟，而不是預設瀏覽器。"
+            "value": "側邊欄中的 PR 連結會在 cmux 瀏覽器中開啟。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "侧边栏中的 PR 链接会在 cmux 浏览器中打开，而不是默认浏览器。"
+            "value": "侧边栏中的 PR 链接会在 cmux 浏览器中打开。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바의 풀 리퀘스트 링크가 기본 브라우저 대신 cmux 브라우저에서 열립니다."
+            "value": "사이드바의 풀 리퀘스트 링크를 클릭하면 cmux 브라우저에서 열립니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーのプルリクエストのリンクは、デフォルトのブラウザではなくcmuxブラウザで開きます。"
+            "value": "サイドバーのプルリクエストのリンクをクリックすると、cmuxブラウザで開きます。"
           }
         }
       }
@@ -299679,55 +299679,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port links in the sidebar open in the cmux browser instead of the default browser."
+            "value": "Clicking a port link in the sidebar opens it in the cmux browser."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port-Links in der Seitenleiste öffnen sich im cmux-Browser statt im Standardbrowser."
+            "value": "Port-Links in der Seitenleiste werden per Klick im cmux-Browser geöffnet."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les liens de port de la barre latérale s’ouvrent dans le navigateur cmux au lieu du navigateur par défaut."
+            "value": "Un clic sur un lien de port de la barre latérale l’ouvre dans le navigateur cmux."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تُفتح روابط المنافذ في الشريط الجانبي في متصفح cmux بدلًا من المتصفح الافتراضي."
+            "value": "تُفتح روابط المنافذ في الشريط الجانبي في متصفح cmux عند النقر عليها."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los enlaces de puerto de la barra lateral se abren en el navegador de cmux en lugar del navegador predeterminado."
+            "value": "Los enlaces de puerto de la barra lateral se abren en el navegador de cmux al hacer clic en ellos."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "側邊欄中的連接埠連結會在 cmux 瀏覽器中開啟，而不是預設瀏覽器。"
+            "value": "側邊欄中的連接埠連結會在 cmux 瀏覽器中開啟。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "侧边栏中的端口链接会在 cmux 浏览器中打开，而不是默认浏览器。"
+            "value": "侧边栏中的端口链接会在 cmux 浏览器中打开。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바의 포트 링크가 기본 브라우저 대신 cmux 브라우저에서 열립니다."
+            "value": "사이드바의 포트 링크를 클릭하면 cmux 브라우저에서 열립니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーのポートリンクは、デフォルトのブラウザではなくcmuxブラウザで開きます。"
+            "value": "サイドバーのポートリンクをクリックすると、cmuxブラウザで開きます。"
           }
         }
       }
@@ -299921,55 +299921,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When cmux is in the background, one click on a pane brings cmux forward and focuses that pane."
+            "value": "Clicking a pane while cmux is in the background focuses that pane right away."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wenn cmux im Hintergrund ist, holt ein einzelner Klick auf ein Teilfenster cmux in den Vordergrund und fokussiert dieses Teilfenster."
+            "value": "Ist cmux im Hintergrund, wird ein Teilfenster schon beim ersten Klick fokussiert."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lorsque cmux est en arrière-plan, un seul clic sur un volet met cmux au premier plan et place le focus sur ce volet."
+            "value": "Lorsque cmux est en arrière-plan, un clic sur un volet l’active immédiatement."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عندما يكون cmux في الخلفية، تؤدي نقرة واحدة على جزء إلى إحضار cmux إلى المقدمة وتركيز ذلك الجزء."
+            "value": "عندما يكون cmux في الخلفية، يكفي النقر على جزء للتركيز عليه فورًا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuando cmux está en segundo plano, un solo clic en un panel pasa cmux a primer plano y enfoca ese panel."
+            "value": "Si cmux está en segundo plano, un clic en un panel lo enfoca de inmediato."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "當 cmux 在背景執行時，點擊一次窗格即可將 cmux 移至前景並聚焦該窗格。"
+            "value": "即使 cmux 在背景執行，按一下窗格也會立即將焦點移到該窗格。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "当 cmux 在后台时，单击一次窗格即可将 cmux 调到前台并聚焦该窗格。"
+            "value": "即使 cmux 在后台，点按窗格也会立即将焦点移到该窗格。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 백그라운드에 있을 때 패인을 한 번 클릭하면 cmux가 활성화되고 해당 패인에 포커스가 이동합니다."
+            "value": "cmux가 백그라운드에 있어도 분할 창을 클릭하면 바로 그 분할 창에 포커스가 이동합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxがバックグラウンドにあるとき、ペインを1回クリックするとcmuxが前面に出て、そのペインにフォーカスします。"
+            "value": "cmux がバックグラウンドにあっても、ペインをクリックするとすぐにそのペインにフォーカスが移ります。"
           }
         }
       }
@@ -300039,55 +300039,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Long paths show their end and drop characters from the start."
+            "value": "Shortens long paths from the start to keep their end visible."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lange Pfade zeigen ihr Ende und lassen Zeichen am Anfang weg."
+            "value": "Kürzt lange Pfade am Anfang, damit ihr Ende sichtbar bleibt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les chemins longs affichent leur fin et omettent des caractères au début."
+            "value": "Raccourcit les chemins longs par le début pour que leur fin reste visible."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعرض المسارات الطويلة نهايتها وتحذف أحرفًا من بدايتها."
+            "value": "يختصر المسارات الطويلة من بدايتها لتبقى نهايتها ظاهرة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las rutas largas muestran su final y omiten caracteres del inicio."
+            "value": "Acorta las rutas largas por el inicio para que su final siga visible."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "長路徑會顯示結尾，並省略開頭的字元。"
+            "value": "長路徑會省略開頭，保留結尾部分。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "长路径显示结尾部分，并省略开头的字符。"
+            "value": "长路径会省略开头，保留结尾部分。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "긴 경로는 끝부분을 표시하고 앞부분의 문자를 생략합니다."
+            "value": "긴 경로는 앞부분을 생략하여 끝부분이 보이게 합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "長いパスは末尾を表示し、先頭の文字を省略します。"
+            "value": "長いパスは先頭を省略して、末尾が見えるようにします。"
           }
         }
       }
@@ -300394,7 +300394,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renaming from the command palette starts with the current name selected."
+            "value": "Renaming from the command palette selects the current name."
           }
         },
         "de": {
@@ -300406,7 +300406,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lors d’un renommage depuis la palette de commandes, le nom actuel est déjà sélectionné."
+            "value": "Lors d’un renommage depuis la palette de commandes, le nom actuel est sélectionné."
           }
         },
         "ar": {
@@ -300424,25 +300424,25 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "從命令面板重新命名時，會先選取目前的名稱。"
+            "value": "從命令面板重新命名時，會選取目前的名稱。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "从命令面板重命名时，会先选中当前名称。"
+            "value": "从命令面板重命名时，会选中当前名称。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "명령어 팔레트에서 이름을 변경하면 현재 이름이 선택된 상태로 시작됩니다."
+            "value": "명령어 팔레트에서 이름을 변경할 때 현재 이름이 선택된 상태로 표시됩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コマンドパレットから名前を変更するときは、現在の名前が選択された状態になります。"
+            "value": "コマンドパレットで名前を変更するとき、現在の名前が選択された状態になります。"
           }
         }
       }
@@ -303297,55 +303297,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sets whether the branches in a workspace row share one line or each use their own line."
+            "value": "Choose whether branches share one line or each get their own line."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legt fest, ob die Branches im Eintrag eines Arbeitsbereichs gemeinsam in einer Zeile stehen oder jeweils eine eigene Zeile erhalten."
+            "value": "Wählen Sie, ob sich Branches eine Zeile teilen oder jeweils eine eigene Zeile erhalten."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Définit si les branches de la ligne d’un espace de travail s’affichent sur une même ligne ou chacune sur sa propre ligne."
+            "value": "Choisissez si les branches partagent une même ligne ou ont chacune leur propre ligne."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحدد ما إذا كانت الفروع في صف مساحة العمل تظهر في سطر واحد أو يظهر كل منها في سطر خاص به."
+            "value": "اختر ما إذا كانت الفروع تتشارك سطرًا واحدًا أو يحصل كل منها على سطر خاص به."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Define si las ramas de la fila de un espacio de trabajo comparten una sola línea o cada una ocupa su propia línea."
+            "value": "Elige si las ramas comparten una sola línea o cada una ocupa su propia línea."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定工作區列中的分支要共用一行，還是各自獨立一行。"
+            "value": "選擇分支要共用一行，還是各自獨立一行。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "设置工作区行中的分支是共用一行，还是各占一行。"
+            "value": "选择分支是共用一行，还是各占一行。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 행의 브랜치를 한 줄에 함께 표시할지, 각각 별도의 줄에 표시할지 설정합니다."
+            "value": "브랜치를 한 줄에 함께 표시할지, 각각 별도의 줄에 표시할지 선택합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペース行のブランチを 1 行にまとめて表示するか、それぞれ別の行に表示するかを設定します。"
+            "value": "ブランチを 1 行にまとめて表示するか、それぞれ別の行に表示するかを選択します。"
           }
         }
       }
@@ -303653,55 +303653,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The branch and the directory appear on separate lines."
+            "value": "Shows the branch and directory on separate lines."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Branch und Verzeichnis erscheinen in separaten Zeilen."
+            "value": "Zeigt Branch und Verzeichnis in getrennten Zeilen an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La branche et le répertoire apparaissent sur des lignes distinctes."
+            "value": "Affiche la branche et le répertoire sur des lignes distinctes."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يظهر الفرع والدليل في سطرين منفصلين."
+            "value": "يعرض الفرع والدليل في سطرين منفصلين."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La rama y el directorio aparecen en líneas separadas."
+            "value": "Muestra la rama y el directorio en líneas separadas."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "分支與目錄會顯示在不同的行上。"
+            "value": "分支與目錄分行顯示。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "分支和目录显示在不同的行上。"
+            "value": "分支和目录分行显示。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "브랜치와 디렉터리가 각각 다른 줄에 표시됩니다."
+            "value": "브랜치와 디렉터리를 각각 다른 줄에 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブランチとディレクトリが別々の行に表示されます。"
+            "value": "ブランチとディレクトリを別々の行に表示します。"
           }
         }
       }
@@ -304247,55 +304247,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux asks for confirmation before closing a tab."
+            "value": "Closing a tab asks for confirmation first."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux fragt vor dem Schließen eines Tabs nach einer Bestätigung."
+            "value": "Beim Schließen eines Tabs wird zuerst nach einer Bestätigung gefragt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux demande une confirmation avant de fermer un onglet."
+            "value": "Une confirmation est demandée avant la fermeture d’un onglet."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يطلب cmux التأكيد قبل إغلاق علامة التبويب."
+            "value": "يُطلب التأكيد قبل إغلاق علامة التبويب."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pide confirmación antes de cerrar una pestaña."
+            "value": "Se pide confirmación antes de cerrar una pestaña."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 會在關閉標籤頁前要求確認。"
+            "value": "關閉標籤頁前先要求確認。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 会在关闭标签页前要求确认。"
+            "value": "关闭标签页前先要求确认。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 탭을 닫기 전에 확인을 요청합니다."
+            "value": "탭을 닫기 전에 확인을 요청합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxはタブを閉じる前に確認を求めます。"
+            "value": "タブを閉じる前に確認します。"
           }
         }
       }
@@ -304490,55 +304490,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux asks for confirmation before a tab close button closes a tab."
+            "value": "Clicking a tab's close button asks for confirmation first."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux fragt nach einer Bestätigung, bevor ein Tab über seine Schließen-Taste geschlossen wird."
+            "value": "Beim Klicken auf die Schließen-Taste eines Tabs wird zuerst nach einer Bestätigung gefragt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux demande une confirmation avant de fermer un onglet avec son bouton de fermeture."
+            "value": "Une confirmation est demandée avant la fermeture d’un onglet avec son bouton de fermeture."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يطلب cmux التأكيد قبل إغلاق علامة تبويب باستخدام زر إغلاق التبويب."
+            "value": "يُطلب التأكيد قبل إغلاق علامة التبويب بالنقر على زر الإغلاق الخاص بها."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pide confirmación antes de cerrar una pestaña con su botón de cerrar."
+            "value": "Se pide confirmación antes de cerrar una pestaña con su botón de cerrar."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用標籤頁關閉按鈕關閉標籤頁前，cmux 會要求確認。"
+            "value": "按一下標籤頁上的關閉按鈕後，會先要求確認再關閉。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用标签页关闭按钮关闭标签页前，cmux 会要求确认。"
+            "value": "点按标签页上的关闭按钮后，会先要求确认再关闭。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 탭 닫기 버튼으로 탭을 닫기 전에 확인을 요청합니다."
+            "value": "탭의 닫기 버튼을 클릭하면 탭을 닫기 전에 확인을 요청합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxはタブの閉じるボタンでタブを閉じる前に確認を求めます。"
+            "value": "タブの閉じるボタンをクリックしたとき、閉じる前に確認します。"
           }
         }
       }
@@ -304668,55 +304668,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sets when cmux asks for confirmation before quitting with Command-Q. Dirty Only asks only when a workspace would ask before closing."
+            "value": "Choose when quitting with Command-Q asks for confirmation. Dirty Only asks only when a workspace would ask before closing."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legt fest, wann cmux vor dem Beenden mit Befehl-Q eine Bestätigung verlangt. „Nur bei Bedarf“ fragt nur dann nach, wenn ein Arbeitsbereich vor dem Schließen nachfragen würde."
+            "value": "Wählen Sie, wann beim Beenden mit Befehlstaste-Q nach einer Bestätigung gefragt wird. „Nur bei Bedarf“ fragt nur, wenn ein Arbeitsbereich vor dem Schließen nachfragen würde."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Définit quand cmux demande une confirmation avant de quitter avec Commande + Q. « Si nécessaire » ne la demande que si un espace de travail en demanderait une avant sa fermeture."
+            "value": "Choisissez quand une confirmation est demandée pour quitter avec Commande + Q. « Si nécessaire » ne la demande que si un espace de travail la demanderait avant sa fermeture."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحدد متى يطلب cmux التأكيد قبل الإنهاء باستخدام Command-Q. يطلب خيار «عند الحاجة فقط» التأكيد فقط عندما تطلبه مساحة عمل قبل إغلاقها."
+            "value": "اختر متى يُطلب التأكيد عند الإنهاء باستخدام Command-Q. يطلب خيار «عند الحاجة فقط» التأكيد فقط عندما تطلبه مساحة عمل قبل إغلاقها."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Define cuándo cmux pide confirmación antes de salir con Comando + Q. «Solo si hace falta» solo la pide cuando un espacio de trabajo la pediría antes de cerrarse."
+            "value": "Elige cuándo se pide confirmación al salir con Comando + Q. «Solo si hace falta» solo la pide cuando un espacio de trabajo la pediría antes de cerrarse."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定 cmux 在使用 Command + Q 結束前何時要求確認。「僅在需要時」只有在某個工作區關閉前會要求確認時，才會詢問。"
+            "value": "選擇按 Command + Q 結束時，在什麼情況下要求確認。「僅在需要時」只會在某個工作區關閉前需要確認時才詢問。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "设置使用 Command + Q 退出 cmux 前何时要求确认。选择“仅在需要时”后，只有当某个工作区在关闭前会要求确认时才会询问。"
+            "value": "选择按 Command + Q 退出时，在什么情况下要求确认。“仅在需要时”只会在某个工作区关闭前需要确认时才询问。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command-Q로 종료하기 전에 cmux가 언제 확인을 요청할지 설정합니다. ‘필요 시에만’은 작업 공간이 닫기 전에 확인을 요청하는 경우에만 확인을 요청합니다."
+            "value": "Command-Q로 종료할 때 확인을 요청할 조건을 선택합니다. ‘필요 시에만’은 닫기 전에 확인이 필요한 작업 공간이 있을 때만 확인을 요청합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command + Q で終了する前に cmux が確認を求めるタイミングを設定します。「必要時のみ」では、ワークスペースが閉じる前に確認を求める場合にのみ確認します。"
+            "value": "Command + Q で終了するときに、どのような場合に確認するかを選択します。「必要時のみ」では、閉じる前に確認が必要なワークスペースがある場合だけ確認します。"
           }
         }
       }
@@ -305149,55 +305149,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New workspaces start in the working directory of the focused workspace instead of the directory in the Ghostty config."
+            "value": "Starts new workspaces in the working directory of the current workspace."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Neue Arbeitsbereiche starten im Arbeitsverzeichnis des fokussierten Arbeitsbereichs statt im Verzeichnis aus der Ghostty-Konfiguration."
+            "value": "Startet neue Arbeitsbereiche im Arbeitsverzeichnis des aktuellen Arbeitsbereichs."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les nouveaux espaces de travail démarrent dans le répertoire de travail de l’espace de travail actif au lieu du répertoire de la configuration Ghostty."
+            "value": "Ouvre les nouveaux espaces de travail dans le répertoire de travail de l’espace de travail actuel."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبدأ مساحات العمل الجديدة في دليل العمل الخاص بمساحة العمل المركّز عليها بدلًا من الدليل المحدد في تكوين Ghostty."
+            "value": "يبدأ مساحات العمل الجديدة في دليل العمل الخاص بمساحة العمل الحالية."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los nuevos espacios de trabajo comienzan en el directorio de trabajo del espacio de trabajo enfocado en lugar del directorio de la configuración de Ghostty."
+            "value": "Inicia los nuevos espacios de trabajo en el directorio de trabajo del espacio de trabajo actual."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "新工作區會在聚焦工作區的工作目錄中啟動，而不是 Ghostty 設定中的目錄。"
+            "value": "新工作區會沿用目前工作區的工作目錄。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "新工作区会在当前聚焦工作区的工作目录中启动，而不是 Ghostty 配置中的目录。"
+            "value": "新工作区会沿用当前工作区的工作目录。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 작업 공간이 Ghostty 설정의 디렉터리 대신 포커스된 작업 공간의 작업 디렉터리에서 시작됩니다."
+            "value": "새 작업 공간은 현재 작업 공간의 작업 디렉터리에서 시작됩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しいワークスペースは、Ghostty 設定のディレクトリではなく、フォーカス中のワークスペースの作業ディレクトリで開始します。"
+            "value": "新しいワークスペースは、現在のワークスペースと同じ作業ディレクトリで開始します。"
           }
         }
       }
@@ -305510,55 +305510,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Long workspace titles in the sidebar wrap onto as many lines as they need."
+            "value": "Shows long workspace titles in full on multiple lines."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lange Arbeitsbereichstitel in der Seitenleiste werden auf so viele Zeilen umbrochen, wie sie brauchen."
+            "value": "Zeigt lange Arbeitsbereichstitel vollständig in mehreren Zeilen an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les titres longs des espaces de travail dans la barre latérale s’affichent sur autant de lignes que nécessaire."
+            "value": "Affiche en entier les titres longs des espaces de travail sur plusieurs lignes."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تلتف عناوين مساحات العمل الطويلة في الشريط الجانبي على أسطر متعددة حسب الحاجة."
+            "value": "يعرض عناوين مساحات العمل الطويلة كاملةً على عدة أسطر."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los títulos largos de espacios de trabajo en la barra lateral ocupan tantas líneas como necesiten."
+            "value": "Muestra completos los títulos largos de los espacios de trabajo en varias líneas."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "側邊欄中較長的工作區標題會視需要換行成多行。"
+            "value": "較長的工作區標題會換行完整顯示。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "侧边栏中较长的工作区标题会按需要换行为多行。"
+            "value": "较长的工作区标题会换行完整显示。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바의 긴 워크스페이스 제목이 필요한 만큼 여러 줄로 줄바꿈됩니다."
+            "value": "긴 워크스페이스 제목을 줄바꿈하여 모두 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーの長いワークスペースタイトルは、必要な行数だけ折り返されます。"
+            "value": "長いワークスペースタイトルを省略せずに複数行で表示します。"
           }
         }
       }
@@ -305753,55 +305753,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The sidebar shows Amp session status and notifications."
+            "value": "Shows Amp status and notifications in the sidebar."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Seitenleiste zeigt den Status der Amp-Sitzung und Benachrichtigungen an."
+            "value": "Zeigt den Status und die Benachrichtigungen von Amp in der Seitenleiste an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barre latérale affiche l’état de la session Amp et ses notifications."
+            "value": "Affiche l’état et les notifications d’Amp dans la barre latérale."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض الشريط الجانبي حالة جلسة Amp وإشعاراتها."
+            "value": "يعرض حالة Amp وإشعاراته في الشريط الجانبي."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barra lateral muestra el estado de la sesión de Amp y las notificaciones."
+            "value": "Muestra el estado y las notificaciones de Amp en la barra lateral."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "側邊欄會顯示 Amp 工作階段狀態與通知。"
+            "value": "在側邊欄中顯示 Amp 的狀態與通知。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "侧边栏显示 Amp 会话状态和通知。"
+            "value": "在侧边栏中显示 Amp 的状态和通知。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바에 Amp 세션 상태와 알림이 표시됩니다."
+            "value": "사이드바에 Amp 상태와 알림을 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーにAmpセッションのステータスと通知が表示されます。"
+            "value": "サイドバーにAmpのステータスと通知を表示します。"
           }
         }
       }
@@ -305937,55 +305937,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatic lets each session's own agent name it. A supported agent names every session and needs its command-line tool on the PATH."
+            "value": "Automatic uses each session's own agent. Other supported agents need their command-line tool on the PATH."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bei „Automatisch“ benennt jede Sitzung ihr eigener Agent. Ein unterstützter Agent benennt jede Sitzung und benötigt sein Befehlszeilentool im PATH."
+            "value": "„Automatisch“ verwendet den Agenten der jeweiligen Sitzung. Andere unterstützte Agenten benötigen ihr Befehlszeilentool im PATH."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "« Automatique » laisse l’agent de chaque session la nommer. Un agent pris en charge nomme toutes les sessions et nécessite que son outil en ligne de commande soit dans le PATH."
+            "value": "« Automatique » utilise l’agent propre à chaque session. Les autres agents pris en charge nécessitent que leur outil en ligne de commande soit dans le PATH."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتيح خيار «تلقائي» لوكيل كل جلسة تسميتها بنفسه. أما الوكيل المدعوم فيسمّي كل الجلسات، ويجب أن تكون أداة سطر الأوامر الخاصة به في PATH."
+            "value": "يستخدم خيار «تلقائي» الوكيل الخاص بكل جلسة. يحتاج الوكلاء المدعومون الآخرون إلى وجود أداة سطر الأوامر الخاصة بهم في PATH."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "«Automático» permite que el agente de cada sesión le ponga nombre. Un agente compatible pone nombre a todas las sesiones y necesita su herramienta de línea de comandos en el PATH."
+            "value": "«Automático» usa el agente de cada sesión. Los demás agentes compatibles necesitan su herramienta de línea de comandos en el PATH."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "「自動」會讓各工作階段自己的代理為其命名。支援的代理會為所有工作階段命名，且其命令列工具必須位於 PATH 中。"
+            "value": "「自動」會使用各工作階段本身的代理。若要使用其他支援的代理，其命令列工具必須位於 PATH 中。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "“自动”会让各会话自己的代理为其命名。受支持的代理会为所有会话命名，并且需要其命令行工具位于 PATH 中。"
+            "value": "“自动”会使用各会话自身的代理。要使用其他受支持的代理，其命令行工具必须位于 PATH 中。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "‘자동’은 각 세션의 에이전트가 해당 세션의 이름을 직접 지정하도록 합니다. 지원되는 에이전트는 모든 세션의 이름을 지정하며, 해당 명령줄 도구가 PATH에 있어야 합니다."
+            "value": "‘자동’은 세션마다 해당 세션의 에이전트를 사용합니다. 지원되는 다른 에이전트를 사용하려면 해당 명령줄 도구가 PATH에 있어야 합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「自動」では、各セッションのエージェントがそのセッションに名前を付けます。対応エージェントはすべてのセッションに名前を付けます。これには、そのエージェントのコマンドラインツールが PATH に含まれている必要があります。"
+            "value": "「自動」では、各セッションのエージェントを使用します。ほかの対応エージェントを使うには、そのコマンドラインツールが PATH に含まれている必要があります。"
           }
         }
       }
@@ -306831,55 +306831,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The sidebar shows Claude Code session status and notifications."
+            "value": "Shows Claude Code status and notifications in the sidebar."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Seitenleiste zeigt den Status der Claude Code-Sitzung und Benachrichtigungen an."
+            "value": "Zeigt den Status und die Benachrichtigungen von Claude Code in der Seitenleiste an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barre latérale affiche l’état de la session Claude Code et ses notifications."
+            "value": "Affiche l’état et les notifications de Claude Code dans la barre latérale."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض الشريط الجانبي حالة جلسة Claude Code وإشعاراتها."
+            "value": "يعرض حالة Claude Code وإشعاراته في الشريط الجانبي."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barra lateral muestra el estado de la sesión de Claude Code y las notificaciones."
+            "value": "Muestra el estado y las notificaciones de Claude Code en la barra lateral."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "側邊欄會顯示 Claude Code 工作階段狀態與通知。"
+            "value": "在側邊欄中顯示 Claude Code 的狀態與通知。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "侧边栏显示 Claude Code 会话状态和通知。"
+            "value": "在侧边栏中显示 Claude Code 的状态和通知。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바에 Claude Code 세션 상태와 알림이 표시됩니다."
+            "value": "사이드바에 Claude Code 상태와 알림을 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーにClaude Codeセッションのステータスと通知が表示されます。"
+            "value": "サイドバーにClaude Codeのステータスと通知を表示します。"
           }
         }
       }
@@ -307008,55 +307008,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The sidebar shows Codex session status and notifications."
+            "value": "Shows Codex status and notifications in the sidebar."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Seitenleiste zeigt den Status der Codex-Sitzung und Benachrichtigungen an."
+            "value": "Zeigt den Status und die Benachrichtigungen von Codex in der Seitenleiste an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barre latérale affiche l’état de la session Codex et ses notifications."
+            "value": "Affiche l’état et les notifications de Codex dans la barre latérale."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض الشريط الجانبي حالة جلسة Codex وإشعاراتها."
+            "value": "يعرض حالة Codex وإشعاراته في الشريط الجانبي."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barra lateral muestra el estado de la sesión de Codex y las notificaciones."
+            "value": "Muestra el estado y las notificaciones de Codex en la barra lateral."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "側邊欄會顯示 Codex 工作階段狀態與通知。"
+            "value": "在側邊欄中顯示 Codex 的狀態與通知。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "侧边栏显示 Codex 会话状态和通知。"
+            "value": "在侧边栏中显示 Codex 的状态和通知。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바에 Codex 세션 상태와 알림이 표시됩니다."
+            "value": "사이드바에 Codex 상태와 알림을 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーにCodexセッションのステータスと通知が表示されます。"
+            "value": "サイドバーにCodexのステータスと通知を表示します。"
           }
         }
       }
@@ -307185,55 +307185,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The sidebar shows Cursor session status and notifications."
+            "value": "Shows Cursor status and notifications in the sidebar."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Seitenleiste zeigt den Status der Cursor-Sitzung und Benachrichtigungen an."
+            "value": "Zeigt den Status und die Benachrichtigungen von Cursor in der Seitenleiste an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barre latérale affiche l’état de la session Cursor et ses notifications."
+            "value": "Affiche l’état et les notifications de Cursor dans la barre latérale."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض الشريط الجانبي حالة جلسة Cursor وإشعاراتها."
+            "value": "يعرض حالة Cursor وإشعاراته في الشريط الجانبي."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barra lateral muestra el estado de la sesión de Cursor y las notificaciones."
+            "value": "Muestra el estado y las notificaciones de Cursor en la barra lateral."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "側邊欄會顯示 Cursor 工作階段狀態與通知。"
+            "value": "在側邊欄中顯示 Cursor 的狀態與通知。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "侧边栏显示 Cursor 会话状态和通知。"
+            "value": "在侧边栏中显示 Cursor 的状态和通知。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바에 Cursor 세션 상태와 알림이 표시됩니다."
+            "value": "사이드바에 Cursor 상태와 알림을 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーにCursorセッションのステータスと通知が表示されます。"
+            "value": "サイドバーにCursorのステータスと通知を表示します。"
           }
         }
       }
@@ -307362,55 +307362,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The sidebar shows Gemini CLI session status and notifications."
+            "value": "Shows Gemini CLI status and notifications in the sidebar."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Seitenleiste zeigt den Status der Gemini CLI-Sitzung und Benachrichtigungen an."
+            "value": "Zeigt den Status und die Benachrichtigungen von Gemini CLI in der Seitenleiste an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barre latérale affiche l’état de la session Gemini CLI et ses notifications."
+            "value": "Affiche l’état et les notifications de Gemini CLI dans la barre latérale."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض الشريط الجانبي حالة جلسة Gemini CLI وإشعاراتها."
+            "value": "يعرض حالة Gemini CLI وإشعاراته في الشريط الجانبي."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barra lateral muestra el estado de la sesión de Gemini CLI y las notificaciones."
+            "value": "Muestra el estado y las notificaciones de Gemini CLI en la barra lateral."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "側邊欄會顯示 Gemini CLI 工作階段狀態與通知。"
+            "value": "在側邊欄中顯示 Gemini CLI 的狀態與通知。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "侧边栏显示 Gemini CLI 会话状态和通知。"
+            "value": "在侧边栏中显示 Gemini CLI 的状态和通知。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바에 Gemini CLI 세션 상태와 알림이 표시됩니다."
+            "value": "사이드바에 Gemini CLI 상태와 알림을 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーにGemini CLIセッションのステータスと通知が表示されます。"
+            "value": "サイドバーにGemini CLIのステータスと通知を表示します。"
           }
         }
       }
@@ -307834,55 +307834,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The sidebar shows Kiro CLI session status and notifications, and Feed shows its tool events."
+            "value": "Shows Kiro CLI status and notifications in the sidebar, and its tool events in Feed."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Seitenleiste zeigt den Status der Kiro CLI-Sitzung und Benachrichtigungen an, und Feed zeigt ihre Werkzeugereignisse an."
+            "value": "Zeigt den Status und die Benachrichtigungen von Kiro CLI in der Seitenleiste und seine Tool-Ereignisse im Feed an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barre latérale affiche l’état de la session Kiro CLI et ses notifications, et Flux affiche ses événements d’outils."
+            "value": "Affiche l’état et les notifications de Kiro CLI dans la barre latérale, et ses événements d’outils dans le Flux."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض الشريط الجانبي حالة جلسة Kiro CLI وإشعاراتها، ويعرض الموجز أحداث أدواتها."
+            "value": "يعرض حالة Kiro CLI وإشعاراته في الشريط الجانبي، وأحداث أدواته في Feed."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barra lateral muestra el estado de la sesión de Kiro CLI y las notificaciones, y Canal muestra sus eventos de herramientas."
+            "value": "Muestra el estado y las notificaciones de Kiro CLI en la barra lateral, y sus eventos de herramientas en el Feed."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "側邊欄會顯示 Kiro CLI 工作階段狀態與通知，「動態」會顯示其工具事件。"
+            "value": "在側邊欄中顯示 Kiro CLI 的狀態與通知，並在 Feed 中顯示其工具事件。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "侧边栏显示 Kiro CLI 会话状态和通知，“动态”显示其工具事件。"
+            "value": "在侧边栏中显示 Kiro CLI 的状态和通知，并在 Feed 中显示其工具事件。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바에 Kiro CLI 세션 상태와 알림이 표시되고, 피드에 해당 도구 이벤트가 표시됩니다."
+            "value": "사이드바에 Kiro CLI 상태와 알림을 표시하고, 피드에 해당 도구 이벤트를 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーにKiro CLIセッションのステータスと通知が表示され、フィードにそのツールイベントが表示されます。"
+            "value": "サイドバーにKiro CLIのステータスと通知を、フィードにそのツールイベントを表示します。"
           }
         }
       }
@@ -309379,55 +309379,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sets which local processes can send commands to cmux."
+            "value": "Choose which local processes can control cmux."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legt fest, welche lokalen Prozesse Befehle an cmux senden können."
+            "value": "Wählen Sie, welche lokalen Prozesse cmux steuern können."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Définit quels processus locaux peuvent envoyer des commandes à cmux."
+            "value": "Choisissez quels processus locaux peuvent contrôler cmux."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحدد العمليات المحلية التي يمكنها إرسال الأوامر إلى cmux."
+            "value": "اختر العمليات المحلية التي يمكنها التحكم في cmux."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Define qué procesos locales pueden enviar comandos a cmux."
+            "value": "Elige qué procesos locales pueden controlar cmux."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定哪些本機程序可以傳送指令給 cmux。"
+            "value": "選擇哪些本機程序可以控制 cmux。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "设置哪些本地进程可以向 cmux 发送命令。"
+            "value": "选择哪些本地进程可以控制 cmux。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux에 명령을 보낼 수 있는 로컬 프로세스를 설정합니다."
+            "value": "cmux를 제어할 수 있는 로컬 프로세스를 선택합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux にコマンドを送信できるローカルプロセスを設定します。"
+            "value": "cmux を制御できるローカルプロセスを選択します。"
           }
         }
       }
@@ -309438,55 +309438,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Off turns command access off. cmux processes only accepts commands from processes started in cmux terminals. Automation mode also accepts other apps running as this Mac user. Password mode requires a password. Full open access accepts any local process without a password and is unsafe."
+            "value": "Off turns control off. cmux processes only accepts processes started in cmux terminals. Automation mode also accepts other apps running as this Mac user. Password mode requires a password. Full open access accepts any local process without a password and is unsafe."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "„Aus“ deaktiviert den Befehlszugriff. „Nur cmux-Prozesse“ nimmt nur Befehle von Prozessen an, die in cmux-Terminals gestartet wurden. „Automatisierungsmodus“ nimmt zusätzlich Befehle anderer Apps an, die unter diesem Mac-Benutzer laufen. „Passwortmodus“ erfordert ein Passwort. „Vollständiger offener Zugriff“ nimmt Befehle jedes lokalen Prozesses ohne Passwort an und ist unsicher."
+            "value": "„Aus“ deaktiviert die Steuerung. „Nur cmux-Prozesse“ akzeptiert nur Prozesse, die in cmux-Terminals gestartet wurden. „Automatisierungsmodus“ akzeptiert zusätzlich andere Apps, die unter diesem Mac-Benutzer laufen. „Passwortmodus“ erfordert ein Passwort. „Uneingeschränkter Zugriff“ akzeptiert jeden lokalen Prozess ohne Passwort und ist unsicher."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "« Désactivé » coupe l’accès aux commandes. « Processus cmux uniquement » n’accepte que les commandes des processus lancés dans les terminaux cmux. « Mode automatisation » accepte aussi les autres apps exécutées par cet utilisateur du Mac. « Mode mot de passe » exige un mot de passe. « Accès ouvert complet » accepte n’importe quel processus local sans mot de passe et n’est pas sûr."
+            "value": "« Désactivé » coupe le contrôle. « Processus cmux uniquement » n’accepte que les processus lancés dans les terminaux cmux. « Mode automatisation » accepte aussi les autres apps exécutées par cet utilisateur du Mac. « Mode mot de passe » exige un mot de passe. « Accès sans restriction » accepte n’importe quel processus local sans mot de passe et n’est pas sûr."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يؤدي خيار «إيقاف» إلى تعطيل الوصول إلى الأوامر. يقبل خيار «عمليات cmux فقط» الأوامر من العمليات التي بدأت في طرفيات cmux فقط. ويقبل «وضع الأتمتة» أيضًا التطبيقات الأخرى التي تعمل باسم مستخدم Mac هذا. ويتطلب «وضع كلمة المرور» كلمة مرور. أما «وصول مفتوح كامل» فيقبل أي عملية محلية دون كلمة مرور، وهو غير آمن."
+            "value": "يؤدي خيار «إيقاف» إلى إيقاف التحكم. يقبل خيار «عمليات cmux فقط» العمليات التي بدأت في طرفيات cmux فقط. ويقبل «وضع الأتمتة» أيضًا التطبيقات الأخرى التي تعمل باسم مستخدم Mac هذا. ويتطلب «وضع كلمة المرور» كلمة مرور. أما «وصول مفتوح كامل» فيقبل أي عملية محلية دون كلمة مرور، وهو غير آمن."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "«Desactivado» deshabilita el acceso a comandos. «Solo procesos de cmux» solo acepta comandos de procesos iniciados en terminales de cmux. «Modo de automatización» también acepta otras apps que se ejecutan con este usuario del Mac. «Modo de contraseña» requiere una contraseña. «Acceso abierto completo» acepta cualquier proceso local sin contraseña y no es seguro."
+            "value": "«Desactivado» deshabilita el control. «Solo procesos de cmux» solo acepta procesos iniciados en terminales de cmux. «Modo de automatización» también acepta otras apps que se ejecutan con este usuario del Mac. «Modo de contraseña» requiere una contraseña. «Acceso abierto completo» acepta cualquier proceso local sin contraseña y no es seguro."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "「關閉」會停用指令存取。「僅限 cmux 程序」只接受在 cmux 終端機中啟動的程序所傳送的指令。「自動化模式」也接受以此 Mac 使用者身分執行的其他 App。「密碼模式」需要密碼。「完全開放存取」不需密碼即接受任何本機程序，且不安全。"
+            "value": "「關閉」會停用控制。「僅限 cmux 程序」只接受在 cmux 終端機中啟動的程序。「自動化模式」也接受以此 Mac 使用者身分執行的其他 App。「密碼模式」需要密碼。「完全開放存取」不需密碼即接受任何本機程序，且不安全。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "“关闭”会停用命令访问。“仅限 cmux 进程”只接受在 cmux 终端中启动的进程发送的命令。“自动化模式”还接受以此 Mac 用户身份运行的其他应用。“密码模式”需要密码。“完全开放访问”无需密码即接受任何本地进程，且不安全。"
+            "value": "“关闭”会停用控制。“仅限 cmux 进程”只接受在 cmux 终端中启动的进程。“自动化模式”还接受以此 Mac 用户身份运行的其他应用。“密码模式”需要密码。“完全开放访问”无需密码即接受任何本地进程，且不安全。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "‘끔’은 명령 접근을 끕니다. ‘cmux 프로세스만’은 cmux 터미널에서 시작된 프로세스의 명령만 허용합니다. ‘자동화 모드’는 이 Mac 사용자로 실행 중인 다른 앱도 허용합니다. ‘비밀번호 모드’는 비밀번호가 필요합니다. ‘전체 개방 접근’은 비밀번호 없이 모든 로컬 프로세스를 허용하며 안전하지 않습니다."
+            "value": "‘끔’은 제어를 끕니다. ‘cmux 프로세스만’은 cmux 터미널에서 시작된 프로세스만 허용합니다. ‘자동화 모드’는 이 Mac 사용자로 실행 중인 다른 앱도 허용합니다. ‘비밀번호 모드’는 비밀번호가 필요합니다. ‘전체 개방 접근’은 비밀번호 없이 모든 로컬 프로세스를 허용하며 안전하지 않습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「オフ」ではコマンドによるアクセスを無効にします。「cmux プロセスのみ」では、cmux ターミナルで起動したプロセスからのコマンドだけを受け付けます。「自動化モード」では、この Mac ユーザーとして実行されている他のアプリも受け付けます。「パスワードモード」ではパスワードが必要です。「完全オープンアクセス」では、パスワードなしですべてのローカルプロセスを受け付けます。この設定は安全ではありません。"
+            "value": "「オフ」では制御を無効にします。「cmux プロセスのみ」では、cmux ターミナルで起動したプロセスだけを受け付けます。「自動化モード」では、この Mac ユーザーとして実行されている他のアプリも受け付けます。「パスワードモード」ではパスワードが必要です。「完全オープンアクセス」では、パスワードなしですべてのローカルプロセスを受け付けます。この設定は安全ではありません。"
           }
         }
       }
@@ -311341,55 +311341,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subagent completions appear in Feed without sending a notification."
+            "value": "Lists subagent completions in Feed without sending notifications."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abgeschlossene Unteragenten erscheinen im Feed, ohne dass eine Benachrichtigung gesendet wird."
+            "value": "Abgeschlossene Subagenten erscheinen im Feed, ohne dass Benachrichtigungen gesendet werden."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les sous-agents terminés apparaissent dans Flux sans qu’une notification soit envoyée."
+            "value": "Les sous-agents terminés apparaissent dans le Flux, sans notification."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يظهر اكتمال مهام الوكلاء الفرعيين في الموجز دون إرسال إشعار."
+            "value": "يظهر اكتمال مهام الوكلاء الفرعيين في Feed دون إرسال إشعارات."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los subagentes finalizados aparecen en Canal sin que se envíe ninguna notificación."
+            "value": "Los subagentes finalizados aparecen en el Feed sin enviar notificaciones."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "子代理完成事件會出現在「動態」中，但不會傳送通知。"
+            "value": "子代理完成時只會列在 Feed 中，不會傳送通知。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "子代理完成事件会出现在“动态”中，但不会发送通知。"
+            "value": "子代理完成时只会列在 Feed 中，不会发送通知。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "하위 에이전트 완료가 알림 없이 피드에 표시됩니다."
+            "value": "하위 에이전트가 완료되면 알림을 보내지 않고 피드에만 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サブエージェントの完了は通知を送らずにフィードに表示されます。"
+            "value": "サブエージェントが完了しても通知は送らず、フィードにのみ表示します。"
           }
         }
       }
@@ -311775,55 +311775,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux names workspaces and tabs from agent conversations."
+            "value": "Generates workspace and tab titles from agent conversations."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux benennt Arbeitsbereiche und Tabs anhand von Agentengesprächen."
+            "value": "Benennt Arbeitsbereiche und Tabs anhand von Agentengesprächen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux nomme les espaces de travail et les onglets à partir des conversations des agents."
+            "value": "Nomme les espaces de travail et les onglets d’après les conversations des agents."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يسمّي cmux مساحات العمل وعلامات التبويب بناءً على محادثات الوكلاء."
+            "value": "يسمّي مساحات العمل وعلامات التبويب بناءً على محادثات الوكلاء."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux nombra los espacios de trabajo y las pestañas a partir de las conversaciones de los agentes."
+            "value": "Pone nombre a los espacios de trabajo y las pestañas según las conversaciones de los agentes."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 會根據代理對話為工作區和標籤頁命名。"
+            "value": "根據代理對話產生工作區和標籤頁標題。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 会根据代理对话为工作区和标签页命名。"
+            "value": "根据代理对话生成工作区和标签页标题。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 에이전트 대화를 바탕으로 작업 공간과 탭 이름을 지정합니다."
+            "value": "에이전트 대화를 바탕으로 작업 공간과 탭 제목을 생성합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxはエージェントの会話からワークスペースとタブに名前を付けます。"
+            "value": "エージェントの会話からワークスペースとタブのタイトルを生成します。"
           }
         }
       }
@@ -311893,55 +311893,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud Machines appear in the right sidebar, Settings, the command palette, and the new workspace menu."
+            "value": "Adds Cloud Machines to the right sidebar, Settings, the command palette, and the new workspace menu."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-Maschinen erscheinen in der rechten Seitenleiste, in den Einstellungen, in der Befehlspalette und im Menü für neue Arbeitsbereiche."
+            "value": "Fügt Cloud-Maschinen zur rechten Seitenleiste, zu den Einstellungen, zur Befehlspalette und zum Menü für neue Arbeitsbereiche hinzu."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les machines cloud apparaissent dans la barre latérale droite, les Réglages, la palette de commandes et le menu de nouvel espace de travail."
+            "value": "Ajoute les machines cloud à la barre latérale droite, aux Réglages, à la palette de commandes et au menu de nouvel espace de travail."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تظهر الأجهزة السحابية في الشريط الجانبي الأيمن والإعدادات ولوحة الأوامر وقائمة مساحة العمل الجديدة."
+            "value": "يضيف الأجهزة السحابية إلى الشريط الجانبي الأيمن والإعدادات ولوحة الأوامر وقائمة مساحة العمل الجديدة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las máquinas en la nube aparecen en la barra lateral derecha, en Ajustes, en la paleta de comandos y en el menú de nuevo espacio de trabajo."
+            "value": "Añade las máquinas en la nube a la barra lateral derecha, a Ajustes, a la paleta de comandos y al menú de nuevo espacio de trabajo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "雲端機器會出現在右側邊欄、設定、命令面板和新增工作區選單中。"
+            "value": "在右側邊欄、設定、命令面板和新增工作區選單中加入雲端機器。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "云端机器会出现在右侧边栏、设置、命令面板和新建工作区菜单中。"
+            "value": "在右侧边栏、设置、命令面板和新建工作区菜单中添加云主机。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "클라우드 머신이 오른쪽 사이드바, 설정, 명령어 팔레트, 새 작업 공간 메뉴에 표시됩니다."
+            "value": "오른쪽 사이드바, 설정, 명령어 팔레트, 새 작업 공간 메뉴에 클라우드 머신을 추가합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウドマシンが右サイドバー、設定、コマンドパレット、新規ワークスペースメニューに表示されます。"
+            "value": "右サイドバー、設定、コマンドパレット、新規ワークスペースメニューにクラウドマシンを追加します。"
           }
         }
       }
@@ -312011,55 +312011,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebars saved in ~/.config/cmux/sidebars appear in the sidebar picker."
+            "value": "Adds sidebars from ~/.config/cmux/sidebars to the sidebar picker."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "In ~/.config/cmux/sidebars gespeicherte Seitenleisten erscheinen in der Seitenleistenauswahl."
+            "value": "Fügt Seitenleisten aus ~/.config/cmux/sidebars zur Seitenleistenauswahl hinzu."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les barres latérales enregistrées dans ~/.config/cmux/sidebars apparaissent dans le sélecteur de barre latérale."
+            "value": "Ajoute les barres latérales de ~/.config/cmux/sidebars au sélecteur de barre latérale."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تظهر الأشرطة الجانبية المحفوظة في ~/.config/cmux/sidebars في منتقي الشريط الجانبي."
+            "value": "يضيف الأشرطة الجانبية من ~/.config/cmux/sidebars إلى منتقي الشريط الجانبي."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las barras laterales guardadas en ~/.config/cmux/sidebars aparecen en el selector de barra lateral."
+            "value": "Añade las barras laterales de ~/.config/cmux/sidebars al selector de barra lateral."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "儲存在 ~/.config/cmux/sidebars 中的側邊欄會出現在側邊欄選取器中。"
+            "value": "在側邊欄選取器中加入 ~/.config/cmux/sidebars 裡的側邊欄。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "保存在 ~/.config/cmux/sidebars 中的侧边栏会出现在侧边栏选择器中。"
+            "value": "在侧边栏选择器中添加 ~/.config/cmux/sidebars 里的侧边栏。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "~/.config/cmux/sidebars에 저장된 사이드바가 사이드바 선택기에 표시됩니다."
+            "value": "~/.config/cmux/sidebars의 사이드바를 사이드바 선택기에 추가합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "~/.config/cmux/sidebars に保存されたサイドバーがサイドバーピッカーに表示されます。"
+            "value": "~/.config/cmux/sidebars のサイドバーをサイドバーピッカーに追加します。"
           }
         }
       }
@@ -312129,55 +312129,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The right sidebar includes Dock, a mode for custom terminal controls."
+            "value": "Adds Dock to the right sidebar for custom terminal controls."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die rechte Seitenleiste enthält das Dock, einen Modus für benutzerdefinierte Terminal-Steuerelemente."
+            "value": "Fügt der rechten Seitenleiste das Dock für benutzerdefinierte Terminal-Steuerelemente hinzu."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barre latérale droite comprend le Dock, un mode pour les commandes de terminal personnalisées."
+            "value": "Ajoute le Dock à la barre latérale droite pour les commandes de terminal personnalisées."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتضمن الشريط الجانبي الأيمن Dock، وهو وضع لعناصر التحكم المخصصة في الطرفية."
+            "value": "يضيف Dock إلى الشريط الجانبي الأيمن لعناصر التحكم المخصصة في الطرفية."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barra lateral derecha incluye el Dock, un modo para controles de terminal personalizados."
+            "value": "Añade el Dock a la barra lateral derecha para controles de terminal personalizados."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "右側邊欄包含 Dock，這是用於自訂終端機控制項的模式。"
+            "value": "在右側邊欄加入 Dock，用來放置自訂的終端機控制項。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "右侧边栏包含程序坞，这是用于自定义终端控件的模式。"
+            "value": "在右侧边栏添加 Dock，用来放置自定义的终端控件。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오른쪽 사이드바에 맞춤 터미널 제어를 위한 모드인 Dock이 포함됩니다."
+            "value": "오른쪽 사이드바에 Dock을 추가해 터미널 컨트롤을 직접 구성할 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右サイドバーに、カスタムターミナルコントロール用のモードである Dock が含まれます。"
+            "value": "右サイドバーに Dock を追加し、ターミナル用のカスタムコントロールを配置できるようにします。"
           }
         }
       }
@@ -312247,55 +312247,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux shows the extensions button and menu, and can install and run sidebar extensions."
+            "value": "Adds the extensions button and lets cmux install and run sidebar extensions."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux zeigt die Erweiterungstaste und das Erweiterungsmenü an und kann Seitenleisten-Erweiterungen installieren und ausführen."
+            "value": "Fügt die Taste „Erweiterungen“ hinzu und erlaubt cmux, Seitenleisten-Erweiterungen zu installieren und auszuführen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux affiche le bouton et le menu des extensions, et peut installer et exécuter des extensions de barre latérale."
+            "value": "Ajoute le bouton des extensions et permet à cmux d’installer et d’exécuter des extensions de barre latérale."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض cmux زر الامتدادات وقائمتها، ويمكنه تثبيت امتدادات الشريط الجانبي وتشغيلها."
+            "value": "يضيف زر الامتدادات ويتيح لـ cmux تثبيت امتدادات الشريط الجانبي وتشغيلها."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux muestra el botón y el menú de extensiones, y puede instalar y ejecutar extensiones de barra lateral."
+            "value": "Añade el botón de extensiones y permite que cmux instale y ejecute extensiones de barra lateral."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 會顯示擴充功能按鈕與選單，並可安裝及執行側邊欄擴充功能。"
+            "value": "加入擴充功能按鈕，並讓 cmux 可安裝及執行側邊欄擴充功能。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 显示扩展按钮和菜单，并可安装和运行侧边栏扩展。"
+            "value": "添加扩展按钮，并允许 cmux 安装和运行侧边栏扩展。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 확장 기능 버튼과 메뉴를 표시하며, 사이드바 확장 기능을 설치하고 실행할 수 있습니다."
+            "value": "확장 기능 버튼을 추가하고 cmux가 사이드바 확장 기능을 설치하고 실행할 수 있게 합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxはエクステンションのボタンとメニューを表示し、サイドバーエクステンションをインストールして実行できます。"
+            "value": "エクステンションボタンを追加し、cmuxでサイドバーエクステンションをインストールして実行できるようにします。"
           }
         }
       }
@@ -312365,55 +312365,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The right sidebar includes Feed, where agent requests wait for an answer."
+            "value": "Adds Feed to the right sidebar for answering agent requests."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die rechte Seitenleiste enthält den Feed, in dem Agentenanfragen auf eine Antwort warten."
+            "value": "Fügt der rechten Seitenleiste den Feed zum Beantworten von Agentenanfragen hinzu."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barre latérale droite comprend Flux, où les demandes des agents attendent une réponse."
+            "value": "Ajoute le Flux à la barre latérale droite pour répondre aux demandes des agents."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتضمن الشريط الجانبي الأيمن الموجز، حيث تنتظر طلبات الوكلاء الرد."
+            "value": "يضيف Feed إلى الشريط الجانبي الأيمن للرد على طلبات الوكلاء."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barra lateral derecha incluye Canal, donde las solicitudes de los agentes esperan una respuesta."
+            "value": "Añade el Feed a la barra lateral derecha para responder a las solicitudes de los agentes."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "右側邊欄包含「動態」，代理程式的請求會在此等待回覆。"
+            "value": "在右側邊欄加入 Feed，用於回覆代理程式的請求。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "右侧边栏包含“动态”，代理请求会在此等待回复。"
+            "value": "在右侧边栏添加 Feed，用于回复代理请求。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오른쪽 사이드바에 에이전트 요청이 응답을 기다리는 피드가 포함됩니다."
+            "value": "오른쪽 사이드바에 피드를 추가해 에이전트 요청에 응답할 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右サイドバーに、エージェントのリクエストが回答を待つフィードが含まれます。"
+            "value": "右サイドバーにフィードを追加し、エージェントからのリクエストに応答できるようにします。"
           }
         }
       }
@@ -312483,55 +312483,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux sessions on a remote host appear in the sidebar as workspaces, and their windows appear as tabs. Quitting cmux leaves those sessions running."
+            "value": "Shows tmux sessions on remote hosts as workspaces in the sidebar. The sessions keep running after cmux quits."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmux-Sitzungen auf einem Remote-Host erscheinen in der Seitenleiste als Arbeitsbereiche, und ihre Fenster erscheinen als Tabs. Beim Beenden von cmux laufen diese Sitzungen weiter."
+            "value": "Zeigt tmux-Sitzungen auf Remote-Hosts als Arbeitsbereiche in der Seitenleiste an. Die Sitzungen laufen auch nach dem Beenden von cmux weiter."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les sessions tmux d’un hôte distant apparaissent dans la barre latérale comme des espaces de travail, et leurs fenêtres comme des onglets. Quitter cmux ne met pas fin à ces sessions."
+            "value": "Affiche les sessions tmux des hôtes distants comme des espaces de travail dans la barre latérale. Les sessions continuent de s’exécuter après la fermeture de cmux."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تظهر جلسات tmux على المضيف البعيد في الشريط الجانبي كمساحات عمل، وتظهر نوافذها كعلامات تبويب. تستمر هذه الجلسات في العمل بعد إنهاء cmux."
+            "value": "يعرض جلسات tmux على المضيفين البعيدين كمساحات عمل في الشريط الجانبي. وتستمر الجلسات في العمل حتى بعد إنهاء cmux."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las sesiones de tmux de un host remoto aparecen en la barra lateral como espacios de trabajo, y sus ventanas aparecen como pestañas. Al salir de cmux, esas sesiones siguen ejecutándose."
+            "value": "Muestra las sesiones de tmux de hosts remotos como espacios de trabajo en la barra lateral. Las sesiones siguen ejecutándose al salir de cmux."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "遠端主機上的 tmux 工作階段會在側邊欄中顯示為工作區，其視窗會顯示為標籤頁。結束 cmux 後，這些工作階段仍會繼續執行。"
+            "value": "在側邊欄中將遠端主機上的 tmux 工作階段顯示為工作區。結束 cmux 後，這些工作階段仍會繼續執行。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "远程主机上的 tmux 会话会在侧边栏中显示为工作区，其窗口显示为标签页。退出 cmux 后，这些会话仍继续运行。"
+            "value": "在侧边栏中将远程主机上的 tmux 会话显示为工作区。退出 cmux 后，这些会话仍会继续运行。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "원격 호스트의 tmux 세션이 사이드바에 작업 공간으로 표시되고, 해당 창은 탭으로 표시됩니다. cmux를 종료해도 이 세션은 계속 실행됩니다."
+            "value": "원격 호스트의 tmux 세션을 사이드바에 작업 공간으로 표시합니다. cmux를 종료해도 세션은 계속 실행됩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモートホストの tmux セッションはサイドバーにワークスペースとして表示され、そのウィンドウはタブとして表示されます。cmux を終了してもこれらのセッションは動作し続けます。"
+            "value": "リモートホストの tmux セッションをサイドバーにワークスペースとして表示します。cmux を終了してもセッションは動作し続けます。"
           }
         }
       }
@@ -312660,55 +312660,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Workspaces show Add Checklist Item and workspace status controls."
+            "value": "Shows Add Checklist Item and status controls on workspaces."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbeitsbereiche zeigen „Checklisten-Eintrag hinzufügen“ und Steuerelemente für den Arbeitsbereichsstatus an."
+            "value": "Zeigt „Checklisten-Eintrag hinzufügen“ und Statussteuerelemente bei Arbeitsbereichen an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les espaces de travail affichent « Ajouter un élément à la liste de contrôle » et les commandes d’état de l’espace de travail."
+            "value": "Affiche « Ajouter un élément à la liste de contrôle » et les commandes d’état sur les espaces de travail."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعرض مساحات العمل «إضافة عنصر قائمة تحقق» وعناصر التحكم في حالة مساحة العمل."
+            "value": "يعرض «إضافة عنصر قائمة تحقق» وعناصر التحكم في الحالة على مساحات العمل."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los espacios de trabajo muestran «Añadir elemento a la lista de verificación» y los controles de estado del espacio de trabajo."
+            "value": "Muestra «Añadir elemento a la lista de verificación» y los controles de estado en los espacios de trabajo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "工作區會顯示「新增檢查清單項目」和工作區狀態控制項。"
+            "value": "在工作區上顯示「新增檢查清單項目」和狀態控制項。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "工作区显示“添加清单项”和工作区状态控件。"
+            "value": "在工作区上显示“添加清单项”和状态控件。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간에 '체크리스트 항목 추가'와 작업 공간 상태 제어 항목이 표시됩니다."
+            "value": "작업 공간에 ‘체크리스트 항목 추가’ 및 상태 컨트롤을 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースに「チェックリスト項目を追加」とワークスペースのステータスコントロールが表示されます。"
+            "value": "ワークスペースに「チェックリスト項目を追加」とステータスコントロールを表示します。"
           }
         }
       }
@@ -312778,55 +312778,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sets how a workspace checklist opens when clicked: in a popover or expanded under the row."
+            "value": "Choose whether clicking a workspace checklist opens a popover or expands it under the row."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legt fest, wie sich die Checkliste eines Arbeitsbereichs beim Klicken öffnet: in einem Popover oder ausgeklappt unter der Zeile."
+            "value": "Wählen Sie, ob sich beim Klicken auf die Checkliste eines Arbeitsbereichs ein Popover öffnet oder die Checkliste unter der Zeile aufklappt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Définit comment la liste de contrôle d’un espace de travail s’ouvre au clic : dans une fenêtre contextuelle ou dépliée sous la ligne."
+            "value": "Choisissez si un clic sur la liste de contrôle d’un espace de travail ouvre une fenêtre contextuelle ou la déplie sous la ligne."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحدد طريقة فتح قائمة التحقق الخاصة بمساحة العمل عند النقر عليها: في نافذة منبثقة أو موسّعةً أسفل الصف."
+            "value": "اختر ما إذا كان النقر على قائمة التحقق الخاصة بمساحة العمل يفتح نافذة منبثقة أو يوسّعها أسفل الصف."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Define cómo se abre la lista de verificación de un espacio de trabajo al hacer clic: en un popover o desplegada bajo la fila."
+            "value": "Elige si al hacer clic en la lista de verificación de un espacio de trabajo se abre un popover o se despliega bajo la fila."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定按一下工作區檢查清單時的開啟方式：在彈出視窗中開啟，或在該列下方展開。"
+            "value": "選擇按一下工作區檢查清單時，要在彈出視窗中開啟，還是在該列下方展開。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "设置点按工作区清单时的打开方式：在浮层中打开，或在该行下方展开。"
+            "value": "选择点按工作区清单时，是在浮层中打开，还是在该行下方展开。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 체크리스트를 클릭했을 때 팝오버로 열지, 행 아래에 펼쳐서 표시할지 설정합니다."
+            "value": "작업 공간 체크리스트를 클릭했을 때 팝오버로 열지, 행 아래에 펼칠지 선택합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースのチェックリストをクリックしたときに、ポップオーバーで開くか、行の下に展開するかを設定します。"
+            "value": "ワークスペースのチェックリストをクリックしたときに、ポップオーバーで開くか、行の下に展開するかを選択します。"
           }
         }
       }
@@ -314117,55 +314117,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux can open browser tabs, and links opened from terminals open in the cmux browser."
+            "value": "Opens browser tabs and links from terminals in the cmux browser."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux kann Browser-Tabs öffnen, und aus Terminals geöffnete Links öffnen sich im cmux-Browser."
+            "value": "Browser-Tabs und Links aus Terminals werden im cmux-Browser geöffnet."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux peut ouvrir des onglets de navigateur, et les liens ouverts depuis les terminaux s’ouvrent dans le navigateur cmux."
+            "value": "Ouvre les onglets de navigateur et les liens des terminaux dans le navigateur cmux."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يمكن لـ cmux فتح علامات تبويب المتصفح، وتُفتح الروابط المفتوحة من الطرفيات في متصفح cmux."
+            "value": "يفتح علامات تبويب المتصفح والروابط من الطرفيات في متصفح cmux."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux puede abrir pestañas del navegador, y los enlaces abiertos desde las terminales se abren en el navegador de cmux."
+            "value": "Abre pestañas del navegador y enlaces de las terminales en el navegador de cmux."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 可以開啟瀏覽器標籤頁，從終端機開啟的連結會在 cmux 瀏覽器中開啟。"
+            "value": "瀏覽器標籤頁和從終端機開啟的連結都會在 cmux 瀏覽器中開啟。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 可以打开浏览器标签页，从终端打开的链接会在 cmux 浏览器中打开。"
+            "value": "浏览器标签页和从终端打开的链接都会在 cmux 浏览器中打开。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux에서 브라우저 탭을 열 수 있으며, 터미널에서 연 링크는 cmux 브라우저에서 열립니다."
+            "value": "브라우저 탭과 터미널에서 연 링크를 cmux 브라우저에서 엽니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxでブラウザタブを開くことができ、ターミナルから開いたリンクはcmuxブラウザで開きます。"
+            "value": "ブラウザタブとターミナルから開いたリンクをcmuxブラウザで開きます。"
           }
         }
       }
@@ -314473,55 +314473,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Browser tabs that stay hidden longer than the delay free their memory and reload when shown again."
+            "value": "Frees memory from browser tabs hidden longer than the delay. They reload when shown again."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Browser-Tabs, die länger als die Verzögerung ausgeblendet bleiben, geben ihren Speicher frei und werden neu geladen, wenn sie wieder angezeigt werden."
+            "value": "Browser-Tabs, die länger als die festgelegte Zeit ausgeblendet sind, geben ihren Speicher frei und werden beim erneuten Anzeigen neu geladen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les onglets de navigateur masqués plus longtemps que le délai libèrent leur mémoire et se rechargent lorsqu’ils sont de nouveau affichés."
+            "value": "Libère la mémoire des onglets de navigateur masqués depuis plus longtemps que le délai défini. Ils se rechargent lorsqu’ils réapparaissent."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تحرر علامات تبويب المتصفح التي تظل مخفية لمدة أطول من التأخير ذاكرتها، ثم يُعاد تحميلها عند عرضها مرة أخرى."
+            "value": "يحرر ذاكرة علامات تبويب المتصفح المخفية لمدة تتجاوز المهلة المحددة، ويُعاد تحميلها عند عرضها مجددًا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las pestañas del navegador que permanecen ocultas más tiempo que la demora liberan su memoria y se vuelven a cargar cuando se muestran de nuevo."
+            "value": "Libera la memoria de las pestañas del navegador que llevan ocultas más tiempo del indicado. Se vuelven a cargar al mostrarse de nuevo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "隱藏時間超過延遲時間的瀏覽器標籤頁會釋放記憶體，並在再次顯示時重新載入。"
+            "value": "瀏覽器標籤頁隱藏超過延遲時間後，會釋放其記憶體。再次顯示時會重新載入。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "隐藏时间超过延迟时间的浏览器标签页会释放内存，并在再次显示时重新加载。"
+            "value": "浏览器标签页隐藏超过延迟时间后，会释放其内存。再次显示时会重新加载。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "지연 시간보다 오래 숨겨진 브라우저 탭은 메모리를 해제하고, 다시 표시될 때 새로 고칩니다."
+            "value": "브라우저 탭이 지연 시간보다 오래 숨겨져 있으면 메모리를 해제합니다. 탭을 다시 표시하면 새로 고칩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "遅延時間より長く非表示のままのブラウザタブはメモリを解放し、再表示時に再読み込みします。"
+            "value": "非表示の時間が遅延時間を超えたブラウザタブのメモリを解放します。タブは再び表示したときに再読み込みされます。"
           }
         }
       }
@@ -321769,55 +321769,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sets the color scheme for pages that support light and dark modes. System follows the app appearance."
+            "value": "Choose light or dark pages for sites that support both. System matches the app appearance."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legt das Farbschema für Seiten fest, die einen hellen und einen dunklen Modus unterstützen. „System“ folgt dem Erscheinungsbild der App."
+            "value": "Wählen Sie helle oder dunkle Seiten für Websites, die beides unterstützen. „System“ folgt dem Erscheinungsbild der App."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Définit le jeu de couleurs des pages qui prennent en charge les modes clair et sombre. « Système » suit l’apparence de l’app."
+            "value": "Choisissez des pages claires ou sombres pour les sites qui prennent en charge les deux. « Système » suit l’apparence de l’app."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحدد نظام الألوان للصفحات التي تدعم الوضعين الفاتح والداكن. يتبع خيار «النظام» مظهر التطبيق."
+            "value": "اختر الصفحات الفاتحة أو الداكنة للمواقع التي تدعم الوضعين. يتبع خيار «النظام» مظهر التطبيق."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Define la combinación de colores de las páginas compatibles con los modos claro y oscuro. «Sistema» sigue el aspecto de la app."
+            "value": "Elige páginas claras u oscuras para los sitios compatibles con ambos modos. «Sistema» sigue el aspecto de la app."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "為支援淺色與深色模式的網頁設定配色。「系統」會跟隨 App 外觀。"
+            "value": "網站同時支援淺色與深色時，選擇要使用淺色或深色頁面。「系統」會跟隨 App 的外觀。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "为支持浅色和深色模式的网页设置配色方案。“系统”会跟随应用外观。"
+            "value": "网站同时支持浅色和深色时，选择使用浅色还是深色页面。“系统”会跟随应用外观。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "라이트 모드와 다크 모드를 지원하는 페이지의 색상 구성을 설정합니다. ‘시스템’은 앱 외관을 따릅니다."
+            "value": "라이트와 다크를 모두 지원하는 사이트에서 표시할 페이지 모드를 선택합니다. ‘시스템’은 앱의 외관 설정을 따릅니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ライトモードとダークモードに対応したページの配色を設定します。「システム」はアプリの外観に従います。"
+            "value": "ライトとダークの両方に対応したサイトで、どちらのページを表示するかを選択します。「システム」はアプリの外観に合わせます。"
           }
         }
       }
@@ -324314,55 +324314,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebars saved in ~/.config/cmux/sidebars appear in the sidebar picker."
+            "value": "Adds sidebars from ~/.config/cmux/sidebars to the sidebar picker."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "In ~/.config/cmux/sidebars gespeicherte Seitenleisten erscheinen in der Seitenleistenauswahl."
+            "value": "Fügt Seitenleisten aus ~/.config/cmux/sidebars zur Seitenleistenauswahl hinzu."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les barres latérales enregistrées dans ~/.config/cmux/sidebars apparaissent dans le sélecteur de barre latérale."
+            "value": "Ajoute les barres latérales de ~/.config/cmux/sidebars au sélecteur de barre latérale."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تظهر الأشرطة الجانبية المحفوظة في ~/.config/cmux/sidebars في منتقي الشريط الجانبي."
+            "value": "يضيف الأشرطة الجانبية من ~/.config/cmux/sidebars إلى منتقي الشريط الجانبي."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las barras laterales guardadas en ~/.config/cmux/sidebars aparecen en el selector de barra lateral."
+            "value": "Añade las barras laterales de ~/.config/cmux/sidebars al selector de barra lateral."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "儲存在 ~/.config/cmux/sidebars 中的側邊欄會出現在側邊欄選取器中。"
+            "value": "在側邊欄選取器中加入 ~/.config/cmux/sidebars 裡的側邊欄。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "保存在 ~/.config/cmux/sidebars 中的侧边栏会出现在侧边栏选择器中。"
+            "value": "在侧边栏选择器中添加 ~/.config/cmux/sidebars 里的侧边栏。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "~/.config/cmux/sidebars에 저장된 사이드바가 사이드바 선택기에 표시됩니다."
+            "value": "~/.config/cmux/sidebars의 사이드바를 사이드바 선택기에 추가합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "~/.config/cmux/sidebars に保存されたサイドバーがサイドバーピッカーに表示されます。"
+            "value": "~/.config/cmux/sidebars のサイドバーをサイドバーピッカーに追加します。"
           }
         }
       }
@@ -324491,55 +324491,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Isolated process keeps a faulty sidebar from crashing cmux but accepts clicks only. In-app also accepts hover, focus, and typing."
+            "value": "Isolated process protects cmux from a faulty sidebar but accepts clicks only. In-app also accepts hover, focus, and typing."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "„Isolierter Prozess“ verhindert, dass eine fehlerhafte Seitenleiste cmux zum Absturz bringt, unterstützt aber nur Klicks. „In-App“ unterstützt zusätzlich Hover, Fokus und Texteingabe."
+            "value": "„Isolierter Prozess“ schützt cmux vor einer fehlerhaften Seitenleiste, unterstützt aber nur Klicks. „In-App“ unterstützt zusätzlich Hover, Fokus und Texteingabe."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "« Processus isolé » empêche une barre latérale défectueuse de faire planter cmux, mais n’accepte que les clics. « Dans l’application » prend aussi en charge le survol, le focus et la saisie."
+            "value": "« Processus isolé » protège cmux d’une barre latérale défectueuse, mais n’accepte que les clics. « Dans l’application » accepte aussi le survol, le focus et la saisie."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يمنع خيار «عملية معزولة» الشريط الجانبي المعيب من التسبب في تعطّل cmux، لكنه لا يقبل سوى النقرات. أما خيار «داخل التطبيق» فيقبل أيضًا تمرير المؤشر فوق العناصر والتركيز والكتابة."
+            "value": "يحمي خيار «عملية معزولة» cmux من الشريط الجانبي المعيب، لكنه لا يقبل سوى النقرات. أما خيار «داخل التطبيق» فيقبل أيضًا تمرير المؤشر والتركيز والكتابة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "«Proceso aislado» evita que una barra lateral defectuosa haga que cmux se cierre inesperadamente, pero solo admite clics. «En la aplicación» también admite pasar el puntero por encima, enfocar y escribir."
+            "value": "«Proceso aislado» protege cmux de una barra lateral defectuosa, pero solo admite clics. «En la aplicación» también admite pasar el puntero por encima, enfocar y escribir."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "「隔離程序」可避免有問題的側邊欄導致 cmux 當機，但只支援點擊。「應用程式內」還支援懸停、聚焦和輸入。"
+            "value": "「隔離程序」可保護 cmux 不受有問題的側邊欄影響，但只接受點擊。「應用程式內」還接受游標停留、聚焦和輸入。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "“隔离进程”可防止有问题的侧边栏导致 cmux 崩溃，但只支持点击。“应用内”还支持悬停、聚焦和输入。"
+            "value": "“隔离进程”可保护 cmux 不受有问题的侧边栏影响，但只接受点击。“应用内”还接受悬停、聚焦和输入。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "‘격리된 프로세스’는 결함이 있는 사이드바로 인해 cmux가 비정상적으로 종료되는 것을 방지하지만 클릭만 지원합니다. ‘앱 내부’는 호버, 포커스, 타이핑도 지원합니다."
+            "value": "‘격리된 프로세스’는 결함이 있는 사이드바로부터 cmux를 보호하지만 클릭만 허용합니다. ‘앱 내부’는 포인터 올려놓기, 포커스, 키보드 입력도 허용합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「分離プロセス」は、問題のあるサイドバーによって cmux がクラッシュするのを防ぎますが、クリックしか受け付けません。「アプリ内」では、ホバー、フォーカス、入力も受け付けます。"
+            "value": "「分離プロセス」は問題のあるサイドバーから cmux を保護しますが、クリックしか受け付けません。「アプリ内」では、ホバー、フォーカス、入力も受け付けます。"
           }
         }
       }
@@ -324742,19 +324742,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The shortcut shows or hides all cmux windows from any app."
+            "value": "Pressing the shortcut in any app shows or hides all cmux windows."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das Tastaturkürzel blendet alle cmux-Fenster aus jeder App heraus ein oder aus."
+            "value": "Das Tastaturkürzel blendet in jeder App alle cmux-Fenster ein oder aus."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le raccourci affiche ou masque toutes les fenêtres cmux depuis n’importe quelle app."
+            "value": "Le raccourci affiche ou masque toutes les fenêtres cmux, quelle que soit l’app active."
           }
         },
         "ar": {
@@ -324772,25 +324772,25 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此快速鍵可在任何 App 中顯示或隱藏所有 cmux 視窗。"
+            "value": "在任何 App 中按下快速鍵，即可顯示或隱藏所有 cmux 視窗。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "该快捷键可在任意 App 中显示或隐藏所有 cmux 窗口。"
+            "value": "在任意 App 中按下快捷键，即可显示或隐藏所有 cmux 窗口。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 단축키로 어떤 앱에서든 모든 cmux 윈도우를 표시하거나 숨깁니다."
+            "value": "어느 앱에서든 단축키를 눌러 모든 cmux 윈도우를 표시하거나 숨길 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このショートカットで、どのアプリからでも cmux のすべてのウィンドウを表示または非表示にします。"
+            "value": "どのアプリを使用中でも、ショートカットを押すと cmux のすべてのウィンドウを表示または非表示にできます。"
           }
         }
       }
@@ -326584,55 +326584,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sets how far iPhone and iPad can browse into a folder that a chat mentions or a terminal shows. One Level shows only the items directly inside it."
+            "value": "Choose how much of a folder iPhone and iPad can browse. One Level shows only the items directly inside it."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legt fest, wie tief iPhone und iPad in einem Ordner navigieren können, der in einem Chat erwähnt oder in einem Terminal angezeigt wird. „Eine Ebene“ zeigt nur die Objekte, die sich direkt darin befinden."
+            "value": "Wählen Sie, wie tief iPhone und iPad einen Ordner durchsuchen können. „Eine Ebene“ zeigt nur die Objekte direkt darin."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Définit jusqu’où l’iPhone et l’iPad peuvent parcourir un dossier mentionné dans une discussion ou affiché dans un terminal. « Un niveau » n’affiche que les éléments situés directement dans ce dossier."
+            "value": "Choisissez jusqu’où l’iPhone et l’iPad peuvent parcourir un dossier. « Un niveau » n’affiche que les éléments qui s’y trouvent directement."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحدد مدى عمق تصفح iPhone وiPad داخل مجلد مذكور في دردشة أو معروض في طرفية. يعرض خيار «مستوى واحد» العناصر الموجودة مباشرةً داخله فقط."
+            "value": "اختر مدى عمق تصفح iPhone وiPad داخل المجلد. يعرض خيار «مستوى واحد» العناصر الموجودة مباشرةً داخله فقط."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Define hasta dónde pueden explorar el iPhone y el iPad una carpeta mencionada en un chat o mostrada en una terminal. «Un nivel» solo muestra los elementos que están directamente dentro de ella."
+            "value": "Elige hasta qué nivel pueden explorar una carpeta el iPhone y el iPad. «Un nivel» solo muestra los elementos que contiene directamente."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定 iPhone 和 iPad 在聊天中提及或終端機中顯示的資料夾內可瀏覽的深度。「單一層級」只會顯示直接位於該資料夾內的項目。"
+            "value": "選擇 iPhone 和 iPad 可瀏覽資料夾的範圍。「單一層級」只顯示該資料夾第一層的項目。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "设置 iPhone 和 iPad 在对话中提及或终端中显示的文件夹内可浏览的深度。“一层”只显示直接位于该文件夹中的项目。"
+            "value": "选择 iPhone 和 iPad 可浏览文件夹的范围。“一层”只显示该文件夹第一层的项目。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "채팅에서 언급되거나 터미널에 표시된 폴더를 iPhone 및 iPad에서 어느 깊이까지 탐색할 수 있는지 설정합니다. ‘한 수준’은 폴더 바로 안에 있는 항목만 표시합니다."
+            "value": "iPhone 및 iPad에서 폴더를 어디까지 탐색할 수 있는지 선택합니다. ‘한 단계’는 폴더 바로 아래에 있는 항목만 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットで言及されたフォルダやターミナルに表示されたフォルダを、iPhone と iPad からどの階層まで参照できるかを設定します。「1 階層」では、そのフォルダの直下にある項目のみが表示されます。"
+            "value": "iPhone と iPad からフォルダをどこまで参照できるかを選択します。「1 階層」では、そのフォルダの直下にある項目のみが表示されます。"
           }
         }
       }
@@ -327115,7 +327115,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone and iPad can pair with this Mac and connect to it."
+            "value": "Lets iPhone and iPad pair with and connect to this Mac."
           }
         },
         "de": {
@@ -327145,25 +327145,25 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone 和 iPad 可以與此 Mac 配對並連線。"
+            "value": "允許 iPhone 和 iPad 與此 Mac 配對及連線。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone 和 iPad 可以与这台 Mac 配对并连接。"
+            "value": "允许 iPhone 和 iPad 与这台 Mac 配对并连接。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone과 iPad가 이 Mac과 페어링하고 연결할 수 있습니다."
+            "value": "iPhone과 iPad가 이 Mac과 페어링하고 연결할 수 있게 합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone と iPad がこの Mac とペアリングして接続できます。"
+            "value": "iPhone と iPad がこの Mac とペアリングして接続できるようにします。"
           }
         }
       }
@@ -327469,55 +327469,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac forwards agent notifications to cmux on iPhone and iPad."
+            "value": "Sends agent notifications from this Mac to cmux on iPhone and iPad."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dieser Mac leitet Agentenbenachrichtigungen an cmux auf iPhone und iPad weiter."
+            "value": "Leitet Agentenbenachrichtigungen von diesem Mac an cmux auf iPhone und iPad weiter."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce Mac transfère les notifications des agents vers cmux sur iPhone et iPad."
+            "value": "Transfère les notifications des agents de ce Mac vers cmux sur iPhone et iPad."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعيد جهاز Mac هذا توجيه إشعارات الوكلاء إلى cmux على iPhone وiPad."
+            "value": "يوجّه إشعارات الوكلاء من جهاز Mac هذا إلى cmux على iPhone وiPad."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Este Mac reenvía las notificaciones de agentes a cmux en iPhone y iPad."
+            "value": "Reenvía las notificaciones de agentes de este Mac a cmux en iPhone y iPad."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 Mac 會將代理程式通知轉寄至 iPhone 和 iPad 上的 cmux。"
+            "value": "將此 Mac 上的代理程式通知傳送至 iPhone 和 iPad 上的 cmux。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这台 Mac 会将代理通知转发到 iPhone 和 iPad 上的 cmux。"
+            "value": "将这台 Mac 上的代理通知发送到 iPhone 和 iPad 上的 cmux。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac이 에이전트 알림을 iPhone 및 iPad의 cmux로 전달합니다."
+            "value": "이 Mac의 에이전트 알림을 iPhone 및 iPad의 cmux로 보냅니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac はエージェントの通知を iPhone と iPad の cmux に転送します。"
+            "value": "この Mac からエージェントの通知を iPhone と iPad の cmux に送信します。"
           }
         }
       }
@@ -363248,37 +363248,37 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wenn die Befehlstaste oder die Control-Taste gedrückt gehalten wird, werden Hinweise zu Tastaturkürzeln angezeigt."
+            "value": "Hinweise zu Tastaturkürzeln erscheinen, solange die Befehlstaste oder die Control-Taste gedrückt ist."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Maintenir la touche Commande ou Contrôle enfoncée affiche les indices de raccourcis."
+            "value": "Les indices de raccourcis apparaissent tant que la touche Commande ou Contrôle est maintenue enfoncée."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يؤدي الضغط المستمر على Command أو Control إلى عرض تلميحات الاختصارات."
+            "value": "تظهر تلميحات الاختصارات عند الضغط مع الاستمرار على Command أو Control."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mantener presionada la tecla Comando o Control muestra sugerencias de atajos."
+            "value": "Las sugerencias de atajos aparecen mientras se mantiene presionada la tecla Comando o Control."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "按住 Command 或 Control 鍵時會顯示快速鍵提示。"
+            "value": "按住 Command 或 Control 鍵時，會顯示快速鍵提示。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "按住 Command 或 Control 时显示快捷键提示。"
+            "value": "按住 Command 或 Control 键时，会显示快捷键提示。"
           }
         },
         "ko": {
@@ -363290,7 +363290,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command または Control を押したままにすると、ショートカットヒントが表示されます。"
+            "value": "Command キーまたは Control キーを押したままにすると、ショートカットヒントが表示されます。"
           }
         }
       }
@@ -363426,13 +363426,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Dock in the right sidebar can grow up to this width while leaving room for terminals."
+            "value": "Lets the Dock in the right sidebar grow up to this width while leaving room for terminals."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das Dock in der rechten Seitenleiste kann bis zu dieser Breite wachsen und lässt dabei Platz für Terminals."
+            "value": "Das Dock in der rechten Seitenleiste kann bis zu dieser Breite wachsen, lässt aber Platz für Terminals."
           }
         },
         "fr": {
@@ -363450,31 +363450,31 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El Dock de la barra lateral derecha puede ampliarse hasta este ancho dejando espacio para las terminales."
+            "value": "El Dock de la barra lateral derecha puede ampliarse hasta este ancho, pero deja espacio para las terminales."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "右側邊欄中的 Dock 最多可加寬至此寬度，同時為終端機保留空間。"
+            "value": "右側邊欄中的 Dock 最寬可擴展至此寬度，並為終端機保留空間。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "右侧边栏中的 Dock 最多可加宽到此宽度，同时为终端保留空间。"
+            "value": "右侧边栏中的 Dock 最宽可扩展到此宽度，同时为终端保留空间。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오른쪽 사이드바의 Dock은 터미널 공간을 남겨 두면서 이 너비까지 커질 수 있습니다."
+            "value": "오른쪽 사이드바의 Dock은 터미널 공간을 남겨 둔 채 이 너비까지 넓어질 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右サイドバーの Dock は、ターミナル用のスペースを残しながらこの幅まで広げられます。"
+            "value": "右サイドバーの Dock は、ターミナルの領域を残したまま、この幅まで広げられます。"
           }
         }
       }
@@ -366306,55 +366306,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When the Ghostty config is empty, terminal colors follow the light or dark app appearance. Existing Ghostty settings always take priority."
+            "value": "Matches terminal colors to the light or dark appearance when the Ghostty config is empty."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wenn die Ghostty-Konfiguration leer ist, folgen die Terminalfarben dem hellen oder dunklen Erscheinungsbild der App. Vorhandene Ghostty-Einstellungen haben immer Vorrang."
+            "value": "Ist die Ghostty-Konfiguration leer, passen sich die Terminalfarben an das helle oder dunkle Erscheinungsbild an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lorsque la configuration Ghostty est vide, les couleurs du terminal suivent l’apparence claire ou sombre de l’app. Les réglages Ghostty existants sont toujours prioritaires."
+            "value": "Si la configuration Ghostty est vide, les couleurs du terminal suivent l’apparence claire ou sombre."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عندما يكون تكوين Ghostty فارغًا، تتبع ألوان الطرفية مظهر التطبيق الفاتح أو الداكن. تكون لإعدادات Ghostty الحالية الأولوية دائمًا."
+            "value": "عندما يكون تكوين Ghostty فارغًا، تتوافق ألوان الطرفية مع المظهر الفاتح أو الداكن."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuando la configuración de Ghostty está vacía, los colores de la terminal siguen la apariencia clara u oscura de la app. Los ajustes existentes de Ghostty siempre tienen prioridad."
+            "value": "Si la configuración de Ghostty está vacía, los colores de la terminal siguen la apariencia clara u oscura."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "當 Ghostty 設定為空時，終端機顏色會跟隨 App 的淺色或深色外觀。現有的 Ghostty 設定一律優先。"
+            "value": "Ghostty 設定為空時，終端機顏色會配合淺色或深色外觀。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "当 Ghostty 配置为空时，终端颜色跟随 App 的浅色或深色外观。已有的 Ghostty 设置始终优先。"
+            "value": "Ghostty 配置为空时，终端颜色会随浅色或深色外观变化。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty 설정이 비어 있으면 터미널 색상이 앱의 라이트 또는 다크 외양을 따릅니다. 기존 Ghostty 설정이 항상 우선합니다."
+            "value": "Ghostty 설정이 비어 있으면 터미널 색상을 라이트 또는 다크 모드에 맞춥니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty 設定が空の場合、ターミナルの色はアプリのライトまたはダークの外観に従います。既存の Ghostty 設定が常に優先されます。"
+            "value": "Ghostty 設定が空の場合、ターミナルの色をライトまたはダークの外観に合わせます。"
           }
         }
       }
@@ -366424,55 +366424,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When cmux reopens, restored agent terminals resume their sessions automatically."
+            "value": "Reopening cmux resumes agent sessions automatically."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wenn cmux wieder geöffnet wird, setzen wiederhergestellte Agenten-Terminals ihre Sitzungen automatisch fort."
+            "value": "Beim erneuten Öffnen von cmux werden Agenten-Sitzungen automatisch fortgesetzt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lorsque cmux se rouvre, les terminaux d’agent restaurés reprennent automatiquement leurs sessions."
+            "value": "Les sessions d’agent reprennent automatiquement à la réouverture de cmux."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عند إعادة فتح cmux، تستأنف طرفيات الوكلاء المستعادة جلساتها تلقائيًا."
+            "value": "تُستأنف جلسات الوكلاء تلقائيًا عند إعادة فتح cmux."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuando cmux se vuelve a abrir, las terminales de agentes restauradas reanudan sus sesiones automáticamente."
+            "value": "Las sesiones de agentes se reanudan automáticamente al volver a abrir cmux."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 重新開啟時，還原的代理終端機會自動恢復其工作階段。"
+            "value": "重新開啟 cmux 時，自動繼續先前的代理工作階段。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 重新打开时，已还原的代理终端会自动恢复其会话。"
+            "value": "重新打开 cmux 时，自动恢复之前的代理会话。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux를 다시 열면 복원된 에이전트 터미널이 세션을 자동으로 재개합니다."
+            "value": "cmux를 다시 열면 에이전트 세션이 자동으로 재개됩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux を再度開くと、復元されたエージェントのターミナルがセッションを自動的に再開します。"
+            "value": "cmux を開き直すと、エージェントのセッションが自動的に再開されます。"
           }
         }
       }
@@ -366778,55 +366778,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux hibernates idle background agent terminals after the live terminal count exceeds the limit."
+            "value": "Hibernates idle background agent terminals above the live terminal limit."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux versetzt inaktive Agenten-Terminals im Hintergrund in den Ruhezustand, sobald die Anzahl aktiver Terminals das Limit überschreitet."
+            "value": "Versetzt inaktive Agenten-Terminals im Hintergrund in den Ruhezustand, sobald das Limit für aktive Terminals überschritten ist."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux met en hibernation les terminaux d’agent inactifs en arrière-plan lorsque le nombre de terminaux actifs dépasse la limite."
+            "value": "Met en hibernation les terminaux d’agent inactifs en arrière-plan au-delà de la limite de terminaux actifs."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يُدخل cmux طرفيات الوكلاء الخاملة في الخلفية في السبات بعد تجاوز عدد الطرفيات النشطة للحد."
+            "value": "يُدخل طرفيات الوكلاء الخاملة في الخلفية في السبات عند تجاوز حد الطرفيات النشطة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux hiberna las terminales de agentes inactivas en segundo plano cuando la cantidad de terminales activas supera el límite."
+            "value": "Pone en hibernación las terminales de agentes inactivas en segundo plano que superan el límite de terminales activas."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "當作用中終端機數量超出限制後，cmux 會讓閒置的背景代理終端機進入休眠。"
+            "value": "作用中終端機超過上限時，閒置的背景代理終端機會進入休眠。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "当活动终端数量超出上限后，cmux 会让空闲的后台代理终端进入休眠。"
+            "value": "活动终端超过上限时，空闲的后台代理终端会进入休眠。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "활성 터미널 수가 한도를 초과하면 cmux가 백그라운드의 유휴 에이전트 터미널을 최대 절전 모드로 전환합니다."
+            "value": "활성 터미널 수가 한도를 넘으면 백그라운드에서 유휴 상태인 에이전트 터미널을 최대 절전 모드로 전환합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "実行中のターミナル数が上限を超えると、cmux はアイドル状態のバックグラウンドエージェントのターミナルを休止させます。"
+            "value": "実行中のターミナル数が上限を超えると、アイドル状態のバックグラウンドエージェントのターミナルを休止させます。"
           }
         }
       }
@@ -366962,55 +366962,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Selecting text in a terminal also copies it to the clipboard."
+            "value": "Selecting text in a terminal copies it to the clipboard."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Im Terminal ausgewählter Text wird auch in die Zwischenablage kopiert."
+            "value": "Im Terminal ausgewählter Text wird in die Zwischenablage kopiert."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La sélection de texte dans un terminal le copie aussi dans le presse-papiers."
+            "value": "Le texte sélectionné dans un terminal est copié dans le presse-papiers."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يؤدي تحديد نص في الطرفية إلى نسخه أيضًا إلى الحافظة."
+            "value": "يُنسخ النص المحدد في الطرفية إلى الحافظة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seleccionar texto en una terminal también lo copia al portapapeles."
+            "value": "El texto seleccionado en una terminal se copia al portapapeles."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在終端機中選取文字時，也會將其複製到剪貼簿。"
+            "value": "在終端機中選取文字時，會將文字複製到剪貼簿。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在终端中选择文本时，也会将其复制到剪贴板。"
+            "value": "在终端中选择文本时，会将文本复制到剪贴板。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터미널에서 텍스트를 선택하면 클립보드에도 복사됩니다."
+            "value": "터미널에서 텍스트를 선택하면 클립보드에 복사됩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルでテキストを選択すると、クリップボードにもコピーされます。"
+            "value": "ターミナルでテキストを選択すると、クリップボードにコピーされます。"
           }
         }
       }
@@ -367080,55 +367080,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copied text joins lines that wrapped at the terminal edge back into one line."
+            "value": "Copying text joins lines that wrapped at the terminal edge."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Beim Kopieren werden Zeilen, die am Terminalrand umbrochen wurden, wieder zu einer Zeile zusammengefügt."
+            "value": "Beim Kopieren werden Zeilen, die am Terminalrand umbrochen wurden, wieder zusammengefügt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lors de la copie, les lignes coupées au bord du terminal sont réunies en une seule ligne."
+            "value": "Lors de la copie, les lignes coupées au bord du terminal sont réunies."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عند النسخ، تُدمج الأسطر التي التفت عند حافة الطرفية في سطر واحد."
+            "value": "عند النسخ، تُدمج الأسطر التي التفّت عند حافة الطرفية."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Al copiar, las líneas que se ajustaron en el borde de la terminal se vuelven a unir en una sola línea."
+            "value": "Al copiar, las líneas cortadas en el borde de la terminal se vuelven a unir."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "複製時，在終端機邊緣換行的文字會重新接合為一行。"
+            "value": "複製文字時，將在終端機邊緣自動換行的行合併回一行。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "复制时，在终端边缘自动换行的行会重新合并为一行。"
+            "value": "复制文本时，将在终端边缘自动换行的行合并回一行。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "복사한 텍스트는 터미널 가장자리에서 줄바꿈된 줄을 다시 한 줄로 잇습니다."
+            "value": "텍스트를 복사할 때 터미널 가장자리에서 줄바꿈된 줄을 다시 한 줄로 합칩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コピーしたテキストでは、ターミナルの端で折り返された行が1行に戻ります。"
+            "value": "テキストをコピーするとき、ターミナルの端で折り返された行を 1 行に戻します。"
           }
         }
       }
@@ -367198,55 +367198,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux shows a badge and a banner when the processes in one pane use too much memory."
+            "value": "Warns when the processes in one pane use too much memory."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux zeigt ein Kennzeichen und ein Banner an, wenn die Prozesse in einem Teilfenster zu viel Speicher verbrauchen."
+            "value": "Warnt, wenn die Prozesse in einem Teilfenster zu viel Speicher verbrauchen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux affiche une pastille et une bannière lorsque les processus d’un volet utilisent trop de mémoire."
+            "value": "Avertit lorsque les processus d’un volet utilisent trop de mémoire."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض cmux شارة ولافتة عندما تستهلك العمليات في جزء واحد ذاكرة أكثر من اللازم."
+            "value": "ينبّه عندما تستهلك العمليات في جزء واحد ذاكرة أكثر من اللازم."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux muestra una insignia y un banner cuando los procesos de un panel usan demasiada memoria."
+            "value": "Avisa cuando los procesos de un panel usan demasiada memoria."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "當單一窗格中的處理程序耗用過多記憶體時，cmux 會顯示標記和橫幅。"
+            "value": "單一窗格中的處理程序使用過多記憶體時發出警告。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "当某个窗格中的进程占用过多内存时，cmux 会显示标记和横幅。"
+            "value": "某个窗格中的进程占用过多内存时发出警告。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "하나의 분할 창에 속한 프로세스가 메모리를 너무 많이 사용하면 cmux가 배지와 배너를 표시합니다."
+            "value": "한 분할 창의 프로세스가 메모리를 너무 많이 사용하면 경고합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1つのペインのプロセスが過剰なメモリを使用すると、cmux はバッジとバナーを表示します。"
+            "value": "1 つのペインのプロセスがメモリを使いすぎると警告します。"
           }
         }
       }
@@ -367670,55 +367670,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminals out of view free their graphics memory while idle and redraw instantly when shown again. Their processes keep running."
+            "value": "Frees graphics memory from terminals that are out of view. Their processes keep running."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nicht sichtbare Terminals geben im Leerlauf ihren Grafikspeicher frei und werden beim erneuten Anzeigen sofort neu gezeichnet. Ihre Prozesse laufen weiter."
+            "value": "Gibt den Grafikspeicher nicht sichtbarer Terminals frei. Ihre Prozesse laufen weiter."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les terminaux hors de vue libèrent leur mémoire graphique lorsqu’ils sont inactifs et se redessinent instantanément lorsqu’ils sont de nouveau affichés. Leurs processus continuent de s’exécuter."
+            "value": "Libère la mémoire graphique des terminaux hors de vue. Leurs processus continuent de s’exécuter."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تحرر الطرفيات غير المرئية ذاكرة الرسومات الخاصة بها أثناء الخمول، وتُعاد رسمها فورًا عند عرضها مرة أخرى. وتستمر عملياتها في العمل."
+            "value": "يحرر ذاكرة الرسومات للطرفيات غير الظاهرة، مع استمرار تشغيل عملياتها."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las terminales fuera de la vista liberan su memoria gráfica mientras están inactivas y se vuelven a dibujar al instante cuando se muestran de nuevo. Sus procesos siguen ejecutándose."
+            "value": "Libera la memoria gráfica de las terminales fuera de la vista. Sus procesos siguen ejecutándose."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "不在畫面中的終端機會在閒置時釋放圖形記憶體，並在再次顯示時立即重繪。其處理程序會繼續執行。"
+            "value": "釋放不在畫面上的終端機所使用的圖形記憶體，其處理程序仍會繼續執行。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "屏幕外的终端会在空闲时释放图形内存，并在再次显示时立即重绘。其进程会继续运行。"
+            "value": "释放不在屏幕上的终端所占用的图形内存，其进程仍会继续运行。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "화면에 보이지 않는 터미널은 유휴 상태일 때 그래픽 메모리를 해제하고, 다시 표시되면 즉시 다시 그립니다. 해당 프로세스는 계속 실행됩니다."
+            "value": "화면에 보이지 않는 터미널의 그래픽 메모리를 해제합니다. 해당 프로세스는 계속 실행됩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "表示されていない端末はアイドル中にグラフィックスメモリを解放し、再表示時に即座に再描画します。プロセスは動作し続けます。"
+            "value": "表示されていないターミナルのグラフィックスメモリを解放します。プロセスは動作し続けます。"
           }
         }
       }
@@ -368968,55 +368968,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminals show a scroll bar on the right edge, except while a full-screen app is running."
+            "value": "Shows a scroll bar in terminals, except in full-screen apps."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminals zeigen am rechten Rand eine Bildlaufleiste an, außer während eine Vollbild-App läuft."
+            "value": "Zeigt in Terminals eine Bildlaufleiste an, außer in Vollbild-Apps."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les terminaux affichent une barre de défilement sur le bord droit, sauf pendant l’exécution d’une app en plein écran."
+            "value": "Affiche une barre de défilement dans les terminaux, sauf dans les apps en plein écran."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعرض الطرفيات شريط تمرير على الحافة اليمنى، إلا أثناء تشغيل تطبيق بملء الشاشة."
+            "value": "يعرض شريط تمرير في الطرفيات، إلا في التطبيقات بملء الشاشة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las terminales muestran una barra de desplazamiento en el borde derecho, excepto mientras se ejecuta una app a pantalla completa."
+            "value": "Muestra una barra de desplazamiento en las terminales, excepto en las apps a pantalla completa."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "終端機會在右側邊緣顯示捲動軸，但執行全螢幕 App 時除外。"
+            "value": "在終端機中顯示捲軸（全螢幕 App 除外）。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "终端会在右边缘显示滚动条，但运行全屏 App 时除外。"
+            "value": "在终端中显示滚动条（全屏 App 除外）。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전체 화면 앱이 실행 중일 때를 제외하고 터미널 오른쪽 가장자리에 스크롤 바가 표시됩니다."
+            "value": "터미널에 스크롤 바를 표시합니다(전체 화면 앱 제외)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フルスクリーンアプリの実行中を除き、ターミナルの右端にスクロールバーを表示します。"
+            "value": "ターミナルにスクロールバーを表示します（フルスクリーンアプリを除く）。"
           }
         }
       }
@@ -369575,55 +369575,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal and agent chat content wraps at this width. Narrow panes still use all available space."
+            "value": "Wraps terminal and agent chat content at this width. Narrow panes still use their full width."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal- und Agenten-Chat-Inhalte werden bei dieser Breite umbrochen. Schmale Teilfenster nutzen weiterhin den gesamten verfügbaren Platz."
+            "value": "Terminal- und Agenten-Chat-Inhalte werden bei dieser Breite umbrochen. Schmalere Teilfenster nutzen weiterhin ihre volle Breite."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le contenu du terminal et du chat de l’agent passe à la ligne à cette largeur. Les volets étroits utilisent toujours tout l’espace disponible."
+            "value": "Le contenu du terminal et du chat de l’agent revient à la ligne à cette largeur. Les volets plus étroits conservent toute leur largeur."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يلتف محتوى الطرفية ودردشة الوكيل عند هذا العرض. تستمر الأجزاء الضيقة في استخدام كل المساحة المتاحة."
+            "value": "يلتف محتوى الطرفية ودردشة الوكيل عند هذا العرض. أما الأجزاء الأضيق فتستخدم عرضها الكامل."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El contenido de la terminal y del chat de agentes se ajusta a este ancho. Los paneles estrechos siguen usando todo el espacio disponible."
+            "value": "El contenido de la terminal y del chat de agentes se ajusta a este ancho. Los paneles más estrechos siguen usando todo su ancho."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "終端機與代理對話內容會在此寬度換行。狹窄的窗格仍會使用所有可用空間。"
+            "value": "終端機和代理對話的內容會在此寬度換行。較窄的窗格仍使用完整寬度。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "终端和代理对话内容在此宽度换行。窄窗格仍会使用全部可用空间。"
+            "value": "终端和代理对话的内容会在此宽度处换行。较窄的窗格仍使用全部宽度。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터미널 및 에이전트 채팅 콘텐츠가 이 너비에서 줄바꿈됩니다. 좁은 분할 창에서는 사용 가능한 모든 공간을 계속 사용합니다."
+            "value": "터미널과 에이전트 채팅 내용을 이 너비에서 줄바꿈합니다. 이보다 좁은 분할 창에서는 전체 너비를 사용합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルとエージェントチャットのコンテンツはこの幅で折り返します。狭いペインでは利用可能な幅をすべて使います。"
+            "value": "ターミナルとエージェントチャットの内容をこの幅で折り返します。これより狭いペインでは、ペインの幅いっぱいに表示します。"
           }
         }
       }
@@ -370272,55 +370272,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command or Option with an arrow key moves by line or word. Command or Option with Delete deletes by line or word. Full-screen terminal apps receive these as editing keys."
+            "value": "Pressing Command or Option with an arrow key or Delete moves or deletes by line or word. Full-screen terminal apps receive these as editing keys."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Befehls- oder Wahltaste mit einer Pfeiltaste bewegt die Einfügemarke zeilen- oder wortweise. Befehls- oder Wahltaste mit der Löschtaste löscht zeilen- oder wortweise. Terminal-Apps im Vollbildmodus erhalten diese Kombinationen als Bearbeitungstasten."
+            "value": "Mit der Befehls- oder Wahltaste und einer Pfeiltaste oder der Löschtaste bewegen Sie die Einfügemarke bzw. löschen Text zeilen- oder wortweise. Terminal-Apps im Vollbildmodus erhalten diese Kombinationen als Bearbeitungstasten."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Commande ou Option avec une touche fléchée permet de se déplacer par ligne ou par mot. Commande ou Option avec Supprimer efface par ligne ou par mot. Les apps de terminal en plein écran reçoivent ces combinaisons comme des touches d’édition."
+            "value": "Commande ou Option associée à une touche fléchée ou à Supprimer déplace le point d’insertion ou supprime du texte par ligne ou par mot. Les apps de terminal en plein écran reçoivent ces combinaisons comme touches d’édition."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يؤدي Command أو Option مع مفتاح سهم إلى التنقل حسب السطر أو الكلمة. يؤدي Command أو Option مع مفتاح الحذف إلى الحذف حسب السطر أو الكلمة. تتلقى تطبيقات الطرفية بملء الشاشة هذه التركيبات كمفاتيح تحرير."
+            "value": "يؤدي الضغط على Command أو Option مع مفتاح سهم أو مفتاح الحذف إلى التنقل أو الحذف سطرًا سطرًا أو كلمةً كلمة. وتتلقى تطبيقات الطرفية بملء الشاشة هذه التركيبات كمفاتيح تحرير."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comando u Opción con una tecla de flecha permite desplazarse por línea o por palabra. Comando u Opción con Eliminar borra por línea o por palabra. Las apps de terminal a pantalla completa reciben estas combinaciones como teclas de edición."
+            "value": "Comando u Opción junto con una tecla de flecha o Eliminar mueve el punto de inserción o borra por líneas o palabras. Las apps de terminal a pantalla completa reciben estas combinaciones como teclas de edición."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command 或 Option 加方向鍵可依行或依字移動。Command 或 Option 加 Delete 鍵可依行或依字刪除。全螢幕終端機 App 會將這些組合鍵視為編輯鍵。"
+            "value": "按住 Command 或 Option 鍵再按方向鍵或 Delete 鍵，可按行或字詞移動或刪除。全螢幕終端機 App 則會將這些按鍵當作編輯鍵。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command 或 Option 加箭头键按行或按词移动。Command 或 Option 加 Delete 键按行或按词删除。全屏终端 App 会将这些组合键作为编辑键接收。"
+            "value": "按住 Command 或 Option 键再按箭头键或 Delete 键，可按行或按词移动或删除。全屏终端 App 会将这些按键视为编辑键。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command 또는 Option과 화살표 키로 줄 또는 단어 단위로 이동합니다. Command 또는 Option과 Delete 키로 줄 또는 단어 단위로 삭제합니다. 전체 화면 터미널 앱은 이를 편집 키로 받습니다."
+            "value": "Command 또는 Option 키를 누른 채 화살표 키나 Delete 키를 누르면 줄 또는 단어 단위로 이동하거나 삭제합니다. 전체 화면 터미널 앱에는 편집 키로 전달됩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command または Option と矢印キーで行単位または単語単位に移動します。Command または Option と Delete キーで行単位または単語単位に削除します。フルスクリーンのターミナルアプリはこれらを編集キーとして受け取ります。"
+            "value": "Command キーまたは Option キーを押しながら矢印キーや Delete キーを押すと、行単位または単語単位で移動・削除します。フルスクリーンのターミナルアプリには、編集キーとして送られます。"
           }
         }
       }
@@ -370699,55 +370699,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New terminal tabs, splits, and workspaces start with keyboard focus in the TextBox."
+            "value": "Opening a terminal tab, split, or workspace puts keyboard focus in the TextBox."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Neue Terminal-Tabs, Aufteilungen und Arbeitsbereiche starten mit dem Tastaturfokus in der TextBox."
+            "value": "Wenn ein Terminal-Tab, eine Teilung oder ein Arbeitsbereich geöffnet wird, liegt der Tastaturfokus in der TextBox."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les nouveaux onglets, divisions et espaces de travail de terminal démarrent avec le focus du clavier dans la TextBox."
+            "value": "À l’ouverture d’un onglet, d’une division ou d’un espace de travail de terminal, le focus du clavier est placé dans la TextBox."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبدأ علامات تبويب الطرفية الجديدة والتقسيمات ومساحات العمل مع تركيز لوحة المفاتيح في مربع النص."
+            "value": "عند فتح علامة تبويب طرفية أو تقسيم أو مساحة عمل، ينتقل تركيز لوحة المفاتيح إلى TextBox."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las nuevas pestañas de terminal, divisiones y espacios de trabajo comienzan con el enfoque del teclado en el cuadro de texto."
+            "value": "Al abrir una pestaña de terminal, una división o un espacio de trabajo, el enfoque del teclado se sitúa en el TextBox."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "新的終端機標籤頁、分割和工作區開啟時，鍵盤焦點會位於文字框中。"
+            "value": "開啟終端機標籤頁、分割或工作區時，將鍵盤焦點移到 TextBox。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "新的终端标签页、分屏和工作区开始时，键盘焦点位于 TextBox 中。"
+            "value": "打开终端标签页、分屏或工作区时，将键盘焦点移到 TextBox。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 터미널 탭, 분할 및 작업 공간이 TextBox에 키보드 포커스가 있는 상태로 시작됩니다."
+            "value": "터미널 탭, 분할 또는 작업 공간을 열면 키보드 포커스가 TextBox로 이동합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しいターミナルタブ、分割、ワークスペースは、キーボードフォーカスが TextBox にある状態で始まります。"
+            "value": "ターミナルタブ、分割、またはワークスペースを開くと、キーボードフォーカスが TextBox に移動します。"
           }
         }
       }
@@ -371133,55 +371133,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New terminal tabs, splits, and workspaces open with the TextBox visible."
+            "value": "Opening a terminal tab, split, or workspace shows the TextBox."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Neue Terminal-Tabs, Aufteilungen und Arbeitsbereiche öffnen sich mit sichtbarer TextBox."
+            "value": "Beim Öffnen eines Terminal-Tabs, einer Teilung oder eines Arbeitsbereichs erscheint die TextBox."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les nouveaux onglets, divisions et espaces de travail de terminal s’ouvrent avec la TextBox visible."
+            "value": "À l’ouverture d’un onglet, d’une division ou d’un espace de travail de terminal, la TextBox s’affiche."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تُفتح علامات تبويب الطرفية الجديدة والتقسيمات ومساحات العمل مع ظهور مربع النص."
+            "value": "عند فتح علامة تبويب طرفية أو تقسيم أو مساحة عمل، يظهر TextBox."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las nuevas pestañas de terminal, divisiones y espacios de trabajo se abren con el cuadro de texto visible."
+            "value": "Al abrir una pestaña de terminal, una división o un espacio de trabajo, se muestra el TextBox."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "新的終端機標籤頁、分割和工作區開啟時會顯示文字框。"
+            "value": "開啟終端機標籤頁、分割或工作區時顯示 TextBox。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "新的终端标签页、分屏和工作区打开时会显示 TextBox。"
+            "value": "打开终端标签页、分屏或工作区时显示 TextBox。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 터미널 탭, 분할 및 작업 공간이 TextBox가 보이는 상태로 열립니다."
+            "value": "터미널 탭, 분할 또는 작업 공간을 열면 TextBox가 표시됩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しいターミナルタブ、分割、ワークスペースは TextBox を表示した状態で開きます。"
+            "value": "ターミナルタブ、分割、またはワークスペースを開くと、TextBox が表示されます。"
           }
         }
       }
@@ -550494,55 +550494,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "On slow remote connections, typed characters appear right away and stay underlined until the remote host confirms them. Password prompts and full-screen apps are excluded."
+            "value": "Shows typed characters right away on slow remote connections. They stay underlined until the remote host confirms them. Password prompts and full-screen apps are excluded."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bei langsamen Remoteverbindungen erscheinen getippte Zeichen sofort und bleiben unterstrichen, bis der Remote-Host sie bestätigt. Passwortabfragen und Vollbild-Apps sind ausgenommen."
+            "value": "Getippte Zeichen erscheinen bei langsamen Remoteverbindungen sofort. Sie bleiben unterstrichen, bis der Remote-Host sie bestätigt. Ausgenommen sind Passwortabfragen und Vollbild-Apps."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sur les connexions distantes lentes, les caractères saisis apparaissent immédiatement et restent soulignés jusqu’à ce que l’hôte distant les confirme. Les invites de mot de passe et les apps en plein écran sont exclues."
+            "value": "Les caractères saisis s’affichent immédiatement sur les connexions distantes lentes. Ils restent soulignés jusqu’à ce que l’hôte distant les confirme. Cela ne s’applique ni aux invites de mot de passe ni aux apps en plein écran."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "في الاتصالات البعيدة البطيئة، تظهر الأحرف المكتوبة فورًا وتبقى مسطّرة حتى يؤكدها المضيف البعيد. تُستثنى مطالبات كلمة المرور والتطبيقات بملء الشاشة."
+            "value": "تظهر الأحرف المكتوبة فورًا في الاتصالات البعيدة البطيئة، وتبقى مسطّرة حتى يؤكدها المضيف البعيد. ولا ينطبق ذلك على مطالبات كلمة المرور والتطبيقات بملء الشاشة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "En conexiones remotas lentas, los caracteres escritos aparecen de inmediato y permanecen subrayados hasta que el host remoto los confirma. Se excluyen las solicitudes de contraseña y las apps a pantalla completa."
+            "value": "Los caracteres escritos aparecen al instante en conexiones remotas lentas y permanecen subrayados hasta que el host remoto los confirma. No se aplica a solicitudes de contraseña ni a apps a pantalla completa."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "遠端連線速度較慢時，輸入的字元會立即顯示，並在遠端主機確認前持續加上底線。密碼提示與全螢幕 App 除外。"
+            "value": "遠端連線較慢時，輸入的字元會立即顯示並加上底線，直到遠端主機確認為止。密碼提示和全螢幕 App 不適用此功能。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "远程连接较慢时，输入的字符会立即显示，并在远程主机确认前一直带有下划线。密码提示和全屏 App 除外。"
+            "value": "远程连接较慢时，输入的字符会立即显示并带有下划线，直到远程主机确认为止。密码提示和全屏 App 不适用此功能。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "느린 원격 연결에서 입력한 문자가 즉시 표시되며 원격 호스트가 확인할 때까지 밑줄이 유지됩니다. 비밀번호 프롬프트와 전체 화면 앱은 제외됩니다."
+            "value": "원격 연결이 느릴 때 입력한 문자를 바로 표시하고, 원격 호스트가 확인할 때까지 밑줄로 표시합니다. 비밀번호 프롬프트와 전체 화면 앱에는 적용되지 않습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "低速なリモート接続では、入力した文字がすぐに表示され、リモートホストが確認するまで下線が付いたままになります。パスワード入力とフルスクリーンアプリは対象外です。"
+            "value": "リモート接続が遅いとき、入力した文字をすぐに表示し、リモートホストが確認するまで下線を付けます。パスワードの入力やフルスクリーンアプリには適用されません。"
           }
         }
       }
@@ -552009,55 +552009,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Creating a split resizes the panes in that direction to equal sizes."
+            "value": "Splitting a pane makes the panes in that direction equal in size."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Beim Erstellen einer Teilung erhalten die Teilfenster in dieser Richtung die gleiche Größe."
+            "value": "Wird ein Teilfenster geteilt, werden alle Teilfenster in dieser Richtung gleich groß."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lors de la création d’une division, les volets dans cette direction prennent la même taille."
+            "value": "Lorsqu’un volet est divisé, les volets dans cette direction prennent la même taille."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عند إنشاء تقسيم، يُعاد تحجيم الأجزاء في ذلك الاتجاه لتصبح متساوية الحجم."
+            "value": "عند تقسيم جزء، تصبح الأجزاء في ذلك الاتجاه متساوية الحجم."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Al crear una división, los paneles en esa dirección se ajustan al mismo tamaño."
+            "value": "Al dividir un panel, los paneles en esa dirección se ajustan al mismo tamaño."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "建立分割時，會將該方向上的窗格調整為相同大小。"
+            "value": "分割窗格時，同一方向的窗格會調整為相同大小。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "创建分屏时，会将该方向上的面板调整为相同大小。"
+            "value": "拆分窗格时，同一方向的窗格会调整为相同大小。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "분할을 만들면 해당 방향의 분할 창이 같은 크기로 조정됩니다."
+            "value": "창을 분할하면 같은 방향의 분할 창이 모두 같은 크기가 됩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "分割を作成すると、その方向のペインが同じサイズに調整されます。"
+            "value": "ペインを分割すると、その方向のペインが同じサイズになります。"
           }
         }
       }

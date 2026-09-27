@@ -66,10 +66,10 @@ final class SettingsAutomationBehaviorUITests: SettingsUITestCase {
         static let rulesTitle = "Automation Rules"
         static let rulesReloadRequested = "Reload requested."
 
-        static let claudeSubtitle = "The sidebar shows Claude Code session status and notifications."
-        static let cursorSubtitle = "The sidebar shows Cursor session status and notifications."
-        static let geminiSubtitle = "The sidebar shows Gemini CLI session status and notifications."
-        static let suppressSubtitle = "Subagent completions appear in Feed without sending a notification."
+        static let claudeSubtitle = "Shows Claude Code status and notifications in the sidebar."
+        static let cursorSubtitle = "Shows Cursor status and notifications in the sidebar."
+        static let geminiSubtitle = "Shows Gemini CLI status and notifications in the sidebar."
+        static let suppressSubtitle = "Lists subagent completions in Feed without sending notifications."
     }
 
     override func setUp() {

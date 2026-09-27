@@ -179,7 +179,7 @@ public struct AppSection: View {
     private var globalFontMagnificationSubtitle: String {
         String(
             localized: "settings.app.globalFontMagnification.subtitle",
-            defaultValue: "All text in cmux scales by this percentage. Command-Equal sign and Command-Hyphen still zoom the focused pane."
+            defaultValue: "Scales all text in cmux. Command-Equal sign and Command-Hyphen still zoom the focused pane."
         )
     }
 
@@ -228,7 +228,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.newWorkspacePlacement"),
                 String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"),
-                subtitle: String(localized: "settings.app.newWorkspacePlacement.subtitle", defaultValue: "Sets where new workspaces appear in the sidebar."),
+                subtitle: String(localized: "settings.app.newWorkspacePlacement.subtitle", defaultValue: "Choose where new workspaces appear in the sidebar."),
                 controlWidth: Self.columnWidth
             ) {
                 // Order matches legacy NewWorkspacePlacement.allCases:
@@ -263,7 +263,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.workspaceInheritWorkingDirectory"),
                 String(localized: "settings.app.workspaceInheritWorkingDirectory", defaultValue: "Inherit Workspace Working Directory"),
-                subtitle: String(localized: "settings.app.workspaceInheritWorkingDirectory.subtitle", defaultValue: "New workspaces start in the working directory of the focused workspace instead of the directory in the Ghostty config.")
+                subtitle: String(localized: "settings.app.workspaceInheritWorkingDirectory.subtitle", defaultValue: "Starts new workspaces in the working directory of the current workspace.")
             ) {
                 Toggle("", isOn: Binding(get: { inheritDir.current }, set: { inheritDir.set($0) }))
                     .labelsHidden()
@@ -276,7 +276,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.minimalMode"),
                 String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode"),
-                subtitle: String(localized: "settings.app.minimalMode.subtitle", defaultValue: "The workspace title bar is hidden, and its controls move into the sidebar.")
+                subtitle: String(localized: "settings.app.minimalMode.subtitle", defaultValue: "Hides the workspace title bar and shows its controls in the sidebar.")
             ) {
                 Toggle("", isOn: Binding(
                     get: { minimalMode.current == .minimal },
@@ -294,7 +294,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.keepWorkspaceOpenWhenClosingLastSurface"),
                 String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Keep Workspace Open When Closing Last Surface"),
-                subtitle: String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitle", defaultValue: "Closing the last surface in a workspace leaves the workspace open.")
+                subtitle: String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitle", defaultValue: "Closing the last surface in a workspace keeps the workspace open.")
             ) {
                 Toggle("", isOn: Binding(get: { !keepWorkspaceOpen.current }, set: { keepWorkspaceOpen.set(!$0) }))
                     .labelsHidden()
@@ -306,7 +306,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.focusPaneOnFirstClick"),
                 String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click"),
-                subtitle: String(localized: "settings.app.paneFirstClickFocus.subtitle", defaultValue: "When cmux is in the background, one click on a pane brings cmux forward and focuses that pane.")
+                subtitle: String(localized: "settings.app.paneFirstClickFocus.subtitle", defaultValue: "Clicking a pane while cmux is in the background focuses that pane right away.")
             ) {
                 Toggle("", isOn: Binding(get: { firstClick.current }, set: { firstClick.set($0) }))
                     .labelsHidden()
@@ -318,7 +318,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.focusHistoryIncludesPanesAndTabs"),
                 String(localized: "settings.app.focusHistoryIncludesPanesAndTabs", defaultValue: "Include Panes and Tabs in Focus History"),
-                subtitle: String(localized: "settings.app.focusHistoryIncludesPanesAndTabs.subtitle", defaultValue: "Back and forward also move focus to previously focused panes and tabs.")
+                subtitle: String(localized: "settings.app.focusHistoryIncludesPanesAndTabs.subtitle", defaultValue: "Using Back and Forward also returns to previous panes and tabs.")
             ) {
                 Toggle("", isOn: Binding(
                     get: { focusHistoryIncludesPanesAndTabs.current },
@@ -334,7 +334,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.equalizeSplitsOnCreate"),
                 String(localized: "settings.app.equalizeSplitsOnCreate", defaultValue: "Equalize Splits on Create"),
-                subtitle: String(localized: "settings.app.equalizeSplitsOnCreate.subtitle", defaultValue: "Creating a split resizes the panes in that direction to equal sizes.")
+                subtitle: String(localized: "settings.app.equalizeSplitsOnCreate.subtitle", defaultValue: "Splitting a pane makes the panes in that direction equal in size.")
             ) {
                 Toggle("", isOn: Binding(
                     get: { equalizeSplitsOnCreate.current },
@@ -351,7 +351,7 @@ public struct AppSection: View {
                 configurationReview: .settingsOnly,
                 searchAnchorID: "setting:app:file-drops",
                 String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"),
-                subtitle: String(localized: "settings.app.fileDrop.defaultBehavior.subtitle", defaultValue: "Sets what happens when files are dragged onto a terminal or editor. Hold Shift while dragging to use the other option."),
+                subtitle: String(localized: "settings.app.fileDrop.defaultBehavior.subtitle", defaultValue: "Choose what dropping files on a terminal or editor does. Holding Shift while dragging does the other."),
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(get: { fileDrop.current }, set: { fileDrop.set($0) })) {
@@ -831,7 +831,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.confirmQuit", "app.warnBeforeQuit"),
                 String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"),
-                subtitle: String(localized: "settings.app.warnBeforeQuit.subtitle", defaultValue: "Sets when cmux asks for confirmation before quitting with Command-Q. Dirty Only asks only when a workspace would ask before closing."),
+                subtitle: String(localized: "settings.app.warnBeforeQuit.subtitle", defaultValue: "Choose when quitting with Command-Q asks for confirmation. Dirty Only asks only when a workspace would ask before closing."),
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(get: { confirmQuit.current }, set: { confirmQuit.set($0) })) {
@@ -850,7 +850,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json(catalog.app.warnBeforeClosingTab.id),
                 catalog.app.warnBeforeClosingTab.userFacing!.title,
-                subtitle: String(localized: "settings.app.warnBeforeClosingTab.subtitle", defaultValue: "cmux asks for confirmation before closing a tab.")
+                subtitle: String(localized: "settings.app.warnBeforeClosingTab.subtitle", defaultValue: "Closing a tab asks for confirmation first.")
             ) {
                 Toggle("", isOn: Binding(get: { warnCloseTab.current }, set: { warnCloseTab.set($0) }))
                     .labelsHidden()
@@ -875,7 +875,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json(catalog.app.hideTabCloseButton.id),
                 catalog.app.hideTabCloseButton.userFacing!.title,
-                subtitle: String(localized: "settings.app.hideTabCloseButton.subtitle", defaultValue: "Tabs never show a close button.")
+                subtitle: String(localized: "settings.app.hideTabCloseButton.subtitle", defaultValue: "Removes the close button from tabs.")
             ) {
                 Toggle("", isOn: Binding(get: { hideCloseButton.current }, set: { hideCloseButton.set($0) }))
                     .labelsHidden()
@@ -887,7 +887,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json(catalog.app.renameSelectsExistingName.id),
                 catalog.app.renameSelectsExistingName.userFacing!.title,
-                subtitle: String(localized: "settings.app.renameSelectsName.subtitle", defaultValue: "Renaming from the command palette starts with the current name selected.")
+                subtitle: String(localized: "settings.app.renameSelectsName.subtitle", defaultValue: "Renaming from the command palette selects the current name.")
             ) {
                 Toggle("", isOn: Binding(get: { renameSelects.current }, set: { renameSelects.set($0) }))
                     .labelsHidden()
@@ -899,7 +899,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.commandPaletteSearchesAllSurfaces"),
                 String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"),
-                subtitle: String(localized: "settings.app.commandPaletteSearchAllSurfaces.subtitle", defaultValue: "Command palette search also matches terminal, browser, and Markdown surfaces in every workspace.")
+                subtitle: String(localized: "settings.app.commandPaletteSearchAllSurfaces.subtitle", defaultValue: "Includes terminal, browser, and Markdown surfaces from every workspace in command palette results.")
             ) {
                 Toggle("", isOn: Binding(get: { paletteAllSurfaces.current }, set: { paletteAllSurfaces.set($0) }))
                     .labelsHidden()

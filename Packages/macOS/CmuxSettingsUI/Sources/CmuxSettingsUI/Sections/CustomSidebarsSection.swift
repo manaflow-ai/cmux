@@ -75,7 +75,7 @@ public struct CustomSidebarsSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:customSidebars:enabled",
             String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"),
-            subtitle: String(localized: "settings.customSidebars.enabled.subtitle", defaultValue: "Sidebars saved in ~/.config/cmux/sidebars appear in the sidebar picker.")
+            subtitle: String(localized: "settings.customSidebars.enabled.subtitle", defaultValue: "Adds sidebars from ~/.config/cmux/sidebars to the sidebar picker.")
         ) {
             Toggle("", isOn: Binding(get: { enabled.current }, set: { enabled.set($0) }))
                 .labelsHidden()
@@ -89,7 +89,7 @@ public struct CustomSidebarsSection: View {
         SettingsCardRow(
             configurationReview: .json("customSidebars.renderer"),
             String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"),
-            subtitle: String(localized: "settings.customSidebars.renderer.subtitle", defaultValue: "Isolated process keeps a faulty sidebar from crashing cmux but accepts clicks only. In-app also accepts hover, focus, and typing.")
+            subtitle: String(localized: "settings.customSidebars.renderer.subtitle", defaultValue: "Isolated process protects cmux from a faulty sidebar but accepts clicks only. In-app also accepts hover, focus, and typing.")
         ) {
             Picker("", selection: Binding(get: { renderer.current }, set: { renderer.set($0) })) {
                 ForEach(CustomSidebarRendererMode.uiCases, id: \.self) { mode in

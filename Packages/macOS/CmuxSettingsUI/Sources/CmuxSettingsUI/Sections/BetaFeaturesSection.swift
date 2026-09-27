@@ -94,7 +94,7 @@ public struct BetaFeaturesSection: View {
             configurationReview: .json("sidebar.beta.workspaceTodos.controls.enabled"),
             searchAnchorID: "setting:betaFeatures:workspace-todo-controls",
             String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"),
-            subtitle: String(localized: "settings.betaFeatures.workspaceTodoControls.subtitle", defaultValue: "Workspaces show Add Checklist Item and workspace status controls.")
+            subtitle: String(localized: "settings.betaFeatures.workspaceTodoControls.subtitle", defaultValue: "Shows Add Checklist Item and status controls on workspaces.")
         ) {
             Toggle("", isOn: Binding(get: { workspaceTodoControls.current }, set: { workspaceTodoControls.set($0) }))
                 .labelsHidden()
@@ -109,7 +109,7 @@ public struct BetaFeaturesSection: View {
             configurationReview: .json("sidebar.beta.workspaceTodos.checklistStyle"),
             searchAnchorID: "setting:betaFeatures:workspace-todos-checklist-style",
             String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"),
-            subtitle: String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitle", defaultValue: "Sets how a workspace checklist opens when clicked: in a popover or expanded under the row."),
+            subtitle: String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitle", defaultValue: "Choose whether clicking a workspace checklist opens a popover or expands it under the row."),
             controlWidth: 196
         ) {
             Picker(String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"), selection: Binding(
@@ -131,7 +131,7 @@ public struct BetaFeaturesSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:betaFeatures:feed",
             String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"),
-            subtitle: String(localized: "settings.betaFeatures.feed.subtitle", defaultValue: "The right sidebar includes Feed, where agent requests wait for an answer.")
+            subtitle: String(localized: "settings.betaFeatures.feed.subtitle", defaultValue: "Adds Feed to the right sidebar for answering agent requests.")
         ) {
             Toggle("", isOn: Binding(get: { feed.current }, set: { feed.set($0) }))
                 .labelsHidden()
@@ -146,7 +146,7 @@ public struct BetaFeaturesSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:betaFeatures:dock",
             String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"),
-            subtitle: String(localized: "settings.betaFeatures.dock.subtitle", defaultValue: "The right sidebar includes Dock, a mode for custom terminal controls.")
+            subtitle: String(localized: "settings.betaFeatures.dock.subtitle", defaultValue: "Adds Dock to the right sidebar for custom terminal controls.")
         ) {
             Toggle("", isOn: Binding(get: { dock.current }, set: { dock.set($0) }))
                 .labelsHidden()
@@ -163,7 +163,7 @@ public struct BetaFeaturesSection: View {
             String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"),
             subtitle: cloudMachinesManagedByPolicy
                 ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
-                : String(localized: "settings.betaFeatures.cloudMachines.subtitle", defaultValue: "Cloud Machines appear in the right sidebar, Settings, the command palette, and the new workspace menu.")
+                : String(localized: "settings.betaFeatures.cloudMachines.subtitle", defaultValue: "Adds Cloud Machines to the right sidebar, Settings, the command palette, and the new workspace menu.")
         ) {
             Toggle("", isOn: Binding(get: { cloudMachines.current && !cloudMachinesManagedByPolicy }, set: {
                 CloudMachinesBetaSettingAction(model: cloudMachines).setEnabled($0)
@@ -181,7 +181,7 @@ public struct BetaFeaturesSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:betaFeatures:extensions",
             String(localized: "settings.betaFeatures.extensions", defaultValue: "Extensions"),
-            subtitle: String(localized: "settings.betaFeatures.extensions.subtitle", defaultValue: "cmux shows the extensions button and menu, and can install and run sidebar extensions.")
+            subtitle: String(localized: "settings.betaFeatures.extensions.subtitle", defaultValue: "Adds the extensions button and lets cmux install and run sidebar extensions.")
         ) {
             Toggle("", isOn: Binding(get: { extensions.current }, set: { extensions.set($0) }))
                 .labelsHidden()
@@ -198,7 +198,7 @@ public struct BetaFeaturesSection: View {
             String(localized: "settings.betaFeatures.customSidebars", defaultValue: "Custom Sidebars"),
             subtitle: customSidebarsManagedByPolicy
                 ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
-                : String(localized: "settings.betaFeatures.customSidebars.subtitle", defaultValue: "Sidebars saved in ~/.config/cmux/sidebars appear in the sidebar picker.")
+                : String(localized: "settings.betaFeatures.customSidebars.subtitle", defaultValue: "Adds sidebars from ~/.config/cmux/sidebars to the sidebar picker.")
         ) {
             Toggle("", isOn: Binding(get: { customSidebars.current && !customSidebarsManagedByPolicy }, set: { customSidebars.set($0) }))
                 .labelsHidden()
@@ -214,7 +214,7 @@ public struct BetaFeaturesSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:betaFeatures:predictedEcho",
             String(localized: "settings.betaFeatures.predictedEcho", defaultValue: "Predictive local echo"),
-            subtitle: String(localized: "settings.betaFeatures.predictedEcho.subtitle", defaultValue: "On slow remote connections, typed characters appear right away and stay underlined until the remote host confirms them. Password prompts and full-screen apps are excluded.")
+            subtitle: String(localized: "settings.betaFeatures.predictedEcho.subtitle", defaultValue: "Shows typed characters right away on slow remote connections. They stay underlined until the remote host confirms them. Password prompts and full-screen apps are excluded.")
         ) {
             Toggle("", isOn: Binding(get: { predictedEcho.current }, set: { predictedEcho.set($0) }))
                 .labelsHidden()
@@ -229,7 +229,7 @@ public struct BetaFeaturesSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:betaFeatures:remoteTmux",
             String(localized: "settings.betaFeatures.remoteTmux", defaultValue: "Remote tmux"),
-            subtitle: String(localized: "settings.betaFeatures.remoteTmux.subtitle", defaultValue: "tmux sessions on a remote host appear in the sidebar as workspaces, and their windows appear as tabs. Quitting cmux leaves those sessions running.")
+            subtitle: String(localized: "settings.betaFeatures.remoteTmux.subtitle", defaultValue: "Shows tmux sessions on remote hosts as workspaces in the sidebar. The sessions keep running after cmux quits.")
         ) {
             Toggle("", isOn: Binding(get: { remoteTmux.current }, set: { remoteTmux.set($0) }))
                 .labelsHidden()

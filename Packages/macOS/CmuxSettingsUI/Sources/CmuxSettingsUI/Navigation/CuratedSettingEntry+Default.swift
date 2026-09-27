@@ -150,7 +150,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "adaptive-default-theme",
                 title: String(localized: "settings.terminal.adaptiveDefaultTheme", defaultValue: "Adapt Default Theme to Appearance"),
-                detailText: String(localized: "settings.terminal.adaptiveDefaultTheme.subtitle", defaultValue: "When the Ghostty config is empty, terminal colors follow the light or dark app appearance. Existing Ghostty settings always take priority."),
+                detailText: String(localized: "settings.terminal.adaptiveDefaultTheme.subtitle", defaultValue: "Matches terminal colors to the light or dark appearance when the Ghostty config is empty."),
                 paths: ["terminal.adaptiveDefaultTheme"],
                 synonyms: String(
                     localized: "settings.search.alias.setting.terminal.adaptive-default-theme",
@@ -172,7 +172,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "reflow-hard-wrap-on-copy",
                 title: String(localized: "settings.terminal.reflowHardWrapOnCopy", defaultValue: "Reflow Hard-Wrapped Text on Copy"),
-                detailText: String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitle", defaultValue: "Copied text joins lines that wrapped at the terminal edge back into one line."),
+                detailText: String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitle", defaultValue: "Copying text joins lines that wrapped at the terminal edge."),
                 paths: ["terminal.reflowHardWrapOnCopy"],
                 synonyms: "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"
             ),
@@ -202,7 +202,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "memory-guardrail",
                 title: String(localized: "settings.terminal.memoryGuardrail", defaultValue: "Runaway Memory Guardrail"),
-                detailText: String(localized: "settings.terminal.memoryGuardrail.subtitle", defaultValue: "cmux shows a badge and a banner when the processes in one pane use too much memory."),
+                detailText: String(localized: "settings.terminal.memoryGuardrail.subtitle", defaultValue: "Warns when the processes in one pane use too much memory."),
                 synonyms: "terminal.runawayMemoryGuardrail.enabled runaway memory guardrail high memory warning badge banner oom leak process tree pane"
             ),
             .init(
@@ -297,7 +297,7 @@ extension Array where Element == CuratedSettingEntry {
                     localized: "settings.mobile.phonePush.forwarding",
                     defaultValue: "Forward Notifications to iPhone"
                 ),
-                detailText: String(localized: "settings.mobile.phonePush.forwarding.subtitle", defaultValue: "This Mac forwards agent notifications to cmux on iPhone and iPad."),
+                detailText: String(localized: "settings.mobile.phonePush.forwarding.subtitle", defaultValue: "Sends agent notifications from this Mac to cmux on iPhone and iPad."),
                 synonyms: "push notifications iphone ipad mobile forwarding agent alerts forwardNotificationsToPhone"
             ),
             .init(
@@ -333,7 +333,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .mobile,
                 id: "artifactFolderAccess",
                 title: String(localized: "settings.mobile.artifactFolderAccess", defaultValue: "Folder Access"),
-                detailText: String(localized: "settings.mobile.artifactFolderAccess.subtitle", defaultValue: "Sets how far iPhone and iPad can browse into a folder that a chat mentions or a terminal shows. One Level shows only the items directly inside it."),
+                detailText: String(localized: "settings.mobile.artifactFolderAccess.subtitle", defaultValue: "Choose how much of a folder iPhone and iPad can browse. One Level shows only the items directly inside it."),
                 paths: ["mobile.artifactFolderAccess"],
                 synonyms: "ios iphone ipad mobile files folders directory subtree one level authorization security"
             ),
@@ -349,7 +349,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .betaFeatures,
                 id: "cloudMachines",
                 title: String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"),
-                detailText: String(localized: "settings.betaFeatures.cloudMachines.subtitle", defaultValue: "Cloud Machines appear in the right sidebar, Settings, the command palette, and the new workspace menu."),
+                detailText: String(localized: "settings.betaFeatures.cloudMachines.subtitle", defaultValue: "Adds Cloud Machines to the right sidebar, Settings, the command palette, and the new workspace menu."),
                 paths: ["cloud.beta.machines.enabled"],
                 synonyms: "cloud machines vm virtual machine right sidebar persistent computer beta unstable"
             ),
@@ -360,7 +360,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .betaFeatures,
                 id: "workspace-todo-controls",
                 title: String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"),
-                detailText: String(localized: "settings.betaFeatures.workspaceTodoControls.subtitle", defaultValue: "Workspaces show Add Checklist Item and workspace status controls."),
+                detailText: String(localized: "settings.betaFeatures.workspaceTodoControls.subtitle", defaultValue: "Shows Add Checklist Item and status controls on workspaces."),
                 paths: ["sidebar.beta.workspaceTodos.controls.enabled"],
                 synonyms: String(localized: "settings.search.alias.setting.betaFeatures.workspace-todo-controls", defaultValue: "sidebar.beta.workspaceTodos.controls.enabled workspace todo todos task status checklist add item controls beta")
             ),
@@ -369,7 +369,7 @@ extension Array where Element == CuratedSettingEntry {
                 id: "workspace-todos-checklist-style",
                 title: String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"),
                 detailText: [
-                    String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitle", defaultValue: "Sets how a workspace checklist opens when clicked: in a popover or expanded under the row."),
+                    String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitle", defaultValue: "Choose whether clicking a workspace checklist opens a popover or expands it under the row."),
                     String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.popover", defaultValue: "Popover"),
                     String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.inline", defaultValue: "Inline"),
                 ].joined(separator: " "),
@@ -384,7 +384,7 @@ extension Array where Element == CuratedSettingEntry {
                 id: "workspace-auto-naming",
                 title: String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"),
                 detailText: [
-                    String(localized: "settings.automation.workspaceAutoNaming.subtitle", defaultValue: "cmux names workspaces and tabs from agent conversations."),
+                    String(localized: "settings.automation.workspaceAutoNaming.subtitle", defaultValue: "Generates workspace and tab titles from agent conversations."),
                     String(localized: "settings.automation.workspaceAutoNaming.note", defaultValue: "When enabled, cmux summarizes supported agent sessions into short workspace and tab names using each agent's own binary, refreshed as the topic shifts. Manual renames always win and stop auto-naming for that workspace or tab. Uses your agent account for the short summarization calls."),
                     String(localized: "settings.automation.autoNamingAgent", defaultValue: "Naming Agent"),
                     String(localized: "settings.automation.autoNamingAgent.auto", defaultValue: "Automatic"),

@@ -151,7 +151,7 @@ public struct MobileSection: View {
                 localized: "settings.mobile.phonePush.forwarding",
                 defaultValue: "Forward Notifications to iPhone"
             ),
-            subtitle: String(localized: "settings.mobile.phonePush.forwarding.subtitle", defaultValue: "This Mac forwards agent notifications to cmux on iPhone and iPad.")
+            subtitle: String(localized: "settings.mobile.phonePush.forwarding.subtitle", defaultValue: "Sends agent notifications from this Mac to cmux on iPhone and iPad.")
         ) {
             Toggle(
                 "",
@@ -263,7 +263,7 @@ public struct MobileSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:mobile:iOSPairingHost",
             String(localized: "settings.mobile.iOSPairingHost", defaultValue: "Enable iOS pairing"),
-            subtitle: String(localized: "settings.mobile.iOSPairingHost.subtitle", defaultValue: "iPhone and iPad can pair with this Mac and connect to it.")
+            subtitle: String(localized: "settings.mobile.iOSPairingHost.subtitle", defaultValue: "Lets iPhone and iPad pair with and connect to this Mac.")
         ) {
             Toggle("", isOn: Binding(get: { iOSPairingHost.current }, set: { iOSPairingHost.set($0) }))
                 .labelsHidden()
@@ -457,7 +457,7 @@ public struct MobileSection: View {
     private var artifactFolderAccessSubtitle: String {
         String(
             localized: "settings.mobile.artifactFolderAccess.subtitle",
-            defaultValue: "Sets how far iPhone and iPad can browse into a folder that a chat mentions or a terminal shows. One Level shows only the items directly inside it."
+            defaultValue: "Choose how much of a folder iPhone and iPad can browse. One Level shows only the items directly inside it."
         )
     }
 
