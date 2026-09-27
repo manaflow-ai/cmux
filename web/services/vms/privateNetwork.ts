@@ -855,15 +855,17 @@ function attachTeamNetwork(input: {
 }): Effect.Effect<boolean, never> {
   const operation = Effect.gen(function* () {
     let attachment = input.liveAttachment;
+    let performedAttach = false;
     if (!attachment) {
       if (!input.providers.attachTunnelNetwork) return false;
       if (!input.prior) {
         yield* input.repo.insertTunnelTeamNetwork({ tunnelId: input.tunnelId, teamNetworkId: input.network.id, addressV4: null, addressV6: null });
       }
       attachment = yield* input.providers.attachTunnelNetwork(input.provider, input.tunnel.id, input.network.providerNetworkId);
+      performedAttach = true;
     }
     const matchesPrior = input.prior?.addressV4 === attachment.addressV4 && input.prior.addressV6 === attachment.addressV6;
-    if (!matchesPrior) yield* input.repo.insertTunnelTeamNetwork({ tunnelId: input.tunnelId, teamNetworkId: input.network.id, addressV4: attachment.addressV4, addressV6: attachment.addressV6 });
+    if (performedAttach || !matchesPrior) yield* input.repo.insertTunnelTeamNetwork({ tunnelId: input.tunnelId, teamNetworkId: input.network.id, addressV4: attachment.addressV4, addressV6: attachment.addressV6 });
     return true;
   });
   return operation.pipe(Effect.catchAll((error) =>
@@ -885,7 +887,7 @@ function detachStaleTeamNetwork(input: {
 }): Effect.Effect<boolean, never> {
   const operation = Effect.gen(function* () {
     yield* input.providers.detachTunnelNetwork?.(input.provider, input.tunnel.id, input.attachment.teamNetwork.providerNetworkId) ?? Effect.void;
-    yield* input.repo.deleteTunnelTeamNetwork(input.tunnelId, input.attachment.teamNetworkId);
+    yield* input.repo.deleteTunnelTeamNetwork(input.tunnelId, input.attachment.teamNetworkId, { generation: input.attachment.generation });
     return true;
   });
   return operation.pipe(Effect.catchAll((error) =>
@@ -911,7 +913,13 @@ function reconcileTunnelTeamNetworks(input: {
     const recordedById = new Map(recorded.map((row) => [row.teamNetworkId, row]));
     const liveByNetworkId = new Map((input.tunnel.attachments ?? []).map((attachment) => [attachment.networkId, attachment]));
     const desiredResult = yield* repo.listTeamNetworks(input.teamIds, input.provider).pipe(Effect.either);
-    if (desiredResult._tag === "Left") return recorded.flatMap((row) => liveByNetworkId.has(row.teamNetwork.providerNetworkId) ? [row.teamNetwork] : []);
+    const teamIdSet = new Set(input.teamIds);
+    if (desiredResult._tag === "Left") {
+      for (const row of recorded) {
+        if (!teamIdSet.has(row.teamNetwork.teamId)) yield* detachStaleTeamNetwork({ providers: input.providers, repo, tunnel: input.tunnel, tunnelId: input.tunnelId, provider: input.provider, attachment: row });
+      }
+      return recorded.flatMap((row) => teamIdSet.has(row.teamNetwork.teamId) && liveByNetworkId.has(row.teamNetwork.providerNetworkId) ? [row.teamNetwork] : []);
+    }
     const desired = desiredResult.right;
     const desiredIds = new Set(desired.map((network) => network.id));
     const attached: CloudVmTeamNetworkRow[] = [];

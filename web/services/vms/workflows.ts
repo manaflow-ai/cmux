@@ -399,10 +399,10 @@ function reconcileTeamTunnelAttachments(
   budgetMs = 60_000,
   now: () => number = Date.now,
 ): Effect.Effect<void, never> {
-  const detachAttachment = (network: { readonly provider: ProviderId; readonly id: string; readonly providerNetworkId: string }, attachment: { readonly tunnelId: string; readonly providerTunnelId: string }) =>
+  const detachAttachment = (network: { readonly provider: ProviderId; readonly id: string; readonly providerNetworkId: string }, attachment: { readonly tunnelId: string; readonly providerTunnelId: string; readonly generation: number }) =>
     Effect.gen(function* () {
       yield* providers.detachTunnelNetwork!(network.provider, attachment.providerTunnelId, network.providerNetworkId);
-      yield* repo.deleteTunnelTeamNetwork?.(attachment.tunnelId, network.id) ?? Effect.void;
+      yield* repo.deleteTunnelTeamNetwork?.(attachment.tunnelId, network.id, { generation: attachment.generation }) ?? Effect.void;
     }).pipe(Effect.catchAll(() => Effect.void));
   return Effect.gen(function* () {
     const startedAt = now();
