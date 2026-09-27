@@ -1838,7 +1838,10 @@ class RootRunners(unittest.TestCase):
                              claude_wrapper=None, cli="true", remote_daemon=None)
         keys = ("admission", *plan.after)
         self.assertEqual(pool.root_held(plan, keys), len(plan.after))
-        self.assertEqual(pool.root_held(plan, keys, gui_runners=True), 1, "only cli-product holds a root after admission")
+        self.assertEqual(pool.root_held(plan, keys, gui_runners=True), 1,
+                         "every job after admission, cli-product too, takes a gui runner")
+        self.assertEqual(pool.root_held(plan, ("admission", "cli-product"), gui_runners=True), 1)
+        self.assertEqual(pool.root_held(plan, ("cli-product",), gui_runners=True), 0)
         # Three root runners free: on the root label three shards fit (admission hands its runner on); with gui runners every job does.
         root_only, _ = pool.place(plan, 20, root_budget=3)
         with_gui, _ = pool.place(plan, 20, root_budget=3, gui_runners=True)
