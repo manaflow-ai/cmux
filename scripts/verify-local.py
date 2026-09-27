@@ -316,10 +316,14 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
                          "-D", "DEBUG", "-enable-bare-slash-regex"] +
                         ["./" + str(p.relative_to(repo.resolve())) for p in paths]))
         if compiler:
+            result["environment"]["toolchain"] = f"Swift compiler ({compiler}; version unavailable)"
             try:
                 version = subprocess.run([compiler, "--version"], capture_output=True, text=True,
                                          timeout=min(timeout, 5), check=True)
-                result["environment"]["toolchain"] = version.stdout.strip()[:2048]
+                observed = "\n".join(part.strip() for part in (version.stdout, version.stderr)
+                                      if part and part.strip())
+                if observed:
+                    result["environment"]["toolchain"] = observed[:2048]
             except KeyboardInterrupt:
                 cancelled = True
                 receipt.check(result, "preparation").update(
