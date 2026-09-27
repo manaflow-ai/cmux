@@ -107,26 +107,26 @@ extension ShortcutKeymapPlan {
             String.localizedStringWithFormat(
                 changeFormat,
                 change.action.displayName,
-                keymapDisplayString(change.before, for: change.action),
-                keymapDisplayString(change.after, for: change.action)
+                displayString(change.before, for: change.action),
+                displayString(change.after, for: change.action)
             )
         }
         for change in systemConflicts {
             let names = change.systemConflicts.map(\.displayName).joined(separator: ", ")
             lines.append(String.localizedStringWithFormat(
                 conflictFormat,
-                keymapDisplayString(change.after, for: change.action),
+                displayString(change.after, for: change.action),
                 names
             ))
         }
         lines += kept.map { String.localizedStringWithFormat(keptFormat, $0.displayName) }
         return lines
     }
-}
 
-private func keymapDisplayString(_ shortcut: StoredShortcut, for action: ShortcutAction) -> String {
-    guard !shortcut.isUnbound else {
-        return String(localized: "shortcut.unbound.displayValue", defaultValue: "None")
+    private func displayString(_ shortcut: StoredShortcut, for action: ShortcutAction) -> String {
+        guard !shortcut.isUnbound else {
+            return String(localized: "shortcut.unbound.displayValue", defaultValue: "None")
+        }
+        return shortcutDisplayString(shortcut, numbered: action.usesNumberedDigitMatching)
     }
-    return shortcutDisplayString(shortcut, numbered: action.usesNumberedDigitMatching)
 }
