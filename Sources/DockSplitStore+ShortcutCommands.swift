@@ -31,6 +31,7 @@ enum DockShortcutCommand {
     case focusTextBoxInput
     case attachTextBoxFile
     case sendCtrlFToTerminal
+    case pasteLastScreenshot
     case clearScreenKeepScrollback
     case startFind
     case findNext
@@ -130,6 +131,12 @@ extension DockSplitStore {
                 )
             }
             return result.accepted
+        case .pasteLastScreenshot:
+            guard let terminal = focusedDockTerminalPanel else {
+                return false
+            }
+            terminal.pasteLastScreenshot()
+            return true
         case .clearScreenKeepScrollback:
             guard let terminal = focusedDockTerminalPanel else {
                 return false

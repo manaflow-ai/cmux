@@ -231,7 +231,7 @@ extension TerminalSurface {
 
     /// Test-only helper to install a runtime surface pointer directly.
     ///
-    /// Most package tests pass a pointer serviced by `GhosttyRuntimeTestStubs`,
+    /// Most package tests pass a pointer serviced by `CmuxTerminalGhosttyRuntimeTestStubs`,
     /// so the native callback wiring remains enabled by default. App-host
     /// XCTest fixtures link the real GhosttyKit and sometimes use a synthetic
     /// pointer only to exercise Swift teardown ownership; those callers must

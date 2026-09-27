@@ -886,6 +886,9 @@ struct ContentView: View {
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
+    /// Live macOS Display accessibility settings (Reduce Transparency drives
+    /// the window backdrop plan).
+    @State private var displayAccessibility = DisplayAccessibilityOptions.current
     @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
     @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
@@ -2075,7 +2078,8 @@ struct ContentView: View {
                 sidebarBlurOpacity: sidebarBlurOpacity,
                 bgGlassEnabled: bgGlassEnabled,
                 bgGlassTintHex: bgGlassTintHex,
-                bgGlassTintOpacity: bgGlassTintOpacity
+                bgGlassTintOpacity: bgGlassTintOpacity,
+                reduceTransparency: displayAccessibility.reduceTransparency
             )
         )
     }
@@ -2827,6 +2831,12 @@ struct ContentView: View {
                 notificationPayloadHex: payloadHex
             )
         }.onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in scheduleTitlebarThemeRefresh(reason: "systemAppearanceChanged") })
+
+        view = AnyView(view.onDisplayAccessibilityOptionsChange { options in
+            guard displayAccessibility != options else { return }
+            displayAccessibility = options
+            scheduleTitlebarThemeRefresh(reason: "displayAccessibilityOptionsChanged")
+        })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
             refreshCommandPaletteForkableAgentAvailabilityAfterSharedIndexChange(notification)
@@ -8362,6 +8372,18 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.terminalPasteLastScreenshot",
+                title: constant(String(localized: "command.terminalPasteLastScreenshot.title", defaultValue: "Paste Last Screenshot")),
+                subtitle: terminalPanelSubtitle,
+                keywords: [
+                    "terminal", "paste", "screenshot", "screen", "shot", "capture", "image",
+                    "picture", "latest", "newest", "recent", "last", "path", "file", "desktop",
+                ],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.terminalClearScreenKeepScrollback",
                 title: constant(String(localized: "command.terminalClearScreenKeepScrollback.title", defaultValue: "Clear Screen (Keep Scrollback)")),
                 subtitle: terminalPanelSubtitle,
@@ -9318,6 +9340,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSendCtrlF") {
             if !tabManager.sendCtrlFToFocusedTerminal() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.terminalPasteLastScreenshot") {
+            if !tabManager.pasteLastScreenshotIntoFocusedTerminal() {
                 NSSound.beep()
             }
         }
@@ -11410,6 +11437,7 @@ struct VerticalTabsSidebar: View, Equatable {
 #endif
     @Environment(\.colorScheme) private var sidebarColorScheme
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var sidebarGlobalFontMagnificationPercent
+    @State private var sidebarDisplayAccessibility = DisplayAccessibilityOptions.current
 
     // The provider to actually render. Built-in views are always honored; only
     // the hosted-extension selection falls back to the default workspaces
@@ -11847,12 +11875,14 @@ struct VerticalTabsSidebar: View, Equatable {
         let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: sidebarColorScheme,
             globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
-            lazyContractProbe: sidebarLazyContractProbe
+            lazyContractProbe: sidebarLazyContractProbe,
+            displayAccessibility: sidebarDisplayAccessibility
         )
 #else
         let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: sidebarColorScheme,
-            globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent
+            globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
+            displayAccessibility: sidebarDisplayAccessibility
         )
 #endif
         let renderContext = WorkspaceListRenderContext(
@@ -11963,6 +11993,10 @@ struct VerticalTabsSidebar: View, Equatable {
             guard let frozenTabId = frozenShortcutHintsTabId,
                   !tabIds.contains(frozenTabId) else { return }
             frozenShortcutHintsTabId = nil
+        }
+        .onDisplayAccessibilityOptionsChange { options in
+            guard sidebarDisplayAccessibility != options else { return }
+            sidebarDisplayAccessibility = options
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -12661,7 +12695,8 @@ struct VerticalTabsSidebar: View, Equatable {
             editingChecklistItemId: editingChecklistItemIds[tab.id],
             todoControlsEnabled: WorkspaceTodoFeature.isEnabled,
             isMetadataExpanded: expandedMetadataWorkspaceIds.contains(tab.id),
-            isMarkdownExpanded: expandedMarkdownWorkspaceIds.contains(tab.id)
+            isMarkdownExpanded: expandedMarkdownWorkspaceIds.contains(tab.id),
+            displayAccessibility: environment.displayAccessibility
         )
         let commands = SidebarWorkspaceRowCommands(
             tab: tab,

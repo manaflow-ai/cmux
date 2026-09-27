@@ -10302,7 +10302,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             case .insertText(let text):
                 textView.insertText(text, replacementRange: textView.selectedRange())
                 return true
-            case .reject:
+            case .reject, .rejectOversizedImage:
                 return false
             }
         }
