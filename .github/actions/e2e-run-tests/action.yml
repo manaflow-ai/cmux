@@ -33,6 +33,12 @@ inputs:
     description: Per-test timeout in seconds.
     required: false
     default: "120"
+  dogfood-scenario:
+    description: >-
+      Base64 JSON scenario for cmuxUITests/DogfoodScenarioUITests, passed to
+      the test runner as CMUX_DOGFOOD_SCENARIO_B64. Empty for every other run.
+    required: false
+    default: ""
   ref-display:
     description: The ref the dispatch named, for the summary.
     required: true
@@ -333,6 +339,7 @@ runs:
         NORMALIZED_FILTER: ${{ inputs.filter }}
         TEST_TIMEOUT: ${{ inputs.test-timeout }}
         RECORD_VIDEO: ${{ inputs.record-video }}
+        DOGFOOD_SCENARIO_B64: ${{ inputs.dogfood-scenario }}
         # App-host crash recovery must not stall on interactive backtraces
         # (mirrors ci.yml's tests job hardening).
         SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
@@ -421,6 +428,12 @@ runs:
         )
         if [ "${#DISPLAY_ENV_PREFIX[@]}" -gt 0 ]; then
           XCODEBUILD_ENV+=("${DISPLAY_ENV_PREFIX[@]}")
+        fi
+        # xcodebuild hands TEST_RUNNER_-prefixed variables to the test runner
+        # with the prefix stripped; sudo -u above resets the environment, so
+        # the scenario has to ride in this list.
+        if [ -n "${DOGFOOD_SCENARIO_B64:-}" ]; then
+          XCODEBUILD_ENV+=("TEST_RUNNER_CMUX_DOGFOOD_SCENARIO_B64=$DOGFOOD_SCENARIO_B64")
         fi
 
         RUN_XCODEBUILD=(env "${XCODEBUILD_ENV[@]}")

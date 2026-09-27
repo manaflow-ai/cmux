@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from contextlib import contextmanager
 import datetime as dt
 import importlib.util
@@ -850,6 +851,28 @@ def watch_run(run_id: int) -> int:
     ], cwd=ROOT).returncode
 
 
+DOGFOOD_SELECTOR = "cmuxUITests/DogfoodScenarioUITests"
+# workflow_dispatch caps the whole inputs payload at 65,535 characters.
+DOGFOOD_SCENARIO_MAX_B64 = 60_000
+
+
+def encode_scenario(path: Path) -> str:
+    """Validate a dogfood tour and encode it for test-e2e.yml's input.
+
+    The test does the full step parse; this only catches a file that is not
+    JSON or has no steps before a runner is spent on it.
+    """
+    raw = path.read_bytes()
+    scenario = json.loads(raw)
+    steps = scenario if isinstance(scenario, list) else scenario.get("steps") if isinstance(scenario, dict) else None
+    if not isinstance(steps, list) or not steps:
+        raise ValueError("a scenario is a non-empty steps array or an object with one")
+    encoded = base64.b64encode(json.dumps(scenario, separators=(",", ":")).encode()).decode()
+    if len(encoded) > DOGFOOD_SCENARIO_MAX_B64:
+        raise ValueError(f"encoded scenario is {len(encoded)} characters; split the tour (limit {DOGFOOD_SCENARIO_MAX_B64})")
+    return encoded
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run one suite or method on an exact pushed commit. "
@@ -859,7 +882,7 @@ def main() -> int:
     )
     parser.add_argument(
         "test_filter",
-        nargs="+",
+        nargs="*",
         help="cmuxTests/Suite[/method] or cmuxUITests/Class[/method]; bare names target UI tests. "
         "A Swift Testing method takes its call suffix, Suite/method() or Suite/method(label:); "
         "one this checkout declares gets it added. "
@@ -873,6 +896,12 @@ def main() -> int:
         action="store_true",
         help="implies --wait; then turn the run's xcresult into per-test screenshots and "
         "contact sheets with scripts/ci/e2e-frames.py (works without video)",
+    )
+    parser.add_argument(
+        "--scenario",
+        type=Path,
+        help="JSON dogfood tour for cmuxUITests/DogfoodScenarioUITests (the default test with this flag); "
+        "see skills/cmux-testing/references/dogfood-scenarios.md. Combine with --frames to get its screenshots",
     )
     parser.add_argument("--timeout", type=positive_integer, default=120, help="per-test timeout in seconds (default: 120)")
     parser.add_argument("--job-timeout", type=positive_integer, default=45, help="job timeout in minutes, including compilation (default: 45)")
@@ -894,6 +923,19 @@ def main() -> int:
     args = parser.parse_args()
     if args.frames:
         args.wait = True
+    scenario_b64 = ""
+    if args.scenario is not None:
+        try:
+            scenario_b64 = encode_scenario(args.scenario)
+        except (OSError, ValueError) as error:
+            parser.error(f"--scenario: {error}")
+        if not args.test_filter:
+            args.test_filter = [DOGFOOD_SELECTOR]
+        # Tours of one commit share a selector but not a scenario, so the
+        # already-failed/already-running guard would refuse every new tour.
+        args.force = True
+    elif not args.test_filter:
+        parser.error("name a test_filter, or pass --scenario")
     for entry in args.test_filter:
         if not SELECTOR.fullmatch(entry):
             parser.error(
@@ -1110,6 +1152,8 @@ def main() -> int:
     }
     if args.runner is not None:
         fields["runner"] = args.runner
+    if scenario_b64:
+        fields["dogfood_scenario"] = scenario_b64
     # Name the pool chosen here, so the run title carries the pool the guards
     # above match on and test-e2e.yml does not read the queue a second time.
     if not pinned and runner in OVERFLOW_POOLS:

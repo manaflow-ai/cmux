@@ -214,6 +214,29 @@ def main() -> int:
                 if attachment.get("isAssociatedWithFailure") and failure_frame is None:
                     failure_frame = str(frame)
 
+            # Text attachments (a dogfood tour's accessibility trees, socket
+            # replies, and step log) sit next to the frames under their names.
+            files = []
+            others = sorted(
+                (a for a in entry.get("attachments", [])
+                 if Path(a.get("exportedFileName", "")).suffix.lower() not in IMAGE_SUFFIXES),
+                key=lambda a: a.get("timestamp", 0),
+            )
+            if others:
+                attachments_dir = test_dir / "attachments"
+                if attachments_dir.exists():
+                    shutil.rmtree(attachments_dir)
+                attachments_dir.mkdir()
+                for attachment in others:
+                    exported_name = attachment["exportedFileName"]
+                    name = re.sub(r"_\d+_[0-9A-F-]{36}.*$", "", attachment.get("suggestedHumanReadableName", "")) or exported_name
+                    name = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-") or exported_name
+                    destination = attachments_dir / name
+                    if destination.suffix == "":
+                        destination = destination.with_suffix(Path(exported_name).suffix or ".txt")
+                    shutil.copyfile(exported / exported_name, destination)
+                    files.append(str(destination))
+
             outcome = results.get(identifier, {"result": "?", "failures": []})
             summary.append({
                 "test": identifier,
@@ -221,6 +244,7 @@ def main() -> int:
                 "failures": outcome["failures"],
                 "frames": len(images),
                 "captures": captures,
+                "files": files,
                 "failure_frame": failure_frame,
                 "sheets": [str(p) for p in build_sheets(frames, test_dir)],
                 "slideshow": str(test_dir / "steps.mp4") if (test_dir / "steps.mp4").exists() else None,
@@ -245,6 +269,8 @@ def main() -> int:
             print(f"         capture: {capture}")
         for sheet in item["sheets"]:
             print(f"         sheet: {sheet}")
+        for file in item["files"]:
+            print(f"         file: {file}")
     return 0
 
 
