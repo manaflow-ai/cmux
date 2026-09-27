@@ -398,13 +398,6 @@ final class SettingsAutomationBehaviorUITests: SettingsUITestCase {
         )
     }
 
-    private func isOn(_ control: XCUIElement) -> Bool {
-        let value = String(describing: control.value ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        return value == "1" || value == "true" || value == "on"
-    }
-
     // MARK: - TIER 2 (needs runtime seam): not e2e-testable from the app surface
     //
     // The settings below store a value the UI faithfully round-trips, but
