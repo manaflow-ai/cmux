@@ -29,9 +29,11 @@ final class InterfaceDensityUITests: XCTestCase {
     func testComfortableMinimalModeSidebarHeader() {
         let app = launch(density: "comfortable", presentationMode: "minimal")
         defer { app.terminate() }
-        // Minimal mode reveals its sidebar-header controls on hover.
+        // Minimal mode reveals its sidebar-header controls on hover, and hidden
+        // controls leave the accessibility tree, so hover by position first.
+        hoverTitlebarRow(in: app)
         let bell = titlebarButton("titlebarControl.showNotifications", in: app)
-        bell.hover()
+        XCTAssertEqual(bell.frame.width, 24, accuracy: 0.5)
         attachScreenshot(of: app, name: "comfortable, minimal mode, pointer over sidebar header")
     }
 
@@ -40,20 +42,22 @@ final class InterfaceDensityUITests: XCTestCase {
         let app = launch(density: "compact", presentationMode: "standard", seedsUnread: false)
         defer { app.terminate() }
 
-        let bell = titlebarButton("titlebarControl.showNotifications", in: app)
-        let help = app.buttons["SidebarHelpMenuButton"]
-        XCTAssertTrue(help.waitForExistence(timeout: 5))
-
         moveMouseToTerminal(in: app)
         attachScreenshot(of: app, name: "compact, at rest, no unread")
-        XCTAssertFalse(bell.isHittable, "Compact titlebar controls stay hidden until the pointer reaches them.")
+        let bell = element("titlebarControl.showNotifications", in: app)
+        XCTAssertFalse(
+            bell.exists && bell.isHittable,
+            "Compact titlebar controls stay hidden until the pointer reaches them."
+        )
 
-        bell.hover()
+        hoverTitlebarRow(in: app)
         XCTAssertTrue(waitForHittable(bell), "Hovering the titlebar row reveals the compact controls.")
         attachScreenshot(of: app, name: "compact, pointer over titlebar")
         XCTAssertEqual(bell.frame.width, 20, accuracy: 0.5, "Compact keeps the 20pt minimum hit target.")
 
-        help.hover()
+        hoverSidebarFooter(in: app)
+        let help = element("SidebarHelpMenuButton", in: app)
+        XCTAssertTrue(waitForHittable(help), "Hovering the sidebar footer reveals its folded actions.")
         attachScreenshot(of: app, name: "compact, pointer over sidebar footer")
     }
 
@@ -77,7 +81,7 @@ final class InterfaceDensityUITests: XCTestCase {
 
         let bell = titlebarButton("titlebarControl.showNotifications", in: app)
         let forward = titlebarButton("titlebarControl.focusHistoryForward", in: app)
-        let help = app.buttons["SidebarHelpMenuButton"]
+        let help = element("SidebarHelpMenuButton", in: app)
         XCTAssertTrue(help.waitForExistence(timeout: 5))
         moveMouseToTerminal(in: app)
         attachScreenshot(of: app, name: "\(density), standard titlebar")
@@ -120,11 +124,34 @@ final class InterfaceDensityUITests: XCTestCase {
         return app
     }
 
+    /// Looks an element up by identifier regardless of its accessibility role.
+    @MainActor
+    private func element(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
     @MainActor
     private func titlebarButton(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
-        let element = app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+        let element = element(identifier, in: app)
         XCTAssertTrue(element.waitForExistence(timeout: 5), "Missing \(identifier)")
         return element
+    }
+
+    /// Points at the bell's slot in the titlebar row (window coordinates).
+    @MainActor
+    private func hoverTitlebarRow(in app: XCUIApplication) {
+        app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: 110, dy: 14)).hover()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+    }
+
+    /// Points at the help button's slot in the sidebar footer.
+    @MainActor
+    private func hoverSidebarFooter(in app: XCUIApplication) {
+        let window = app.windows.firstMatch
+        window.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: 36, dy: window.frame.height - 37)).hover()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
     }
 
     /// Parks the pointer over the terminal so hover-revealed chrome settles.
