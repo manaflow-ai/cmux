@@ -2006,6 +2006,7 @@
               "cycleTextBoxSubmitAction",
               "attachTextBoxFile",
               "sendCtrlFToTerminal",
+              "pasteLastScreenshot",
               "clearScreenKeepScrollback",
               "simulatorHome",
               "simulatorRotateLeft",

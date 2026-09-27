@@ -4965,7 +4965,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
-        if payload != .reject {
+        if !payload.isRejection {
             let payloadBytes = result.payloadBytes
             guard payloadBytes <= Self.maximumPendingPastePayloadBytes,
                   pendingPastePayloadBytes <=
@@ -5146,7 +5146,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 let (next, overflowed) = total.addingReportingOverflow(payloadBytes)
                 total = overflowed ? .max : next
             }
-        case .reject:
+        case .reject, .rejectOversizedImage:
             return 0
         }
     }
@@ -10410,6 +10410,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
     private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
     private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()
+    private lazy var pasteFailureNoticePresenter = TerminalPasteFailureNoticePresenter()
     private var activeImageTransferOperation: TerminalImageTransferOperation?
     private var activeImageTransferCancelHandler: (() -> Void)?
     private var lastSearchOverlayStateID: ObjectIdentifier?
@@ -11682,6 +11683,12 @@ final class GhosttySurfaceScrollView: NSView {
         activeImageTransferCancelHandler = nil
         imageTransferIndicatorSpinner.stopAnimation(nil)
         imageTransferIndicatorContainerView.isHidden = true
+    }
+
+    /// Shows a brief, non-modal notice over this terminal for a paste that
+    /// produced nothing (see ``TerminalPasteFailureNotice``).
+    func showPasteFailureNotice(_ notice: TerminalPasteFailureNotice) {
+        pasteFailureNoticePresenter.show(notice, over: self)
     }
     private func makeSearchOverlayRootView(
         terminalSurface: TerminalSurface,

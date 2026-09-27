@@ -532,7 +532,14 @@ jobs:
           # too: any other value invalidates every compile the seed carries.
           DERIVED_DATA_PATH="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission"
           CACHE_PATH="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas"
-          rm -rf -- "$DERIVED_DATA_PATH" "$CACHE_PATH"
+          # A leftover indexer can refill the tree while `rm -rf` walks it
+          # ("Directory not empty", run 36317930241). Rename first, as
+          # scripts/ci/clear-dirs.sh does; inline, because the tested tree
+          # may predate that helper.
+          for dir in "$DERIVED_DATA_PATH" "$CACHE_PATH"; do
+            if [ -e "$dir" ] || [ -L "$dir" ]; then mv -- "$dir" "$dir.stale.$GITHUB_RUN_ID.$$"; fi
+            rm -rf -- "$dir".stale.* 2>/dev/null || true
+          done
           mkdir -p "$DERIVED_DATA_PATH" "$CACHE_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
           echo "CMUX_E2E_COMPILATION_CACHE=$CACHE_PATH" >> "$GITHUB_ENV"
@@ -1000,8 +1007,12 @@ jobs:
           esac
           case "$derived_data_path" in
             "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission")
-              rm -rf -- "$derived_data_path"
-              if [ -n "$cache_path" ]; then rm -rf -- "$cache_path"; fi
+              # Rename first, like the prepare step, so a leftover indexer
+              # cannot turn a finished run red with "Directory not empty".
+              for dir in "$derived_data_path" ${cache_path:+"$cache_path"}; do
+                if [ -e "$dir" ] || [ -L "$dir" ]; then mv -- "$dir" "$dir.stale.$GITHUB_RUN_ID.$$"; fi
+                rm -rf -- "$dir".stale.* 2>/dev/null || true
+              done
               # The tests run next, in this job, from a DerivedData of their
               # own. Hand the variable over empty, so their cleanup finds
               # nothing to refuse when a failure skips their preparation.
