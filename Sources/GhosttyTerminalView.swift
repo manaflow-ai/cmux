@@ -6411,7 +6411,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ) -> Bool {
         guard !keyboardCopyModeActive, !hasMarkedText() else { return false }
         let intent: TerminalPromptSelectionIntent
-        switch event.charactersIgnoringModifiers?.lowercased() {
+        switch event.charactersIgnoringModifiers?.lowercased() ?? "" {
         case "a": intent = .selectAll
         case "x": intent = .cut
         default: return false
