@@ -299,7 +299,7 @@ class FailSafe(unittest.TestCase):
                 sys.stdout = old
             self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n"
                                               f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nplaced=0\nshard_runner=\n"
-                                              f"refused_retry_runner=\nroot_runner=\nside_runner=\ngui_runner=\n"
+                                              f"root_runner=\nside_runner=\ngui_runner=\n"
                                               "admission_runner=\nadmission_route=\nadmission_warm=\nowned_jobs=\n")
             text = summary.read_text()
             self.assertIn(f"Pool: `{LARGE}`", text)
@@ -487,16 +487,13 @@ PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|\((?:[^()]|\([^()]*\))*\))*vars\.
 
 def retry_lane(key: str) -> str:
     """The pull-request lane of the job whose owned_jobs key is `key`."""
-    return (f"github.run_attempt == 2 && contains(inputs.pr_owned_jobs, {key}) && inputs.pr_refused_retry_runner "
-            f"|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+    return (f"(github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
 def root_lane(key: str) -> str:
     """retry_lane() for a root job: the root label, when the picker named one, before the pool label."""
-    return (f"github.run_attempt == 2 && contains(inputs.pr_owned_jobs, {key}) "
-            "&& (inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
-            f"|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+    return (f"(github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
@@ -507,9 +504,7 @@ def gui_lane(key: str) -> str:
 
 def side_lane(key: str) -> str:
     """retry_lane() for a side lane: the side label, when the picker named one, before the pool label."""
-    return (f"github.run_attempt == 2 && contains(inputs.pr_owned_jobs, {key}) "
-            "&& (inputs.pr_side_runner || inputs.pr_refused_retry_runner) "
-            f"|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+    return (f"(github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_side_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
@@ -1142,10 +1137,9 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(first["jobs"], "1")
         retried = self.output(2)
         self.assertEqual((retried["runner"], retried["persistent"], retried["retry_runner"]), (LARGE, "false", ""))
-        # A re-run of failed jobs reuses attempt 1's outputs, so its refused
-        # owned jobs try the fleet once more; a full re-run picks again and
-        # gets no owned label.
-        self.assertEqual((first["refused_retry_runner"], retried["refused_retry_runner"]), (MINI, ""))
+        # No owned label is published for a retry: a re-run of failed jobs
+        # reuses these outputs, and its runs-on reads retry_runner from attempt 2.
+        self.assertNotIn("refused_retry_runner", first)
         self.assertEqual(self.output(1, owned="")["persistent"], "false")
 
 
@@ -1865,8 +1859,7 @@ class RootRunners(unittest.TestCase):
             with unittest.mock.patch("sys.stdout", io.StringIO()):
                 pool.main(["--snapshot", str(snapshot)], env)
             outputs = dict(line.split("=", 1) for line in out.read_text().splitlines())
-        self.assertEqual((outputs["runner"], outputs["root_runner"], outputs["refused_retry_runner"]),
-                         (MINI, ROOT_MINI, MINI))
+        self.assertEqual((outputs["runner"], outputs["root_runner"]), (MINI, ROOT_MINI))
         # The side lanes take the side runners: 30 of the 40 machines.
         self.assertEqual(outputs["side_runner"], SIDE_MINI)
         self.assertEqual(outputs["gui_runner"], "", "no gui count: the GUI jobs keep the root label")
@@ -2002,7 +1995,7 @@ class WarmAffinity(unittest.TestCase):
                 unittest.mock.patch.object(pool.GitHub, "runners", return_value=runners), \
                 unittest.mock.patch.object(warm_distance, "load_model", return_value=ROUTE_MODEL), \
                 unittest.mock.patch.object(pool.GitHub, "get", return_value={"artifacts": []}), \
-                unittest.mock.patch.object(warm_distance, "fetch_bases"), \
+                unittest.mock.patch.object(warm_distance, "fetch_bases", return_value={}), \
                 unittest.mock.patch.object(warm_distance, "main_changes",
                                            side_effect=lambda _, old, new: (changes or {}).get(old)), \
                 unittest.mock.patch("sys.stdout", io.StringIO()):
@@ -2372,16 +2365,13 @@ class Wiring(unittest.TestCase):
     def test_a_rerun_of_failed_shards_leaves_the_owned_pool(self):
         shards = self.workflow("ci-macos.yml")["jobs"]["app-host-unit-tests"]
         self.assertEqual(shards["runs-on"], "${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')"
-                                            "[format('shard-{0}', matrix.shard)] || github.run_attempt == 2 && contains(inputs.pr_owned_jobs, "
-                                            "format(' shard-{0} ', matrix.shard)) && (inputs.pr_gui_runner || inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
+                                            "[format('shard-{0}', matrix.shard)] "
                                             "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, "
                                             "format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner "
                                             "|| inputs.pr_shard_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}")
         wrapper = self.workflow("ci.yml")["jobs"]["claude-wrapper"]["runs-on"]
-        self.assertIn("github.event_name == 'pull_request' && github.run_attempt == 2 && contains("
-                      "needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && "
-                      "(needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_refused_retry_runner) "
-                      "|| github.event_name == 'pull_request' && "
+        self.assertNotIn("run_attempt == 2", wrapper)
+        self.assertIn("github.event_name == 'pull_request' && "
                       "(github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs, "
                       "' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner", wrapper)
 
@@ -2520,8 +2510,7 @@ class Wiring(unittest.TestCase):
         job = self.workflow("ci-macos.yml")["jobs"]["swift-package-tests"]
         owned = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
                  "contains(inputs.pr_owned_jobs, ' swift-package ') && "
-                 "(github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && "
-                 "(inputs.pr_side_runner || inputs.pr_refused_retry_runner))")
+                 "(github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner))")
         self.assertEqual(job["runs-on"], (
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && "
             "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || "
@@ -2885,6 +2874,19 @@ class IOSRouting(unittest.TestCase):
         snap["pools"][LIGHT] = {"queued": 0, "running": 0}
         route, _ = ios_route(snap, slots={MINI: 40, LIGHT: 4, IOS_SIM: 2}, queue_rounds="2")
         self.assertEqual((route.label, json.loads(route.runs_on)), (MINI, [MINI, IOS_SIM]))
+
+    def test_a_left_out_light_pool_is_not_reported_as_full(self):
+        # std full and queued, light idle: the run goes to Blacksmith, and the
+        # reason names std, the one owned pool it may take, instead of saying
+        # no owned pool had room (light did; it is not one this run may take).
+        snap = sim_fleet(busy=40)
+        snap["pools"][MINI]["queued"] = 200
+        snap["pools"][LIGHT] = {"queued": 0, "running": 0}
+        messages = []
+        route, _ = ios_route(snap, slots={MINI: 40, LIGHT: 4, IOS_SIM: 2}, queue_rounds="2",
+                             log=messages.append)
+        self.assertFalse(route.persistent)
+        self.assertIn(f"no room on {MINI} within 2 queue round(s)", messages[-1])
 
     def test_the_rounds_still_bound_the_owned_queue_and_the_simulators(self):
         snap = self.incident_snapshot()

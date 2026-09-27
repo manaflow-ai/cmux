@@ -33,6 +33,12 @@ inputs:
     description: Per-test timeout in seconds.
     required: false
     default: "120"
+  dogfood-scenario:
+    description: >-
+      Base64 JSON scenario for cmuxUITests/DogfoodScenarioUITests, passed to
+      the test runner as CMUX_DOGFOOD_SCENARIO_B64. Empty for every other run.
+    required: false
+    default: ""
   ref-display:
     description: The ref the dispatch named, for the summary.
     required: true
@@ -304,7 +310,7 @@ runs:
     # Inline, not a scripts/ci file: this action ships from the workflow
     # revision, and the tested revision may predate any new script.
     #
-    # Owned minis keep one GUI session across jobs and reboots. On cmux13s
+    # Owned macOS runners keep one GUI session across jobs and reboots. On one
     # (2026-09-27) a crash report ("Reopen / Ignore / Report...") and
     # Spotlight's password prompt for the cmux-ci test keychain (read while it
     # was still locked after a reboot) sat over every UI test for hours, and
@@ -316,13 +322,20 @@ runs:
       run: |
         defaults write com.apple.CrashReporter DialogType none 2>/dev/null || true
         uid="$(id -u)"
-        # SIGKILL: a SecurityAgent showing a prompt ignores SIGTERM (cmux12s,
+        # SIGKILL: a SecurityAgent showing a prompt ignores SIGTERM (seen
         # 2026-09-27: pkill "succeeded" and the 7 h old prompt stayed).
         for process in UserNotificationCenter SecurityAgent; do
           if pkill -KILL -x -u "$uid" "$process" 2>/dev/null; then
             echo "Closed $process (its dialogs are cancelled; launchd restarts it on demand)"
           fi
         done
+        # Diagnostics Reporter draws "cmux DEV cannot be opened because of a
+        # problem" after a crashed launch; on owned macOS runners (2026-09-27)
+        # one sat over UI tests from boot. Its name is longer than the 16
+        # bytes -x compares, so match the executable path.
+        if pkill -KILL -u "$uid" -f "/Diagnostics Reporter.app/Contents/MacOS/" 2>/dev/null; then
+          echo "Closed Diagnostics Reporter (its crash dialogs are dismissed)"
+        fi
 
     - name: Run selected tests
       id: tests
@@ -335,6 +348,7 @@ runs:
         NORMALIZED_FILTER: ${{ inputs.filter }}
         TEST_TIMEOUT: ${{ inputs.test-timeout }}
         RECORD_VIDEO: ${{ inputs.record-video }}
+        DOGFOOD_SCENARIO_B64: ${{ inputs.dogfood-scenario }}
         # App-host crash recovery must not stall on interactive backtraces
         # (mirrors ci.yml's tests job hardening).
         SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
@@ -423,6 +437,12 @@ runs:
         )
         if [ "${#DISPLAY_ENV_PREFIX[@]}" -gt 0 ]; then
           XCODEBUILD_ENV+=("${DISPLAY_ENV_PREFIX[@]}")
+        fi
+        # xcodebuild hands TEST_RUNNER_-prefixed variables to the test runner
+        # with the prefix stripped; sudo -u above resets the environment, so
+        # the scenario has to ride in this list.
+        if [ -n "${DOGFOOD_SCENARIO_B64:-}" ]; then
+          XCODEBUILD_ENV+=("TEST_RUNNER_CMUX_DOGFOOD_SCENARIO_B64=$DOGFOOD_SCENARIO_B64")
         fi
 
         RUN_XCODEBUILD=(env "${XCODEBUILD_ENV[@]}")

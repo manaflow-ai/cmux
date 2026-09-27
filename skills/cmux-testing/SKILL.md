@@ -17,6 +17,7 @@ even `verify-local.py --help` and `--list` load repository code.
 | Parse current Swift edits | `python3 scripts/verify-local.py --only swift-syntax --swift-changed` |
 | Check new Swift test-file wiring | `python3 scripts/verify-local.py --only test-wiring` |
 | See what a UI test did, one frame per action | `scripts/ui-test ClassName` or `scripts/ui-test <run URL>` ([guide](references/ui-test-frames.md)) |
+| Dogfood the app from CI: drive it with a JSON tour and get screenshots and accessibility trees | `scripts/run-e2e.sh --scenario dogfood/scenarios/<tour>.json --ref <sha> --frames` ([guide](references/dogfood-scenarios.md)) |
 
 Add a base ref after `--swift-changed` to include committed changes. Use `--list`
 to find other checks and `--help` for options. Parsing checks syntax; it doesn't

@@ -355,10 +355,10 @@ LIGHT_RETRY_VARIABLE = "CI_OWNED_LIGHT_RETRY"
 # LAST_OWNED_ATTEMPT): later attempts always go to Blacksmith.
 LIGHT_RETRY_ATTEMPT = 2
 LIGHT_CLASS = "light"
-# Attempt 2 of a re-run of failed jobs keeps attempt 1's outputs, so its owned-eligible jobs go back to the
-# owned pool (pr_root_runner or pr_refused_retry_runner) whoever started it: the rescue after a refusal, or a
-# person or agent re-running a failed job, which the rescue then watches like its own (attempt 3 and later
-# always take Blacksmith). Only the light tier, which a full re-run's picker may claim, stays the rescue's:
+# A re-run of failed jobs keeps attempt 1's outputs, and every runs-on sends attempt 2 and later to
+# retry_runner (Blacksmith), whoever started it: the rescue after a refusal, the failure attribution's
+# machine re-run, or a person. So a retry never lands on the mini that refused or failed it. Only the
+# light tier, which a full re-run's picker may claim, stays the rescue's:
 # a person's full re-run must not claim light (or publish its marker) behind the rescue's back.
 RESCUE_ACTOR = "github-actions[bot]"
 MAIN_RESERVE_VARIABLE = "CI_OWNED_MAIN_RESERVE"
@@ -1845,8 +1845,7 @@ def may_hold_owned_pool(run: Mapping[str, Any], *, light_retry: bool = False) ->
     """Only attempt 1 of a same-repository pull request run (or of main's dispatch) can take an owned pool,
     and attempt 2 too while CI_OWNED_LIGHT_RETRY is 1 (`light_retry`).
 
-    Attempt 2 then may hold the light tier, or a refused job's retry
-    (pr_refused_retry_runner); with the variable off it is not looked up,
+    Attempt 2 then may hold the light tier; with the variable off it is not looked up,
     so no request is spent on it. The same rule as
     queue_janitor.may_hold_owned_pool: a fork runs its own ci.yml and could
     upload any marker, so its markers are never read.
@@ -2300,14 +2299,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          # held: the jobs after admission reuse its machine.
                          f"placed={len(owned_jobs)}\n"
                          f"shard_runner={choice.shard_runner}\n"
-                         # Attempt 2 of an owned job the fleet refused tries it
-                         # once more: a re-run of failed jobs reuses these outputs.
-                         f"refused_retry_runner={choice.runner if persistent(choice.runner) else ''}\n"
                          # What the root jobs in owned_jobs take instead of
-                         # the pool label, on attempt 1 and on that attempt 2.
+                         # the pool label, on attempt 1.
                          f"root_runner={choice.root_runner}\n"
                          # What the side lanes in owned_jobs take instead of
-                         # the pool label, on attempt 1 and on that attempt 2.
+                         # the pool label, on attempt 1.
                          f"side_runner={side}\n"
                          # What the GUI jobs (app-host shards, tests-build-and-lag)
                          # take instead of the root label: one runner per mini
