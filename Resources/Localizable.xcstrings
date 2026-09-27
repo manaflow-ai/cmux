@@ -302553,6 +302553,201 @@
         }
       }
     },
+    "settings.app.warnBeforeClosingWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before Closing Workspace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحذير قبل إغلاق مساحة العمل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Schließen eines Arbeitsbereichs warnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advertir antes de cerrar un espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avertir avant de fermer un espace de travail"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じる前に警告"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스를 닫기 전에 경고"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попереджати перед закриттям робочої області"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭工作区前警告"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉工作區前發出警告"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingWorkspace.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces close immediately without confirmation. Pinned workspaces still ask."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُغلق مساحات العمل فورًا دون تأكيد. لا تزال مساحات العمل المثبتة تطلب التأكيد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereiche werden sofort und ohne Bestätigung geschlossen. Angepinnte Arbeitsbereiche fragen weiterhin nach."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los espacios de trabajo se cierran inmediatamente sin confirmación. Los espacios de trabajo fijados siguen pidiendo confirmación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les espaces de travail se ferment immédiatement sans confirmation. Les espaces de travail épinglés demandent toujours."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認なしにすぐワークスペースを閉じます。ピン留めされたワークスペースは引き続き確認します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인 창 없이 워크스페이스가 즉시 닫힙니다. 고정된 워크스페이스는 계속 확인합니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочі області закриваються одразу без підтвердження. Закріплені робочі області все одно запитують."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区会直接关闭，不做确认。已固定的工作区仍会确认。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區將立即關閉，無需確認。釘選的工作區仍會確認。"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingWorkspace.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a confirmation before closing a workspace with a running process, or several workspaces at once."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار تأكيد قبل إغلاق مساحة عمل بها عملية قيد التشغيل، أو عدة مساحات عمل دفعة واحدة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Bestätigung anzeigen, bevor ein Arbeitsbereich mit einem laufenden Prozess oder mehrere Arbeitsbereiche auf einmal geschlossen werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra una confirmación antes de cerrar un espacio de trabajo con un proceso en ejecución, o varios espacios de trabajo a la vez."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher une confirmation avant de fermer un espace de travail avec un processus en cours, ou plusieurs espaces de travail à la fois."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のプロセスがあるワークスペース、または複数のワークスペースをまとめて閉じる前に確認を表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 프로세스가 있는 워크스페이스나 여러 워크스페이스를 한 번에 닫기 전에 확인 창을 표시합니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати підтвердження перед закриттям робочої області із запущеним процесом або кількох робочих областей одночасно."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭有正在运行进程的工作区，或一次关闭多个工作区前显示确认。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉有執行中程序的工作區，或一次關閉多個工作區前顯示確認。"
+          }
+        }
+      }
+    },
     "settings.app.warnBeforeQuit": {
       "extractionState": "manual",
       "localizations": {
@@ -349236,6 +349431,71 @@
           "stringUnit": {
             "state": "translated",
             "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface 關閉標籤頁 按鈕 確認 警告"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.warn-before-closing-workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent إغلاق مساحة العمل تأكيد تحذير عملية قيد التشغيل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent arbeitsbereich schließen bestätigung warnung laufender prozess"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent cerrar espacio de trabajo confirmación advertencia proceso en ejecución"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent fermer espace de travail confirmation avertissement processus en cours"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent ワークスペースを閉じる 確認 警告 実行中のプロセス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent 워크스페이스 닫기 확인 경고 실행 중인 프로세스"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent закрити робочу область підтвердження попередження запущений процес"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent 关闭工作区 确认 警告 正在运行的进程"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent 關閉工作區 確認 警告 執行中的程序"
           }
         }
       }

@@ -182,6 +182,29 @@ public struct AppCatalogSection: SettingCatalogSection {
         )
     )
 
+    /// Gates the "Close workspace?" prompts (running processes, multi-workspace
+    /// close). The "Close pinned workspace?" prompt is not gated by it.
+    public let warnBeforeClosingWorkspace = DefaultsKey<Bool>(
+        id: "app.warnBeforeClosingWorkspace",
+        defaultValue: true,
+        userDefaultsKey: "warnBeforeClosingWorkspace",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.warnBeforeClosingWorkspace",
+                defaultValue: "Warn Before Closing Workspace"
+            ),
+            section: .app,
+            searchID: "warn-before-closing-workspace",
+            searchKeywords: ["close", "workspace", "confirmation", "command-shift-w", "cmd-shift-w", "agent", "running"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "warnBeforeClosingWorkspace",
+                    keywords: ["warn", "close", "workspace", "confirmation", "cmd-shift-w"]
+                )
+            ))
+        )
+    )
+
     public let warnBeforeClosingTabXButton = DefaultsKey<Bool>(
         id: "app.warnBeforeClosingTabXButton",
         defaultValue: false,
