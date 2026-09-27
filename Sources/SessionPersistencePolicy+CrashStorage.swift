@@ -363,9 +363,15 @@ extension SessionPersistencePolicy {
 }
 
 extension SessionWindowSnapshot {
-    /// Whether this window carries nothing to restore: no workspaces and no
-    /// window Dock. See `SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows`.
+    /// Whether this window carries nothing to restore: no workspaces, no
+    /// window Dock, and no empty pinned group (which `TabManager` persists and
+    /// restores without a member). See
+    /// `SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows`.
     var isPhantomSessionWindow: Bool {
-        tabManager.workspaces.isEmpty && dock == nil
+        guard tabManager.workspaces.isEmpty, dock == nil else { return false }
+        let hasEmptyPinnedGroup = tabManager.workspaceGroups?.contains {
+            $0.isPinned == true && $0.anchorIsEmpty == true
+        } ?? false
+        return !hasEmptyPinnedGroup
     }
 }

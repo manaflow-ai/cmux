@@ -301,6 +301,27 @@ runs:
       shell: bash
       run: touch "$RUNNER_TEMP/cmux-e2e-selectors-unresolved"
 
+    # Inline, not a scripts/ci file: this action ships from the workflow
+    # revision, and the tested revision may predate any new script.
+    #
+    # Owned minis keep one GUI session across jobs and reboots. On cmux13s
+    # (2026-09-27) a crash report ("Reopen / Ignore / Report...") and
+    # Spotlight's password prompt for the cmux-ci test keychain (read while it
+    # was still locked after a reboot) sat over every UI test for hours, and
+    # XCUITest could not activate the app or focus its fields. Both run as the
+    # runner user, so no sudo. Crash dialogs stay off on the host afterwards;
+    # reports are still written to ~/Library/Logs/DiagnosticReports.
+    - name: Close leftover system dialogs
+      shell: bash
+      run: |
+        defaults write com.apple.CrashReporter DialogType none 2>/dev/null || true
+        uid="$(id -u)"
+        for process in UserNotificationCenter SecurityAgent; do
+          if pkill -x -u "$uid" "$process" 2>/dev/null; then
+            echo "Closed $process (its dialogs are cancelled; launchd restarts it on demand)"
+          fi
+        done
+
     - name: Run selected tests
       id: tests
       env:
