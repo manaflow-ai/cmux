@@ -43,9 +43,9 @@ import Testing
 
         #expect(team.stableVersion == "0.64.20")
         #expect(team.stableVersion == beta.stableMinVersion.description)
-        #expect(team.nightlyVersion == beta.nightly.map {
-            "\($0.minBaseVersion.description)-nightly.\($0.minBuild)"
-        })
+        let betaNightly = try #require(beta.nightly)
+        #expect(team.nightlyVersion ==
+            "\(betaNightly.minBaseVersion.description)-nightly.\(betaNightly.minBuild)")
         #expect(team.stableVersion != official.stableVersion)
         #expect(team.nightlyVersion != official.nightlyVersion)
     }
