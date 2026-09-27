@@ -153,6 +153,43 @@ actor RemoteTmuxSSHTransport {
         try await run(["tmux"] + args)
     }
 
+    /// Adds a SOCKS5 dynamic forward to this host's already-running
+    /// ControlMaster (`ssh -O forward -D 127.0.0.1:<localPort>`), for the
+    /// ssh-tmux browser proxy. Rides the existing master: no new TCP
+    /// connection, no new authentication. Callers should have already
+    /// confirmed the master with ``ensureMasterReady()``.
+    @discardableResult
+    func openDynamicForward(localPort: Int) async throws -> RemoteTmuxCommandResult {
+        try host.ensureControlSocketDirectory()
+        let result = try await Self.runProcess(
+            executable: sshExecutablePath,
+            arguments: RemoteTmuxDynamicForwardCommand.openArguments(
+                controlSocketPath: host.controlSocketPath,
+                destination: host.destination,
+                localPort: localPort
+            )
+        )
+        guard result.succeeded else {
+            let failure = RemoteTmuxDynamicForwardCommand.classify(exitCode: result.exitCode, stderr: result.stderr)
+                ?? .unknown(result.stderr)
+            throw RemoteTmuxDynamicForwardError(failure: failure, exitCode: result.exitCode, stderr: result.stderr)
+        }
+        return result
+    }
+
+    /// The inverse of ``openDynamicForward(localPort:)``. Best-effort: a
+    /// forward whose master is already gone has nothing left to cancel.
+    func cancelDynamicForward(localPort: Int) async {
+        _ = try? await Self.runProcess(
+            executable: sshExecutablePath,
+            arguments: RemoteTmuxDynamicForwardCommand.cancelArguments(
+                controlSocketPath: host.controlSocketPath,
+                destination: host.destination,
+                localPort: localPort
+            )
+        )
+    }
+
     /// Runs an arbitrary remote command over the shared SSH master.
     ///
     /// `ssh` concatenates the post-destination argv with spaces and the remote

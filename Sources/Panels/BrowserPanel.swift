@@ -3726,6 +3726,13 @@ final class BrowserPanel: Panel, ObservableObject {
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        // Decouples "route through `proxyEndpoint` and park navigation until
+        // it lands" from "is a daemon-backed cmux remote workspace" — an
+        // ssh-tmux mirror workspace's browser tab/split routes through a
+        // proxy but isn't `isRemoteWorkspace` (no per-workspace website data
+        // store, no remote status UI). Defaults to `isRemoteWorkspace` when
+        // omitted so every existing call site is unaffected.
+        routesThroughRemoteProxy: Bool? = nil,
         websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
@@ -3740,7 +3747,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
         self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
-        self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
+        self.usesRemoteWorkspaceProxy = (routesThroughRemoteProxy ?? isRemoteWorkspace) && !bypassRemoteProxy
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.browserDialogOwner = preloadInitialNavigationInBackground ? .automation : .user
@@ -4507,14 +4514,15 @@ final class BrowserPanel: Panel, ObservableObject {
         isRemoteWorkspace: Bool,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
         proxyEndpoint: BrowserProxyEndpoint?,
-        remoteStatus: BrowserRemoteWorkspaceStatus?
+        remoteStatus: BrowserRemoteWorkspaceStatus?,
+        routesThroughRemoteProxy: Bool? = nil
     ) {
         // A late exchange must not replace the reattached context. A store
         // swap restores the page itself; otherwise it is requested again below.
         let appSessionDestinationURL = appSessionBootstrapTask != nil ? currentURL : nil
         cancelAppSessionBootstrap()
         workspaceId = newWorkspaceId
-        usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
+        usesRemoteWorkspaceProxy = (routesThroughRemoteProxy ?? isRemoteWorkspace) && !bypassesRemoteWorkspaceProxy
         let targetStore = cloudBrowserMachineID != nil ? websiteDataStore : preservesExplicitEphemeralWebsiteDataStore
             ? websiteDataStore
             : isRemoteWorkspace

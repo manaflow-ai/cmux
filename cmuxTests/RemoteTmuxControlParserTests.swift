@@ -306,12 +306,15 @@ import Testing
         #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [a, b, c]) == nil)
     }
 
-    @Test func mirrorTabReorderSkipsWhenSetsDiverge() {
+    @Test func mirrorTabReorderAnchorsIdsMissingFromRequested() {
         let a = UUID(), b = UUID(), c = UUID()
-        // Requested is missing a present tab → not a permutation → leave untouched.
+        // `requested` omits `c` entirely — `c` is anchored in place, and `a`/`b`
+        // already match their relative order in `current`, so this is a no-op.
         #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [a, b]) == nil)
-        // Requested drops one present tab and only reorders the rest → sets diverge.
-        #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [c, b]) == nil)
+        // `requested` omits `a` — `a` stays anchored at its current slot, while
+        // `b` and `c` (both present, just in the opposite relative order) swap
+        // into each other's slots to match `requested`.
+        #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [c, b]) == [a, c, b])
     }
 
     // MARK: - Reconnect: session-gone classification
