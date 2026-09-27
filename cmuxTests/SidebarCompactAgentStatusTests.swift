@@ -155,6 +155,20 @@ struct SidebarCompactAgentStatusTests {
     }
 
     @Test
+    func indexChangesRefreshOnlyTheWorkspacesTheyName() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let all = [a, b, c]
+        func changed(_ userInfo: [AnyHashable: Any]?) -> [UUID] {
+            SidebarAgentProfileLabel.changedWorkspaceIds(userInfo, allWorkspaceIds: all)
+        }
+
+        #expect(changed(nil) == all)
+        #expect(changed(["panelIdsByWorkspaceId": [b: Set([UUID()])]]) == [b])
+        #expect(changed(["workspaceId": c]) == [c])
+        #expect(changed(["workspaceId": UUID()]).isEmpty)
+    }
+
+    @Test
     func tooltipListsProfilesAfterAgentStatuses() throws {
         let glyph = try #require(Glyph.resolve(.init(
             agentEntries: [Self.entry("claude_code", "Idle", icon: "pause.circle.fill")],

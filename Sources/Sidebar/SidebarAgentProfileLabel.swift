@@ -12,6 +12,18 @@ import Foundation
 enum SidebarAgentProfileLabel {
     static let subrouterProxyLabel = "sr proxy"
 
+    /// Workspaces a `.sharedLiveAgentIndexDidChange` notification names, or
+    /// every workspace when it names none (a full index reload).
+    static func changedWorkspaceIds(_ userInfo: [AnyHashable: Any]?, allWorkspaceIds: [UUID]) -> [UUID] {
+        if let byWorkspace = userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
+            return allWorkspaceIds.filter { byWorkspace[$0] != nil }
+        }
+        if let workspaceId = userInfo?["workspaceId"] as? UUID {
+            return allWorkspaceIds.contains(workspaceId) ? [workspaceId] : []
+        }
+        return allWorkspaceIds
+    }
+
     static func label(environment: [String: String]?, homeDirectory: String) -> String? {
         guard let environment else { return nil }
         for key in ["CLAUDE_CONFIG_DIR", "CODEX_HOME"] {
