@@ -331,7 +331,7 @@ struct ComputerUseUXTests {
         let runtimeService = ComputerUseRuntimeService(paths: paths)
         let presentationCoordinator = ComputerUseOnboardingCoordinator(
             runtimeService: runtimeService,
-            presenter: { startingPoint in
+            presenter: { startingPoint, _ in
                 presentations.append(startingPoint)
             }
         )

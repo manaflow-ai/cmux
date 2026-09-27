@@ -2200,7 +2200,18 @@ final class SharedLiveAgentIndex {
                 eventMask: [.write, .delete, .rename, .revoke, .extend, .attrib, .link],
                 queue: watchQueue
             )
-            source.setEventHandler { [weak self] in
+            let statusChangeTimeAtInstall = Self.forkExecutableWatchStatusChangeTime(fileDescriptor)
+            source.setEventHandler { [weak self, weak source] in
+                // Executing a file whose access time predates its last change
+                // (e.g. the fork probe's first run of a freshly installed
+                // executable) updates only atime, which Darwin still reports
+                // as NOTE_ATTRIB. That leaves ctime alone; a real chmod, chown
+                // or xattr change does not, so only those invalidate.
+                if let source, source.data == .attrib,
+                   let statusChangeTimeAtInstall,
+                   Self.forkExecutableWatchStatusChangeTime(fileDescriptor) == statusChangeTimeAtInstall {
+                    return
+                }
                 Task { @MainActor [weak self] in
                     self?.invalidateForkExecutableWatchRecord(
                         for: watchKey,
@@ -2401,6 +2412,14 @@ final class SharedLiveAgentIndex {
         }
 
         return watchPaths.sorted()
+    }
+
+    /// The inode status-change time in nanoseconds, which an access-time-only
+    /// update leaves unchanged.
+    nonisolated private static func forkExecutableWatchStatusChangeTime(_ fileDescriptor: Int32) -> Int64? {
+        var status = stat()
+        guard fstat(fileDescriptor, &status) == 0 else { return nil }
+        return Int64(status.st_ctimespec.tv_sec) * 1_000_000_000 + Int64(status.st_ctimespec.tv_nsec)
     }
 
     nonisolated private static func openForkExecutableWatchFileDescriptors(
