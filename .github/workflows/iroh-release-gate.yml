@@ -179,11 +179,11 @@ jobs:
         run: |
           set -euo pipefail
           case "${{ matrix.mode }}" in
-            automatic) TAG=irgaut ;;
-            relay-only) TAG=irgrel ;;
-            relay-expiry) TAG=irgexp ;;
-            direct-only) TAG=irgdir ;;
-            private-path) TAG=irgprv ;;
+            automatic) TAG="irgaut-${GITHUB_RUN_ID}" ;;
+            relay-only) TAG="irgrel-${GITHUB_RUN_ID}" ;;
+            relay-expiry) TAG="irgexp-${GITHUB_RUN_ID}" ;;
+            direct-only) TAG="irgdir-${GITHUB_RUN_ID}" ;;
+            private-path) TAG="irgprv-${GITHUB_RUN_ID}" ;;
           esac
           GATE_ARGS=(
             --mode "${{ matrix.mode }}"
