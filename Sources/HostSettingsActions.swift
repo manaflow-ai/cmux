@@ -179,6 +179,44 @@ final class HostSettingsActions: SettingsHostActions {
         }
     }
 
+    func terminalThemeGalleryContext() -> TerminalThemeGalleryContext? {
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            return nil
+        }
+        let configURL = CmuxGhosttyConfigPathResolver().editableConfigURL(
+            currentBundleIdentifier: Bundle.main.bundleIdentifier,
+            appSupportDirectory: appSupport
+        )
+        // Ghostty resolves a theme name in the user's themes directory before
+        // its bundled resources, so the gallery lists them in that order.
+        let themeDirectories = [
+            FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".config/ghostty/themes", isDirectory: true),
+            Bundle.main.resourceURL?
+                .appendingPathComponent("ghostty/themes", isDirectory: true),
+        ].compactMap { $0 }
+        return TerminalThemeGalleryContext(
+            configFile: CmuxManagedThemeConfigFile(url: configURL),
+            themeDirectories: themeDirectories,
+            currentThemeValue: GhosttyApp.userAppearanceConfigSummary().lastThemeDirective,
+            prefersDarkAppearance: NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        )
+    }
+
+    func terminalThemeConfigDidChange(phase: TerminalThemeReloadPhase) {
+        let phaseName: String
+        switch phase {
+        case .preview: phaseName = "preview"
+        case .final: phaseName = "final"
+        }
+        AppDelegate.shared?.reloadGhosttyConfigurationForCmuxThemeSource(
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadSource(phase: phaseName)
+        )
+    }
+
     func notifyShortcutSettingsDidChange() {
         // reload() already posts didChangeNotification when the file's
         // contents changed; posting again here double-notified every

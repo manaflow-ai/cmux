@@ -3,32 +3,7 @@ import CmuxFoundation
 
 extension CMUXCLI {
     func availableThemeNames() -> [String] {
-        let fileManager = FileManager.default
-        var seen: Set<String> = []
-        var themes: [String] = []
-
-        for directoryURL in themeDirectoryURLs() {
-            guard let entries = try? fileManager.contentsOfDirectory(
-                at: directoryURL,
-                includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
-                options: [.skipsHiddenFiles]
-            ) else {
-                continue
-            }
-
-            for entry in entries {
-                let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
-                guard values?.isDirectory != true else { continue }
-                guard values?.isRegularFile == true || values?.isRegularFile == nil else { continue }
-                let name = entry.lastPathComponent
-                let folded = name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-                if seen.insert(folded).inserted {
-                    themes.append(name)
-                }
-            }
-        }
-
-        return themes.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        GhosttyThemeCatalog.entries(in: themeDirectoryURLs()).map(\.name)
     }
 
     func themeDirectoryURLs() -> [URL] {
@@ -245,80 +220,15 @@ extension CMUXCLI {
         rawThemeValue: String,
         targetBundleIdentifier: String
     ) throws -> URL {
-        let fileManager = FileManager.default
         let configURL = try cmuxThemeOverrideConfigURL(targetBundleIdentifier: targetBundleIdentifier)
-        let directoryURL = configURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
-
-        let existingContents = try readOptionalThemeOverrideContents(at: configURL) ?? ""
-        let strippedContents = removingManagedThemeOverride(from: existingContents)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let block = """
-        \(Self.cmuxThemesBlockStart)
-        theme = \(rawThemeValue)
-        \(Self.cmuxThemesBlockEnd)
-        """
-
-        let nextContents = strippedContents.isEmpty ? "\(block)\n" : "\(strippedContents)\n\n\(block)\n"
-        try nextContents.write(to: configURL, atomically: true, encoding: .utf8)
+        try CmuxManagedThemeConfigFile(url: configURL).write(rawThemeValue: rawThemeValue)
         return configURL
     }
 
     func clearManagedThemeOverride(targetBundleIdentifier: String) throws -> URL {
-        let fileManager = FileManager.default
         let configURL = try cmuxThemeOverrideConfigURL(targetBundleIdentifier: targetBundleIdentifier)
-        guard let existingContents = try readOptionalThemeOverrideContents(at: configURL) else {
-            return configURL
-        }
-
-        let strippedContents = removingManagedThemeOverride(from: existingContents)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if strippedContents.isEmpty {
-            do {
-                try fileManager.removeItem(at: configURL)
-            } catch {
-                guard !isThemeOverrideFileNotFoundError(error) else {
-                    return configURL
-                }
-                throw error
-            }
-        } else {
-            try strippedContents.appending("\n").write(to: configURL, atomically: true, encoding: .utf8)
-        }
-
+        try CmuxManagedThemeConfigFile(url: configURL).clear()
         return configURL
-    }
-
-    private func readOptionalThemeOverrideContents(at url: URL) throws -> String? {
-        do {
-            return try String(contentsOf: url, encoding: .utf8)
-        } catch {
-            guard isThemeOverrideFileNotFoundError(error) else {
-                throw error
-            }
-            return nil
-        }
-    }
-
-    private func isThemeOverrideFileNotFoundError(_ error: Error) -> Bool {
-        let nsError = error as NSError
-        if nsError.domain == NSCocoaErrorDomain {
-            return nsError.code == NSFileNoSuchFileError || nsError.code == NSFileReadNoSuchFileError
-        }
-        if nsError.domain == NSPOSIXErrorDomain {
-            return nsError.code == ENOENT
-        }
-        return false
-    }
-
-    private func removingManagedThemeOverride(from contents: String) -> String {
-        let pattern = #"(?ms)\n?# cmux themes start\n.*?\n# cmux themes end\n?"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return contents
-        }
-        let fullRange = NSRange(contents.startIndex..<contents.endIndex, in: contents)
-        return regex.stringByReplacingMatches(in: contents, options: [], range: fullRange, withTemplate: "")
     }
 
     func reloadThemesIfPossible(

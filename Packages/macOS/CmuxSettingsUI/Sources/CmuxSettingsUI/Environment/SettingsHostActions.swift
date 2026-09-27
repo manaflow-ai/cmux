@@ -110,6 +110,13 @@ public protocol SettingsHostActions: AnyObject {
     /// Opens the interactive terminal theme picker in a focused cmux terminal pane.
     func openTerminalThemePicker()
 
+    /// Theme directories, managed config file and current theme for the
+    /// Settings theme gallery, or `nil` to show only the terminal picker button.
+    func terminalThemeGalleryContext() -> TerminalThemeGalleryContext?
+
+    /// Reloads terminals after the gallery rewrote the managed theme block.
+    func terminalThemeConfigDidChange(phase: TerminalThemeReloadPhase)
+
     /// Launches the host's browser-import flow (Safari / Chrome /
     /// Firefox source picker + profile selection + cookie prompt).
     func openBrowserImportFlow()
@@ -474,6 +481,10 @@ public extension SettingsHostActions {
 
     /// Default no-op for package-only settings hosts without a terminal theme picker.
     func openTerminalThemePicker() {}
+
+    /// Package-only hosts have no Ghostty config, so the gallery stays hidden.
+    func terminalThemeGalleryContext() -> TerminalThemeGalleryContext? { nil }
+    func terminalThemeConfigDidChange(phase: TerminalThemeReloadPhase) {}
 
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
