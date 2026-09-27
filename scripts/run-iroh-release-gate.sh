@@ -117,7 +117,11 @@ if [[ -n "$SOAK_PROFILE" ]]; then
     stress) REPORT_TIMEOUT=3840 ;;
     *) echo "error: invalid soak profile" >&2; exit 2 ;;
   esac
-  GATE_SCENARIO=standard
+  # Keep relay-only stress runs on relay_rollover. The soak workload proves
+  # sustained use, then the runner performs the explicit rollover probe.
+  if [[ "$MODE" == automatic ]]; then
+    GATE_SCENARIO=standard
+  fi
 fi
 
 if [[ -n "$PROVIDED_SIMULATOR_ID" ]]; then
