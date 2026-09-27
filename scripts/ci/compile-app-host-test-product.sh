@@ -147,7 +147,7 @@ resolve() {
       [ -z "$stamp" ] || printf '%s\n' "$stamp" > "$source_packages/$RESOLVED_STAMP"
       return 0
     fi
-    echo "Offline resolve from the exact package cache failed; resolving normally" >&2
+    echo "Offline resolve of the restored or kept packages failed; resolving normally" >&2
   fi
   for attempt in 1 2 3; do
     mkdir -p "$source_packages" "$derived_data"

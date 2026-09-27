@@ -1,19 +1,49 @@
 import CmuxFoundation
 import SwiftUI
 
+/// Motion for small chrome a heavy user summons many times an hour (hover
+/// highlights, titlebar controls, shortcut hints): it appears in the same
+/// frame and only fades when it goes away. Any hover or modifier-hold delay
+/// is already the wait, so a fade-in only adds lag.
+enum ChromeRevealAnimation {
+    /// Animation for a visibility change to `isVisible`: none when showing or
+    /// under Reduce Motion, `fadeOut` when hiding.
+    static func animation(isVisible: Bool, fadeOut: Animation, reduceMotion: Bool) -> Animation? {
+        isVisible || reduceMotion ? nil : fadeOut
+    }
+}
+
+private struct ChromeRevealAnimationModifier: ViewModifier {
+    let isVisible: Bool
+    let fadeOut: Animation
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content.animation(
+            ChromeRevealAnimation.animation(isVisible: isVisible, fadeOut: fadeOut, reduceMotion: reduceMotion),
+            value: isVisible
+        )
+    }
+}
+
 enum ShortcutHintAnimation {
     static let visibilityDuration: TimeInterval = 0.12
-    static let visibility: Animation = .easeOut(duration: visibilityDuration)
-    static let transition: AnyTransition = .opacity
+    static let fadeOut: Animation = .easeOut(duration: visibilityDuration)
+    static let transition: AnyTransition = .asymmetric(insertion: .identity, removal: .opacity)
 }
 
 extension View {
+    /// Shows chrome instantly and fades it out; see `ChromeRevealAnimation`.
+    func chromeRevealAnimation(isVisible: Bool, fadeOut: Animation) -> some View {
+        modifier(ChromeRevealAnimationModifier(isVisible: isVisible, fadeOut: fadeOut))
+    }
+
     func shortcutHintTransition() -> some View {
         transition(ShortcutHintAnimation.transition)
     }
 
-    func shortcutHintVisibilityAnimation<Value: Equatable>(value: Value) -> some View {
-        animation(ShortcutHintAnimation.visibility, value: value)
+    func shortcutHintVisibilityAnimation(value isVisible: Bool) -> some View {
+        chromeRevealAnimation(isVisible: isVisible, fadeOut: ShortcutHintAnimation.fadeOut)
     }
 }
 
