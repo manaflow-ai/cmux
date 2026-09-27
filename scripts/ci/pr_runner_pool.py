@@ -224,8 +224,9 @@ it 0 they take `retry_runner`. ci.yml turns off `unit_in_admission` for every
 persistent pick, so the changed suites a compile admission would run itself
 move to shard 8: glaeda gives admission the compile token, not the gui token. On a pool with a root
 count whose gui label (`glaeda-gui-<class>-xcode-<version>`, one runner per mini) has a count in
-CI_OWNED_POOL_SLOTS, the placed GUI jobs take the `gui_runner` output instead of the root label
-(gui_runner()), so each mini gets at most the one GUI job its gui token allows. A run's owned peak
+CI_OWNED_POOL_SLOTS, the placed gui-token jobs (gui_token_job(): the GUI jobs and cli-product) take
+the `gui_runner` output instead of the root label (gui_runner()), so each mini gets at most the one
+such job its gui token allows. A run's owned peak
 (`jobs`, and the marker's) counts only the jobs that may take the pool.
 
 The queue comes from the queue janitor, which lists every in-flight run's
@@ -354,10 +355,10 @@ LIGHT_RETRY_VARIABLE = "CI_OWNED_LIGHT_RETRY"
 # LAST_OWNED_ATTEMPT): later attempts always go to Blacksmith.
 LIGHT_RETRY_ATTEMPT = 2
 LIGHT_CLASS = "light"
-# Attempt 2 of a re-run of failed jobs keeps attempt 1's outputs, so its owned-eligible jobs go back to the
-# owned pool (pr_root_runner or pr_refused_retry_runner) whoever started it: the rescue after a refusal, or a
-# person or agent re-running a failed job, which the rescue then watches like its own (attempt 3 and later
-# always take Blacksmith). Only the light tier, which a full re-run's picker may claim, stays the rescue's:
+# A re-run of failed jobs keeps attempt 1's outputs, and every runs-on sends attempt 2 and later to
+# retry_runner (Blacksmith), whoever started it: the rescue after a refusal, the failure attribution's
+# machine re-run, or a person. So a retry never lands on the mini that refused or failed it. Only the
+# light tier, which a full re-run's picker may claim, stays the rescue's:
 # a person's full re-run must not claim light (or publish its marker) behind the rescue's back.
 RESCUE_ACTOR = "github-actions[bot]"
 MAIN_RESERVE_VARIABLE = "CI_OWNED_MAIN_RESERVE"
@@ -499,7 +500,7 @@ def gui_label(label: str) -> str:
 
 
 def gui_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
-    """The label a pick's GUI jobs (gui_job()) take: the pool's gui label, or "" to keep the root label.
+    """The label a pick's gui-token jobs (gui_token_job()) take: the pool's gui label, or "" to keep the root label.
 
     Each mini has one gui token (one console session) but two root runners,
     so on the root label GitHub handed a second GUI job to the mini's other
@@ -723,6 +724,18 @@ def gui_job(key: str) -> bool:
     return key == "lag" or key.startswith("shard-")
 
 
+def gui_token_job(key: str) -> bool:
+    """A job that holds the mini's one gui token, so it takes the gui label (gui_runner()) where there is one.
+
+    The GUI jobs (gui_job()) and cli-product-tests, which needs no console
+    session but runs XCTest through the runner user's one testmanagerd, which
+    glaeda serializes with the same token (glaeda#1281, class `product`). On
+    the root label it met a mini whose gui token a shard held, waited 240 s
+    and was refused (cmux runs 36314100892 and 36316398822, 2026-09-27).
+    """
+    return gui_job(key) or key == "cli-product"
+
+
 def priority(key: str) -> tuple[int, int]:
     if key == ADMISSION_JOB:
         return 0, 0
@@ -741,9 +754,9 @@ def owned_peak(plan: RunJobs, gui: bool = True) -> int:
 def root_held(plan: RunJobs, keys: Sequence[str], gui_runners: bool = False) -> int:
     """The root runners `keys` hold at peak: admission, then the jobs after it (ROOT_JOBS).
 
-    With `gui_runners` (the pool's GUI jobs take its gui label, gui_runner()),
-    the GUI jobs hold no root runner."""
-    after = sum(1 for key in keys if key in plan.after and not (gui_runners and gui_job(key)))
+    With `gui_runners` (the pool's gui-token jobs take its gui label, gui_runner()),
+    those jobs (gui_token_job()) hold no root runner."""
+    after = sum(1 for key in keys if key in plan.after and not (gui_runners and gui_token_job(key)))
     return max(1, after) if ADMISSION_JOB in keys else after
 
 
@@ -1832,8 +1845,7 @@ def may_hold_owned_pool(run: Mapping[str, Any], *, light_retry: bool = False) ->
     """Only attempt 1 of a same-repository pull request run (or of main's dispatch) can take an owned pool,
     and attempt 2 too while CI_OWNED_LIGHT_RETRY is 1 (`light_retry`).
 
-    Attempt 2 then may hold the light tier, or a refused job's retry
-    (pr_refused_retry_runner); with the variable off it is not looked up,
+    Attempt 2 then may hold the light tier; with the variable off it is not looked up,
     so no request is spent on it. The same rule as
     queue_janitor.may_hold_owned_pool: a fork runs its own ci.yml and could
     upload any marker, so its markers are never read.
@@ -2287,14 +2299,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          # held: the jobs after admission reuse its machine.
                          f"placed={len(owned_jobs)}\n"
                          f"shard_runner={choice.shard_runner}\n"
-                         # Attempt 2 of an owned job the fleet refused tries it
-                         # once more: a re-run of failed jobs reuses these outputs.
-                         f"refused_retry_runner={choice.runner if persistent(choice.runner) else ''}\n"
                          # What the root jobs in owned_jobs take instead of
-                         # the pool label, on attempt 1 and on that attempt 2.
+                         # the pool label, on attempt 1.
                          f"root_runner={choice.root_runner}\n"
                          # What the side lanes in owned_jobs take instead of
-                         # the pool label, on attempt 1 and on that attempt 2.
+                         # the pool label, on attempt 1.
                          f"side_runner={side}\n"
                          # What the GUI jobs (app-host shards, tests-build-and-lag)
                          # take instead of the root label: one runner per mini

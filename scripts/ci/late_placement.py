@@ -17,8 +17,9 @@ test-without-building on the mini against admission's uploaded products, as
 they do after an owned admission; they never compile.
 
 When OWNED_SLOTS (vars.CI_OWNED_POOL_SLOTS) gives the pool's gui label a count
-(pr_runner_pool.gui_label(): one gui runner per mini), the GUI jobs (the shards, tests-build-and-lag)
-take that label instead, one per idle gui runner, and the other jobs the root
+(pr_runner_pool.gui_label(): one gui runner per mini), the jobs that hold the
+gui token (pr_runner_pool.gui_token_job(): the shards, tests-build-and-lag,
+cli-product-tests) take that label instead, one per idle gui runner, and the other jobs the root
 label, one per idle root runner: each mini runs one GUI job at a time.
 
 Output `runners` is a JSON object from job key (shard-N, lag, cli-product)
@@ -65,7 +66,7 @@ def place(jobs: Sequence[str], *, owned_jobs: str, idle: int, root: str, gui: bo
           gui_label: str = "", gui_idle: int = 0) -> dict[str, str]:
     """Give the not-yet-owned jobs the root label, highest priority first, one per idle runner.
 
-    With `gui_label`, the GUI jobs take it instead, one per idle gui runner (`gui_idle`)."""
+    With `gui_label`, the gui-token jobs (pool.gui_token_job()) take it instead, one per idle gui runner (`gui_idle`)."""
     if not root:
         return {}
     owned = f" {owned_jobs.strip()} " if owned_jobs.strip() else " "
@@ -73,8 +74,8 @@ def place(jobs: Sequence[str], *, owned_jobs: str, idle: int, root: str, gui: bo
                      key=pool.priority)
     if not gui_label:
         return {key: root for key in waiting[:max(0, idle)]}
-    on_gui = [key for key in waiting if pool.gui_job(key)][:max(0, gui_idle)]
-    on_root = [key for key in waiting if not pool.gui_job(key)][:max(0, idle)]
+    on_gui = [key for key in waiting if pool.gui_token_job(key)][:max(0, gui_idle)]
+    on_root = [key for key in waiting if not pool.gui_token_job(key)][:max(0, idle)]
     return {**{key: gui_label for key in on_gui}, **{key: root for key in on_root}}
 
 
