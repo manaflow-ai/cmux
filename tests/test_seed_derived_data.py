@@ -1484,15 +1484,16 @@ class Wiring(unittest.TestCase):
         for attempt, owned_jobs, gui_runner, runner in (
             ("1", owned, gui, gui),
             ("1", owned, "", root),
-            ("2", owned, gui, gui),
-            ("2", owned, "", root),
+            # A retry never comes back to the fleet.
+            ("2", owned, gui, retry),
+            ("2", owned, "", retry),
             ("1", " admission ", gui, retry),
             ("3", owned, gui, retry),
         ):
             context = github_context("pull_request", ref="refs/pull/1/merge")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt,
                                      event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
-            context["inputs"].update(pr_runner=mini, pr_retry_runner=retry, pr_refused_retry_runner=mini,
+            context["inputs"].update(pr_runner=mini, pr_retry_runner=retry,
                                      pr_root_runner=root, pr_gui_runner=gui_runner, pr_owned_jobs=owned_jobs)
             context["needs"] = {"macos-compile-admission": {"outputs": {"runner": root}}}
             with self.subTest(attempt=attempt, owned_jobs=owned_jobs, gui_runner=gui_runner):
