@@ -121,7 +121,7 @@ public struct SwiftViewInterpreter: Sendable {
             .flatMap { Array($0.bindings) }
         while !pending.isEmpty {
             let previousCount = pending.count
-            let pendingNames = Set(pending.compactMap {
+            var pendingNames = Set(pending.compactMap {
                 $0.pattern.as(IdentifierPatternSyntax.self)?.identifier.text
             })
             pending.removeAll { binding in
@@ -134,6 +134,7 @@ public struct SwiftViewInterpreter: Sendable {
                 }
                 guard !result.readUnresolvedName, let value = result.value else { return false }
                 env.define(name, value)
+                pendingNames.remove(name)
                 return true
             }
             // Cycles and missing names remain unresolved; successful initializers
