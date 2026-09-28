@@ -110,6 +110,8 @@ extension CmuxSettingsFileStore {
         "sidebar.notificationBadgePosition",
         "sidebar.showCustomMetadata",
         LeftSidebarWidthSettings.settingsPath,
+        "sidebar.compactAgentStatus",
+        "sidebar.compactStatusIcons",
         RightSidebarWidthSettings.settingsPath,
         "workspaceColors.indicatorStyle",
         "workspaceColors.selectionColor",
