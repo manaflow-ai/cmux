@@ -556533,55 +556533,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hibernates idle background agent terminals above the live terminal limit. Even when this is off, cmux may hibernate them under critical memory pressure."
+            "value": "Hibernates idle background agent terminals above the live terminal limit. Even when this is off, cmux may hibernate them under memory pressure."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Versetzt inaktive Agenten-Terminals im Hintergrund in den Ruhezustand, sobald das Limit für aktive Terminals überschritten ist. Auch wenn diese Option deaktiviert ist, kann cmux sie bei kritischer Speicherauslastung in den Ruhezustand versetzen."
+            "value": "Versetzt inaktive Agenten-Terminals im Hintergrund in den Ruhezustand, sobald das Limit für aktive Terminals überschritten ist. Auch wenn diese Option deaktiviert ist, kann cmux sie bei hoher Speicherauslastung in den Ruhezustand versetzen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Met en hibernation les terminaux d’agent inactifs en arrière-plan au-delà de la limite de terminaux actifs. Même si cette option est désactivée, cmux peut les mettre en hibernation en cas de pression mémoire critique."
+            "value": "Met en hibernation les terminaux d’agent inactifs en arrière-plan au-delà de la limite de terminaux actifs. Même si cette option est désactivée, cmux peut les mettre en hibernation en cas de pression mémoire."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يُدخل طرفيات الوكلاء الخاملة في الخلفية في السبات عند تجاوز حد الطرفيات النشطة. وحتى عند إيقاف هذا الخيار، قد يُدخلها cmux في السبات عند ضغط الذاكرة الحرج."
+            "value": "يُدخل طرفيات الوكلاء الخاملة في الخلفية في السبات عند تجاوز حد الطرفيات النشطة. وحتى عند إيقاف هذا الخيار، قد يُدخلها cmux في السبات عند ضغط الذاكرة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pone en hibernación las terminales de agentes inactivas en segundo plano que superan el límite de terminales activas. Aunque esta opción esté desactivada, cmux puede ponerlas en hibernación si la presión de memoria es crítica."
+            "value": "Pone en hibernación las terminales de agentes inactivas en segundo plano que superan el límite de terminales activas. Aunque esta opción esté desactivada, cmux puede ponerlas en hibernación si hay presión de memoria."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "作用中終端機超過上限時，閒置的背景代理終端機會進入休眠。即使關閉此選項，cmux 仍可能在記憶體壓力達到嚴重程度時讓它們休眠。"
+            "value": "作用中終端機超過上限時，閒置的背景代理終端機會進入休眠。即使關閉此選項，cmux 仍可能在記憶體吃緊時讓它們休眠。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "活动终端超过上限时，空闲的后台代理终端会进入休眠。即使关闭此选项，cmux 仍可能在内存压力达到严重程度时让它们休眠。"
+            "value": "活动终端超过上限时，空闲的后台代理终端会进入休眠。即使关闭此选项，cmux 仍可能在内存紧张时让它们休眠。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "활성 터미널 수가 한도를 넘으면 백그라운드에서 유휴 상태인 에이전트 터미널을 최대 절전 모드로 전환합니다. 이 옵션을 꺼도 메모리 압박이 심각하면 cmux가 해당 터미널을 최대 절전 모드로 전환할 수 있습니다."
+            "value": "활성 터미널 수가 한도를 넘으면 백그라운드에서 유휴 상태인 에이전트 터미널을 최대 절전 모드로 전환합니다. 이 옵션을 꺼도 메모리가 부족하면 cmux가 해당 터미널을 최대 절전 모드로 전환할 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "実行中のターミナル数が上限を超えると、アイドル状態のバックグラウンドエージェントのターミナルを休止させます。この設定がオフでも、メモリ逼迫が深刻な場合は cmux がこれらを休止させることがあります。"
+            "value": "実行中のターミナル数が上限を超えると、アイドル状態のバックグラウンドエージェントのターミナルを休止させます。この設定がオフでも、メモリが逼迫している場合は cmux がこれらを休止させることがあります。"
           }
         }
       }
@@ -570012,6 +570012,478 @@
           "stringUnit": {
             "state": "translated",
             "value": "restore: 이 세션은 라우팅된 런처 '%@'를 통해 시작되었지만 PATH에 없습니다. 대신 에이전트를 직접 재개합니다."
+          }
+        }
+      }
+    },
+    "settings.app.compactAgentStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact Agent Status"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حالة الوكيل المختصرة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompakter Agentenstatus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estado de agente compacto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statut d’agent compact"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント状態のコンパクト表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "간결한 에이전트 상태"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "精简代理状态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "精簡代理狀態"
+          }
+        }
+      }
+    },
+    "settings.app.compactAgentStatus.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a workspace's agent, unread and pull request state as one colored icon before the title instead of separate rows. Hover the icon for details."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار حالة الوكيل والعناصر غير المقروءة وطلب السحب لمساحة العمل كأيقونة ملونة واحدة قبل العنوان بدلاً من صفوف منفصلة. مرّر المؤشر فوق الأيقونة لعرض التفاصيل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten-, Ungelesen- und Pull-Request-Status eines Workspace als ein farbiges Symbol vor dem Titel anzeigen statt in eigenen Zeilen. Details erscheinen, wenn du den Zeiger über das Symbol bewegst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar el estado del agente, lo no leído y la pull request de un espacio de trabajo como un único icono de color antes del título, en lugar de filas separadas. Pasa el cursor sobre el icono para ver los detalles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’état de l’agent, des éléments non lus et de la pull request d’un espace de travail sous forme d’une seule icône colorée avant le titre, au lieu de lignes distinctes. Survolez l’icône pour voir les détails."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのエージェント、未読、プルリクエストの状態を、個別の行ではなくタイトルの前の色付きアイコン1つで示します。詳細はアイコンにポインタを合わせると表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스의 에이전트, 읽지 않음, 풀 리퀘스트 상태를 별도의 줄이 아니라 제목 앞의 색상 아이콘 하나로 나타냅니다. 자세한 내용은 아이콘 위에 포인터를 올려 확인하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用标题前的单个彩色图标表示工作区的代理、未读和拉取请求状态，而不是各自占一行。将指针悬停在图标上可查看详细信息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以標題前的單一彩色圖示表示工作區的代理、未讀與拉取請求狀態，而非各自佔一行。將游標移到圖示上可查看詳細資訊。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.compact-agent-status": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex مختصر وكيل حالة أيقونة سطر العنوان"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex kompakt Agent Status Symbol Titelzeile"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex compacto agente estado icono línea de título"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex compact agent statut icône ligne de titre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex コンパクト エージェント 状態 アイコン タイトル行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 간결 에이전트 상태 아이콘 제목 줄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 精简 代理 状态 图标 标题行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 精簡 代理 狀態 圖示 標題列"
+          }
+        }
+      }
+    },
+    "sidebar.agentStatus.glyph.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ : %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        }
+      }
+    },
+    "sidebar.compactStatus.profile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الملف الشخصي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profil"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perfil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profil"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定檔"
+          }
+        }
+      }
+    },
+    "sidebar.extensions.action.noSpaceForPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No space for new pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مساحة للوحة جديدة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Platz für einen neuen Bereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay espacio para un panel nuevo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas de place pour un nouveau panneau"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいペインを置く場所がありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 창을 위한 공간이 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有空间容纳新窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有空間容納新窗格"
+          }
+        }
+      }
+    },
+    "cli.focus.defaultHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default: focus when run interactively, stay in the background when run by an agent or script."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既定: 対話的に実行した場合はフォーカスし、エージェントやスクリプトから実行した場合はバックグラウンドのままにします。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard: bei interaktiver Ausführung fokussieren, bei Ausführung durch einen Agenten oder ein Skript im Hintergrund bleiben."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par défaut : prend le focus en exécution interactive, reste en arrière-plan quand un agent ou un script l’exécute."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الافتراضي: التركيز عند التشغيل التفاعلي، والبقاء في الخلفية عند التشغيل بواسطة وكيل أو برنامج نصي."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predeterminado: enfoca al ejecutarse de forma interactiva y se queda en segundo plano cuando lo ejecuta un agente o un script."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設：互動執行時取得焦點；由代理程式或指令稿執行時保持在背景。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认：交互式运行时获得焦点；由代理或脚本运行时保持在后台。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본값: 대화형으로 실행하면 포커스를 가져오고, 에이전트나 스크립트가 실행하면 백그라운드에 머뭅니다."
+          }
+        }
+      }
+    },
+    "cli.help.openFocusFlags": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus:\n  --focus                 Switch to the new workspace\n  --no-focus              Open it in the background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス:\n  --focus                 新しいワークスペースに切り替えます\n  --no-focus              バックグラウンドで開きます"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokus:\n  --focus                 Zum neuen Workspace wechseln\n  --no-focus              Im Hintergrund öffnen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus :\n  --focus                 Bascule vers le nouvel espace de travail\n  --no-focus              L’ouvre en arrière-plan"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التركيز:\n  --focus                 ينتقل إلى مساحة العمل الجديدة\n  --no-focus              يفتحها في الخلفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foco:\n  --focus                 Cambia al nuevo espacio de trabajo\n  --no-focus              Lo abre en segundo plano"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "焦點：\n  --focus                 切換到新的工作區\n  --no-focus              在背景開啟"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "焦点：\n  --focus                 切换到新的工作区\n  --no-focus              在后台打开"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포커스:\n  --focus                 새 워크스페이스로 전환합니다\n  --no-focus              백그라운드에서 엽니다"
           }
         }
       }
