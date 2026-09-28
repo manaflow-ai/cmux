@@ -88,7 +88,11 @@ final class cmuxUITests: XCTestCase {
         app.activate()
         await awaitReconcile(nextReconcile)
         await openNotificationCenter()
-        for name in ["Still unread", "Other computer", "Unrelated alert"] {
+        // iOS keeps the unread cmux item inside the grouped card, where it is
+        // not exposed as an individual SpringBoard accessibility element.
+        // The final delivered-ID enumeration below proves that it survived;
+        // these two cards remain individually visible as the UI guard.
+        for name in ["Other computer", "Unrelated alert"] {
             XCTAssertTrue(title(name).waitForExistence(timeout: 8), "Cleanup removed \(name)")
         }
         capture("03-read-notifications-cleared-unread-and-unrelated-retained")
