@@ -77,7 +77,8 @@ def run_one(path: str, env: dict[str, str], log_path: Path, timeout: float) -> R
     # which follows CFFIXED_USER_HOME rather than HOME. A runner account that
     # also runs cmux keeps a real password there, and the CLI then sends
     # `auth` to every fake socket fixture first. Give each test an empty home
-    # unless the job or the test already isolates it.
+    # unless the job already sets one; tests may still override it for their
+    # own subprocesses.
     if "CFFIXED_USER_HOME" not in env:
         home = log_path.with_suffix(".home")
         home.mkdir(mode=0o700, exist_ok=True)
