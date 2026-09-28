@@ -406,8 +406,165 @@ def dispatch_step_conclusion(gh: GitHub, dispatch_run_id: int | str) -> str | No
     return None
 
 
+E2E_WORKFLOW_FILE = "test-e2e.yml"
+ADMISSION_JOB = "macOS compile admission"
+# test-e2e.yml's macOS jobs, in order; the Linux jobs before them take seconds.
+E2E_MACOS_JOBS = ("build", "test")
+E2E_COMPILE_STEP = "Build the app-host and UI test product"
+E2E_TESTS_STEP = "Run selected tests"
+# Progress reads once every this many verdict polls (60 s each), so the wait
+# makes a third more REST calls on the job token, not twice as many.
+PROGRESS_EVERY = 3
+
+
+def _seconds(start: str | None, end: dt.datetime) -> int | None:
+    if not start:
+        return None
+    return max(0, int((end - parse_time(start)).total_seconds()))
+
+
+def _duration(seconds: int | None) -> str:
+    if seconds is None:
+        return "?"
+    minutes, rest = divmod(seconds, 60)
+    return f"{minutes}m{rest:02d}s" if minutes else f"{rest}s"
+
+
+class Progress:
+    """One line per poll on what the UI test run is doing, so the wait never looks stuck.
+
+    Each report makes one bounded read beside the verdict's own: the jobs of
+    the test-e2e.yml run serving this request once it is known, otherwise
+    either the listing that finds that run (by its title: the selectors, and
+    the merge or head it tests) or this attempt's compile admission, whose
+    product the dispatch waits for. Progress is only ever printed: a failed
+    or odd read skips a line and never touches the verdict.
+    """
+
+    def __init__(self, gh: GitHub, run_id: str, attempt: str, selectors: list[str], revisions: list[str],
+                 since: dt.datetime, now: Callable[[], dt.datetime] | None = None) -> None:
+        self.gh = gh
+        self.run_id = run_id
+        self.attempt = attempt
+        self.test_filter = ",".join(selectors)
+        self.count = len(selectors)
+        self.revisions = [revision for revision in revisions if revision]
+        self.since = since
+        self.now = now or (lambda: dt.datetime.now(dt.timezone.utc))
+        self.e2e: dict | None = None
+        self.polls = 0
+        self.ticks = 0
+
+    def report(self) -> str | None:
+        """Every PROGRESS_EVERY-th poll: its read then adds a third to the wait's."""
+        self.polls += 1
+        if self.polls % PROGRESS_EVERY:
+            return None
+        self.ticks += 1
+        try:
+            line = self._line()
+        except Exception as error:  # noqa: BLE001 - progress must never touch the verdict
+            print(f"(progress unavailable this minute: {type(error).__name__})", flush=True)
+            line = None
+        if line:
+            print(line, flush=True)
+        return line
+
+    def _line(self) -> str | None:
+        if self.e2e is None:
+            if self.ticks % 2 == 1:
+                self.e2e = self._find_e2e()
+                if self.e2e is not None:
+                    return f"UI test run: {self.e2e.get('html_url')}"
+                return None
+            return self._admission()
+        return self._e2e_state()
+
+    def _find_e2e(self) -> dict | None:
+        if not self.test_filter or not self.revisions:
+            return None
+        created = self.since.strftime("%Y-%m-%dT%H:%M:%SZ")
+        runs = self.gh.get(
+            f"repos/{{repo}}/actions/workflows/{E2E_WORKFLOW_FILE}/runs"
+            f"?event=workflow_dispatch&created=%3E%3D{created}&per_page=100"
+        ).get("workflow_runs", [])
+
+        wanted = sorted(self.test_filter.split(","))
+
+        def ours(run: dict) -> bool:
+            # An identical run already in flight is reused whatever order it
+            # names the same selectors in.
+            title = str(run.get("display_title") or "")
+            return (sorted(title.split(" on ", 1)[0].split(",")) == wanted
+                    and any(f" @ {revision}" in title for revision in self.revisions))
+
+        return max((run for run in runs if ours(run)), key=lambda run: run.get("created_at", ""), default=None)
+
+    def _admission(self) -> str | None:
+        jobs = self.gh.get(
+            f"repos/{{repo}}/actions/runs/{self.run_id}/attempts/{self.attempt}/jobs?per_page=100"
+        ).get("jobs", [])
+        job = next((job for job in jobs if str(job.get("name", "")).endswith(ADMISSION_JOB)), None)
+        now = self.now()
+        if job is None:
+            return "Waiting for the dispatcher to start a UI test run."
+        if job.get("status") == "completed":
+            return (f"Compile admission ended {job.get('conclusion')}; waiting for the dispatcher "
+                    "to start a UI test run on its product.")
+        if job.get("started_at") and job.get("runner_name") and job.get("status") == "in_progress":
+            step = next((step for step in job.get("steps") or [] if step.get("status") == "in_progress"), None)
+            doing = f", at '{step.get('name')}'" if step else ""
+            return (f"Waiting for compile admission's product: compiling on {job['runner_name']} for "
+                    f"{_duration(_seconds(job['started_at'], now))}{doing}.")
+        labels = ", ".join(job.get("labels") or []) or "a runner"
+        return (f"Waiting for compile admission's product: admission is queued for {labels} "
+                f"for {_duration(_seconds(job.get('created_at'), now))}.")
+
+    def _e2e_state(self) -> str | None:
+        assert self.e2e is not None
+        jobs = self.gh.get(f"repos/{{repo}}/actions/runs/{self.e2e['id']}/jobs?filter=latest&per_page=30").get("jobs", [])
+        now = self.now()
+        by_name = {job.get("name"): job for job in jobs}
+        macos = [by_name[name] for name in E2E_MACOS_JOBS if name in by_name]
+        live = next((job for job in macos if job.get("status") != "completed"), None)
+        if live is None:
+            if macos and all(job.get("status") == "completed" for job in macos):
+                done = [f"{job['name']} {job.get('conclusion')}" for job in macos]
+                # Look again next time: the dispatcher may start a newer run.
+                self.e2e = None
+                return f"UI test run finished ({', '.join(done)}); waiting for its verdict."
+            pending = [job for job in jobs if job.get("status") != "completed"]
+            if pending:
+                return f"UI test run: {pending[0].get('name')} is {pending[0].get('status')} (Linux setup)."
+            return None
+        name = live.get("name")
+        if live.get("status") != "in_progress" or not live.get("runner_name"):
+            labels = ", ".join(live.get("labels") or []) or "a runner"
+            return (f"UI test run: {name} is queued for {labels} "
+                    f"for {_duration(_seconds(live.get('created_at'), now))}.")
+        steps = live.get("steps") or []
+        step = next((step for step in steps if step.get("status") == "in_progress"), None)
+        compiled = next((step for step in steps if step.get("name") == E2E_COMPILE_STEP), None)
+        product = ""
+        if compiled and compiled.get("conclusion") == "skipped":
+            product = "; adopted the compiled product, no build"
+        elif compiled and compiled.get("status") == "completed":
+            product = f"; compiled in {_duration(_seconds(compiled.get('started_at'), parse_time(compiled['completed_at'])))}"
+        doing = "between steps"
+        if step is not None:
+            doing = f"'{step.get('name')}' for {_duration(_seconds(step.get('started_at'), now))}"
+            if step.get("name") == E2E_TESTS_STEP:
+                doing = (f"testing {self.count} selected class{'es' if self.count != 1 else ''} "
+                         f"for {_duration(_seconds(step.get('started_at'), now))}")
+            elif step.get("name") == E2E_COMPILE_STEP:
+                doing = f"compiling the app and UI tests for {_duration(_seconds(step.get('started_at'), now))}"
+        return (f"UI test run: {name} on {live['runner_name']} for "
+                f"{_duration(_seconds(live.get('started_at'), now))}, {doing}{product}.")
+
+
 def await_verdict(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[float], None] = time.sleep,
-                  now: Callable[[], float] = time.monotonic, default_branch: str = "main") -> int:
+                  now: Callable[[], float] = time.monotonic, default_branch: str = "main",
+                  selectors: list[str] | None = None, revisions: list[str] | None = None) -> int:
     run = retrying(lambda: source_attempt(gh, run_id, attempt), sleep=sleep)
     # The dispatch run is created when the attempt is requested: for attempt 1
     # that is the run's creation (a labeled run can then queue for hours before
@@ -431,10 +588,15 @@ def await_verdict(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[flo
         )
         return 1
     print(f"UI tests for this run: {found.get('html_url')}", flush=True)
+    progress = Progress(gh, run_id, attempt, selectors or [], revisions or [], since) if selectors else None
 
     def check() -> dict | None:
         run = gh.get(f"repos/{{repo}}/actions/runs/{found['id']}")
-        return run if run.get("status") == "completed" else None
+        if run.get("status") == "completed":
+            return run
+        if progress is not None:
+            progress.report()
+        return None
 
     finished = poll(check, sleep=sleep)
     step = retrying(lambda: dispatch_step_conclusion(gh, found["id"]), sleep=sleep)
@@ -467,8 +629,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Requesting {' '.join(body['selectors'])} at {body['head_sha']}.", flush=True)
             return 0
         if args.command == "await-verdict":
+            # SELECTORS and the revisions only name the run to report
+            # progress on; the verdict never reads them.
             return await_verdict(github_from_env(), os.environ["RUN_ID"], os.environ["RUN_ATTEMPT"],
-                                 default_branch=os.environ.get("DEFAULT_BRANCH") or "main")
+                                 default_branch=os.environ.get("DEFAULT_BRANCH") or "main",
+                                 selectors=os.environ.get("SELECTORS", "").split(),
+                                 revisions=[os.environ.get("MERGE_SHA", ""), os.environ.get("HEAD_SHA", "")])
         if args.command == "await-request":
             found = await_request(github_from_env(), os.environ["SOURCE_RUN_ID"], os.environ["SOURCE_RUN_ATTEMPT"])
             if found is None:
