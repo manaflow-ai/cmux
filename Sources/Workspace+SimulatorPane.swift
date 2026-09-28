@@ -146,12 +146,15 @@ extension Workspace {
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
-        guard let newPaneId = bonsplitController.splitPane(
-            sourcePaneId,
-            orientation: orientation,
-            withTab: tab,
-            insertFirst: insertFirst
-        ) else {
+        guard let newPaneId = withSplitSpaceDividerPosition(initialDividerPosition, {
+            bonsplitController.splitPane(
+                sourcePaneId,
+                orientation: orientation,
+                withTab: tab,
+                insertFirst: insertFirst,
+                initialDividerPosition: initialDividerPosition
+            )
+        }) else {
             removeSurfaceMapping(forSurfaceId: tab.id)
             panels.removeValue(forKey: panel.id)
             panelTitles.removeValue(forKey: panel.id)
@@ -159,11 +162,6 @@ extension Workspace {
             return nil
         }
 
-        applyInitialSplitDividerPosition(
-            initialDividerPosition,
-            sourcePaneId: sourcePaneId,
-            newPaneId: newPaneId
-        )
         publishCmuxSplitCreated(
             newPaneId,
             sourcePaneId: sourcePaneId,

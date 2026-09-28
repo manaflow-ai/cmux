@@ -318,7 +318,9 @@ extension Workspace {
             let previousValue = suppressRemoteTerminalStartupForSessionRestoreScaffold
             suppressRemoteTerminalStartupForSessionRestoreScaffold = true
             defer { suppressRemoteTerminalStartupForSessionRestoreScaffold = previousValue }
-            return restoreSessionLayout(snapshot.layout)
+            return withSplitSpaceAdmissionBypass {
+                restoreSessionLayout(snapshot.layout)
+            }
         }()
         var oldToNewPanelIds: [UUID: UUID] = [:]
         let deviceProjectionPanelIDs = Set((snapshot.surfaceProjections ?? [])
@@ -1048,11 +1050,14 @@ extension Workspace {
               panels[anchorPanelId] != nil else {
             return nil
         }
-        guard let sourcePane = paneId(forPanelId: anchorPanelId) ?? bonsplitController.allPaneIds.first, let scaffold = SessionSplitContainerLayoutCodec(controller: bonsplitController).createRestorePlaceholderSplit(
-            inPane: sourcePane,
-            orientation: placement.orientation,
-            insertFirst: placement.insertFirst
-        ) else {
+        guard let sourcePane = paneId(forPanelId: anchorPanelId) ?? bonsplitController.allPaneIds.first,
+              let scaffold = withSplitSpaceAdmissionBypass({
+                  SessionSplitContainerLayoutCodec(controller: bonsplitController).createRestorePlaceholderSplit(
+                      inPane: sourcePane,
+                      orientation: placement.orientation,
+                      insertFirst: placement.insertFirst
+                  )
+              }) else {
             return nil
         }
         let pane = scaffold.paneId
@@ -2875,6 +2880,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         set { splitLayout.isProgrammaticSplit = newValue }
     }
     var activeMovingTabSplitFocusIntent: MovingTabSplitFocusIntent?
+    var activeSplitSpaceDividerPosition: CGFloat?
+    var splitSpaceAdmissionBypassDepth = 0
     private var debugStressPreloadSelectionDepth = 0
 
     /// Last terminal panel used as an inheritance source (typically last focused terminal).
@@ -8927,9 +8934,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         // Auto layout re-tiles every pane itself, so only a plain split is
         // checked against the minimum pane size (#15371).
-        let spaceVerdict: SplitSpaceVerdict = autoLayout
+        let spaceVerdict: SplitSpaceVerdict = autoLayout || splitSpaceAdmissionBypassDepth > 0
             ? .fits
-            : splitSpaceVerdict(splittingPanel: panelId, orientation: orientation)
+            : splitSpaceVerdict(
+                splittingPanel: panelId,
+                orientation: orientation,
+                dividerPosition: initialDividerPosition
+            )
         if spaceVerdict == .noSpace { return .noSpace }
         guard let panel = newTerminalSplitLocal(
             from: panelId,
@@ -8945,13 +8956,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault, autoLayout: autoLayout
         ) else { return .failed }
-        if !autoLayout {
-            finishSplitSpaceBorrow(
-                newPanelId: panel.id,
-                orientation: orientation,
-                explicitDividerPosition: initialDividerPosition
-            )
-        }
         return .created(panel)
     }
 
@@ -9093,7 +9097,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // Create the split with the new tab already present in the new pane.
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
-        guard let newPaneId = autoLayout ? bonsplitController.addPaneWithAutoLayout(from: paneId, withTab: newTab) : bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
+        let newPaneId = autoLayout
+            ? withSplitSpaceAdmissionBypass {
+                bonsplitController.addPaneWithAutoLayout(from: paneId, withTab: newTab)
+            }
+            : withSplitSpaceDividerPosition(initialDividerPosition) {
+                bonsplitController.splitPane(
+                    paneId,
+                    orientation: orientation,
+                    withTab: newTab,
+                    insertFirst: insertFirst,
+                    initialDividerPosition: initialDividerPosition
+                )
+            }
+        guard let newPaneId else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
@@ -9102,9 +9119,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
+            newPanel.close()
             return nil
         }
-        if !autoLayout { applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId) }
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: autoLayout ? "terminal_auto_layout" : "terminal_split", focused: focus)
 
 #if DEBUG
@@ -9791,13 +9808,21 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // Mark this split as programmatic so didSplitPane doesn't auto-create a terminal.
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
-        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
+        guard let newPaneId = withSplitSpaceDividerPosition(initialDividerPosition, {
+            bonsplitController.splitPane(
+                paneId,
+                orientation: orientation,
+                withTab: newTab,
+                insertFirst: insertFirst,
+                initialDividerPosition: initialDividerPosition
+            )
+        }) else {
             removeSurfaceMapping(forSurfaceId: newTab.id)
             panels.removeValue(forKey: browserPanel.id)
             panelTitles.removeValue(forKey: browserPanel.id)
+            browserPanel.close()
             return nil
         }
-        applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
         setPreferredBrowserProfileID(browserPanel.profileID)
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: browserPanel.id, kind: "browser", origin: "browser_split", focused: focus)
 
@@ -13120,6 +13145,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if startupCommand != nil {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
+            newPanel.close()
             return nil
         }
         if let startupRestoreAgent {
@@ -14582,6 +14608,16 @@ extension Workspace: BonsplitDelegate {
         rearmBrowserPortalHostReplacement(originalPane, "workspace.didSplit.original")
         rearmBrowserPortalHostReplacement(newPane, "workspace.didSplit.new")
 
+        // Every admitted split may need to borrow room from its run, including
+        // programmatic helpers and moving-tab splits.
+        if splitSpaceAdmissionBypassDepth == 0 {
+            finishSplitSpaceBorrow(
+                originalPaneId: originalPane,
+                newPaneId: newPane,
+                orientation: orientation
+            )
+        }
+
         // Only auto-create a terminal if the split came from bonsplit UI.
         // Programmatic splits via newTerminalSplit() set isProgrammaticSplit and handle their own panels.
         guard !isProgrammaticSplit else {
@@ -14590,9 +14626,6 @@ extension Workspace: BonsplitDelegate {
             scheduleTerminalGeometryReconcile()
             return
         }
-        // A bonsplit UI split admitted by borrowing room gets it now.
-        finishSplitSpaceBorrow(newPaneId: newPane, orientation: orientation)
-
         // If the new pane already has a tab, this split moved an existing tab (drag-to-split).
         //
         // In the "drag the only tab to split edge" case, bonsplit inserts a placeholder "Empty"

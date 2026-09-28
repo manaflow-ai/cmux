@@ -168,6 +168,7 @@ extension Workspace {
             panels.removeValue(forKey: customPanel.id)
             panelTitles.removeValue(forKey: customPanel.id)
             removeSurfaceMapping(forSurfaceId: newTab.id)
+            customPanel.close()
             return nil
         }
 
