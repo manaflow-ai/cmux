@@ -211,6 +211,16 @@ extension MobileShellComposite {
         externalHostSource(owningSurface: surfaceID) != nil
     }
 
+    /// Whether this terminal is served by the phone itself: demonstration
+    /// content, or an external host's surface. Its emulator, scrollback and
+    /// screen state all live in this process, so Mac-session mechanisms
+    /// (the scroll RPC, verified-replay output classification, render-grid
+    /// scroll authority) must never apply to it. Answered from stable
+    /// identifier namespaces, so the fence holds while a link is down.
+    func terminalIsServedLocally(surfaceID: String) -> Bool {
+        demonstrationOwnsSurface(surfaceID) || externalHostOwnsSurface(surfaceID)
+    }
+
     /// Whether any registered source contributes this host.
     ///
     /// The fence for every Mac mechanism keyed on a host id: foreground
