@@ -5045,7 +5045,11 @@ final class AppIconAppearanceObserver: NSObject {
                 startEffectiveAppearanceObservation: { handler in
                     guard let app = NSApp else { return nil }
                     return app.observe(\.effectiveAppearance, options: []) { _, _ in
-                        DispatchQueue.main.async {
+                        // NSApplication's effective appearance is main-thread
+                        // state. Deliver synchronously so every KVO change does
+                        // not allocate a queued DispatchWorkItem whose closure
+                        // can outlive this observation.
+                        MainActor.assumeIsolated {
                             handler()
                         }
                     }
