@@ -23,8 +23,12 @@ struct CloudMachineNotificationDeliveryTests {
     private func makeHarness() -> Harness {
         let store = TerminalNotificationStore.shared
         let originalAppDelegate = AppDelegate.shared
-        let appDelegate = originalAppDelegate ?? AppDelegate()
-        let manager = appDelegate.tabManager ?? TabManager()
+        // Own the singleton for the duration of each fixture. Other app-host
+        // suites construct temporary delegates concurrently, so reusing the
+        // live delegate can make delivery resolve against another manager
+        // between the admission and apply-time target lookups.
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
@@ -34,9 +38,7 @@ struct CloudMachineNotificationDeliveryTests {
         store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
-        if AppDelegate.shared == nil {
-            AppDelegate.shared = appDelegate
-        }
+        AppDelegate.shared = appDelegate
         AppFocusState.overrideIsFocused = false
 
         let workspace = manager.addWorkspace(select: true)
