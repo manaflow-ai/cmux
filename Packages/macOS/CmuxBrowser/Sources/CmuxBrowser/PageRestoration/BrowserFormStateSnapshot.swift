@@ -1,0 +1,123 @@
+public import Foundation
+
+/// Unsaved input in the main frame's form controls, reported by the injected
+/// form-state observer.
+///
+/// WebKit's `interactionState` only carries form values for history entries
+/// the user navigated away from, so the current page's typed input would be
+/// lost when a discarded pane restores. This snapshot fills that gap. It is
+/// kept in memory only and never written to the session file. Password,
+/// payment, one-time-code and `autocomplete="off"` fields are never reported.
+public struct BrowserFormStateSnapshot: Equatable, Sendable {
+    /// Largest number of fields kept per document.
+    public static let maxFieldCount = 200
+    /// Largest value, in UTF-16 code units, kept per field.
+    public static let maxValueLength = 64 * 1024
+
+    public struct Field: Equatable, Sendable {
+        /// Stable locator for the control: `id:`, `name:` or `path:` prefixed.
+        public var key: String
+        /// Text value for text-like inputs and text areas.
+        public var value: String?
+        /// Checked state for checkboxes and radio buttons.
+        public var isChecked: Bool?
+        /// Selected option indexes for select elements.
+        public var selectedOptionIndexes: [Int]?
+
+        public init(key: String, value: String? = nil, isChecked: Bool? = nil, selectedOptionIndexes: [Int]? = nil) {
+            self.key = key
+            self.value = value
+            self.isChecked = isChecked
+            self.selectedOptionIndexes = selectedOptionIndexes
+        }
+    }
+
+    /// URL of the document the fields belong to.
+    public var documentURL: URL
+    public var fields: [Field]
+
+    public init(documentURL: URL, fields: [Field]) {
+        self.documentURL = documentURL
+        self.fields = fields
+    }
+
+    /// Parses `{ url, fields: [{ k, v?, c?, s? }] }` from the observer. Returns
+    /// nil for a malformed body. Oversized values and fields past
+    /// ``maxFieldCount`` are dropped.
+    public init?(messageBody: Any) {
+        guard let body = messageBody as? [String: Any],
+              let urlString = body["url"] as? String,
+              let documentURL = URL(string: urlString),
+              let rawFields = body["fields"] as? [Any] else {
+            return nil
+        }
+        var fields: [Field] = []
+        for rawField in rawFields {
+            guard fields.count < Self.maxFieldCount else { break }
+            guard let entry = rawField as? [String: Any],
+                  let key = entry["k"] as? String,
+                  !key.isEmpty else { continue }
+            let field: Field
+            if let value = entry["v"] as? String {
+                guard value.utf16.count <= Self.maxValueLength else { continue }
+                field = Field(key: key, value: value)
+            } else if let checked = entry["c"] as? Bool {
+                field = Field(key: key, isChecked: checked)
+            } else if let selected = entry["s"] as? [Any] {
+                field = Field(key: key, selectedOptionIndexes: selected.compactMap { ($0 as? NSNumber)?.intValue })
+            } else {
+                continue
+            }
+            fields.append(field)
+        }
+        self.init(documentURL: documentURL, fields: fields)
+    }
+
+    public var isEmpty: Bool { fields.isEmpty }
+
+    /// Whether the fields were typed on the same origin as `url`. Values are
+    /// never carried to another site. The report URL can trail the document
+    /// URL after a same-document route change, so paths are not compared,
+    /// except for file URLs, whose origin is the file itself.
+    public func sharesOrigin(with url: URL?) -> Bool {
+        guard let url else { return false }
+        if documentURL.isFileURL || url.isFileURL {
+            return Self.isSameDocument(documentURL, url)
+        }
+        guard let scheme = documentURL.scheme?.lowercased(), let host = documentURL.host?.lowercased() else {
+            return false
+        }
+        return scheme == url.scheme?.lowercased()
+            && host == url.host?.lowercased()
+            && documentURL.port == url.port
+    }
+
+    /// Whether two URLs load the same document. Fragment changes keep the
+    /// same document, so they are ignored.
+    public static func isSameDocument(_ lhs: URL, _ rhs: URL) -> Bool {
+        documentIdentity(lhs) == documentIdentity(rhs)
+    }
+
+    /// Fields in the shape the restore script expects as its `fields` argument.
+    public var restorePayload: [[String: Any]] {
+        fields.map { field in
+            var entry: [String: Any] = ["k": field.key]
+            if let value = field.value {
+                entry["v"] = value
+            } else if let isChecked = field.isChecked {
+                entry["c"] = isChecked
+            } else if let selectedOptionIndexes = field.selectedOptionIndexes {
+                entry["s"] = selectedOptionIndexes
+            }
+            return entry
+        }
+    }
+
+    static func documentIdentity(_ url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url.absoluteString
+        }
+        components.fragment = nil
+        return components.string ?? url.absoluteString
+    }
+}

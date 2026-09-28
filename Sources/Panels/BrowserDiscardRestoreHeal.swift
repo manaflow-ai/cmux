@@ -9,6 +9,7 @@ extension BrowserPanel {
     }
 
     func noteDiscardedWebViewRestoreNavigationStarted() {
+        pageRestoration.noteNavigationStarted()
         if hiddenWebViewDiscardManager.isDiscardedForMemory {
             // Each restore attempt tracks its own commit. Without this reset, a
             // previous attempt's error-page commit would satisfy the stall
@@ -32,6 +33,7 @@ extension BrowserPanel {
     func noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: String) {
         hiddenWebViewDiscardManager.noteRestoreNavigationDidNotCommit(reason: reason)
         pendingDiscardRestoreNavigation = nil
+        pageRestoration.dismissOverlay()
         refreshWebViewLifecycleState()
     }
 
@@ -88,13 +90,7 @@ extension BrowserPanel {
         }
 
         if hiddenWebViewDiscardManager.restoreIfNeeded(reason: reason, force: forceRestartPendingRestore, performRestore: {
-            shouldRenderWebView = true
-            navigateWithoutInsecureHTTPPrompt(
-                to: restoreURL,
-                recordTypedNavigation: false,
-                preserveRestoredSessionHistory: true,
-                cachePolicy: cachePolicy
-            )
+            performDiscardRestore(to: restoreURL, cachePolicy: cachePolicy, isExplicitReload: forceRestartPendingRestore)
         }) {
             return true
         }

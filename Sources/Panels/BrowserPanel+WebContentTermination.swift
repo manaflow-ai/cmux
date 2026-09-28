@@ -72,7 +72,7 @@ extension BrowserPanel {
     func detachTerminatedWebViewCallbacks(_ terminatedWebView: WKWebView) {
         detachWebViewObservers()
         tearDownReactGrabMessageHandler(for: terminatedWebView, reason: "webContentProcessTerminated")
-        tearDownMediaPlaybackMessageHandler(for: terminatedWebView)
+        tearDownMediaPlaybackMessageHandler(for: terminatedWebView); tearDownPageRestoration(for: terminatedWebView)
         webAuthnCoordinator.tearDown(from: terminatedWebView)
         terminatedWebView.configuration.userContentController.removeScriptMessageHandler(
             forName: BrowserSSLTrustBypassMessageHandler.name

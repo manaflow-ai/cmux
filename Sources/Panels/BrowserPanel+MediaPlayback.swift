@@ -230,6 +230,25 @@ extension BrowserPanel {
     })();
     """
 
+    /// Reports `<video>`/`<audio>` playback so a hidden pane with actively-playing
+    /// media is exempted from memory discard
+    /// (https://github.com/manaflow-ai/cmux/issues/5409). Injected into every
+    /// frame so embedded players in cross-origin iframes keep the pane alive
+    /// too. Runs in an isolated content world (shared DOM, separate JS scope)
+    /// so the handler is hidden from page JavaScript that could otherwise post
+    /// a fake playing report; this also keeps it clear of CAPTCHA fingerprint
+    /// checks in those iframes.
+    static func installMediaPlaybackUserScript(into configuration: WKWebViewConfiguration) {
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: mediaPlaybackTrackingBootstrapScriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false,
+                in: mediaPlaybackContentWorld
+            )
+        )
+    }
+
     /// Installs the media-playback message handler on `webView`.
     ///
     /// Each `BrowserPanel` webview is created with a fresh `WKWebViewConfiguration`

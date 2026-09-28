@@ -125,6 +125,12 @@ public final class BrowserHiddenWebViewDiscardManager {
         discardTimer != nil
     }
 
+    /// Whether hidden web views may be discarded at all under the current
+    /// settings. Panes skip discard-only preparation when it is off.
+    public var isPolicyEnabled: Bool {
+        BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: policyDefaults)
+    }
+
     public func blockers(
         for snapshot: BlockerSnapshot,
         now: Date = Date(),

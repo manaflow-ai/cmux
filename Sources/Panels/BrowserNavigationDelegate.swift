@@ -625,7 +625,7 @@ import WebKit
             } else if let url = navigationAction.request.url,
                       let scheme = url.scheme?.lowercased(),
                       scheme == "http" || scheme == "https" {
-                recordAttemptedRequest(navigationAction.request)
+                recordMainFrameWebRequest(navigationAction.request)
             } else {
                 clearAttemptedRequest()
             }

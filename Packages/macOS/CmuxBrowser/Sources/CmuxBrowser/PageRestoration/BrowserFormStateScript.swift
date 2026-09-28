@@ -1,0 +1,220 @@
+/// Scripts that keep a discarded pane's unsaved form input.
+///
+/// Both run in an isolated content world: they share the DOM with the page
+/// but not its JavaScript globals, so page script can neither read the
+/// reported values nor post fake reports. The observer is passive (capture
+/// phase listeners, no prototype or global changes) and main frame only.
+public enum BrowserFormStateScript {
+    /// Name shared by the content world and the script message handler.
+    public static let messageHandlerName = "cmuxFormState"
+
+    /// How long the restore script waits for late-rendered controls, such as
+    /// a single-page app that builds its form after the document loads.
+    public static let restoreTimeoutMilliseconds = 5_000
+
+    /// Document-start observer. After input settles, and when the page is
+    /// hidden, it reports every control whose value differs from its default,
+    /// keyed by a locator the restore script can resolve again.
+    public static let observerSource = #"""
+    (() => {
+      try {
+        const MAX_FIELDS = 200;
+        const MAX_VALUE = 65536;
+        const EXCLUDED_TYPES = new Set(["password", "hidden", "file", "button", "submit", "reset", "image"]);
+        const isSensitiveAutocomplete = (raw) => String(raw || "").toLowerCase().split(/\s+/).some((token) =>
+          token === "off" || token === "one-time-code" || token.startsWith("cc-") || token.endsWith("-password"));
+        const isEligible = (el) => {
+          if (el.disabled) return false;
+          if (el instanceof HTMLInputElement && EXCLUDED_TYPES.has(el.type)) return false;
+          if (isSensitiveAutocomplete(el.getAttribute("autocomplete"))) return false;
+          if (el.form && isSensitiveAutocomplete(el.form.getAttribute("autocomplete"))) return false;
+          return true;
+        };
+        const keyFor = (el) => {
+          if (el.id) return "id:" + el.id;
+          if (el.name) {
+            const form = el.form;
+            const formIndex = form ? Array.prototype.indexOf.call(document.forms, form) : -1;
+            const scope = form ? form.elements : document.getElementsByName(el.name);
+            let index = 0;
+            for (const other of scope) {
+              if (other === el) break;
+              if (other.name === el.name) index += 1;
+            }
+            return "name:" + formIndex + ":" + el.name + ":" + index;
+          }
+          const parts = [];
+          let node = el;
+          while (node && node !== document.documentElement && node.parentElement) {
+            parts.push(node.tagName.toLowerCase() + ":" + Array.prototype.indexOf.call(node.parentElement.children, node));
+            node = node.parentElement;
+          }
+          return "path:" + parts.reverse().join("/");
+        };
+        const selectState = (el) => {
+          const options = Array.from(el.options);
+          const selected = [];
+          let defaults = [];
+          options.forEach((option, index) => {
+            if (option.selected) selected.push(index);
+            if (option.defaultSelected) defaults.push(index);
+          });
+          if (!el.multiple) {
+            if (defaults.length > 1) defaults = [defaults[defaults.length - 1]];
+            if (defaults.length === 0 && el.size <= 1) {
+              const first = options.findIndex((option) => !option.disabled);
+              if (first >= 0) defaults = [first];
+            }
+          }
+          return selected.join(",") === defaults.join(",") ? null : { s: selected };
+        };
+        const fieldState = (el) => {
+          if (el instanceof HTMLSelectElement) return selectState(el);
+          if (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio")) {
+            return el.checked === el.defaultChecked ? null : { c: el.checked };
+          }
+          if (el.value === el.defaultValue || el.value.length > MAX_VALUE) return null;
+          return { v: el.value };
+        };
+        const collect = () => {
+          const fields = [];
+          const seen = new Set();
+          for (const el of document.querySelectorAll("input, textarea, select")) {
+            if (fields.length >= MAX_FIELDS) break;
+            if (!isEligible(el)) continue;
+            const state = fieldState(el);
+            if (!state) continue;
+            const key = keyFor(el);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            state.k = key;
+            fields.push(state);
+          }
+          return fields;
+        };
+        let lastReported = "[]";
+        let timer = null;
+        let unloading = false;
+        const flush = () => {
+          if (timer !== null) {
+            clearTimeout(timer);
+            timer = null;
+          }
+          if (unloading) return;
+          let fields = [];
+          try { fields = collect(); } catch (_) {}
+          const serialized = JSON.stringify(fields);
+          if (serialized === lastReported) return;
+          lastReported = serialized;
+          try {
+            window.webkit.messageHandlers["\#(messageHandlerName)"].postMessage({ url: String(location.href), fields });
+          } catch (_) {}
+        };
+        const schedule = () => {
+          if (timer !== null) clearTimeout(timer);
+          timer = setTimeout(flush, 250);
+        };
+        document.addEventListener("input", schedule, true);
+        document.addEventListener("change", schedule, true);
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "hidden") flush();
+        }, true);
+        // A report sent while the document unloads can arrive after the next
+        // document commits and be taken for its input. WebKit keeps form
+        // values of pages navigated away from in their history items.
+        window.addEventListener("pagehide", () => {
+          unloading = true;
+          if (timer !== null) clearTimeout(timer);
+          timer = null;
+        }, true);
+        window.addEventListener("pageshow", () => { unloading = false; }, true);
+      } catch (_) {}
+      return true;
+    })();
+    """#
+
+    /// Body for `callAsyncJavaScript` with arguments `fields` (the snapshot's
+    /// ``BrowserFormStateSnapshot/restorePayload``) and `timeoutMs`. Fills
+    /// controls the page has not changed itself, dispatches `input` and
+    /// `change` so frameworks see the values, waits up to `timeoutMs` for
+    /// controls rendered later, and resolves to the number restored.
+    public static let restoreFunctionBody = #"""
+    const pending = new Map();
+    for (const field of fields) pending.set(field.k, field);
+    let restored = 0;
+    const findByKey = (key) => {
+      if (key.startsWith("id:")) return document.getElementById(key.slice(3));
+      if (key.startsWith("name:")) {
+        const rest = key.slice(5);
+        const first = rest.indexOf(":");
+        const last = rest.lastIndexOf(":");
+        if (first < 0 || last <= first) return null;
+        const formIndex = Number(rest.slice(0, first));
+        const name = rest.slice(first + 1, last);
+        const wanted = Number(rest.slice(last + 1));
+        const form = formIndex >= 0 ? document.forms[formIndex] : null;
+        if (formIndex >= 0 && !form) return null;
+        const scope = form ? form.elements : document.getElementsByName(name);
+        let index = 0;
+        for (const el of scope) {
+          if (el.name !== name) continue;
+          if (index === wanted) return el;
+          index += 1;
+        }
+        return null;
+      }
+      if (key.startsWith("path:")) {
+        let node = document.documentElement;
+        for (const part of key.slice(5).split("/")) {
+          if (!part) continue;
+          const separator = part.lastIndexOf(":");
+          const child = node ? node.children[Number(part.slice(separator + 1))] : null;
+          if (!child || child.tagName.toLowerCase() !== part.slice(0, separator)) return null;
+          node = child;
+        }
+        return node;
+      }
+      return null;
+    };
+    const apply = (el, field) => {
+      if (el instanceof HTMLSelectElement) {
+        if (!Array.isArray(field.s)) return true;
+        const wanted = new Set(field.s);
+        Array.from(el.options).forEach((option, index) => { option.selected = wanted.has(index); });
+      } else if (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio")) {
+        if (typeof field.c !== "boolean" || el.checked === field.c || el.checked !== el.defaultChecked) return true;
+        el.checked = field.c;
+      } else if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+        if (el instanceof HTMLInputElement && (el.type === "password" || el.type === "file" || el.type === "hidden")) return true;
+        if (typeof field.v !== "string" || el.value === field.v || el.value !== el.defaultValue) return true;
+        el.value = field.v;
+      } else {
+        return false;
+      }
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      restored += 1;
+      return true;
+    };
+    const applyPending = () => {
+      for (const [key, field] of pending) {
+        const el = findByKey(key);
+        if (el && apply(el, field)) pending.delete(key);
+      }
+      return pending.size === 0;
+    };
+    if (applyPending()) return restored;
+    return await new Promise((resolve) => {
+      let timer = null;
+      let observer = null;
+      const finish = () => {
+        if (observer) observer.disconnect();
+        if (timer !== null) clearTimeout(timer);
+        resolve(restored);
+      };
+      observer = new MutationObserver(() => { if (applyPending()) finish(); });
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+      timer = setTimeout(finish, timeoutMs);
+    });
+    """#
+}
