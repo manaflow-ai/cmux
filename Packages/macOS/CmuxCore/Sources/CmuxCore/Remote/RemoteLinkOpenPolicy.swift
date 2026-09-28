@@ -22,9 +22,16 @@ public struct RemoteLinkOpenPolicy: Sendable {
     ///   - remoteInitiated: Whether the remote machine asked for the open
     ///     without a click on this Mac.
     public func destinations(for url: URL, machineRoute: URL?, remoteInitiated: Bool) -> RemoteLinkDestinations {
+        // An automatic open has no user gesture to authorize a browser or a
+        // redirect. Returning no destination keeps both the embedded and
+        // default browsers out of this path; the caller can print the URL for
+        // the user to click explicitly. This also covers DNS rebinding and
+        // redirects, which a one-time host classification cannot constrain.
+        guard !remoteInitiated else {
+            return RemoteLinkDestinations(browserURL: nil, externalURL: nil)
+        }
         guard let machineRoute else {
-            let opens = !remoteInitiated || !hosts.isNonPublic(host: url.host ?? "")
-            return RemoteLinkDestinations(browserURL: opens ? url : nil, externalURL: opens ? url : nil)
+            return RemoteLinkDestinations(browserURL: url, externalURL: url)
         }
         // An SSH machine's route is this Mac's loopback proxy, which only the
         // cmux browser resolves to the remote machine. In the default browser
@@ -32,7 +39,7 @@ public struct RemoteLinkOpenPolicy: Sendable {
         guard hosts.isLoopback(host: machineRoute.host ?? "") else {
             return RemoteLinkDestinations(browserURL: machineRoute, externalURL: machineRoute)
         }
-        return RemoteLinkDestinations(browserURL: machineRoute, externalURL: remoteInitiated ? nil : url)
+        return RemoteLinkDestinations(browserURL: machineRoute, externalURL: url)
     }
 
     /// Whether a link that resolved to `url` may open a file on this Mac.
