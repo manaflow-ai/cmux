@@ -126,6 +126,11 @@ and from the row's selection action to the first nonblank verified terminal fram
 The gate invokes the production row selection and back actions, waits for the
 terminal view to unmount, then starts the full transport workload. Timings are
 recorded once per process and survive SwiftUI reconstruction and later frames.
+For a soak run, the first launch is an enrollment prewarm that verifies sign-in
+and pairing. The measured launch then restores the saved sign-in and pairing
+without credentials or an injected attach URL, matching a returning user's
+startup path. The report records `startupPath`, and a soak is rejected unless
+it is `stored_pairing`; `injected_pairing` is reserved for enrollment.
 The two UI screenshots are captured from the isolated app window after each
 measured boundary. Launch timing includes OS pre-main work, using the shared
 Mach uptime clock. It does not measure physical touchscreen delivery latency. The monitor

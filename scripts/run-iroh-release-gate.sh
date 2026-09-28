@@ -806,6 +806,10 @@ if [[ -n "$SOAK_PROFILE" ]]; then
   echo "==> prewarming cached Stack and v2 state before the measured launch"
   CMUX_DEV_AUTH_REPLACE_SESSION=1 \
     ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}"
+  # The first launch verified sign-in and pairing. The measured launch must
+  # restore those saved values through the same startup path as a user launch.
+  # --ensure-mac would otherwise inject a new URL and bypass that path entirely.
+  MOBILE_LAUNCH_ARGS+=(--restore-pairing)
 fi
 
 # Wait for the app's atomic report-write signal. Start this after prewarm so
@@ -954,7 +958,8 @@ fi
 run_release_gate_launch() {
   local log_path="$1"
   shift
-  /usr/bin/python3 - "$log_path" "$((REPORT_TIMEOUT + 30))" "$@" <<'PY_LAUNCH'
+/usr/bin/python3 - "$log_path" "$((REPORT_TIMEOUT + 30))" "$@" <<'PY_LAUNCH'
+import os
 import signal
 import subprocess
 import sys
@@ -1090,6 +1095,7 @@ allowed_keys = {
     "selectedPath",
     "failure",
     "uiLatencies",
+    "startupPath",
     "lastDiagnosticEventCode",
     "lastDiagnosticFailureKind",
     "soak",
@@ -1123,6 +1129,8 @@ if soak_profile:
         problems.append("soak did not complete its full observation window")
     if soak.get("completedCycles", 0) < cycles or soak.get("currentOperation") != "complete":
         problems.append("soak workload incomplete")
+    if report.get("startupPath") != "stored_pairing":
+        problems.append("soak did not use the saved-pairing startup path")
     required_operations = ["host_status", "rpc_inventory", "terminal_round_trip", "workspace_rename_restore",
                            "independent_events", "notification_reconcile", "chat_sessions", "artifact_scan"]
     if soak_profile == "stress":

@@ -61,12 +61,14 @@ final class MobileIrohSoakRunner {
     private let interval: Duration
     private let operationTimeout: Duration
     private let requiresRelay: Bool
+    private let allowForcedReconnect: Bool
     private var operationDeadline = ContinuousClock.now
     private var terminalRecoveryAttempts = 0
 
     init(
         profile: Profile, durationSeconds: Int? = nil, minimumCycles: Int? = nil,
-        interval: Duration? = nil, operationTimeout: Duration = .seconds(30), requiresRelay: Bool = true
+        interval: Duration? = nil, operationTimeout: Duration = .seconds(30), requiresRelay: Bool = true,
+        allowForcedReconnect: Bool = true
     ) {
         self.profile = profile
         self.durationSeconds = durationSeconds ?? profile.seconds
@@ -74,6 +76,7 @@ final class MobileIrohSoakRunner {
         self.interval = interval ?? profile.interval
         self.operationTimeout = operationTimeout
         self.requiresRelay = requiresRelay
+        self.allowForcedReconnect = allowForcedReconnect
         evidence = Evidence(profile: profile, requestedDurationSeconds: durationSeconds ?? profile.seconds)
     }
 
@@ -170,7 +173,8 @@ final class MobileIrohSoakRunner {
             }
             guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
             if profile == .stress {
-                evidence.currentOperation = [
+                let shouldForceReconnect = allowForcedReconnect && cycle % 120 == 119
+                evidence.currentOperation = shouldForceReconnect ? "forced_reconnect" : [
                     "workspace_navigation", "unicode_output_burst", "workspace_create_close", "terminal_after_refresh",
                 ][cycle % 4]
                 let usage = try await operationWithRecovery(
@@ -187,7 +191,11 @@ final class MobileIrohSoakRunner {
                 if let recoveredConnection = usage.recoveredConnection {
                     expectedConnection = recoveredConnection
                 }
-                guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
+                if shouldForceReconnect {
+                    expectedConnection = try observe(await connection())
+                } else {
+                    guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
+                }
             }
             let duration = Self.seconds(cycleStarted.duration(to: clock.now))
             evidence.maximumCycleSeconds = max(evidence.maximumCycleSeconds, duration)
