@@ -164,6 +164,9 @@ def invoke_cli(
     for key in [
         "CMUX_SOCKET_PASSWORD",
         "CMUX_SOCKET_CAPABILITY",
+        "CMUX_AUTOMATION_RULE_ID",
+        "CMUX_AUTOMATION_EVENT_JSON",
+        "CMUX_WINDOW_ID",
         "CMUX_WORKSPACE_ID",
         "CMUX_SURFACE_ID",
         "CMUX_TAB_ID",

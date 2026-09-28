@@ -1247,7 +1247,13 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         try runGit(["add", "README.md"], in: repoURL)
         try runGit(["commit", "-m", "Initial commit"], in: repoURL)
 
-        let manager = TabManager()
+        let suiteName = "TabManagerPullRequestProbeTests.inherited-background-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        settings.set(true, for: SettingCatalog().app.workspaceInheritWorkingDirectory)
+        settings.set(true, for: SidebarCatalogSection().watchGitStatus)
+        let manager = TabManager(autoWelcomeIfNeeded: false, settings: settings)
         guard let workspace = manager.selectedWorkspace else {
             XCTFail("Expected selected workspace")
             return
@@ -2067,6 +2073,22 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
 @MainActor
 final class TabManagerCloseCurrentPanelTests: XCTestCase {
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
+    private var savedLastSurfaceCloseSetting: Any?
+
+    // Several tests here expect Close to take a workspace with its last
+    // surface, which is the preference's default. Start each test from that
+    // default so a value left in the shared defaults cannot keep it open.
+    override func setUp() {
+        super.setUp()
+        savedLastSurfaceCloseSetting = UserDefaults.standard.object(forKey: lastSurfaceCloseShortcutDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: lastSurfaceCloseShortcutDefaultsKey)
+    }
+
+    override func tearDown() {
+        restore(savedLastSurfaceCloseSetting, forKey: lastSurfaceCloseShortcutDefaultsKey, defaults: .standard)
+        savedLastSurfaceCloseSetting = nil
+        super.tearDown()
+    }
 
     func testCloseCurrentPanelHonorsWarnBeforeClosingTabDisabledFromCmuxJSON() throws {
         try assertCloseCurrentPanelConfirmation(

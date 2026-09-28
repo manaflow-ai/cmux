@@ -328,6 +328,13 @@ final class WorkspaceContentViewVisibilityTests {
             select: false,
             autoWelcomeIfNeeded: false
         )
+        // The right-side file explorer is outside this test's vertical-sidebar
+        // scope. Keep it hidden so its asynchronous workspace-root discovery
+        // cannot invalidate the chrome bodies during unread measurement.
+        let fileExplorerState = FileExplorerState()
+        let originalFileExplorerVisibility = fileExplorerState.isVisible
+        fileExplorerState.setVisible(false)
+        defer { fileExplorerState.setVisible(originalFileExplorerVisibility) }
         let unread = SidebarUnreadModel()
         let counts = MinimalModeBodyProbeCounts()
         let root = ContentView(
@@ -339,7 +346,7 @@ final class WorkspaceContentViewVisibilityTests {
             .environmentObject(TerminalNotificationStore.shared)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())
-            .environmentObject(FileExplorerState())
+            .environmentObject(fileExplorerState)
             .environmentObject(CmuxConfigStore())
             .environment(
                 \.minimalModeInvalidationProbe,
@@ -563,15 +570,19 @@ final class WorkspaceContentViewVisibilityTests {
 #endif
     }
 
-    /// Drains until three consecutive drains re-evaluate no chrome body, so a
-    /// measurement only counts what the change under test invalidates.
+    /// Drains until ten consecutive drains re-evaluate no chrome body, so a
+    /// measurement only counts what the change under test invalidates. The
+    /// selected workspace can publish its initial file-explorer root on a
+    /// later run-loop turn, after the first few quiet rounds.
     @MainActor
     private static func waitForQuietChromeBodies(
         counts: MinimalModeBodyProbeCounts,
         window: NSWindow
     ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(10))
         var quietRounds = 0
-        for _ in 0..<100 where quietRounds < 3 {
+        while quietRounds < 10 && clock.now < deadline {
             counts.reset()
             await drainMainRunLoop(for: window)
             let settled = counts.contentViewBody == 0
@@ -579,7 +590,7 @@ final class WorkspaceContentViewVisibilityTests {
                 && counts.verticalTabsSidebarBody == 0
             quietRounds = settled ? quietRounds + 1 : 0
         }
-        return quietRounds >= 3
+        return quietRounds >= 10
     }
 
     @MainActor

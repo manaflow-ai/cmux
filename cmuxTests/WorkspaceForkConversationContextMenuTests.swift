@@ -1525,11 +1525,13 @@ struct WorkspaceForkConversationContextMenuTests {
             executablePath: executable.path
         )
         let loaderStarted = OSAllocatedUnfairLock(initialState: false)
+        let loaderStartSignal = ForkProbeTestSignal()
         let releaseLoader = OSAllocatedUnfairLock(initialState: false)
         let probedSessionIds = OSAllocatedUnfairLock(initialState: [String]())
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
                 loaderStarted.withLock { $0 = true }
+                loaderStartSignal.signal()
                 while !releaseLoader.withLock({ $0 }) {
                     Thread.sleep(forTimeInterval: 0.005)
                 }
@@ -1565,9 +1567,7 @@ struct WorkspaceForkConversationContextMenuTests {
         )
 
         sharedIndex.scheduleRefreshIfStale(validating: panelKey)
-        for _ in 0..<1000 where !loaderStarted.withLock({ $0 }) {
-            await Task.yield()
-        }
+        try #require(await loaderStartSignal.wait(), "Index loader must start before the fallback validation.")
         #expect(loaderStarted.withLock { $0 })
 
         await sharedIndex.refreshForkAvailabilityNow(

@@ -328,7 +328,11 @@ struct WorkspaceRecoveryTests {
             toWorkspaceIds: [sourceWorkspace.id]
         )
 
-        let generated = manager.addWorkspace(select: false)
+        let generated = manager.addWorkspace(
+            workingDirectory: directory,
+            inheritWorkingDirectory: false,
+            select: false
+        )
         #expect(generated.title == "Terminal 2")
         #expect(generated.currentDirectory == directory)
         #expect(generated.customTitle == nil)
