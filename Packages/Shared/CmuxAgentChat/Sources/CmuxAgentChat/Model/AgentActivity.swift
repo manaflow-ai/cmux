@@ -144,16 +144,23 @@ public struct AgentActivitySignals: Sendable, Equatable {
     public init() {}
 }
 
-public enum AgentActivityClassifier {
+extension AgentActivity.Tool {
     /// Tools that only read. A resume re-issues them without side effects.
-    public static let readOnlyTools: Set<String> = [
+    public static let readOnlyNames: Set<String> = [
         "Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch", "NotebookRead", "TodoRead",
     ]
 
     /// Subagent launchers: time inside them is subagent work, not a foreground tool.
-    public static let subagentTools: Set<String> = ["Task", "Agent"]
+    public static let subagentLauncherNames: Set<String> = ["Task", "Agent"]
 
-    public static func classify(_ signals: AgentActivitySignals) -> (activity: AgentActivity, safety: ResumeSafetyAssessment) {
+    public var isReadOnly: Bool { Self.readOnlyNames.contains(name) }
+    public var isSubagentLauncher: Bool { Self.subagentLauncherNames.contains(name) }
+}
+
+extension AgentActivitySignals {
+    /// What the agent is doing and whether a restart can interrupt it.
+    public func classify() -> (activity: AgentActivity, safety: ResumeSafetyAssessment) {
+        let signals = self
         let since = signals.since
         let (activity, safety, reason): (AgentActivity, ResumeSafety, ResumeSafetyAssessment.Reason) = {
             if signals.ended {
@@ -166,10 +173,10 @@ public enum AgentActivityClassifier {
                 return (AgentActivity(kind: .question, since: since, source: .hook), .risky, .openQuestion)
             }
             if let tool = signals.openTool {
-                if subagentTools.contains(tool.name) {
+                if tool.isSubagentLauncher {
                     return (AgentActivity(kind: .subagents, tool: tool, since: tool.startedAt ?? since, source: .hook), .care, .subagents)
                 }
-                if readOnlyTools.contains(tool.name) {
+                if tool.isReadOnly {
                     return (AgentActivity(kind: .tool, tool: tool, since: tool.startedAt ?? since, source: .hook), .care, .readOnlyTool)
                 }
                 return (AgentActivity(kind: .tool, tool: tool, since: tool.startedAt ?? since, source: .hook), .risky, .foregroundCommand)

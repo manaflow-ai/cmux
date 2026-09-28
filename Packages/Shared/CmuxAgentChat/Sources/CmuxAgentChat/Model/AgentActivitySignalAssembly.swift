@@ -37,6 +37,11 @@ public struct AgentActivityEvidence: Sendable {
         self.hasDraft = hasDraft
     }
 
+    /// Shorthand for `signals.classify()`.
+    public func classify() -> (activity: AgentActivity, safety: ResumeSafetyAssessment) {
+        signals.classify()
+    }
+
     public var signals: AgentActivitySignals {
         var signals = AgentActivitySignals()
         let registryEnded: Bool

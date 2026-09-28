@@ -56,7 +56,7 @@ public struct AgentHookActivityState: Sendable, Equatable {
     /// The call that best describes what the agent is doing now: the newest
     /// open non-subagent tool, else the newest open subagent launcher.
     public var openTool: AgentActivity.Tool? {
-        openTools.last { !AgentActivityClassifier.subagentTools.contains($0.tool.name) }?.tool
+        openTools.last { !$0.tool.isSubagentLauncher }?.tool
             ?? openTools.last?.tool
     }
 

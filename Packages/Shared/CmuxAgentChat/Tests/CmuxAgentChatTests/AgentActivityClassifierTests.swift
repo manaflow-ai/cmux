@@ -8,7 +8,7 @@ struct AgentActivityClassifierTests {
     private func classify(_ configure: (inout AgentActivitySignals) -> Void) -> (AgentActivity, ResumeSafetyAssessment) {
         var signals = AgentActivitySignals()
         configure(&signals)
-        let result = AgentActivityClassifier.classify(signals)
+        let result = signals.classify()
         return (result.activity, result.safety)
     }
 

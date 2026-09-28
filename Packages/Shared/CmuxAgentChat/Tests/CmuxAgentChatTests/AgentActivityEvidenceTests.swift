@@ -22,7 +22,7 @@ struct AgentActivityEvidenceTests {
     }
 
     private func classify(_ evidence: AgentActivityEvidence) -> (AgentActivity, ResumeSafetyAssessment) {
-        let result = AgentActivityClassifier.classify(evidence.signals)
+        let result = evidence.classify()
         return (result.activity, result.safety)
     }
 
@@ -196,7 +196,7 @@ struct AgentHookActivityReviewTests {
     private func classify(_ hooks: AgentHookActivityState?, unknown: Bool = false) -> (AgentActivity, ResumeSafetyAssessment) {
         let evidence = AgentActivityEvidence(registryState: .idle, registryHasHookLifecycleState: true,
                                              registryLastActivityAt: t0, hooks: hooks, foregroundCommandUnknown: unknown)
-        let result = AgentActivityClassifier.classify(evidence.signals)
+        let result = evidence.classify()
         return (result.activity, result.safety)
     }
 
@@ -333,7 +333,7 @@ struct AgentHookActivityReviewTests {
         ])
         let evidence = AgentActivityEvidence(registryState: .working(since: t0), registryHasHookLifecycleState: true,
                                              registryLastActivityAt: t0, hooks: hooks)
-        #expect(AgentActivityClassifier.classify(evidence.signals).activity.kind == .thinking)
+        #expect(evidence.classify().activity.kind == .thinking)
     }
 
     @Test("process filtering starts at the turn start, else at the last idle point")
@@ -346,8 +346,8 @@ struct AgentHookActivityReviewTests {
 }
 
 @Suite("Agent foreground command")
-struct AgentForegroundCommandTests {
-    private typealias P = AgentForegroundCommand.Process
+struct AgentProcessTreeTests {
+    private typealias P = AgentProcessTree.Process
 
     private func census(_ processes: [P]) -> [Int: P] {
         Dictionary(uniqueKeysWithValues: processes.map { ($0.pid, $0) })
@@ -359,14 +359,14 @@ struct AgentForegroundCommandTests {
             P(pid: 10, parentPID: 1, name: "claude", isTerminalForeground: true),
             P(pid: 11, parentPID: 10, name: "node", isTerminalForeground: true),
         ])
-        #expect(AgentForegroundCommand.commandPID(agentPID: 10, processes: processes) == nil)
+        #expect(AgentProcessTree(processes: processes).foregroundCommandPID(agentPID: 10) == nil)
         let running = census([
             P(pid: 10, parentPID: 1, name: "claude", isTerminalForeground: true),
             P(pid: 11, parentPID: 10, name: "node", isTerminalForeground: true),
             P(pid: 12, parentPID: 10, name: "zsh", isTerminalForeground: true),
             P(pid: 13, parentPID: 12, name: "swift-build", isTerminalForeground: true),
         ])
-        #expect(AgentForegroundCommand.commandPID(agentPID: 10, processes: running) == 13)
+        #expect(AgentProcessTree(processes: running).foregroundCommandPID(agentPID: 10) == 13)
     }
 
     @Test("background shells and shells older than the turn are ignored")
@@ -377,17 +377,17 @@ struct AgentForegroundCommandTests {
             P(pid: 12, parentPID: 10, name: "zsh", isTerminalForeground: false),
             P(pid: 14, parentPID: 10, name: "bash", isTerminalForeground: true, startedAt: Date(timeIntervalSince1970: 100)),
         ])
-        #expect(AgentForegroundCommand.commandPID(agentPID: 10, processes: processes, notBefore: turn) == nil)
-        #expect(AgentForegroundCommand.commandPID(agentPID: 10, processes: processes) == 14)
+        #expect(AgentProcessTree(processes: processes).foregroundCommandPID(agentPID: 10, notBefore: turn) == nil)
+        #expect(AgentProcessTree(processes: processes).foregroundCommandPID(agentPID: 10) == 14)
     }
 
     @Test("describe shows a shell's script and truncates")
     func describe() {
-        #expect(AgentForegroundCommand.describe(arguments: ["/bin/zsh", "-c", "-l", "npm test"]) == "npm test")
-        #expect(AgentForegroundCommand.describe(arguments: ["/usr/bin/make", "-j8", "all"]) == "make -j8 all")
-        #expect(AgentForegroundCommand.describe(arguments: []) == nil)
-        let long = AgentForegroundCommand.describe(arguments: ["x", String(repeating: "a", count: 300)])
-        #expect(long?.count == AgentForegroundCommand.maximumLength)
+        #expect(AgentProcessTree.describe(arguments: ["/bin/zsh", "-c", "-l", "npm test"]) == "npm test")
+        #expect(AgentProcessTree.describe(arguments: ["/usr/bin/make", "-j8", "all"]) == "make -j8 all")
+        #expect(AgentProcessTree.describe(arguments: []) == nil)
+        let long = AgentProcessTree.describe(arguments: ["x", String(repeating: "a", count: 300)])
+        #expect(long?.count == AgentProcessTree.maximumLength)
     }
 }
 

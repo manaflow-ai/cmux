@@ -74,7 +74,7 @@ struct AgentActivityIndex {
             if pane.placement == .local {
                 evidence.foregroundCommandUnknown = !probed.contains(index) || !census.complete
             }
-            let result = AgentActivityClassifier.classify(evidence.signals)
+            let result = evidence.classify()
             return AgentActivitySnapshot(
                 workspaceID: pane.workspaceID, panelID: pane.panelID, surfaceID: pane.panelID,
                 paneID: pane.paneID, name: pane.name, agentKind: pane.agentKind, sessionID: pane.sessionID,
@@ -179,10 +179,10 @@ struct AgentActivityIndex {
         guard snapshot.captureIsAvailable else { return ([:], false) }
         var commands: [Int: String] = [:]
         for probe in probes {
-            var processes: [Int: AgentForegroundCommand.Process] = [:]
+            var processes: [Int: AgentProcessTree.Process] = [:]
             for pid in snapshot.descendantPIDs(rootPID: probe.agentPID, includeRoot: true) {
                 guard let process = snapshot.process(pid: pid) else { continue }
-                processes[pid] = AgentForegroundCommand.Process(
+                processes[pid] = AgentProcessTree.Process(
                     pid: pid,
                     parentPID: process.parentPID,
                     name: process.name,
@@ -192,14 +192,14 @@ struct AgentActivityIndex {
                     }
                 )
             }
-            guard let pid = AgentForegroundCommand.commandPID(
-                agentPID: probe.agentPID, processes: processes, notBefore: probe.notBefore
+            guard let pid = AgentProcessTree(processes: processes).foregroundCommandPID(
+                agentPID: probe.agentPID, notBefore: probe.notBefore
             ), let process = snapshot.process(pid: pid) else {
                 continue
             }
             // A command that runs but whose argv cannot be read still runs.
             let arguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process)?.arguments ?? []
-            commands[probe.index] = AgentForegroundCommand.describe(arguments: arguments) ?? process.name
+            commands[probe.index] = AgentProcessTree.describe(arguments: arguments) ?? process.name
         }
         return (commands, snapshot.enumerationIsComplete)
     }
