@@ -12,6 +12,25 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### ExternalHover integration with current main
+
+- Branch: `cmux/issue-9872-external-hover-main-sync-20260928`
+- Commit: `90d78440f893be35903a71976448d7f0bddddf6e` (ExternalHover
+  integration merged with current fork main, including prompt-input and
+  startup UTF-8 fixes)
+- Summary: keeps the cmux ExternalHover C API and lifecycle diagnostics while
+  carrying Ghostty's current embedded APIs and byte-preserving startup input
+  parsing. The merge must retain `Surface.promptInput` and
+  `Surface.selectPromptInput`; dropping either breaks `apprt/embedded.zig`.
+- Artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-90d78440f893be35903a71976448d7f0bddddf6e-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `42693a67b0455761951f54db228cc6f484d88fc69bc0e3fa7247837727b42e20`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: when merging future Ghostty main changes, resolve
+  `src/Surface.zig` by preserving the ExternalHover setter/clear methods and
+  all embedded APIs added by main; keep `include/ghostty.h` and
+  `src/apprt/embedded.zig` synchronized with those methods.
+
 ### Startup input keeps its bytes
 
 - Branch: `issue-12915-hex-escape-bytes` ([manaflow-ai/ghostty#239](https://github.com/manaflow-ai/ghostty/pull/239))
