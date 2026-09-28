@@ -75,7 +75,15 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             guard !pinnedTopLevelIds.contains(topLevelId) else { return false }
             let topLevelIds = model.sidebarTopLevelWorkspaceIdsIncludingEmptyGroups()
             let pinnedCount = topLevelIds.filter { pinnedTopLevelIds.contains($0) }.count
-            return topLevelIds.firstIndex(of: topLevelId) == pinnedCount
+            guard topLevelIds.firstIndex(of: topLevelId) == pinnedCount else { return false }
+            // A group member is on top only when it also leads its group, the
+            // slot moveTabToTopForNotification promotes it to (right after the
+            // anchor).
+            guard let groupId = tab.groupId,
+                  let group = model.workspaceGroups.first(where: { $0.id == groupId }),
+                  tab.id != group.anchorWorkspaceId else { return true }
+            let firstMember = model.tabs.first { $0.groupId == groupId && $0.id != group.anchorWorkspaceId }
+            return firstMember?.id == tabId
         }
         return model.tabs.first(where: { !$0.isPinned })?.id == tabId
     }
