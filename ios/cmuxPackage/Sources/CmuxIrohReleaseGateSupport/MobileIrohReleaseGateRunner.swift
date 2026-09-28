@@ -232,7 +232,7 @@ final class MobileIrohReleaseGateRunner {
                                 cycle: cycle,
                                 marker: marker,
                                 terminalSession: terminalSession,
-                                includeForcedReconnect: true
+                                includeForcedReconnect: false
                             )
                         },
                         recovery: {

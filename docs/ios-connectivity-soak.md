@@ -11,11 +11,11 @@ The stress workload runs for 3,600 seconds, with a five-second target cadence.
 Each cycle runs the basic transactions and the next step of a fixed four-step
 sequence: workspace navigation and refresh; 128 lines of Unicode output;
 create, open, use and close a scratch workspace; then refresh and use the
-terminal again. Every 120th cycle replaces that fourth step with an explicit
-disconnect and reconnect, preserving the saved pairing, then proves a terminal
-round trip on the replacement connection. Workload plan 2 checks continuity
-around every healthy step, and an unexpected connection replacement fails the
-foreground workload. A cycle exceeding 30
+terminal again. Workload plan 2 checks continuity around every healthy step.
+The shell supports a separate explicit disconnect/reconnect test, but the
+recurring foreground workload reconnects only after a recorded terminal
+failure. An unexpected connection replacement fails the foreground workload.
+A cycle exceeding 30
 seconds fails.
 
 These are app-action and transport checks in an isolated Simulator. They do

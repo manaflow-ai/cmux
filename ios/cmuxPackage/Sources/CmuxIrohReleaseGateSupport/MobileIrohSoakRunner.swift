@@ -170,11 +170,9 @@ final class MobileIrohSoakRunner {
             }
             guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
             if profile == .stress {
-                evidence.currentOperation = cycle % 120 == 119
-                    ? "forced_reconnect"
-                    : [
-                        "workspace_navigation", "unicode_output_burst", "workspace_create_close", "terminal_after_refresh",
-                    ][cycle % 4]
+                evidence.currentOperation = [
+                    "workspace_navigation", "unicode_output_burst", "workspace_create_close", "terminal_after_refresh",
+                ][cycle % 4]
                 let usage = try await operationWithRecovery(
                     marker: cycleMarker,
                     connection: connection,
