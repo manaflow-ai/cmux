@@ -543,6 +543,18 @@ try {
     await timed("pause", async () => {
       expectStatus(await api("POST", `/api/vm/${encodeURIComponent(vmId)}/pause`, {}, 3 * 60 * 1000), [200, 202], "pause");
     });
+    // Is the machine asleep? Whether the terminal still runs commands within
+    // 5 s of pause returning, and what the control plane says.
+    const liveDeadline = Date.now() + 5_000;
+    await typeLine(terminal, `echo ${marker}-$((2+2))`).catch((error) => note(`terminal write while paused failed: ${error.message.slice(0, 120)}`));
+    const liveWindowMs = liveDeadline - Date.now();
+    if (liveWindowMs <= 0) note("terminal write while paused took over 5 s");
+    result.terminalLiveWhilePaused = liveWindowMs > 0
+      && await waitForScreen(localSocket, terminal, `${marker}-4`, liveWindowMs).then(() => true, () => false);
+    const shown = await api("GET", `/api/vm/${encodeURIComponent(vmId)}`)
+      .catch((error) => ({ status: 0, json: null, text: error.message }));
+    result.statusAfterPause = shown.json?.status ?? `http ${shown.status}`;
+    if (result.terminalLiveWhilePaused) note("the terminal still ran a command after pause returned");
     // How the headless client reports a sleeping machine.
     const lostAfter = await link.waitFor((event) => event.event === "connection-snapshot" && event.connection?.state !== "connected", 60_000, "non-connected snapshot after pause", beforePause)
       .then((event) => event.connection.state)
@@ -562,6 +574,11 @@ try {
       await typeLine(terminal, `echo ${marker}-$((1+2))`);
       await waitForScreen(localSocket, terminal, `${marker}-3`, 30_000);
     });
+    // Was the line typed while paused kept and run after waking, or lost?
+    if (!result.terminalLiveWhilePaused) {
+      result.pausedKeystrokesRanAfterResume = await waitForScreen(localSocket, terminal, `${marker}-4`, 1_000)
+        .then(() => true, () => false);
+    }
     await saveScreen(localSocket, terminal, "02-after-resume");
   }
 

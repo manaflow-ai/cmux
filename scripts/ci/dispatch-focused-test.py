@@ -691,6 +691,10 @@ def awaited_products(producer: dict, commit: str, only_testing: str) -> dict | N
     return planned_products(commit, only_testing, str(producer["id"]))
 
 
+# CI runs whose finished products ui_product_source() found but no UI run can load.
+UNLOADABLE_SOURCES: list[str] = []
+
+
 def ui_product_source(commit: str) -> dict | None:
     """The CI run whose app-host products a UI run of this commit can adopt.
 
@@ -732,6 +736,8 @@ def ui_product_source(commit: str) -> dict | None:
             if rerun.products_artifact(REPO, str(run["id"]), rerun.gh_api):
                 if usable_product(source):
                     return {**source, "ready": True, "adopted": True}
+                if unusable_family(source):
+                    UNLOADABLE_SOURCES.append(source["url"])
                 continue
         except (subprocess.CalledProcessError, json.JSONDecodeError):
             continue
@@ -801,6 +807,15 @@ def product_family(source: dict) -> str | None:
             return blacksmith[0] if blacksmith[0] in RUNNERS else FAMILY_RUNNERS["blacksmith"]
         return None if labels else ""
     return ""
+
+
+def unusable_family(source: dict) -> bool:
+    """Whether a CI run's compile admission has a runner whose products no UI
+    run can load; False when unknown (no runner yet, or the API failed)."""
+    try:
+        return product_family(source) is None
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        return False
 
 
 def usable_product(source: dict, pending: bool = False) -> bool:
@@ -898,8 +913,11 @@ def watch_run(run_id: int) -> int:
 DOGFOOD_SELECTOR = "cmuxUITests/DogfoodScenarioUITests"
 # workflow_dispatch caps the whole inputs payload at 65,535 characters.
 DOGFOOD_SCENARIO_MAX_B64 = 60_000
-# --adopt-only's status when the run would have to compile the app itself.
+# --adopt-only's status when the run would have to compile the app itself:
+# CI made no product (or has not within the wait), or made one on a pool
+# the UI runner cannot load (UNLOADABLE_PRODUCT_EXIT).
 NO_PRODUCT_EXIT = 3
+UNLOADABLE_PRODUCT_EXIT = 4
 
 
 def encode_scenario(path: Path) -> str:
@@ -964,7 +982,8 @@ def main() -> int:
         "--adopt-only",
         action="store_true",
         help="UI runs only: dispatch only when the run can adopt the app and UI test bundle a CI "
-        f"run of this commit compiled, and otherwise exit {NO_PRODUCT_EXIT}; the dispatched run "
+        f"run of this commit compiled, and otherwise exit {NO_PRODUCT_EXIT} "
+        f"({UNLOADABLE_PRODUCT_EXIT} when CI's product is on a pool the UI runner cannot load); the dispatched run "
         "fails rather than compiles if its reuse still misses (PR media tours use this)",
     )
     parser.add_argument(
@@ -1060,6 +1079,10 @@ def main() -> int:
                 )
 
     if args.adopt_only and ui_source is None:
+        if UNLOADABLE_SOURCES:
+            print(f"{UNLOADABLE_SOURCES[0]} compiled {head}'s app-host products where no UI run can "
+                  "load them; not compiling (--adopt-only).", flush=True)
+            return UNLOADABLE_PRODUCT_EXIT
         print(f"No CI run of {head} has or will have app-host products to adopt; "
               "not compiling (--adopt-only).", flush=True)
         return NO_PRODUCT_EXIT
@@ -1196,6 +1219,10 @@ def main() -> int:
             adopted = False
         ui_source["adopted"] = adopted
         if args.adopt_only and not adopted:
+            if unusable_family(ui_source):
+                print(f"{ui_source['url']} compiles on a pool whose products no UI run can load; "
+                      "not compiling (--adopt-only).", flush=True)
+                return UNLOADABLE_PRODUCT_EXIT
             print(f"{ui_source['url']} left no app-host products this run can adopt; "
                   "not compiling (--adopt-only).", flush=True)
             return NO_PRODUCT_EXIT
@@ -1234,7 +1261,7 @@ def main() -> int:
         print(f"UI runs go to {runner}, which cannot load the products {ui_source['url']} "
               f"compiled on {ui_source.get('family') or 'an unknown pool'}; not compiling (--adopt-only).",
               flush=True)
-        return NO_PRODUCT_EXIT
+        return UNLOADABLE_PRODUCT_EXIT
     dispatch_id = uuid.uuid4().hex
     video = not args.no_video and test_target != "cmuxTests"
     fields = {

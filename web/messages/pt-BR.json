@@ -1357,6 +1357,7 @@
           "warnBeforeQuit": "Fallback booleano legado para confirmação de saída. Use app.confirmQuit em novas configurações.",
           "warnBeforeClosingTabXButton": "Mostrar uma confirmação antes de fechar uma aba com o botão de fechar aba.",
           "hideTabCloseButton": "Ocultar os botões de fechar aba na barra de abas do painel.",
+          "tabBarVisibility": "Determina quando um painel desenha sua barra de abas. \"always\" a desenha mesmo em um painel com uma única aba; \"multiple-tabs\" a oculta enquanto o painel tiver uma única aba e a desenha assim que uma segunda for aberta. O modo mínimo (app.minimalMode) a desenha sempre, porque nele a barra de abas do painel superior também serve de barra de título da janela.",
           "forkConversationDefaultDestination": "Destino padrão da ação principal Fork Conversation no menu de contexto da aba. O submenu ainda mostra todos os destinos.",
           "globalFontMagnification": "Zoom percentual para tudo o que o próprio cmux desenha: texto do terminal, títulos das abas, barras laterais, Settings, sobreposições e moldura da janela. Páginas web dentro de superfícies de navegador mantêm o próprio tamanho."
         },
