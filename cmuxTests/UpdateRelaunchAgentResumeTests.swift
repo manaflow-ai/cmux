@@ -277,16 +277,22 @@ struct UpdateRelaunchAgentResumeTests {
             surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: [:])
         )
         var capture = UpdateRelaunchIndexCapture()
-        #expect(capture.take(now: 100) == nil)
+        // `take` is mutating, so each result is read outside the test macros.
+        let empty = capture.take(now: 100)
+        #expect(empty == nil)
 
         capture.store(fresh, capturedAt: 100)
-        let taken = try #require(capture.take(now: 100 + UpdateRelaunchIndexCapture.lifetime))
+        let recent = capture.take(now: 100 + UpdateRelaunchIndexCapture.lifetime)
+        let taken = try #require(recent)
         #expect(taken.surfaceResumeBindingIndex.isAvailable)
-        #expect(capture.take(now: 101) == nil)
+        let again = capture.take(now: 101)
+        #expect(again == nil)
 
         capture.store(fresh, capturedAt: 100)
-        #expect(capture.take(now: 101 + UpdateRelaunchIndexCapture.lifetime) == nil)
-        #expect(capture.take(now: 101) == nil)
+        let stale = capture.take(now: 101 + UpdateRelaunchIndexCapture.lifetime)
+        #expect(stale == nil)
+        let afterStale = capture.take(now: 101)
+        #expect(afterStale == nil)
     }
 
     /// An agent the update relaunch cut off mid-task is saved marked, and only that save marks it.
