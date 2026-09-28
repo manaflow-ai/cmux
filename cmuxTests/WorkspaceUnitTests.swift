@@ -3520,6 +3520,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot?,
+            initialTerminalStartsOnFirstVisit: Bool,
             initialTerminalEnvironment: [String: String],
             initialBrowserURL: URL?,
             initialBrowserOmnibarVisible: Bool,
@@ -3538,6 +3539,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
+                initialTerminalStartsOnFirstVisit: initialTerminalStartsOnFirstVisit,
                 initialTerminalEnvironment: initialTerminalEnvironment,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
@@ -3836,6 +3838,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot?,
+            initialTerminalStartsOnFirstVisit: Bool,
             initialTerminalEnvironment: [String: String],
             initialBrowserURL: URL?,
             initialBrowserOmnibarVisible: Bool,
@@ -3854,6 +3857,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
+                initialTerminalStartsOnFirstVisit: initialTerminalStartsOnFirstVisit,
                 initialTerminalEnvironment: initialTerminalEnvironment,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
@@ -4188,7 +4192,7 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification))
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification), .notifications)
     }
 
     func testDisabledWhenSetToFalse() {
@@ -4200,7 +4204,7 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(false, forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
-        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification))
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification), .off)
     }
 
     func testEnabledWhenSetToTrue() {
@@ -4212,7 +4216,7 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(true, forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
-        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification))
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification), .notifications)
     }
 }
 
