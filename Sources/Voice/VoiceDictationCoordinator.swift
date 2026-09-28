@@ -41,6 +41,7 @@ final class VoiceDictationCoordinator {
         stopAction: { [weak self] in self?.stopFromHUD() }
     )
     private var defaultsObserver: NSObjectProtocol?
+    private var resignActiveObserver: NSObjectProtocol?
     private var tabBarButtonAvailable: Bool
     private var hold: HoldTracking?
 
@@ -72,12 +73,18 @@ final class VoiceDictationCoordinator {
         let sessionEngine = VoiceDictationAuthorizer.SessionEngine()
         self.sessionEngine = sessionEngine
         let cleanupKey = catalog.voice.cleanUpAgentPrompts
+        let languageKey = catalog.voice.dictationLanguage
+        let dictationLocale = { [defaults] in
+            let identifier = languageKey.value(in: defaults)
+            return identifier.isEmpty ? Locale.current : Locale(identifier: identifier)
+        }
         let router = VoiceDictationInsertionRouter(
             focusedTerminalTarget: focusedTerminalTarget,
-            cleanUpAgentPrompts: { [defaults] in cleanupKey.value(in: defaults) }
+            cleanUpAgentPrompts: { [defaults] in
+                cleanupKey.value(in: defaults) && DictationTextCleanup.supports(dictationLocale())
+            }
         )
         let transcriberProvider = SystemSpeechTranscriberProvider()
-        let languageKey = catalog.voice.dictationLanguage
         let modelKey = catalog.voice.openAIModel
         let controller = DictationController(
             authorizer: VoiceDictationAuthorizer(sessionEngine: sessionEngine),
@@ -99,10 +106,7 @@ final class VoiceDictationCoordinator {
                     return transcriberProvider.makeTranscriber(levelMeter: levelMeter)
                 }
             },
-            localeProvider: { [defaults] in
-                let identifier = languageKey.value(in: defaults)
-                return identifier.isEmpty ? Locale.current : Locale(identifier: identifier)
-            }
+            localeProvider: dictationLocale
         )
         self.controller = controller
         tabBarButtonAvailable = Self.showsTabBarButton(catalog: catalog, defaults: defaults)
@@ -118,12 +122,23 @@ final class VoiceDictationCoordinator {
                 self?.defaultsDidChange()
             }
         }
+        // Holding the shortcut while switching apps hides the key-up from
+        // the local monitor; end hold-to-talk there instead of recording on.
+        resignActiveObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.applicationDidResignActive()
+            }
+        }
         hud.activate()
     }
 
     deinit {
-        if let defaultsObserver {
-            NotificationCenter.default.removeObserver(defaultsObserver)
+        for observer in [defaultsObserver, resignActiveObserver].compactMap({ $0 }) {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 
@@ -147,9 +162,9 @@ final class VoiceDictationCoordinator {
         if event.isARepeat {
             // Auto-repeat while the shortcut is held belongs to the press
             // already being handled.
-            return controller.isActive || hold != nil
+            return controller.isActiveOrStarting || hold != nil
         }
-        if controller.isActive {
+        if controller.isActiveOrStarting {
             endHoldTracking()
             controller.stop()
             return true
@@ -169,7 +184,7 @@ final class VoiceDictationCoordinator {
     /// - Returns: `false` when dictation is disabled in Settings.
     @discardableResult
     func toggleFromUI() -> Bool {
-        if controller.isActive {
+        if controller.isActiveOrStarting {
             controller.stop()
             return true
         }
@@ -181,7 +196,7 @@ final class VoiceDictationCoordinator {
     /// Stops an active session from the HUD through the same coordinator-owned
     /// action path used by the keyboard shortcut.
     func stopFromHUD() {
-        guard controller.isActive else { return }
+        guard controller.isActiveOrStarting else { return }
         endHoldTracking()
         controller.stop()
     }
@@ -251,10 +266,16 @@ final class VoiceDictationCoordinator {
         let heldFor = event.timestamp - hold.pressedAt
         endHoldTracking()
         let isHoldToTalk = hold.mode == .hold || heldFor >= Self.holdThreshold
-        if isHoldToTalk, controller.isActive {
+        if isHoldToTalk, controller.isActiveOrStarting {
             controller.stop()
         }
         return consume ? nil : event
+    }
+
+    private func applicationDidResignActive() {
+        guard hold != nil else { return }
+        endHoldTracking()
+        controller.stop()
     }
 
     private func endHoldTracking() {
@@ -269,7 +290,7 @@ final class VoiceDictationCoordinator {
             tabBarButtonAvailable = available
             AppDelegate.shared?.reapplyVoiceDictationTabBarButtons()
         }
-        guard controller.isActive,
+        guard controller.isActiveOrStarting,
               !catalog.voice.dictationEnabled.value(in: defaults) else { return }
         endHoldTracking()
         controller.stop()
@@ -392,6 +413,10 @@ final class VoiceDictationCoordinator {
                     defaultValue: "The request to OpenAI failed. Check your connection and API key in Settings › Voice, then try again."
                 )
             )
+        case .transcriptionFailed(let detail) where sessionEngine.kind == .cloud:
+            // A cloud stop timeout; the on-device copy below would wrongly
+            // say audio stayed on this Mac.
+            presentFailure(.cloudTranscriptionFailed(detail))
         case .transcriptionFailed(let detail):
             voiceDictationLogger.error(
                 "Voice dictation transcription failed: \(detail, privacy: .private)"

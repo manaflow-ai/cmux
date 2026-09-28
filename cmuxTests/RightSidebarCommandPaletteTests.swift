@@ -177,6 +177,16 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         )
     }
 
+    func testVoiceDictationPaletteCommandDismissesBeforeRunning() {
+        // Dictation pins its target from the first responder, so the palette
+        // must restore pane focus before the command runs.
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldDismissBeforeRun(
+                forCommandId: ShortcutParityPaletteCommand.toggleVoiceDictation.rawValue
+            )
+        )
+    }
+
     @MainActor
     func testBrowserHardReloadPaletteCommandDispatchesHardReload() {
         var dispatched: [BrowserAction] = []

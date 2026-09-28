@@ -56,6 +56,13 @@ public actor CloudDictationTranscriber: SpeechTranscribing {
             samples.append(Data(bytes: channel[0], count: min(byteCount, maxBytes - samples.count)))
         }
 
+        /// Bytes recorded so far.
+        var byteCount: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return samples.count
+        }
+
         func take() -> Data {
             lock.lock()
             defer { lock.unlock() }
@@ -66,16 +73,17 @@ public actor CloudDictationTranscriber: SpeechTranscribing {
     }
 
     static let sampleRate = 16_000
-    /// OpenAI accepts uploads up to 25 MB; 16 kHz 16-bit mono is 32 KB/s,
-    /// so this caps one utterance at about 12 minutes.
-    static let maxRecordingBytes = 24 * 1_024 * 1_024
+    /// OpenAI accepts uploads up to 25 MB, headers and form fields
+    /// included; 16 kHz 16-bit mono is 32 KB/s, so this caps one utterance
+    /// at about 12 minutes.
+    static let maxRecordingBytes = 24_000_000
     /// Clips shorter than this are silence or a stray keypress; skip the
     /// network call.
     static let minimumRecordingBytes = sampleRate * 2 / 4
 
     private let client: OpenAITranscriptionClient
     private let levelMeter: DictationAudioLevelMeter?
-    private var recorder: Recorder?
+    private let recorder: Recorder?
     private var audioEngine: AVAudioEngine?
     private var continuation: AsyncThrowingStream<DictationTranscriptionEvent, any Error>.Continuation?
     private var isFinishing = false
@@ -84,24 +92,29 @@ public actor CloudDictationTranscriber: SpeechTranscribing {
     public init(client: OpenAITranscriptionClient, levelMeter: DictationAudioLevelMeter? = nil) {
         self.client = client
         self.levelMeter = levelMeter
-    }
-
-    /// Uploading and transcribing a long clip takes longer than an
-    /// on-device flush.
-    public nonisolated var stopDeadline: Duration { .seconds(60) }
-
-    public func transcribe(
-        locale: Locale
-    ) async throws -> AsyncThrowingStream<DictationTranscriptionEvent, any Error> {
-        guard let format = AVAudioFormat(
+        recorder = AVAudioFormat(
             commonFormat: .pcmFormatInt16,
             sampleRate: Double(Self.sampleRate),
             channels: 1,
             interleaved: true
-        ) else {
+        ).map { Recorder(outputFormat: $0, maxBytes: Self.maxRecordingBytes) }
+    }
+
+    /// Uploading and transcribing takes longer than an on-device flush, and
+    /// grows with the clip: a base allowance plus one second per 64 KB
+    /// (about 7 minutes for a full-size clip).
+    public nonisolated var stopDeadline: Duration {
+        .seconds(Self.stopDeadlineBase) + .seconds(Double(recorder?.byteCount ?? 0) / 64_000)
+    }
+
+    static let stopDeadlineBase: Double = 30
+
+    public func transcribe(
+        locale: Locale
+    ) async throws -> AsyncThrowingStream<DictationTranscriptionEvent, any Error> {
+        guard let recorder else {
             throw DictationFailure.audioCaptureFailed("unsupported recording format")
         }
-        let recorder = Recorder(outputFormat: format, maxBytes: Self.maxRecordingBytes)
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
@@ -120,7 +133,6 @@ public actor CloudDictationTranscriber: SpeechTranscribing {
             inputNode.removeTap(onBus: 0)
             throw DictationFailure.audioCaptureFailed(error.localizedDescription)
         }
-        self.recorder = recorder
         self.audioEngine = engine
         let (stream, continuation) = AsyncThrowingStream<DictationTranscriptionEvent, any Error>.makeStream()
         self.continuation = continuation
@@ -139,7 +151,6 @@ public actor CloudDictationTranscriber: SpeechTranscribing {
         levelMeter?.reset()
         guard let continuation else { return }
         let samples = recorder?.take() ?? Data()
-        recorder = nil
         guard samples.count >= Self.minimumRecordingBytes else {
             continuation.finish()
             self.continuation = nil

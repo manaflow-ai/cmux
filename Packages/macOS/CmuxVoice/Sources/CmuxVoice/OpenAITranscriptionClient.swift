@@ -67,7 +67,9 @@ public struct OpenAITranscriptionClient: Sendable {
     func makeRequest(wav: Data, boundary: String) -> URLRequest {
         var request = URLRequest(url: Self.endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 60
+        // Long clips can take minutes to process; the controller's stop
+        // deadline bounds the whole wait.
+        request.timeoutInterval = 600
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         var body = Data()

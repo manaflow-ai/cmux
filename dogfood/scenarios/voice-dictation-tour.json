@@ -1,8 +1,5 @@
 {
-  "launch": {
-    "env": {"CMUX_UI_TEST_VOICE_FIXTURE_SCRIPT": "Fix the failing build. Then run the tests again."},
-    "args": ["-voice.dictationEnabled", "YES", "-voice.hotkeyMode", "toggle"]
-  },
+  "launch": {"env": {"CMUX_UI_TEST_VOICE_FIXTURE_SCRIPT": "Fix the failing build. Then run the tests again."}, "args": ["-voice.dictationEnabled", "YES", "-voice.hotkeyMode", "toggle"]},
   "steps": [
     {"socket": "workspace.create", "params": {"title": "Dictation", "initial_input": "clear\n", "focus": true}, "save": "ws"},
     {"wait": 1.5},
@@ -23,10 +20,17 @@
     {"shot": "text-pasted-in-terminal"},
     {"key": "p", "modifiers": ["command", "shift"]},
     {"wait": 0.5},
-    {"type": "dictation"},
+    {"type": "voice dictation"},
     {"wait": 0.5},
     {"shot": "palette-dictation-command"},
-    {"key": "escape"},
+    {"key": "return"},
+    {"wait": 1.5},
+    {"shot": "hud-from-palette", "screen": true},
+    {"expect": "VoiceDictationHUD"},
+    {"key": "v", "modifiers": ["control", "command"]},
+    {"wait": 1.5},
+    {"socket": "debug.terminal.read_text", "save": "text-after-palette"},
+    {"shot": "text-after-palette"},
     {"key": ",", "modifiers": ["command"]},
     {"wait": 1.5},
     {"type": "voice"},

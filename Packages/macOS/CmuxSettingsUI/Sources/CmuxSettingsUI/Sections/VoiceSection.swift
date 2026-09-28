@@ -112,15 +112,15 @@ extension VoiceSection {
         SettingsCardRow(
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:voice:engine",
-            String(localized: "settings.voice.engine", defaultValue: "Speech Engine"),
+            String(localized: "settings.voice.engine", defaultValue: "Speech Engine", bundle: .module),
             subtitle: engine.current == .openAI
-                ? String(localized: "settings.voice.engine.subtitleOpenAI", defaultValue: "Audio is sent to OpenAI with your API key when you stop speaking. Best accuracy; no live preview.")
-                : String(localized: "settings.voice.engine.subtitleOnDevice", defaultValue: "Speech is transcribed on this Mac with a live preview. No audio leaves the device.")
+                ? String(localized: "settings.voice.engine.subtitleOpenAI", defaultValue: "Audio is sent to OpenAI with your API key when you stop speaking. Best accuracy; no live preview.", bundle: .module)
+                : String(localized: "settings.voice.engine.subtitleOnDevice", defaultValue: "Speech is transcribed on this Mac with a live preview. No audio leaves the device.", bundle: .module)
         ) {
             Picker("", selection: Binding(get: { engine.current }, set: { engine.set($0) })) {
-                Text(String(localized: "settings.voice.engine.onDevice", defaultValue: "On This Mac"))
+                Text(String(localized: "settings.voice.engine.onDevice", defaultValue: "On This Mac", bundle: .module))
                     .tag(VoiceDictationEngine.onDevice)
-                Text(String(localized: "settings.voice.engine.openAI", defaultValue: "OpenAI (cloud)"))
+                Text(String(localized: "settings.voice.engine.openAI", defaultValue: "OpenAI (cloud)", bundle: .module))
                     .tag(VoiceDictationEngine.openAI)
             }
             .labelsHidden()
@@ -135,29 +135,32 @@ extension VoiceSection {
         SettingsCardRow(
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:voice:openAIKey",
-            String(localized: "settings.voice.openAIKey", defaultValue: "OpenAI API Key"),
+            String(localized: "settings.voice.openAIKey", defaultValue: "OpenAI API Key", bundle: .module),
             subtitle: hasAPIKey
-                ? String(localized: "settings.voice.openAIKey.saved", defaultValue: "Saved in your Keychain.")
-                : String(localized: "settings.voice.openAIKey.missing", defaultValue: "Paste a key from platform.openai.com. It is stored in your Keychain, never in cmux.json.")
+                ? String(localized: "settings.voice.openAIKey.saved", defaultValue: "Saved in your Keychain.", bundle: .module)
+                : String(localized: "settings.voice.openAIKey.missing", defaultValue: "Paste a key from platform.openai.com. It is stored in your Keychain, never in cmux.json.", bundle: .module)
         ) {
             HStack(spacing: 6) {
                 SecureField(
-                    String(localized: "settings.voice.openAIKey", defaultValue: "OpenAI API Key"),
+                    String(localized: "settings.voice.openAIKey", defaultValue: "OpenAI API Key", bundle: .module),
                     text: $apiKeyDraft
                 )
                 .textFieldStyle(.roundedBorder)
                 .controlSize(.small)
                 .frame(maxWidth: 160)
                 .accessibilityIdentifier("SettingsVoiceDictationAPIKeyField")
-                Button(String(localized: "settings.voice.openAIKey.save", defaultValue: "Save")) {
-                    apiKeyStore.setAPIKey(apiKeyDraft)
-                    apiKeyDraft = ""
+                Button(String(localized: "settings.voice.openAIKey.save", defaultValue: "Save", bundle: .module)) {
+                    // Keep the draft when the Keychain write fails so the
+                    // row still reads "not saved" with the key in place.
+                    if apiKeyStore.setAPIKey(apiKeyDraft) {
+                        apiKeyDraft = ""
+                    }
                     hasAPIKey = apiKeyStore.hasAPIKey
                 }
                 .controlSize(.small)
                 .disabled(apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 if hasAPIKey {
-                    Button(String(localized: "settings.voice.openAIKey.remove", defaultValue: "Remove")) {
+                    Button(String(localized: "settings.voice.openAIKey.remove", defaultValue: "Remove", bundle: .module)) {
                         apiKeyStore.setAPIKey(nil)
                         hasAPIKey = apiKeyStore.hasAPIKey
                     }
@@ -172,15 +175,15 @@ extension VoiceSection {
         SettingsCardRow(
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:voice:hotkeyMode",
-            String(localized: "settings.voice.hotkeyMode", defaultValue: "Shortcut Behavior"),
-            subtitle: String(localized: "settings.voice.hotkeyMode.subtitle", defaultValue: "Automatic: a quick press toggles dictation, holding the shortcut dictates until you let go.")
+            String(localized: "settings.voice.hotkeyMode", defaultValue: "Shortcut Behavior", bundle: .module),
+            subtitle: String(localized: "settings.voice.hotkeyMode.subtitle", defaultValue: "Automatic: a quick press toggles dictation, holding the shortcut dictates until you let go.", bundle: .module)
         ) {
             Picker("", selection: Binding(get: { hotkeyMode.current }, set: { hotkeyMode.set($0) })) {
-                Text(String(localized: "settings.voice.hotkeyMode.automatic", defaultValue: "Automatic"))
+                Text(String(localized: "settings.voice.hotkeyMode.automatic", defaultValue: "Automatic", bundle: .module))
                     .tag(VoiceDictationHotkeyMode.automatic)
-                Text(String(localized: "settings.voice.hotkeyMode.toggle", defaultValue: "Press to Toggle"))
+                Text(String(localized: "settings.voice.hotkeyMode.toggle", defaultValue: "Press to Toggle", bundle: .module))
                     .tag(VoiceDictationHotkeyMode.toggle)
-                Text(String(localized: "settings.voice.hotkeyMode.hold", defaultValue: "Hold to Talk"))
+                Text(String(localized: "settings.voice.hotkeyMode.hold", defaultValue: "Hold to Talk", bundle: .module))
                     .tag(VoiceDictationHotkeyMode.hold)
             }
             .labelsHidden()
@@ -195,8 +198,8 @@ extension VoiceSection {
         SettingsCardRow(
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:voice:cleanUpAgentPrompts",
-            String(localized: "settings.voice.cleanUpAgentPrompts", defaultValue: "Clean Up Agent Prompts"),
-            subtitle: String(localized: "settings.voice.cleanUpAgentPrompts.subtitle", defaultValue: "Remove fillers like “um” and “uh” when dictating to a coding agent.")
+            String(localized: "settings.voice.cleanUpAgentPrompts", defaultValue: "Clean Up Agent Prompts", bundle: .module),
+            subtitle: String(localized: "settings.voice.cleanUpAgentPrompts.subtitle", defaultValue: "Remove fillers like “um” and “uh” when dictating to a coding agent.", bundle: .module)
         ) {
             Toggle("", isOn: Binding(get: { cleanUp.current }, set: { cleanUp.set($0) }))
                 .labelsHidden()
@@ -210,8 +213,8 @@ extension VoiceSection {
         SettingsCardRow(
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:voice:showTabBarButton",
-            String(localized: "settings.voice.showTabBarButton", defaultValue: "Mic Button in Tab Bar"),
-            subtitle: String(localized: "settings.voice.showTabBarButton.subtitle", defaultValue: "Show a microphone button next to the new tab and split buttons.")
+            String(localized: "settings.voice.showTabBarButton", defaultValue: "Mic Button in Tab Bar", bundle: .module),
+            subtitle: String(localized: "settings.voice.showTabBarButton.subtitle", defaultValue: "Show a microphone button next to the new tab and split buttons.", bundle: .module)
         ) {
             Toggle("", isOn: Binding(get: { showTabBarButton.current }, set: { showTabBarButton.set($0) }))
                 .labelsHidden()
@@ -222,7 +225,7 @@ extension VoiceSection {
 }
 
 /// One selectable dictation language.
-nonisolated struct VoiceDictationLanguageChoice: Identifiable, Hashable, Sendable {
+struct VoiceDictationLanguageChoice: Identifiable, Hashable, Sendable {
     let identifier: String
     let displayName: String
 
@@ -230,23 +233,29 @@ nonisolated struct VoiceDictationLanguageChoice: Identifiable, Hashable, Sendabl
 
     /// Languages the current OS can transcribe on device, sorted by
     /// localized display name.
-    @concurrent static func systemChoices() async -> [VoiceDictationLanguageChoice] {
-        let locales: [Locale]
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    static func systemChoices() async -> [VoiceDictationLanguageChoice] {
+        var locales: [Locale]?
+        #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             locales = await SpeechTranscriber.supportedLocales
-        } else {
-            locales = SFSpeechRecognizer.supportedLocales().filter { locale in
-                // The system list also contains languages that can only use
-                // Apple's network recognizer. Voice dictation promises
-                // on-device processing, so do not offer those choices.
-                guard let recognizer = SFSpeechRecognizer(locale: locale),
-                      recognizer.locale.identifier(.bcp47) == locale.identifier(.bcp47)
-                else { return false }
-                return recognizer.supportsOnDeviceRecognition
-            }
+        }
+        #endif
+        let supported: [Locale] = locales ?? SFSpeechRecognizer.supportedLocales().filter { locale in
+            // The system list also contains languages that can only use
+            // Apple's network recognizer. Voice dictation promises
+            // on-device processing, so do not offer those choices.
+            guard let recognizer = SFSpeechRecognizer(locale: locale),
+                  recognizer.locale.identifier(.bcp47) == locale.identifier(.bcp47)
+            else { return false }
+            return recognizer.supportsOnDeviceRecognition
         }
         let current = Locale.current
-        return locales
+        return supported
             .map { locale in
                 VoiceDictationLanguageChoice(
                     identifier: locale.identifier,

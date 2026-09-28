@@ -30,9 +30,11 @@ public struct SystemDictationAuthorizer: DictationAuthorizing {
     }
 
     public func speechRecognitionAuthorization() async -> DictationAuthorizationStatus {
+        #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             return .notRequired
         }
+        #endif
         switch SFSpeechRecognizer.authorizationStatus() {
         case .authorized:
             return .authorized
@@ -46,9 +48,11 @@ public struct SystemDictationAuthorizer: DictationAuthorizing {
     }
 
     public func requestSpeechRecognitionAuthorization() async -> Bool {
+        #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             return true
         }
+        #endif
         // Legacy callback API wrapped at this one seam.
         return await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { status in

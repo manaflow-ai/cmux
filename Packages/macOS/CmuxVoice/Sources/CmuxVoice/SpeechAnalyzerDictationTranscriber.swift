@@ -1,16 +1,15 @@
+#if compiler(>=6.2) // SpeechAnalyzer ships in the macOS 26 SDK; Xcode 16 builds use the SFSpeechRecognizer engine only.
 import AVFoundation
 import CoreMedia
 public import Foundation
 import os
 import Speech
 
-/// On-device dictation engine for macOS 26+ built on the
-/// SpeechAnalyzer / SpeechTranscriber API family.
+/// On-device dictation engine for macOS 26+ built on SpeechAnalyzer / SpeechTranscriber.
 ///
 /// Model assets are managed through `AssetInventory`: the first session in
 /// a given language downloads the on-device model (surfaced to the user as
-/// the ``DictationPhase/preparing`` phase), later sessions start
-/// immediately. Volatile results stream as ``DictationTranscriptionEvent/partial(_:)``
+/// the ``DictationPhase/preparing`` phase), later sessions start immediately. Volatile results stream as ``DictationTranscriptionEvent/partial(_:)``
 /// and finalized runs as ``DictationTranscriptionEvent/final(_:)``; recognition stays on device.
 @available(macOS 26.0, *)
 public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
@@ -498,3 +497,4 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         }
     }
 }
+#endif

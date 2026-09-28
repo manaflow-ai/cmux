@@ -91,6 +91,12 @@ public final class DictationController {
         }
     }
 
+    /// Whether a session is running or queued behind the previous
+    /// session's cleanup. A stop cancels a queued start.
+    public var isActiveOrStarting: Bool {
+        isActive || deferredStartTask != nil
+    }
+
     /// Starts a session when resting, stops the active one otherwise.
     public func toggle() {
         if isActive {
@@ -144,6 +150,11 @@ public final class DictationController {
     /// Asks the active session to finish. Finalized text still in the
     /// engine is flushed and inserted before the session ends.
     public func stop() {
+        if let deferredStartTask {
+            deferredStartTask.cancel()
+            self.deferredStartTask = nil
+            return
+        }
         guard isActive, phase != .stopping else { return }
         let phaseAtStop = phase
         phase = .stopping

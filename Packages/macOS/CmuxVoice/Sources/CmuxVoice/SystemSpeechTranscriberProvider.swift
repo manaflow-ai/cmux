@@ -15,9 +15,11 @@ public struct SystemSpeechTranscriberProvider: Sendable {
     ///
     /// - Parameter levelMeter: Receives input levels for the HUD meter.
     public func makeTranscriber(levelMeter: DictationAudioLevelMeter? = nil) -> any SpeechTranscribing {
+#if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             return SpeechAnalyzerDictationTranscriber(levelMeter: levelMeter)
         }
+#endif
         return SFSpeechDictationTranscriber(levelMeter: levelMeter)
     }
 }

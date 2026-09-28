@@ -22,6 +22,9 @@ extension ContentView {
              "palette.focusPaneDown",
              "palette.focusPreviousPane",
              "palette.focusNextPane",
+             // Dictation pins its insertion target from the first responder;
+             // the palette must hand focus back to the pane first.
+             "palette.toggleVoiceDictation",
              // Onboarding presents a separate window and must run
              // after the palette releases its responder and focus guard.
              Self.commandPaletteComputerUseOpenSetupCommandId,

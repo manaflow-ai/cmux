@@ -111,4 +111,39 @@ struct DictationControllerFinishBarrierTests {
         #expect(await finishBarrierWaitUntil { controller.phase == .idle })
         #expect(inserter.endCount == 2)
     }
+
+    /// A hold-to-talk release that lands while the start is still queued
+    /// must cancel it, or the microphone opens after the key is up.
+    @Test func stopCancelsQueuedStart() async {
+        let first = FinishBarrierTranscriber()
+        let second = FinishBarrierTranscriber()
+        var factoryCalls = 0
+        let controller = DictationController(
+            authorizer: FinishBarrierAuthorizer(),
+            inserter: FinishBarrierInserter(),
+            makeTranscriber: {
+                factoryCalls += 1
+                return factoryCalls == 1 ? first : second
+            },
+            localeProvider: { Locale(identifier: "en_US") }
+        )
+
+        controller.start()
+        #expect(await finishBarrierWaitUntil { controller.phase == .listening })
+        controller.stop()
+        #expect(await finishBarrierWaitUntil { first.finishStarted })
+        first.endStream()
+        #expect(await finishBarrierWaitUntil { controller.phase == .idle })
+
+        controller.start()
+        #expect(controller.isActiveOrStarting)
+        #expect(!controller.isActive)
+        controller.stop()
+        #expect(!controller.isActiveOrStarting)
+
+        first.releaseFinish()
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(second.transcribeCount == 0)
+        #expect(controller.phase == .idle)
+    }
 }

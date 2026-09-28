@@ -1,3 +1,4 @@
+#if compiler(>=6.2) // SpeechAnalyzer ships in the macOS 26 SDK; Xcode 16 builds use the SFSpeechRecognizer engine only.
 import CoreMedia
 import Foundation
 import Speech
@@ -139,3 +140,4 @@ actor SpeechAnalyzerResultConsumer {
         )
     }
 }
+#endif

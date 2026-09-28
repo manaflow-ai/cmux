@@ -127,9 +127,20 @@ struct DictationTextCleanupTests {
         ("Summary um of errors", "Summary of errors"),
         ("run the tests", "run the tests"),
         ("summarize the umbrella hummus", "summarize the umbrella hummus"),
+        ("Um, git status", "git status"),
+        ("set it to 20 um", "set it to 20 um"),
+        ("make it 5 mm wider", "make it 5 mm wider"),
+        ("line one\n  indented  um  here", "line one\n  indented  here"),
+        (" uh okay", " okay"),
     ])
     func dropsFillers(input: String, expected: String) {
         #expect(DictationTextCleanup.cleaned(input) == expected)
+    }
+
+    @Test func onlyAppliesToEnglish() {
+        #expect(DictationTextCleanup.supports(Locale(identifier: "en_GB")))
+        #expect(!DictationTextCleanup.supports(Locale(identifier: "pt_BR")))
+        #expect(!DictationTextCleanup.supports(Locale(identifier: "de_DE")))
     }
 }
 
@@ -144,8 +155,9 @@ struct FixtureDictationTranscriberTests {
 }
 
 struct CloudDictationTranscriberTests {
-    @Test func allowsLongerStopDeadlineThanOnDeviceEngines() {
+    @Test func startsWithBaseStopDeadline() {
         let cloud = CloudDictationTranscriber(client: OpenAITranscriptionClient(apiKey: "k"))
-        #expect(cloud.stopDeadline == .seconds(60))
+        #expect(cloud.stopDeadline == .seconds(CloudDictationTranscriber.stopDeadlineBase))
+        #expect(cloud.stopDeadline > .seconds(3))
     }
 }
