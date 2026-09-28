@@ -1230,6 +1230,8 @@
 		E7E00000000000000000000F /* CmuxEventLogWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000010 /* CmuxEventLogWriterTests.swift */; };
 		E7E000000000000000000011 /* CmuxEventLogWriteSpy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000012 /* CmuxEventLogWriteSpy.swift */; };
 		E7E000000000000000000007 /* CmuxEventPublishing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000008 /* CmuxEventPublishing.swift */; };
+		FBF6B511BA3B5D1C30AE6570 /* CmuxEventSequenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D56DBDC9509F1BAAAF0D3358 /* CmuxEventSequenceStore.swift */; };
+		61B38C6FA51EAF011099A2EA /* CmuxEventSequenceStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A29C9B70624D86CFFD27EFEE /* CmuxEventSequenceStoreTests.swift */; };
 		E7E000000000000000000001 /* CmuxEventStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000002 /* CmuxEventStream.swift */; };
 		C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE45000000000000000002 /* CmuxExtensionKit */; };
 		C0DE49000000000000000001 /* CmuxExtensionSidebarExamples in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE49000000000000000002 /* CmuxExtensionSidebarExamples */; };
@@ -5348,6 +5350,8 @@
 		E7E000000000000000000010 /* CmuxEventLogWriterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventLogWriterTests.swift; sourceTree = "<group>"; };
 		E7E000000000000000000012 /* CmuxEventLogWriteSpy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventLogWriteSpy.swift; sourceTree = "<group>"; };
 		E7E000000000000000000008 /* CmuxEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventPublishing.swift; sourceTree = "<group>"; };
+		D56DBDC9509F1BAAAF0D3358 /* CmuxEventSequenceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventSequenceStore.swift; sourceTree = "<group>"; };
+		A29C9B70624D86CFFD27EFEE /* CmuxEventSequenceStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxEventSequenceStoreTests.swift"; sourceTree = "<group>"; };
 		E7E000000000000000000002 /* CmuxEventStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventStream.swift; sourceTree = "<group>"; };
 		C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxExtensionSidebarSelection+CustomSidebarName.swift"; sourceTree = "<group>"; };
 		A16B58D58F664C2CBB6671BD /* CmuxFeatureFlagDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxFeatureFlagDefinition.swift; sourceTree = "<group>"; };
@@ -10904,6 +10908,7 @@
 				28B357957683C6E50B1C4263 /* DeviceIrxClient+Discovery.swift */,
 				4681424F883829B8E87F5B0B /* DevicesSidebarControls.swift */,
 				93F4913B51A207BA657F0241 /* DevicesPreferencesModel.swift */,
+				D56DBDC9509F1BAAAF0D3358 /* CmuxEventSequenceStore.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -12289,6 +12294,7 @@
 				3D5E43A566AB0B441162EC5A /* CloudTreeNodeCacheTests.swift */,
 				23E35F95320CBED308AD98CF /* CloudTreeTogglePerformanceTests.swift */,
 				0C37EA14DE74095FB1BB23E1 /* CloudTreeDisclosureIntentTests.swift */,
+				A29C9B70624D86CFFD27EFEE /* CmuxEventSequenceStoreTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -13586,6 +13592,7 @@
 				E7E000000000000000000005 /* CmuxEventBus.swift in Sources */,
 				E7E00000000000000000000D /* CmuxEventLogWriter.swift in Sources */,
 				E7E000000000000000000007 /* CmuxEventPublishing.swift in Sources */,
+				FBF6B511BA3B5D1C30AE6570 /* CmuxEventSequenceStore.swift in Sources */,
 				E7E000000000000000000001 /* CmuxEventStream.swift in Sources */,
 				C57B00050000000000000001 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift in Sources */,
 				CE527FE5291C4D828E1EE3D4 /* CmuxFeatureFlagDefinition.swift in Sources */,
@@ -16217,6 +16224,7 @@
 				E7E000000000000000000003 /* CmuxEventBusTests.swift in Sources */,
 				E7E00000000000000000000F /* CmuxEventLogWriterTests.swift in Sources */,
 				E7E000000000000000000011 /* CmuxEventLogWriteSpy.swift in Sources */,
+				61B38C6FA51EAF011099A2EA /* CmuxEventSequenceStoreTests.swift in Sources */,
 				A11C00040000000000000001 /* CmuxHostedSystemSymbolImageTests.swift in Sources */,
 				D36090010000000000000005 /* CmuxMainWindowConstrainFrameTests.swift in Sources */,
 					D36090020000000000000005 /* CmuxMainWindowFullScreenCapabilityTests.swift in Sources */,

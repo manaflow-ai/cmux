@@ -1,94 +1,9 @@
-import Darwin
 import Foundation
 
 struct CmuxEventSubscriptionSnapshot {
     let subscription: CmuxEventSubscription
     let replay: [[String: Any]]
     let ack: [String: Any]
-}
-
-/// Allocates durable sequences across cmux processes that share the event log.
-/// The sidecar is intentionally separate from the JSONL stream so recovery can still
-/// preserve a high-water mark when one of the bounded log segments is unreadable.
-private final class CmuxEventSequenceStore: @unchecked Sendable {
-    private let stateURL: URL
-    private let lockURL: URL
-
-    init(eventLogURL: URL) {
-        self.stateURL = eventLogURL.appendingPathExtension("seq")
-        self.lockURL = eventLogURL.appendingPathExtension("seq.lock")
-    }
-
-    func current() -> Int64 {
-        withLock { readState() } ?? 0
-    }
-
-    func raiseHighWater(to minimum: Int64) {
-        guard minimum > 0 else { return }
-        _ = withLock {
-            let current = readState()
-            if minimum > current {
-                try? writeState(minimum)
-            }
-        }
-    }
-
-    #if DEBUG
-    func resetForTesting() {
-        try? FileManager.default.removeItem(at: stateURL)
-    }
-    #endif
-
-    func allocate(minimum: Int64) -> Int64? {
-        guard let result = withLock({ () -> Int64? in
-            let current = readState()
-            let next = max(current, minimum) + 1
-            guard next > 0 else { return nil }
-            do {
-                try writeState(next)
-                return next
-            } catch {
-                return nil
-            }
-        }) else { return nil }
-        return result
-    }
-
-    private func withLock<T>(_ body: () -> T) -> T? {
-        let fileManager = FileManager.default
-        do {
-            try fileManager.createDirectory(
-                at: lockURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let handle = try FileHandle(forWritingTo: lockURL)
-            defer { try? handle.close() }
-            guard flock(handle.fileDescriptor, LOCK_EX) == 0 else { return nil }
-            defer { flock(handle.fileDescriptor, LOCK_UN) }
-            return body()
-        } catch {
-            _ = fileManager.createFile(atPath: lockURL.path, contents: nil)
-            guard let handle = try? FileHandle(forWritingTo: lockURL) else { return nil }
-            defer { try? handle.close() }
-            guard flock(handle.fileDescriptor, LOCK_EX) == 0 else { return nil }
-            defer { flock(handle.fileDescriptor, LOCK_UN) }
-            return body()
-        }
-    }
-
-    private func readState() -> Int64 {
-        guard let data = try? Data(contentsOf: stateURL),
-              let string = String(data: data, encoding: .utf8),
-              let value = Int64(string.trimmingCharacters(in: .whitespacesAndNewlines)),
-              value > 0 else {
-            return 0
-        }
-        return value
-    }
-
-    private func writeState(_ value: Int64) throws {
-        try Data("\(value)\n".utf8).write(to: stateURL, options: .atomic)
-    }
 }
 
 // Sendable safety: every mutable field is protected by `lock`; `semaphore` only wakes `next(timeout:)`.
@@ -269,7 +184,8 @@ final class CmuxEventBus: @unchecked Sendable {
         let needsRewrite: Bool
     }
 
-    private struct PendingPublish {
+    // Sendable safety: payload values are sanitized immutable Foundation values before enqueue.
+    private struct PendingPublish: @unchecked Sendable {
         let name: String
         let category: String
         let source: String
@@ -318,6 +234,8 @@ final class CmuxEventBus: @unchecked Sendable {
     private let maxPendingEventsPerSubscription: Int
     private let eventLogWriter: CmuxEventLogWriter?
     private let sequenceStore: CmuxEventSequenceStore?
+    // Serializes durable sequence allocation and event publication off caller threads.
+    private let publicationQueue: DispatchQueue
     private let bootId = UUID().uuidString
     private var restorePending: Bool
     private var restoreGap = false
@@ -344,6 +262,10 @@ final class CmuxEventBus: @unchecked Sendable {
         self.restorePending = eventLogURL != nil
         self.restoreTask = nil
         self.sequenceStore = eventLogURL.map(CmuxEventSequenceStore.init(eventLogURL:))
+        self.publicationQueue = DispatchQueue(
+            label: "com.cmuxterm.event-publish.\(UUID().uuidString)",
+            qos: .utility
+        )
         self.eventLogWriter = eventLogURL.map {
             CmuxEventLogWriter(
                 eventLogURL: $0,
@@ -417,17 +339,40 @@ final class CmuxEventBus: @unchecked Sendable {
     }
 
     private func publish(_ pending: PendingPublish) {
+        guard sequenceStore != nil else {
+            publishInMemory(pending)
+            return
+        }
+
+        publicationQueue.async { [weak self] in
+            self?.publishDurableOnPublicationQueue(pending)
+        }
+    }
+
+    private func publishInMemory(_ pending: PendingPublish) {
         lock.lock()
-        let publication = appendEventLocked(pending)
+        let sequence = nextSequence
+        nextSequence += 1
+        let publication = appendEventLocked(pending, sequence: sequence)
+        lock.unlock()
+        deliver(publication)
+    }
+
+    private func publishDurableOnPublicationQueue(_ pending: PendingPublish) {
+        guard let sequenceStore,
+              let sequence = sequenceStore.allocate() else {
+            return
+        }
+
+        lock.lock()
+        let publication = appendEventLocked(pending, sequence: sequence)
         lock.unlock()
         deliver(publication)
     }
 
     /// The caller must hold ``lock`` while appending the event.
-    private func appendEventLocked(_ pending: PendingPublish) -> EventPublication {
-        let sequence = sequenceStore?.allocate(minimum: nextSequence - 1) ?? nextSequence
-        nextSequence = sequence + 1
-
+    private func appendEventLocked(_ pending: PendingPublish, sequence: Int64) -> EventPublication {
+        nextSequence = max(nextSequence, sequence + 1)
         var event: [String: Any] = [
             "type": "event",
             "protocol": Self.protocolName,
@@ -595,6 +540,7 @@ final class CmuxEventBus: @unchecked Sendable {
             )
         }
 
+        var publishesToEnqueue: [PendingPublish] = []
         while true {
             lock.lock()
             let subscriptionsToReplay = Array(pendingSubscriptions.values)
@@ -602,12 +548,6 @@ final class CmuxEventBus: @unchecked Sendable {
             let publishesToFlush = pendingPublishes
             pendingPublishes.removeAll()
             let replayWindow = retained
-            let publicationsToFlush = publishesToFlush.map { appendEventLocked($0) }
-            if subscriptionsToReplay.isEmpty, publicationsToFlush.isEmpty {
-                restorePending = false
-                lock.unlock()
-                break
-            }
             lock.unlock()
 
             for pending in subscriptionsToReplay {
@@ -624,9 +564,20 @@ final class CmuxEventBus: @unchecked Sendable {
                 }
             }
 
-            for publication in publicationsToFlush {
-                deliver(publication)
+            publishesToEnqueue.append(contentsOf: publishesToFlush)
+
+            lock.lock()
+            let hasMorePendingWork = !pendingSubscriptions.isEmpty || !pendingPublishes.isEmpty
+            if !hasMorePendingWork {
+                for pending in publishesToEnqueue {
+                    publicationQueue.async { [weak self] in
+                        self?.publishDurableOnPublicationQueue(pending)
+                    }
+                }
+                restorePending = false
             }
+            lock.unlock()
+            if !hasMorePendingWork { break }
         }
     }
 
@@ -666,6 +617,7 @@ final class CmuxEventBus: @unchecked Sendable {
     #if DEBUG
     func resetForTesting() {
         restoreTask?.cancel()
+        publicationQueue.sync {}
         lock.lock()
         restorePending = false
         restoreGap = false
@@ -682,6 +634,7 @@ final class CmuxEventBus: @unchecked Sendable {
     }
 
     func flushEventLogForTesting() {
+        publicationQueue.sync {}
         eventLogWriter?.flushForTesting()
     }
 
@@ -703,9 +656,9 @@ final class CmuxEventBus: @unchecked Sendable {
     /// Restores the most recent event window from the append-only log.
     ///
     /// The original stream used a per-process sequence counter. When an old
-    /// segment starts again at one, rebase that segment onto the last restored
-    /// sequence so a cursor can continue across a restart. Keep the original
-    /// sequence for diagnostics without changing the event's stable id.
+    /// segment repeats a sequence, rebase only that duplicate onto the restored
+    /// high-water mark. Leased ranges can be written out of order by different
+    /// processes, so unique lower sequences must remain intact and are sorted for replay.
     private static func loadPersistedEvents(
         eventLogURL: URL,
         maxEventLogBytes: UInt64,
@@ -746,18 +699,24 @@ final class CmuxEventBus: @unchecked Sendable {
         }
 
         var loaded = segments.flatMap { $0 }
+        var seenSequences = Set<Int64>()
         var highestSequence: Int64 = 0
         for index in loaded.indices {
             guard let originalSequence = int64(loaded[index]["seq"]) else { continue }
-            let normalizedSequence = originalSequence > highestSequence
-                ? originalSequence
-                : highestSequence + 1
+            let normalizedSequence = seenSequences.contains(originalSequence)
+                ? highestSequence + 1
+                : originalSequence
             if normalizedSequence != originalSequence {
                 loaded[index]["legacy_seq"] = NSNumber(value: originalSequence)
                 loaded[index]["seq"] = NSNumber(value: normalizedSequence)
                 needsRewrite = true
             }
-            highestSequence = normalizedSequence
+            seenSequences.insert(normalizedSequence)
+            highestSequence = max(highestSequence, normalizedSequence)
+        }
+
+        loaded.sort { lhs, rhs in
+            (int64(lhs["seq"]) ?? 0) < (int64(rhs["seq"]) ?? 0)
         }
 
         let persistedHighWater = CmuxEventSequenceStore(eventLogURL: eventLogURL).current()
@@ -767,7 +726,7 @@ final class CmuxEventBus: @unchecked Sendable {
             events: Array(loaded.suffix(max(1, retainedEventLimit))),
             allEvents: loaded,
             nextSequence: nextSequence,
-            gap: gap || persistedHighWater > highestSequence,
+            gap: gap,
             needsRewrite: needsRewrite
         )
     }
