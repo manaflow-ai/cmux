@@ -542,6 +542,33 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(container.deferredFilePaths.isEmpty)
     }
 
+    @Test("A remote-initiated web link fails closed before browser routing")
+    @MainActor
+    func remoteInitiatedWebLinkFailsClosedBeforeRouting() throws {
+        let defaults = makeDefaults()
+        let container = CloudGuestURLTestContainer()
+        var external: [URL] = []
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, _ in container },
+            externalOpen: { url in
+                external.append(url)
+                return true
+            },
+            deferOperation: { operation in operation() }
+        )
+
+        #expect(!coordinator.open(TerminalLinkOpenRequest(
+            rawValue: "https://example.com/login",
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: UUID(),
+            workingDirectory: nil,
+            isRemoteInitiated: true
+        )))
+        #expect(container.opened.isEmpty)
+        #expect(external.isEmpty)
+    }
+
     @Test("File links from a terminal cmux cannot place never open a file on this Mac")
     @MainActor
     func unplacedTerminalLinkNeverOpensLocalFile() throws {
