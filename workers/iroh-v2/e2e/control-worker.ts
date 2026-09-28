@@ -77,7 +77,29 @@ export class TestTeamControl extends ProductionTeamControl {
   }
 }
 
-export class TestUserUsage extends ProductionUserUsage {}
+/**
+ * The output budget call is a Durable Object RPC, so a control object is parked
+ * while it runs and other events reach that object in the meantime. Production
+ * code cannot be asked to stall, so the fixture stalls one budget call on
+ * request. That lets a test land an ordinary mutation inside the window instead
+ * of racing it, and keeps the delivery code under test production.
+ */
+export class TestUserUsage extends ProductionUserUsage {
+  private stallMilliseconds = 0;
+
+  armOutputStall(milliseconds: number): void { this.stallMilliseconds = milliseconds; }
+
+  // Durable Object RPC awaits whatever a method returns, so returning a promise
+  // where production returns a value changes nothing for the caller.
+  setOutput(userId: string, sessionId: string, revision: number, bytes: number, messages: number): ReturnType<ProductionUserUsage["setOutput"]> {
+    const stall = this.stallMilliseconds;
+    if (stall <= 0) return super.setOutput(userId, sessionId, revision, bytes, messages);
+    this.stallMilliseconds = 0;
+    const stalled = new Promise<void>(resolve => setTimeout(resolve, stall))
+      .then(() => super.setOutput(userId, sessionId, revision, bytes, messages));
+    return stalled as unknown as ReturnType<ProductionUserUsage["setOutput"]>;
+  }
+}
 
 export default {
   fetch(request: Request, env: Environment, ctx: ExecutionContext) {
