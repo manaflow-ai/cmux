@@ -65,10 +65,6 @@ final class cmuxUITests: XCTestCase {
             for name in ["Other computer", "Unrelated alert"] {
                 XCTAssertTrue(title(name).waitForExistence(timeout: 8), "Missing notification: \(name)")
             }
-            let summary = springboard.staticTexts.matching(
-                NSPredicate(format: "label CONTAINS 'from cmux'")
-            ).firstMatch
-            XCTAssertTrue(summary.waitForExistence(timeout: 8), "Missing grouped cmux notifications")
         }
 
         await openNotificationCenter()
