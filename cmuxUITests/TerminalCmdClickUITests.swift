@@ -814,7 +814,9 @@ final class TerminalCmdClickUITests: XCTestCase {
     }
 
     func testCmdHoverOverABareReferenceShowsTheAffordanceOnceTheRepositoryIsKnown() throws {
-        try makeFixtureAGitRepository(remote: "https://github.com/manaflow-ai/cmux.git")
+        // A slug that can only come from the fixture, so resolving to the cmux
+        // checkout instead would not quietly satisfy this.
+        try makeFixtureAGitRepository(remote: "https://github.com/manaflow-ai/cmux-reference-fixture.git")
 
         let app = launchApp(
             displayMode: .raw,
@@ -848,7 +850,7 @@ final class TerminalCmdClickUITests: XCTestCase {
     }
 
     func testCmdHoverOverAnOrdinaryWordShowsNoAffordance() throws {
-        try makeFixtureAGitRepository(remote: "https://github.com/manaflow-ai/cmux.git")
+        try makeFixtureAGitRepository(remote: "https://github.com/manaflow-ai/cmux-reference-fixture.git")
 
         let app = launchApp(
             displayMode: .raw,
@@ -861,10 +863,18 @@ final class TerminalCmdClickUITests: XCTestCase {
 
         _ = try waitForReadySetup()
 
-        // Hover several times over the same word: a late lookup must not turn
-        // an ordinary word into a link after the fact.
+        // Hover several times over the same word. "0" every time is an absence
+        // assertion, so each hover also has to prove it reached a cell: the
+        // harness reports `gitHubHoverCell` as soon as the pointer resolves to
+        // one, before any decision about the token. Without that check this
+        // test would stay green with the whole affordance deleted, and also
+        // when the pointer simply missed the token.
         for attempt in 0..<6 {
             let result = try runCommand(action: "hover_token")
+            XCTAssertNotNil(
+                gitHubHoverCell(in: result),
+                "The pointer never resolved to a cell on hover \(attempt + 1), so \"no affordance\" proves nothing. result=\(result)"
+            )
             XCTAssertEqual(
                 gitHubHoverActive(in: result),
                 "0",
@@ -878,6 +888,14 @@ final class TerminalCmdClickUITests: XCTestCase {
     private func gitHubHoverActive(in commandResult: [String: Any]) -> String? {
         guard let hoverResult = commandResult["lastCommandResult"] as? [String: Any] else { return nil }
         return hoverResult["gitHubHoverActive"] as? String
+    }
+
+    /// The cell the GitHub answer was computed for, `nil` when the pointer did
+    /// not resolve to one. Present whenever the hover reached a cell at all, so
+    /// a negative hover assertion can prove it was answering about something.
+    private func gitHubHoverCell(in commandResult: [String: Any]) -> String? {
+        guard let hoverResult = commandResult["lastCommandResult"] as? [String: Any] else { return nil }
+        return hoverResult["gitHubHoverCell"] as? String
     }
 
     private func assertCommandHoverResolves(
