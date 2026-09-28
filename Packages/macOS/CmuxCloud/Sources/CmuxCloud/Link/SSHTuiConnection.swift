@@ -41,13 +41,13 @@ public struct SSHTuiConnection: Sendable {
     public var session: String { "cmux" }
 
     public var authenticationArguments: [String] {
-        routeCheckArguments(batchMode: false) + [configuration.destination, "true"]
+        routeCheckArguments(batchMode: false) + ["--", configuration.destination, "true"]
     }
 
     /// A prompt-free `ssh … true` over the carrier's route.
     public var preflightArguments: [String] {
         // OpenSSH keeps the first value it reads, so a caller's ConnectTimeout still wins.
-        routeCheckArguments(batchMode: true) + ["-o", "ConnectTimeout=15", configuration.destination, "true"]
+        routeCheckArguments(batchMode: true) + ["-o", "ConnectTimeout=15", "--", configuration.destination, "true"]
     }
 
     private func routeCheckArguments(batchMode: Bool) -> [String] {

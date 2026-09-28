@@ -1368,7 +1368,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-o", "ControlPath=\(Self.resolvedControlPath)",
                 "-o", "StrictHostKeyChecking=accept-new",
                 "-O", "exit",
-                "cmux-macmini",
+                "--", "cmux-macmini",
             ]
         )
     }
@@ -1413,7 +1413,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-i", "/Users/test/.ssh/id_ed25519",
                 "-o", "ControlPath=\(Self.resolvedControlPath)",
                 "-O", "exit",
-                "cmux-macmini",
+                "--", "cmux-macmini",
             ]
         )
     }
@@ -1512,7 +1512,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-o", "ControlMaster=no",
                 "-o", "ControlPath=\(Self.resolvedControlPath)",
                 "-O", "exit",
-                "cmux-macmini",
+                "--", "cmux-macmini",
             ]
         )
     }
@@ -1598,7 +1598,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-o", "ControlPath=\(Self.resolvedControlPath)",
                 "-o", "StrictHostKeyChecking=accept-new",
                 "-O", "exit",
-                "cmux-macmini",
+                "--", "cmux-macmini",
             ]
         )
     }
@@ -2022,7 +2022,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         wait(for: [cleanupRequested], timeout: 1.0)
 
         XCTAssertEqual(cleanup.arguments.count, 1)
-        XCTAssertEqual(cleanup.arguments.first?.suffix(2), ["exit", "cmux-macmini"])
+        XCTAssertEqual(cleanup.arguments.first?.suffix(3), ["exit", "--", "cmux-macmini"])
     }
 
     @MainActor

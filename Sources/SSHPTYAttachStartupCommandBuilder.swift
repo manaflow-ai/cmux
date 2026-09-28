@@ -187,7 +187,7 @@ enum SSHPTYAttachStartupCommandBuilder {
                 destination: auth.destination,
                 options: options
             )
-        arguments += ["-T", auth.destination, "true"]
+        arguments += ["-T", "--", auth.destination, "true"]
         let command = arguments.map(shellQuote).joined(separator: " ")
         guard let lockPath = sharingOptions.foregroundAuthenticationLockPath(
             destination: auth.destination,
@@ -350,10 +350,6 @@ enum SSHPTYAttachStartupCommandBuilder {
     }
 
     private static func shellQuote(_ value: String) -> String {
-        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
-        if value.range(of: safePattern, options: .regularExpression) != nil {
-            return value
-        }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        value.posixShellWord
     }
 }

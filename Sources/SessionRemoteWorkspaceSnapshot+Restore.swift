@@ -13,7 +13,8 @@ extension SessionRemoteWorkspaceSnapshot {
         agentSocketPath overrideAgentSocketPath: String? = nil
     ) -> WorkspaceRemoteConfiguration? {
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedDestination.isEmpty else { return nil }
+        guard !normalizedDestination.isEmpty,
+              !normalizedDestination.isOptionLikeSSHDestination else { return nil }
         let normalizedManagedCloudVMID = WorkspaceRemoteConfiguration.normalizedOptionalValue(managedCloudVMID)
         if transport == .websocket {
             guard let normalizedManagedCloudVMID else { return nil }
@@ -578,10 +579,6 @@ extension SessionRemoteWorkspaceSnapshot {
     }
 
     private static func shellQuote(_ value: String) -> String {
-        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
-        if value.range(of: safePattern, options: .regularExpression) != nil {
-            return value
-        }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        value.posixShellWord
     }
 }

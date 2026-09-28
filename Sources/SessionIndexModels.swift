@@ -460,7 +460,7 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
     ) -> String {
         let assignments = environment
             .filter { key, _ in
-                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil
+                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*\z"#, options: .regularExpression) != nil
             }
             .sorted { $0.key < $1.key }
             .map { key, value in "\(key)=\(shellQuote(value))" }
@@ -475,7 +475,7 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
         var parts: [String] = []
         let assignments = environment
             .filter { key, _ in
-                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil
+                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*\z"#, options: .regularExpression) != nil
             }
             .sorted { $0.key < $1.key }
             .map { key, value in "\(key)=\(value)" }
