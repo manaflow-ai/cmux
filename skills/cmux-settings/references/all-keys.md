@@ -25,7 +25,7 @@ General app preferences from Settings > App.
 | `app.openSupportedFilesInCmux` | boolean | `true` | When enabled, Cmd-clicking readable local files opens supported previews in cmux, including text, code, PDFs, images, audio, video, and Quick Look files. Preview headers include an Open With menu based on the user's default and compatible macOS apps for that file. |
 | `app.openMarkdownInCmuxViewer` | boolean | `true` | When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview. |
 | `app.devWindowDisplay` | string | `""` | DEBUG-only display name used when opening new windows. An empty value uses the system default. |
-| `app.reorderOnNotification` | boolean | `true` | Move workspaces with new notifications toward the top. |
+| `app.reorderOnNotification` | boolean or `off`, `notifications`, `agentActivity` | `true` | Move workspaces with new notifications toward the top. `agentActivity` also moves them when an agent finishes a turn, needs input, or fails, throttled and never while the pointer is over the sidebar. |
 | `app.iMessageMode` | boolean | `false` | Move a workspace to the top and show the submitted message when sending an agent prompt. |
 | `app.sendAnonymousTelemetry` | boolean | `true` | Allow anonymous telemetry. |
 | `app.warnBeforeQuit` | boolean | `true` | Show a confirmation before quitting cmux. |
@@ -83,6 +83,7 @@ Notification behavior from Settings > Notifications.
 | `notifications.unreadPaneRing` | boolean | `true` | Highlight panes with unread notifications. |
 | `notifications.paneFlash` | boolean | `true` | Flash the focused pane when requested. |
 | `notifications.sound` | `"default"` or `"Basso"` or `"Blow"` or `"Bottle"` or `"Frog"` or `"Funk"` or `"Glass"` or `"Hero"` or `"Morse"` or `"Ping"` or `"Pop"` or `"Purr"` or `"Sosumi"` or `"Submarine"` or `"Tink"` or `"custom_file"` or `"none"` | `"default"` | Notification sound preset. |
+| `notifications.soundWhenFocused` | boolean | `false` | Play the notification sound even when the pane that notified is already focused. Off by default, so a focused pane shows only its ring and flash. |
 | `notifications.customSoundFilePath` | string | `""` | Local path to the custom notification sound file. |
 | `notifications.command` | string | `""` | Optional shell command to run alongside notification delivery. |
 | `notifications.hooksMode` | `"append"` or `"replace"` | `"append"` | Controls whether project-local notification hooks append to inherited hooks or replace them. |

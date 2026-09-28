@@ -57,6 +57,11 @@ requirements = ["cmux-cli"]
 serial = true
 
 [[test]]
+path = "tests/test_cli_hook_enqueue_wall_clock.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_simulator_contract.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -292,6 +297,10 @@ path = "tests/test_shell_no_git_watch.py"
 lane = "macos-shell"
 
 [[test]]
+path = "tests/test_workspace_initial_command_shim_root_owner.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_claude_hook_stop_last_assistant.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
@@ -516,6 +525,10 @@ path = "tests/test_ci_pr_runner_pool.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ui_fuzzer_engine.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pull_request_caches_are_read_only.py"
 lane = "linux-guard"
 
@@ -697,6 +710,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_package_resolved_policy_remote_inputs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pr_media.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1395,4 +1412,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_config_schema_embed.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ui_tests_dispatch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_media.py"
 lane = "linux-guard"

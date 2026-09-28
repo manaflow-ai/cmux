@@ -1370,6 +1370,7 @@
           "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt. Fokus viser også TextBox."
         },
         "notifications": {
+          "soundWhenFocused": "Spill av varsellyden selv når ruten som varslet allerede har fokus. Av som standard, så en rute med fokus viser bare ringen og blinket.",
           "suppressOnlyFocusedSurface": "Når dette er på, trekkes et varselbanner bare automatisk tilbake når overflaten er nøyaktig den fokuserte overflaten. Et banner levert for en ikke-fokusert overflate i det for øyeblikket synlige workspace blir værende til du fokuserer den overflaten (eller klikker/avviser det), i stedet for å bli trukket tilbake når workspace blir synlig. Av beholder den gamle tilbaketrekkingen basert på workspace-synlighet.",
           "agentIdleReminder": "Varsle når en agent har vært inaktiv og venter på inndata (omtrent 60 sekunder etter at en tur er avsluttet). Varslingen undertrykkes mens bakgrunnsarbeid fra forrige tur fortsatt pågår, slik at en kjørende bygging eller overvåker ikke utløser et falskt ventevarsel.",
           "soundOverrides": "Sparsomme overstyringer av varslingslyd per agent og varslingstype. Manglende felt bruker notifications.sound.",

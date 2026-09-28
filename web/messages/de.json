@@ -1370,6 +1370,7 @@
           "focusTextBoxOnNewTerminals": "Fokussiert die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits. Fokussieren zeigt die TextBox ebenfalls an."
         },
         "notifications": {
+          "soundWhenFocused": "Den Benachrichtigungston auch dann abspielen, wenn der benachrichtigende Bereich bereits fokussiert ist. Standardmäßig aus, sodass ein fokussierter Bereich nur Ring und Aufblinken zeigt.",
           "suppressOnlyFocusedSurface": "Wenn aktiviert, wird ein Benachrichtigungsbanner nur dann automatisch zurückgezogen, wenn seine Oberfläche genau die fokussierte Oberfläche ist. Ein Banner, das für eine nicht fokussierte Oberfläche im aktuell sichtbaren Workspace zugestellt wurde, bleibt sichtbar, bis Sie diese Oberfläche fokussieren (oder das Banner anklicken bzw. schließen), anstatt zurückgezogen zu werden, sobald der Workspace sichtbar wird. Deaktiviert bleibt das bisherige Zurückziehen anhand der Workspace-Sichtbarkeit erhalten.",
           "agentIdleReminder": "Benachrichtige, wenn ein Agent untätig auf deine Eingabe wartet (etwa 60 Sekunden nach Ende eines Turns). Wird unterdrückt, solange Hintergrundarbeit des letzten Turns noch aussteht, damit ein laufender Build oder Watcher keinen falschen Wartehinweis auslöst.",
           "soundOverrides": "Sparsame Überschreibungen des Benachrichtigungstons pro Agent und Alarmtyp. Nicht gesetzte Felder verwenden notifications.sound.",
