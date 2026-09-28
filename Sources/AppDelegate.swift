@@ -14492,6 +14492,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// launch-time config load, which ran before the reload observer existed.
     private func startGhosttyConfigLiveReload() {
         ghosttyConfigLiveReloadCoordinator.start()
+        GhosttyApp.shared.configurationFilesWillLoad = { [weak self] in
+            self?.ghosttyConfigLiveReloadCoordinator.noteConfigurationFilesWillLoad()
+        }
         ghosttyConfigDiagnosticsNoticePresenter.update(
             diagnosticMessages: GhosttyApp.shared.lastLoadedConfigDiagnosticMessages
         )
