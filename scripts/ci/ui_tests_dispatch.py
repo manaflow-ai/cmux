@@ -11,10 +11,10 @@ boundary instead:
   named for its run attempt (`request`), then waits for the verdict of the
   dispatch that serves it and reports it as its own result (`await-verdict`),
   so ci-status still gates on the UI tests.
-- ci-ui-tests.yml runs from the default branch on every CI run attempt
-  (`workflow_run: requested`). It waits for that attempt's request
-  (`await-request`), re-validates it, and runs main's dispatcher on it
-  (`dispatch`). When the CI attempt finishes first (cancelled by a newer push,
+- ci-ui-tests.yml runs from the default branch. The build controller
+  dispatches it when a CI attempt's `ui-tests` job starts. It waits for that
+  attempt's request (`await-request`), re-validates it, and runs main's
+  dispatcher on it (`dispatch`). When the CI attempt finishes first (cancelled by a newer push,
   or its `ui-tests` job gave up) it cancels the dispatched run.
 
 Nothing from the request artifact is trusted beyond selectors that match
@@ -55,12 +55,11 @@ UI_TEST_PREFIX = "cmuxUITests/"
 # The files API lists at most 3000 files of a pull request.
 MAX_FILE_PAGES = 30
 POLL_SECONDS = 60
-# The request follows compile admission, usually tens of minutes after the
-# attempt starts, so its wait reads less often.
-REQUEST_POLL_SECONDS = 120
+# The dispatch starts with the `ui-tests` job, which uploads the request
+# within a minute.
+REQUEST_POLL_SECONDS = 20
 # How long the waiting side looks for the dispatch run of its attempt. The
-# dispatch run is created when the CI attempt is, so it normally exists before
-# `ui-tests` starts.
+# build controller dispatches it seconds after `ui-tests` starts.
 FIND_DISPATCH_SECONDS = 20 * 60
 MAX_CONSECUTIVE_ERRORS = 10
 RUN_LINE = re.compile(r"^Run: https://github\.com/[^/]+/[^/]+/actions/runs/(\d+)")
@@ -81,10 +80,11 @@ def dispatch_title(run_id: int | str, attempt: int | str) -> str:
 def rerun_dispatch(run_id: int | str, attempt: int | str, ref: str = "main") -> tuple[str, dict]:
     """The workflow_dispatch that serves a CI attempt a bot re-ran.
 
-    A re-run made with GITHUB_TOKEN (the owned-pool rescue, failure
-    attribution) may not emit workflow_run, so those callers start this
-    workflow themselves. Returns (path under repos/<repo>/, body). A duplicate
-    from a workflow_run event joins the same concurrency group and replaces it.
+    The bots that re-run CI (the owned-pool rescue, failure attribution)
+    start this workflow for the new attempt. The build controller dispatches
+    it again when that attempt's `ui-tests` job starts; the duplicate joins the
+    same concurrency group and replaces it. Returns (path under
+    repos/<repo>/, body).
     """
     return (f"actions/workflows/{DISPATCH_WORKFLOW_FILE}/dispatches",
             {"ref": ref, "inputs": {"run_id": str(run_id), "run_attempt": str(attempt)}})
@@ -426,7 +426,8 @@ def await_verdict(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[flo
     if found is False:
         print(
             f"::error::No {DISPATCH_WORKFLOW_FILE} run titled {dispatch_title(run_id, attempt)!r} appeared, "
-            "so nothing dispatched the UI tests. Re-run this job: a re-run requests them again.",
+            "so nothing dispatched the UI tests (the build controller dispatches it when this job starts). "
+            "Re-run this job: a re-run requests them again.",
             flush=True,
         )
         return 1

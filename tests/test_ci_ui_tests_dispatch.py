@@ -307,12 +307,14 @@ class WorkflowTests(unittest.TestCase):
     def test_the_dispatching_workflow_runs_from_the_default_branch(self) -> None:
         document = yaml.safe_load(DISPATCH.read_text(encoding="utf-8"))
         on = document.get("on", document.get(True))
-        self.assertEqual(on["workflow_run"], {"workflows": ["CI"], "types": ["requested"]})
+        # The build controller dispatches it when a CI attempt's ui-tests job
+        # starts; a workflow_run trigger would start a waiter on every attempt.
+        self.assertEqual(set(on), {"workflow_dispatch"})
+        self.assertEqual(set(on["workflow_dispatch"]["inputs"]), {"run_id", "run_attempt"})
         self.assertEqual(document["permissions"], {})
         job = document["jobs"]["dispatch"]
         self.assertEqual(job["name"], ui.DISPATCH_JOB_NAME)
         self.assertEqual(job["permissions"]["actions"], "write")
-        self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", job["if"])
         steps = job["steps"]
         checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
         self.assertTrue(checkouts)
