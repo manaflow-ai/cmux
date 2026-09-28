@@ -46,13 +46,16 @@ extension TerminalController {
             browserPIDOccurrences: browserPIDOccurrences,
             includeProcesses: includeProcesses
         )
+        let attributionByPID = v2TopMemoryAttributionByPID(in: windows)
         let aggregates = processAggregates(
             from: processSnapshot,
-            totalPIDs: totalPIDs
+            totalPIDs: totalPIDs,
+            attributionByPID: attributionByPID
         )
         let memoryDiagnostic = v2TopMemoryDiagnosticPayload(
             processSnapshot: processSnapshot,
-            annotatedWindows: windows
+            annotatedWindows: windows,
+            attributionByPID: attributionByPID
         )
 
         var payload: [String: JSONValue] = [:]

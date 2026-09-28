@@ -56,6 +56,93 @@ struct TaskManagerCodingAgentInstanceTests {
         #expect(instance.resources.processIds == [101])
     }
 
+    @Test func agentProcessesGroupBySurfaceAndSkipUnattributedProcesses() throws {
+        let otherSurfaceID = UUID(uuidString: "44444444-4444-4444-4444-444444444444")!
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                process(pid: 101, residentBytes: 100),
+                process(pid: 102, residentBytes: 200),
+                process(pid: 103, residentBytes: 400),
+                process(pid: 104, residentBytes: 800),
+            ],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let instances = snapshot.codingAgentInstancePayloads(
+            pids: [101, 102, 103, 104],
+            attributionByPID: [
+                101: attribution(surfaceID: surfaceID),
+                102: attribution(surfaceID: surfaceID),
+                103: attribution(surfaceID: otherSurfaceID),
+            ]
+        )
+
+        #expect(instances.count == 2)
+        let first = try #require(instances.first { $0["surface_id"] as? String == surfaceID.uuidString })
+        let firstResources = try #require(first["resources"] as? [String: Any])
+        #expect(first["workspace_id"] as? String == workspaceID.uuidString)
+        #expect(firstResources["pids"] as? [Int] == [101, 102])
+        #expect(firstResources["resident_bytes"] as? Int64 == 300)
+        let second = try #require(instances.first { $0["surface_id"] as? String == otherSurfaceID.uuidString })
+        let secondResources = try #require(second["resources"] as? [String: Any])
+        #expect(secondResources["pids"] as? [Int] == [103])
+    }
+
+    @Test func aggregatePayloadsGainInstancesWithoutChangingTotals() throws {
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [process(pid: 101, residentBytes: 100)],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let aggregate: [String: Any] = [
+            "id": "claude",
+            "display_name": "Claude Code",
+            "resources": resources(pids: [101]),
+        ]
+        let payloads = snapshot.codingAgentPayloads(
+            [aggregate],
+            attributingInstancesWith: [101: attribution(surfaceID: surfaceID)]
+        )
+
+        let payload = try #require(payloads.first)
+        let instances = try #require(payload["instances"] as? [[String: Any]])
+        let totals = try #require(payload["resources"] as? [String: Any])
+        #expect(instances.count == 1)
+        #expect(totals["pids"] as? [Int] == [101])
+    }
+
+    private func process(pid: Int, residentBytes: Int64) -> CmuxTopProcessInfo {
+        CmuxTopProcessInfo(
+            pid: pid,
+            parentPID: 1,
+            name: "claude",
+            path: "/usr/local/bin/claude",
+            ttyDevice: nil,
+            cmuxWorkspaceID: nil,
+            cmuxSurfaceID: nil,
+            cmuxAttributionReason: nil,
+            processGroupID: nil,
+            terminalProcessGroupID: nil,
+            cpuPercent: 0,
+            residentBytes: residentBytes,
+            virtualBytes: residentBytes,
+            threadCount: 1
+        )
+    }
+
+    private func attribution(surfaceID: UUID) -> CmuxTopProcessAttribution {
+        CmuxTopProcessAttribution(
+            workspaceID: workspaceID,
+            workspaceRef: "workspace:1",
+            paneID: nil,
+            paneRef: nil,
+            surfaceID: surfaceID,
+            surfaceRef: nil,
+            surfaceType: "terminal",
+            reason: "surface-process-tree"
+        )
+    }
+
     private func resources(pids: [Int]) -> [String: Any] {
         [
             "cpu_percent": 2.0,

@@ -241,10 +241,10 @@ struct CmuxTaskManagerListView: View {
                         ForEach(agentRows) { row in
                             CmuxTaskManagerRowView(
                                 row: row,
-                                onViewWorkspace: {},
-                                onViewTerminal: {},
+                                onViewWorkspace: { actions.viewWorkspace(row) },
+                                onViewTerminal: { actions.viewTerminal(row) },
                                 onKillProcess: { actions.killProcess(row) },
-                                onActivate: {}
+                                onActivate: { actions.activate(row) }
                             ).equatable()
                             Divider()
                                 .padding(.leading, 16)

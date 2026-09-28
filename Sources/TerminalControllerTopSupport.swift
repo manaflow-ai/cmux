@@ -40,12 +40,13 @@ extension TerminalController {
     nonisolated func v2TopMemoryDiagnosticPayload(
         processSnapshot: CmuxTopProcessSnapshot,
         annotatedWindows: [[String: Any]],
+        attributionByPID: [Int: CmuxTopProcessAttribution]? = nil,
         topGroupLimit: Int = 12
     ) -> [String: Any] {
         processSnapshot.memoryDiagnosticPayload(
             appPID: Int(Darwin.getpid()),
             topGroupLimit: topGroupLimit,
-            attributionByPID: v2TopMemoryAttributionByPID(in: annotatedWindows)
+            attributionByPID: attributionByPID ?? v2TopMemoryAttributionByPID(in: annotatedWindows)
         )
     }
 
@@ -303,7 +304,7 @@ extension TerminalController {
         return nil
     }
 
-    private nonisolated func v2TopMemoryAttributionByPID(in windows: [[String: Any]]) -> [Int: CmuxTopProcessAttribution] {
+    nonisolated func v2TopMemoryAttributionByPID(in windows: [[String: Any]]) -> [Int: CmuxTopProcessAttribution] {
         var result: [Int: CmuxTopProcessAttribution] = [:]
         var ambiguousSpecificityByPID: [Int: Int] = [:]
         var commonOwnerSourceSpecificityByPID: [Int: Int] = [:]

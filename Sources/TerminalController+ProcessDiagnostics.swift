@@ -48,11 +48,15 @@ extension TerminalController {
 
     nonisolated func processAggregates(
         from processSnapshot: CmuxTopProcessSnapshot,
-        totalPIDs: Set<Int>
+        totalPIDs: Set<Int>,
+        attributionByPID: [Int: CmuxTopProcessAttribution]
     ) -> (programs: [[String: Any]], codingAgents: [[String: Any]]) {
         (
             programs: processSnapshot.programSummaryPayload(for: totalPIDs),
-            codingAgents: processSnapshot.codingAgentSummaryPayload(for: totalPIDs)
+            codingAgents: processSnapshot.codingAgentPayloads(
+                processSnapshot.codingAgentSummaryPayload(for: totalPIDs),
+                attributingInstancesWith: attributionByPID
+            )
         )
     }
 
