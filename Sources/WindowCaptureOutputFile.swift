@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// How a capture writes the file the caller asked for.
@@ -40,11 +41,31 @@ enum WindowCaptureOutputFile {
 
     /// Moves the finished capture to the path the caller asked for.
     static func promote(from workingURL: URL, to outputURL: URL) throws {
-        let manager = FileManager.default
-        if manager.fileExists(atPath: outputURL.path) {
-            _ = try manager.replaceItemAt(outputURL, withItemAt: workingURL)
-        } else {
-            try manager.moveItem(at: workingURL, to: outputURL)
+        guard isReplaceable(at: outputURL) else {
+            throw CocoaError(.fileWriteFileExists)
+        }
+
+        // The partial is a sibling, so rename(2) is an atomic promotion. More
+        // importantly, the kernel refuses to replace a directory with this
+        // regular file. Foundation's replaceItemAt may recursively remove a
+        // directory that appeared after capture preparation.
+        var failure: Int32?
+        let renamed = workingURL.withUnsafeFileSystemRepresentation { source in
+            outputURL.withUnsafeFileSystemRepresentation { destination in
+                guard let source, let destination else { return false }
+                guard Darwin.rename(source, destination) == 0 else {
+                    failure = errno
+                    return false
+                }
+                return true
+            }
+        }
+        guard renamed else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(failure ?? EINVAL),
+                userInfo: [NSFilePathErrorKey: outputURL.path]
+            )
         }
     }
 }

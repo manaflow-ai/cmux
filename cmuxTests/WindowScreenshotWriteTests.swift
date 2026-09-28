@@ -226,6 +226,25 @@ import Testing
         #expect(working.lastPathComponent == ".shot.png.abc.partial")
     }
 
+    @Test func promotionCannotReplaceADirectoryThatAppearsDuringCapture() throws {
+        let root = try Self.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let output = root.appendingPathComponent("clip.mp4")
+        let working = WindowCaptureOutputFile.workingURL(for: output, discriminator: "recording")
+        let child = output.appendingPathComponent("keep.txt")
+        let payload = Data("finished capture".utf8)
+
+        try payload.write(to: working)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: false)
+        try Data("do not delete".utf8).write(to: child)
+
+        #expect(throws: (any Error).self) {
+            try WindowCaptureOutputFile.promote(from: working, to: output)
+        }
+        #expect(try Data(contentsOf: child) == Data("do not delete".utf8))
+        #expect(try Data(contentsOf: working) == payload)
+    }
+
     // MARK: Error codes
 
     @Test func captureFailuresReportWhoseFaultTheyAre() {
