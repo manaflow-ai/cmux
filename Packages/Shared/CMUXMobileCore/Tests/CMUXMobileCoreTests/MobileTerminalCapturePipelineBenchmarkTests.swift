@@ -7,16 +7,22 @@ import Testing
 /// microseconds per stage; run with `-c release` for meaningful numbers.
 @Test func capturePipelineStageCosts() throws {
     func screen(_ index: Int) throws -> MobileTerminalRenderGridFrame {
-        let styles = [MobileTerminalRenderGridFrame.Style(id: 0, foreground: "#D8D8D8", background: "#1E1E1E")]
-            + (1...36).map { id in
-                MobileTerminalRenderGridFrame.Style(
-                    id: id,
-                    foreground: String(format: "#%02X%02X%02X", id * 7 % 256, id * 13 % 256, id * 29 % 256),
-                    foregroundSource: .palette,
-                    foregroundPaletteIndex: id % 16,
-                    bold: id.isMultiple(of: 3)
-                )
-            }
+        var styles: [MobileTerminalRenderGridFrame.Style] = [
+            .init(id: 0, foreground: "#D8D8D8", background: "#1E1E1E"),
+        ]
+        for id in 1...36 {
+            let red: Int = id * 7 % 256
+            let green: Int = id * 13 % 256
+            let blue: Int = id * 29 % 256
+            let foreground: String = String(format: "#%02X%02X%02X", red, green, blue)
+            styles.append(MobileTerminalRenderGridFrame.Style(
+                id: id,
+                foreground: foreground,
+                foregroundSource: .palette,
+                foregroundPaletteIndex: id % 16,
+                bold: id.isMultiple(of: 3)
+            ))
+        }
         var spans: [MobileTerminalRenderGridFrame.RowSpan] = []
         for row in 0..<40 {
             var column = 0

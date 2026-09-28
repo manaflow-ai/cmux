@@ -4,17 +4,18 @@ import Testing
 
 /// A 40-row screen where every row uses its own style, like a colorful TUI.
 private func styledScreen() throws -> MobileTerminalRenderGridFrame {
-    let styles = [MobileTerminalRenderGridFrame.Style(id: 0, background: "#101010")]
-        + (1...40).map { id in
-            MobileTerminalRenderGridFrame.Style(
-                id: id,
-                foreground: String(format: "#%02X%02X%02X", id * 5, 255 - id * 5, 128),
-                foregroundSource: .palette,
-                foregroundPaletteIndex: id,
-                bold: id.isMultiple(of: 2),
-                underline: id.isMultiple(of: 3)
-            )
-        }
+    var styles: [MobileTerminalRenderGridFrame.Style] = [.init(id: 0, background: "#101010")]
+    for id in 1...40 {
+        let foreground: String = String(format: "#%02X%02X%02X", id * 5, 255 - id * 5, 128)
+        styles.append(MobileTerminalRenderGridFrame.Style(
+            id: id,
+            foreground: foreground,
+            foregroundSource: .palette,
+            foregroundPaletteIndex: id,
+            bold: id.isMultiple(of: 2),
+            underline: id.isMultiple(of: 3)
+        ))
+    }
     return try MobileTerminalRenderGridFrame(
         surfaceID: "8C0A57A4-7F1B-4D0B-9C39-2F4E8B1A6D10",
         stateSeq: 9,
