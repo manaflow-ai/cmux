@@ -98,11 +98,15 @@ _cmux_clear_pr_for_panel
 cd "$HOME"
 _test_prompt
 _cmux_report_git_branch_for_path "$PWD"
-for file in "$CMUX_TEST_CACHE.branch" "$CMUX_TEST_CACHE.repo" \
-    "$CMUX_TEST_CACHE.result" "$CMUX_TEST_CACHE.timestamp" \
-    "$CMUX_TEST_CACHE.no-pr-branch" "$CMUX_TEST_FORCE"; do
-    [[ -e "$file" ]] && _cmux_send CACHE_REMAINS
-done
+# Bash no longer writes PR caches (#15075) and leaves files from older
+# integrations alone instead of checking for them at every prompt.
+if [[ -n "${ZSH_VERSION:-}" ]]; then
+    for file in "$CMUX_TEST_CACHE.branch" "$CMUX_TEST_CACHE.repo" \
+        "$CMUX_TEST_CACHE.result" "$CMUX_TEST_CACHE.timestamp" \
+        "$CMUX_TEST_CACHE.no-pr-branch" "$CMUX_TEST_FORCE"; do
+        [[ -e "$file" ]] && _cmux_send CACHE_REMAINS
+    done
+fi
 [[ -n "$_CMUX_GIT_ACTIVE_PWD_FILE" ]] && _cmux_send ACTIVE_PWD_CREATED
 [[ -n "$_CMUX_GIT_JOB_PID" ]] && _cmux_send GIT_JOB_STARTED
 [[ -n "$_CMUX_GIT_HEAD_PATH$_CMUX_GIT_HEAD_SIGNATURE" ]] && _cmux_send HEAD_TRACKED
@@ -111,18 +115,11 @@ done
 ''')
                 for forbidden in (
                     "report_git_branch", "clear_git_branch", "report_pr ", "clear_pr",
-                    "report_pr_action", "WATCHER_START",
+                    "report_pr_action", "WATCHER_START", "CACHE_REMAINS",
                     "ACTIVE_PWD_CREATED", "GIT_JOB_STARTED", "HEAD_TRACKED",
                     "HINT_REMAINS", "HINT_FILE_REMAINS",
                 ):
                     self.assertNotIn(forbidden, output)
-                if shell == "zsh":
-                    # zsh still owns the legacy PR cache cleanup path. Bash's
-                    # poller and cache owner were retired on main; stale files
-                    # from an older shell are intentionally left untouched.
-                    self.assertNotIn("CACHE_REMAINS", output)
-                else:
-                    self.assertEqual(output.count("CACHE_REMAINS"), len(CACHE_SUFFIXES) + 1)
                 for preserved in (
                     "report_tty ttys-contract", "report_shell_state prompt",
                     "report_shell_state running", "report_pwd ",
@@ -183,8 +180,8 @@ _cmux_report_git_branch_for_path "$PWD"
                 try:
                     names = ["_CMUX_GIT_JOB_PID"]
                     if shell == "zsh":
-                        names.append("_CMUX_PR_POLL_PID")
-                        names.append("_CMUX_GIT_HEAD_WATCH_PID")
+                        # Bash has no HEAD watcher, and #15075 removed its PR poller.
+                        names += ["_CMUX_PR_POLL_PID", "_CMUX_GIT_HEAD_WATCH_PID"]
                     for name in names:
                         jobs[name] = subprocess.Popen(["/bin/sleep", "60"], start_new_session=True)
                     # Observe only prompt-time shutdown. zsh's normal exit hook
