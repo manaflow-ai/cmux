@@ -71,4 +71,33 @@ struct CloudTeamPickerMenuTests {
         #expect(selected == ["team-alpha"])
         #expect(createCount == 1)
     }
+
+    /// A palette or shortcut request while sign-in work disables the trigger is
+    /// dropped, not held until the trigger is enabled again.
+    @Test func disabledTriggerDropsProgrammaticOpen() async {
+        let anchor = CloudTeamPickerMenuAnchorView(frame: NSRect(x: 0, y: 0, width: 120, height: 22))
+        var menuCount = 0
+        var dismissCount = 0
+        anchor.makeMenu = {
+            menuCount += 1
+            return NSMenu()
+        }
+        anchor.onDismiss = { dismissCount += 1 }
+        anchor.isEnabled = false
+
+        anchor.syncPresentation(true)
+        await nextMainQueueTurn()
+        anchor.isEnabled = true
+        anchor.setFrameSize(NSSize(width: 140, height: 22))
+        await nextMainQueueTurn()
+
+        #expect(dismissCount == 1)
+        #expect(menuCount == 0)
+    }
+
+    private func nextMainQueueTurn() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+    }
 }
