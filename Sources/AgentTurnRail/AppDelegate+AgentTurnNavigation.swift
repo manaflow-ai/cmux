@@ -30,6 +30,9 @@ extension AppDelegate {
         preferredWindow: NSWindow? = nil
     ) -> Bool {
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        // A focused Dock terminal owns the keys; never jump the main area
+        // behind it.
+        guard focusedDockStoreForShortcut(preferredWindow: targetWindow) == nil else { return false }
         guard let model = activeTabManagerForCommands(preferredWindow: targetWindow)?
             .focusedAgentTurnRailModel else {
             return false
@@ -45,5 +48,23 @@ extension AppDelegate {
             if !moved { NSSound.beep() }
         }
         return true
+    }
+
+    /// Keyboard entrypoint: consumes the event only when a jump started, so
+    /// terminals without a rail keep Ghostty's own binding for the keys.
+    func handleAgentTurnNavigationShortcut(event: NSEvent) -> Bool {
+        let direction: AgentTurnNavigationDirection
+        if matchConfiguredShortcut(event: event, action: .previousAgentTurn) {
+            direction = .previous
+        } else if matchConfiguredShortcut(event: event, action: .nextAgentTurn) {
+            direction = .next
+        } else {
+            return false
+        }
+        let handled = performAgentTurnNavigation(direction, preferredWindow: event.window)
+#if DEBUG
+        cmuxDebugLog("shortcut.action name=agentTurn.\(direction) handled=\(handled ? 1 : 0)")
+#endif
+        return handled
     }
 }

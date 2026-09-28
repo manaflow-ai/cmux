@@ -2052,6 +2052,8 @@ enum CmuxEmbeddedConfigSchema {
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
+              "previousAgentTurn",
+              "nextAgentTurn",
               "focusTextBoxInput",
               "cycleTextBoxSubmitAction",
               "attachTextBoxFile",

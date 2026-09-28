@@ -75,17 +75,12 @@ struct AgentTurnRailView: View {
         }
     }
 
+    /// The prompt of the turn on screen.
     private var accessibilityValue: String {
-        let total = model.entries.count
         guard let current = model.currentIndex, model.entries.indices.contains(current) else {
             return ""
         }
-        return String(
-            format: String(localized: "agentTurnRail.accessibilityValue.current", defaultValue: "Turn %1$lld of %2$lld: %3$@"),
-            Int64(current + 1),
-            Int64(total),
-            model.entries[current].title
-        )
+        return model.entries[current].title
     }
 
     private struct TickState {

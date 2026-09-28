@@ -136,7 +136,8 @@ extension KeyboardShortcutSettings.Action {
              .canvasDistributeVertically,
              .toggleRightSidebar,
              .findInDirectory,
-             .openDiffViewer:
+             .openDiffViewer,
+             .previousAgentTurn, .nextAgentTurn:
             .mainContainer
         }
     }
