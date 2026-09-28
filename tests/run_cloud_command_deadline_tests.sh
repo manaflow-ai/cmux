@@ -18,10 +18,10 @@ let package = Package(
     swiftLanguageModes: [.v5]
 )
 SWIFT
-# CloudTuiTerminalProjectionTarget lives in the CmuxSurfaceCatalogModel package, not in Sources/Cloud.
+# CloudTuiTerminalProjectionTarget lives in the CmuxSurfaceCatalogModel package, not in CmuxCloud.
 cp "$ROOT/Packages/macOS/CmuxSurfaceCatalogModel/Sources/CmuxSurfaceCatalogModel/CloudTuiTerminalProjectionTarget.swift" \
     "$DEST/Sources/CloudCommandFixture/"
-cp "$ROOT/Sources/Cloud/CloudTuiPersistentResourceConnection.swift" "$DEST/Sources/CloudCommandFixture/"
+cp "$ROOT/Packages/macOS/CmuxCloud/Sources/CmuxCloud/Link/CloudTuiPersistentResourceConnection.swift" "$DEST/Sources/CloudCommandFixture/"
 # The rest of the transport lives in the CmuxCloudTui package.
 for name in CloudTuiPersistentRequestBuilder \
     CloudTuiManualIOConnection CloudTuiManualIODescriptorLease CloudTuiManualIOCommand \
@@ -38,6 +38,6 @@ rm -f "$DEST/Sources/CloudCommandFixture/"*.bak
 for name in CloudCommandDeadlineClock CloudCommandDeadlineTests CloudTuiManualIOConnectionTests; do
     cp "$ROOT/cmuxTests/$name.swift" "$DEST/Tests/CloudCommandFixtureTests/"
 done
-sed -i.bak '/^import CmuxCloudTui$/d' "$DEST/Tests/CloudCommandFixtureTests/"*.swift
+sed -i.bak -e '/^import CmuxCloudTui$/d' -e '/^import CmuxCloud$/d' "$DEST/Tests/CloudCommandFixtureTests/"*.swift
 rm -f "$DEST/Tests/CloudCommandFixtureTests/"*.bak
 swift test --package-path "$DEST" -Xswiftc -warnings-as-errors

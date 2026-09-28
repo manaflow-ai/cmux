@@ -1,3 +1,4 @@
+import CmuxCloud
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
@@ -8,9 +9,10 @@ import OSLog
 
 nonisolated private let deviceDirectoryLog = Logger(subsystem: "dev.cmux", category: "device-directory")
 
-/// The account's other Macs, merged from the pairing store (local-first), the
-/// durable device registry, and the live presence stream, excluding this exact
-/// app instance. Bound to one account generation and team scope: the registry
+/// The account's discoverable Macs, authorized by the Mac directory and enriched
+/// with saved pairings, registry metadata, and live presence. An unavailable
+/// discovery client never makes those secondary sources authoritative.
+/// Bound to one account generation and team scope: the registry
 /// rebuilds it when either changes, and every token it uses fails closed after.
 ///
 /// Liveness is push: one presence WebSocket subscription (snapshot first, then
@@ -211,8 +213,8 @@ final class DeviceDirectory {
                     self.registryError = nil
                 } catch {
                     guard !Task.isCancelled else { return }
-                    // An outage retains the last rows; per-session leases still
-                    // reject stale or revoked peers before any application I/O.
+                    // An outage retains the last authenticated rows; per-session
+                    // leases reject stale or revoked peers before application I/O.
                 }
             }
             self.hasLoadedRegistry = true
@@ -328,6 +330,7 @@ final class DeviceDirectory {
         let merged = DeviceDirectoryMerge.merge(DeviceDirectoryMerge.Input(
             registry: registryDevices,
             authenticatedMacs: authenticatedMacs,
+            requiresAuthenticatedDiscovery: true,
             presence: presenceInstances,
             presenceLive: presenceState == .live,
             owners: owners,

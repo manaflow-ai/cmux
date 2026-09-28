@@ -79,7 +79,18 @@ extension CMUXCLI {
             switch codexValidation {
             case .allowed:
                 shouldContinue = true
-            case .missing, .unavailable, .rejectedChild, .bindingChanged:
+            case .unavailable:
+                // The standalone verifier is deliberately conservative: a
+                // transient SQLite/read failure is not proof that the
+                // conversation is missing. Same-build apps expose the shared
+                // admission boundary, which can combine the provider lock,
+                // hook identity, PID generation, and live-owner evidence and
+                // wait for that evidence to settle. Keep this restore intent
+                // alive instead of turning an unknown result into a shell
+                // error. Older apps have no admission RPC, so retain their
+                // conservative compatibility behavior.
+                shouldContinue = payload["agent_restore_admission_supported"] as? Bool == true
+            case .missing, .rejectedChild, .bindingChanged:
                 shouldContinue = false
             }
             if !shouldContinue {
@@ -137,7 +148,14 @@ extension CMUXCLI {
                 observedPermissionMode: record.permissionMode
             )
             invocation = AgentRestorePlanner(
-                executableFileResolver: AgentRestoreExecutableFileResolver()
+                executableFileResolver: AgentRestoreExecutableFileResolver(),
+                // Resolved from the session's own directory, never from wherever `cmux restore` was
+                // invoked: when the saved directory is gone the restore falls back to the invocation
+                // directory, and resolving there would pick up an unrelated project's `agents.launchers`
+                // and apply its prefix to this session's captured id.
+                externalLaunchers: externalAgentLaunchers(
+                    workingDirectory: record.launchCommand?.workingDirectory ?? record.workingDirectory
+                )
             ).invocation(for: request, ambientEnvironment: processEnvironment)
         }
         let execution: RestoreExecution
@@ -316,14 +334,19 @@ extension CMUXCLI {
             )
         }
         let legacyCommand = object["legacy_command"] as? String
+        let preparedArguments = object["prepared_arguments"] as? [String]
         let legacyForkCommand = [object["fork_command"], object["legacy_fork_command"]]
             .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
+        let hasContinuationArguments = preparedArguments?.isEmpty == false
+            || (verb == .fork && (object["fork_arguments"] as? [String])?.isEmpty == false)
+            || (verb == .fork && (object["prepared_fork_arguments"] as? [String])?.isEmpty == false)
         let launchCommand: AgentLaunchCommand?
         do {
             launchCommand = try restoreLaunchCommand(
                 from: object["launch_command"],
-                verb: verb
+                verb: verb,
+                allowEmptyWhenContinuationArgumentsExist: hasContinuationArguments
             )
         } catch {
             let hasLegacyForkFallback = legacyForkCommand != nil
@@ -376,7 +399,7 @@ extension CMUXCLI {
             workingDirectory: object["working_directory"] as? String,
             environment: object["environment"] as? [String: String] ?? [:],
             launchCommand: launchCommand,
-            preparedArguments: object["prepared_arguments"] as? [String],
+            preparedArguments: preparedArguments,
             preparedArgumentsWorkingDirectory:
                 object["prepared_arguments_working_directory"] as? String,
             forkArguments: forkArguments,
@@ -409,14 +432,22 @@ extension CMUXCLI {
 
     func restoreLaunchCommand(
         from value: Any?,
-        verb: CMUXCLIContinuationVerb = .restore
+        verb: CMUXCLIContinuationVerb = .restore,
+        allowEmptyWhenContinuationArgumentsExist: Bool = false
     ) throws -> AgentLaunchCommand? {
         guard let object = value as? [String: Any] else { return nil }
-        guard let arguments = object["arguments"] as? [String], !arguments.isEmpty else {
+        guard let arguments = object["arguments"] as? [String] else {
             throw continuationUsageError(.malformedArguments, verb: verb)
         }
+        guard !arguments.isEmpty || allowEmptyWhenContinuationArgumentsExist else {
+            throw continuationUsageError(.malformedArguments, verb: verb)
+        }
+        // An empty rejected capture can still carry replay-safe environment
+        // (for example `CLAUDE_CONFIG_DIR`). Keep that structured metadata while
+        // the planner takes its executable argv from `prepared_arguments`.
         return AgentLaunchCommand(
             launcher: object["launcher"] as? String,
+            externalLauncher: object["external_launcher"] as? String,
             executablePath: object["executable_path"] as? String,
             arguments: arguments,
             workingDirectory: object["working_directory"] as? String,

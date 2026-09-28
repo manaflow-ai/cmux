@@ -192,9 +192,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// When true, a deferred restore was cancelled before its first runtime.
     /// Suppresses the payload while retaining its persistence/debug configuration.
     var suppressConfiguredInitialInput = false
-    /// The command to use when a deferred restore is cancelled, if it needs to
-    /// keep a transport attach alive without running the resume payload.
-    var startupRestoreAdmissionFallbackCommand: String?
     var startupRestoreAdmissionCommandOverride: String?
     var hasStartupRestoreAdmissionCommandOverride = false
     let initialEnvironmentOverrides: [String: String]

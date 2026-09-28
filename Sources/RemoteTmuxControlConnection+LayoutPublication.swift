@@ -412,5 +412,7 @@ extension RemoteTmuxControlConnection {
         }
         paneOutputByteCounts = paneOutputByteCounts.filter { paneIDs.contains($0.key) }
         paneForegroundStates = paneForegroundStates.filter { paneIDs.contains($0.key) }
+        paneColors = paneColors.filter { paneIDs.contains($0.key) }
+        sentPaneColors = sentPaneColors.filter { paneIDs.contains($0.key) }
     }
 }

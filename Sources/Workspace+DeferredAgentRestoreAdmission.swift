@@ -42,27 +42,17 @@ extension Workspace {
             if let capturedBinding = restore.resumeBinding {
                 guard let currentBinding = surfaceResumeBindingsByPanelId[panelId],
                       currentBinding.isAgentHookBinding,
-                      currentBinding.isSameManagedSession(as: capturedBinding),
-                      currentBinding.autoResume == true else {
+                      currentBinding.isSameManagedSession(as: capturedBinding) else {
                     cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                     continue
                 }
-                currentResumeBinding = currentBinding
+                // The staged snapshot owns this launch. A late SessionEnd from
+                // the previous cmux can retire the live binding in place while
+                // leaving the same session identity; do not turn that race into
+                // a silent shell or rebuild the launch from autoResume=false.
+                currentResumeBinding = capturedBinding
             } else {
                 currentResumeBinding = nil
-            }
-            if restore.remoteResumeCommandEmbedded {
-                // The attach command was embedded in the terminal's initial
-                // command before the ownership scan. Require the complete
-                // managed binding to remain unchanged (including its command,
-                // cwd, and launch flavor) so a changed resume payload can
-                // never execute from the stale terminal configuration.
-                guard let capturedBinding = restore.resumeBinding,
-                      let currentResumeBinding,
-                      capturedBinding == currentResumeBinding else {
-                    cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
-                    continue
-                }
             }
             let expectedSessionId = restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId
             let liveSessionOwner: LiveAgentSessionOwner? = if let expectedKind,
@@ -150,10 +140,9 @@ extension Workspace {
                 .awaitingAutoResumeCommand,
                 panelId: panelId
             )
-            let admittedInput = restore.remoteResumeCommandEmbedded ? nil : startupInput
-            restoredAgentLifecycle.registerStartupInput(admittedInput, panelId: panelId)
+            restoredAgentLifecycle.registerStartupInput(startupInput, panelId: panelId)
             let admitted = terminal.surface.admitStartupRestoreRuntime(
-                initialInput: admittedInput
+                initialInput: startupInput
             )
             if !admitted {
                 restoredAgentLifecycle.clearStartupInput(panelId: panelId)

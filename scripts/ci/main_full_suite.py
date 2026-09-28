@@ -22,6 +22,8 @@ does not count. Any API error fails open and dispatches.
 
 `report` syncs the single tracking issue with a completed dispatch run on main:
 a red run opens the issue or comments on it once, and a green run closes it.
+A red report carries the "New since" section main_regression_attribution.py
+writes: which tests newly fail and the pull requests suspected of it.
 """
 
 from __future__ import annotations
@@ -135,7 +137,7 @@ def issue_plan(conclusion: str, has_open_issue: bool, already_reported: bool) ->
     return "none"
 
 
-def failure_body(run: Mapping[str, object], jobs: list[Mapping[str, object]]) -> str:
+def failure_body(run: Mapping[str, object], jobs: list[Mapping[str, object]], extra: str = "") -> str:
     lines = [
         f"Full-suite CI on `main` failed at {run.get('head_sha')}: {run.get('html_url')}",
         "",
@@ -148,6 +150,8 @@ def failure_body(run: Mapping[str, object], jobs: list[Mapping[str, object]]) ->
             lines.append(f"- ...and {len(jobs) - MAX_LISTED_JOBS} more")
     else:
         lines.append("No individual job reported failure; see the run summary.")
+    if extra.strip():
+        lines += ["", extra.strip()]
     lines += [
         "",
         "Pull requests run a subset of the suite, so this run is the first place "
@@ -233,6 +237,17 @@ def ensure_label(repo: str) -> None:
     ], check=True, capture_output=True, text=True)
 
 
+def read_extra_section(path: str | None) -> str:
+    """The new-failure attribution, when main_regression_attribution.py wrote one."""
+    if not path:
+        return ""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return handle.read()
+    except OSError:
+        return ""
+
+
 def command_report(args: argparse.Namespace) -> int:
     if args.run_id:
         run = gh_json_lines([f"repos/{args.repo}/actions/runs/{args.run_id}", "--jq", "tojson"])[0]
@@ -258,7 +273,7 @@ def command_report(args: argparse.Namespace) -> int:
             "-X", "GET", "-f", "filter=latest", "-f", "per_page=100",
             "--jq", ".jobs[] | {name, conclusion, html_url} | tojson",
         ]))
-        body = failure_body(run, jobs)
+        body = failure_body(run, jobs, read_extra_section(args.extra_section))
         if plan == "open":
             ensure_label(args.repo)
             subprocess.run([
@@ -296,6 +311,7 @@ def main(argv: list[str]) -> int:
 
     report = commands.add_parser("report", help="sync the tracking issue with a completed run")
     report.add_argument("--run-id", help="defaults to the newest green or red full-suite run")
+    report.add_argument("--extra-section", help="markdown to add to a failure report, e.g. new-failure attribution")
     report.set_defaults(handler=command_report)
 
     args = parser.parse_args(argv)

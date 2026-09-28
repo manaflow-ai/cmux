@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxCommandPalette
 
@@ -24,9 +25,7 @@ extension ContentView {
                 title: item.label,
                 subtitle: CurrentWorkPalettePresentation(item: item).subtitle(canFocus: canFocus),
                 shortcutHint: nil,
-                kindLabel: item.placement.kind == "local"
-                    ? String(localized: "commandPalette.currentWork.local", defaultValue: "Local")
-                    : String(localized: "commandPalette.currentWork.cloud", defaultValue: "Cloud"),
+                kindLabel: currentWorkPlacementLabel(item.placement.kind),
                 keywords: [item.resourceRef, item.kind, item.placement.machine]
                     + item.projectHints + item.agents.compactMap(\.kind)
                     + item.agents.map(\.state) + item.attention.map(\.kind)
@@ -54,6 +53,19 @@ extension ContentView {
             ))
         }
         return entries
+    }
+
+    private func currentWorkPlacementLabel(_ kind: String) -> String {
+        switch kind {
+        case "local":
+            return String(localized: "commandPalette.currentWork.local", defaultValue: "Local")
+        case "cloud":
+            return String(localized: "commandPalette.currentWork.cloud", defaultValue: "Cloud")
+        case "ssh":
+            return String(localized: "menu.help.ssh", defaultValue: "SSH")
+        default:
+            return String(localized: "featureFlags.source.remote", defaultValue: "Remote")
+        }
     }
 
     private func currentWorkPaletteFocusTargets() -> [UUID: CurrentWorkPaletteFocusTarget] {
