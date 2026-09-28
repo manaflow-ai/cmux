@@ -134,7 +134,7 @@ struct MachineDeleteCoordinatorTests {
         accountEvents.post(name: .cmuxCloudVMAccessDidEnd, object: nil)
 
         later.forEach { $0() }
-        #expect(detached.isEmpty, "A CLI that exited early, or an ended account, keeps the presentations")
+        #expect(detached.isEmpty, "A machine listed again by the later turn detaches nothing")
     }
 
     @Test func notFoundRetiresTheMachineAndOtherFailuresRestoreIt() async throws {

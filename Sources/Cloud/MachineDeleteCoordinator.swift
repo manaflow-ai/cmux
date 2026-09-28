@@ -94,8 +94,8 @@ final class MachineDeleteCoordinator {
     func beginCleanup(_ machineID: String) {
         guard deletions.begin(machineID) else { return }
         runLater { [weak self] in
-            // A delete that failed first, or an ended account, lists the machine
-            // again with its presentations.
+            // Skip a machine listed again: a failed delete keeps its presentations,
+            // and an ended account already closed its Cloud workspaces.
             guard let self, self.hiddenMachineIDs.contains(machineID) else { return }
             self.didHide(machineID)
         }
