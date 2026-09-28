@@ -1705,10 +1705,7 @@ enum CmuxEmbeddedConfigSchema {
         },
         "hiddenWebViewDiscardMode": {
           "type": "string",
-          "enum": [
-            "budget",
-            "timer"
-          ],
+          "enum": ["budget", "timer"],
           "default": "budget",
           "description": "How cmux picks hidden browser tabs to free. budget frees the tabs hidden longest once hidden tabs use more than hiddenWebViewMemoryBudgetMB; timer frees every tab hidden longer than hiddenWebViewDiscardDelaySeconds."
         },
