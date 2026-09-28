@@ -199,7 +199,7 @@ public final class UpdateController {
                 defaults.set(shouldEnableAutomaticChecks, forKey: UpdateSettings.automaticChecksKey)
             }
         }
-        log.append("scheduled update check interval applied (interval=\(Int(interval.rounded()))s)")
+        log.append("scheduled update check interval applied (interval=\(interval.rounded())s)")
     }
 
     // MARK: - Reaction stream
@@ -332,7 +332,7 @@ public final class UpdateController {
         do {
             try updater.start()
             didStartUpdater = true
-            let interval = Int(updater.updateCheckInterval.rounded())
+            let interval = updater.updateCheckInterval.rounded()
             log.append(
                 "updater started (autoChecks=\(updater.automaticallyChecksForUpdates), interval=\(interval)s, autoDownloads=\(updater.automaticallyDownloadsUpdates))"
             )
