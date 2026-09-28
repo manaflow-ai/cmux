@@ -9,6 +9,7 @@ a stand-in agent and the real cmux exit watcher holds its launch lease.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -22,7 +23,7 @@ import time
 import uuid
 
 
-def exercise(cli: Path, reports_owner: bool) -> None:
+def exercise(cli: Path, reports_owner: bool, owner_cli: Path, launching: bool = False) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-15111-", dir="/tmp") as temporary:
         root = Path(temporary).resolve()
         home = root / "codex-home"
@@ -90,11 +91,24 @@ def exercise(cli: Path, reports_owner: bool) -> None:
             if key in os.environ:
                 environment[key] = os.environ[key]
         command = [str(cli), "restore", "--surface", surface, "codex", session]
+        owner_command = [str(owner_cli), *command[1:]]
+        if launching:
+            directory = root / ".cmuxterm" / "agent-restore-launches"
+            directory.mkdir(parents=True, mode=0o700)
+            key = hashlib.sha256((str(home) + "\0" + session).encode()).hexdigest()
+            lease_path = directory / (key + ".lock")
+            owner_command = ["/usr/bin/python3", "-c", (
+                "import fcntl, os, sys\n"
+                "fd = os.open(sys.argv[1], os.O_CREAT | os.O_RDWR, 0o600)\n"
+                "fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
+                "print('READY ' + str(os.getpid()), flush=True)\n"
+                "os.read(0, 1)\n"
+            ), str(lease_path)]
         first_master, first_slave = pty.openpty()
         second_master, second_slave = pty.openpty()
         first = second = None
         try:
-            first = subprocess.Popen(command, env=environment, cwd=root,
+            first = subprocess.Popen(owner_command, env=environment, cwd=root,
                                      stdin=first_slave, stdout=first_slave, stderr=first_slave)
             deadline = time.monotonic() + 10
             output = b""
@@ -114,11 +128,12 @@ def exercise(cli: Path, reports_owner: bool) -> None:
                 raise AssertionError("Second restore hung behind a live lease owner for over 3 seconds") from error
             elapsed = time.monotonic() - started
             assert second.returncode != 0, (stdout, stderr)
-            expected = f"already running in process {owner_pid}".encode()
+            expected = ("another launch of this agent session is already starting" if launching
+                        else f"already running in process {owner_pid}").encode()
             assert expected in stderr, (stdout, stderr, requests)
             assert first.poll() is None, "Contender must not stop the live owner"
             assert b"READY" not in stdout, "Contender launched another writer"
-            print(f"PASS reports_owner={reports_owner}: live owner PID named in {elapsed:.3f}s; no second writer")
+            print(f"PASS reports_owner={reports_owner} launching={launching}: terminal rejection in {elapsed:.3f}s; no second writer")
         finally:
             for process in (second, first):
                 if process is not None and process.poll() is None:
@@ -134,9 +149,11 @@ def exercise(cli: Path, reports_owner: bool) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cli", type=Path, required=True)
+    parser.add_argument("--owner-cli", type=Path, help="Optional older CLI to verify stable/nightly interoperability")
     arguments = parser.parse_args()
     for reports_owner in (True, False):
-        exercise(arguments.cli.resolve(), reports_owner)
+        exercise(arguments.cli.resolve(), reports_owner, (arguments.owner_cli or arguments.cli).resolve())
+    exercise(arguments.cli.resolve(), False, arguments.cli.resolve(), launching=True)
 
 
 if __name__ == "__main__":

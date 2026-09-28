@@ -5,11 +5,12 @@ extension CMUXCLI {
     func sendRestoreAdmission(
         params: inout [String: Any],
         restorePayload: [String: Any],
-        client: SocketClient
+        client: SocketClient,
+        responseTimeout: TimeInterval = 30
     ) throws -> [String: Any] {
         while true {
             do {
-                return try client.sendV2(method: "agent.restore.admit", params: params, responseTimeout: 30)
+                return try client.sendV2(method: "agent.restore.admit", params: params, responseTimeout: responseTimeout)
             } catch {
                 guard let failure = error as? CLIError, failure.isStructuredProtocolResponse,
                       failure.v2Code == "conflict", let surfaceID = params["surface_id"] as? String,

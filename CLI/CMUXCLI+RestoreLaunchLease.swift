@@ -24,8 +24,9 @@ extension CMUXCLI {
             account: inspection.codexHome, sessionID: sessionID
         )
         if try !lease.tryAcquire() {
-            // Let the app present the real owner while the kernel waits for
-            // the shared lease. This request must never claim execution.
+            var processID = lease.liveOwnerProcessID.map(Int64.init)
+            // End the app's checking state, without claiming or queuing a
+            // second launch. The lease can supply an owner before hooks arrive.
             if let workspaceID = restorePayload["workspace_id"] as? String,
                let surfaceID = restorePayload["surface_id"] as? String,
                restorePayload["agent_restore_admission_supported"] as? Bool == true {
@@ -34,11 +35,12 @@ extension CMUXCLI {
                     "kind": record.kind, "session_id": sessionID,
                     "codex_home": home, "launch_lease_pending": true
                 ]
-                let response = try sendRestoreAdmission(
-                    params: &params, restorePayload: restorePayload, client: client
-                )
+                let response = (try? sendRestoreAdmission(
+                    params: &params, restorePayload: restorePayload, client: client, responseTimeout: 2
+                )) ?? [:]
+                processID = processID ?? (response["live_owner_pid"] as? NSNumber)?.int64Value
                 // Older apps do not understand the pending hint. Return any
-                // claim they issued before waiting, then ask afresh afterward.
+                // claim they issued before rejecting this contender.
                 if let claimID = response["claim_id"] as? String {
                     releaseRestoreLaunchAdmission(RestoreLaunchAdmissionClaim(
                         workspaceID: (params["workspace_id"] as? String) ?? workspaceID, surfaceID: surfaceID,
@@ -46,7 +48,7 @@ extension CMUXCLI {
                     ), client: client)
                 }
             }
-            try lease.acquireAfterOwnerExit()
+            throw restoreLaunchConflictError(kind: record.kind, sessionID: sessionID, processID: processID)
         }
         return lease
     }
