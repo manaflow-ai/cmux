@@ -328,6 +328,13 @@ final class WorkspaceContentViewVisibilityTests {
             select: false,
             autoWelcomeIfNeeded: false
         )
+        // The right-side file explorer is outside this test's vertical-sidebar
+        // scope. Keep it hidden so its asynchronous workspace-root discovery
+        // cannot invalidate the chrome bodies during unread measurement.
+        let fileExplorerState = FileExplorerState()
+        let originalFileExplorerVisibility = fileExplorerState.isVisible
+        fileExplorerState.setVisible(false)
+        defer { fileExplorerState.setVisible(originalFileExplorerVisibility) }
         let unread = SidebarUnreadModel()
         let counts = MinimalModeBodyProbeCounts()
         let root = ContentView(
@@ -339,7 +346,7 @@ final class WorkspaceContentViewVisibilityTests {
             .environmentObject(TerminalNotificationStore.shared)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())
-            .environmentObject(FileExplorerState())
+            .environmentObject(fileExplorerState)
             .environmentObject(CmuxConfigStore())
             .environment(
                 \.minimalModeInvalidationProbe,
