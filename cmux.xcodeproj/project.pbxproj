@@ -2316,6 +2316,7 @@
 		C0DEFEF90000000000000001 /* MobileNotificationFeedWireItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEF90000000000000002 /* MobileNotificationFeedWireItem.swift */; };
 		9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */; };
 		0099C2865D9D468747D14593 /* MobilePairingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */; };
+		D01E6038C8D90A5255BFEB93 /* MobilePairingRecoveryAuthClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 717D6C2754ED644C0D88211E /* MobilePairingRecoveryAuthClient.swift */; };
 		C1A070000000000000000006 /* MobilePairingView+Connected.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000016 /* MobilePairingView+Connected.swift */; };
 		A2538FE83AE79539E3BF9248 /* MobilePairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9BC53FA4991A6EBFB930EDF /* MobilePairingView.swift */; };
 		18A8E29E9BD87E184983527C /* MobilePairingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */; };
@@ -3238,6 +3239,7 @@
 		C12575000000000000000036 /* SurfaceCatalog+WorkspaceDeletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12575000000000000000037 /* SurfaceCatalog+WorkspaceDeletion.swift */; };
 		00B9FC4EDB2E47F6819B01C4 /* SurfaceCatalog+WorkspaceMembership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B8876F3CE1A40FB83FF5463 /* SurfaceCatalog+WorkspaceMembership.swift */; };
 		F7F3BED81BD5FE96D52055C0 /* SurfaceCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA63D377742D3A6A0BAB499B /* SurfaceCatalog.swift */; };
+		0CFAE1C22B0BB59F4A0B75F3 /* SurfaceCatalogObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F27EA9972F21B98FB4A7312 /* SurfaceCatalogObservationTests.swift */; };
 		D01100800000000000000002 /* SurfaceCatalogQueryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D01100800000000000000001 /* SurfaceCatalogQueryService.swift */; };
 		D01100800000000000000004 /* SurfaceCatalogQueryServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D01100800000000000000003 /* SurfaceCatalogQueryServiceTests.swift */; };
 		5873A6BE37C34CC1082864E2 /* SurfaceCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 877BC9A2B697FEF2957397FA /* SurfaceCatalogTests.swift */; };
@@ -6350,6 +6352,7 @@
 		C0DEFEF90000000000000002 /* MobileNotificationFeedWireItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileNotificationFeedWireItem.swift; sourceTree = "<group>"; };
 		A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobilePairingConnectionTransitionTests.swift; sourceTree = "<group>"; };
 		04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingModel.swift"; sourceTree = "<group>"; };
+		717D6C2754ED644C0D88211E /* MobilePairingRecoveryAuthClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MobilePairingRecoveryAuthClient.swift"; sourceTree = "<group>"; };
 		C1A070000000000000000016 /* MobilePairingView+Connected.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingView+Connected.swift"; sourceTree = "<group>"; };
 		F9BC53FA4991A6EBFB930EDF /* MobilePairingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingView.swift"; sourceTree = "<group>"; };
 		5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingWindowController.swift"; sourceTree = "<group>"; };
@@ -7256,6 +7259,7 @@
 		C12575000000000000000037 /* SurfaceCatalog+WorkspaceDeletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+WorkspaceDeletion.swift"; sourceTree = "<group>"; };
 		0B8876F3CE1A40FB83FF5463 /* SurfaceCatalog+WorkspaceMembership.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+WorkspaceMembership.swift"; sourceTree = "<group>"; };
 		EA63D377742D3A6A0BAB499B /* SurfaceCatalog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceCatalog.swift; sourceTree = "<group>"; };
+		6F27EA9972F21B98FB4A7312 /* SurfaceCatalogObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalogObservationTests.swift"; sourceTree = "<group>"; };
 		D01100800000000000000001 /* SurfaceCatalogQueryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceCatalogQueryService.swift; sourceTree = "<group>"; };
 		D01100800000000000000003 /* SurfaceCatalogQueryServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceCatalogQueryServiceTests.swift; sourceTree = "<group>"; };
 		877BC9A2B697FEF2957397FA /* SurfaceCatalogTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceCatalogTests.swift; sourceTree = "<group>"; };
@@ -12302,12 +12306,14 @@
 				8E924EBE2A4B7D8798B993C1 /* SidebarSelectedRowScrollTests.swift */,
 				A742BB7924EB331A78B26CD2 /* GhosttyStartupInputUTF8Tests.swift */,
 				E1440E4C8B82D1DACD9AE13A /* CloudTreeHeaderActionsTests.swift */,
+				717D6C2754ED644C0D88211E /* MobilePairingRecoveryAuthClient.swift */,
 				ECB3986077DA3F362CD5E046 /* MobileTerminalReplayHibernationTests.swift */,
 				9CB582F11A6930F9835FEFB0 /* CloudTreeExpansionPreferencesTests.swift */,
 				B8DC7A936F722318390CA078 /* CloudTreeHostedUpdateTests.swift */,
 				3D5E43A566AB0B441162EC5A /* CloudTreeNodeCacheTests.swift */,
 				23E35F95320CBED308AD98CF /* CloudTreeTogglePerformanceTests.swift */,
 				0C37EA14DE74095FB1BB23E1 /* CloudTreeDisclosureIntentTests.swift */,
+				6F27EA9972F21B98FB4A7312 /* SurfaceCatalogObservationTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16514,6 +16520,7 @@
 				7A1B2C3D4E5F60718293A4B6 /* MobileHostTerminalThemeTests.swift in Sources */,
 				C0DE73840000000000000001 /* MobileHostWorkspaceTicketAuthorizationTests.swift in Sources */,
 				9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */,
+				D01E6038C8D90A5255BFEB93 /* MobilePairingRecoveryAuthClient.swift in Sources */,
 				ABMDPARTRES0000000000001 /* MobilePanelArtifactResolutionTests.swift in Sources */,
 				F33200000000000000000002 /* MobileSimulatorReaderAttachmentTests.swift in Sources */,
 				1055FA010000000000000001 /* MobileSurfaceKindMappingTests.swift in Sources */,
@@ -16788,6 +16795,7 @@
 				B9B1DC92B6B88F225DAD7ABB /* SSHTuiPreflightTests.swift in Sources */,
 				A11C00030000000000000001 /* StackAccountAvatarImageLoaderTests.swift in Sources */,
 				A11C00050000000000000001 /* StackAccountAvatarViewTests.swift in Sources */,
+				0CFAE1C22B0BB59F4A0B75F3 /* SurfaceCatalogObservationTests.swift in Sources */,
 				D01100800000000000000004 /* SurfaceCatalogQueryServiceTests.swift in Sources */,
 				5873A6BE37C34CC1082864E2 /* SurfaceCatalogTests.swift in Sources */,
 				DEC1CE00000000000000003E /* SurfaceMachineIDDeviceEncodingTests.swift in Sources */,
