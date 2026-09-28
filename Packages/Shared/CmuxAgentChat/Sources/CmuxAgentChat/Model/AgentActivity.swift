@@ -5,7 +5,7 @@ import Foundation
 /// ``ChatAgentState`` is the coarse lifecycle the sidebar shows. This splits its
 /// `working` and `needsInput` cases into the activities a restart, update or
 /// hibernation decision needs to tell apart. Field names are the wire names used
-/// by `cmux agents --json` and the updater.
+/// by the agents view and the updater.
 public struct AgentActivity: Sendable, Equatable, Codable {
     public enum Kind: String, Sendable, Codable, CaseIterable {
         /// The turn is over and nothing is pending.
@@ -96,6 +96,9 @@ public struct ResumeSafetyAssessment: Sendable, Equatable, Codable {
         case openQuestion = "open_question"
         case pendingPermission = "pending_permission"
         case draft
+        /// The process census was unavailable or incomplete, so a foreground
+        /// command cannot be ruled out.
+        case processUnknown = "process_unknown"
         case ended
         case unknown
     }
@@ -128,6 +131,9 @@ public struct AgentActivitySignals: Sendable, Equatable {
     /// A live, non-background child in the agent's foreground process group,
     /// described by its argv. Holds even when hooks are stale.
     public var foregroundCommand: String?
+    /// The process census failed or was partial, so ``foregroundCommand`` being
+    /// nil proves nothing.
+    public var foregroundCommandUnknown = false
     /// Whether the agent's prompt holds a half-typed draft; nil when unknown.
     public var hasDraft: Bool?
     /// When the latest observed transition happened.
@@ -190,6 +196,11 @@ public enum AgentActivityClassifier {
             return (AgentActivity(kind: .idle, since: since, source: .hook), .safe, .idle)
         }()
         var assessment = ResumeSafetyAssessment(safety: safety, reasons: [reason])
+        // Without a census, a command may be running unseen: never call it safe.
+        if signals.foregroundCommandUnknown, assessment.safety == .safe, activity.kind != .ended {
+            assessment.safety = .care
+            assessment.reasons.append(.processUnknown)
+        }
         // A draft is unsaved human input: never safe to drop, whatever the agent does.
         if signals.hasDraft == true, activity.kind != .ended {
             assessment.safety = .risky

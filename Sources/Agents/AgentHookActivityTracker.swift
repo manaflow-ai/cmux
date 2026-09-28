@@ -28,7 +28,8 @@ final class AgentHookActivityTracker: @unchecked Sendable {
               let surfaceID = UUID(uuidString: rawSurfaceID),
               let parsed = AgentHookActivityState.Event.parse(
                   subcommand: event.subcommand,
-                  payload: Data(event.payload.utf8)
+                  payload: Data(event.payload.utf8),
+                  relayBacked: event.relayBacked
               ),
               let sessionID = parsed.sessionID ?? event.sessionID else {
             return

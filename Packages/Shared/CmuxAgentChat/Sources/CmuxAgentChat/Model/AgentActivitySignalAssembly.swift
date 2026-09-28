@@ -13,6 +13,8 @@ public struct AgentActivityEvidence: Sendable {
     public var feedDecisionPending: Bool
     /// Description of a command the agent runs in the terminal's foreground.
     public var foregroundCommand: String?
+    /// The pane is local but its process census was unavailable or partial.
+    public var foregroundCommandUnknown: Bool
     public var hasDraft: Bool?
 
     public init(
@@ -22,6 +24,7 @@ public struct AgentActivityEvidence: Sendable {
         hooks: AgentHookActivityState? = nil,
         feedDecisionPending: Bool = false,
         foregroundCommand: String? = nil,
+        foregroundCommandUnknown: Bool = false,
         hasDraft: Bool? = nil
     ) {
         self.registryState = registryState
@@ -30,6 +33,7 @@ public struct AgentActivityEvidence: Sendable {
         self.hooks = hooks
         self.feedDecisionPending = feedDecisionPending
         self.foregroundCommand = foregroundCommand
+        self.foregroundCommandUnknown = foregroundCommandUnknown
         self.hasDraft = hasDraft
     }
 
@@ -56,7 +60,13 @@ public struct AgentActivityEvidence: Sendable {
         // question the hooks already saw stays a question.
         signals.pendingPermission = feedDecisionPending && !signals.pendingQuestion
         signals.openTool = hooks?.openTool
-        signals.turnActive = hooks?.turnActive ?? registryWorking
+        // Hooks decide the turn only once they have seen a boundary; before that
+        // (say, the app started mid-turn) the registry's working state stands.
+        if let hooks, hooks.knowsTurnBoundary {
+            signals.turnActive = hooks.turnActive
+        } else {
+            signals.turnActive = hooks?.turnActive == true || registryWorking
+        }
         signals.lastToolFinished = hooks?.lastToolFinished == true
         signals.backgroundWork = hooks?.backgroundWork == true
         // Without a Feed decision or hook question, the registry's needs-input
@@ -68,6 +78,7 @@ public struct AgentActivityEvidence: Sendable {
         if !(signals.backgroundWork && !signals.turnActive) {
             signals.foregroundCommand = foregroundCommand
         }
+        signals.foregroundCommandUnknown = foregroundCommandUnknown
         signals.hasDraft = hasDraft
         signals.since = hooks?.since ?? registrySince ?? registryLastActivityAt
         signals.hasHookEvidence = hooks != nil || registryHasHookLifecycleState

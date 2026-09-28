@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension TerminalController {
@@ -12,16 +13,22 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "agent.list takes no parameters")
         }
         return v2VmCall(id: id, timeoutSeconds: 10) {
-            let agents = await Self.captureAgentActivity()
+            guard let agents = await Self.captureAgentActivity() else {
+                throw SurfaceCatalogError.unsupported("Agent session owners are unavailable")
+            }
             return ["agents": agents.map(Self.agentListPayload)]
         }
     }
 
     @MainActor
-    private static func captureAgentActivity() async -> [AgentActivitySnapshot] {
-        await AgentActivityIndex(
-            agentRecords: { TerminalController.shared.agentChatTranscriptService?.sessionRecords(workspaceID: nil) },
-            workspaceOwners: { AppDelegate.shared?.workspacesForRead(tabIds: $0) ?? [:] }
+    /// Nil when the app or its session registry is not up: an empty list would
+    /// wrongly say no agent is running.
+    private static func captureAgentActivity() async -> [AgentActivitySnapshot]? {
+        guard let appDelegate = AppDelegate.shared,
+              let sessions = TerminalController.shared.agentChatTranscriptService else { return nil }
+        return await AgentActivityIndex(
+            agentRecords: { sessions.sessionRecords(workspaceID: nil) },
+            workspaceOwners: { [weak appDelegate] in appDelegate?.workspacesForRead(tabIds: $0) ?? [:] }
         ).snapshot()
     }
 
@@ -36,7 +43,8 @@ extension TerminalController {
         if let tool = agent.activity.tool {
             activity["tool"] = [
                 "name": tool.name,
-                "command": orNull(tool.command),
+                // Commands and argv can carry credentials and home paths.
+                "command": orNull(tool.command.map(AgentHookNotificationPolicy.redactSensitiveCommand)),
                 "started_at": timestamp(tool.startedAt),
             ] as [String: Any]
         }

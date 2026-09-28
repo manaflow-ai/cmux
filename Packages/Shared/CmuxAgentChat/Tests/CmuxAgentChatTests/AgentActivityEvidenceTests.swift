@@ -32,7 +32,8 @@ struct AgentActivityEvidenceTests {
             ("prompt-submit", #"{"session_id":"s"}"#),
             ("pre-tool-use", #"{"session_id":"s","tool_name":"Bash","tool_use_id":"t1","tool_input":{"command":"swift test\n--parallel"}}"#),
         ])
-        #expect(hooks.openTool == AgentActivity.Tool(name: "Bash", command: "swift test --parallel"))
+        // started_at is the PreToolUse arrival time.
+        #expect(hooks.openTool == AgentActivity.Tool(name: "Bash", command: "swift test --parallel", startedAt: t0.addingTimeInterval(1)))
         let (activity, safety) = classify(.init(registryState: .working(since: t0), registryHasHookLifecycleState: true,
                                                 registryLastActivityAt: t0, hooks: hooks))
         #expect(activity.kind == .tool)
@@ -153,11 +154,11 @@ struct AgentActivityEvidenceTests {
     func sessionBoundaries() {
         let hooks = fold([
             ("pre-tool-use", #"{"tool_name":"Bash","tool_input":{"command":"x"}}"#),
-            ("session-start", #"{}"#),
+            ("session-start", #"{"source":"startup"}"#),
         ])
         #expect(hooks == {
             var fresh = AgentHookActivityState()
-            fresh.apply(.sessionStart, at: t0.addingTimeInterval(1))
+            fresh.apply(.sessionStart(fresh: true), at: t0.addingTimeInterval(1))
             return fresh
         }())
         let ended = fold([("prompt-submit", #"{}"#), ("session-end", #"{}"#)])
@@ -170,10 +171,177 @@ struct AgentActivityEvidenceTests {
         let parsed = AgentHookActivityState.Event.parse(
             subcommand: "post-tool-use", payload: Data(#"{"session_id":" abc ","tool_name":"Edit"}"#.utf8))
         #expect(parsed?.sessionID == "abc")
-        #expect(parsed?.event == .postToolUse(id: nil, toolName: "Edit"))
+        #expect(parsed?.event == .postToolUse(id: nil, toolName: "Edit", subagent: false))
         #expect(AgentHookActivityState.Event.parse(subcommand: "feed", payload: Data("{}".utf8)) == nil)
         #expect(AgentHookActivityState.Event.parse(subcommand: "stop", payload: Data("[]".utf8)) == nil)
         #expect(AgentHookActivityState.Event.parse(subcommand: "pre-tool-use", payload: Data("{}".utf8)) == nil)
+    }
+}
+
+@Suite("Agent hook activity review fixes")
+struct AgentHookActivityReviewTests {
+    private let t0 = Date(timeIntervalSince1970: 1_000)
+
+    private func fold(_ events: [(String, String)], relayBacked: Bool = false) -> AgentHookActivityState {
+        var state = AgentHookActivityState()
+        for (offset, (subcommand, json)) in events.enumerated() {
+            if let event = AgentHookActivityState.Event.parse(
+                subcommand: subcommand, payload: Data(json.utf8), relayBacked: relayBacked)?.event {
+                state.apply(event, at: t0.addingTimeInterval(TimeInterval(offset)))
+            }
+        }
+        return state
+    }
+
+    private func classify(_ hooks: AgentHookActivityState?, unknown: Bool = false) -> (AgentActivity, ResumeSafetyAssessment) {
+        let evidence = AgentActivityEvidence(registryState: .idle, registryHasHookLifecycleState: true,
+                                             registryLastActivityAt: t0, hooks: hooks, foregroundCommandUnknown: unknown)
+        let result = AgentActivityClassifier.classify(evidence.signals)
+        return (result.activity, result.safety)
+    }
+
+    @Test("a compaction or resume SessionStart keeps the running turn; startup and clear reset")
+    func sessionStartSource() {
+        let running: [(String, String)] = [
+            ("prompt-submit", #"{}"#),
+            ("pre-tool-use", #"{"tool_name":"Bash","tool_use_id":"b","tool_input":{"command":"make"}}"#),
+        ]
+        for source in ["compact", "resume", ""] {
+            let kept = fold(running + [("session-start", #"{"source":"\#(source)"}"#)])
+            #expect(kept.turnActive, "\(source)")
+            #expect(kept.openTool?.name == "Bash", "\(source)")
+        }
+        for source in ["startup", "clear"] {
+            let reset = fold(running + [("session-start", #"{"source":"\#(source)"}"#)])
+            #expect(!reset.turnActive, "\(source)")
+            #expect(reset.openTool == nil, "\(source)")
+        }
+    }
+
+    @Test("an unavailable process census is never safe")
+    func processUnknown() {
+        let idle = fold([("prompt-submit", #"{}"#), ("stop", #"{}"#)])
+        let (activity, safety) = classify(idle, unknown: true)
+        #expect(activity.kind == .idle)
+        #expect(safety == ResumeSafetyAssessment(safety: .care, reasons: [.idle, .processUnknown]))
+        #expect(classify(idle).1.safety == .safe)
+        let tool = fold([("prompt-submit", #"{}"#), ("pre-tool-use", #"{"tool_name":"Bash","tool_input":{"command":"x"}}"#)])
+        #expect(classify(tool, unknown: true).1 == ResumeSafetyAssessment(safety: .risky, reasons: [.foregroundCommand]))
+    }
+
+    @Test("an idle prompt ends the turn and closes calls that never reported back")
+    func idlePromptEndsTurn() {
+        let hooks = fold([
+            ("prompt-submit", #"{}"#),
+            ("pre-tool-use", #"{"tool_name":"Bash","tool_use_id":"b","tool_input":{"command":"make"}}"#),
+            ("notification", #"{"notification_type":"idle_prompt"}"#),
+        ])
+        #expect(!hooks.turnActive)
+        #expect(hooks.openTool == nil)
+        #expect(classify(hooks).0.kind == .awaitingInput)
+        let question = fold([
+            ("pre-tool-use", #"{"tool_name":"AskUserQuestion","tool_input":{}}"#),
+            ("notification", #"{"notification_type":"idle_prompt"}"#),
+        ])
+        #expect(question.pendingQuestion)
+    }
+
+    @Test("a later call of another tool closes a pending question")
+    func laterToolClosesQuestion() {
+        let pre = fold([
+            ("pre-tool-use", #"{"tool_name":"ExitPlanMode","tool_input":{}}"#),
+            ("pre-tool-use", #"{"tool_name":"Edit","tool_input":{"file_path":"/x"}}"#),
+        ])
+        #expect(!pre.pendingQuestion)
+        let post = fold([
+            ("pre-tool-use", #"{"tool_name":"AskUserQuestion","tool_input":{}}"#),
+            ("post-tool-use", #"{"tool_name":"Read"}"#),
+        ])
+        #expect(!post.pendingQuestion)
+    }
+
+    @Test("a post without tool_use_id closes the newest same-named call")
+    func nilIDClose() {
+        let hooks = fold([
+            ("prompt-submit", #"{}"#),
+            ("pre-tool-use", #"{"tool_name":"Bash","tool_use_id":"a","tool_input":{"command":"one"}}"#),
+            ("pre-tool-use", #"{"tool_name":"Bash","tool_use_id":"b","tool_input":{"command":"two"}}"#),
+            ("post-tool-use", #"{"tool_name":"Bash"}"#),
+        ])
+        #expect(hooks.openTool?.command == "one")
+        let unmatched = fold([
+            ("pre-tool-use", #"{"tool_name":"Bash","tool_use_id":"a","tool_input":{"command":"one"}}"#),
+            ("post-tool-use", #"{"tool_name":"Bash","tool_use_id":"zzz"}"#),
+        ])
+        #expect(unmatched.openTool?.command == "one")
+    }
+
+    @Test("started_at is the PreToolUse time")
+    func startedAt() {
+        let hooks = fold([
+            ("prompt-submit", #"{}"#),
+            ("pre-tool-use", #"{"tool_name":"Bash","tool_input":{"command":"x"}}"#),
+        ])
+        #expect(hooks.openTool?.startedAt == t0.addingTimeInterval(1))
+        #expect(classify(hooks).0.tool?.startedAt == t0.addingTimeInterval(1))
+    }
+
+    @Test("relayed question PreToolUse is ignored; relayed tools still count")
+    func relayQuestion() {
+        let hooks = fold([
+            ("prompt-submit", #"{}"#),
+            ("pre-tool-use", #"{"tool_name":"AskUserQuestion","tool_input":{}}"#),
+        ], relayBacked: true)
+        #expect(!hooks.pendingQuestion)
+        let tool = fold([("pre-tool-use", #"{"tool_name":"Bash","tool_input":{"command":"x"}}"#)], relayBacked: true)
+        #expect(tool.openTool?.name == "Bash")
+    }
+
+    @Test("subagent hooks and late posts never reopen a finished turn")
+    func subagentAfterStop() {
+        let hooks = fold([
+            ("prompt-submit", #"{}"#),
+            ("stop", #"{}"#),
+            ("pre-tool-use", #"{"tool_name":"Grep","tool_use_id":"g","agent_id":"sub","tool_input":{"pattern":"x"}}"#),
+            ("post-tool-use", #"{"tool_name":"Grep","tool_use_id":"g","agent_id":"sub"}"#),
+            ("post-tool-use", #"{"tool_name":"Bash","tool_use_id":"late"}"#),
+        ])
+        #expect(!hooks.turnActive)
+        #expect(!hooks.lastToolFinished)
+        #expect(hooks.openTool == nil)
+        #expect(classify(hooks).0.kind == .idle)
+    }
+
+    @Test("since moves only when the state changes")
+    func sinceOnlyOnChange() {
+        let hooks = fold([
+            ("prompt-submit", #"{}"#),
+            ("notification", #"{"notification_type":"permission_prompt"}"#),
+            ("post-tool-use", #"{"tool_name":"Bash","tool_use_id":"none"}"#),
+        ])
+        // The permission notification changes nothing; the post marks the turn between calls.
+        #expect(hooks.since == t0.addingTimeInterval(2))
+        let quiet = fold([("prompt-submit", #"{}"#), ("notification", #"{"notification_type":"permission_prompt"}"#)])
+        #expect(quiet.since == t0)
+    }
+
+    @Test("without a seen turn boundary the registry's working state stands")
+    func registryBeforeBoundary() {
+        let hooks = fold([
+            ("pre-tool-use", #"{"tool_name":"Bash","tool_use_id":"b","tool_input":{"command":"x"}}"#),
+            ("post-tool-use", #"{"tool_name":"Bash","tool_use_id":"b"}"#),
+        ])
+        let evidence = AgentActivityEvidence(registryState: .working(since: t0), registryHasHookLifecycleState: true,
+                                             registryLastActivityAt: t0, hooks: hooks)
+        #expect(AgentActivityClassifier.classify(evidence.signals).activity.kind == .thinking)
+    }
+
+    @Test("process filtering starts at the turn start, else at the last idle point")
+    func processesNotBefore() {
+        let idle = fold([("prompt-submit", #"{}"#), ("stop", #"{}"#)])
+        #expect(idle.processesNotBefore == t0.addingTimeInterval(1))
+        let running = fold([("prompt-submit", #"{}"#), ("stop", #"{}"#), ("prompt-submit", #"{}"#)])
+        #expect(running.processesNotBefore == t0.addingTimeInterval(2))
     }
 }
 
@@ -240,7 +408,7 @@ struct AgentPanePlacementTests {
         var state = AgentHookActivityState()
         let start = Date(timeIntervalSince1970: 10)
         state.apply(.promptSubmit, at: start)
-        state.apply(.preToolUse(id: nil, tool: .init(name: "Bash")), at: start.addingTimeInterval(5))
+        state.apply(.preToolUse(id: nil, tool: .init(name: "Bash"), subagent: false), at: start.addingTimeInterval(5))
         #expect(state.turnStartedAt == start)
         state.apply(.stop(backgroundWork: false), at: start.addingTimeInterval(9))
         #expect(state.turnStartedAt == nil)

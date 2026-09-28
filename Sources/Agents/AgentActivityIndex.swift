@@ -1,5 +1,6 @@
 import CmuxAgentChat
 import CmuxMobileHost
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// One live agent pane with what it is doing and whether a restart can interrupt it.
@@ -59,12 +60,20 @@ struct AgentActivityIndex {
         let panes = capture()
         let probes = panes.enumerated().compactMap { index, pane -> ForegroundProbe? in
             guard pane.placement == .local, let pid = pane.pid, pid > 0 else { return nil }
-            return ForegroundProbe(index: index, agentPID: pid, notBefore: pane.evidence.hooks?.turnStartedAt)
+            return ForegroundProbe(index: index, agentPID: pid, notBefore: pane.evidence.hooks?.processesNotBefore)
         }
-        let commands = probes.isEmpty ? [:] : await Self.foregroundCommands(probes, census: processCensus)
+        let census = probes.isEmpty
+            ? (commands: [:], complete: true)
+            : await Self.foregroundCommands(probes, census: processCensus)
+        let probed = Set(probes.map(\.index))
         return panes.enumerated().map { index, pane in
             var evidence = pane.evidence
-            evidence.foregroundCommand = commands[index]
+            evidence.foregroundCommand = census.commands[index]
+            // A local agent whose process tree could not be read may be running
+            // anything: an incomplete census or a missing pid is not "no command".
+            if pane.placement == .local {
+                evidence.foregroundCommandUnknown = !probed.contains(index) || !census.complete
+            }
             let result = AgentActivityClassifier.classify(evidence.signals)
             return AgentActivitySnapshot(
                 workspaceID: pane.workspaceID, panelID: pane.panelID, surfaceID: pane.panelID,
@@ -114,11 +123,7 @@ struct AgentActivityIndex {
             let lifecycles = dock?.agentRuntimeByPanelId[panelID]?.agentLifecycleStates
                 ?? workspace.agentLifecycleStatesByPanelId[panelID] ?? [:]
             let feedKey = FeedCoordinator.attentionStatusKey(forSource: record.agentKind.sourceName)
-            let placement = Self.placement(
-                workspace: workspace,
-                panel: panel,
-                dockRemote: dock?.terminalLinkIsRemoteTerminal(panelID) ?? false
-            )
+            let placement = Self.placement(workspace: workspace, dock: dock, panelID: panelID, panel: panel)
             let hooks = hookActivity.state(
                 surfaceID: panelID,
                 sessionIDs: [record.sessionID] + [record.hookStoreSessionID].compactMap { $0 }
@@ -141,18 +146,22 @@ struct AgentActivityIndex {
         }
     }
 
-    private static func placement(workspace: Workspace, panel: any Panel, dockRemote: Bool) -> AgentPanePlacement {
-        if (panel as? TerminalPanel)?.cloudAttachment != nil
-            || workspace.remoteConfiguration?.managedCloudVMID != nil {
+    /// Placement belongs to the surface, not its workspace: a local terminal or
+    /// Dock panel in a remote workspace still stops with this app.
+    private static func placement(workspace: Workspace, dock: DockSplitStore?, panelID: UUID, panel: any Panel) -> AgentPanePlacement {
+        let machine = dock.map { $0.machineOwningSurface(panelID) } ?? workspace.machineOwningSurface(panelID)
+        if (panel as? TerminalPanel)?.cloudAttachment != nil {
             return .cloud
         }
-        if let configuration = workspace.remoteConfiguration {
-            return .ssh(host: configuration.destination)
+        if case .cloud = machine {
+            return .cloud
         }
-        if workspace.isRemoteTmuxMirror || dockRemote {
-            return .ssh(host: nil)
+        let remote = dock.map { $0.terminalLinkIsRemoteTerminal(panelID) } ?? workspace.isRemoteTerminalContext(panelID)
+        guard remote else { return .local }
+        if case .ssh(let host) = machine {
+            return .ssh(host: host)
         }
-        return .local
+        return .ssh(host: dock == nil ? workspace.remoteConfiguration?.destination : nil)
     }
 
     private static func nonEmpty(_ value: String?) -> String? {
@@ -160,14 +169,14 @@ struct AgentActivityIndex {
         return trimmed
     }
 
-    /// Reads one census off the main actor. An unavailable census leaves every
-    /// command unknown rather than proving none runs.
+    /// Reads one census off the main actor. `complete` is false when the census
+    /// was unavailable or partial: then a missing command proves nothing.
     private nonisolated static func foregroundCommands(
         _ probes: [ForegroundProbe],
         census: @Sendable () async -> CmuxTopProcessSnapshot
-    ) async -> [Int: String] {
+    ) async -> (commands: [Int: String], complete: Bool) {
         let snapshot = await census()
-        guard snapshot.captureIsAvailable else { return [:] }
+        guard snapshot.captureIsAvailable else { return ([:], false) }
         var commands: [Int: String] = [:]
         for probe in probes {
             var processes: [Int: AgentForegroundCommand.Process] = [:]
@@ -185,12 +194,13 @@ struct AgentActivityIndex {
             }
             guard let pid = AgentForegroundCommand.commandPID(
                 agentPID: probe.agentPID, processes: processes, notBefore: probe.notBefore
-            ), let process = snapshot.process(pid: pid),
-                  let arguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process)?.arguments else {
+            ), let process = snapshot.process(pid: pid) else {
                 continue
             }
-            commands[probe.index] = AgentForegroundCommand.describe(arguments: arguments)
+            // A command that runs but whose argv cannot be read still runs.
+            let arguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process)?.arguments ?? []
+            commands[probe.index] = AgentForegroundCommand.describe(arguments: arguments) ?? process.name
         }
-        return commands
+        return (commands, snapshot.enumerationIsComplete)
     }
 }

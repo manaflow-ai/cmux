@@ -4,15 +4,19 @@ import Foundation
 ///
 /// The app keeps one value per pane and session. It answers what the hooks alone
 /// know: whether a turn is running, which tool calls are open, and whether the
-/// turn ended with background work or an open question.
+/// turn ended with background work or an open question. When the hooks cannot
+/// tell, the state keeps the busier reading.
 public struct AgentHookActivityState: Sendable, Equatable {
     /// A lifecycle hook reduced to what activity tracking needs.
     public enum Event: Sendable, Equatable {
-        case sessionStart
+        /// `fresh` is true for a new or cleared conversation (`startup`, `clear`).
+        /// A compaction or resume continues the running turn.
+        case sessionStart(fresh: Bool)
         case promptSubmit
-        /// `id` is the hook's `tool_use_id`, when present.
-        case preToolUse(id: String?, tool: AgentActivity.Tool)
-        case postToolUse(id: String?, toolName: String?)
+        /// `id` is the hook's `tool_use_id`; `subagent` marks a call made inside a subagent.
+        case preToolUse(id: String?, tool: AgentActivity.Tool, subagent: Bool)
+        /// Also sent for a failed, denied or interrupted call (PostToolUseFailure).
+        case postToolUse(id: String?, toolName: String?, subagent: Bool)
         case stop(backgroundWork: Bool)
         /// `idlePrompt` is true for the "waiting for your input" notification.
         case notification(idlePrompt: Bool)
@@ -31,15 +35,20 @@ public struct AgentHookActivityState: Sendable, Equatable {
     }
 
     public private(set) var turnActive = false
+    /// Whether a turn boundary (prompt, Stop, idle prompt, fresh start) was seen.
+    /// Without one, `turnActive` says nothing and the registry decides.
+    public private(set) var knowsTurnBoundary = false
     public private(set) var lastToolFinished = false
     public private(set) var backgroundWork = false
     public private(set) var awaitingInput = false
     public private(set) var pendingQuestion = false
     public private(set) var ended = false
-    /// When the latest transition happened.
+    /// When the state last changed.
     public private(set) var since: Date?
     /// When the running turn's prompt was submitted; nil between turns.
     public private(set) var turnStartedAt: Date?
+    /// When the agent last went idle (Stop, idle prompt, fresh start); nil during a turn.
+    public private(set) var idleSince: Date?
     private var openTools: [OpenTool] = []
 
     public init() {}
@@ -51,63 +60,100 @@ public struct AgentHookActivityState: Sendable, Equatable {
             ?? openTools.last?.tool
     }
 
+    /// Commands started before this cannot belong to the current turn or idle period.
+    public var processesNotBefore: Date? {
+        turnActive ? turnStartedAt : idleSince
+    }
+
     public mutating func apply(_ event: Event, at date: Date) {
-        since = date
+        let before = self
+        fold(event, at: date)
+        var unchanged = self
+        unchanged.since = before.since
+        since = unchanged == before ? before.since : date
+    }
+
+    private mutating func fold(_ event: Event, at date: Date) {
         switch event {
-        case .sessionStart:
+        case .sessionStart(let fresh):
+            ended = false
+            guard fresh else { return }
             self = AgentHookActivityState()
-            since = date
+            knowsTurnBoundary = true
+            idleSince = date
         case .promptSubmit:
             turnActive = true
+            knowsTurnBoundary = true
             turnStartedAt = date
+            idleSince = nil
             lastToolFinished = false
             backgroundWork = false
             awaitingInput = false
             pendingQuestion = false
             ended = false
             openTools.removeAll()
-        case .preToolUse(let id, let tool):
-            turnActive = true
-            lastToolFinished = false
-            awaitingInput = false
+        case .preToolUse(let id, var tool, let subagent):
             if Self.questionTools.contains(tool.name) {
                 pendingQuestion = true
                 return
             }
+            pendingQuestion = false
+            if !subagent { lastToolFinished = false }
+            tool.startedAt = tool.startedAt ?? date
             if let id { openTools.removeAll { $0.id == id } }
             openTools.append(OpenTool(id: id, tool: tool))
             if openTools.count > Self.maximumOpenTools {
                 openTools.removeFirst(openTools.count - Self.maximumOpenTools)
             }
-        case .postToolUse(let id, let toolName):
-            turnActive = true
-            lastToolFinished = true
+        case .postToolUse(let id, let toolName, let subagent):
             if let toolName, Self.questionTools.contains(toolName) {
                 pendingQuestion = false
                 return
             }
-            if let id, let index = openTools.lastIndex(where: { $0.id == id }) {
-                openTools.remove(at: index)
-            } else if let toolName, let index = openTools.lastIndex(where: { $0.id == nil && $0.tool.name == toolName }) {
-                openTools.remove(at: index)
-            }
-        case .stop(let background):
-            turnActive = false
-            turnStartedAt = nil
-            lastToolFinished = false
             pendingQuestion = false
-            awaitingInput = false
+            closeTool(id: id, name: toolName)
+            if turnActive, !subagent { lastToolFinished = true }
+        case .stop(let background):
+            endTurn(at: date)
+            pendingQuestion = false
             backgroundWork = background
-            openTools.removeAll()
         case .notification(let idlePrompt):
-            if idlePrompt, !turnActive {
-                awaitingInput = true
-            }
+            // Claude asks for input only once the turn is over; an interrupted
+            // or failed call never reports its end otherwise. An open question
+            // stays open: that is what the prompt may be waiting on.
+            guard idlePrompt else { return }
+            endTurn(at: date)
+            awaitingInput = true
         case .sessionEnd:
             self = AgentHookActivityState()
             ended = true
-            since = date
+            knowsTurnBoundary = true
         }
+    }
+
+    private mutating func endTurn(at date: Date) {
+        turnActive = false
+        knowsTurnBoundary = true
+        turnStartedAt = nil
+        idleSince = date
+        lastToolFinished = false
+        awaitingInput = false
+        openTools.removeAll()
+    }
+
+    /// Closes by `tool_use_id`. A post without one (compacted away) closes the
+    /// newest open call of the same tool; a post whose id matches nothing closes
+    /// the newest same-named call that never had an id.
+    private mutating func closeTool(id: String?, name: String?) {
+        if let id, let index = openTools.lastIndex(where: { $0.id == id }) {
+            openTools.remove(at: index)
+            return
+        }
+        guard let name else { return }
+        let index = openTools.lastIndex { open in
+            open.tool.name == name && (id == nil || open.id == nil)
+        }
+        if let index { openTools.remove(at: index) }
     }
 }
 
@@ -122,18 +168,38 @@ extension AgentHookActivityState.Event {
 
     /// Parses one queued hook (`cmux hooks <agent> <subcommand>`) payload.
     ///
+    /// - Parameter relayBacked: The hook came from a remote host through the relay.
+    ///   Remote daemons send no PostToolUse, so a remote question would never
+    ///   close; the Feed overlay already reports remote questions and permissions.
     /// - Returns: The event and the hook's session id, or nil when the
     ///   subcommand carries no activity fact or the payload is not a JSON object.
-    public static func parse(subcommand: String, payload: Data) -> (event: Self, sessionID: String?)? {
+    public static func parse(
+        subcommand: String,
+        payload: Data,
+        relayBacked: Bool = false
+    ) -> (event: Self, sessionID: String?)? {
+        guard let parsed = parseEvent(subcommand: subcommand, payload: payload) else { return nil }
+        if relayBacked, case .preToolUse(_, let tool, _) = parsed.event,
+           AgentHookActivityState.questionTools.contains(tool.name) {
+            return nil
+        }
+        return parsed
+    }
+
+    private static func parseEvent(subcommand: String, payload: Data) -> (event: Self, sessionID: String?)? {
         guard subcommands.contains(subcommand),
               let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else {
             return nil
         }
         let sessionID = string(object, ["session_id", "sessionId"])
+        let subagent = string(object, ["agent_id", "agentId"]) != nil
         let event: Self
         switch subcommand {
         case "session-start":
-            event = .sessionStart
+            // Only a new or cleared conversation starts clean. A compaction,
+            // resume or unknown source keeps whatever may still be running.
+            let source = string(object, ["source"])?.lowercased()
+            event = .sessionStart(fresh: source == "startup" || source == "clear")
         case "prompt-submit":
             event = .promptSubmit
         case "pre-tool-use":
@@ -141,12 +207,14 @@ extension AgentHookActivityState.Event {
             let input = object["tool_input"] as? [String: Any] ?? object["toolInput"] as? [String: Any] ?? [:]
             event = .preToolUse(
                 id: string(object, ["tool_use_id", "toolUseId"]),
-                tool: AgentActivity.Tool(name: name, command: commandSummary(toolName: name, input: input))
+                tool: AgentActivity.Tool(name: name, command: commandSummary(toolName: name, input: input)),
+                subagent: subagent
             )
         case "post-tool-use":
             event = .postToolUse(
                 id: string(object, ["tool_use_id", "toolUseId"]),
-                toolName: string(object, ["tool_name", "toolName"])
+                toolName: string(object, ["tool_name", "toolName"]),
+                subagent: subagent
             )
         case "stop":
             event = .stop(backgroundWork: hasBackgroundWork(object))

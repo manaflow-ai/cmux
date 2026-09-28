@@ -93,7 +93,7 @@ def generated_claude_hook_settings() -> str:
             hook["async"] = True
         return {"matcher": matcher, "hooks": [hook]}
 
-    def queued(subcommand: str, *, matcher: str = "") -> dict:
+    def queued(subcommand: str, *, matcher: str = "", asynchronous: bool = False) -> dict:
         return direct(
             spool_producer_command(
                 "claude",
@@ -102,6 +102,7 @@ def generated_claude_hook_settings() -> str:
             ),
             5,
             matcher=matcher,
+            asynchronous=asynchronous,
         )
 
     hooks = {
@@ -121,8 +122,9 @@ def generated_claude_hook_settings() -> str:
         ],
         "PostToolUse": [
             queued("push-notification", matcher="PushNotification"),
-            queued("post-tool-use"),
+            queued("post-tool-use", asynchronous=True),
         ],
+        "PostToolUseFailure": [queued("post-tool-use", asynchronous=True)],
         "PermissionRequest": [direct(f"{direct_cli} hooks feed --source claude", 125)],
     }
     return json.dumps(
@@ -723,7 +725,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         failures,
     )
     hooks = settings.get("hooks", {})
-    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest"}
+    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest"}
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
     for hook_name, expected_subcommand in {
         "SessionStart": "session-start",
@@ -1153,7 +1155,7 @@ def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> Non
     )
     expected_hooks = {
         "SessionStart", "Stop", "SubagentStop", "SessionEnd",
-        "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest",
+        "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest",
     }
     expect(
         set(settings.get("hooks", {}).keys()) == expected_hooks,
