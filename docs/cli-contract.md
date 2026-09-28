@@ -173,6 +173,9 @@ Environment:
 | `set-status` | Set a sidebar status pill. |
 | `clear-status` | Remove a sidebar status pill. |
 | `list-status` | List sidebar status pills. |
+| `set-meta-block` | Set a sidebar markdown block from arguments or stdin. |
+| `clear-meta-block` | Remove a sidebar markdown block. |
+| `list-meta-blocks` | List sidebar markdown blocks. |
 | `set-progress` | Set sidebar progress. |
 | `clear-progress` | Clear sidebar progress. |
 | `log` | Append a sidebar log entry. |
@@ -967,6 +970,9 @@ the expected text without connecting to a cmux socket.
 - `cmux set-status --help` -> `Usage: cmux set-status`
 - `cmux clear-status --help` -> `Usage: cmux clear-status`
 - `cmux list-status --help` -> `Usage: cmux list-status`
+- `cmux set-meta-block --help` -> `Usage: cmux set-meta-block`
+- `cmux clear-meta-block --help` -> `Usage: cmux clear-meta-block`
+- `cmux list-meta-blocks --help` -> `Usage: cmux list-meta-blocks`
 - `cmux set-progress --help` -> `Usage: cmux set-progress`
 - `cmux clear-progress --help` -> `Usage: cmux clear-progress`
 - `cmux log --help` -> `Usage: cmux log`

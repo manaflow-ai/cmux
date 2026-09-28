@@ -39,7 +39,13 @@ def _find_cli_binary() -> str:
     return candidates[0]
 
 
-def _run_cli(cli: str, args: list[str], *, extra_env: dict[str, str] | None = None) -> str:
+def _run_cli(
+    cli: str,
+    args: list[str],
+    *,
+    extra_env: dict[str, str] | None = None,
+    input_text: str | None = None,
+) -> str:
     env = dict(os.environ)
     if extra_env:
         env.update(extra_env)
@@ -49,6 +55,7 @@ def _run_cli(cli: str, args: list[str], *, extra_env: dict[str, str] | None = No
         text=True,
         check=False,
         env=env,
+        input=input_text,
     )
     if proc.returncode != 0:
         merged = f"{proc.stdout}\n{proc.stderr}".strip()
@@ -129,6 +136,34 @@ def main() -> int:
             log_list = _run_cli(cli, ["list-log", "--workspace", workspace_id, "--limit", "5"])
             _must("ship it" in log_list, f"list-log should include the appended log entry: {log_list!r}")
             _must("env scoped log" in log_list, f"list-log should include env-routed log entry: {log_list!r}")
+
+            inline_block_response = _run_cli(
+                cli,
+                ["set-meta-block", "agent", "--workspace", workspace_id, "--priority", "30", "**claude** · opus · 42% ctx"],
+            )
+            _must(inline_block_response.startswith("OK"), f"set-meta-block should succeed, got {inline_block_response!r}")
+            piped_block_response = _run_cli(
+                cli,
+                ["set-meta-block", "build", "--workspace", workspace_id],
+                input_text="**build** running\n- step 3/5\n",
+            )
+            _must(piped_block_response.startswith("OK"), f"piped set-meta-block should succeed, got {piped_block_response!r}")
+            block_list = _run_cli(cli, ["list-meta-blocks", "--workspace", workspace_id])
+            _must(
+                "agent=**claude** · opus · 42% ctx priority=30" in block_list,
+                f"list-meta-blocks should show the inline markdown unquoted: {block_list!r}",
+            )
+            _must(
+                "build=**build** running\\n- step 3/5" in block_list,
+                f"list-meta-blocks should keep the piped line break: {block_list!r}",
+            )
+            for block_key in ("agent", "build"):
+                clear_block_response = _run_cli(cli, ["clear-meta-block", block_key, "--workspace", workspace_id])
+                _must(clear_block_response == "OK", f"clear-meta-block {block_key} should succeed, got {clear_block_response!r}")
+            _must(
+                _run_cli(cli, ["list-meta-blocks", "--workspace", workspace_id]) == "No metadata blocks",
+                "clear-meta-block should remove both blocks",
+            )
 
             sidebar_state = _run_cli(cli, ["sidebar-state", "--workspace", workspace_id])
             _must("status_count=3" in sidebar_state, f"sidebar-state should include the status entry count: {sidebar_state!r}")

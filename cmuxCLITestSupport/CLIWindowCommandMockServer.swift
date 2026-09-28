@@ -6,6 +6,8 @@ final class CLIWindowCommandMockServer: @unchecked Sendable {
     private let socketPath: String
     private let targetWindowID: String
     private let targetWindowRef: String
+    private let workspaces: [(id: String, ref: String)]
+    private let v1Replies: [String: String]
     private let queue = DispatchQueue(label: "com.cmux.tests.cli-window-command-server")
     private let finished = DispatchGroup()
     private let lock = NSLock()
@@ -15,10 +17,21 @@ final class CLIWindowCommandMockServer: @unchecked Sendable {
     private var stopping = false
     private var receivedLines: [String] = []
 
-    init(socketPath: String, targetWindowID: String, targetWindowRef: String) throws {
+    /// - Parameters:
+    ///   - workspaces: Rows answered for `workspace.list`, with or without a window filter.
+    ///   - v1Replies: Replies for v1 lines keyed by their command word (e.g. `report_meta_block`).
+    init(
+        socketPath: String,
+        targetWindowID: String,
+        targetWindowRef: String,
+        workspaces: [(id: String, ref: String)] = [],
+        v1Replies: [String: String] = [:]
+    ) throws {
         self.socketPath = socketPath
         self.targetWindowID = targetWindowID
         self.targetWindowRef = targetWindowRef
+        self.workspaces = workspaces
+        self.v1Replies = v1Replies
 
         unlink(socketPath)
         listenerFD = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
@@ -243,6 +256,10 @@ final class CLIWindowCommandMockServer: @unchecked Sendable {
     }
 
     private func response(for line: String) -> String {
+        if let commandWord = line.split(separator: " ", maxSplits: 1).first,
+           let reply = v1Replies[String(commandWord)] {
+            return reply
+        }
         if line == "focus_window \(targetWindowID)" || line == "close_window \(targetWindowID)" {
             return "OK"
         }
@@ -272,6 +289,16 @@ final class CLIWindowCommandMockServer: @unchecked Sendable {
                         "ref": targetWindowRef,
                         "index": 2,
                     ]],
+                ]
+            )
+        case "workspace.list" where !workspaces.isEmpty:
+            return v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "workspaces": workspaces.enumerated().map { index, workspace in
+                        ["id": workspace.id, "ref": workspace.ref, "index": index]
+                    },
                 ]
             )
         default:

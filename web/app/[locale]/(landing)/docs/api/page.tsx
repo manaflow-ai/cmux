@@ -311,6 +311,25 @@ cmux set-status deploy "v1.2.3" --workspace workspace:2`}
         socket={`list_status --tab=<workspace-uuid>`}
       />
       <Cmd
+        name="set-meta-block"
+        desc={t("setMetaBlockDesc")}
+        cli={`cmux set-meta-block agent "**claude** · opus · 42% ctx"
+my-statusline | cmux set-meta-block agent --priority 50`}
+        socket={`report_meta_block agent --priority=50 --tab=<workspace-uuid> -- **claude** · opus\\n42% ctx`}
+      />
+      <Cmd
+        name="clear-meta-block"
+        desc={t("clearMetaBlockDesc")}
+        cli={`cmux clear-meta-block agent`}
+        socket={`clear_meta_block agent --tab=<workspace-uuid>`}
+      />
+      <Cmd
+        name="list-meta-blocks"
+        desc={t("listMetaBlocksDesc")}
+        cli={`cmux list-meta-blocks`}
+        socket={`list_meta_blocks --tab=<workspace-uuid>`}
+      />
+      <Cmd
         name="set-progress"
         desc={t("setProgressDesc")}
         cli={`cmux set-progress 0.5 --label "Building..."

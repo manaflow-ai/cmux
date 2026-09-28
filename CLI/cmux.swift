@@ -7908,6 +7908,24 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
+        case "set-meta-block":
+            print(try forwardSetMetaBlockCommand(commandArgs, client: client, windowOverride: windowId))
+        case "clear-meta-block":
+            let response = try forwardSidebarMetadataCommand(
+                "clear_meta_block",
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowId
+            )
+            print(response)
+        case "list-meta-blocks":
+            let response = try forwardSidebarMetadataCommand(
+                "list_meta_blocks",
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowId
+            )
+            print(response)
         case "set-progress":
             let response = try forwardSidebarMetadataCommand(
                 "set_progress",
@@ -20423,6 +20441,57 @@ struct CMUXCLI {
               cmux list-status
               cmux list-status --workspace workspace:2
             """
+        case "set-meta-block":
+            return String(localized: "cli.help.setMetaBlock", defaultValue: """
+            Usage: cmux set-meta-block <key> [markdown | -] [flags]
+
+            Draw a markdown block in the sidebar for a workspace. Setting the same
+            key again replaces its block, so a script or agent status line can
+            redraw it on every update. Markdown comes from the remaining
+            arguments, or from stdin when it is "-" or omitted and stdin is piped.
+            Line breaks are kept. A literal \\n or \\t in the text also becomes a
+            line break or tab. Keys cannot contain spaces or backslashes.
+            The sidebar shows the first 12 lines and 4,096 characters of a block,
+            and only the highest-priority block until "Show more details" is
+            clicked. Blocks show while "Show Custom Metadata in Sidebar" is on.
+
+            Flags:
+              --priority <n>         Sort priority; higher appears first (default: 0)
+              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --window <id|ref|index>      Window context for workspace refs and indexes
+
+            Example:
+              cmux set-meta-block agent '**claude** · opus · `main`'
+              my-statusline | cmux set-meta-block agent --priority 50
+            """)
+        case "clear-meta-block":
+            return String(localized: "cli.help.clearMetaBlock", defaultValue: """
+            Usage: cmux clear-meta-block <key> [flags]
+
+            Remove a sidebar markdown block by key.
+
+            Flags:
+              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --window <id|ref|index>      Window context for workspace refs and indexes
+
+            Example:
+              cmux clear-meta-block agent
+            """)
+        case "list-meta-blocks":
+            return String(localized: "cli.help.listMetaBlocks", defaultValue: """
+            Usage: cmux list-meta-blocks [flags]
+
+            List the sidebar markdown blocks for a workspace, one per line as
+            key=markdown, with line breaks shown as \\n.
+
+            Flags:
+              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --window <id|ref|index>      Window context for workspace refs and indexes
+
+            Example:
+              cmux list-meta-blocks
+              cmux list-meta-blocks --workspace workspace:2
+            """)
         case "set-progress":
             return """
             Usage: cmux set-progress <0.0-1.0> [flags]
@@ -20948,11 +21017,17 @@ struct CMUXCLI {
         throw CLIError(message: "\(commandLabel): targeted window has no current workspace. Select a workspace in that window or pass --workspace <id|ref|index>.")
     }
 
+    /// Forwards a sidebar metadata command, resolving `--workspace`/`--window`
+    /// into the socket's `--tab=<uuid>`.
+    /// - Parameter rawTrailingText: Text appended verbatim after ` -- `,
+    ///   for handlers that read everything after the separator unparsed
+    ///   (`report_meta_block`). Shell quoting would reach the sidebar literally.
     private func forwardSidebarMetadataCommand(
         _ socketCommand: String,
         commandArgs: [String],
         client: SocketClient,
-        windowOverride: String?
+        windowOverride: String?,
+        rawTrailingText: String? = nil
     ) throws -> String {
         func insertArgumentBeforeSeparator(_ value: String, into args: inout [String]) {
             if let separatorIndex = args.firstIndex(of: "--") {
@@ -21018,10 +21093,170 @@ struct CMUXCLI {
             insertArgumentBeforeSeparator("--tab=\(workspaceId)", into: &forwardedArgs)
         }
 
-        let command = ([socketCommand] + forwardedArgs)
+        var command = ([socketCommand] + forwardedArgs)
             .map(shellQuote)
             .joined(separator: " ")
+        if let rawTrailingText {
+            command += " -- " + rawTrailingText
+        }
         return try sendV1Command(command, client: client)
+    }
+
+    /// `cmux set-meta-block <key> [markdown | -]`: upserts a sidebar markdown
+    /// block. Markdown comes from the remaining words, or from stdin when it is
+    /// `-` or omitted with stdin not a terminal, so a status script can pipe in.
+    private func forwardSetMetaBlockCommand(
+        _ commandArgs: [String],
+        client: SocketClient,
+        windowOverride: String?
+    ) throws -> String {
+        var key: String?
+        var priority: Int?
+        var routingArgs: [String] = []
+        var markdownWords: [String] = []
+        var parsingOptions = true
+        var index = 0
+        while index < commandArgs.count {
+            let arg = commandArgs[index]
+            index += 1
+            if parsingOptions, arg == "--" {
+                parsingOptions = false
+                continue
+            }
+            if parsingOptions, arg == "--workspace" || arg == "--window" || arg == "--priority" {
+                guard index < commandArgs.count else {
+                    throw CLIError(message: String(
+                        format: String(
+                            localized: "cli.setMetaBlock.error.missingValue",
+                            defaultValue: "set-meta-block: %@ requires a value"
+                        ),
+                        arg
+                    ))
+                }
+                let value = commandArgs[index]
+                index += 1
+                if arg == "--priority" {
+                    priority = try Self.parseMetaBlockPriority(value)
+                } else {
+                    routingArgs += [arg, value]
+                }
+                continue
+            }
+            if parsingOptions, arg.hasPrefix("--priority=") {
+                priority = try Self.parseMetaBlockPriority(String(arg.dropFirst("--priority=".count)))
+                continue
+            }
+            if parsingOptions, arg.hasPrefix("--workspace=") || arg.hasPrefix("--window=") {
+                routingArgs.append(arg)
+                continue
+            }
+            if parsingOptions, arg.hasPrefix("--") {
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.setMetaBlock.error.unknownFlag",
+                        defaultValue: "set-meta-block: unknown flag %@. Put markdown that starts with -- after a -- separator."
+                    ),
+                    arg
+                ))
+            }
+            if key == nil {
+                key = arg
+            } else {
+                markdownWords.append(arg)
+            }
+        }
+
+        guard let key, !key.isEmpty else {
+            throw CLIError(message: String(
+                localized: "cli.setMetaBlock.error.missingKey",
+                defaultValue: "set-meta-block requires a key. Usage: cmux set-meta-block <key> [markdown | -]"
+            ))
+        }
+        // The socket splits at the first " -- " before tokenizing and its
+        // tokenizer reads backslashes differently from shellQuote, and a
+        // leading "--" parses as an option there, so such keys cannot round-trip.
+        guard !key.hasPrefix("--"),
+              !key.contains(where: { $0.isWhitespace || $0 == "\\" }) else {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.setMetaBlock.error.invalidKey",
+                    defaultValue: "set-meta-block: invalid key '%@'. Keys cannot contain spaces or backslashes or start with --."
+                ),
+                key
+            ))
+        }
+
+        let markdown: String
+        if markdownWords == ["-"] || (markdownWords.isEmpty && isatty(STDIN_FILENO) == 0) {
+            markdown = Self.readStandardInputText()
+        } else {
+            markdown = markdownWords.joined(separator: " ")
+        }
+        let encodedMarkdown = Self.encodeMetaBlockMarkdownForSocketLine(markdown)
+        guard !encodedMarkdown.isEmpty else {
+            throw CLIError(message: String(
+                localized: "cli.setMetaBlock.error.missingMarkdown",
+                defaultValue: "set-meta-block requires markdown as arguments or on stdin"
+            ))
+        }
+
+        var forwardedArgs = [key]
+        if let priority {
+            forwardedArgs.append("--priority=\(priority)")
+        }
+        return try forwardSidebarMetadataCommand(
+            "report_meta_block",
+            commandArgs: forwardedArgs + routingArgs,
+            client: client,
+            windowOverride: windowOverride,
+            rawTrailingText: encodedMarkdown
+        )
+    }
+
+    /// Reads stdin to EOF with read(2). A closed descriptor (`<&-`) yields an
+    /// empty string instead of FileHandle's uncatchable Objective-C exception.
+    private static func readStandardInputText() -> String {
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let count = Darwin.read(STDIN_FILENO, &buffer, buffer.count)
+            if count > 0 {
+                data.append(buffer, count: count)
+            } else if count < 0, errno == EINTR {
+                continue
+            } else {
+                break
+            }
+        }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private static func parseMetaBlockPriority(_ raw: String) throws -> Int {
+        guard let value = Int(raw.trimmingCharacters(in: .whitespaces)) else {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.setMetaBlock.error.invalidPriority",
+                    defaultValue: "set-meta-block: --priority must be an integer, got '%@'"
+                ),
+                raw
+            ))
+        }
+        return value
+    }
+
+    /// Fits markdown on one v1 socket line. The handler turns the two-character
+    /// sequences `\n`, `\r\n` and `\t` back into newlines and tabs, so line
+    /// breaks survive. It has no escape for a literal backslash, so markdown
+    /// that itself contains those sequences renders them as whitespace.
+    /// Leading and trailing line breaks (a script's final newline) are
+    /// dropped; all-whitespace markdown encodes to an empty string.
+    static func encodeMetaBlockMarkdownForSocketLine(_ markdown: String) -> String {
+        guard !markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "" }
+        return markdown
+            .trimmingCharacters(in: .newlines)
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "\n", with: "\\n")
     }
 
     private struct RightSidebarCLIArguments {
