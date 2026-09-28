@@ -47,6 +47,11 @@ struct CloudTreeNodeActions {
     /// caller selected the machine pool, so the explicit compatibility operation
     /// renames all views.
     let renameTerminal: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView?) -> Void
+    /// Rename a display's or a browser's remote tab via a text prompt. The view
+    /// is not optional because those rows are built one per placement: a row
+    /// without a tab does not offer the verb rather than falling back to an
+    /// all-views rename the way a terminal pool row does.
+    var renameRemoteView: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView) -> Void = { _, _ in }
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
     /// Copy the machine port's private URL without changing network state.
@@ -394,19 +399,42 @@ struct CloudTreeNodeActions {
             renameTerminal: { resource, view in
                 let current = view?.name ?? (resource.title.isEmpty ? resource.id.key : resource.title)
                 guard let name = promptForName(
-                    title: String(format: String(localized: "cloudTree.renameTerminal.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
+                    title: String(format: String(localized: "cloudTree.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
                     current: current,
                     allowsClear: true
                 ) else { return }
                 let operationLabel = name.isEmpty
-                    ? String(format: String(localized: "cloudTree.operation.clearTerminal", defaultValue: "Clearing %@\u{2026}"), current)
-                    : String(format: String(localized: "cloudTree.operation.renameTerminal", defaultValue: "Renaming %@\u{2026}"), current)
+                    ? String(format: String(localized: "cloudTree.operation.clearName", defaultValue: "Clearing %@\u{2026}"), current)
+                    : String(format: String(localized: "cloudTree.operation.rename", defaultValue: "Renaming %@\u{2026}"), current)
                 run(operationLabel) { catalog in
                     if let view {
                         try await catalog.renameRemoteTab(on: resource.machine, id: view.tabID, name: name)
                     } else {
                         try await catalog.renameTerminal(on: resource.machine, id: resource.id, name: name)
                     }
+                }
+            },
+            renameRemoteView: { resource, view in
+                let chosen = CloudTreeResourceName.chosenName(remoteView: view)
+                // The prompt is titled with the name the row is showing, so it
+                // names what the person clicked. The field holds only a name
+                // someone typed: pre-filling a browser's live page title would
+                // pin it the moment they hit Return, which is the opposite of
+                // what a prompt they opened by accident should do.
+                let current = chosen ?? (resource.title.isEmpty ? resource.id.key : resource.title)
+                guard let name = promptForName(
+                    title: String(format: String(localized: "cloudTree.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
+                    current: chosen ?? "",
+                    // Clearing puts the row back on the generated title, which
+                    // for a browser is the live page title and is usually what
+                    // someone undoing a rename wants back.
+                    allowsClear: true
+                ) else { return }
+                let operationLabel = name.isEmpty
+                    ? String(format: String(localized: "cloudTree.operation.clearName", defaultValue: "Clearing %@\u{2026}"), current)
+                    : String(format: String(localized: "cloudTree.operation.rename", defaultValue: "Renaming %@\u{2026}"), current)
+                run(operationLabel) { catalog in
+                    try await catalog.renameRemoteTab(on: resource.machine, id: view.tabID, name: name)
                 }
             },
             selectLocalWorkspace: selectLocalWorkspace,

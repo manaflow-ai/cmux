@@ -126082,7 +126082,7 @@
         }
       }
     },
-    "cloudTree.menu.renameTerminal": {
+    "cloudTree.menu.rename": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -126318,7 +126318,7 @@
         }
       }
     },
-    "cloudTree.operation.renameTerminal": {
+    "cloudTree.operation.rename": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -126377,7 +126377,7 @@
         }
       }
     },
-    "cloudTree.operation.clearTerminal": {
+    "cloudTree.operation.clearName": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -127708,7 +127708,7 @@
         }
       }
     },
-    "cloudTree.renameTerminal.title": {
+    "cloudTree.rename.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {

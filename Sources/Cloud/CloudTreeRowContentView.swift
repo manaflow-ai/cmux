@@ -16,11 +16,6 @@ struct CloudTreeRowContentView: View {
     var style: CloudTreeStyle = CloudTreeStyleStore.current
     var resources: CloudTreeMachineResourceSection? = nil
 
-    private static func nonEmptyTrimmed(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
     var body: some View {
         row
             .overlay(alignment: .bottom) {
@@ -88,8 +83,7 @@ struct CloudTreeRowContentView: View {
         case .terminal(let row):
             CloudTreeTerminalRowContent(row: row, style: style)
         case .display(let resource, _, let remoteView):
-            let title = Self.nonEmptyTrimmed(remoteView?.name)
-                ?? (resource.title.isEmpty ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop") : resource.title)
+            let title = CloudTreeResourceName.display(resource: resource, remoteView: remoteView)
             CloudTreeLeafRow(
                 style: style,
                 icon: "display",
@@ -106,7 +100,7 @@ struct CloudTreeRowContentView: View {
                 style: style,
                 icon: "globe",
                 tint: CloudTreeIconPalette.browser,
-                title: row.resource.title.isEmpty ? String(localized: "cloudTree.browser.untitled", defaultValue: "browser") : row.resource.title,
+                title: CloudTreeResourceName.browser(resource: row.resource, remoteView: row.remoteView),
                 detail: CloudTreeBrowserDetail.text(for: row)
             )
         case .portsGroup:

@@ -85,4 +85,12 @@ struct CloudTreeResourceNameTests {
         )
         #expect(named.searchableTitle == "Docs")
     }
+
+    /// A rename writes to a daemon tab, so a row with no tab has nothing to
+    /// write to and must not offer the verb.
+    @Test("rename is offered only where there is a tab to rename")
+    func renameNeedsATab() {
+        #expect(CloudTreeOutlineView.canRenameRemoteView(remoteView: view(name: nil)))
+        #expect(CloudTreeOutlineView.canRenameRemoteView(remoteView: nil) == false)
+    }
 }

@@ -189,11 +189,9 @@ final class CloudTreeNode: NSObject {
         case .localWorkspace(let row): return row.title
         case .terminal(let row): return row.displayTitle
         case .display(let resource, _, let remoteView):
-            let title = remoteView?.name?.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let title, !title.isEmpty { return title }
-            return resource.title.isEmpty ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop") : resource.title
+            return CloudTreeResourceName.display(resource: resource, remoteView: remoteView)
         case .browsersGroup: return String(localized: "cloudTree.group.browsers", defaultValue: "Browsers")
-        case .browser(let row): return row.resource.title
+        case .browser(let row): return CloudTreeResourceName.browser(resource: row.resource, remoteView: row.remoteView)
         case .portsGroup: return String(localized: "cloudTree.group.ports", defaultValue: "Ports")
         case .resourcesPool: return String(localized: "cloudTree.group.resources", defaultValue: "Resources")
         case .resource(_, let row): return row.title
