@@ -298,7 +298,7 @@ private final class CallCounter: @unchecked Sendable {
         #expect(driver.relaunchGate.isWaiting)
     }
 
-    @Test func menuInstallWhileWaitingMeansInstallNow() async {
+    private func makeController() -> UpdateController {
         let controller = UpdateController(
             log: NoopUpdateLog(),
             clock: clock,
@@ -307,13 +307,36 @@ private final class CallCounter: @unchecked Sendable {
         )
         controller.actionDelegate = host
         controller.driver.installsAutomatically = { true }
-        host.blockers = blockers(risky: 1, commands: 0)
+        return controller
+    }
+
+    @Test func menuInstallWhileWaitingForAQuietMomentMeansInstallNow() async {
+        let controller = makeController()
+        host.idle = .zero
         let installs = CallCounter()
         startAutomaticInstall(controller.driver, installs: installs)
         #expect(installs.count == 0)
 
         controller.attemptUpdate()
 
+        await settle { installs.count == 1 }
+    }
+
+    @Test func menuInstallWhileRiskyAgentsHoldTheUpdateAsksFirst() async {
+        let controller = makeController()
+        host.blockers = blockers(risky: 1, commands: 0)
+        let installs = CallCounter()
+        startAutomaticInstall(controller.driver, installs: installs)
+
+        // The menu shows none of what is running, so it asks like any install the user starts.
+        controller.attemptUpdate()
+
+        #expect(controller.driver.relaunchGate.mode == .askUser)
+        #expect(installing?.updateWhenClear != nil)
+        await tick()
+        #expect(installs.count == 0)
+
+        installing?.retryTerminatingApplication()
         await settle { installs.count == 1 }
     }
 
