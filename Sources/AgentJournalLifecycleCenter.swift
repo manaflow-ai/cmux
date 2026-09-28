@@ -93,7 +93,9 @@ final class AgentJournalLifecycleCenter: Sendable {
 
     init(
         databaseURL: URL?,
-        consumerStart: @escaping @Sendable () async -> Void = {}
+        consumerStart: @escaping @Sendable () async -> Void = {},
+        reconciliationCursorDidAdvance: @escaping @Sendable (AgentJournalEvent) -> Void = { _ in },
+        reconciliationPageRead: @escaping @Sendable () -> Void = {}
     ) {
         guard let databaseURL else {
             self.lazyStore = nil
@@ -208,6 +210,7 @@ final class AgentJournalLifecycleCenter: Sendable {
                 // lifecycle/notification fold completes before another
                 // operation can inspect the reconciliation cursor.
                 noteReconciledSequence(event.sequence)
+                reconciliationCursorDidAdvance(event)
                 let canonical = Self.canonicalized(event, aliases: eventAliases)
                 let decision = notifications.apply(canonical)
                 if decision.disposition != .stale, decision.projectsLifecycle {
@@ -271,6 +274,7 @@ final class AgentJournalLifecycleCenter: Sendable {
                 var cursor = reconciledThroughSequence
                 while true {
                     let page = try store.readPage(afterSequence: cursor, limit: 2_048)
+                    reconciliationPageRead()
                     if page.isEmpty {
                         noteReconciledScan(through: cursor)
                         return cursor

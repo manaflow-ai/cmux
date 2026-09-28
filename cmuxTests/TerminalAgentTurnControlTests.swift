@@ -2,6 +2,7 @@ import AppKit
 import CmuxAgentJournal
 import CmuxSettings
 import CmuxTerminal
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -267,6 +268,155 @@ struct AgentTurnInterruptTargetTests {
         let events = try store.events(afterSequence: 0, limit: 10)
         store.close()
         #expect(events.map(\.draft.eventId) == ["turn-started", "pre-tool-use"])
+    }
+
+    @Test func clickBoundaryNeverPairsANewHeadWithAStaleSessionGeneration() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-turn-control-snapshot-order-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("journal.sqlite3", isDirectory: false)
+        let cursorAdvanced = DispatchSemaphore(value: 0)
+        let resumeReconciliation = DispatchSemaphore(value: 0)
+        let center = AgentJournalLifecycleCenter(
+            databaseURL: url,
+            reconciliationCursorDidAdvance: { event in
+                guard event.draft.eventId == "pre-tool-use" else { return }
+                cursorAdvanced.signal()
+                _ = resumeReconciliation.wait(timeout: .now() + 5)
+            }
+        )
+        let surface = UUID()
+        let workspace = UUID()
+        func draft(id: String, occurredAtMs: Int64, nativeEvent: String) -> AgentJournalEventDraft {
+            AgentJournalEventDraft(
+                eventId: id,
+                kind: .turnStarted,
+                occurredAtMs: occurredAtMs,
+                source: "claude",
+                agentKey: "claude_code",
+                sessionId: "session-1",
+                workspaceId: workspace.uuidString,
+                surfaceId: surface.uuidString,
+                nativeEvent: nativeEvent
+            )
+        }
+
+        _ = await center.admitNotification(
+            draft(id: "turn-started", occurredAtMs: 1_000, nativeEvent: "UserPromptSubmit")
+        )
+        let initial = center.captureUserInterruptSessionBoundary(
+            surfaceId: surface,
+            agentKey: "claude_code"
+        )
+        #expect(initial.sessionSequences == ["session-1": 1])
+        #expect(initial.observedHeadSequence == 1)
+
+        let resumed = Task {
+            await center.admitNotification(
+                draft(id: "pre-tool-use", occurredAtMs: 1_001, nativeEvent: "PreToolUse")
+            )
+        }
+        try #require(cursorAdvanced.wait(timeout: .now() + 5) == .success)
+        defer { resumeReconciliation.signal() }
+
+        #expect(
+            center.captureUserInterruptSessionBoundary(
+                surfaceId: surface,
+                agentKey: "claude_code"
+            ) == initial,
+            "the click snapshot must stay on the old head until its new session generation is published"
+        )
+        resumeReconciliation.signal()
+        _ = await resumed.value
+
+        let settled = center.captureUserInterruptSessionBoundary(
+            surfaceId: surface,
+            agentKey: "claude_code"
+        )
+        #expect(settled.sessionSequences == ["session-1": 2])
+        #expect(settled.observedHeadSequence == 2)
+    }
+
+    @Test func reconciliationScanStopsAtItsCapturedHeadDuringUnrelatedAppends() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-turn-control-scan-bound-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("journal.sqlite3", isDirectory: false)
+        let surface = UUID()
+        let otherSurface = UUID()
+        let workspace = UUID()
+        let writer = try AgentJournalStore(databaseURL: url)
+        defer { writer.close() }
+        let pageReads = OSAllocatedUnfairLock(initialState: 0)
+        let center = AgentJournalLifecycleCenter(
+            databaseURL: url,
+            reconciliationPageRead: {
+                let read = pageReads.withLock { count in
+                    count += 1
+                    return count
+                }
+                // Keep committing new unrelated work after every page. The cap
+                // makes a regression fail an assertion instead of hanging the suite.
+                guard read <= 4 else { return }
+                let traffic = AgentJournalEventDraft(
+                    eventId: "unrelated-traffic-\(read)",
+                    kind: .turnStarted,
+                    occurredAtMs: Int64(2_000 + read),
+                    source: "claude",
+                    agentKey: "claude_code",
+                    sessionId: "other-session",
+                    workspaceId: workspace.uuidString,
+                    surfaceId: otherSurface.uuidString,
+                    nativeEvent: "UserPromptSubmit"
+                )
+                _ = try? writer.append(traffic)
+            }
+        )
+        let started = AgentJournalEventDraft(
+            eventId: "turn-started",
+            kind: .turnStarted,
+            occurredAtMs: 1_000,
+            source: "claude",
+            agentKey: "claude_code",
+            sessionId: "session-1",
+            workspaceId: workspace.uuidString,
+            surfaceId: surface.uuidString,
+            nativeEvent: "UserPromptSubmit"
+        )
+        _ = await center.admitNotification(started)
+        let boundary = center.captureUserInterruptSessionBoundary(
+            surfaceId: surface,
+            agentKey: "claude_code"
+        )
+        _ = try writer.append(
+            AgentJournalEventDraft(
+                eventId: "durable-unrelated",
+                kind: .turnStarted,
+                occurredAtMs: 1_001,
+                source: "claude",
+                agentKey: "claude_code",
+                sessionId: "other-session",
+                workspaceId: workspace.uuidString,
+                surfaceId: otherSurface.uuidString,
+                nativeEvent: "UserPromptSubmit"
+            )
+        )
+
+        let receipt = center.recordUserInterrupt(
+            surfaceId: surface,
+            workspaceId: workspace,
+            agentKey: "claude_code",
+            source: "claude",
+            boundary: boundary
+        )
+        await receipt.wait()
+
+        #expect(pageReads.withLock { $0 } == 1)
+        let events = try writer.events(afterSequence: 0, limit: 20)
+        #expect(events.contains { $0.draft.eventId == "unrelated-traffic-1" })
+        #expect(!events.contains { $0.draft.eventId == "unrelated-traffic-2" })
+        #expect(events.contains {
+            $0.draft.nativeEvent == AgentJournalEventDraft.userInterruptNativeEvent
+                && $0.draft.sessionId == "session-1"
+        })
     }
 
     @Test func onlyClaudeSettlesItsTurnInTheJournal() {
