@@ -22,7 +22,8 @@ def job(name: str) -> str:
 
 admission = job("macos-compile-admission")
 consumer = job("app-host-unit-tests")
-packages = job("swift-package-tests")
+# The swift-package-tests job runs its package list from the lane script.
+packages = Path("scripts/ci/package-test-lane.sh").read_text(encoding="utf-8")
 restore = Path("scripts/ci/restore-app-host-test-product.sh").read_text(encoding="utf-8")
 
 # Admission drives the canonical-root recipes; the bare subcommands remain for

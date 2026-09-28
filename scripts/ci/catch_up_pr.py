@@ -26,6 +26,14 @@ being merged (the workflow runs this against untrusted pull request bytes):
   schema JSON itself, or merged schema text that is not valid JSON, stops.
 - *.xcstrings: a key-level three-way merge through scripts/merge-xcstrings.py.
   The same key changed differently on both sides stops, naming the keys.
+- Source files in brace languages (SOURCE_SUFFIXES): a conflicted hunk where
+  one side only inserted whole declarations (a function, a type, an enum case)
+  keeps the other side's lines and places those declarations at the same
+  brace depth; where both sides only inserted declarations, both are kept.
+  Anything else in the hunk (either side editing a base line that the other
+  also touched, an inserted statement, an unbalanced block) stops. The push
+  job re-derives each such file from the three blobs (verify), so nothing
+  else can ride along.
 
 Git attributes come from the base commit (`attr.tree`), not from the head, so
 a pull request cannot pick merge drivers such as `union` for its own merge.
@@ -41,9 +49,10 @@ Exit codes: 0 merged or already up to date, 1 blocked (needs a person),
 2 error (dirty tree, unknown ref, git failure).
 
 Usage:
-  catch_up_pr.py merge --base origin/main [--repo DIR] [--tools-root DIR] [--json]
+  catch_up_pr.py merge --base origin/main|SHA [--repo DIR] [--tools-root DIR] [--title T] [--json]
   catch_up_pr.py verify --repo DIR --head SHA --base SHA --merged SHA --base-tip REF
-  catch_up_pr.py comment --result result.json --push pushed|...
+  catch_up_pr.py comment --result result.json --push pushed|... [--auto --head-sha SHA]
+  catch_up_pr.py read-result --file outputs.json [--pin SHA]
 """
 
 from __future__ import annotations
@@ -84,15 +93,18 @@ MIN_GIT = (2, 46)
 # Every git call pins the settings that change what a merge produces or what
 # runs during it. Hooks are off: this tree may be untrusted, and the
 # generators already did what the pbxproj pre-commit hook would. The
-# .xcstrings merge driver is replaced by `false` so git leaves those files
-# unmerged for the trusted key-wise merge below; a clone configured by
+# .xcstrings and .pbxproj merge drivers are replaced by `false` so git leaves
+# those files unmerged for the trusted merges below; a clone configured by
 # scripts/install-git-hooks.sh would otherwise run the driver from the tree
-# being merged.
+# being merged, which on a fork head is untrusted code.
 GIT = [
     "git",
     "-c", "core.hooksPath=/dev/null",
     "-c", "merge.conflictStyle=diff3",
     "-c", "merge.xcstrings.driver=false",
+    "-c", "merge.xcstrings-v2.driver=false",
+    "-c", "merge.pbxproj.driver=false",
+    "-c", "merge.pbxproj-v1.driver=false",
     "-c", "rerere.enabled=false",
     "-c", "maintenance.auto=false",
     "-c", "gc.auto=0",
@@ -326,8 +338,8 @@ def union_hunk(ours: list[str], base: list[str], theirs: list[str]) -> list[str]
     return merged
 
 
-def union_pbxproj(base: str, ours: str, theirs: str) -> str:
-    """Three-way merge where each conflicted hunk must be insertions on both sides."""
+def merge_file(base: str, ours: str, theirs: str) -> str:
+    """`git merge-file --diff3` of three texts, conflicts marked MARKER_SIZE wide."""
     with tempfile.TemporaryDirectory() as scratch:
         files = []
         for name, text in (("ours", ours), ("base", base), ("theirs", theirs)):
@@ -341,8 +353,15 @@ def union_pbxproj(base: str, ours: str, theirs: str) -> str:
         )
     if completed.returncode < 0 or completed.returncode > 127:
         raise ValueError(f"git merge-file failed: {completed.stderr.decode(errors='replace').strip()}")
+    return completed.stdout.decode("utf-8")
+
+
+def union_pbxproj(base: str, ours: str, theirs: str) -> str:
+    """Three-way merge where each conflicted hunk must be insertions on both sides."""
+    if any(marker_line(line) for text in (base, ours, theirs) for line in text.splitlines()):
+        raise ValueError("a side has conflict-marker lines")
     out: list[str] = []
-    for part in split_conflicts(completed.stdout.decode("utf-8")):
+    for part in split_conflicts(merge_file(base, ours, theirs)):
         if isinstance(part, str):
             out.append(part)
             continue
@@ -357,6 +376,151 @@ def union_pbxproj(base: str, ours: str, theirs: str) -> str:
     if duplicates := duplicate_keys(result):
         raise ValueError("the union repeats a key: " + ", ".join(sorted(set(duplicates))[:5]))
     return result
+
+
+# --- source files: inserted declarations ---------------------------------------
+
+# Brace languages, where a declaration's nesting is its brace depth.
+SOURCE_SUFFIXES = (".swift", ".m", ".mm", ".h", ".c", ".cc", ".cpp", ".go", ".rs", ".kt", ".java",
+                   ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
+# A line that starts a declaration whose order among its siblings does not
+# change what the program does: a keyword, then a name. Statements (let, var,
+# const, calls, switch cases) and enum cases (raw values, CaseIterable) are
+# not declarations here.
+DECLARATION_RE = re.compile(
+    r"^\s*(?:@\w+(?:\([^)]*\))?\s+)*"
+    r"(?:(?:public|private|internal|fileprivate|open|package|static|class|final|override|mutating|nonisolated|"
+    r"convenience|required|export|default|async|abstract|pub(?:\([^)]*\))?|unsafe)\s+)*"
+    r"(?:(?:func|struct|class|enum|extension|protocol|actor|typealias|function|interface|fn|impl|trait|fun|object)"
+    r"\s+[A-Za-z_]"
+    r"|(?:init|deinit|subscript)\b.*\{)"
+)
+ATTRIBUTE_RE = re.compile(r"^\s*@\w+(?:\([^)]*\))?\s*$")
+CLOSING_RE = re.compile(r"^\s*\}[\s;,)]*$")
+DIRECTIVE_RE = re.compile(r"^\s*#\s*(?:if|ifdef|ifndef|elif|elseif|else|endif)\b")
+
+
+def marker_line(line: str) -> bool:
+    return line.startswith(("<" * MARKER_SIZE, "|" * MARKER_SIZE, "=" * MARKER_SIZE, ">" * MARKER_SIZE))
+
+
+def comment_line(line: str) -> bool:
+    return line.lstrip().startswith(("//", "/*", "*/"))
+
+
+def opaque(line: str) -> bool:
+    """A line whose braces may not be code: a brace next to a quote, a comment or a directive."""
+    if DIRECTIVE_RE.match(line):
+        return True
+    return ("{" in line or "}" in line) and any(mark in line for mark in ('"', "'", "`", "//", "/*", "*/"))
+
+
+def depths(lines: list[str]) -> list[int]:
+    """Brace depth before each line and after the last, relative to the first."""
+    out = [0]
+    for line in lines:
+        out.append(out[-1] + line.count("{") - line.count("}"))
+    return out
+
+
+def declaration_block(lines: list[str]) -> bool:
+    """Whole declarations: every line at the block's own level is a declaration start, an attribute,
+    a comment, a closing brace or blank, and the braces balance without going below 0."""
+    level = depths(lines)
+    if level[-1] != 0 or min(level) < 0 or any(opaque(line) for line in lines):
+        return False
+    started = False
+    for line, before in zip(lines, level):
+        if before or not line.strip() or comment_line(line) or ATTRIBUTE_RE.match(line) or CLOSING_RE.match(line):
+            continue
+        if not DECLARATION_RE.match(line):
+            return False
+        started = True
+    return started
+
+
+def graft(other: list[str], base: list[str], slots: list[list[str]]) -> list[str] | None:
+    """`other` with the declarations one side inserted into `base` placed in the hunk's own scope.
+
+    Only blocks inserted at the scope the hunk starts in (depth 0, never
+    leaving it before the slot) move, and only to a spot in `other` in that
+    same scope: at its start, after a blank line or after a closing brace, so
+    nothing takes or loses an attribute or a doc comment. The spot nearest the block's relative position wins, the
+    earlier on a tie. None when anything does not hold.
+    """
+    if any(opaque(line) for line in other + base):
+        return None
+    base_level, other_level = depths(base), depths(other)
+    placed: list[tuple[int, int, list[str]]] = []
+    for slot, lines in enumerate(slots):
+        if not lines:
+            continue
+        if not declaration_block(lines) or base_level[slot] != 0 or min(base_level[:slot + 1]) < 0:
+            return None
+        spots = []
+        for p in range(len(other) + 1):
+            if other_level[p] != 0 or min(other_level[:p + 1]) < 0:
+                continue
+            # Never right after an attribute or a comment, which belong to the next declaration.
+            if p == 0 or not other[p - 1].strip() or CLOSING_RE.match(other[p - 1]):
+                spots.append(p)
+        if not spots:
+            return None
+        target = slot * len(other) / max(1, len(base))
+        placed.append((min(spots, key=lambda p: (abs(p - target), p)), slot, lines))
+    out: list[str] = []
+    placed.sort(key=lambda item: (item[0], item[1]))
+    index = 0
+    for position, _slot, lines in placed:
+        out.extend(other[index:position])
+        out.extend(lines)
+        index = position
+    out.extend(other[index:])
+    return out
+
+
+def merge_declarations_hunk(ours: list[str], base: list[str], theirs: list[str]) -> list[str] | None:
+    ours_slots, theirs_slots = insertions(base, ours), insertions(base, theirs)
+    if ours_slots is not None and theirs_slots is not None:
+        if not all(declaration_block(lines) for lines in ours_slots + theirs_slots if lines):
+            return None
+        merged: list[str] = []
+        for slot, (ours_lines, theirs_lines) in enumerate(zip(ours_slots, theirs_slots)):
+            merged.extend(ours_lines)
+            if theirs_lines != ours_lines:
+                merged.extend(theirs_lines)
+            if slot < len(base):
+                merged.append(base[slot])
+        return merged
+    if ours_slots is not None:
+        return graft(theirs, base, ours_slots)
+    if theirs_slots is not None:
+        return graft(ours, base, theirs_slots)
+    return None
+
+
+def merge_declarations(base: str, ours: str, theirs: str) -> str:
+    """Three-way merge where each conflicted hunk is inserted declarations on at least one side.
+
+    A line that looks like a wide conflict marker in any input stops it, so
+    marker-shaped lines in a pull request cannot steer split_conflicts().
+    """
+    if any(marker_line(line) for text in (base, ours, theirs) for line in text.splitlines()):
+        raise ValueError("a side has conflict-marker lines")
+    out: list[str] = []
+    for part in split_conflicts(merge_file(base, ours, theirs)):
+        if isinstance(part, str):
+            out.append(part)
+            continue
+        merged = merge_declarations_hunk(*part)
+        if merged is None:
+            raise ValueError("both sides changed the same lines")
+        out.extend(merged)
+    return "".join(out)
+
+
+def source_path(path: str) -> bool:
+    return path.endswith(SOURCE_SUFFIXES) and not path.startswith(".github/")
 
 
 # --- the merge ---------------------------------------------------------------
@@ -419,6 +583,26 @@ class Resolver:
             return
         self.done(path, "union of added entries, then normalize-pbxproj.py")
 
+    def source(self, path: str) -> None:
+        if problem := self.repo.unsafe(path):
+            self.block(path, problem)
+            return
+        # verify re-derives the file from the one merge base's blob; anything
+        # else (a criss-cross history, a rename) would fail there, so stop here.
+        bases = self.repo.text("merge-base", "--all", "HEAD", "MERGE_HEAD").split()
+        stage_base = self.repo.text("rev-parse", f":1:{path}")
+        if len(bases) != 1 or self.repo.blob_id(bases[0], path) != stage_base:
+            self.block(path, "both sides changed it")
+            return
+        try:
+            texts = [self.repo.stage_bytes(stage, path).decode("utf-8") for stage in (1, 2, 3)]
+            merged = merge_declarations(*texts)
+        except (ValueError, UnicodeDecodeError):
+            self.block(path, "both sides changed the same lines")
+            return
+        (self.repo.path / path).write_text(merged, encoding="utf-8")
+        self.done(path, "kept both sides' declarations")
+
     def schema(self, conflicted: bool) -> None:
         # The generator reads one path and writes the other. A symlink at
         # either would read a runner file into the commit or write outside
@@ -463,7 +647,7 @@ def check_git_version() -> None:
         raise CatchUpError(f"git {need} or newer is required for attr.tree; found {version.strip()}")
 
 
-def catch_up(repo_path: Path, base_ref: str, tools_root: Path, note: str = "") -> Result:
+def catch_up(repo_path: Path, base_ref: str, tools_root: Path, note: str = "", title: str = "") -> Result:
     check_git_version()
     repo = Repo(repo_path)
     result = Result(base_ref=base_ref)
@@ -484,23 +668,24 @@ def catch_up(repo_path: Path, base_ref: str, tools_root: Path, note: str = "") -
         result.message = f"HEAD already contains {base_ref}"
         return result
 
-    merge = repo.run("merge", "--no-ff", "--no-commit", "--no-edit", result.base, check=False)
-    in_merge = repo.run("rev-parse", "--verify", "--quiet", "MERGE_HEAD", check=False).returncode == 0
-    unmerged = repo.unmerged() if in_merge else {}
-    if merge.returncode != 0 and not unmerged:
-        if in_merge:
-            repo.run("merge", "--abort", check=False)
-        raise CatchUpError(f"git merge failed: {tail(merge.stderr.decode(errors='replace'))}")
-
+    # One guard from the moment git starts merging: an interrupt (Ctrl-C in
+    # scripts/merge-main.sh) or any error before the commit leaves no half
+    # merge behind. No merge was in progress before this point (checked above).
     try:
-        return finish(repo, result, Resolver(repo, tools_root), unmerged, base_ref, note)
+        merge = repo.run("merge", "--no-ff", "--no-commit", "--no-edit", result.base, check=False)
+        in_merge = repo.run("rev-parse", "--verify", "--quiet", "MERGE_HEAD", check=False).returncode == 0
+        unmerged = repo.unmerged() if in_merge else {}
+        if merge.returncode != 0 and not unmerged:
+            raise CatchUpError(f"git merge failed: {tail(merge.stderr.decode(errors='replace'))}")
+        return finish(repo, result, Resolver(repo, tools_root), unmerged, base_ref, note, title)
     except BaseException:
-        repo.run("merge", "--abort", check=False)
+        if repo.run("rev-parse", "--verify", "--quiet", "MERGE_HEAD", check=False).returncode == 0:
+            repo.run("merge", "--abort", check=False)
         raise
 
 
 def finish(repo: Repo, result: Result, resolver: Resolver, unmerged: dict[str, set[int]],
-           base_ref: str, note: str) -> Result:
+           base_ref: str, note: str, title: str = "") -> Result:
     """Resolve, then commit or abort. The caller aborts the merge on any exception."""
     for path in sorted(unmerged):
         stages = unmerged[path]
@@ -515,8 +700,10 @@ def finish(repo: Repo, result: Result, resolver: Resolver, unmerged: dict[str, s
             resolver.xcstrings(path)
         elif path == PBXPROJ:
             resolver.pbxproj(path)
+        elif source_path(path):
+            resolver.source(path)
         else:
-            resolver.block(path, "not a generated file; needs a person")
+            resolver.block(path, "both sides changed it")
 
     swift_conflicted = unmerged.get(SCHEMA_SWIFT) == {1, 2, 3}
     if swift_conflicted and SCHEMA_JSON in unmerged:
@@ -532,25 +719,26 @@ def finish(repo: Repo, result: Result, resolver: Resolver, unmerged: dict[str, s
         result.message = f"{len(result.blocking)} file(s) need a person; merge aborted"
         return result
 
-    lines = [f"Merge {base_ref} into the pull request head", ""]
+    lines = [title or f"Merge {base_ref} into the pull request head", ""]
     lines.append("Catch-up merge by scripts/ci/catch_up_pr.py (RFC #14631).")
     if note:
         lines.append(note)
     if result.resolved:
-        lines += ["", "Resolved generated files:"]
+        lines += ["", "Resolved conflicts:"]
         lines += [f"- {item['path']}: {item['method']}" for item in result.resolved]
     lines += ["", f"Catch-up-previous-head: {result.head_before}", f"Catch-up-base: {result.base}"]
     repo.run("commit", "--no-verify", "-F", "-", input_bytes=("\n".join(lines) + "\n").encode())
     result.head_after = repo.text("rev-parse", "HEAD")
     result.status = "merged"
-    result.message = f"merged {base_ref} with {len(result.resolved)} generated file(s) resolved"
+    result.message = f"merged {base_ref} with {len(result.resolved)} conflicted file(s) resolved"
     return result
 
 
 def command_merge(args: argparse.Namespace) -> int:
     result = Result(base_ref=args.base)
     try:
-        result = catch_up(Path(args.repo).resolve(), args.base, Path(args.tools_root).resolve(), args.note)
+        result = catch_up(Path(args.repo).resolve(), args.base, Path(args.tools_root).resolve(), args.note,
+                          args.title)
     except CatchUpError as error:
         result.status = "error"
         result.message = str(error)
@@ -604,10 +792,32 @@ def verify_merge(repo_path: Path, head: str, base: str, merged: str, base_tip: s
         conflicted.append(field)
     raw = repo.run("diff-tree", "-r", "--name-only", "-z", expected_tree, f"{merged}^{{tree}}").stdout.decode()
     differing = [path for path in raw.split("\0") if path]
+    merge_bases = repo.text("merge-base", "--all", head, base).split()
     for path in sorted(set(differing) | set(conflicted)):
-        if not allowed_generated_path(path):
-            problems.append(f"{path} differs from git's merge of the parents")
+        if allowed_generated_path(path):
+            continue
+        if path in conflicted and source_path(path) and len(merge_bases) == 1 and \
+                rederived(repo, path, merge_bases[0], head, base, merged):
+            continue
+        problems.append(f"{path} differs from git's merge of the parents")
     return problems
+
+
+def rederived(repo: Repo, path: str, merge_base: str, head: str, base: str, merged: str) -> bool:
+    """True when `merged` holds exactly merge_declarations() of the three regular-file blobs of `path`."""
+    texts = []
+    for rev in (merge_base, head, base, merged):
+        listing = repo.text("ls-tree", "-z", rev, "--", path).rstrip("\0")
+        if not listing or listing.split()[0] not in REGULAR_MODES:
+            return False
+        try:
+            texts.append(repo.run("show", f"{rev}:{path}").stdout.decode("utf-8"))
+        except UnicodeDecodeError:
+            return False
+    try:
+        return merge_declarations(texts[0], texts[1], texts[2]) == texts[3]
+    except ValueError:
+        return False
 
 
 def command_verify(args: argparse.Namespace) -> int:
@@ -645,6 +855,15 @@ def reason(text: str) -> str:
     return "".join(code(part) if index % 2 else plain(part) for index, part in enumerate(parts)).strip()
 
 
+def conflicts(result: dict) -> str:
+    """The blocking files on one line: `a` (why), `b` (why) and N more."""
+    items = result.get("blocking", [])
+    shown = [f"{code(item['path'])} ({reason(item['reason'])})" for item in items[:5]]
+    if len(items) > 5:
+        shown.append(f"{len(items) - 5} more in the run log")
+    return ", ".join(shown) if shown else "a conflict"
+
+
 def render_comment(result: dict, push: str, base_name: str, head_name: str, run_url: str) -> str:
     base = (result.get("base") or "")[:12]
     base_label = f"{code(base_name)} ({code(base)})" if base else code(base_name)
@@ -653,14 +872,8 @@ def render_comment(result: dict, push: str, base_name: str, head_name: str, run_
     if status == "up_to_date":
         return f"This branch already has {base_label}, so there was nothing to catch up.{footer}"
     if status == "blocked":
-        lines = [f"I tried to catch this branch up with {base_label}, but these files need a person:", ""]
-        lines += [f"- {code(item['path'])}: {reason(item['reason'])}" for item in result.get("blocking", [])[:20]]
-        extra = len(result.get("blocking", [])) - 20
-        if extra > 0:
-            lines.append(f"- and {extra} more in the run log")
-        lines += ["", f"Nothing was pushed. Merge {code(base_name)} locally, fix those, and push;"
-                  " `/catch-up` is there again whenever you want it."]
-        return "\n".join(lines) + footer
+        return (f"Couldn't merge {base_label}: {conflicts(result)}. Nothing was pushed;"
+                f" merge {code(base_name)} by hand, or comment `/catch-up` to try again.{footer}")
     if status != "merged":
         return (f"Catch-up stopped before merging ({plain(result.get('message', 'unknown error'))})."
                 f" Nothing was pushed.{footer}")
@@ -669,7 +882,7 @@ def render_comment(result: dict, push: str, base_name: str, head_name: str, run_
     if push == "pushed" or push == "pushed-without-ci":
         lines = [f"Caught {code(head_name)} up with {base_label} in {code(head)}."]
         if resolved:
-            lines += ["", "Resolved with their generators:", *resolved]
+            lines += ["", "Resolved:", *resolved]
         if push == "pushed-without-ci":
             lines += ["", "This push used the Actions token, so CI will not start on its own."
                       " Push any commit (or close and reopen) to get checks on the new head."]
@@ -688,11 +901,119 @@ def render_comment(result: dict, push: str, base_name: str, head_name: str, run_
             f" did not push. Nothing changed on the branch; comment `/catch-up` to try again.{footer}")
 
 
+AUTO_MARKER = "<!-- cmux-auto-catch-up head={head} -->"
+# The automatic path speaks only when it pushed or when a person must act on
+# this head; the marker then keeps auto_catch_up_select.py off the head. Every
+# other outcome (up to date, an error or a lost runner, the branch moved, the
+# push job refused the merge, no push token) says nothing and marks nothing:
+# the selector's ledger bounds how often such a head is tried again.
+AUTO_SPOKEN = frozenset({("blocked", None), ("merged", "pushed"), ("merged", "push-denied"),
+                         ("merged", "needs-workflows")})
+
+
+def render_auto_comment(result: dict, push: str, base_name: str, head_name: str, run_url: str,
+                        head_sha: str) -> str:
+    """The comment for a catch-up nobody asked for, or "" when it should stay silent.
+
+    It carries AUTO_MARKER for the head it tried, which auto_catch_up_select.py
+    reads so that head is not tried again. No @-mentions and no issue
+    references, so a comment on many pull requests pings nobody.
+    """
+    status = result.get("status")
+    if not re.fullmatch(r"[0-9a-f]{40}", head_sha or ""):
+        return ""
+    if (status, None if status == "blocked" else push) not in AUTO_SPOKEN:
+        return ""
+    base = (result.get("base") or "")[:12]
+    base_label = f"{code(base_name)} ({code(base)})" if base else code(base_name)
+    if status == "blocked":
+        body = (f"Automatic catch-up couldn't merge {base_label}: {conflicts(result)}."
+                " Nothing was pushed; merge it by hand. A new push or `/catch-up` tries again.")
+    elif push == "pushed":
+        body = (render_comment(result, push, base_name, head_name, "")
+                + "\nRun `git pull --no-rebase` before your next push; do not force-push over this merge.")
+    else:
+        body = render_comment(result, push, base_name, head_name, "")
+    link = f" · [Catch-up run]({run_url})" if run_url else ""
+    return f"{AUTO_MARKER.format(head=head_sha)}\n{body}\n\n<sub>Label `no-auto-catch-up` to opt out{link}</sub>"
+
+
+# --- the merge job's hand-off, read by the push job -----------------------------
+
+RESULT_STATUSES = frozenset({"merged", "up_to_date", "blocked", "error"})
+RESULT_SHAS = ("head_sha", "base_sha", "merged_sha")
+RESULT_REFS = ("head_ref", "base_ref")
+REFUSAL_LIMIT = 400
+
+
+def valid_branch(name: str) -> bool:
+    completed = subprocess.run(["git", "check-ref-format", "--branch", name], capture_output=True, text=True)
+    return completed.returncode == 0
+
+
+def one_line(value: object) -> str:
+    """A string with no control characters, or "" (a line break could add a step output)."""
+    return value if isinstance(value, str) and not re.search(r"[\x00-\x1f\x7f]", value) else ""
+
+
+def read_merge_result(data: object, pin: str) -> tuple[dict[str, str], str | None]:
+    """The merge job's outputs.json, validated for the push job: (outputs, warning).
+
+    Nothing in it is trusted. Commit ids are 40 hex, branch names pass
+    check-ref-format, the status is one the merge prints (anything else reads
+    as error), the head is the pin when there is one, and the refusal is one
+    line without workflow commands. A failed check yields no merge values, so
+    nothing is verified or pushed.
+    """
+    if not isinstance(data, dict):
+        return {}, "the merge result is not an object"
+    refusal = one_line(data.get("refusal")).replace("::", ":")[:REFUSAL_LIMIT]
+    outputs = {"refusal": refusal} if refusal else {}
+    status = one_line(data.get("status"))
+    values = {"status": status if status in RESULT_STATUSES or not status else "error"}
+    for key in RESULT_SHAS:
+        value = one_line(data.get(key))
+        if value and not re.fullmatch(r"[0-9a-f]{40}", value):
+            return outputs, f"bad commit id in {key}"
+        values[key] = value
+    for key in RESULT_REFS:
+        value = one_line(data.get(key))
+        if value and not valid_branch(value):
+            return outputs, f"bad branch name in {key}"
+        values[key] = value
+    if pin and values["head_sha"] and values["head_sha"] != pin:
+        return outputs, "the merge result is for another head than the one selected"
+    return {**values, **outputs}, None
+
+
+def command_read_result(args: argparse.Namespace) -> int:
+    path = Path(args.file)
+    if not path.is_file():
+        print(f"No merge result at {path}.", file=sys.stderr)
+        return 0
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = None
+    pin = args.pin if re.fullmatch(r"[0-9a-f]{40}", args.pin or "") else ""
+    outputs, warning = read_merge_result(data, pin)
+    if warning:
+        print(f"::warning::{warning}", file=sys.stderr)
+    for key, value in outputs.items():
+        print(f"{key}={value}")
+    return 0
+
+
 def command_comment(args: argparse.Namespace) -> int:
     try:
         result = json.loads(Path(args.result).read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         result = {"status": "error", "message": f"no catch-up result ({error.__class__.__name__})"}
+    if args.auto:
+        text = render_auto_comment(result, args.push, args.base_name, args.head_name, args.run_url, args.head_sha)
+        if text:
+            print(text)
+        return 0
     print(render_comment(result, args.push, args.base_name, args.head_name, args.run_url))
     return 0
 
@@ -706,6 +1027,7 @@ def main(argv: list[str]) -> int:
     merge.add_argument("--tools-root", default=str(DEFAULT_TOOLS_ROOT),
                        help="trusted checkout whose generators resolve conflicts")
     merge.add_argument("--note", default="", help="extra line for the merge commit message")
+    merge.add_argument("--title", default="", help="merge commit subject (default: Merge <base> into the pull request head)")
     merge.add_argument("--json", action="store_true", help="print a machine-readable result")
     merge.set_defaults(func=command_merge)
     verify = sub.add_parser("verify", help="check a merge commit before pushing it")
@@ -719,11 +1041,18 @@ def main(argv: list[str]) -> int:
     comment.add_argument("--result", required=True)
     comment.add_argument("--push", required=True,
                          choices=["pushed", "pushed-without-ci", "rejected", "needs-workflows", "push-denied",
-                                  "unverified", "not-attempted"])
+                                  "unverified", "not-attempted", "skipped-no-app-token"])
     comment.add_argument("--base-name", default="main")
     comment.add_argument("--head-name", default="this branch")
     comment.add_argument("--run-url", default="")
+    comment.add_argument("--auto", action="store_true",
+                         help="the automatic path: marked with --head-sha, empty when nothing needs saying")
+    comment.add_argument("--head-sha", default="", help="the head the automatic catch-up tried")
     comment.set_defaults(func=command_comment)
+    read_result = sub.add_parser("read-result", help="validate the merge job's outputs.json; print key=value lines")
+    read_result.add_argument("--file", required=True)
+    read_result.add_argument("--pin", default="", help="the head the request or selection pinned, if any")
+    read_result.set_defaults(func=command_read_result)
     args = parser.parse_args(argv)
     return args.func(args)
 

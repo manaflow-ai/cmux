@@ -1,6 +1,7 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxMobileDiagnostics
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -69,7 +70,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
     private var reportedScrollInteraction = false
     private weak var tableView: UITableView?
 
-    private var renderedItems: [WorkspaceListTableItem] = []
+    /// The rows the data source serves, in table order.
+    private(set) var renderedItems: [WorkspaceListTableItem] = []
     private var renderedRows: [String: Row] = [:]
     private var rowIndexByID: [String: Int] = [:]
 
@@ -331,10 +333,14 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         guard offset > -topInset + 0.5 else { return nil }
 
         let visibleTop = offset + topInset
+        let pixel = 1 / max(tableView.traitCollection.displayScale, 1)
         for indexPath in (tableView.indexPathsForVisibleRows ?? []).sorted() {
             guard let id = item(at: indexPath)?.id, stableIDs.contains(id) else { continue }
             let rect = tableView.rectForRow(at: indexPath)
-            guard rect.height > 0, rect.maxY > visibleTop else { continue }
+            // A row ending within a pixel of the top edge only touches the
+            // viewport through rounding, as the row above a scroll-to-row
+            // target does. Anchoring on it would shift every row the user sees.
+            guard rect.height > 0, rect.maxY - visibleTop >= pixel else { continue }
             return ViewportAnchor(rowID: id, distanceFromOffset: rect.minY - offset)
         }
         return nil
@@ -690,7 +696,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
                 filter: filter,
                 showAll: { [weak self] in self?.configuration.showAll() }
             )
-        case .emptyWorkspaceList:
+        case .emptyWorkspaceList(let empty):
             MobileWorkspaceListEmptyRow(
                 retry: configuration.refresh,
                 cancelRetry: configuration.cancelRefresh,
@@ -699,7 +705,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
                 isRetryOwnerCurrentOnDisappear: configuration.isRetryOwnerCurrentOnDisappear,
                 beginRetry: configuration.beginRefresh,
                 cancelRetryAttempt: configuration.cancelRefreshAttempt,
-                cancelRetryOnDisappear: configuration.cancelRefreshAttemptOnDisappear
+                cancelRetryOnDisappear: configuration.cancelRefreshAttemptOnDisappear,
+                guidance: empty.guidance
             )
         case .missing:
             EmptyView()
@@ -1016,7 +1023,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         waitsForContextMenuDismissal: Bool,
         contextMenuIdentifier: String? = nil
     ) {
-        guard configuration.closeWorkspace != nil else { return }
+        guard let closeWorkspace = configuration.closeWorkspace else { return }
+        guard configuration.closeConfirmation(workspace.id) != nil else {
+            // Nothing to ask (an SSH shell): close in one tap.
+            closeWorkspace(workspace.id)
+            return
+        }
         if waitsForContextMenuDismissal {
             pendingContextMenuWorkspaceClose = (
                 workspace,
@@ -1038,10 +1050,14 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         for workspace: MobileWorkspacePreview,
         sourceView: UIView
     ) {
-        guard let tableViewController, configuration.closeWorkspace != nil else { return }
+        guard let tableViewController,
+              configuration.closeWorkspace != nil,
+              let confirmation = configuration.closeConfirmation(workspace.id)
+        else { return }
         let workspaceID = workspace.id
         tableViewController.presentWorkspaceCloseConfirmation(
             workspaceID: workspaceID,
+            confirmation: confirmation,
             sourceView: sourceView
         ) { [weak self] in
             self?.configuration.closeWorkspace?(workspaceID)

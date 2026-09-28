@@ -4,7 +4,6 @@ enum PaneChromeSettings {
     static let paneBorderColorKey = "paneBorderColor"
     static let activePaneBorderColorKey = "activePaneBorderColor"
     static let defaultColorHex = ""
-    static let activeBorderLineWidth = 2.0
     static let didChangeNotification = Notification.Name("cmux.paneChromeSettingsDidChange")
 
     static func paneBorderColorHex(defaults: UserDefaults = .standard) -> String? {

@@ -75,9 +75,13 @@ public final class NotificationDeliveryCoordinator {
     }
 
     /// Presentation options for a notification delivered while the app is in
-    /// the foreground.
-    public func presentationOptions(for notification: UNNotification) -> UNNotificationPresentationOptions {
-        presentationOptions(notificationHasSound: notification.request.content.sound != nil)
+    /// the foreground. `keepsSoundQuiet` drops the sound for a banner whose
+    /// target pane became focused after the banner was scheduled.
+    public func presentationOptions(
+        for content: UNNotificationContent,
+        keepsSoundQuiet: Bool = false
+    ) -> UNNotificationPresentationOptions {
+        presentationOptions(notificationHasSound: content.sound != nil && !keepsSoundQuiet)
     }
 
     /// Handles a notification response from `UNUserNotificationCenterDelegate`.
@@ -291,9 +295,17 @@ public final class NotificationDeliveryCoordinator {
             feedReplying.deliverReply(requestId: requestId, decision: .question(selections: [text]))
         case "feed.question.open":
             applicationActivation.activateApplication()
-        case UNNotificationDismissActionIdentifier,
-             UNNotificationDefaultActionIdentifier:
+        case UNNotificationDefaultActionIdentifier:
+            // Clicking the banner body opens the agent that asked, the way a
+            // terminal notification click opens its tab and surface.
             applicationActivation.activateApplication()
+            if let workstreamId = response.userInfo["workstreamId"] as? String,
+               !workstreamId.isEmpty {
+                feedReplying.openWorkstream(workstreamId: workstreamId)
+            }
+        case UNNotificationDismissActionIdentifier:
+            // Dismissing a banner is not a request to bring cmux forward.
+            break
         default:
             if categoryId.hasPrefix("CMUXFeedQuestion.") {
                 applicationActivation.activateApplication()

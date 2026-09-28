@@ -1,0 +1,32 @@
+{
+  "paths": ["Sources/*Browser*", "Sources/*Omnibar*", "Sources/*Notification*", "Packages/macOS/CmuxBrowser/*", "Packages/macOS/CmuxNotifications/*"],
+  "steps": [
+    {"socket": "workspace.current", "save": "ws"},
+    {"socket": "browser.open_split", "params": {"url": "https://example.com"}, "save": "browser"},
+    {"wait": 3},
+    {"shot": "browser-split"},
+    {"tree": "browser-split"},
+    {"hover": {"id": "BrowserOmnibarPill"}},
+    {"wait": 0.5},
+    {"shot": "omnibar-hover"},
+    {"click": {"id": "BrowserOmnibarTextField"}},
+    {"type": "exa"},
+    {"wait": 1},
+    {"shot": "omnibar-suggestions"},
+    {"key": "escape"},
+    {"socket": "notification.create", "params": {"title": "Build finished", "body": "cmux dogfood tour notification"}},
+    {"socket": "notification.create", "params": {"title": "Agent needs input", "body": "Second notification to fill the list"}},
+    {"wait": 1},
+    {"shot": "after-notifications"},
+    {"menu": ["Notifications"]},
+    {"wait": 1},
+    {"shot": "notifications-menu"},
+    {"tree": "notifications-menu"},
+    {"key": "escape"},
+    {"key": "i", "modifiers": ["command"]},
+    {"wait": 1},
+    {"shot": "cmd-i"},
+    {"key": "escape"},
+    {"shot": "end", "screen": true}
+  ]
+}
