@@ -35,6 +35,7 @@ public struct AgentPermissionGrantProposal: Sendable, Equatable {
         case missingSessionID
         case invalidProjectRoot
         case invalidExpiry
+        case invalidReason
     }
 
     /// Validates socket parameters:

@@ -7,13 +7,23 @@ public struct AgentPermissionRequest: Sendable, Equatable {
     public var command: String?
     public var filePath: String?
     public var url: String?
+    /// The `Glob` tool's pattern.
+    public var pattern: String?
     public var cwd: String?
 
-    public init(toolName: String, command: String? = nil, filePath: String? = nil, url: String? = nil, cwd: String? = nil) {
+    public init(
+        toolName: String,
+        command: String? = nil,
+        filePath: String? = nil,
+        url: String? = nil,
+        pattern: String? = nil,
+        cwd: String? = nil
+    ) {
         self.toolName = toolName
         self.command = command
         self.filePath = filePath
         self.url = url
+        self.pattern = pattern
         self.cwd = cwd
     }
 

@@ -31,8 +31,8 @@ struct AgentPermissionGrantRequestTests {
             "reason": "  run the release  ",
         ]).get()
         #expect(proposal.rules.map(\.rule) == ["Bash(git:*)", "Bash(*)", "Edit(~/Projects/app/**)"])
-        #expect(proposal.rules.map(\.isBroad) == [false, true, false])
-        #expect(proposal.defaultSelection == ["Bash(git:*)", "Edit(~/Projects/app/**)"])
+        #expect(proposal.rules.map(\.isBroad) == [true, true, false])
+        #expect(proposal.defaultSelection == ["Edit(~/Projects/app/**)"])
         #expect(proposal.scope == .session(id: "abc"))
         #expect(proposal.reason == "run the release")
         #expect(proposal.expiresIn == AgentPermissionGrantDuration.defaultSeconds)

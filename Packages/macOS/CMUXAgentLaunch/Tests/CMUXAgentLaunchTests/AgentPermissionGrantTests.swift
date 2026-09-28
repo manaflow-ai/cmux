@@ -59,7 +59,7 @@ struct AgentPermissionRuleMatcherTests {
         #expect(AgentPermissionRuleMatcher.isBroad("Edit(//**)"))
         #expect(AgentPermissionRuleMatcher.isBroad("Edit(~/**)"))
         #expect(AgentPermissionRuleMatcher.isBroad("WebFetch"))
-        #expect(!AgentPermissionRuleMatcher.isBroad("Bash(git:*)"))
+        #expect(!AgentPermissionRuleMatcher.isBroad("Bash(git status)"))
         #expect(!AgentPermissionRuleMatcher.isBroad("Edit(~/Projects/app/**)"))
     }
 
