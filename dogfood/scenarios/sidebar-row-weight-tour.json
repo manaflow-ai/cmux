@@ -1,9 +1,21 @@
 {
-  "note": "Sidebar row states for judging text weight and title room: resting rows, a selected row, an unread row, group rows collapsed and expanded, and a hovered row.",
+  "note": "Sidebar row states for judging text weight and title room: resting rows, a selected row, an unread row, group rows collapsed and expanded, and a hovered row. The launch arguments pin every sidebar setting that changes the row layout to its shipping default, so the frames show the default rather than settings a machine kept from an earlier run.",
   "paths": [
     "Packages/macOS/CmuxSidebar/Sources/CmuxSidebar/Typography/*",
     "Sources/Sidebar/AppKitList/Cells/*"
   ],
+  "launch": {
+    "args": [
+      "-sidebarTwoLineWorkspaceTitles",
+      "<false/>",
+      "-sidebarWrapWorkspaceTitles",
+      "<false/>",
+      "-sidebarCompactAgentStatus",
+      "<false/>",
+      "-workspacePresentationMode",
+      "standard"
+    ]
+  },
   "steps": [
     {
       "socket": "workspace.create",
