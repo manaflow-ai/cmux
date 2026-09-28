@@ -7,7 +7,7 @@ import { ArrowUp } from "./icons";
 import { isCtrlJ, insertNewlineAtCaret, useCommandMenu } from "./CommandMenu";
 import { optionAcceptsValue, optionsForSelectedModel } from "./options";
 import { StatusRow } from "./StatusRow";
-import { Blocks } from "./Transcript";
+import { AgentMessageRow, Blocks } from "./Transcript";
 import { ShortcutOverlay, useKeymap } from "../hooks/useKeymap";
 import { useAutoGrow } from "../hooks/useAutoGrow";
 import { loadingProviderOptionIds, providerOptionMap, useFileCatalog, useProviderCatalogs, withFileTrigger } from "../hooks/useCatalogs";
@@ -157,6 +157,12 @@ export function Chat() {
           <div className="routing-notice" role="status">{agentChatText("continuedNewChat")}</div>
         ) : routing?.phase === "rerouted" ? (
           <div className="routing-notice" role="status">{agentChatText("movedServingRoute")}</div>
+        ) : null}
+        {transcriptView && session?.queuedMessages?.length ? (
+          <div className="agent-messages-queued" role="status">
+            <div className="agent-messages-queued-label">{agentChatText("agentMessageQueued")}</div>
+            {session.queuedMessages.map((message) => <AgentMessageRow key={message.id} message={message} />)}
+          </div>
         ) : null}
         {transcriptView && session?.attention ? (
           <div className="terminal-attention" role="status">

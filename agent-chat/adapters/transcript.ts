@@ -34,6 +34,27 @@ export async function focusTranscriptTerminal(sess: SessionCtx): Promise<CmuxRpc
   return rpc("surface.focus", { surface_id: surfaceId });
 }
 
+/** A cmux agent message waiting for this terminal's agent to take it. */
+export interface QueuedAgentMessage {
+  id: string;
+  from: string;
+  body: string;
+}
+
+/** The terminal's queued agent messages, oldest first; none when unavailable. */
+export async function queuedTranscriptMessages(sess: SessionCtx): Promise<QueuedAgentMessage[]> {
+  const surfaceId = transcriptTarget(sess)?.surfaceId;
+  if (!surfaceId) return [];
+  const res = await rpc("agent.message.list", { surface: surfaceId, state: "queued", limit: 20 });
+  const messages = res.ok ? (res.result as { messages?: unknown })?.messages : undefined;
+  if (!Array.isArray(messages)) return [];
+  return messages
+    .filter((m: any) => m && typeof m.id === "string" && typeof m.body === "string"
+      && String(m.recipient_surface_id ?? "").toUpperCase() === surfaceId.toUpperCase())
+    .sort((a: any, b: any) => Number(a.created_at ?? 0) - Number(b.created_at ?? 0))
+    .map((m: any) => ({ id: m.id, from: String(m.sender_name ?? ""), body: m.body }));
+}
+
 export interface TranscriptParser {
   readonly agent: TranscriptAgent;
   /** Latest session title the transcript reported (Claude `ai-title`, Codex thread name). */
@@ -91,6 +112,43 @@ function tagValue(text: string, tag: string): string | undefined {
   return match?.[1]?.trim();
 }
 
+// cmux delivers agent messages through agent hooks, so they reach the
+// transcript as hook context, stop feedback, or a wake reminder. Every path
+// carries the same text (AgentMessagePromptRenderer.swift); each section is a
+// header (after any prefix the agent adds), metadata lines, and the body
+// between the first and last `---`.
+const CMUX_AGENT_MESSAGE_HEADER = /\[cmux agent message(?: \(\d+ of \d+\))?\] from (.+)$/gm;
+
+type CmuxAgentMessage = Extract<AgentEvent, { kind: "agent-message" }>;
+
+export function cmuxAgentMessages(text: string): CmuxAgentMessage[] {
+  const headers = [...text.matchAll(CMUX_AGENT_MESSAGE_HEADER)];
+  const out: CmuxAgentMessage[] = [];
+  headers.forEach((header, index) => {
+    const start = header.index ?? 0;
+    const section = text.slice(start, headers[index + 1]?.index ?? text.length);
+    const id = section.match(/^Message id: (.+)$/m)?.[1]?.trim();
+    const open = section.indexOf("\n---\n");
+    const close = section.lastIndexOf("\n---");
+    if (!id || open < 0 || close <= open) return;
+    out.push({ kind: "agent-message", id, from: header[1].trim(), body: section.slice(open + 5, close) });
+  });
+  return out;
+}
+
+/** Keeps the first sighting of each message; replays and resumes repeat them. */
+class CmuxAgentMessageDedupe {
+  private seen = new Set<string>();
+  take(text: string): CmuxAgentMessage[] {
+    return cmuxAgentMessages(text).filter((m) => !this.seen.has(m.id) && Boolean(this.seen.add(m.id)));
+  }
+}
+
+function decodeXmlEntities(text: string): string {
+  return text.replace(/&(lt|gt|quot|apos|#39|amp);/g, (_, name: string) =>
+    ({ lt: "<", gt: ">", quot: '"', apos: "'", "#39": "'", amp: "&" })[name] ?? "");
+}
+
 // Claude Code wraps harness bookkeeping in pseudo-XML user messages. These are
 // never something the person typed, so they are hidden from the transcript.
 const CLAUDE_HIDDEN_USER_TAGS = /^<(system-reminder|local-command-caveat|user-prompt-submit-hook|agent-message)>/;
@@ -102,6 +160,7 @@ class ClaudeTranscriptParser implements TranscriptParser {
   private seen = new Set<string>();
   private turnOpen = false;
   private endedMessageIds = new Set<string>();
+  private agentMessages = new CmuxAgentMessageDedupe();
 
   parse(line: string): AgentEvent[] {
     const events = this.parseLine(line);
@@ -142,17 +201,27 @@ class ClaudeTranscriptParser implements TranscriptParser {
         return this.assistant(ev);
       case "system":
         return this.system(ev);
+      case "attachment":
+        // Prompt-submit hook context, recorded after the prompt it joined.
+        if (ev.attachment?.type !== "hook_additional_context" || !Array.isArray(ev.attachment.content)) return [];
+        return ev.attachment.content.flatMap((part: unknown) => (typeof part === "string" ? this.agentMessages.take(part) : []));
       default:
         return [];
     }
   }
 
   private user(ev: any): AgentEvent[] {
-    if (ev.isMeta || ev.isCompactSummary || ev.isVisibleInTranscriptOnly) return [];
     const originKind = ev.origin?.kind;
     const content = ev.message?.content;
+    if (ev.isMeta && typeof content === "string" && content.startsWith("Stop hook feedback:")) {
+      return this.agentMessages.take(content);
+    }
+    if (ev.isMeta || ev.isCompactSummary || ev.isVisibleInTranscriptOnly) return [];
     if (originKind === "task-notification") {
       const text = typeof content === "string" ? content : textOf(content);
+      // An idle agent woken by cmux (asyncRewake) records the message here.
+      const messages = cmuxAgentMessages(text);
+      if (messages.length) return this.agentMessages.take(text);
       const summary = tagValue(text, "summary") ?? tagValue(text, "status");
       return [{ kind: "status", text: summary ? `Background task: ${truncate(summary, 160)}` : "Background task update" }];
     }
@@ -262,6 +331,7 @@ class CodexTranscriptParser implements TranscriptParser {
   cwd?: string;
   private lastUser?: string;
   private sinceUser = 0;
+  private agentMessages = new CmuxAgentMessageDedupe();
 
   parse(line: string): AgentEvent[] {
     const ev = tryParse(line);
@@ -329,6 +399,14 @@ class CodexTranscriptParser implements TranscriptParser {
   private responseItem(payload: any): AgentEvent[] {
     switch (payload.type) {
       case "message": {
+        // Hook context is a developer message; a stop continuation is a
+        // user message wrapped in an escaped <hook_prompt>.
+        if (payload.role === "developer") return this.agentMessages.take(textOf(payload.content));
+        if (payload.role === "user") {
+          const text = textOf(payload.content);
+          const hookPrompt = text.match(/^<hook_prompt\b[^>]*>([\s\S]*)<\/hook_prompt>\s*$/)?.[1];
+          return hookPrompt === undefined ? [] : this.agentMessages.take(decodeXmlEntities(hookPrompt));
+        }
         if (payload.role !== "assistant") return [];
         const text = textOf(payload.content).trim();
         return text ? [{ kind: "assistant", text }] : [];

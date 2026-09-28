@@ -16,7 +16,7 @@ import { claudeAdapter } from "./adapters/claude";
 import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
-import { attachTranscript, focusTranscriptTerminal, transcriptAdapter, type TranscriptAgent } from "./adapters/transcript";
+import { attachTranscript, focusTranscriptTerminal, queuedTranscriptMessages, transcriptAdapter, type QueuedAgentMessage, type TranscriptAgent } from "./adapters/transcript";
 import { resolveSessionTranscript, resolveSurfaceTranscript, transcriptAttention, type TranscriptSource } from "./transcript-sources";
 import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
 import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
@@ -180,6 +180,10 @@ interface Session extends SessionCtx {
     disposeTimer?: ReturnType<typeof setTimeout>;
     /** What the agent is waiting on in the terminal (permission, question), if anything. */
     attention?: string | null;
+    /** cmux agent messages waiting for the agent, and when they were last read. */
+    queuedMessages?: QueuedAgentMessage[];
+    queuedCheckedAt?: number;
+    queuedInflight?: boolean;
   };
 }
 interface WsData {
@@ -248,7 +252,7 @@ function sessionSummary(s: Session) {
     parentConversationId: s.parentConversationId,
     startRequestId: s.startRequestId,
     capabilities: s.transcript ? s.adapter.capabilities : capabilitiesFor(s.provider),
-    ...(s.transcript ? { mode: "transcript" as const, attention: s.transcript.attention ?? null } : {}),
+    ...(s.transcript ? { mode: "transcript" as const, attention: s.transcript.attention ?? null, queuedMessages: s.transcript.queuedMessages ?? [] } : {}),
   };
 }
 
@@ -673,11 +677,37 @@ function startTranscriptTail(sess: Session, source: TranscriptSource) {
 // in the transcript until answered; the hook store says when the agent waits.
 function refreshTranscriptAttention(sess: Session, source: TranscriptSource) {
   if (!sess.transcript || !sess.sockets.size) return;
+  refreshQueuedMessages(sess);
   const attention = transcriptAttention(source.agent, source.sessionId);
   if ((sess.transcript.attention ?? null) === attention) return;
   sess.transcript.attention = attention;
   const payload = JSON.stringify({ kind: "session-attention", sessionId: sess.id, attention });
   for (const ws of sess.sockets) ws.send(payload);
+}
+
+// Queued cmux agent messages live in the app, not the transcript. Each read
+// spawns the CLI, so it runs at most every couple of seconds while a page is
+// open; delivered messages then appear in the transcript itself.
+const QUEUED_MESSAGES_REFRESH_MS = 2_000;
+
+function refreshQueuedMessages(sess: Session) {
+  const transcript = sess.transcript;
+  if (!transcript || transcript.queuedInflight) return;
+  const now = Date.now();
+  if (transcript.queuedCheckedAt && now - transcript.queuedCheckedAt < QUEUED_MESSAGES_REFRESH_MS) return;
+  transcript.queuedCheckedAt = now;
+  transcript.queuedInflight = true;
+  void queuedTranscriptMessages(sess)
+    .then((messages) => {
+      if (JSON.stringify(transcript.queuedMessages ?? []) === JSON.stringify(messages)) return;
+      transcript.queuedMessages = messages;
+      const payload = JSON.stringify({ kind: "session-queued-messages", sessionId: sess.id, messages });
+      for (const ws of sess.sockets) ws.send(payload);
+    })
+    .catch(() => {})
+    .finally(() => {
+      transcript.queuedInflight = false;
+    });
 }
 
 function resolveTranscriptSessionById(id: string): Session | undefined {
