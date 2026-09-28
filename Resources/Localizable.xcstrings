@@ -29196,121 +29196,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not safely detach the parent session, so the fork was not started. Retry the fork from the parent pane."
+            "value": "cmux could not safely bind the new fork session. Retry the fork from the parent pane."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux は親セッションを安全に切り離せなかったため、フォークを開始しませんでした。親ペインからもう一度フォークしてください。"
+            "value": "cmux は新しいフォーク セッションを安全にバインドできませんでした。親ペインからもう一度フォークしてください。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux konnte die übergeordnete Sitzung nicht sicher trennen, daher wurde der Fork nicht gestartet. Starten Sie den Fork erneut im übergeordneten Pane."
+            "value": "cmux konnte die neue Fork-Sitzung nicht sicher binden. Starten Sie den Fork erneut im übergeordneten Pane."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux n’a pas pu détacher la session parente en toute sécurité ; le fork n’a donc pas été lancé. Relancez le fork depuis le volet parent."
+            "value": "cmux n’a pas pu lier la nouvelle session forkée en toute sécurité. Relancez le fork depuis le volet parent."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذر على cmux فصل الجلسة الأصلية بأمان، لذلك لم يبدأ التفريع. أعد بدء التفريع من الجزء الأصلي."
+            "value": "تعذر على cmux ربط جلسة التفريع الجديدة بأمان. أعد بدء التفريع من الجزء الأصلي."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux no pudo desvincular de forma segura la sesión principal, por lo que no inició el fork. Inicia el fork de nuevo desde el panel principal."
+            "value": "cmux no pudo vincular de forma segura la nueva sesión bifurcada. Inicia el fork de nuevo desde el panel principal."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 無法安全分離父工作階段，因此未啟動分支。請從父窗格重新開始分支。"
+            "value": "cmux 無法安全繫結新的分支工作階段。請從父窗格重新開始分支。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 无法安全分离父会话，因此未启动分支。请从父窗格重新开始分支。"
+            "value": "cmux 无法安全绑定新的分支会话。请从父窗格重新开始分支。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 부모 세션을 안전하게 분리하지 못해 포크를 시작하지 않았습니다. 부모 패널에서 포크를 다시 시작하세요."
+            "value": "cmux가 새 포크 세션을 안전하게 연결하지 못했습니다. 부모 패널에서 포크를 다시 시작하세요."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux nije mogao sigurno odvojiti nadređenu sesiju, pa račvanje nije pokrenuto. Ponovo pokrenite račvanje iz nadređenog okna."
+            "value": "cmux nije mogao sigurno povezati novu sesiju račvanja. Ponovo pokrenite račvanje iz nadređenog okna."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux kunne ikke adskille forældresessionen sikkert, så forgreningen blev ikke startet. Start forgreningen igen fra forældreruden."
+            "value": "cmux kunne ikke binde den nye forgreningssession sikkert. Start forgreningen igen fra forældreruden."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux non ha potuto scollegare in sicurezza la sessione principale, quindi il fork non è stato avviato. Avvia di nuovo il fork dal riquadro principale."
+            "value": "cmux non ha potuto associare in sicurezza la nuova sessione fork. Avvia di nuovo il fork dal riquadro principale."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux មិនអាចផ្តាច់សម័យមេដោយសុវត្ថិភាពបានទេ ដូច្នេះមិនបានចាប់ផ្ដើម fork ឡើយ។ ចាប់ផ្ដើម fork ម្ដងទៀតពីផ្ទាំងមេ។"
+            "value": "cmux មិនអាចភ្ជាប់សម័យ fork ថ្មីដោយសុវត្ថិភាពបានទេ។ ចាប់ផ្ដើម fork ម្ដងទៀតពីផ្ទាំងមេ។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux kunne ikke koble fra den overordnede økten på en trygg måte, så forgreningen ble ikke startet. Start forgreningen på nytt fra den overordnede ruten."
+            "value": "cmux kunne ikke binde den nye forgreningsøkten på en trygg måte. Start forgreningen på nytt fra den overordnede ruten."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux nie mógł bezpiecznie odłączyć sesji nadrzędnej, więc fork nie został uruchomiony. Uruchom fork ponownie z panelu nadrzędnego."
+            "value": "cmux nie mógł bezpiecznie powiązać nowej sesji forka. Uruchom fork ponownie z panelu nadrzędnego."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O cmux não conseguiu desconectar com segurança a sessão principal, então o fork não foi iniciado. Inicie o fork novamente no painel principal."
+            "value": "O cmux não conseguiu vincular com segurança a nova sessão bifurcada. Inicie o fork novamente no painel principal."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux не удалось безопасно отсоединить родительский сеанс, поэтому форк не был запущен. Запустите форк снова из родительской панели."
+            "value": "cmux не удалось безопасно привязать новый сеанс форка. Запустите форк снова из родительской панели."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ไม่สามารถแยกเซสชันหลักออกอย่างปลอดภัย จึงไม่ได้เริ่มการแยกสาขา เริ่มการแยกอีกครั้งจากบานหน้าต่างหลัก"
+            "value": "cmux ไม่สามารถผูกเซสชันที่แยกใหม่ได้อย่างปลอดภัย เริ่มการแยกอีกครั้งจากบานหน้าต่างหลัก"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux üst oturumu güvenli bir şekilde ayıramadı, bu nedenle fork başlatılmadı. Fork'u üst panelden yeniden başlatın."
+            "value": "cmux yeni fork oturumunu güvenli bir şekilde bağlayamadı. Fork'u üst panelden yeniden başlatın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux не вдалося безпечно від’єднати батьківський сеанс, тому форк не запущено. Запустіть форк ще раз із батьківської панелі."
+            "value": "cmux не вдалося безпечно прив’язати новий сеанс форка. Запустіть форк ще раз із батьківської панелі."
           }
         }
       }
