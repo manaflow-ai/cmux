@@ -29,15 +29,12 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// Pending selection is shared by Settings, the menu and socket actions.
     /// Cloud requests keep using the confirmed coordinator scope until success.
     var pendingTeamSelection: (requestID: UUID, teamID: String?)?
-    /// Every switch still waiting on the server. A superseded switch stays
-    /// here until it returns, so a create waits for it as well.
-    var inFlightTeamSwitches: Set<UUID> = []
-    var isSelectingTeam: Bool { !inFlightTeamSwitches.isEmpty }
+    var isSelectingTeam: Bool { coordinator.isSelectingTeam }
     /// A team create still waiting on the server, shown as the active team
     /// until the server answers. Switches and creates from every surface are
     /// refused until it finishes, since a later change would fail it.
     var pendingTeamCreate: PendingTeamCreate?
-    var isCreatingTeam: Bool { pendingTeamCreate != nil }
+    var isCreatingTeam: Bool { coordinator.isCreatingTeam }
 
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.coordinator = coordinator

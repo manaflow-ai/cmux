@@ -56,6 +56,22 @@ struct CloudCreateTeamSheetPresenterTests {
         #expect(!window.isVisible, "The sheet stayed on screen after Create.")
     }
 
+    @Test func floatingSheetOwnsCloseShortcutAndResetsPresenter() async throws {
+        let flow = try await HostAccountFlow.makeForTeamChangeTests(client: TeamChangeAuthClient())
+        let presenter = CloudCreateTeamSheetPresenter()
+        let existingWindows = Set(NSApp.windows.map(ObjectIdentifier.init))
+        presenter.present(accountFlow: flow) { _ in }
+        let window = try sheetWindow(excluding: existingWindows)
+        defer { close(window) }
+
+        #expect(window.identifier?.rawValue == "cmux.cloudCreateTeam")
+        #expect(cmuxWindowShouldOwnCloseShortcut(window))
+        window.performClose(nil)
+        try await waitUntilClosed(window)
+        #expect(window.sheetParent == nil)
+        #expect(!window.isVisible)
+    }
+
     private func sheetWindow(excluding existingWindows: Set<ObjectIdentifier>) throws -> NSWindow {
         try #require(NSApp.windows.first {
             !existingWindows.contains(ObjectIdentifier($0))

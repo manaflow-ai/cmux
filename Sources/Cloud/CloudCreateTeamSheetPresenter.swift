@@ -5,7 +5,7 @@ import SwiftUI
 /// it, as a sheet on the main cmux window, or as a floating window when no main
 /// window can host it.
 @MainActor
-final class CloudCreateTeamSheetPresenter {
+final class CloudCreateTeamSheetPresenter: NSObject, NSWindowDelegate {
     private var sheetWindow: NSWindow?
     private weak var hostWindow: NSWindow?
     /// Identifies the current sheet, so a late finish from an earlier sheet
@@ -49,7 +49,9 @@ final class CloudCreateTeamSheetPresenter {
         ))
         controller.sizingOptions = [.preferredContentSize]
         let window = NSWindow(contentViewController: controller)
-        window.styleMask = [.titled]
+        window.styleMask = [.titled, .closable]
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.cloudCreateTeam")
+        window.delegate = self
         window.title = String(localized: "cloud.teamPicker.createSheet.title", defaultValue: "Create Team")
         window.isReleasedWhenClosed = false
         sheetWindow = window
@@ -87,5 +89,11 @@ final class CloudCreateTeamSheetPresenter {
         sheetWindow = nil
         hostWindow = nil
         sessionID = nil
+    }
+
+    func windowShouldClose(_ window: NSWindow) -> Bool {
+        guard window === sheetWindow, let sessionID else { return true }
+        _ = dismiss(sessionID)
+        return false
     }
 }

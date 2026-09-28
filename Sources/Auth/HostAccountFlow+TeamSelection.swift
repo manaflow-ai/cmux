@@ -17,6 +17,8 @@ extension HostAccountFlow {
             _ = coordinator.currentUser
             _ = coordinator.availableTeams
             _ = coordinator.selectedTeamID
+            _ = coordinator.isSelectingTeam
+            _ = coordinator.isCreatingTeam
             _ = coordinator.isAuthenticated
             _ = coordinator.isLoading
             _ = coordinator.isRestoringSession
@@ -43,9 +45,7 @@ extension HostAccountFlow {
         }
         let requestID = UUID()
         pendingTeamSelection = (requestID, id)
-        inFlightTeamSwitches.insert(requestID)
         defer {
-            inFlightTeamSwitches.remove(requestID)
             if pendingTeamSelection?.requestID == requestID { pendingTeamSelection = nil }
         }
         try await coordinator.selectTeam(id: id)

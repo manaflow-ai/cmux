@@ -28,6 +28,14 @@ private final class MenuTrackingProbe {
     }
 }
 
+private struct ClosureMenuTracker: CloudTeamPickerMenuTracking {
+    let body: (NSMenu, NSPoint, NSView) -> Void
+
+    func track(menu: NSMenu, at location: NSPoint, in view: NSView) {
+        body(menu, location, view)
+    }
+}
+
 @MainActor
 @Suite("Cloud team picker menu")
 struct CloudTeamPickerMenuTests {
@@ -159,11 +167,13 @@ struct CloudTeamPickerMenuTests {
             defer: true
         )
         window.isReleasedWhenClosed = false
-        let anchor = CloudTeamPickerMenuAnchorView(frame: NSRect(x: 0, y: 0, width: 120, height: 22))
-        window.contentView?.addSubview(anchor)
         let probe = MenuTrackingProbe()
+        let anchor = CloudTeamPickerMenuAnchorView(
+            frame: NSRect(x: 0, y: 0, width: 120, height: 22),
+            menuTracking: ClosureMenuTracker { _, _, _ in probe.track() }
+        )
+        window.contentView?.addSubview(anchor)
         anchor.makeMenu = { _ in NSMenu() }
-        anchor.trackMenu = { _, _, _ in probe.track() }
 
         anchor.syncPresentation(true)
         for _ in 0..<300 where probe.drainedWhileTracking == nil {
@@ -177,15 +187,17 @@ struct CloudTeamPickerMenuTests {
     /// An item's follow-up, such as Create Team…'s sheet, waits until the
     /// menu's tracking loop has returned. A stand-in tracking loop queues it.
     @Test func itemFollowUpRunsAfterTheMenuCloses() throws {
-        let anchor = CloudTeamPickerMenuAnchorView(frame: NSRect(x: 0, y: 0, width: 120, height: 22))
         var events: [String] = []
+        let anchor = CloudTeamPickerMenuAnchorView(
+            frame: NSRect(x: 0, y: 0, width: 120, height: 22),
+            menuTracking: ClosureMenuTracker { _, _, view in
+                let anchor = view as? CloudTeamPickerMenuAnchorView
+                anchor?.afterDismiss { events.append("follow-up") }
+                events.append("tracking ended")
+            }
+        )
         anchor.makeMenu = { _ in NSMenu() }
         anchor.onDismiss = { events.append("dismissed") }
-        anchor.trackMenu = { _, _, view in
-            let anchor = view as? CloudTeamPickerMenuAnchorView
-            anchor?.afterDismiss { events.append("follow-up") }
-            events.append("tracking ended")
-        }
 
         let click = try #require(NSEvent.mouseEvent(
             with: .leftMouseDown,

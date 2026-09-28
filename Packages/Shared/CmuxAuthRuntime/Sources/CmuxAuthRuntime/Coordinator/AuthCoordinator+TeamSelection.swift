@@ -1,4 +1,5 @@
 public import CMUXAuthCore
+import Foundation
 
 public extension AuthCoordinator {
     /// Persist a team selection on Stack Auth before changing the local
@@ -7,8 +8,22 @@ public extension AuthCoordinator {
     /// request is bounded by the coordinator's network timeout.
     /// - Parameter id: A team id from ``availableTeams``.
     func selectTeam(id: String?) async throws {
+        try await selectTeam(id: id, permitsTeamCreation: false)
+    }
+
+    func selectTeam(id: String?, permitsTeamCreation: Bool) async throws {
         if let id, !availableTeams.contains(where: { $0.id == id }) {
             throw AuthClientError.teamNotAvailable
+        }
+        guard permitsTeamCreation || !isCreatingTeam else {
+            throw AuthTeamChangeInProgressError()
+        }
+        let requestID = UUID()
+        activeTeamSwitches.insert(requestID)
+        isSelectingTeam = true
+        defer {
+            activeTeamSwitches.remove(requestID)
+            isSelectingTeam = !activeTeamSwitches.isEmpty
         }
         teamMutationGeneration &+= 1
         let mutationGeneration = teamMutationGeneration
@@ -32,6 +47,11 @@ public extension AuthCoordinator {
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw AuthClientError.invalidTeamName }
         guard isAuthenticated else { throw AuthError.unauthorized }
+        guard !isSelectingTeam, !isCreatingTeam else {
+            throw AuthTeamChangeInProgressError()
+        }
+        isCreatingTeam = true
+        defer { isCreatingTeam = false }
         teamMutationGeneration &+= 1
         let mutationGeneration = teamMutationGeneration
         let generation = sessionGeneration
@@ -51,7 +71,7 @@ public extension AuthCoordinator {
             refreshed.append(created)
         }
         availableTeams = refreshed
-        try await selectTeam(id: created.id)
+        try await selectTeam(id: created.id, permitsTeamCreation: true)
         return created
     }
 }
