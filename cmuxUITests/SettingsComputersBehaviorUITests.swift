@@ -124,7 +124,7 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
         }
     }
 
-    func testSettingsSearchLandsOnDevices() {
+    func testSettingsSearchLandsOnDevices() throws {
         let app = makeLaunchedApp(additionalArguments: cloudOnArguments)
         let window = openSettings(app)
         defer { closeSettings(app, window) }
@@ -135,22 +135,27 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
         search.typeText("devices")
         // A section result is one line titled Devices; a setting result
         // carries its own title with Devices underneath.
-        var first: (title: String, frame: CGRect)?
         var titles: [String] = []
         XCTAssertTrue(
             poll(timeout: 5) {
-                let texts = sidebarTexts(window)
-                titles = texts.map(\.title)
-                first = texts.first
-                return first?.title == "Devices"
+                titles = sidebarTexts(window).map(\.title)
+                return titles.first == "Devices"
             },
             "Searching devices should rank the Devices section first: read \(titles)"
         )
-        let sidebar = sidebarList(window)
-        let row = first?.frame ?? .zero
-        sidebar.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: row.midX - sidebar.frame.minX, dy: row.midY - sidebar.frame.minY))
-            .click()
+        // The result list keeps the browse list's scroll offset, so the top
+        // result can sit above the visible rows. Click the row element, which
+        // XCUITest scrolls into view, rather than a point read off its frame.
+        let result = sidebarList(window).cells.containing(.staticText, identifier: "Devices")
+            .allElementsBoundByIndex
+            .min { $0.frame.minY < $1.frame.minY }
+        let row = try XCTUnwrap(result, "no sidebar row for the Devices result")
+        XCTAssertEqual(
+            row.staticTexts.allElementsBoundByIndex.map { $0.label.isEmpty ? ($0.value as? String ?? "") : $0.label },
+            ["Devices"],
+            "the top Devices row should be the section result, not a setting in it"
+        )
+        row.click()
         assertLandedOnDevices(window, after: "Choosing the Devices search result")
     }
 
@@ -357,30 +362,36 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
     /// The detail pane's section header titled `title`, not the sidebar row
     /// with the same text.
     private func detailHeader(_ window: XCUIElement, _ title: String) -> XCUIElement {
-        let sidebar = sidebarList(window)
-        let matches = window.staticTexts.matching(NSPredicate(format: "label == %@ OR value == %@", title, title))
         var header: XCUIElement?
         _ = poll(timeout: 5) {
-            let sidebarMaxX = sidebar.frame.maxX
-            header = matches.allElementsBoundByIndex
-                .filter { $0.frame.minX >= sidebarMaxX }
-                .min { $0.frame.minY < $1.frame.minY }
+            header = detailHeaderMatch(window, title)?.element
             return header != nil
         }
         XCTAssertNotNil(header, "Expected the \(title) section header in the Settings detail pane")
-        return header ?? matches.firstMatch
+        return header ?? window.staticTexts.matching(NSPredicate(format: "label == %@ OR value == %@", title, title)).firstMatch
     }
 
     /// The current frame of the detail pane's `title` header, read fresh so
     /// it tracks scrolling; nil while it is missing.
     private func detailHeaderFrame(_ window: XCUIElement, _ title: String) -> CGRect? {
-        let sidebarMaxX = sidebarList(window).frame.maxX
-        return window.staticTexts
-            .matching(NSPredicate(format: "label == %@ OR value == %@", title, title))
-            .allElementsBoundByIndex
-            .map(\.frame)
-            .filter { $0.minX >= sidebarMaxX && !$0.isEmpty }
-            .min { $0.minY < $1.minY }
+        detailHeaderMatch(window, title)?.frame
+    }
+
+    /// The topmost `title` text inside the detail scroll view. The window's
+    /// toolbar title repeats the selected section's name just above that
+    /// view, and the sidebar row sits left of it; neither is the pane.
+    private func detailHeaderMatch(_ window: XCUIElement, _ title: String) -> (element: XCUIElement, frame: CGRect)? {
+        let viewport = detailViewport(window)
+        var match: (element: XCUIElement, frame: CGRect)?
+        let texts = window.staticTexts.matching(NSPredicate(format: "label == %@ OR value == %@", title, title))
+        for text in texts.allElementsBoundByIndex {
+            let frame: CGRect = text.frame
+            guard !frame.isEmpty, frame.minX >= viewport.minX - 2, frame.minY >= viewport.minY - 2 else { continue }
+            if match.map({ frame.minY < $0.frame.minY }) ?? true {
+                match = (text, frame)
+            }
+        }
+        return match
     }
 
     /// Reads a SwiftUI `Toggle`'s state across the control kinds it can
