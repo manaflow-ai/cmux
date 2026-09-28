@@ -11776,7 +11776,11 @@ class TerminalController {
                 return .surfaceStarting
             }
             guard target.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
-                return .finished("ERROR: Terminal surface not found")
+                let reason = target.surface.runtimeUnavailableReason
+                let wakeCommand = reason == .hibernated
+                    ? Self.terminalWakeCommand(workspaceID: tab.id, surfaceID: target.surfaceID)
+                    : nil
+                return .finished("ERROR: \(Self.terminalNotRunningMessage(reason: reason, wakeCommand: wakeCommand))")
             }
             guard let snapshot = self.readTerminalTextRawSnapshot(
                 terminalSurface: target.surface,
@@ -11793,7 +11797,7 @@ class TerminalController {
             return reply
         case .surfaceStarting:
             // v2MainSyncAwaitingSurfaceStart never returns this case.
-            return "ERROR: Terminal surface not found"
+            return "ERROR: \(Self.terminalNotRunningMessage(reason: .starting, wakeCommand: nil))"
         case .captured(let captured):
             snapshot = captured
         }
