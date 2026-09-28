@@ -3920,6 +3920,31 @@ extension TerminalSurface {
 
 // MARK: - Ghostty Surface View
 
+/// Holds the cross-isolation ExternalHover coordinator without making the
+/// view's mutable lazy initialization itself cross an actor boundary.
+/// Installation happens once during view setup; reads and the final retirement
+/// are synchronized because AppKit teardown can call the nonisolated hook.
+private final class ExternalHoverOwnerCoordinatorStorage: @unchecked Sendable {
+    private let lock = NSLock()
+    private var coordinator: ExternalHoverOwnerCoordinator?
+
+    func install(_ coordinator: ExternalHoverOwnerCoordinator) {
+        lock.lock()
+        defer { lock.unlock() }
+        precondition(self.coordinator == nil)
+        self.coordinator = coordinator
+    }
+
+    var value: ExternalHoverOwnerCoordinator {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let coordinator else {
+            preconditionFailure("ExternalHoverOwnerCoordinator was read before setup")
+        }
+        return coordinator
+    }
+}
+
 class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private static let focusDebugEnabled: Bool = {
         if ProcessInfo.processInfo.environment["CMUX_FOCUS_DEBUG"] == "1" {
@@ -4328,41 +4353,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // `displayedURL` straight to `setLinkHoverURL`; it makes no
     // displacement decisions of its own.
     private var hoverIndicatorState = TerminalHoverIndicatorState()
-    // (C) ExternalHover diagnostics — review round3 B2: built via
-    // `externalHoverDiagnosticsRenderDemandTracker`'s own factory, not a
-    // locally-written `manageDiagnosticsRenderDemand` closure literal —
-    // see `RenderDemandActivationTracker.makeExternalHoverOwnerCoordinator`'s
-    // doc for why a copy-pasted-but-identical closure at this call site
-    // and at the test's call site wouldn't actually pin the wiring down.
-    // The coordinator is deliberately safe to call from any isolation: its
-    // lifetime and mailbox state are lock-protected, and the native surface
-    // lifecycle protocol exposes a synchronous nonisolated retirement hook.
-    // Keep the property nonisolated as well so that hook can seal the current
-    // generation without an asynchronous main-actor hop.
-    fileprivate nonisolated lazy var externalHoverOwnerCoordinator = externalHoverDiagnosticsRenderDemandTracker.makeExternalHoverOwnerCoordinator(
-        scheduler: { DispatchQueue.main.async(execute: $0) },
-        project: { [weak self] entry in self?.applyExternalHoverProjection(entry) },
-        logTransition: { [surfaceSerial = externalHoverSurfaceSerial, externalHoverDiagnosticsGate] verdict in
-            #if DEBUG
-            if externalHoverDiagnosticsGate.isEnabled {
-                cmuxDebugLog(
-                    "link.externalHover stage=transition surfaceSerial=\(surfaceSerial) " +
-                    "event=\(verdict.event.map(String.init) ?? "none") active=\(verdict.active) " +
-                    "identityMatched=\(verdict.identityMatched) pendingMatched=\(verdict.pendingMatched) " +
-                    "committed=\(verdict.committed)"
-                )
-            }
-            #endif
-        },
-        diagnosticsEnabled: { [externalHoverDiagnosticsGate] in externalHoverDiagnosticsGate.isEnabled },
-        invalidateLifetime: { token in
-            let lifetimeID = RuntimeSurfaceLifetimeID(
-                surfaceID: token.surfaceID,
-                runtimeSurfaceGeneration: token.runtimeSurfaceGeneration
-            )
-            Task { await GhosttyApp.externalHoverWorkService.invalidateSurface(lifetimeID) }
-        }
-    )
     // (C) ExternalHover diagnostics — the "render 後" trigger's demand
     // counter/retention. `manageDiagnosticsRenderDemand` above calls this
     // directly (no `DispatchQueue.main.async` hop): unlike the
@@ -4373,6 +4363,42 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // than a main-actor-confined var — see `RenderDemandActivationTracker`'s
     // doc (review round2 B1).
     private let externalHoverDiagnosticsRenderDemandTracker = RenderDemandActivationTracker()
+    private nonisolated let externalHoverOwnerCoordinatorStorage = ExternalHoverOwnerCoordinatorStorage()
+    /// The coordinator is lock-protected and intentionally available from
+    /// both the renderer callback and the synchronous surface-retirement hook.
+    fileprivate nonisolated var externalHoverOwnerCoordinator: ExternalHoverOwnerCoordinator {
+        externalHoverOwnerCoordinatorStorage.value
+    }
+
+    private func installExternalHoverOwnerCoordinator() {
+        // (C) ExternalHover diagnostics — built via the render-demand
+        // tracker factory so production and tests share the same wiring.
+        let coordinator = externalHoverDiagnosticsRenderDemandTracker.makeExternalHoverOwnerCoordinator(
+            scheduler: { DispatchQueue.main.async(execute: $0) },
+            project: { [weak self] entry in self?.applyExternalHoverProjection(entry) },
+            logTransition: { [surfaceSerial = externalHoverSurfaceSerial, externalHoverDiagnosticsGate] verdict in
+                #if DEBUG
+                if externalHoverDiagnosticsGate.isEnabled {
+                    cmuxDebugLog(
+                        "link.externalHover stage=transition surfaceSerial=\(surfaceSerial) " +
+                        "event=\(verdict.event.map(String.init) ?? "none") active=\(verdict.active) " +
+                        "identityMatched=\(verdict.identityMatched) pendingMatched=\(verdict.pendingMatched) " +
+                        "committed=\(verdict.committed)"
+                    )
+                }
+                #endif
+            },
+            diagnosticsEnabled: { [externalHoverDiagnosticsGate] in externalHoverDiagnosticsGate.isEnabled },
+            invalidateLifetime: { token in
+                let lifetimeID = RuntimeSurfaceLifetimeID(
+                    surfaceID: token.surfaceID,
+                    runtimeSurfaceGeneration: token.runtimeSurfaceGeneration
+                )
+                Task { await GhosttyApp.externalHoverWorkService.invalidateSurface(lifetimeID) }
+            }
+        )
+        externalHoverOwnerCoordinatorStorage.install(coordinator)
+    }
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var textEditingGestureConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
@@ -4617,21 +4643,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         installEventMonitor()
         updateTrackingAreas()
         registerForDraggedTypes(Array(Self.dropTypes))
-        // Force `externalHoverOwnerCoordinator`'s `lazy` initializer to run now,
-        // while `self` is a fully-constructed, live instance. `deinit` (below)
-        // unconditionally calls `externalHoverOwnerCoordinator.retireLifetime()`; if
-        // nothing had touched this property before that first access, the
-        // `lazy` initializer would run *during* `deinit`, and its `project:`
-        // closure's `[weak self]` capture would try to register a weak
-        // reference to `self` while `self` is already deallocating —
-        // `objc_initWeak` on a deallocating object is a fatal error
-        // (`_objc_fatal`/`SIGABRT`), crashing on essentially every view
-        // teardown. Touching it here (instead of converting to a stored
-        // `let`, which the initializer's `self`-capturing closure and
-        // instance-member reference can't support before `self` exists)
-        // guarantees the coordinator already exists by the time `deinit`
-        // calls `teardown()`, so that call never re-enters initialization.
-        _ = externalHoverOwnerCoordinator
+        // Install the coordinator while `self` is a fully-constructed, live
+        // instance. The storage is a nonisolated immutable reference so the
+        // synchronous teardown hook can read it without a main-actor hop,
+        // while the coordinator's project closure safely captures this view.
+        installExternalHoverOwnerCoordinator()
     }
 
     /// Feeds the prediction engine the byte this key puts on the PTY.
