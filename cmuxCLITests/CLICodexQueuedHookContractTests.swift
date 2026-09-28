@@ -135,6 +135,24 @@ struct CLICodexQueuedHookContractTests {
         #expect(!stop.timedOut, Comment(rawValue: stop.stderr))
         #expect(stop.status == 0, Comment(rawValue: stop.stderr))
         #expect(stop.stdout == "{}\n")
+
+        // The agent message handlers run on every prompt and stop, so a
+        // missing app must not surface as a failed hook in Codex.
+        for event in ["UserPromptSubmit", "Stop"] {
+            let configuration = try injectedConfiguration(event: event, arguments: arguments)
+            let companionCommand = try #require(injectedCommands(configuration: configuration).last)
+            #expect(FileManager.default.isExecutableFile(atPath: companionCommand))
+            let companion = runCodexHookProcess(
+                executablePath: companionCommand,
+                arguments: [],
+                environment: environment,
+                standardInput: payload,
+                timeout: 2
+            )
+            #expect(!companion.timedOut, Comment(rawValue: companion.stderr))
+            #expect(companion.status == 0, Comment(rawValue: "\(event): \(companion.stderr)"))
+            #expect(companion.stdout == "{}\n", Comment(rawValue: event))
+        }
     }
 
     @Test("Codex prompt submit and stop also run the direct agent message handlers")
