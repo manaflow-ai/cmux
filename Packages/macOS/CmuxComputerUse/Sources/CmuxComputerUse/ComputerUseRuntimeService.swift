@@ -71,7 +71,14 @@ public final class ComputerUseRuntimeService {
     /// `DisableComputerUse` (MDM), read on every enable and start.
     private let isDisabledByPolicy: () -> Bool
 
+    /// Upper bound on waiting for an enabled helper's permission status.
+    private let permissionStatusDeadline: Duration
+
     /// Creates a ComputerUseRuntimeService with the supplied values.
+    ///
+    /// `permissionStatusDeadline` bounds how long a status refresh waits for an
+    /// enabled helper to answer. A test fixture with no helper passes a short
+    /// deadline instead of waiting out the production one on every refresh.
     public init(
         bundle: Bundle = .main,
         paths: ComputerUseRuntimePaths = ComputerUseRuntimePaths(),
@@ -80,9 +87,11 @@ public final class ComputerUseRuntimeService {
         uptime: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
         isDisabledByPolicy: @escaping () -> Bool = {
             ManagedDevicePolicy().isEnforced(.disableComputerUse)
-        }
+        },
+        permissionStatusDeadline: Duration = .seconds(5)
     ) {
         self.isDisabledByPolicy = isDisabledByPolicy
+        self.permissionStatusDeadline = permissionStatusDeadline
         self.paths = paths
         self.transport = transport
         self.uptime = uptime
@@ -318,6 +327,7 @@ public final class ComputerUseRuntimeService {
         let enabledAtStart = desiredEnabled
         let paths = self.paths
         let transport = self.transport
+        let deadline = permissionStatusDeadline
         let expectedPeerIdentity = processIdentity(for: .native).flatMap { identity in
             AgentPIDProcessIdentity(pid: identity.pid) == identity ? identity : nil
         }
@@ -330,7 +340,8 @@ public final class ComputerUseRuntimeService {
             ? await Self.waitForPermissionStatus(
                 paths: paths,
                 transport: transport,
-                expectedPeerIdentity: expectedPeerIdentity
+                expectedPeerIdentity: expectedPeerIdentity,
+                deadline: deadline
             )
             : await Self.queryPermissionStatus(
                 paths: paths,
@@ -1992,7 +2003,8 @@ public final class ComputerUseRuntimeService {
     nonisolated private static func waitForPermissionStatus(
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport,
-        expectedPeerIdentity: AgentPIDProcessIdentity? = nil
+        expectedPeerIdentity: AgentPIDProcessIdentity? = nil,
+        deadline: Duration
     ) async -> ComputerUsePermissionStatus? {
         if let status = await queryPermissionStatus(
             paths: paths,
@@ -2028,7 +2040,7 @@ public final class ComputerUseRuntimeService {
             }
             group.addTask {
                 // Genuine upper deadline; readiness itself is driven by directory events.
-                try? await ContinuousClock().sleep(for: .seconds(5))
+                try? await ContinuousClock().sleep(for: deadline)
                 return nil
             }
             let result = await group.next() ?? nil
