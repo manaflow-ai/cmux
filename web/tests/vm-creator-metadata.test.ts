@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { getTableName, type SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import { stackIdentitySnapshots } from "../db/schema";
 import {
   VmRepository,
   type CloudVmRow,
@@ -11,6 +14,7 @@ import {
   creatorFor,
   creatorUserIds,
   readCreatorDisplayNames,
+  withCallerName,
 } from "../services/vms/creators";
 import { listUserVms } from "../services/vms/workflows";
 
@@ -48,20 +52,49 @@ function creatorRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
   } as CloudVmRow;
 }
 
-/** The two calls `readCreatorDisplayNames` makes, and nothing else. */
-function fakeSelectDb(rows: readonly { userId: string; displayName: string | null }[]) {
+type CapturedQuery = {
+  calls: number;
+  projection?: Record<string, unknown>;
+  table?: unknown;
+  where?: SQL;
+};
+
+/**
+ * The three calls `readCreatorDisplayNames` makes, recording each argument.
+ *
+ * A fake that ignores its arguments would pass just as happily against a read
+ * of the wrong table, a filter on the wrong column, no filter at all (every
+ * identity snapshot in the database), or a `select()` with no projection
+ * (pulling the stored email into process memory). Those are the properties
+ * this module's design note argues about, so the tests have to hold them.
+ */
+function fakeSelectDb(
+  rows: readonly { userId: string; displayName: string | null }[],
+  captured: CapturedQuery,
+) {
   return {
-    select: () => ({
-      from: () => ({
-        where: () => Promise.resolve([...rows]),
-      }),
-    }),
+    select: (projection: Record<string, unknown>) => {
+      captured.calls += 1;
+      captured.projection = projection;
+      return {
+        from: (table: unknown) => {
+          captured.table = table;
+          return {
+            where: (condition: SQL) => {
+              captured.where = condition;
+              return Promise.resolve([...rows]);
+            },
+          };
+        },
+      };
+    },
   } as unknown as Parameters<typeof readCreatorDisplayNames>[1];
 }
 
-function throwingSelectDb() {
+function throwingSelectDb(captured: CapturedQuery = { calls: 0 }) {
   return {
     select: () => {
+      captured.calls += 1;
       throw new Error("identity snapshots unavailable");
     },
   } as unknown as Parameters<typeof readCreatorDisplayNames>[1];
@@ -84,22 +117,41 @@ describe("cloud machine creator metadata", () => {
   });
 
   test("readCreatorDisplayNames maps accounts to names and skips blank ones", async () => {
+    const captured: CapturedQuery = { calls: 0 };
     const names = await readCreatorDisplayNames(
       ["user-a", "user-b", "user-c"],
       fakeSelectDb([
         { userId: "user-a", displayName: "Ada Lovelace" },
         { userId: "user-b", displayName: "   " },
         { userId: "user-c", displayName: null },
-      ]),
+      ], captured),
     );
     expect(names.get("user-a")).toBe("Ada Lovelace");
     expect(names.has("user-b")).toBe(false);
     expect(names.has("user-c")).toBe(false);
   });
 
+  test("readCreatorDisplayNames reads only the names of the accounts it was asked about", async () => {
+    const captured: CapturedQuery = { calls: 0 };
+    await readCreatorDisplayNames(["user-a", "user-b"], fakeSelectDb([], captured));
+    // Only the display name, so the snapshot's stored email never leaves the
+    // database, and only this table.
+    expect(Object.keys(captured.projection ?? {}).sort()).toEqual(["displayName", "userId"]);
+    expect(getTableName(captured.table as never)).toBe(getTableName(stackIdentitySnapshots));
+    // Filtered to the accounts in this caller's own list. Without the filter
+    // the map would be every identity snapshot in the database.
+    const query = new PgDialect().sqlToQuery(captured.where as SQL);
+    expect(query.sql).toContain("user_id");
+    expect(query.params).toEqual(["user-a", "user-b"]);
+  });
+
   test("readCreatorDisplayNames does not query for an empty account list", async () => {
-    const names = await readCreatorDisplayNames([], throwingSelectDb());
+    // The throwing fake alone cannot show this: without the guard the call
+    // would enter the try, throw, and be swallowed into the same empty map.
+    const captured: CapturedQuery = { calls: 0 };
+    const names = await readCreatorDisplayNames([], throwingSelectDb(captured));
     expect(names.size).toBe(0);
+    expect(captured.calls).toBe(0);
   });
 
   test("readCreatorDisplayNames degrades to no names when the read fails", async () => {
@@ -122,8 +174,28 @@ describe("cloud machine creator metadata", () => {
     expect(creator).toEqual({ userId: "user-a", displayName: null });
   });
 
-  test("creatorFor returns nothing for a row that predates the author column", () => {
+  test("creatorFor returns nothing rather than a nameless author for a blank id", () => {
+    // `cloud_vms.user_id` is NOT NULL and has been since the table was created,
+    // so this is the shape of a partially built entry, not of an old row.
     expect(creatorFor({ createdByUserId: null }, new Map())).toBeNull();
+    expect(creatorFor({ createdByUserId: "  " }, new Map())).toBeNull();
+    expect(creatorFor({}, new Map())).toBeNull();
+  });
+
+  test("withCallerName prefers the session's own name over the snapshot's", () => {
+    // A lease revoke deletes the caller's snapshot row. Their own machines
+    // should not go anonymous on them while the rest of the team still reads
+    // fine, and the session's copy is the fresher one either way.
+    const names = withCallerName(
+      new Map([["user-a", "Stale Name"]]),
+      { id: "user-a", displayName: "Ada Lovelace" },
+    );
+    expect(names.get("user-a")).toBe("Ada Lovelace");
+  });
+
+  test("withCallerName leaves the map alone when the session has no name", () => {
+    const names = withCallerName(new Map(), { id: "user-a", displayName: "  " });
+    expect(names.size).toBe(0);
   });
 
   test("listUserVms carries the account that made each machine", async () => {
