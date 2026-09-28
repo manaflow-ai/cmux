@@ -117,13 +117,44 @@ struct CloudMachinesHeaderCountTests {
 
     @Test("An empty status adds no row under the Cloud toolbar")
     func emptyStatusAddsNoGap() {
-        let header = NSHostingView(rootView: CloudTeamPickerHeader(
+        let height = headerHeight { EmptyView() }
+        #expect(abs(height - RightSidebarChromeMetrics.secondaryBarHeight) <= 0.5,
+                "Header is \(height)pt; the toolbar alone is \(RightSidebarChromeMetrics.secondaryBarHeight)pt")
+    }
+
+    @Test("An idle fleet status adds no row under the Cloud toolbar")
+    func idleFleetStatusAddsNoGap() {
+        let height = headerHeight { fleetStatus() }
+        #expect(abs(height - RightSidebarChromeMetrics.secondaryBarHeight) <= 0.5,
+                "Header is \(height)pt; the toolbar alone is \(RightSidebarChromeMetrics.secondaryBarHeight)pt")
+    }
+
+    @Test("Operations, list status and tree errors keep their row", arguments: ["operation", "listStatus", "treeError"])
+    func fleetStatusStillShows(message: String) {
+        let height = headerHeight {
+            fleetStatus(
+                activeOperation: message == "operation" ? "Creating machine" : nil,
+                listStatus: message == "listStatus" ? .reconnecting : nil,
+                treeError: message == "treeError" ? "Cloud tree unavailable" : nil
+            )
+        }
+        #expect(height >= RightSidebarChromeMetrics.secondaryBarHeight + 8,
+                "The \(message) row is missing: header is \(height)pt")
+    }
+
+    private func fleetStatus(
+        activeOperation: String? = nil, listStatus: MachineListStatus? = nil, treeError: String? = nil
+    ) -> MachinesCloudStatus {
+        MachinesCloudStatus(activeOperation: activeOperation, listStatus: listStatus, listError: nil,
+                            treeError: treeError, onDismissStale: { _ in })
+    }
+
+    private func headerHeight<Status: View>(@ViewBuilder status: @escaping () -> Status) -> CGFloat {
+        NSHostingView(rootView: CloudTeamPickerHeader(
             accountFlow: nil, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
             isRefreshing: false, onRefresh: {}, onNewMachine: {},
-            agentMenu: { EmptyView() }, status: { EmptyView() }
-        ))
-        #expect(abs(header.fittingSize.height - RightSidebarChromeMetrics.secondaryBarHeight) <= 0.5,
-                "Header is \(header.fittingSize.height)pt; the toolbar alone is \(RightSidebarChromeMetrics.secondaryBarHeight)pt")
+            agentMenu: { EmptyView() }, status: status
+        )).fittingSize.height
     }
 
     private func headerCount(_ usage: CloudMachinesUsage) -> CloudTreeGroupCount? {

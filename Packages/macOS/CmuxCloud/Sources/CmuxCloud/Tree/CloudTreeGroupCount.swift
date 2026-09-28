@@ -14,6 +14,17 @@ public struct CloudTreeGroupCount: Equatable, Sendable {
         self.init(text: String(count))
     }
 
+    /// Plan usage: VoiceOver hears "1 of 50 machines", and the count turns
+    /// orange at the ceiling, where a free plan's help names the upgrade.
+    public init(usage: CloudMachinesUsage) {
+        self.init(
+            text: usage.compactCount,
+            accessibilityLabel: usage.countLabel,
+            help: usage.help,
+            isWarning: usage.isAtLimit
+        )
+    }
+
     public let text: String
     /// What VoiceOver reads when the visible text is symbolic ("1 of 50
     /// machines", never "1 slash 50"); nil reads the text itself.

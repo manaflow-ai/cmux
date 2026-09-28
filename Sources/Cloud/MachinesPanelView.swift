@@ -199,7 +199,6 @@ struct MachinesPanelView: View {
             listStatus: toolbarListStatus,
             listError: viewModel.lastErrorDescription,
             treeError: viewModel.treeErrorDescription,
-            plan: viewModel.plan,
             onDismissStale: { bannerDismissals.dismiss(id: "machines.stale", signature: $0) }
         )
     }
@@ -491,6 +490,7 @@ struct MachinesPanelView: View {
                 incomingAccessManaged: incomingAccessManaged
             ),
             canCreateCloudMachine: includesCloud,
+            cloudMachinesUsage: includesCloud ? viewModel.plan?.usage : nil,
             reveal: devicesModel.revealRequest
         )
         .accessibilityIdentifier("CloudMachinesTree")

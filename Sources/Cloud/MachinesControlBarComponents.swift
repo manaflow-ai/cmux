@@ -2,27 +2,6 @@ import CmuxCloud
 import AppKit
 import SwiftUI
 
-/// "2 of 3" plan meter. Turns into the upgrade hint when a free plan hits its
-/// machine ceiling — the moment of intent, and the only place we mention it.
-struct MachinePlanMeter: View {
-    let plan: MachinePlanSnapshot
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Text(plan.usage.countLabel)
-                .cmuxFont(size: 11, monospacedDigit: true)
-                .foregroundColor(plan.isAtLimit ? Color.orange : .secondary)
-            if plan.isAtLimit && !plan.isPaidPlan {
-                Text(String(localized: "machines.meter.upgrade", defaultValue: "Upgrade for more"))
-                    .cmuxFont(size: 11)
-                    .foregroundColor(.orange)
-            }
-        }
-        .help(plan.usage.help)
-        .accessibilityElement(children: .combine)
-    }
-}
-
 /// One line under the header on free plans: how long the fleet stays
 /// reachable, counting down to the earliest machine's expiry, and the way out
 /// (the whole line is the upgrade affordance — the same Pro flow the ＋ button

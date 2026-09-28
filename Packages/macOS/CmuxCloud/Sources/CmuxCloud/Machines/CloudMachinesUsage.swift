@@ -24,6 +24,13 @@ public struct CloudMachinesUsage: Equatable, Sendable {
     /// Single-machine plans (free) read "1 of 1 machine", never "machines".
     public var isSingleMachinePlan: Bool { maxActiveVms == 1 }
 
+    /// The header's count beside "Cloud Machines": "1/50", or "3" with no ceiling.
+    public var compactCount: String {
+        guard let maxActiveVms else { return String(activeCount) }
+        let format = String(localized: "cloudTree.group.cloudMachines.usage", defaultValue: "%1$d/%2$d")
+        return String(format: format, activeCount, maxActiveVms)
+    }
+
     /// The spelled-out count, singular/plural chosen by the plan's ceiling.
     /// Uncapped plans read "3 machines": there is no "of N" to show.
     public var countLabel: String {

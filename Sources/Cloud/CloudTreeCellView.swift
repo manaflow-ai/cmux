@@ -189,6 +189,9 @@ final class CloudTreeCellView: NSTableCellView {
             setAccessibilityLabel(CloudTreeTerminalRowContent(row: row, style: style).toolTip)
         } else if case .display(let resource, _, _) = node.kind {
             setAccessibilityLabel([node.searchableTitle, CloudTreeRowContentView.text(for: resource)].joined(separator: ", "))
+        } else if case .cloudMachinesSection(_, let usage?) = node.kind {
+            // The row's own label, so VoiceOver never reads the visible "1/50" as "1 slash 50".
+            setAccessibilityLabel([node.searchableTitle, usage.countLabel].joined(separator: ", "))
         } else {
             setAccessibilityLabel(node.searchableTitle)
         }
