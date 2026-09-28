@@ -3737,9 +3737,12 @@ impl Mux {
         let has_restored_placements = restored_public_id.as_ref().is_some_and(|public_id| {
             !state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).is_empty()
         });
-        if is_template_terminal(&terminal) {
-            // Cloud snapshot template: its builder's placement was wiped with
-            // the builder's registry, so it always gets a new one here.
+        if is_template_terminal(&terminal) && !has_restored_placements {
+            // Cloud snapshot template, first adoption: its builder's placement
+            // was wiped with the builder's registry, so it gets a new one here.
+            // The template marker stays on the durable row, so a later daemon
+            // start (crash, in-place upgrade) finds the placement this one
+            // committed and restores it below instead of placing it twice.
             self.place_adopted_terminal_in_new_screen(
                 &mut state,
                 &terminal.workspace_key,
