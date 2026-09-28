@@ -102,16 +102,24 @@ function backfill(h, agents, now) {
   }
 }
 
-function sample(workspaces, now) {
+function oldestEvictableHistory(protectedIds) {
+  for (const id of history.keys()) if (!protectedIds.has(id)) return id;
+  return null;
+}
+
+function sample(workspaces, now, liveIds = new Set(workspaces.map((w) => w.id))) {
   const bucket = Math.floor(now / BUCKET);
-  const live = new Set();
+  const sampled = new Set(workspaces.map((w) => w.id));
+  for (const id of Array.from(history.keys())) if (!liveIds.has(id)) history.delete(id);
   for (const w of workspaces) {
-    live.add(w.id);
     const agents = list(w.agents);
     let h = history.get(w.id);
     if (!h) {
+      if (history.size >= MAX_ROWS) {
+        const evicted = oldestEvictableHistory(sampled);
+        if (evicted !== null) history.delete(evicted);
+      }
       h = new Map();
-      history.set(w.id, h);
       backfill(h, agents, now);
     }
     const slot = h.get(bucket) ?? { n: 0, busy: 0 };
@@ -121,8 +129,11 @@ function sample(workspaces, now) {
     // Wall-clock corrections can move `bucket` backward. Drop future buckets
     // too, otherwise every clock era leaves another KEEP entries behind.
     for (const b of h.keys()) if (b <= bucket - KEEP || b > bucket) h.delete(b);
+    // Map insertion order is the eviction order. Sampling makes this entry
+    // most-recently used without retaining more than MAX_ROWS histories.
+    history.delete(w.id);
+    history.set(w.id, h);
   }
-  for (const id of Array.from(history.keys())) if (!live.has(id)) history.delete(id);
 }
 
 // Share of each bucket an agent was working, newest last.
@@ -188,9 +199,20 @@ function rowModel(w, now) {
   };
 }
 
-function cappedWorkspaces(workspaces) {
-  const capped = workspaces.slice(0, MAX_ROWS);
-  const selected = workspaces.find((w) => w.selected);
+function workspaceIsBusy(w) {
+  return (num(w.unread) || 0) > 0
+    || list(w.agents).some((a) => a.status === "working" || a.status === "needs_input");
+}
+
+function cappedWorkspaces(workspaces, onlyBusy) {
+  const capped = [];
+  let selected = null;
+  for (const w of workspaces) {
+    if (!selected && w.selected) selected = w;
+    if (capped.length < MAX_ROWS && (!onlyBusy || workspaceIsBusy(w) || w.selected)) {
+      capped.push(w);
+    }
+  }
   if (selected && !capped.some((w) => w.id === selected.id)) {
     if (capped.length === MAX_ROWS) capped[MAX_ROWS - 1] = selected;
     else capped.push(selected);
@@ -202,11 +224,12 @@ const [busyOnly, setBusyOnly] = signal(false);
 
 const snapshot = computed(() => {
   const now = Math.floor(num(data.clock()?.epoch) ?? 0);
-  // History ownership is capped, but independent of the transient ALL/BUSY
-  // filter so hiding a newly quiet row does not erase its recent sparkline.
-  const workspaces = cappedWorkspaces(list(data.workspaces()));
+  const allWorkspaces = list(data.workspaces());
+  // Filter before the cap so BUSY can surface active workspaces anywhere in
+  // the full order. Expensive sampling and row modeling remain capped.
+  const workspaces = cappedWorkspaces(allWorkspaces, busyOnly());
   if (now > 0 && now !== lastSampled) {
-    sample(workspaces, now);
+    sample(workspaces, now, new Set(allWorkspaces.map((w) => w.id)));
     lastSampled = now;
   }
   const rows = workspaces.map((w) => rowModel(w, now));
@@ -240,8 +263,7 @@ const snapshot = computed(() => {
 });
 
 const shown = computed(() => {
-  const rows = snapshot().rows;
-  return busyOnly() ? rows.filter((r) => r.busy || r.selected) : rows;
+  return snapshot().rows;
 });
 
 // A drop index counts visible rows; map it onto the full workspace order.
