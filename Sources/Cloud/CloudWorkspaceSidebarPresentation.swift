@@ -37,7 +37,7 @@ struct CloudWorkspaceSidebarPresentation {
         let state = workspace.cloudBindingState
         var cloudMachineIDs = Set(state.projectedResources.values.compactMap { $0.machine.cloudMachineID })
         if let id = workspace.cloudVMID { cloudMachineIDs.insert(id) }
-        let deviceMachineIDs = Set(deviceMachines(for: workspace).map(\.rawValue))
+        let deviceMachineIDs = Set(Self.deviceMachines(for: workspace).map(\.rawValue))
         isDeviceWorkspace = cloudMachineIDs.isEmpty && !deviceMachineIDs.isEmpty
         let machineIDs = cloudMachineIDs.union(deviceMachineIDs)
         guard !machineIDs.isEmpty else { return nil }
