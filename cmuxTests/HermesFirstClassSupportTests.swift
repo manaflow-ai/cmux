@@ -1887,7 +1887,6 @@ struct HermesFirstClassSupportTests {
 }
 
 private final class HermesFirstClassBundleToken {}
-
 /// Enumerates no processes, completely. No live PID, argv or environment is read.
 private struct HermesFixtureProcessReader: CmuxTopProcessReading {
     func enumerate() -> DarwinProcessListing {
