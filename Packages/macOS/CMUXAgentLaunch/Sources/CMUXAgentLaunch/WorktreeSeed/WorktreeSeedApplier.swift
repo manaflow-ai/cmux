@@ -84,6 +84,18 @@ public struct WorktreeSeedApplier: Sendable {
                 )
                 continue
             }
+            if let ancestor = symlinkAncestor(
+                of: entry.relativePath,
+                under: destination
+            ) {
+                report.failed.append(
+                    WorktreeSeedFailure(
+                        relativePath: entry.relativePath,
+                        reason: "destination ancestor is a symlink: \(ancestor)"
+                    )
+                )
+                continue
+            }
             if fileExistsWithoutFollowingLinks(to) {
                 report.skipped.append(entry.relativePath)
                 continue
@@ -92,6 +104,18 @@ public struct WorktreeSeedApplier: Sendable {
             let parent = to.deletingLastPathComponent()
             do {
                 try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+                if let ancestor = symlinkAncestor(
+                    of: entry.relativePath,
+                    under: destination
+                ) {
+                    report.failed.append(
+                        WorktreeSeedFailure(
+                            relativePath: entry.relativePath,
+                            reason: "destination ancestor is a symlink: \(ancestor)"
+                        )
+                    )
+                    continue
+                }
             } catch {
                 report.failed.append(
                     WorktreeSeedFailure(relativePath: entry.relativePath, reason: String(describing: error))
@@ -127,5 +151,28 @@ public struct WorktreeSeedApplier: Sendable {
     /// `attributesOfItem` does not follow links.
     private func fileExistsWithoutFollowingLinks(_ url: URL) -> Bool {
         (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil
+    }
+
+    /// The first existing symlink between the destination root and the entry's parent.
+    ///
+    /// `createDirectory` and `copyItem` follow ancestor symlinks. Reject them
+    /// before and after parent creation so a checked-out link cannot redirect a
+    /// seed write outside the new worktree.
+    private func symlinkAncestor(of relativePath: String, under root: URL) -> String? {
+        var current = root
+        if isSymlink(current) { return "." }
+        var traversed: [Substring] = []
+        for component in relativePath.split(separator: "/").dropLast() {
+            traversed.append(component)
+            current.appendPathComponent(String(component), isDirectory: true)
+            guard fileExistsWithoutFollowingLinks(current) else { break }
+            if isSymlink(current) { return traversed.joined(separator: "/") }
+        }
+        return nil
+    }
+
+    private func isSymlink(_ url: URL) -> Bool {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        return attributes?[.type] as? FileAttributeType == .typeSymbolicLink
     }
 }

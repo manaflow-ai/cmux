@@ -265,6 +265,31 @@ struct WorktreeSeedApplierTests {
         #expect(report.failed.isEmpty)
     }
 
+    @Test func aDestinationSymlinkAncestorCannotRedirectACopy() throws {
+        let source = try WorktreeSeedTemporaryTree("source")
+        let destination = try WorktreeSeedTemporaryTree("destination")
+        let outside = try WorktreeSeedTemporaryTree("outside")
+        try source.file("config/credentials", "secret")
+        try destination.symlink("config", to: outside.root)
+
+        let report = WorktreeSeedApplier().apply(
+            plan("config/credentials", in: source),
+            from: source.root,
+            to: destination.root
+        )
+
+        #expect(report.copied.isEmpty)
+        #expect(report.failed == [
+            WorktreeSeedFailure(
+                relativePath: "config/credentials",
+                reason: "destination ancestor is a symlink: config"
+            ),
+        ])
+        #expect(!FileManager.default.fileExists(
+            atPath: outside.root.appendingPathComponent("credentials").path
+        ))
+    }
+
     @Test func aPathThatLeftTheRepositoryBetweenPlanAndApplyIsReportedNotCrashed() throws {
         let source = try WorktreeSeedTemporaryTree("source")
         let destination = try WorktreeSeedTemporaryTree("destination")

@@ -116,7 +116,7 @@ public struct WorktreeSeedPlanner: Sendable {
 
         for pattern in file.patterns where pattern.isNegated {
             for path in (matchesByLine[pattern.line] ?? [:]).keys.sorted() {
-                guard selected[path] == nil, candidates[path] == nil else { continue }
+                guard selected[path] == nil else { continue }
                 guard let ancestor = nearestSelectedAncestor(of: path, in: selected) else { continue }
                 plan.ineffectiveNegations.append(
                     WorktreeSeedShadow(
@@ -226,27 +226,37 @@ extension WorktreeSeedPlanner {
         if pattern.directoryOnly, !isDirectory { return false }
         let patternSegments = pattern.segments
         let pathSegments = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-        return match(patternSegments, 0, pathSegments, 0)
-    }
+        var failed = Set<Int>()
 
-    private static func match(
-        _ patternSegments: [String],
-        _ patternIndex: Int,
-        _ pathSegments: [String],
-        _ pathIndex: Int
-    ) -> Bool {
-        if patternIndex == patternSegments.count { return pathIndex == pathSegments.count }
-        if patternSegments[patternIndex] == "**" {
-            // A trailing `**` means everything below, so it must consume at least one segment.
-            if patternIndex == patternSegments.count - 1 { return pathIndex < pathSegments.count }
-            for next in pathIndex...pathSegments.count {
-                if match(patternSegments, patternIndex + 1, pathSegments, next) { return true }
+        func walk(_ patternIndex: Int, _ pathIndex: Int) -> Bool {
+            let key = patternIndex * (pathSegments.count + 1) + pathIndex
+            guard !failed.contains(key) else { return false }
+            if patternIndex == patternSegments.count {
+                return pathIndex == pathSegments.count
             }
+            if patternSegments[patternIndex] == "**" {
+                // A trailing `**` means everything below, so it must consume
+                // at least one segment. Otherwise it either consumes nothing
+                // or one segment; memoization bounds the state space to the
+                // pattern/path grid.
+                if patternIndex == patternSegments.count - 1 {
+                    return pathIndex < pathSegments.count
+                }
+                if walk(patternIndex + 1, pathIndex) { return true }
+                if pathIndex < pathSegments.count, walk(patternIndex, pathIndex + 1) {
+                    return true
+                }
+            } else if pathIndex < pathSegments.count,
+                      glob(patternSegments[patternIndex], matches: pathSegments[pathIndex]),
+                      walk(patternIndex + 1, pathIndex + 1)
+            {
+                return true
+            }
+            failed.insert(key)
             return false
         }
-        guard pathIndex < pathSegments.count else { return false }
-        guard glob(patternSegments[patternIndex], matches: pathSegments[pathIndex]) else { return false }
-        return match(patternSegments, patternIndex + 1, pathSegments, pathIndex + 1)
+
+        return walk(0, 0)
     }
 
     /// Matches one path segment.

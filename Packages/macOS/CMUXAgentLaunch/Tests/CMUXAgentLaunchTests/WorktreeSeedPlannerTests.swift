@@ -186,6 +186,25 @@ struct WorktreeSeedPlannerTests {
         ])
     }
 
+    @Test func aNegatedPositiveMatchInsideASelectedDirectoryIsStillIneffective() {
+        let repository = WorktreeSeedFakeRepository([
+            "node_modules/", "node_modules/.cache/", "node_modules/.cache/big",
+        ])
+        let plan = plan(
+            "link node_modules\nnode_modules/**\n!node_modules/.cache\n",
+            repository
+        )
+        #expect(plan.entries.map(\.relativePath) == ["node_modules"])
+        #expect(plan.excluded.map(\.relativePath) == ["node_modules/.cache"])
+        #expect(plan.ineffectiveNegations == [
+            WorktreeSeedShadow(
+                relativePath: "node_modules/.cache",
+                coveredBy: "node_modules",
+                coveringAction: .link
+            ),
+        ])
+    }
+
     @Test func aSymlinkOutOfTheRepositoryIsRefused() {
         let repository = WorktreeSeedFakeRepository([".env", "shared/"], escaping: ["shared"])
         let plan = plan(".env\nshared\n", repository)
@@ -253,6 +272,13 @@ struct WorktreeSeedPlannerTests {
         let plan = plan("*a*a*a*a*a*b", repository)
         #expect(plan.entries.isEmpty)
         #expect(plan.unmatched.count == 1)
+    }
+
+    @Test func repeatedDoubleStarSegmentsDoNotRevisitTheSameStates() throws {
+        let text = (Array(repeating: "**", count: 40) + ["never"]).joined(separator: "/")
+        let pattern = try #require(WorktreeSeedFile.parse(text).patterns.first)
+        let path = Array(repeating: "segment", count: 80).joined(separator: "/")
+        #expect(!WorktreeSeedPlanner.pattern(pattern, matches: path, isDirectory: false))
     }
 
     @Test func anEscapedStarMatchesALiteralStar() {
