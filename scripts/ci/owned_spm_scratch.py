@@ -22,9 +22,13 @@ workspace never reuses modules another compiler built for another path.
 A scratch directory in use is held by a shared flock on
 STORE/spm-scratch/<fingerprint>.lock: `link` starts a small holder process that
 keeps it until the runner ends the job (the runner kills a job's leftover
-processes). Before linking, `link` keeps the whole mini's scratch under
-MAX_BYTES, dropping the least recently built directories first (newest file
-inside), whatever runner or Xcode left them, and skipping any another job holds.
+processes), or HOLD_SECONDS at most, past the job's timeout, should the runner
+die mid-job and leave it. Before linking, `link` keeps the whole mini's scratch
+under MAX_BYTES, dropping the least recently used directories first, whatever
+runner or Xcode left them, and skipping any another job holds. `link` touches
+the lock file, so its time is the directory's last use, and a directory's size
+is kept in <fingerprint>.size, measured again only once the directory was used
+after it and no job holds it, so a link walks only what changed since.
 A directory is dropped by renaming it to .trash-* first, so a half-deleted one
 is never reused; the next run sweeps what a killed removal left. `evict` drops
 every directory no job holds, for disk tooling and for
@@ -49,6 +53,8 @@ MAX_BYTES = 24 * 1024**3
 SCRATCH = "spm-scratch"
 TRASH = ".trash-"
 HELD = "held"
+# swift-package-tests' timeout-minutes is 60: a holder outliving it belongs to a job the runner lost.
+HOLD_SECONDS = 65 * 60
 
 
 def packages(workspace: Path) -> list[Path]:
@@ -69,27 +75,49 @@ def toolchain_fingerprint(workspace: Path) -> str:
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:24]
 
 
-def tree_stats(root: Path) -> tuple[int, float]:
-    """Bytes under ROOT and the newest modification time in it. A build writes
-    inside its package's directory, so the newest time is when a job last used it."""
+def tree_bytes(root: Path) -> int:
     total = 0
-    try:
-        newest = root.stat().st_mtime
-    except OSError:
-        newest = 0.0
     for base, _, files in os.walk(root):
         for name in files:
-            try:
-                info = Path(base, name).lstat()
-            except OSError:
-                continue
-            total += info.st_size
-            newest = max(newest, info.st_mtime)
-    return total, newest
+            with contextlib.suppress(OSError):
+                total += Path(base, name).lstat().st_size
+    return total
 
 
 def lock_path(entry: Path) -> Path:
     return entry.with_name(entry.name + ".lock")
+
+
+def size_path(entry: Path) -> Path:
+    return entry.with_name(entry.name + ".size")
+
+
+def mtime(path: Path) -> float | None:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
+
+
+def tree_stats(entry: Path) -> tuple[int, float]:
+    """ENTRY's bytes and its last use (its lock file's time, which `link` touches).
+
+    The size comes from ENTRY.size unless the directory was used after it was
+    written; then it is measured again, and recorded only when no job holds the
+    directory (a held one may still be growing)."""
+    used = mtime(lock_path(entry)) or mtime(entry) or 0.0
+    recorded = size_path(entry)
+    measured = mtime(recorded)
+    with contextlib.suppress(OSError, ValueError):
+        if measured is not None and measured > used:  # a tie re-measures: coarse clocks
+            return int(recorded.read_text()), used
+    size = tree_bytes(entry)
+    with contextlib.suppress(OSError), open(lock_path(entry), "a") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        staged = recorded.with_name(f"{recorded.name}.{os.getpid()}")
+        staged.write_text(str(size))
+        staged.replace(recorded)
+    return size, used
 
 
 def drop(entry: Path) -> bool:
@@ -108,6 +136,8 @@ def drop(entry: Path) -> bool:
             entry.rename(aside)
         except OSError:
             return False
+        with contextlib.suppress(OSError):
+            size_path(entry).unlink()
     shutil.rmtree(aside, ignore_errors=True)
     return True
 
@@ -127,7 +157,7 @@ def entries(scratch: Path) -> list[Path]:
 
 
 def prune(scratch: Path, max_bytes: int = MAX_BYTES) -> list[str]:
-    """Drop the least recently built directories no job holds until the mini's scratch fits MAX_BYTES."""
+    """Drop the least recently used directories no job holds until the mini's scratch fits MAX_BYTES."""
     sweep_trash(scratch)
     stats = {entry: tree_stats(entry) for entry in entries(scratch)}
     total = sum(size for size, _ in stats.values())
@@ -174,6 +204,7 @@ def link(workspace: Path, store: Path, runner: str, fingerprint: str | None = No
     with open(lock_path(target_root), "a") as own:
         # Held from here, so prune skips this job's directory; the holder keeps it for the job.
         fcntl.flock(own, fcntl.LOCK_SH)
+        os.utime(lock_path(target_root))  # its last use, for prune's order
         prune(scratch)
         hold(lock_path(target_root))
     linked = []
@@ -199,6 +230,8 @@ def main(argv: list[str]) -> int:
         handle = open(argv[2], "a")
         fcntl.flock(handle, fcntl.LOCK_SH)
         print(HELD, flush=True)
+        # Bounded: a runner that dies mid-job never kills its leftovers, and the lock would last until reboot.
+        signal.alarm(HOLD_SECONDS)
         while True:
             signal.pause()
     if len(argv) in (3, 4) and argv[1] == "link":
