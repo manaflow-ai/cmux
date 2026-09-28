@@ -237,6 +237,33 @@ private extension GhosttyConfigLiveReloadSnapshot {
         coordinator.stop()
     }
 
+    /// A reload that finishes after a save it did not read must not swallow
+    /// that save: the files it loaded are older than the edit.
+    @Test func saveLandingWhileAReloadIsInFlightStillReloads() async {
+        let reader = ScriptedSnapshotReader(original)
+        let source = ManualChangeSource()
+        let clock = GatedClock()
+        let counter = ReloadCounter()
+        let coordinator = makeCoordinator(reader: reader, source: source, clock: clock, counter: counter)
+        var outcomes = coordinator.outcomes.makeAsyncIterator()
+        var sleeps = clock.sleepStarted.makeAsyncIterator()
+        coordinator.start()
+        #expect(await outcomes.next() == .baselineRecorded)
+
+        // A reload already read the original files; the user saves an edit
+        // before that reload's fanout finishes.
+        await reader.set(edited)
+        await source.emitChange()
+        _ = await sleeps.next()
+        coordinator.noteConfigurationDidReload()
+        #expect(await outcomes.next() == .baselineRecorded)
+        await clock.releaseAll()
+
+        #expect(await outcomes.next() == .reloaded)
+        #expect(counter.count == 1)
+        coordinator.stop()
+    }
+
     @Test func reloadNotificationBeforeTheWriteEventAlsoAbsorbsIt() async {
         let reader = ScriptedSnapshotReader(original)
         let source = ManualChangeSource()
