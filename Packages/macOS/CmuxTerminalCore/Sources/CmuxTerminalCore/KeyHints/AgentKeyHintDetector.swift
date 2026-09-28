@@ -15,6 +15,12 @@ public struct AgentKeyHint: Sendable, Equatable {
         self.action = action
         self.columns = columns
     }
+
+    /// Whether the hint counts only in the agent's live region
+    /// (``AgentKeyHintLiveRegion``): any of its keys lacks Ctrl and Alt.
+    public var needsLiveRegion: Bool {
+        keys.contains(where: AgentKeyHintDetector.needsLiveRegion)
+    }
 }
 
 /// Finds agent key hints in one line of terminal text.
@@ -26,7 +32,13 @@ public struct AgentKeyHint: Sendable, Equatable {
 /// `to` (`esc interrupt`), which match only for its known actions.
 ///
 /// Chords that quit, suspend, or signal (`ctrl+c`, `ctrl+d`, `ctrl+z`,
-/// `ctrl+\`) are never returned.
+/// `ctrl+\`, with or without Shift or Alt) are never returned.
+///
+/// Keys that act on whatever UI is live (Enter, Esc, Tab, arrows, bare
+/// letters, Home, End, page keys) are returned only for a line in the
+/// agent's live region (``AgentKeyHintLiveRegion``). The same words in
+/// scrollback or in the agent's prose would press a key the live UI never
+/// offered. Ctrl and Alt chords name one binding and count on any line.
 public struct AgentKeyHintDetector: Sendable {
     public enum Agent: Sendable {
         case claudeCode
@@ -41,9 +53,25 @@ public struct AgentKeyHintDetector: Sendable {
         self.agent = agent
     }
 
-    static let blockedKeys: Set<String> = ["ctrl+c", "ctrl+d", "ctrl+z", "ctrl+\\"]
+    /// Whether `key`, a normalized chord, quits, suspends, or signals: Ctrl
+    /// with `c`, `d`, `z`, or `\`, whatever Shift or Alt is added, since the
+    /// terminal still sends 0x03, 0x04, 0x1a, or 0x1c for those.
+    static func isSignalChord(_ key: String) -> Bool {
+        let parts = key.split(separator: "+", omittingEmptySubsequences: false)
+        guard parts.count > 1, parts.dropLast().contains("ctrl"), let base = parts.last else { return false }
+        return ["c", "d", "z", "\\"].contains(base)
+    }
+
+    /// Whether `key` counts only in the live region: anything without Ctrl or Alt.
+    static func needsLiveRegion(_ key: String) -> Bool {
+        let modifiers = key.split(separator: "+", omittingEmptySubsequences: false).dropLast()
+        return !modifiers.contains("ctrl") && !modifiers.contains("alt")
+    }
+
+    // `return` is not a key word: agents print `enter` or `⏎`, and prose
+    // says "return to" far more often than it names the key.
     private static let namedKeys: [String: String] = [
-        "esc": "escape", "escape": "escape", "tab": "tab", "enter": "enter", "return": "enter",
+        "esc": "escape", "escape": "escape", "tab": "tab", "enter": "enter",
         "space": "space", "up": "up", "down": "down", "left": "left", "right": "right",
         "↑": "up", "↓": "down", "←": "left", "→": "right", "⏎": "enter", "↵": "enter",
         "backspace": "backspace", "delete": "delete", "pgup": "pageup", "pgdn": "pagedown",
@@ -57,12 +85,18 @@ public struct AgentKeyHintDetector: Sendable {
     private static let actionTerminators: Set<Character> = ["·", "•", "|", "(", ")", ",", ";", "[", "]"]
 
     /// The hint covering `column`, if any.
-    public func hint(in line: String, atColumn column: Int) -> AgentKeyHint? {
-        hints(in: line).first { $0.columns.contains(column) }
+    ///
+    /// - Parameter inLiveRegion: Whether the line is in the agent's live
+    ///   region. Outside it only Ctrl and Alt chords count.
+    public func hint(in line: String, atColumn column: Int, inLiveRegion: Bool) -> AgentKeyHint? {
+        hints(in: line, inLiveRegion: inLiveRegion).first { $0.columns.contains(column) }
     }
 
     /// Every hint on the line, left to right.
-    public func hints(in line: String) -> [AgentKeyHint] {
+    ///
+    /// - Parameter inLiveRegion: Whether the line is in the agent's live
+    ///   region. Outside it only Ctrl and Alt chords count.
+    public func hints(in line: String, inLiveRegion: Bool) -> [AgentKeyHint] {
         let cells = TerminalCellText(line)
         let words = cells.words
         var hints: [AgentKeyHint] = []
@@ -72,7 +106,9 @@ public struct AgentKeyHintDetector: Sendable {
                 index += 1
                 continue
             }
-            hints.append(hint.hint)
+            if inLiveRegion || !hint.hint.needsLiveRegion {
+                hints.append(hint.hint)
+            }
             index = hint.nextWord
         }
         return hints
@@ -89,7 +125,7 @@ public struct AgentKeyHintDetector: Sendable {
             keys.append(key)
             index += 1
         }
-        guard !keys.isEmpty, !keys.contains(where: Self.blockedKeys.contains) else { return nil }
+        guard !keys.isEmpty, !keys.contains(where: Self.isSignalChord) else { return nil }
         let isStrongHint = keys.contains { Self.isStrong($0, printed: words[start].text) }
         if index < words.count, words[index].text.lowercased() == "again" {
             index += 1

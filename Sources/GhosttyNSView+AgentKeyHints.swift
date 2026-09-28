@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminal
 import CmuxTerminalCore
 import GhosttyKit
 
@@ -8,15 +9,41 @@ struct TerminalAgentKeyHintCell: Equatable {
     var column: Int
 }
 
+/// What the viewport showed when a hover resolved: a hint underline stays
+/// only while scrolling, new output that moves the cursor, and resizes leave
+/// this unchanged.
+struct TerminalAgentKeyHintViewportState: Equatable {
+    var scrollbarTotal: UInt64
+    var scrollbarOffset: UInt64
+    var scrollbarLength: UInt64
+    var rows: Int
+    var columns: Int
+    var cursorRow: Int?
+    var cursorColumn: Int?
+
+    /// The rows where the agent's live UI is, for bare key hints.
+    var liveRegion: AgentKeyHintLiveRegion {
+        AgentKeyHintLiveRegion(
+            viewportAtBottom: scrollbarOffset + scrollbarLength >= scrollbarTotal,
+            cursorRow: cursorRow
+        )
+    }
+}
+
 /// Per-view pointer state for clickable agent key hints (`agentActions.keyHints`).
 @MainActor
 final class TerminalAgentKeyHintPointerState {
     /// The cell a single left click pressed, while the setting is on.
     var pressCell: TerminalAgentKeyHintCell?
+    /// A released click waiting out the double-click interval.
+    var deferredPress = AgentKeyHintDeferredPress(delay: NSEvent.doubleClickInterval)
+    var pendingPress: (() -> Void)?
     /// The cell hover last resolved; hover resolves again only when it changes.
     var hoverCell: TerminalAgentKeyHintCell?
     /// The hint under the pointer: its row and cells.
     var hoveredHint: (row: Int, columns: Range<Int>)?
+    /// The viewport the hovered hint was read from.
+    var hoveredViewport: TerminalAgentKeyHintViewportState?
     var underlineView: GhosttyFlashOverlayView?
     var toolTipTag: NSView.ToolTipTag?
     /// Tooltip owners are not retained by AppKit.
@@ -24,7 +51,22 @@ final class TerminalAgentKeyHintPointerState {
 }
 
 extension GhosttyNSView {
+    /// How long hover trusts an earlier check of `~/.claude/keybindings.json`.
+    private static let agentKeyHintHoverKeybindingsMaxAge: TimeInterval = 5
+
     // MARK: Click
+
+    /// Settles a click still waiting to press a hint, for any left press:
+    /// the second press of a double click cancels it, a new single click
+    /// presses it now. Runs before anything else in `mouseDown`.
+    func settleAgentKeyHintPendingPress(clickCount: Int) {
+        let state = agentKeyHintPointer
+        guard state.pendingPress != nil else { return }
+        let due = state.deferredPress.press(clickCount: clickCount)
+        let press = state.pendingPress
+        state.pendingPress = nil
+        if due { press?() }
+    }
 
     /// Remembers a single left press's cell so its release can tell a click
     /// from a drag. Does nothing while the setting is off.
@@ -35,9 +77,10 @@ extension GhosttyNSView {
     }
 
     /// Resolves a left release to a hint press before the release reaches
-    /// Ghostty. The returned closure presses the hint; call it after the
-    /// release is sent. A non-nil result means the release must not also
-    /// open a link or path.
+    /// Ghostty. A non-nil result means the release must not also open a
+    /// link or path; call it after the release is sent. It presses the hint
+    /// once the double-click interval passes without a second press, so the
+    /// first click of a double or triple click presses nothing.
     func agentKeyHintPressForRelease(
         at point: NSPoint,
         clickCount: Int,
@@ -49,69 +92,104 @@ extension GhosttyNSView {
         guard let pressCell, let pressModifierFlags, clickCount == 1,
               agentKeyHintCell(at: point) == pressCell,
               !ghostty_surface_has_selection(surface),
-              let panel = agentKeyHintPanel(), panel.agentKeyHintAgent != nil,
-              let snapshot = visibleWordPathSnapshot(at: point, panel: panel),
+              let panel = agentKeyHintPanel(),
+              let row = agentKeyHintRow(pressCell.row, surface: surface),
               let click = panel.agentKeyHintClick(
-                  line: snapshot.line,
-                  column: snapshot.column,
+                  line: row.line,
+                  column: pressCell.column,
+                  inLiveRegion: row.viewport.liveRegion.contains(row: pressCell.row),
                   mouseCaptured: ghostty_surface_mouse_captured(surface),
                   modifierFlags: pressModifierFlags
               ) else { return nil }
-        return { [weak panel] in
-            _ = panel?.pressAgentKeyHint(click)
+        return { [weak self, weak panel] in
+            guard let self else { return }
+            let state = self.agentKeyHintPointer
+            state.pendingPress = { [weak panel] in _ = panel?.pressAgentKeyHint(click) }
+            let due = state.deferredPress.release(at: ProcessInfo.processInfo.systemUptime)
+            // A little past the deadline, so the timer never finds it not yet due.
+            let delay = max(0, due - ProcessInfo.processInfo.systemUptime) + 0.01
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self else { return }
+                let state = self.agentKeyHintPointer
+                guard state.deferredPress.fire(at: ProcessInfo.processInfo.systemUptime) else { return }
+                let press = state.pendingPress
+                state.pendingPress = nil
+                press?()
+            }
         }
     }
 
     // MARK: Hover
 
     /// Underlines the hint under the pointer and shows a pointing hand and a
-    /// tooltip. Resolves only when the pointer's cell changes, and does
-    /// nothing while the setting is off or the pane runs no agent.
+    /// tooltip. Reads one terminal row, and only when the pointer's cell
+    /// changes or the viewport under a shown hint changed. Does nothing while
+    /// the setting is off or the pane runs no agent.
     func updateAgentKeyHintHover(at point: NSPoint) {
         guard TerminalPanel.agentKeyHintsEnabled, let cell = agentKeyHintCell(at: point) else {
             clearAgentKeyHintHover()
             return
         }
         let state = agentKeyHintPointer
-        guard cell != state.hoverCell else {
-            if state.hoveredHint != nil { NSCursor.pointingHand.set() }
+        if let hovered = state.hoveredHint, hovered.row == cell.row, hovered.columns.contains(cell.column) {
+            // Still over the shown hint: keep it while the viewport is unchanged.
+            if let surface = terminalSurface?.surface, agentKeyHintViewportState(surface) == state.hoveredViewport {
+                state.hoverCell = cell
+                NSCursor.pointingHand.set()
+                return
+            }
+        } else if cell == state.hoverCell {
             return
         }
         state.hoverCell = cell
-        if let hovered = state.hoveredHint, hovered.row == cell.row, hovered.columns.contains(cell.column) {
-            NSCursor.pointingHand.set()
-            return
-        }
         guard let surface = terminalSurface?.surface,
-              let panel = agentKeyHintPanel(), panel.agentKeyHintAgent != nil,
-              let snapshot = visibleWordPathSnapshot(at: point, panel: panel),
-              let match = panel.agentKeyHint(inLine: snapshot.line, atColumn: snapshot.column) else {
+              let panel = agentKeyHintPanel(), let agent = panel.agentKeyHintAgent,
+              let row = agentKeyHintRow(cell.row, surface: surface),
+              let hint = TerminalPanel.agentKeyHint(
+                  inLine: row.line,
+                  atColumn: cell.column,
+                  agent: agent,
+                  isLiveRow: { row.viewport.liveRegion.contains(row: cell.row) }
+              ) else {
             hideAgentKeyHintHover()
             return
         }
-        let keys = panel.agentKeyHintKeys(for: match.hint, agent: match.agent)
+        let keys = panel.agentKeyHintKeys(
+            for: hint,
+            agent: agent,
+            keybindingsMaxAge: Self.agentKeyHintHoverKeybindingsMaxAge
+        )
         showAgentKeyHintHover(
             row: cell.row,
-            columns: match.hint.columns,
+            columns: hint.columns,
+            viewport: row.viewport,
             toolTip: Self.agentKeyHintToolTip(
                 keys: keys,
-                action: match.hint.action,
+                action: hint.action,
                 needsCommand: ghostty_surface_mouse_captured(surface)
             )
         )
     }
 
-    /// Hides any hint hover, for the pointer leaving the terminal.
+    /// Hides any hint hover, for the pointer leaving the terminal, a scroll,
+    /// or a resize. The next mouse move resolves hover again.
     func clearAgentKeyHintHover() {
-        agentKeyHintPointer.hoverCell = nil
+        let state = agentKeyHintPointer
+        state.hoverCell = nil
         hideAgentKeyHintHover()
     }
 
-    private func showAgentKeyHintHover(row: Int, columns: Range<Int>, toolTip: String) {
+    private func showAgentKeyHintHover(
+        row: Int,
+        columns: Range<Int>,
+        viewport: TerminalAgentKeyHintViewportState,
+        toolTip: String
+    ) {
         guard let geometry = agentKeyHintGeometry() else { return }
         let state = agentKeyHintPointer
         hideAgentKeyHintHover()
         state.hoveredHint = (row, columns)
+        state.hoveredViewport = viewport
         let cellRect = NSRect(
             x: geometry.xInset + CGFloat(columns.lowerBound) * geometry.cellWidth,
             y: bounds.height - geometry.yInset - CGFloat(row + 1) * geometry.cellHeight,
@@ -140,6 +218,7 @@ extension GhosttyNSView {
         let state = agentKeyHintPointer
         guard state.hoveredHint != nil else { return }
         state.hoveredHint = nil
+        state.hoveredViewport = nil
         state.underlineView?.isHidden = true
         if let tag = state.toolTipTag {
             removeToolTip(tag)
@@ -190,7 +269,8 @@ extension GhosttyNSView {
         var yInset: CGFloat
     }
 
-    /// The grid geometry `visibleWordPathSnapshot(at:panel:)` maps points with.
+    /// The grid geometry that maps points to cells, as the Command-click
+    /// path fallback maps them.
     private func agentKeyHintGeometry() -> AgentKeyHintGeometry? {
         guard let surface = terminalSurface?.surface else { return nil }
         let size = ghostty_surface_size(surface)
@@ -215,6 +295,36 @@ extension GhosttyNSView {
         return TerminalAgentKeyHintCell(
             row: max(0, min(geometry.rows - 1, Int((yFromTop - geometry.yInset) / geometry.cellHeight))),
             column: max(0, min(geometry.columns - 1, Int((point.x - geometry.xInset) / geometry.cellWidth)))
+        )
+    }
+
+    /// Viewport row `row` as its own cells (no joining of soft-wrapped
+    /// lines, no trimming of blank rows), with the viewport it was read from.
+    private func agentKeyHintRow(
+        _ row: Int,
+        surface: ghostty_surface_t
+    ) -> (line: String, viewport: TerminalAgentKeyHintViewportState)? {
+        guard let terminalSurface, let viewport = agentKeyHintViewportState(surface),
+              row >= 0, row < viewport.rows,
+              let line = terminalSurface.readText(region: .viewportRow(row, columns: viewport.columns))
+        else { return nil }
+        return (line, viewport)
+    }
+
+    private func agentKeyHintViewportState(_ surface: ghostty_surface_t) -> TerminalAgentKeyHintViewportState? {
+        var scrollbar = ghostty_surface_scrollbar_s()
+        var metrics = ghostty_surface_grid_metrics_s()
+        guard ghostty_surface_scrollbar(surface, &scrollbar),
+              ghostty_surface_grid_metrics(surface, &metrics),
+              metrics.rows > 0, metrics.columns > 0 else { return nil }
+        return TerminalAgentKeyHintViewportState(
+            scrollbarTotal: scrollbar.total,
+            scrollbarOffset: scrollbar.offset,
+            scrollbarLength: scrollbar.len,
+            rows: Int(metrics.rows),
+            columns: Int(metrics.columns),
+            cursorRow: metrics.cursor_in_viewport ? Int(metrics.cursor_row) : nil,
+            cursorColumn: metrics.cursor_in_viewport ? Int(metrics.cursor_column) : nil
         )
     }
 

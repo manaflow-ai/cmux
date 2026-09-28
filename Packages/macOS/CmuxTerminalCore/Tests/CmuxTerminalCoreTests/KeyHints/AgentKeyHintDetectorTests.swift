@@ -3,17 +3,23 @@ import Testing
 
 @Suite("Agent key hint detector")
 struct AgentKeyHintDetectorTests {
+    /// Hints on a line in the agent's live region, where every key counts.
     private func hints(_ line: String, _ agent: AgentKeyHintDetector.Agent = .claudeCode) -> [AgentKeyHint] {
-        AgentKeyHintDetector(agent: agent).hints(in: line)
+        AgentKeyHintDetector(agent: agent).hints(in: line, inLiveRegion: true)
+    }
+
+    /// Hints on a line above the live region: transcript or prose.
+    private func historyHints(_ line: String, _ agent: AgentKeyHintDetector.Agent = .claudeCode) -> [AgentKeyHint] {
+        AgentKeyHintDetector(agent: agent).hints(in: line, inLiveRegion: false)
     }
 
     @Test func claudeCodeFooterHints() {
         let expand = "  ⎿  … +53 lines (ctrl+o to expand)"
         #expect(hints(expand) == [AgentKeyHint(keys: ["ctrl+o"], action: "expand", columns: 18..<34)])
-        #expect(AgentKeyHintDetector(agent: .claudeCode).hint(in: expand, atColumn: 18)?.keys == ["ctrl+o"])
-        #expect(AgentKeyHintDetector(agent: .claudeCode).hint(in: expand, atColumn: 33) != nil)
-        #expect(AgentKeyHintDetector(agent: .claudeCode).hint(in: expand, atColumn: 17) == nil, "The ( is not part of the hint")
-        #expect(AgentKeyHintDetector(agent: .claudeCode).hint(in: expand, atColumn: 34) == nil, "Nor the )")
+        #expect(AgentKeyHintDetector(agent: .claudeCode).hint(in: expand, atColumn: 18, inLiveRegion: false)?.keys == ["ctrl+o"])
+        #expect(AgentKeyHintDetector(agent: .claudeCode).hint(in: expand, atColumn: 33, inLiveRegion: false) != nil)
+        #expect(AgentKeyHintDetector(agent: .claudeCode).hint(in: expand, atColumn: 17, inLiveRegion: false) == nil, "The ( is not part of the hint")
+        #expect(AgentKeyHintDetector(agent: .claudeCode).hint(in: expand, atColumn: 34, inLiveRegion: false) == nil, "Nor the )")
 
         #expect(hints("✻ Thinking… (12s · ↑ 1.2k tokens · esc to interrupt)").map(\.keys) == [["escape"]])
         #expect(hints("  ⏵⏵ accept edits on (shift+tab to cycle)").map(\.keys) == [["shift+tab"]])
@@ -59,6 +65,32 @@ struct AgentKeyHintDetectorTests {
             #expect(hints(line).isEmpty, "\(line)")
         }
         #expect(hints("Press enter to continue").map(\.keys) == [["enter"]])
+    }
+
+    @Test(arguments: [
+        "Scroll down to view the full log", "then return to continue the loop",
+        "we go up to open the file", "press home to go back",
+    ])
+    func proseNamingKeysIsInertOutsideTheLiveRegion(line: String) {
+        #expect(historyHints(line).isEmpty, "\(line)")
+    }
+
+    @Test func bareKeysCountOnlyInTheLiveRegion() {
+        for line in ["✻ Thinking… (esc to interrupt)", "  Esc to cancel · Tab to amend", "  ↓ to manage",
+                     "  ? for shortcuts", "  ⏵⏵ accept edits on (shift+tab to cycle)"] {
+            #expect(historyHints(line).isEmpty, "\(line)")
+            #expect(!hints(line).isEmpty, "\(line)")
+        }
+        // Ctrl and Alt chords name one binding, so they count in the transcript too.
+        #expect(historyHints("  ⎿  … +53 lines (ctrl+o to expand)").map(\.keys) == [["ctrl+o"]])
+        #expect(historyHints("  ctrl+b ctrl+b to run in background").map(\.keys) == [["ctrl+b", "ctrl+b"]])
+        #expect(historyHints("alt+m to switch mode").map(\.keys) == [["alt+m"]])
+    }
+
+    @Test func aWrappedRowIsReadOnItsOwn() {
+        // The second row of a soft-wrapped footer: the hint's cells count
+        // from the start of that row, not of the logical line.
+        #expect(historyHints("lines (ctrl+o to expand)").first?.columns == 7..<23)
     }
 
     @Test func wideCharactersTakeTwoCells() {

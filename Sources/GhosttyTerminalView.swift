@@ -5320,6 +5320,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func layout() {
         super.layout()
+        // A hint underline drawn for the old grid would sit on the wrong cells.
+        clearAgentKeyHintHover()
         // A portal-owned view is sized by the portal's commit; only a view
         // that AppKit lays out directly publishes its own bounds.
         _ = commitOwnBounds()
@@ -8219,6 +8221,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseDown(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
+        settleAgentKeyHintPendingPress(clickCount: event.clickCount)
         terminalPointerGesture.cancel()
         reconcileGhosttyMouseButtons(
             reason: "mouseDown.preflight",
@@ -8688,7 +8691,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    func visibleWordPathSnapshot(at point: NSPoint, panel: TerminalPanel) -> (line: String, column: Int)? {
+    private func visibleWordPathSnapshot(at point: NSPoint, panel: TerminalPanel) -> (line: String, column: Int)? {
         guard let surface else { return nil }
         let size = ghostty_surface_size(surface)
         let rows = max(Int(size.rows), 1)
@@ -9561,6 +9564,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func scrollWheel(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
+        // Scrolling moves the text under a hint underline.
+        clearAgentKeyHintHover()
         reconcileGhosttyMouseButtons(reason: "scrollWheel")
         guard let surface else {
             // Detached views used by previews and tests have no runtime

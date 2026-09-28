@@ -25,7 +25,7 @@ struct TerminalAgentKeyHintTests {
         let before = fixture.panel.surface.debugPendingSocketInputForTesting()
 
         let click = try #require(fixture.panel.agentKeyHintClick(
-            line: expandLine, column: 20, mouseCaptured: false, modifierFlags: []
+            line: expandLine, column: 20, inLiveRegion: false, mouseCaptured: false, modifierFlags: []
         ))
         #expect(click.hint.keys == ["ctrl+o"])
         #expect(fixture.panel.pressAgentKeyHint(click))
@@ -45,7 +45,7 @@ struct TerminalAgentKeyHintTests {
         let before = fixture.panel.surface.debugPendingSocketInputForTesting()
 
         let click = try #require(fixture.panel.agentKeyHintClick(
-            line: "  ctrl+b ctrl+b to run in background", column: 4, mouseCaptured: false, modifierFlags: []
+            line: "  ctrl+b ctrl+b to run in background", column: 4, inLiveRegion: false, mouseCaptured: false, modifierFlags: []
         ))
         fixture.panel.pressAgentKeyHint(click)
 
@@ -61,7 +61,7 @@ struct TerminalAgentKeyHintTests {
         fixture.workspace.setAgentLifecycle(key: "codex", panelId: fixture.panel.id, lifecycle: .running)
         defer { _ = fixture.workspace.clearAgentLifecycle(key: "codex", panelId: fixture.panel.id) }
 
-        #expect(fixture.panel.agentKeyHintClick(line: expandLine, column: 20, mouseCaptured: false, modifierFlags: []) == nil)
+        #expect(fixture.panel.agentKeyHintClick(line: expandLine, column: 20, inLiveRegion: false, mouseCaptured: false, modifierFlags: []) == nil)
     }
 
     @Test
@@ -72,7 +72,7 @@ struct TerminalAgentKeyHintTests {
         defer { setting.removeValue(in: .standard) }
 
         #expect(fixture.panel.agentKeyHintAgent == nil)
-        #expect(fixture.panel.agentKeyHintClick(line: expandLine, column: 20, mouseCaptured: false, modifierFlags: []) == nil)
+        #expect(fixture.panel.agentKeyHintClick(line: expandLine, column: 20, inLiveRegion: false, mouseCaptured: false, modifierFlags: []) == nil)
     }
 
     @Test
@@ -86,10 +86,10 @@ struct TerminalAgentKeyHintTests {
 
         for line in ["Everything is up to date.", "Press ctrl+c again to exit", "Run the end to end tests."] {
             for column in 0..<line.count {
-                #expect(fixture.panel.agentKeyHintClick(line: line, column: column, mouseCaptured: false, modifierFlags: []) == nil, "\(line) @\(column)")
+                #expect(fixture.panel.agentKeyHintClick(line: line, column: column, inLiveRegion: false, mouseCaptured: false, modifierFlags: []) == nil, "\(line) @\(column)")
             }
         }
-        #expect(fixture.panel.agentKeyHintClick(line: expandLine, column: 5, mouseCaptured: false, modifierFlags: []) == nil)
+        #expect(fixture.panel.agentKeyHintClick(line: expandLine, column: 5, inLiveRegion: false, mouseCaptured: false, modifierFlags: []) == nil)
     }
 
     @Test
@@ -102,9 +102,39 @@ struct TerminalAgentKeyHintTests {
         defer { _ = fixture.workspace.clearAgentLifecycle(key: "opencode", panelId: fixture.panel.id) }
         let line = "esc interrupt"
 
-        #expect(fixture.panel.agentKeyHintClick(line: line, column: 1, mouseCaptured: true, modifierFlags: []) == nil)
-        #expect(fixture.panel.agentKeyHintClick(line: line, column: 1, mouseCaptured: true, modifierFlags: [.command])?.hint.keys == ["escape"])
-        #expect(fixture.panel.agentKeyHintClick(line: line, column: 1, mouseCaptured: false, modifierFlags: [.shift]) == nil, "Shift-click extends a selection")
+        #expect(fixture.panel.agentKeyHintClick(line: line, column: 1, inLiveRegion: true, mouseCaptured: true, modifierFlags: []) == nil)
+        #expect(fixture.panel.agentKeyHintClick(line: line, column: 1, inLiveRegion: true, mouseCaptured: true, modifierFlags: [.command])?.hint.keys == ["escape"])
+        #expect(fixture.panel.agentKeyHintClick(line: line, column: 1, inLiveRegion: true, mouseCaptured: false, modifierFlags: [.shift]) == nil, "Shift-click extends a selection")
+    }
+
+    @Test
+    func bareKeysAreClickableOnlyInTheLiveRegion() throws {
+        let fixture = try makeWorkspaceFixture()
+        defer { closeWindow(fixture.windowID) }
+        setting.set(true, in: .standard)
+        defer { setting.removeValue(in: .standard) }
+        fixture.workspace.setAgentLifecycle(key: "claude_code", panelId: fixture.panel.id, lifecycle: .running)
+        defer { _ = fixture.workspace.clearAgentLifecycle(key: "claude_code", panelId: fixture.panel.id) }
+        let status = "✻ Thinking… (esc to interrupt)"
+
+        #expect(fixture.panel.agentKeyHintClick(line: status, column: 14, inLiveRegion: true, mouseCaptured: false, modifierFlags: [])?.hint.keys == ["escape"])
+        #expect(fixture.panel.agentKeyHintClick(line: status, column: 14, inLiveRegion: false, mouseCaptured: false, modifierFlags: []) == nil)
+        for line in ["Scroll down to view the full log", "we go up to open the file", "press home to go back"] {
+            for column in 0..<line.count {
+                #expect(fixture.panel.agentKeyHintClick(line: line, column: column, inLiveRegion: false, mouseCaptured: false, modifierFlags: []) == nil, "\(line) @\(column)")
+            }
+        }
+    }
+
+    @Test
+    func aLiveAgentWinsOverAStaleLifecycle() {
+        #expect(TerminalPanel.agentKeyHintAgent(lifecycleStates: [:]) == nil)
+        #expect(TerminalPanel.agentKeyHintAgent(lifecycleStates: ["claude_code": .idle]) == .claudeCode)
+        #expect(TerminalPanel.agentKeyHintAgent(lifecycleStates: ["claude_code": .idle, "codex": .running]) == .codex)
+        #expect(TerminalPanel.agentKeyHintAgent(lifecycleStates: ["claude_code": .unknown, "opencode": .needsInput]) == .openCode)
+        #expect(TerminalPanel.agentKeyHintAgent(lifecycleStates: ["claude_code": .unknown, "codex": .idle]) == .codex)
+        #expect(TerminalPanel.agentKeyHintAgent(lifecycleStates: ["claude_code": .running, "codex": .running]) == .claudeCode)
+        #expect(TerminalPanel.agentKeyHintAgent(lifecycleStates: ["gemini": .running]) == nil)
     }
 
     @Test

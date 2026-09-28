@@ -41,7 +41,7 @@ public struct AgentKeyHintChordResolver: Sendable {
               !bound.contains(known.defaultKeys) else {
             return hint.keys
         }
-        guard let replacement = bound.first(where: { !$0.contains(where: AgentKeyHintDetector.blockedKeys.contains) }) else {
+        guard let replacement = bound.first(where: { !$0.contains(where: AgentKeyHintDetector.isSignalChord) }) else {
             return hint.keys
         }
         // `ctrl+b ctrl+b to run in background` asks for the chord twice.

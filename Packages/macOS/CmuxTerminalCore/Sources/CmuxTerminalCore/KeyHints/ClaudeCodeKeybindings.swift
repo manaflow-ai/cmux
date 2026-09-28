@@ -60,6 +60,10 @@ public struct ClaudeCodeKeybindings: Sendable, Equatable {
 
 /// Reads `~/.claude/keybindings.json` and caches it by modification date,
 /// so repeated clicks re-read the file only after it changes.
+///
+/// A click checks the file each time (``current()``). Hover passes a
+/// `maxAge` so moving the pointer across cells stats the file at most once
+/// per `maxAge`.
 public final class ClaudeCodeKeybindingsFile: @unchecked Sendable {
     public static let shared = ClaudeCodeKeybindingsFile(
         url: FileManager.default.homeDirectoryForCurrentUser
@@ -68,22 +72,42 @@ public final class ClaudeCodeKeybindingsFile: @unchecked Sendable {
     )
 
     private let url: URL
+    private let now: @Sendable () -> TimeInterval
     private let lock = NSLock()
+    private var checkedAt: TimeInterval?
     private var cachedModificationDate: Date?
     private var cachedSize: Int?
     private var cached: ClaudeCodeKeybindings = .empty
 
-    public init(url: URL) {
+    /// - Parameters:
+    ///   - url: The keybindings file.
+    ///   - now: A monotonic clock in seconds, for `maxAge`.
+    public init(
+        url: URL,
+        now: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    ) {
         self.url = url
+        self.now = now
     }
 
     /// The current bindings, or none when the file is missing or invalid.
-    public func current() -> ClaudeCodeKeybindings {
+    ///
+    /// - Parameter maxAge: Seconds a previous check stays good for; the file
+    ///   is not stat'ed again until they pass. `0` always checks.
+    public func current(maxAge: TimeInterval = 0) -> ClaudeCodeKeybindings {
+        let time = now()
+        lock.lock()
+        if let checkedAt, maxAge > 0, time - checkedAt < maxAge {
+            defer { lock.unlock() }
+            return cached
+        }
+        lock.unlock()
         let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
         let modificationDate = attributes?[.modificationDate] as? Date
         let size = (attributes?[.size] as? NSNumber)?.intValue
         lock.lock()
         defer { lock.unlock() }
+        checkedAt = time
         guard modificationDate != cachedModificationDate || size != cachedSize else { return cached }
         cachedModificationDate = modificationDate
         cachedSize = size
