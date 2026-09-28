@@ -1,0 +1,267 @@
+name: PR media
+run-name: "${{ github.event_name == 'workflow_dispatch' && format('PR media for pull request {0}', inputs.pr) || format('PR media for CI run {0} attempt {1}', github.event.workflow_run.id, github.event.workflow_run.run_attempt) }}"
+
+# Screenshots and a GIF of each app pull request's build, posted into its
+# sticky dogfood comment so a reviewer (or the fix session that merges it) sees
+# the change without setting anything up. scripts/ci/pr_media.py has the rules.
+#
+# It runs beside CI, never in it: nothing here is a required check or part of
+# ci-status, so it adds nothing to a pull request's verdict. It starts with every
+# CI run attempt and returns at once for anything but a same-repository pull
+# request whose CI ran the dogfood build job (app pull requests; docs or web
+# only changes skip it). Each tour is a DogfoodScenarioUITests dispatch of
+# test-e2e.yml, first with --adopt-only so it loads the app and UI test bundle
+# the pull request's CI compiled. When CI's build is on a pool the tour's
+# runner cannot load, or CI reused main's build, an app pull request compiles
+# its head once for one tour (pr_media.py tour()).
+#
+# A pull_request run takes ci.yml from the pull request, so PR CI holds no
+# actions or contents write token. This workflow, and the scripts it runs,
+# always come from the default branch; the tour files read from the head are
+# data, parsed as JSON and sent to the dispatch as its scenario input.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [requested]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number (same repository only)
+        required: true
+        type: string
+      force:
+        description: Run the tours again even if this head already has media
+        required: false
+        default: false
+        type: boolean
+      allow_compile:
+        description: Compile the app for the tour straight away instead of first trying CI's build
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+env:
+  # `workflows:` spells a display name; this is the file behind it
+  # (tests/test_ci_workflow_run_sources.py).
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
+
+jobs:
+  plan:
+    name: Pick tours
+    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository) }}
+    runs-on: ubuntu-24.04 # github-hosted-required: reads the pull request and mostly waits; keeps CI's Linux pool free
+    # Waits for CI's dogfood build job, which follows `changes`.
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      pr: ${{ steps.plan.outputs.pr }}
+      head_sha: ${{ steps.plan.outputs.head_sha }}
+      build_sha: ${{ steps.plan.outputs.build_sha }}
+      merge_sha: ${{ steps.plan.outputs.merge_sha }}
+      compile: ${{ steps.plan.outputs.compile }}
+      compile_tour: ${{ steps.plan.outputs.compile_tour }}
+      tours: ${{ steps.plan.outputs.tours }}
+      run: ${{ steps.plan.outputs.run }}
+    steps:
+      # Reads come from the org's route App on its own rate limit when it is
+      # configured, as in ci-ui-tests.yml; writes stay on GITHUB_TOKEN.
+      - name: Mint the read token
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+          permission-pull-requests: read
+
+      - name: Checkout the planner from the default branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          # main's tours supply `paths` to a head that predates them.
+          sparse-checkout: |
+            scripts/ci/pr_media.py
+            scripts/ci/find_admitted_build.py
+            scripts/ci/product_input_identity.py
+            dogfood/scenarios
+          sparse-checkout-cone-mode: false
+
+      - name: Pick the tours for the changed files
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          READ_TOKEN: ${{ steps.read-token.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          PR: ${{ inputs.pr }}
+          FORCE: ${{ inputs.force }}
+        run: python3 scripts/ci/pr_media.py plan
+
+  tour:
+    name: Tour ${{ matrix.tour }}
+    needs: plan
+    if: ${{ needs.plan.outputs.run != '' && needs.plan.outputs.run != '[]' }}
+    runs-on: ubuntu-24.04 # github-hosted-required: holds actions write and mostly waits for the tour run
+    # A tour dispatch can wait up to 50 minutes for the compile it adopts,
+    # then up to 90 for the run (pr_media.RUN_WAIT_SECONDS), and when that
+    # build does not load, up to 90 more for a run that compiles its own.
+    timeout-minutes: 300
+    # A newer push to the same pull request replaces this tour's media.
+    concurrency:
+      group: pr-media-${{ needs.plan.outputs.pr }}-${{ matrix.tour }}
+      cancel-in-progress: true
+    permissions:
+      actions: write
+      contents: read
+      # pr_media.head_moved re-reads the pull request once the read token expires.
+      pull-requests: read
+    strategy:
+      fail-fast: false
+      matrix:
+        tour: ${{ fromJSON(needs.plan.outputs.run) }}
+    steps:
+      # Reads come from the org's route App on its own rate limit when it is
+      # configured, as in ci-ui-tests.yml; writes stay on GITHUB_TOKEN.
+      - name: Mint the read token
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+          permission-pull-requests: read
+
+      - name: Checkout the dispatcher from the default branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      # The dispatcher compares the product inputs of the head and the merge
+      # CI compiled, so it needs their objects (at depth 1: a deeper fetch of
+      # the merge would pull main's history); the tour is read from the head.
+      - name: Fetch the pull request head and the merge CI built
+        env:
+          HEAD_SHA: ${{ needs.plan.outputs.head_sha }}
+          BUILD_SHA: ${{ needs.plan.outputs.build_sha }}
+          MERGE_SHA: ${{ needs.plan.outputs.merge_sha }}
+          TOUR: ${{ matrix.tour }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$HEAD_SHA"
+          if [ -n "$BUILD_SHA" ] && [ "$BUILD_SHA" != "$HEAD_SHA" ]; then
+            git fetch --no-tags --depth=1 origin "$BUILD_SHA" \
+              || echo "::warning::could not fetch $BUILD_SHA; the dispatch may find no product to adopt"
+          fi
+          if [ -n "$MERGE_SHA" ]; then
+            git fetch --no-tags --depth=1 origin "$MERGE_SHA" \
+              || echo "::warning::could not fetch $MERGE_SHA; the dispatch may find no product to adopt"
+          fi
+          git show "$HEAD_SHA:dogfood/scenarios/$TOUR.json" > "$RUNNER_TEMP/tour.json"
+
+      - name: Install the image renderer
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet --disable-pip-version-check pillow==11.3.0
+
+      - name: Run the tour on the pull request's build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          READ_TOKEN: ${{ steps.read-token.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ needs.plan.outputs.head_sha }}
+          # The tour file comes from HEAD_SHA; the app from the build CI made
+          # for BUILD_SHA, which differs when this push changed no app input.
+          BUILD_SHA: ${{ needs.plan.outputs.build_sha }}
+          TOUR: ${{ matrix.tour }}
+          # An app pull request compiles once when no CI build loads on the
+          # tour's runner (pr_media.py COMPILE_FALLBACK).
+          COMPILE: ${{ inputs.allow_compile && 'now' || needs.plan.outputs.compile || 'never' }}
+          COMPILE_TOUR: ${{ needs.plan.outputs.compile_tour }}
+          PR: ${{ needs.plan.outputs.pr }}
+          # A job token cannot list repository variables (HTTP 403), so the
+          # dispatcher reads its routing inputs from these instead.
+          CMUX_MACOS_RUNNER_TESTS: ${{ vars.MACOS_RUNNER_TESTS }}
+          CMUX_CI_E2E_LARGE_POOL_OVERFLOW: ${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}
+          CMUX_CI_PR_POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          CMUX_CI_PR_POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          CMUX_CI_PR_POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
+          CMUX_CI_PR_POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          CMUX_CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          CMUX_CMUX_CI_XCODE_APP_PR: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          CMUX_CI_E2E_OWNED_UI: ${{ vars.CI_E2E_OWNED_UI }}
+        # exec: the runner signals the step's shell on cancel, and bash would
+        # not pass it on, so the dispatched run would outlive this one.
+        run: >-
+          exec "$RUNNER_TEMP/venv/bin/python" scripts/ci/pr_media.py tour
+          --name "$TOUR" --scenario "$RUNNER_TEMP/tour.json" --out "$RUNNER_TEMP/media/$TOUR" --compile "$COMPILE"
+
+      - name: Keep the tour's media for the publish job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-media-${{ matrix.tour }}
+          # The folder above the tour's, so the archive holds <tour>/...: a
+          # download of a single artifact lands without a per-artifact folder.
+          # The hidden .frames-<tour> scratch next to it stays out
+          # (include-hidden-files defaults to false).
+          path: ${{ runner.temp }}/media
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 3
+
+  publish:
+    name: Post media
+    needs: [plan, tour]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.tours != '' && needs.plan.outputs.tours != '[]' }}
+    runs-on: ubuntu-24.04 # github-hosted-required: trusted contents and pull-request write token
+    timeout-minutes: 10
+    concurrency:
+      group: pr-media-publish-${{ needs.plan.outputs.pr }}
+      cancel-in-progress: false
+    # contents: write reaches the pr-media branch; main is protected by its ruleset.
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout the publisher from the default branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/pr_media.py
+            scripts/pr-media.py
+          sparse-checkout-cone-mode: false
+
+      - name: Download the tours' media
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: pr-media-*
+          path: ${{ runner.temp }}/media
+          merge-multiple: true
+
+      - name: Upload the media and update the dogfood comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR: ${{ needs.plan.outputs.pr }}
+          HEAD_SHA: ${{ needs.plan.outputs.head_sha }}
+          TOURS: ${{ needs.plan.outputs.tours }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/pr_media.py publish --media "$RUNNER_TEMP/media"

@@ -73,6 +73,11 @@ public protocol MobileSyncRuntime: Sendable {
     /// and settled as timed out so the automatic backoff retry loop keeps
     /// running.
     var reconnectAttemptDeadlineNanoseconds: UInt64 { get }
+
+    /// Suspends until a reconnect-attempt deadline of `nanoseconds` elapses,
+    /// throwing if cancelled first. The runtime owns the clock so the
+    /// deadline follows the same time source as ``now``.
+    func sleepUntilReconnectAttemptDeadline(nanoseconds: UInt64) async throws
 }
 
 public extension MobileSyncRuntime {
@@ -101,4 +106,9 @@ public extension MobileSyncRuntime {
     /// (transport connects bound themselves near 15s) while turning a hung
     /// dial into a settled, retryable failure within half a minute.
     var reconnectAttemptDeadlineNanoseconds: UInt64 { 30_000_000_000 }
+
+    /// Default deadline clock: the process's monotonic clock.
+    func sleepUntilReconnectAttemptDeadline(nanoseconds: UInt64) async throws {
+        try await RPCTaskTimeout.continuousClockSleep(nanoseconds: nanoseconds)
+    }
 }
