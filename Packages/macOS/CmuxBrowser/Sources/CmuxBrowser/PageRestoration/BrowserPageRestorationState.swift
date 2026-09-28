@@ -75,10 +75,11 @@ public final class BrowserPageRestorationState {
     ///
     /// - Parameters:
     ///   - targetFrameIsMainFrame: Whether the request loads in the main frame
-    ///     or a subframe, or nil when it has no target frame.
+    ///     or a subframe, or nil when it has no target frame. Such a request
+    ///     opens a new window, so it is ignored.
     ///   - isFormSubmission: Whether the request sends a body, such as a POST.
     public func noteNavigationRequest(targetFrameIsMainFrame: Bool?, isFormSubmission: Bool) {
-        let isMainFrame = targetFrameIsMainFrame != false
+        guard let isMainFrame = targetFrameIsMainFrame else { return }
         if isFormSubmission {
             liveContainsFormSubmission = true
         }
