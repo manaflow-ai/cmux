@@ -42,7 +42,9 @@ public final class DirectQuicListener: @unchecked Sendable {
         let options = DirectQuicCarrierConnection.makeOptions()
         sec_protocol_options_set_local_identity(options.securityProtocolOptions, tlsIdentity)
         let parameters = NWParameters(quic: options)
-        parameters.allowLocalEndpointReuse = true
+        // Exclusive bind: endpoint reuse would let two builds share one UDP
+        // port and answer each other's flows with the wrong device key; the
+        // runtime's port scan needs conflicts to surface as bind failures.
         listener = try NWListener(using: parameters, on: nwPort)
         self.identity = identity
         self.handshakeDeadline = handshakeDeadline

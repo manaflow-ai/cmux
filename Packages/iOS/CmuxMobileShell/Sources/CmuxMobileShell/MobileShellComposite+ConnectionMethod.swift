@@ -119,7 +119,9 @@ extension MobileShellComposite {
             return pairing.directAddresses.filter(\.enabled).map { entry in
                 CmxIrohDirectDialCandidate(
                     address: entry.address,
-                    port: entry.port.flatMap { UInt16(exactly: $0) }
+                    port: entry.port.flatMap { UInt16(exactly: $0) },
+                    transport: entry.transport == MobilePairedMacDirectAddress.directQuicTransport
+                        ? .directQuic : .iroh
                 )
             }
         case .iroh:
@@ -131,7 +133,8 @@ extension MobileShellComposite {
     /// numeric Tailscale addresses qualify, so a grant can never pin the dial
     /// to a LAN or public address.
     nonisolated static func tailscaleDirectQuicCandidates(
-        from routes: [CmxAttachRoute]
+        from routes: [CmxAttachRoute],
+        fromFreshCode: Bool = false
     ) -> [CmxIrohDirectDialCandidate] {
         var seen = Set<String>()
         return routes.compactMap { route in
@@ -139,7 +142,11 @@ extension MobileShellComposite {
                   (try? CmxUserTailscalePairingAuthorization(host: host, port: port)) != nil,
                   let udpPort = UInt16(exactly: port),
                   seen.insert("\(host):\(port)").inserted else { return nil }
-            return CmxIrohDirectDialCandidate(address: host, port: udpPort)
+            // Fresh codes advertise the Direct QUIC pairing port; a stored
+            // grant predates it and stays on the pinned Iroh dial.
+            return CmxIrohDirectDialCandidate(
+                address: host, port: udpPort,
+                transport: fromFreshCode ? .directQuic : .iroh)
         }
     }
 

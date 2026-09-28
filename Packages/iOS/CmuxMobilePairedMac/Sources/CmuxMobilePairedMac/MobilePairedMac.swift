@@ -164,12 +164,31 @@ public struct MobilePairedMacDirectAddress: Codable, Equatable, Sendable, Identi
     public var enabled: Bool
     /// Optional human-readable label ("Home LAN", "Office WireGuard").
     public var label: String?
+    /// The wire protocol this entry was saved for: `"direct_quic"` for
+    /// entries created since Direct QUIC shipped, absent for entries that
+    /// pin the Mac's Iroh listener port (they keep the pinned Iroh dial).
+    public var transport: String?
 
-    public init(address: String, port: Int? = nil, enabled: Bool = true, label: String? = nil) {
+    /// Provenance: `"pairing_code"` for entries a scanned pairing code (or
+    /// the Tailscale Only migration) created, absent for entries the user
+    /// typed. Reconciliation keys on this, never on the editable ``label``.
+    public var origin: String?
+
+    /// The ``transport`` value marking a Direct QUIC entry.
+    public static let directQuicTransport = "direct_quic"
+    /// The ``origin`` value marking a pairing-code-derived entry.
+    public static let pairingCodeOrigin = "pairing_code"
+
+    public init(
+        address: String, port: Int? = nil, enabled: Bool = true,
+        label: String? = nil, transport: String? = nil, origin: String? = nil
+    ) {
         self.address = address
         self.port = port
         self.enabled = enabled
         self.label = label
+        self.transport = transport
+        self.origin = origin
     }
 }
 
