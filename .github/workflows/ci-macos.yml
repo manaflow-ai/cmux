@@ -3300,6 +3300,15 @@ jobs:
             echo "valid=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # An owned Mac reuses this workspace, but checkout's clean deletes every
+      # package's .build, so each job built its packages from nothing. Point
+      # them at a per-runner directory outside the workspace instead
+      # (scripts/ci/owned_spm_scratch.py); anywhere else it does nothing.
+      - name: Keep Swift package builds on this owned Mac
+        if: ${{ env.PACKAGE_TESTS_VIA_STEP != '1' && contains(runner.name, '-glaeda') }}
+        continue-on-error: true
+        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+
       # Selects again (the same files), then sets up what the selection needs:
       # DEVELOPER_DIR from "Select Xcode", a GhosttyKit.xcframework download
       # when the cache above missed, Rust for CmuxCommandPalette. Then the
