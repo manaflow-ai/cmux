@@ -224,6 +224,33 @@ struct MobileHostSurfaceEventLaneTests {
         #expect(queue.dequeue(lane: .surface("a"))?.frame == Data([1]))
     }
 
+    /// Terminals printing in the background must not take surface lanes from
+    /// one another. When they did, 30 active terminals reopened 40 to 60
+    /// streams per connection, each starting with a full screen, until the
+    /// phone's stream credit ran out and it redialed.
+    @Test func backgroundOutputNeverReassignsSurfaceLanes() {
+        let queue = MobileHostConnectionEventQueue()
+        queue.updateSubscribedTopics(["terminal.render_grid"])
+        queue.enableSurfaceLanes(limit: 4)
+        let surfaceIDs = (0..<30).map { "s\($0)" }
+        var surfaceLanesUsed = Set<String>()
+        for _ in 0..<3 {
+            for surfaceID in surfaceIDs {
+                let result = queue.enqueue(
+                    topic: "terminal.render_grid", coalesceKey: surfaceID, isFullRenderGridFrame: true, frame: Data([1])
+                )
+                #expect(result.admitted)
+                if case .surface(let laneSurfaceID) = result.drainLane {
+                    surfaceLanesUsed.insert(laneSurfaceID)
+                }
+                _ = queue.dequeue(lane: result.drainLane)
+                _ = queue.finishDrain(lane: result.drainLane)
+            }
+        }
+        #expect(surfaceLanesUsed.count <= 4)
+        #expect(surfaceIDs.allSatisfy { queue.surfaceLaneGeneration(surfaceID: $0) == 0 })
+    }
+
     @Test func repeatedSurfaceLaneFailuresPinTheSurfaceToTheSharedLane() {
         let queue = MobileHostConnectionEventQueue()
         queue.updateSubscribedTopics(["terminal.render_grid"])
