@@ -300,6 +300,11 @@ class PlanTests(StubbedTest):
                     os.environ.pop(key, None) if value is None else os.environ.__setitem__(key, value)
             return dict(line.split("=", 1) for line in out.read().splitlines())
 
+    def test_a_manual_dispatch_while_ci_runs_leaves_it_to_the_completed_run(self) -> None:
+        running = {"id": 9, "run_attempt": 1, "head_sha": HEAD, "status": "in_progress", "created_at": "t"}
+        outputs = self.plan({"repos/o/r/actions/workflows/ci.yml/runs": {"workflow_runs": [running]}}, {})
+        self.assertEqual(json.loads(outputs["run"]), [])
+
     def test_a_manual_dispatch_without_a_ci_run_still_tours_the_head(self) -> None:
         outputs = self.plan({"repos/o/r/actions/workflows/ci.yml/runs": {"workflow_runs": []}}, {})
         self.assertEqual(outputs["build_sha"], HEAD)
@@ -321,9 +326,11 @@ class PlanTests(StubbedTest):
         self.assertEqual(outputs["build_sha"], self.EARLIER)
 
     def test_a_pull_request_on_mains_build_adopts_mains_build(self) -> None:
+        merge = "c" * 40
         run = {"id": 9, "run_attempt": 1, "head_sha": HEAD, "head_branch": "topic", "event": "pull_request",
                "path": media.CI_WORKFLOW_PATH, "head_repository": {"full_name": "o/r"},
-               "pull_requests": [{"number": 42}], "status": "completed"}
+               "pull_requests": [{"number": 42}], "status": "completed",
+               "referenced_workflows": [{"ref": "refs/pull/42/merge", "sha": merge}]}
         original = media.admitted_build_run
         media.admitted_build_run = lambda _repo, _run, _attempt: {}
         self.addCleanup(setattr, media, "admitted_build_run", original)
@@ -334,6 +341,8 @@ class PlanTests(StubbedTest):
                 {"name": "Fast static checks", "status": "completed", "conclusion": "success"}]},
             "repos/o/r/actions/runs/9": run}, {"SOURCE_RUN_ID": "9", "SOURCE_RUN_ATTEMPT": "1"})
         self.assertEqual((outputs["build_sha"], outputs["compile"]), (HEAD, media.ADOPT_MAIN))
+        # The merge CI tested is what main's build stood in for.
+        self.assertEqual(outputs["merge_sha"], merge)
         self.assertEqual(json.loads(outputs["run"]), ["sidebar-and-chrome-tour"])
 
     def test_app_changes_follow_cis_build_inputs(self) -> None:
@@ -434,6 +443,8 @@ class UploadRetryTests(unittest.TestCase):
 
 
 class TourCacheTests(StubbedTest):
+    merge_sha = ""
+
     def run_tour(self, conclusion: str, media_made: dict, compile_mode: str = "ci",
                  adopt_status: int = 0, refused: bool = False) -> dict:
         import tempfile
@@ -473,7 +484,8 @@ class TourCacheTests(StubbedTest):
         for signum in (signal.SIGINT, signal.SIGTERM):
             self.addCleanup(signal.signal, signum, signal.getsignal(signum))
         with tempfile.TemporaryDirectory() as tmp:
-            media.tour("o/r", "t", Path(tmp) / "s.json", HEAD, Path(tmp) / "out", compile_mode)
+            media.tour("o/r", "t", Path(tmp) / "s.json", HEAD, Path(tmp) / "out", compile_mode,
+                       merge_sha=self.merge_sha)
             return json.loads((Path(tmp) / "out/manifest.json").read_text())
 
     def test_only_a_verdict_with_media_is_cached(self) -> None:
@@ -499,6 +511,14 @@ class TourCacheTests(StubbedTest):
     def test_mains_build_is_adopted_through_the_dispatcher(self) -> None:
         self.run_tour("success", {"gif": "tour.gif", "shots": []}, media.ADOPT_MAIN)
         self.assertIn("--adopt-main", self.commands[0])
+        self.assertEqual(self.commands[0][self.commands[0].index("--ref") + 1], HEAD)
+        self.merge_sha = "c" * 40
+        manifest = self.run_tour("success", {"gif": "tour.gif", "shots": []}, media.ADOPT_MAIN)
+        self.assertEqual(self.commands[0][self.commands[0].index("--ref") + 1], self.merge_sha)
+        self.assertEqual(manifest["tested_sha"], self.merge_sha)
+        manifest = self.run_tour("success", {}, media.ADOPT_MAIN, refused=True)
+        self.assertIn("main's build", manifest["note"])
+        self.merge_sha = ""
         self.run_tour("success", {"gif": "tour.gif", "shots": []}, media.ADOPT_CI)
         self.assertNotIn("--adopt-main", self.commands[0])
 

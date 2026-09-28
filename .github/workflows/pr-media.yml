@@ -186,6 +186,8 @@ jobs:
           # The tour file comes from HEAD_SHA; the app from the build CI made
           # for BUILD_SHA, which differs when this push changed no app input.
           BUILD_SHA: ${{ needs.plan.outputs.build_sha }}
+          # The merge CI tested, which a tour of main's build dispatches.
+          MERGE_SHA: ${{ needs.plan.outputs.merge_sha }}
           TOUR: ${{ matrix.tour }}
           # Adopt CI's build ("ci") or main's ("main"); only allow_compile compiles.
           COMPILE: ${{ inputs.allow_compile && 'now' || needs.plan.outputs.compile || 'ci' }}
@@ -212,9 +214,9 @@ jobs:
           name: pr-media-${{ matrix.tour }}
           # The folder above the tour's, so the archive holds <tour>/...: a
           # download of a single artifact lands without a per-artifact folder.
-          # The hidden .frames-<tour> scratch next to it stays out
-          # (include-hidden-files defaults to false).
+          # The hidden .frames-<tour> scratch next to it stays out.
           path: ${{ runner.temp }}/media
+          include-hidden-files: false
           if-no-files-found: ignore
           overwrite: true
           retention-days: 3

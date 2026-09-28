@@ -297,6 +297,14 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.dispatch()["require_adopted_product"], "true")
 
+    def test_adopt_main_needs_adopt_only(self):
+        tour = self.root / "tour.json"
+        tour.write_text(json.dumps({"steps": [{"shot": "start"}]}))
+        result = self.launch("--scenario", str(tour), "--adopt-main", **self.ci_env())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--adopt-main goes with --adopt-only", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
     def test_adopt_only_exits_when_ci_ends_without_products(self):
         building = {**self.PR_CI, "status": "in_progress"}
         result = self.adopt_only(**self.ci_env(building, artifacts=[], status="completed"))
