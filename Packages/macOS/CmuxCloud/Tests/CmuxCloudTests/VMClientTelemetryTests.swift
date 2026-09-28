@@ -1,9 +1,6 @@
-import CmuxCloud
+@testable import CmuxCloud
 import Foundation
 import Testing
-
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
 
 @Suite
 struct VMClientTelemetryTests {
@@ -178,4 +175,3 @@ private final class CaptureLog: @unchecked Sendable {
     var sentry: [(String, VMRequestFailureSeverity)] = []
     var breadcrumbs = 0
 }
-#endif

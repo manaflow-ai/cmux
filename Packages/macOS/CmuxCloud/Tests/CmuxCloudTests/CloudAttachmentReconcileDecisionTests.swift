@@ -1,13 +1,7 @@
-import CmuxCloud
+@testable import CmuxCloud
 import CmuxCloudTui
 import Foundation
 import Testing
-
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
 
 /// A refresh pass must never tear down a working attachment because the
 /// resolution lookup, which rides the same link, could not answer.
