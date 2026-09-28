@@ -425,22 +425,6 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsFeedBubbleQuotes")
 
-                    Toggle(isOn: $displaySettings.feedReplacesNotifications) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(L10n.string(
-                                "mobile.settings.feedReplacesNotifications",
-                                defaultValue: "Feed Replaces Notifications"
-                            ))
-                            Text(L10n.string(
-                                "mobile.settings.feedReplacesNotificationsCaption",
-                                defaultValue: "Hide the Notifications tab and use the Feed for agent activity."
-                            ))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        }
-                    }
-                    .accessibilityIdentifier("MobileSettingsFeedReplacesNotifications")
-
                     NavigationLink {
                         TaskComposerShellIconLabView()
                     } label: {
@@ -490,6 +474,25 @@ struct MobileSettingsView: View {
                         Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
                     }
                     .accessibilityIdentifier("MobileSettingsWrapTitles")
+
+                    Toggle(isOn: Binding(
+                        get: { !displaySettings.feedReplacesNotifications },
+                        set: { displaySettings.feedReplacesNotifications = !$0 }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.legacyNotificationsTab",
+                                defaultValue: "Legacy Notifications Tab"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.legacyNotificationsTabCaption",
+                                defaultValue: "The Feed replaced Notifications. Turn this on to bring the legacy tab back."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsLegacyNotificationsTab")
 
                     Toggle(isOn: $displaySettings.feedShowsTab) {
                         VStack(alignment: .leading, spacing: 2) {

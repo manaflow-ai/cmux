@@ -63,6 +63,14 @@ public final class MobileDisplaySettings {
         didSet { defaults.set(wrapWorkspaceTitles, forKey: Self.wrapWorkspaceTitlesKey) }
     }
 
+    /// The Feed replaces the Notifications tab; the legacy tab stays hidden
+    /// unless this brings it back from Settings.
+    public var feedReplacesNotifications: Bool {
+        didSet {
+            defaults.set(feedReplacesNotifications, forKey: Self.feedReplacesNotificationsKey)
+        }
+    }
+
     /// Whether Feed rows show the event's terminal tab after its workspace.
     /// Defaults to `false` (workspace only), for people who organize agents
     /// by tab rather than by workspace.
@@ -187,14 +195,6 @@ public final class MobileDisplaySettings {
         }
     }
 
-    /// Persisted CMUX Labs switch that hides the Notifications tab so the
-    /// Feed can be dogfooded as its replacement. Off by default.
-    var feedReplacesNotifications: Bool {
-        didSet {
-            defaults.set(feedReplacesNotifications, forKey: Self.feedReplacesNotificationsKey)
-        }
-    }
-
     /// DEBUG-only override forcing the rebuilt keyboard dock path on this
     /// device (iOS ≤26; legacy is the shipping default), exposed in
     /// Settings > Developer for keyboard-pinning A/B dogfood. Terminal hosts
@@ -217,8 +217,6 @@ public final class MobileDisplaySettings {
     var taskComposerFullLiquidGlass: Bool { false }
     /// Production builds keep the shipping leading-bar quotes.
     var feedBubbleQuotes: Bool { false }
-    /// Production builds keep the Notifications tab.
-    var feedReplacesNotifications: Bool { false }
     #endif
 
     /// Creates the display settings, seeding stored values from `defaults`.
@@ -233,6 +231,9 @@ public final class MobileDisplaySettings {
         self.haptics = haptics
         self.wrapWorkspaceTitles = defaults.bool(forKey: Self.wrapWorkspaceTitlesKey)
         self.feedShowsTab = defaults.bool(forKey: Self.feedShowsTabKey)
+        self.feedReplacesNotifications = defaults.object(
+            forKey: Self.feedReplacesNotificationsKey
+        ) as? Bool ?? true
         self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
         self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
         self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
@@ -263,7 +264,6 @@ public final class MobileDisplaySettings {
         self.feedBubbleQuotes = defaults.object(
             forKey: Self.feedBubbleQuotesKey
         ) as? Bool ?? true
-        self.feedReplacesNotifications = defaults.bool(forKey: Self.feedReplacesNotificationsKey)
         self.forceRebuildKeyboardDock = defaults.cmuxForceRebuildKeyboardDock
         #endif
     }
