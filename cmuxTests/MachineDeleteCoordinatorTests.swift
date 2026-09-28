@@ -43,6 +43,26 @@ struct MachineDeleteCoordinatorTests {
         #expect(fixture.restored.isEmpty)
     }
 
+    @Test func detachRetiresTheMachinesCreatesBeforeClosingItsWorkspaces() {
+        let workspaceID = UUID()
+        var steps: [String] = []
+        var retiredWorkspaceIDs: Set<UUID> = []
+        MachineDeleteCoordinator.detachLocalPresentations(
+            of: "m1",
+            workspaceIDs: { steps.append("find \($0)"); return [workspaceID] },
+            retireCreates: { machineID, workspaceIDs in
+                steps.append("retire \(machineID)")
+                retiredWorkspaceIDs = workspaceIDs
+            },
+            closeWorkspaces: { steps.append("close workspaces \($0)") },
+            closePanes: { steps.append("close panes \($0)") }
+        )
+        // Closing a workspace first would cancel its create, whose receipt then
+        // destroys the machine even when this delete fails.
+        #expect(steps == ["find m1", "retire m1", "close workspaces m1", "close panes m1"])
+        #expect(retiredWorkspaceIDs == [workspaceID])
+    }
+
     @Test func notFoundRetiresTheMachineAndOtherFailuresRestoreIt() async throws {
         let fixture = MachineDeleteFixture()
         let coordinator = fixture.makeCoordinator()

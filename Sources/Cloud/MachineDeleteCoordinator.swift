@@ -32,7 +32,7 @@ final class MachineDeleteCoordinator {
     init(
         notificationCenter: NotificationCenter = .default,
         destroyMachine: @escaping @MainActor (String) async throws -> Void = { try await VMClient.shared.destroy(id: $0) },
-        didHide: @escaping @MainActor (String) -> Void = MachineDeleteCoordinator.detachLocalPresentations(of:),
+        didHide: @escaping @MainActor (String) -> Void = { MachineDeleteCoordinator.detachLocalPresentations(of: $0) },
         didRetire: @escaping @MainActor (String) -> Void = { AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: $0) },
         didRestore: @escaping @MainActor (String) -> Void = { MachineCreateCoordinator.shared.machineDeletionFailed($0) }
     ) {
@@ -82,12 +82,24 @@ final class MachineDeleteCoordinator {
     ///
     /// Creates stop first: closing a workspace cancels its create, and a create
     /// cancelled that way destroys the machine it names, even after this delete fails.
-    /// - Parameter machineID: The exact provider machine identifier.
-    static func detachLocalPresentations(of machineID: String) {
-        let workspaceIDs = AppDelegate.shared?.localWorkspaceIDs(forCloudVMID: machineID) ?? []
-        MachineCreateCoordinator.shared.machineDeletionBegan(machineID, presentedIn: workspaceIDs)
-        AppDelegate.shared?.closeLocalWorkspaces(forCloudVMID: machineID)
-        SurfaceCatalog.shared.closeURLBackedPanes(on: .cloud(machineID))
+    /// - Parameters:
+    ///   - machineID: The exact provider machine identifier.
+    ///   - workspaceIDs: Finds the machine's local workspaces.
+    ///   - retireCreates: Stops the machine's creates, given those workspaces.
+    ///   - closeWorkspaces: Closes the machine's local workspaces whole.
+    ///   - closePanes: Closes the machine's URL-backed panes.
+    static func detachLocalPresentations(
+        of machineID: String,
+        workspaceIDs: @MainActor (String) -> Set<UUID> = { AppDelegate.shared?.localWorkspaceIDs(forCloudVMID: $0) ?? [] },
+        retireCreates: @MainActor (String, Set<UUID>) -> Void = {
+            MachineCreateCoordinator.shared.machineDeletionBegan($0, presentedIn: $1)
+        },
+        closeWorkspaces: @MainActor (String) -> Void = { AppDelegate.shared?.closeLocalWorkspaces(forCloudVMID: $0) },
+        closePanes: @MainActor (String) -> Void = { SurfaceCatalog.shared.closeURLBackedPanes(on: .cloud($0)) }
+    ) {
+        retireCreates(machineID, workspaceIDs(machineID))
+        closeWorkspaces(machineID)
+        closePanes(machineID)
     }
 
     /// Destroys the machine for the `vm.destroy` socket method, which every
