@@ -3,13 +3,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { stripeCustomers, stripeSubscriptions } from "../db/schema";
 import baseEnMessages from "../messages/en.json";
-import stagedBillingMessages from "../messages-staging/billing.en.json";
 import jaMessages from "../messages/ja.json";
 import { withAccountMutationLeaseSupport } from
   "./helpers/account-mutation-db-mock";
 
-// New billing keys live in messages-staging until the lead merges them.
-const enMessages = deepMerge(baseEnMessages, stagedBillingMessages) as typeof baseEnMessages;
+const enMessages = baseEnMessages;
 
 const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
@@ -550,15 +548,4 @@ function mockImplementation(
   (fn as { mockImplementation(next: typeof implementation): void }).mockImplementation(
     implementation,
   );
-}
-
-function deepMerge(base: unknown, extra: unknown): unknown {
-  if (!isRecord(base) || !isRecord(extra)) return extra ?? base;
-  const merged: Record<string, unknown> = { ...base };
-  for (const [key, value] of Object.entries(extra)) merged[key] = deepMerge(base[key], value);
-  return merged;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
