@@ -53,6 +53,29 @@ def test_local_job_filenames_share_an_explicit_run_id_only():
     assert census.read_log_dir.__defaults__ == (None,)
 
 
+def test_remote_mode_accepts_six_and_seven_shard_job_names():
+    calls = []
+
+    def fake_api(endpoint):
+        calls.append(endpoint)
+        if endpoint.endswith("/jobs?per_page=100"):
+            return '{"jobs": [{"id": 1, "name": "macos / app-host unit tests (1/6)"}, {"id": 2, "name": "macos / app-host unit tests (7/7)"}, {"id": 3, "name": "macos / CLI product tests"}]}'
+        return ""
+
+    original = census._gh_api
+    census._gh_api = fake_api
+    try:
+        records = census.download_runs(["run"])
+        assert [record["job_id"] for record in records] == ["1", "2"]
+        assert calls == [
+            "repos/{}/actions/runs/run/jobs?per_page=100".format("manaflow-ai/cmux"),
+            "repos/{}/actions/jobs/1/logs".format("manaflow-ai/cmux"),
+            "repos/{}/actions/jobs/2/logs".format("manaflow-ai/cmux"),
+        ]
+    finally:
+        census._gh_api = original
+
+
 def test_remote_mode_rejects_empty_download(monkeypatch=None):
     original = census.download_runs
     census.download_runs = lambda _run_ids: []
