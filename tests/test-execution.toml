@@ -152,6 +152,10 @@ path = "tests/test_claude_wrapper_subrouter_resume_marker.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_claude_wrapper_process_name.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_claude_wrapper_generated_settings_fast_path.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
