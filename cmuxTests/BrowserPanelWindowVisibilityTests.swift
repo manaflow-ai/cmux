@@ -17,7 +17,7 @@ import Testing
 /// discarded (issue #15069).
 @MainActor
 @Suite(.serialized) struct BrowserPanelWindowVisibilityTests {
-    @Test func portalHostOutsideAWindowDoesNotMarkThePanelVisible() {
+    @Test func portalHostOutsideAWindowDoesNotMarkThePanelVisible() async {
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }
         #expect(!panel.isWebViewVisibleInUI)
@@ -44,7 +44,7 @@ import Testing
         detachedRoot.addSubview(hostingView)
         defer { hostingView.removeFromSuperview() }
 
-        settle(hostingView)
+        await settle(hostingView)
         #expect(findHostContainerView(in: hostingView) != nil, "Expected the representable to build its host")
         #expect(
             !panel.isWebViewVisibleInUI,
@@ -55,12 +55,12 @@ import Testing
         defer { window.orderOut(nil) }
         window.contentView?.addSubview(hostingView)
         #expect(
-            waitUntil { settle(hostingView); return panel.isWebViewVisibleInUI },
+            await settle(hostingView, until: { panel.isWebViewVisibleInUI }),
             "The portal host must mark the panel visible once it enters a window."
         )
     }
 
-    @Test func panelViewOutsideAWindowDoesNotMarkThePanelVisible() {
+    @Test func panelViewOutsideAWindowDoesNotMarkThePanelVisible() async {
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }
         #expect(!panel.isWebViewVisibleInUI)
@@ -73,7 +73,7 @@ import Testing
         detachedRoot.addSubview(hostingView)
         defer { hostingView.removeFromSuperview() }
 
-        settle(hostingView)
+        await settle(hostingView)
         #expect(
             !panel.isWebViewVisibleInUI,
             "A browser panel view that is not in a window must not mark the panel visible."
@@ -83,7 +83,7 @@ import Testing
         defer { window.orderOut(nil) }
         window.contentView?.addSubview(hostingView)
         #expect(
-            waitUntil { settle(hostingView); return panel.isWebViewVisibleInUI },
+            await settle(hostingView, until: { panel.isWebViewVisibleInUI }),
             "The browser panel view must mark the panel visible once it enters a window."
         )
     }
@@ -100,24 +100,38 @@ import Testing
         return window
     }
 
-    /// Lays the hosting view out and lets main-actor work that the layout
-    /// scheduled, such as SwiftUI appearance callbacks and portal lifecycle
-    /// tasks, run before the caller asserts.
-    private func settle(_ hostingView: NSView) {
+    /// Lays the hosting view out and lets the work that layout scheduled run
+    /// before the caller asserts: SwiftUI appearance callbacks on the run loop,
+    /// and main-actor tasks such as portal lifecycle and window-entry reports.
+    private func settle(_ hostingView: NSView) async {
         for _ in 0..<5 {
-            hostingView.window?.displayIfNeeded()
-            hostingView.superview?.layoutSubtreeIfNeeded()
-            hostingView.layoutSubtreeIfNeeded()
-            _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+            await settlePass(hostingView)
         }
     }
 
-    private func waitUntil(timeout: TimeInterval = 2, _ condition: () -> Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        repeat {
-            if condition() { return true }
-        } while Date() < deadline
+    /// Settles until `condition` holds, with a real deadline so a regression
+    /// fails the expectation instead of hanging.
+    private func settle(_ hostingView: NSView, until condition: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !condition(), ContinuousClock.now < deadline {
+            await settlePass(hostingView)
+        }
         return condition()
+    }
+
+    /// The test body is itself a main-actor job, so the nested run loop can't
+    /// run other main-actor jobs; yielding lets the ones already queued run.
+    private func settlePass(_ hostingView: NSView) async {
+        layOut(hostingView)
+        await Task.yield()
+    }
+
+    /// Lays the view out and turns the run loop once for SwiftUI's updates.
+    private func layOut(_ hostingView: NSView) {
+        hostingView.window?.displayIfNeeded()
+        hostingView.superview?.layoutSubtreeIfNeeded()
+        hostingView.layoutSubtreeIfNeeded()
+        _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
     }
 
     private func findHostContainerView(in root: NSView) -> WebViewRepresentable.HostContainerView? {
