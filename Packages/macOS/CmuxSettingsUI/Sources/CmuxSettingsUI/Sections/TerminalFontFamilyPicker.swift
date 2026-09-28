@@ -13,8 +13,12 @@ struct TerminalFontFamilyPicker: View {
 
     @State private var query = ""
 
+    private var trimmedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private var filteredFamilies: [String] {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = trimmedQuery
         guard !query.isEmpty else { return families }
         return families.filter { $0.localizedCaseInsensitiveContains(query) }
     }
@@ -31,7 +35,7 @@ struct TerminalFontFamilyPicker: View {
             Divider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if query.isEmpty {
+                    if trimmedQuery.isEmpty {
                         row(family: nil)
                     }
                     ForEach(filteredFamilies, id: \.self) { family in

@@ -1,20 +1,21 @@
 import Foundation
 
 /// An `adjust-cell-height` value: extra line height added to the font's own,
-/// as a percentage (`8%`) or a number of pixels (`2`). Negative values tighten
-/// the lines.
+/// as a percentage (`8%`, `12.5%`) or a number of device pixels (`2`).
+/// Negative values tighten the lines.
 public enum GhosttyCellHeightAdjustment: Equatable, Sendable {
-    case percent(Int)
+    case percent(Double)
     case pixels(Int)
 
     /// No adjustment, Ghostty's default.
     public static let unadjusted = GhosttyCellHeightAdjustment.percent(0)
 
-    /// Parses Ghostty's `20%`, `-15%`, or `2` spelling.
+    /// Parses Ghostty's `20%`, `-12.5%`, or `2` spelling. Like Ghostty, only
+    /// the ends of the value are trimmed, so `15 %` is invalid.
     public init?(configValue: String) {
         let value = configValue.trimmingCharacters(in: .whitespaces)
         if value.hasSuffix("%") {
-            guard let percent = Int(value.dropLast().trimmingCharacters(in: .whitespaces)) else { return nil }
+            guard let percent = Double(value.dropLast()), percent.isFinite else { return nil }
             self = .percent(percent)
         } else if let pixels = Int(value) {
             self = .pixels(pixels)
@@ -23,18 +24,22 @@ public enum GhosttyCellHeightAdjustment: Equatable, Sendable {
         }
     }
 
-    /// The percentage the line height row steps from. A pixel value has no
-    /// percentage equivalent without the font's metrics, so it steps from 0%.
-    public var percentValue: Int {
-        guard case .percent(let percent) = self else { return 0 }
-        return percent
+    /// The adjustment one stepper step away: 2% for a percentage, 1 pixel
+    /// for a pixel value, so a value set in a config file keeps its unit.
+    public func stepped(by steps: Int) -> GhosttyCellHeightAdjustment {
+        switch self {
+        case .percent(let percent): return .percent((percent / 2).rounded() * 2 + Double(steps * 2))
+        case .pixels(let pixels): return .pixels(pixels + steps)
+        }
     }
 
-    /// Ghostty's spelling: `8%` or `2`.
+    /// Ghostty's spelling: `8%`, `12.5%`, or `2`.
     public var configValue: String {
         switch self {
-        case .percent(let percent): return "\(percent)%"
-        case .pixels(let pixels): return String(pixels)
+        case .percent(let percent):
+            return percent == percent.rounded() ? "\(Int(percent))%" : "\(percent)%"
+        case .pixels(let pixels):
+            return String(pixels)
         }
     }
 }

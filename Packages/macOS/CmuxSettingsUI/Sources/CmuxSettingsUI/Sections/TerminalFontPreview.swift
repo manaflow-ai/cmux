@@ -10,6 +10,8 @@ struct TerminalFontPreview: View {
     let size: Double
     let cellHeight: GhosttyCellHeightAdjustment
 
+    @Environment(\.displayScale) private var displayScale
+
     private struct Token {
         let text: String
         let style: Style
@@ -59,12 +61,12 @@ struct TerminalFontPreview: View {
     }
 
     /// Extra space between lines matching Ghostty's `adjust-cell-height`: a
-    /// percentage of the font's line height, or a number of pixels.
+    /// percentage of the font's line height, or a number of device pixels.
     private func lineSpacing(for font: NSFont) -> CGFloat {
         let lineHeight = font.ascender - font.descender + font.leading
         switch cellHeight {
         case .percent(let percent): return lineHeight * CGFloat(percent) / 100
-        case .pixels(let pixels): return CGFloat(pixels)
+        case .pixels(let pixels): return CGFloat(pixels) / max(displayScale, 1)
         }
     }
 

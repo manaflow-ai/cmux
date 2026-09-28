@@ -210,6 +210,8 @@ struct SettingsRowAnchorResolutionTests {
         "setting:terminal:memory-guardrail-threshold",
         "setting:terminal:font-family",
         "setting:terminal:font-size",
+        "setting:terminal:adjust-cell-height",
+        "setting:terminal:font-thicken",
         "setting:terminal:cursor-style",
         "setting:terminal:cursor-blink",
         "setting:terminal:window-padding-x",

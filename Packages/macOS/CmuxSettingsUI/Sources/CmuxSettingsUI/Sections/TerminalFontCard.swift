@@ -109,16 +109,13 @@ struct TerminalFontCard: View {
             controlWidth: 140,
             overriddenBy: model.overriddenKeys[.adjustCellHeight]
         ) {
-            Stepper(
-                value: Binding(
-                    get: { model.options.cellHeight.percentValue },
-                    set: { model.apply(.cellHeight(.percent($0))) }
-                ),
-                in: -20...100,
-                step: 2
-            ) {
+            Stepper {
                 Text(verbatim: lineHeightLabel)
                     .monospacedDigit()
+            } onIncrement: {
+                model.apply(.cellHeight(model.options.cellHeight.stepped(by: 1)))
+            } onDecrement: {
+                model.apply(.cellHeight(model.options.cellHeight.stepped(by: -1)))
             }
             .accessibilityIdentifier("SettingsTerminalGhosttyLineHeightStepper")
         }
@@ -142,7 +139,7 @@ struct TerminalFontCard: View {
     private var lineHeightLabel: String {
         switch model.options.cellHeight {
         case .percent(let percent):
-            return (percent > 0 ? "+" : "") + "\(percent)%"
+            return (percent > 0 ? "+" : "") + GhosttyCellHeightAdjustment.percent(percent).configValue
         case .pixels(let pixels):
             return (pixels > 0 ? "+" : "") + "\(pixels) px"
         }

@@ -225,6 +225,9 @@ struct SettingsSearchIndexTests {
     @Test(arguments: [
         ("font-family", "setting:terminal:font-family"),
         ("terminal font size", "setting:terminal:font-size"),
+        ("adjust-cell-height", "setting:terminal:adjust-cell-height"),
+        ("line height", "setting:terminal:adjust-cell-height"),
+        ("font-thicken", "setting:terminal:font-thicken"),
         ("cursor-style", "setting:terminal:cursor-style"),
         ("cursor blink", "setting:terminal:cursor-blink"),
         ("window-padding-x", "setting:terminal:window-padding-x"),
