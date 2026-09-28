@@ -313,7 +313,11 @@ costs the mean over the idle root runners, which is where GitHub puts it.
 The cheapest runner by 30 s is pinned; ties go to cost, then the less
 loaded mini, then the name. The picker's candidates, pick and predicted
 seconds go to admission's record (`route.picker`) through the
-`admission_route` output.
+`admission_route` output. A candidate's compile is multiplied by 1.19 while
+another root runner of its mini is busy (an overlapped compile runs that much
+slower) and by 1.43 on the two M4 minis, so compiles spread across minis
+without `CI_OWNED_SPREAD`. A busy runner the snapshot does not list yet waits
+as an admission that has just begun instead of dropping out.
 
 When `keep` replaces another pull request's build, it parks that build in
 `pr-builds/pr-<n>` beside the root's store (a rename; at most 2 per root, for
@@ -478,7 +482,19 @@ takes the lane's Xcode (`CMUX_CI_XCODE_APP` restates the runs-on condition);
 every other attempt keeps the macOS 15 pool and pin. Like the other side
 lanes it takes the pool's side label (`pr_side_runner`) when the picker names
 one, so it never holds a mini's root runner. With it a full suite without the
-helper holds 12 machines at peak (`MAX_RUN_JOBS`).
+helper holds 12 machines at peak (`MAX_RUN_JOBS`). On an owned Mac,
+checkout's clean would delete every package's `.build`, so
+`owned_spm_scratch.py link` points each one at a directory under
+`/Users/Shared/cmux-build-fleet/ci/spm-scratch/` outside the workspace, keyed
+by a hash of `xcodebuild -version`, `swift -version` and the workspace path,
+and SwiftPM rebuilds only what the change touched. The job holds its directory
+with a shared flock until it ends, or 65 minutes at most (past the job's
+60-minute timeout) if the runner dies mid-job. The mini's scratch stays under
+24 GiB, least recently used first out, whichever runner or Xcode left it,
+skipping the ones a job holds. Each directory's size is cached in a `.size`
+file beside it and measured again only after a later job used it; a dropped directory is renamed to `.trash-*` before it is
+deleted. `keep` out of space and `owned_spm_scratch.py evict` drop every
+directory no job holds.
 
 The side lanes (`claude-wrapper`, `remote-daemon`, `swift-package-tests`)
 prefer the light minis. On attempt 1 of a same-repository pull request whose
