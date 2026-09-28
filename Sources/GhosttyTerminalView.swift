@@ -3,6 +3,7 @@ import CmuxCloud
 import Foundation
 import CmuxAppKitSupportUI
 import CmuxTerminal
+import CmuxTerminalSharing
 import CmuxFoundation
 import CmuxPanes
 import CmuxTerminalCore
@@ -10182,6 +10183,10 @@ final class GhosttySurfaceScrollView: NSView {
     private let documentView: NSView
     let surfaceView: GhosttyNSView
     private let mobileViewportBorderOverlayView = TerminalViewportBorderOverlayView(frame: .zero)
+    /// Shared-terminal bounds (docs/shared-terminal-sizing.md); supersedes the
+    /// legacy phone border while a snapshot is shown.
+    let terminalSizeBoundsOverlayView = TerminalSizeBoundsOverlayView()
+    private var terminalSizePanelPopover: NSPopover?
     private let inactiveOverlayView: GhosttyFlashOverlayView
     private var inactiveOverlayColor: NSColor = .clear
     private var inactiveOverlayOpacity: CGFloat = 0
@@ -10505,6 +10510,7 @@ final class GhosttySurfaceScrollView: NSView {
         addSubview(scrollView)
         mobileViewportBorderOverlayView.isHidden = true
         addSubview(mobileViewportBorderOverlayView, positioned: .above, relativeTo: scrollView)
+        addSubview(terminalSizeBoundsOverlayView, positioned: .above, relativeTo: mobileViewportBorderOverlayView)
         paneDropTargetView.hostedView = self
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
         synchronizeScrollbarAppearance()
@@ -10985,6 +10991,9 @@ final class GhosttySurfaceScrollView: NSView {
         )
         _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         _ = setFrameIfNeeded(mobileViewportBorderOverlayView, to: contentFrame)
+        if setFrameIfNeeded(terminalSizeBoundsOverlayView, to: contentFrame) {
+            terminalSizeBoundsOverlayView.refreshGeometry()
+        }
         _ = setFrameIfNeeded(inactiveOverlayView, to: bounds)
         _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
         if let zone = activeDropZone {
@@ -11045,7 +11054,44 @@ final class GhosttySurfaceScrollView: NSView {
         mobileViewportBorderOverlayView.drawsVisibleAreaBorder = isVisible
         mobileViewportBorderOverlayView.drawsVisibleAreaRightBorder = drawRight
         mobileViewportBorderOverlayView.drawsVisibleAreaBottomBorder = drawBottom
-        mobileViewportBorderOverlayView.isHidden = !isVisible
+        mobileViewportBorderOverlayView.isHidden = !isVisible || terminalSizeBoundsOverlayView.isPresentingSharing
+        terminalSizeBoundsOverlayView.refreshGeometry()
+    }
+
+    /// Shows (or clears) a shared terminal's size state over this pane.
+    func setTerminalSharingSnapshot(
+        _ snapshot: TerminalSharingSnapshot?,
+        surface: TerminalSurface?,
+        onShowSizePanel: @escaping (NSRect) -> Void,
+        onReattach: @escaping (Bool) -> Void
+    ) {
+        let overlay = terminalSizeBoundsOverlayView
+        overlay.terminalSurface = surface
+        overlay.onShowSizePanel = onShowSizePanel
+        overlay.onReattach = onReattach
+        overlay.update(snapshot: snapshot)
+        if overlay.isPresentingSharing {
+            mobileViewportBorderOverlayView.isHidden = true
+        } else if mobileViewportBorderOverlayView.drawsVisibleAreaBorder {
+            mobileViewportBorderOverlayView.isHidden = false
+        }
+        if snapshot == nil { terminalSizePanelPopover?.close() }
+    }
+
+    /// Presents the size panel anchored at `rect` in the bounds overlay, or at
+    /// the pane's top-right corner when `rect` is nil.
+    func presentTerminalSizePanel(_ content: NSViewController, anchor rect: NSRect?) {
+        terminalSizePanelPopover?.close()
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = content
+        terminalSizePanelPopover = popover
+        if let rect, !terminalSizeBoundsOverlayView.isHidden {
+            popover.show(relativeTo: rect, of: terminalSizeBoundsOverlayView, preferredEdge: .maxY)
+        } else {
+            let corner = NSRect(x: bounds.maxX - 24, y: isFlipped ? 0 : bounds.maxY - 4, width: 20, height: 4)
+            popover.show(relativeTo: corner, of: self, preferredEdge: .maxY)
+        }
     }
 
     @discardableResult

@@ -251,6 +251,38 @@ extension TerminalSurface {
         return (appliedColumns, appliedRows)
     }
 
+    /// The grid the pane would show without a shared-sizing cap.
+    ///
+    /// Uncapped, this is Ghostty's live grid. Capped, the live cell metrics are
+    /// scaled back from the fitted font to the base font and divided into the
+    /// pane's own pixel size, so the Mac pane can keep reporting its real
+    /// viewport while another participant owns the grid.
+    ///
+    /// - Returns: The natural grid, or `nil` without a live runtime surface.
+    @MainActor
+    public func naturalGridSize() -> (columns: Int, rows: Int)? {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "naturalGridSize") else { return nil }
+        let size = ghostty_surface_size(surface)
+        let liveColumns = max(Int(size.columns), 1)
+        let liveRows = max(Int(size.rows), 1)
+        guard mobileViewportCellLimit != nil,
+              lastUncappedPixelWidth > 0, lastUncappedPixelHeight > 0,
+              size.cell_width_px > 0, size.cell_height_px > 0 else {
+            return (liveColumns, liveRows)
+        }
+        var fontRatio = 1.0
+        if let fit = mobileViewportFontFitState, fit.fittedRuntimePointSize > 0 {
+            fontRatio = Double(fit.baseRuntimePointSize / fit.fittedRuntimePointSize)
+        }
+        let padWidth = max(0, Int(size.width_px) - liveColumns * Int(size.cell_width_px))
+        let padHeight = max(0, Int(size.height_px) - liveRows * Int(size.cell_height_px))
+        let cellWidth = Double(size.cell_width_px) * fontRatio
+        let cellHeight = Double(size.cell_height_px) * fontRatio
+        let columns = Int((Double(Int(lastUncappedPixelWidth) - padWidth) / cellWidth).rounded(.down))
+        let rows = Int((Double(Int(lastUncappedPixelHeight) - padHeight) / cellHeight).rounded(.down))
+        return (max(columns, 1), max(rows, 1))
+    }
+
     /// Removes the mobile viewport cap and restores the uncapped size.
     ///
     /// - Returns: Whether the runtime surface size changed.

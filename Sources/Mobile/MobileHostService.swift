@@ -485,6 +485,45 @@ final class MobileHostService {
         return auth.currentUser?.id
     }
 
+    /// The signed-in local account without awaiting bootstrap, for the
+    /// shared-sizing host. Phones pass the same-account Stack gate, so this is
+    /// also every paired phone's verified user.
+    func currentLocalSizingUser() -> (id: String, displayName: String?)? {
+        guard let auth, auth.isAuthenticated, let user = auth.currentUser else { return nil }
+        return (user.id, user.displayName ?? user.primaryEmail)
+    }
+
+    /// Sends one event to each subscribed connection whose recorded mobile
+    /// client ids produce a payload. Used for per-phone payloads
+    /// (`mobile.terminal.size_state` carries the receiver's own participant id;
+    /// `mobile.terminal.detached` goes only to the detached phone).
+    ///
+    /// - Parameters:
+    ///   - topic: the event topic.
+    ///   - payloadForClientIDs: the payload for a connection's client ids, or
+    ///     `nil` to skip that connection.
+    func emitClientScopedEvent(
+        topic: String,
+        payloadForClientIDs: (Set<String>) -> [String: Any]?
+    ) {
+        guard MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else { return }
+        var frames: [UUID: Data] = [:]
+        for (connectionID, clientIDs) in clientIDsByConnectionID {
+            guard let payload = payloadForClientIDs(clientIDs),
+                  let frame = Self.encodedEventFrame(topic: topic, payload: payload) else { continue }
+            frames[connectionID] = frame
+        }
+        guard !frames.isEmpty else { return }
+        Self.deliverEventFrames(topic: topic, coalesceKey: nil, stateSeq: nil) { connection in
+            frames[connection.connectionID].map { (frame: $0, isFullRenderGridFrame: false) }
+        }
+    }
+
+    /// The mobile client ids recorded for a connection.
+    func clientIDs(forConnectionID connectionID: UUID) -> Set<String> {
+        clientIDsByConnectionID[connectionID] ?? []
+    }
+
     /// This Mac's authenticated Stack email, or `nil` when signed out or before
     /// the auth graph is configured.
     ///

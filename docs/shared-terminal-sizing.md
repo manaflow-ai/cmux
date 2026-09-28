@@ -124,6 +124,14 @@ Every viewer whose viewport differs from the grid draws, from the size state:
 - when the viewer is smaller, an amber fade on the cut edge and a `+N cols` pill;
 - on each change, a border flash and a size HUD (driven by an injected clock).
 
+Owner colors come from `TerminalSizingParticipantColor` (Swift, in
+`CmuxTerminalSizing`; the iOS twin uses the same rule). The key is the
+participant's `user_id`, else its `id`. The color is
+`palette[fnv1a64(utf8(key)) % 10]` with FNV-1a offset `0xcbf29ce484222325`,
+prime `0x100000001b3` and this palette, in order: `#3CC2B0`, `#EBA946`,
+`#A688F5`, `#5AA9F2`, `#F07A8A`, `#7BC96F`, `#E58F4B`, `#C77DDB`, `#4FC1D9`,
+`#D6C24A`.
+
 The tab shows attached people, a ring on the owner, the grid size, and a
 dashed-box glyph when this viewer does not match. The size panel has the mode
 control, a size map, one row per participant (counts switch, priority order,
@@ -153,3 +161,29 @@ For a Cloud terminal the Mac forwards the phone to cmux-tui as an attached-view
 lease with the same identity, forwards `size-state` as
 `mobile.terminal.size_state` (participant ids are the host's ids), and maps a
 `detached` for that lease to `mobile.terminal.detached`.
+
+## cmux-tui wire parameters
+
+The daemon advertises `shared-sizing-v1` in `identify`. Without it a Mac mirror
+keeps the legacy claim and resize path, and phones behind it are not forwarded.
+
+- `set-client-info` gains optional `user_id`, `display_name`, `device_kind`,
+  `device_name`.
+- `attach-surface` responses gain `participant` (the host id of this view).
+- A relay sub-view (a phone behind a Mac) has no byte stream:
+  `resize-attached-view {surface, view: "mobile:<client_id>", identity:
+  {user_id, display_name, device_kind, device_name}, cols, rows}` creates or
+  updates it, keyed by (connection, `view`), and answers `{participant}`.
+  `release-attached-view-size` and `detach-attached-view` also accept
+  `{surface, view}`.
+- `set-size-policy {surface, policy}`; `set-size-counts {surface, lease? | view?
+  | participant?, counts: true | false | null}`; `get-size-state {surface}`
+  answers `{state}`.
+- Event `size-state {surface, state}`.
+- `note-size-activity {surface, view?}` records explicit activity for this
+  connection's participant, or for a relay sub-view with `view`.
+- A client opts in by listing `shared-sizing-v1` in `set-client-info`
+  `capabilities`; without it the daemon sends no `size-state` events.
+- `detach-client {client, by}` takes a numeric client id or a participant id.
+  `detached` gains `reason`, `by` and, for a relay sub-view, `view`; the relay
+  keeps its own attachment and forwards the event to that leaf.

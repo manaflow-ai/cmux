@@ -9438,6 +9438,16 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowOverride
             )
+        case "size", "size-policy", "size-to-me", "size-counts", "participants",
+             "disconnect-participant", "disconnect-others":
+            // Shared terminal sizing (docs/shared-terminal-sizing.md).
+            try runSurfaceSizingCommand(
+                subcommand: subcommand,
+                rest: Array(commandArgs.dropFirst()),
+                client: client,
+                jsonOutput: jsonOutput,
+                windowOverride: windowOverride
+            )
         case "ls", "list", "tree", "catalog", "open", "project", "new-terminal", "new":
             // The surface catalog: terminals, screens and browsers on This Mac and every
             // cloud machine, and one open path for all of them (`surface.project`).
@@ -9683,7 +9693,7 @@ struct CMUXCLI {
         }
     }
 
-    private struct SurfaceResumeTarget {
+    struct SurfaceResumeTarget {
         var params: [String: Any]
         var remaining: [String]
     }
@@ -9696,7 +9706,7 @@ struct CMUXCLI {
         return (Array(args[..<delimiterIndex]), Array(args[argvStart...]))
     }
 
-    private func surfaceResumeTarget(
+    func surfaceResumeTarget(
         _ args: [String],
         client: SocketClient,
         windowOverride: String?

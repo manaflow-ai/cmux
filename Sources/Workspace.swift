@@ -11759,6 +11759,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             (.rename, .renameTab),
             (.toggleZoom, .toggleSplitZoom),
             (.newTerminalToRight, .newSurface),
+            (.sizeToMyWindow, .sizeTerminalToMyWindow),
         ]
         for (contextAction, settingsAction) in mappings {
             let stored = KeyboardShortcutSettings.shortcut(for: settingsAction)
@@ -14876,6 +14877,16 @@ extension Workspace: BonsplitDelegate {
              .forkConversationNewTab,
              .forkConversationNewWorkspace:
             handleForkConversationContextAction(action, for: tab, inPane: pane)
+        case .sizeToMyWindow,
+             .toggleSizeCountsFromThisDevice,
+             .sizeModeLatest,
+             .sizeModeSmallest,
+             .sizeModeLargest,
+             .sizeModePriority,
+             .sizeModeFixed,
+             .showSizePanel,
+             .disconnectOtherClients:
+            handleTerminalSharingContextAction(action, for: tab)
         @unknown default:
             break
         }

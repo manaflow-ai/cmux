@@ -231,6 +231,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor public var onManualVisibilityChanged: (@MainActor (Bool) -> Void)?
     /// Requests owner-scoped visual bell attention without activating the app.
     @MainActor public var onVisualBell: (@MainActor () -> Void)?
+    /// Called when the pane's own (uncapped) pixel size changes. A shared-sizing
+    /// host uses it to re-report the Mac pane's grid as a participant viewport.
+    @MainActor public var onUncappedPixelSizeChanged: (@MainActor () -> Void)?
     /// Routes accepted explicit user input to the surface's current panel owner.
     @MainActor public var onExplicitInput: (@MainActor () -> Void)?
     /// Notifies the owner when explicit input cancels a deferred auto-resume.
