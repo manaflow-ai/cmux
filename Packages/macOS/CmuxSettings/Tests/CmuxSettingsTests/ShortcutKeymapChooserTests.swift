@@ -7,7 +7,7 @@ import Testing
 struct ShortcutKeymapChooserTests {
     @Test("A fresh install is asked which keymap it wants")
     func freshInstallOpensTheChooser() {
-        let decision = ShortcutKeymapChooserPolicy.decide(
+        let decision = ShortcutKeymapChooserDecision(
             hasAnsweredChooser: false,
             installHasHistory: false
         )
@@ -16,7 +16,7 @@ struct ShortcutKeymapChooserTests {
 
     @Test("An install that predates the chooser is never asked")
     func installWithHistoryIsNeverAsked() {
-        let decision = ShortcutKeymapChooserPolicy.decide(
+        let decision = ShortcutKeymapChooserDecision(
             hasAnsweredChooser: false,
             installHasHistory: true
         )
@@ -28,7 +28,7 @@ struct ShortcutKeymapChooserTests {
         // A fresh install answers the chooser and then writes its first
         // config file, which makes it look like an install with history on the
         // next launch. It must still count as answered, not be asked again.
-        let decision = ShortcutKeymapChooserPolicy.decide(
+        let decision = ShortcutKeymapChooserDecision(
             hasAnsweredChooser: true,
             installHasHistory: true
         )

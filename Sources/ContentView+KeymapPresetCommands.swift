@@ -58,7 +58,7 @@ extension ContentView {
         let createdFresh = KeyboardShortcutSettings.settingsFileStore
             .primaryTemplateBootstrap == .createdFresh
         let hasLegacyBindings = !keymapChooserLegacyBindings().isEmpty
-        return ShortcutKeymapChooserPolicy.decide(
+        return ShortcutKeymapChooserDecision(
             hasAnsweredChooser: defaults.bool(forKey: keymapChooserAnsweredDefaultsKey),
             installHasHistory: !createdFresh || hasLegacyBindings
         )

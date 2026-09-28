@@ -16,12 +16,11 @@ public enum ShortcutKeymapChooserDecision: String, Sendable, Equatable, CaseIter
     case alreadyAnswered
 }
 
-/// Decides whether a launch should open the first-run base keymap chooser.
-///
-/// The policy takes plain booleans rather than reading disk so it can be
-/// tested without a file system or a host app. The caller owns both signals.
-public struct ShortcutKeymapChooserPolicy: Sendable {
+extension ShortcutKeymapChooserDecision {
     /// Decides whether this launch opens the chooser.
+    ///
+    /// Takes plain booleans rather than reading disk, so the rule can be tested
+    /// without a file system or a host app. The caller owns both signals.
     ///
     /// Answering wins over install history so that a fresh install which
     /// answers the chooser and then writes its first config file is not asked
@@ -35,18 +34,14 @@ public struct ShortcutKeymapChooserPolicy: Sendable {
     ///     existing settings file or saved workspaces. An install with history
     ///     predates the chooser, so asking it would risk changing keys that
     ///     someone already learned.
-    /// - Returns: The decision for this launch.
-    public static func decide(
-        hasAnsweredChooser: Bool,
-        installHasHistory: Bool
-    ) -> ShortcutKeymapChooserDecision {
+    public init(hasAnsweredChooser: Bool, installHasHistory: Bool) {
         if hasAnsweredChooser {
-            return .alreadyAnswered
+            self = .alreadyAnswered
+        } else if installHasHistory {
+            self = .skipExistingInstall
+        } else {
+            self = .open
         }
-        if installHasHistory {
-            return .skipExistingInstall
-        }
-        return .open
     }
 }
 
