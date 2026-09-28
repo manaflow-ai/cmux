@@ -29,6 +29,8 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
+    /// Follows Claude's input queue while it runs here with prompt editing on.
+    var claudeQueuedPromptMonitor: (token: UUID, monitor: ClaudeQueuedPromptMonitor)?
 
     var ownedSessionScrollbackReplayFileURL: URL? = nil
     /// The workspace-env key/value pairs this panel inherited from its workspace's

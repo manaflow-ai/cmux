@@ -12,5 +12,14 @@ public struct AgentActionsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "agentActionsTurnControlEnabled"
     )
 
+    /// Prompt editing: while Claude Code has prompts waiting in its input
+    /// queue, the terminal's agent pill offers Edit Queued, which sends Up to
+    /// move them back into the input. Off by default while it is dogfooded.
+    public let promptEditing = DefaultsKey<Bool>(
+        id: "agentActions.promptEditing",
+        defaultValue: false,
+        userDefaultsKey: "agentActionsPromptEditingEnabled"
+    )
+
     public init() {}
 }

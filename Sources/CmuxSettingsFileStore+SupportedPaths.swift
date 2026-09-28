@@ -67,6 +67,7 @@ extension CmuxSettingsFileStore {
         "terminal.resumeCommands",
         "terminal.uploadCommands",
         "agentActions.turnControl",
+        "agentActions.promptEditing",
         "notifications.dockBadge",
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",

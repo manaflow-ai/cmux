@@ -264,6 +264,11 @@ enum AgentActionsSettingsFileMapping {
             defaultsKey: agentActions.turnControl.userDefaultsKey,
             invalidPath: agentActions.turnControl.id
         ),
+        .init(
+            jsonKey: "promptEditing",
+            defaultsKey: agentActions.promptEditing.userDefaultsKey,
+            invalidPath: agentActions.promptEditing.id
+        ),
     ]
 }
 

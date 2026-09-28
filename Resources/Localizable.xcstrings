@@ -566628,6 +566628,242 @@
         }
       }
     },
+    "terminal.agentTurnControl.editQueued": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Queued"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعديل قائمة الانتظار"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warteschlange bearbeiten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editar en cola"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifier la file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キューを編集"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대기열 편집"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑队列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編輯佇列"
+          }
+        }
+      }
+    },
+    "terminal.agentTurnControl.editQueued.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move queued prompts back into Claude's input (Up)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة الطلبات المنتظرة إلى حقل إدخال Claude (السهم لأعلى)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartende Prompts zurück in die Eingabe von Claude holen (Pfeil nach oben)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Devolver los prompts en cola a la entrada de Claude (flecha arriba)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remettre les prompts en file dans la saisie de Claude (flèche haut)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キュー内のプロンプトを Claude の入力欄に戻す (上矢印)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대기 중인 프롬프트를 Claude 입력란으로 되돌리기 (위쪽 화살표)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将队列中的提示移回 Claude 的输入框（向上键）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將佇列中的提示移回 Claude 的輸入框（向上鍵）"
+          }
+        }
+      }
+    },
+    "settings.agentActions.promptEditing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Edit Queued Button"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زر تعديل قائمة انتظار الوكيل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taste „Warteschlange bearbeiten“ für Agenten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Botón Editar en cola del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bouton Modifier la file pour les agents"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのキュー編集ボタン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 대기열 편집 버튼"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理编辑队列按钮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理編輯佇列按鈕"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.agent-prompt-editing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.promptEditing agent actions prompt editing edit queued queue message prompt up arrow claude code click"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.promptEditing agent actions prompt editing edit queued queue message prompt up arrow claude code click الوكيل قائمة الانتظار تعديل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.promptEditing agent actions prompt editing edit queued queue message prompt up arrow claude code click agent warteschlange bearbeiten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.promptEditing agent actions prompt editing edit queued queue message prompt up arrow claude code click agente cola editar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.promptEditing agent actions prompt editing edit queued queue message prompt up arrow claude code click agent file modifier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.promptEditing agent actions prompt editing edit queued queue message prompt up arrow claude code click エージェント キュー 編集"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.promptEditing agent actions prompt editing edit queued queue message prompt up arrow claude code click 에이전트 대기열 편집"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.promptEditing agent actions prompt editing edit queued queue message prompt up arrow claude code click 代理 队列 编辑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.promptEditing agent actions prompt editing edit queued queue message prompt up arrow claude code click 代理 佇列 編輯"
+          }
+        }
+      }
+    },
     "cli.auth.status.teamNotLoaded": {
       "extractionState": "manual",
       "localizations": {

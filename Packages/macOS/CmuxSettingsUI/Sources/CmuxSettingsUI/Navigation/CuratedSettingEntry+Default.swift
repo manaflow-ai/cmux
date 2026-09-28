@@ -217,6 +217,14 @@ extension Array where Element == CuratedSettingEntry {
                 paths: ["agentActions.turnControl"],
                 synonyms: "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click"
             ),
+            .init(
+                section: .terminal,
+                id: "agent-prompt-editing",
+                title: String(localized: "settings.agentActions.promptEditing", defaultValue: "Agent Edit Queued Button"),
+                detailText: String(localized: "settings.agentActions.promptEditing.subtitle", defaultValue: "Shows an Edit Queued button over a terminal while Claude Code has prompts waiting in its queue. Clicking it moves them back into the input, like pressing Up."),
+                paths: ["agentActions.promptEditing"],
+                synonyms: "agentActions.promptEditing agent actions prompt editing edit queued queue message prompt up arrow claude code click"
+            ),
             .init(section: .terminal, id: "agent-auto-resume", title: String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), synonyms: "Resume Agent Sessions on Reopen terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
             .init(
                 section: .terminal,
