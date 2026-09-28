@@ -317,6 +317,8 @@ extension BrowserPanel {
     /// Session state to write to the session file, or nil when this pane's
     /// state must not persist: private profiles, remote and cloud routing,
     /// error pages, form submissions, restored URL history and oversized state.
+    /// Live state is also dropped while its current entry is not the URL the
+    /// snapshot saves, because a relaunch restores it for that URL.
     func persistableInteractionStateForSessionSnapshot() -> Data? {
         guard shouldPersistSessionSnapshot(),
               !usesRemoteWorkspaceProxy,
@@ -329,7 +331,10 @@ extension BrowserPanel {
             return pageRestoration.persistableDiscardedInteractionState()
         }
         let documentURL = webView.backForwardList.currentItem?.url ?? webView.url
-        guard BrowserDiscardRestoreStrategy.canRestoreSessionState(for: documentURL) else { return nil }
+        guard BrowserDiscardRestoreStrategy.canRestoreSessionState(for: documentURL),
+              Self.serializableSessionHistoryURLString(documentURL) == preferredURLStringForSessionSnapshot() else {
+            return nil
+        }
         return BrowserPageStateCapture.persistableInteractionState(
             webView.interactionState as? Data,
             coversNavigationHistory: !usesRestoredSessionHistory,
@@ -363,15 +368,16 @@ extension BrowserNavigationDelegate {
         owner.pageRestoration.dismissOverlay()
     }
 
-    /// Records an allowed main-frame web request. WebKit keeps a submitted
-    /// request body in the entry's session state, so a request with one
-    /// marks the pane's state as holding a form submission.
-    func recordMainFrameWebRequest(_ request: URLRequest) {
-        recordAttemptedRequest(request)
-        let method = request.httpMethod?.uppercased() ?? "GET"
-        if method != "GET", method != "HEAD" {
-            owner?.pageRestoration.noteMainFrameFormSubmission()
-        }
+    /// Tells the pane's restoration state about an allowed request, in any
+    /// frame. WebKit keeps a submitted request body in the entry's session
+    /// state, so a request with one marks that state as holding a form
+    /// submission.
+    func recordAllowedNavigationRequest(_ navigationAction: WKNavigationAction) {
+        let method = navigationAction.request.httpMethod?.uppercased() ?? "GET"
+        owner?.pageRestoration.noteNavigationRequest(
+            isMainFrame: navigationAction.targetFrame?.isMainFrame != false,
+            isFormSubmission: method != "GET" && method != "HEAD"
+        )
     }
 }
 

@@ -161,7 +161,15 @@ public enum BrowserFormStateScript {
           if (timer !== null) clearTimeout(timer);
           timer = null;
         }, true);
-        window.addEventListener("pageshow", () => { unloading = false; }, true);
+        // A back/forward cache return commits natively, which clears the
+        // pane's copy of the input, so report it again.
+        window.addEventListener("pageshow", (event) => {
+          unloading = false;
+          if (event.persisted) {
+            lastReported = JSON.stringify({ fields: [], unrestorable: false });
+            schedule();
+          }
+        }, true);
       } catch (_) {}
       return true;
     })();

@@ -619,17 +619,17 @@ import WebKit
         if navigationAction.targetFrame?.isMainFrame != false {
             if shouldPreserveSSLTrustBypassForErrorPageNavigation(navigationAction) {
 #if DEBUG
-                let targetURL = navigationAction.request.url?.absoluteString ?? "nil"
                 cmuxDebugLog("browser.nav.decidePolicy.action kind=preserveSSLBypassErrorPage url=\(targetURL)")
 #endif
             } else if let url = navigationAction.request.url,
                       let scheme = url.scheme?.lowercased(),
                       scheme == "http" || scheme == "https" {
-                recordMainFrameWebRequest(navigationAction.request)
+                recordAttemptedRequest(navigationAction.request)
             } else {
                 clearAttemptedRequest()
             }
         }
+        recordAllowedNavigationRequest(navigationAction)
         if restartNavigationForUserAgentPolicyIfNeeded(
             navigationAction,
             in: webView,

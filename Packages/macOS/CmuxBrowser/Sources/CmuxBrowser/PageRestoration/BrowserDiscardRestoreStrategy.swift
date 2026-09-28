@@ -67,7 +67,9 @@ public enum BrowserDiscardRestoreStrategy: Equatable, Sendable {
 
     /// Picks the restore path for `restoreURL`. Captured state is used only
     /// when it was taken for the same page the pane is about to restore, so a
-    /// navigation issued while the pane was discarded always wins.
+    /// navigation issued while the pane was discarded always wins. A page
+    /// shown as a form submission result loads by URL, because assigning its
+    /// state would send the form again.
     public static func resolve(
         restoreURL: URL,
         capture: BrowserPageStateCapture?,
@@ -77,6 +79,7 @@ public enum BrowserDiscardRestoreStrategy: Equatable, Sendable {
               canRestoreSessionState(for: restoreURL),
               let capture,
               capture.anchorURL == restoreURL,
+              !capture.documentHasFormSubmission,
               let interactionState = capture.interactionState,
               !interactionState.isEmpty else {
             return .replayURL(restoreURL)

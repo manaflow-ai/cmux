@@ -35,6 +35,12 @@ public final class BrowserPageRestorationState {
     /// Whether the current web view's back/forward list holds a form
     /// submission. Sticky until the list is replaced.
     public private(set) var liveContainsFormSubmission = false
+    /// Whether the current document, or one of its frames, came from a form
+    /// submission.
+    private var liveDocumentHasFormSubmission = false
+    /// Whether the main-frame navigation that has not committed yet submits
+    /// a form. A redirect re-decides it.
+    private var pendingDocumentHasFormSubmission = false
     /// State captured at the last discard, until a document commits.
     public private(set) var discardedCapture: BrowserPageStateCapture?
     /// The restore issued for ``discardedCapture`` that has not committed.
@@ -63,16 +69,20 @@ public final class BrowserPageRestorationState {
         liveFormState?.hasUnrestorableInput ?? false
     }
 
-    /// Call when a main-frame navigation submits a form. WebKit keeps the
-    /// request body in the entry's session state.
-    public func noteMainFrameFormSubmission() {
-        liveContainsFormSubmission = true
-    }
-
-    /// Call for every navigation request allowed in this web view.
+    /// Call for every navigation request allowed in this web view, including
+    /// each redirect. WebKit keeps a form submission's request body in the
+    /// entry's session state.
+    ///
+    /// - Parameter isFormSubmission: Whether the request sends a body, such
+    ///   as a POST.
     public func noteNavigationRequest(isMainFrame: Bool, isFormSubmission: Bool) {
-        if isMainFrame, isFormSubmission {
-            noteMainFrameFormSubmission()
+        if isFormSubmission {
+            liveContainsFormSubmission = true
+        }
+        if isMainFrame {
+            pendingDocumentHasFormSubmission = isFormSubmission
+        } else if isFormSubmission {
+            liveDocumentHasFormSubmission = true
         }
     }
 
@@ -125,6 +135,8 @@ public final class BrowserPageRestorationState {
         defer {
             liveFormState = nil
             liveContainsFormSubmission = false
+            liveDocumentHasFormSubmission = false
+            pendingDocumentHasFormSubmission = false
             cancelHiddenSnapshot()
             inFlightRestore = nil
             pendingFormRestore = nil
@@ -141,7 +153,8 @@ public final class BrowserPageRestorationState {
             snapshot: hiddenSnapshot,
             snapshotToken: hiddenSnapshotToken,
             coversNavigationHistory: coversNavigationHistory,
-            containsFormSubmission: liveContainsFormSubmission
+            containsFormSubmission: liveContainsFormSubmission,
+            documentHasFormSubmission: liveDocumentHasFormSubmission
         )
     }
 
@@ -202,6 +215,8 @@ public final class BrowserPageRestorationState {
     ///   none.
     @discardableResult
     public func noteDocumentCommitted(isDiscardRestoreCommit: Bool) -> RestoredCommit? {
+        liveDocumentHasFormSubmission = pendingDocumentHasFormSubmission
+        pendingDocumentHasFormSubmission = false
         liveFormState = nil
         pendingFormRestore = nil
         let method = inFlightRestore
