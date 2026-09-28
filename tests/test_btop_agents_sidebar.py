@@ -11,6 +11,21 @@ SOURCE = ROOT / "Examples" / "CustomSidebars" / "btop-agents.js"
 
 
 class BtopAgentsSidebarTests(unittest.TestCase):
+    def test_clocked_snapshot_does_not_rescan_the_full_workspace_list(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        selection = source.split("const workspaceSelection = computed", 1)[1].split(
+            "const snapshot = computed", 1
+        )[0]
+        snapshot = source.split("const snapshot = computed", 1)[1].split(
+            "const shown = computed", 1
+        )[0]
+
+        self.assertIn("data.workspaces()", selection)
+        self.assertIn("cappedWorkspaces", selection)
+        self.assertNotIn("data.workspaces()", snapshot)
+        self.assertNotIn("allWorkspaces.map", snapshot)
+        self.assertIn("workspaceSelection()", snapshot)
+
     def test_history_stays_bounded_when_wall_clock_moves_backward(self):
         source = SOURCE.read_text(encoding="utf-8")
         history = "const history = new Map();" + source.split("const history = new Map();", 1)[1].split(

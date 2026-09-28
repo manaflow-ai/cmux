@@ -222,14 +222,23 @@ function cappedWorkspaces(workspaces, onlyBusy) {
 
 const [busyOnly, setBusyOnly] = signal(false);
 
+// Workspace selection changes only when workspace data or the ALL/BUSY mode
+// changes. Keep the one-second clock out of this full-list pass; the clocked
+// snapshot below should touch only the admitted rows and bounded history.
+const workspaceSelection = computed(() => {
+  const allWorkspaces = list(data.workspaces());
+  return {
+    workspaces: cappedWorkspaces(allWorkspaces, busyOnly()),
+    liveIds: new Set(allWorkspaces.map((w) => w.id)),
+  };
+});
+
 const snapshot = computed(() => {
   const now = Math.floor(num(data.clock()?.epoch) ?? 0);
-  const allWorkspaces = list(data.workspaces());
-  // Filter before the cap so BUSY can surface active workspaces anywhere in
-  // the full order. Expensive sampling and row modeling remain capped.
-  const workspaces = cappedWorkspaces(allWorkspaces, busyOnly());
+  const selection = workspaceSelection();
+  const workspaces = selection.workspaces;
   if (now > 0 && now !== lastSampled) {
-    sample(workspaces, now, new Set(allWorkspaces.map((w) => w.id)));
+    sample(workspaces, now, selection.liveIds);
     lastSampled = now;
   }
   const rows = workspaces.map((w) => rowModel(w, now));
