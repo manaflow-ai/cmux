@@ -55,8 +55,16 @@ public struct SSHTuiConnection: Sendable {
                          "-o", "RemoteCommand=none", "-o", "RequestTTY=no"]
         if let port = configuration.port { arguments += ["-p", String(port)] }
         if let identity = configuration.identityFile { arguments += ["-i", identity] }
-        for option in configuration.sshOptions { arguments += ["-o", option] }
+        for option in sshOptions { arguments += ["-o", option] }
         return arguments
+    }
+
+    /// The caller's options plus cmux's shared ControlMaster, as 0.64.25's
+    /// connection broker used for every connect. Snapshots drop control
+    /// options, so without this a restored carrier opens its own connection,
+    /// which batch mode can't log in on a password-only host.
+    private var sshOptions: [String] {
+        SSHConnectionSharingOptions().mergingDefaults(into: configuration.sshOptions)
     }
 
     /// The daemon owns the login shell and therefore keeps it alive when SSH disconnects.
@@ -86,7 +94,7 @@ public struct SSHTuiConnection: Sendable {
         var sshArguments = ["-o", "BatchMode=yes", "-o", "RequestTTY=no", "-o", "RemoteCommand=none"]
         if let port = configuration.port { sshArguments += ["-p", String(port)] }
         if let identity = configuration.identityFile { sshArguments += ["-i", identity] }
-        for option in configuration.sshOptions { sshArguments += ["-o", option] }
+        for option in sshOptions { sshArguments += ["-o", option] }
         // The carrier is a headless exec channel that reconnects for its whole
         // lifetime. Batch mode turns a prompt it cannot answer into OpenSSH's
         // own failure. Interactive authentication and host-key prompts precede
