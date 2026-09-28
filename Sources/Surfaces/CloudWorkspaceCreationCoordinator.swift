@@ -7,6 +7,8 @@ import Foundation
 final class CloudWorkspaceCreationCoordinator {
     private weak var catalog: SurfaceCatalog?
     private(set) var operations: [UUID: CloudWorkspaceCreationOperation] = [:]
+    /// Tree reveals for creates their window selected, withdrawn when the create fails.
+    let reveals = CloudWorkspaceCreationReveals()
     init(catalog: SurfaceCatalog) {
         self.catalog = catalog
     }
