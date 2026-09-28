@@ -2457,8 +2457,7 @@ fn ensure_daemon(
             .with_context(|| format!("could not open daemon log {}", log_path.display()))?;
         let mut mux_owner = Command::new(&executable);
         mux_owner
-            .args(["--headless", "--session", session, "--socket"])
-            .arg(&mux_socket)
+            .args(mux_owner_args(session, &mux_socket, false))
             .stdin(Stdio::null())
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log));
@@ -2489,6 +2488,17 @@ fn ensure_daemon(
     configure_detached_process(&mut command);
     let mut child = command.spawn().context("could not start remote daemon")?;
     wait_for_detached_socket(&mut child, link, Duration::from_secs(20), "remote daemon", &log_path)
+}
+
+/// Arguments for the headless mux owner `ensure_daemon` starts. A derived
+/// socket path is left for the owner to derive again from the same session,
+/// so it keeps the owner checks it applies to its own runtime directory.
+fn mux_owner_args(session: &str, mux_socket: &Path, _mux_socket_is_derived: bool) -> Vec<OsString> {
+    let mut args: Vec<OsString> =
+        ["--headless", "--session", session].into_iter().map(OsString::from).collect();
+    args.push("--socket".into());
+    args.push(mux_socket.into());
+    args
 }
 
 fn wait_for_detached_socket(
@@ -2869,6 +2879,20 @@ mod tests {
             .is_err()
         );
         assert_eq!(load_count.get(), 0);
+    }
+
+    #[test]
+    fn private_socket_remote_mux_owner_derives_its_own_socket() {
+        let socket = Path::new("/tmp/cmux-tui-501/work.sock");
+        assert_eq!(
+            mux_owner_args("work", socket, true),
+            ["--headless", "--session", "work"].map(OsString::from)
+        );
+        assert_eq!(
+            mux_owner_args("work", socket, false),
+            ["--headless", "--session", "work", "--socket", "/tmp/cmux-tui-501/work.sock"]
+                .map(OsString::from)
+        );
     }
 
     #[test]

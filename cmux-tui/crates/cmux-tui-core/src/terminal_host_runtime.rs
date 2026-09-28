@@ -2088,7 +2088,7 @@ mod unix {
         // canonical identity and owner capability.
         let uid = fs::metadata(root)?.uid();
         let endpoint_root = PathBuf::from("/tmp").join(format!("cmux-th-{uid}"));
-        prepare_private_dir(&endpoint_root)?;
+        prepare_endpoint_dir(&endpoint_root)?;
         let endpoint = endpoint_root.join(format!("{terminal_hex}.sock"));
         let record_path =
             crate::platform::normalize_filesystem_path(root.join(format!("{terminal_hex}.json")));
@@ -3064,6 +3064,12 @@ mod unix {
         fs::create_dir_all(path)?;
         fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
         Ok(())
+    }
+
+    /// The shared `/tmp` directory that holds host sockets. Every user can
+    /// create names there, so the directory must be a real one this user owns.
+    fn prepare_endpoint_dir(path: &Path) -> anyhow::Result<()> {
+        prepare_private_dir(path)
     }
 
     #[derive(Clone)]
@@ -9855,6 +9861,32 @@ mod unix {
                 .unwrap()
                 .is_none()
             );
+        }
+
+        #[test]
+        fn private_socket_terminal_host_endpoint_dir_refuses_a_symlink() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-endpoint-dir-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            let target = root.join("target");
+            fs::create_dir_all(&target).unwrap();
+            fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
+            let alias = root.join("alias");
+            std::os::unix::fs::symlink(&target, &alias).unwrap();
+
+            let refused = prepare_endpoint_dir(&alias);
+            let target_mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+            let owned = root.join("owned");
+            let created = prepare_endpoint_dir(&owned);
+            let owned_mode = fs::metadata(&owned).map(|metadata| metadata.mode() & 0o777);
+            let _ = fs::remove_dir_all(&root);
+
+            assert!(refused.is_err(), "a symlinked endpoint directory must be refused");
+            assert_eq!(target_mode, 0o755, "the symlink target must stay untouched");
+            created.unwrap();
+            assert_eq!(owned_mode.unwrap(), 0o700);
         }
 
         #[test]

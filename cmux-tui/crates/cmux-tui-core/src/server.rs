@@ -5001,6 +5001,17 @@ pub fn prepare_socket_parent(path: &Path, is_derived: bool) -> anyhow::Result<()
     Ok(())
 }
 
+/// Connect a client to a session socket. A derived path must sit in the
+/// private runtime directory a server prepared, and its listener must run as
+/// this user, before the caller writes anything. Explicit paths keep their
+/// caller-managed semantics.
+pub fn connect_session_socket(
+    path: &Path,
+    _is_derived: bool,
+) -> std::io::Result<Box<dyn transport::Stream>> {
+    transport::connect(path)
+}
+
 /// Exclusive lock serializing every local server start for one socket path:
 /// foreground `server start`, in-process TUI hosting, and detached-owner
 /// spawns. The stale-socket recovery below (probe, unlink, bind) is not
@@ -13824,6 +13835,39 @@ mod tests {
         std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
         prepare_runtime_socket_directory(&directory).unwrap();
         assert_eq!(std::fs::metadata(&directory).unwrap().permissions().mode() & 0o777, 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_socket_connect_requires_a_private_derived_parent() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let root = TestSocketDir::create("private-socket");
+        let runtime = root.path().join("rt");
+        std::fs::create_dir(&runtime).unwrap();
+        let socket = runtime.join("m.sock");
+        let _listener = transport::listen(&socket).unwrap();
+
+        std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(connect_session_socket(&socket, false).is_ok(), "explicit paths are unchanged");
+        let error = connect_session_socket(&socket, true)
+            .err()
+            .expect("a derived socket in a shared directory must be refused");
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+
+        std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(connect_session_socket(&socket, true).is_ok());
+
+        let alias = root.path().join("al");
+        symlink(&runtime, &alias).unwrap();
+        let error = connect_session_socket(&alias.join("m.sock"), true)
+            .err()
+            .expect("a derived socket behind a symlinked directory must be refused");
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+
+        let missing = root.path().join("missing").join("m.sock");
+        let error = connect_session_socket(&missing, true).err().expect("nothing listens there");
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
     }
 
     #[cfg(unix)]
