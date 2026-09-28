@@ -903,6 +903,26 @@ public actor MobilePairedMacStore: MobilePairedMacPairingStoring {
         return !encodedMatches.isEmpty
     }
 
+    /// Deletes every device-local Tailscale compatibility grant for one
+    /// pairing. Called when a scanned code's endpoints become Direct
+    /// addresses instead, so a removed Direct address cannot come back
+    /// through the Iroh compatibility path.
+    public func revokeAllLegacyTailscaleGrants(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) throws {
+        try ensureReady()
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        try exec(
+            "DELETE FROM legacy_tailscale_route_grants WHERE mac_device_id = ? AND owner_key = ?;",
+            binding: [.text(macDeviceID), .text(Self.ownerKey(
+                stackUserID: stackUserID, teamID: teamID, instanceTag: instanceTag
+            ))]
+        )
+    }
+
     /// Persist `'user'`-origin Tailscale compatibility grants for routes the
     /// user entered as a pairing code. Upgrades an existing `'migration'` grant
     /// for the same destination to `'user'`, so a deliberate re-scan is not

@@ -349,4 +349,19 @@ public struct DemoContentPairedMacStore: MobilePairedMacStoring {
             routes: routes
         )
     }
+
+    public func revokeAllLegacyTailscaleGrants(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        guard !isDemoDeviceID(macDeviceID) else { return }
+        try await inner.revokeAllLegacyTailscaleGrants(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID
+        )
+    }
 }

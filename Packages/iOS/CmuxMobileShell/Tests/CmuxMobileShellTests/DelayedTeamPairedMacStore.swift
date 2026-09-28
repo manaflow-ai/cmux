@@ -4,6 +4,13 @@ import Foundation
 @testable import CmuxMobileShell
 
 actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshing {
+    func revokeAllLegacyTailscaleGrants(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {}
+
     func authorizeUserTailscaleRoutes(
         macDeviceID: String,
         instanceTag: String?,

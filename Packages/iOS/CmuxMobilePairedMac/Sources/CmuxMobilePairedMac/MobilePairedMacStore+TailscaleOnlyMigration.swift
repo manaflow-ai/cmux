@@ -82,6 +82,13 @@ extension MobilePairedMacStore {
                     .text(row.ownerKey),
                 ]
             )
+            // The grants became Direct addresses; leaving them would let the
+            // Iroh compatibility path resurrect an endpoint the user later
+            // removes from the Direct list.
+            try exec(
+                "DELETE FROM legacy_tailscale_route_grants WHERE mac_device_id = ? AND owner_key = ?;",
+                binding: [.text(row.macDeviceID), .text(row.ownerKey)]
+            )
         }
     }
 

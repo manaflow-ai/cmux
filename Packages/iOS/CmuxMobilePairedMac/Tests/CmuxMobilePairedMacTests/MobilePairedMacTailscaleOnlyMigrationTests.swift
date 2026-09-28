@@ -47,6 +47,9 @@ import Testing
         let legacy = try #require(macs.first { $0.macDeviceID == "legacy-mac" })
 
         #expect(keyed.connectionMethodRawValue == "direct")
+        // The grants became Direct addresses; leaving them could resurrect a
+        // removed address through the Iroh compatibility path.
+        #expect(keyed.legacyTailscaleRoutes == nil)
         #expect(keyed.directAddresses == [
             MobilePairedMacDirectAddress(address: "192.168.1.10", port: 58465),
             MobilePairedMacDirectAddress(address: "100.64.0.9", port: 58465, label: "Tailscale"),

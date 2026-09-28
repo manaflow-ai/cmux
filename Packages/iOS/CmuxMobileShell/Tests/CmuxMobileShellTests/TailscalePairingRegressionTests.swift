@@ -173,6 +173,11 @@ import Testing
 
         #expect(result == .connected)
         #expect(store.activeRoute?.kind == .tailscale)
+        // A pre-Iroh code cannot serve Direct redials; the pairing returns to
+        // the default Iroh method, whose compatibility keeps this grant usable.
+        #expect(store.connectionMethod(forMacDeviceID: "test-mac", instanceTag: "default") == .iroh)
+        let saved = try #require(try await pairedMacStore.activeMac(stackUserID: "phone-user"))
+        #expect(saved.legacyTailscaleRoutes?.isEmpty == false)
     }
 
     @Test func legacyTokenlessQRCodeEnteredThroughPasteUsesTheSameAuthorization() async throws {
