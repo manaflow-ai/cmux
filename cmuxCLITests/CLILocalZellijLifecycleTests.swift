@@ -133,6 +133,39 @@ struct CLILocalZellijLifecycleTests {
         #expect(sessions.first?["state"] as? String == "live", Comment(rawValue: list.stdout))
     }
 
+    @Test func closeDuringGUIAttachIsNotUndoneWhenTheAttachFinishes() throws {
+        let fixture = try makeFixture("attach-race")
+        defer { try? FileManager.default.removeItem(at: fixture.base) }
+        _ = try startSession("work", fixture)
+        let app = try AttachHoldingCmuxSocket()
+        defer { app.stop() }
+
+        // GUI attach reads the record, then blocks in surface.respawn.
+        let attach = Process()
+        attach.executableURL = URL(fileURLWithPath: try BundledCLITestSupport.bundledCLIPath())
+        attach.arguments = [
+            "local-zellij", "attach", "work",
+            "--workspace", AttachHoldingCmuxSocket.workspaceID,
+            "--surface", AttachHoldingCmuxSocket.surfaceID,
+        ]
+        var environment = fixture.environment
+        environment["CMUX_SOCKET_PATH"] = app.socketPath
+        environment["CMUX_SOCKET_PASSWORD"] = ""
+        attach.environment = environment
+        attach.standardOutput = FileHandle.nullDevice
+        attach.standardError = FileHandle.nullDevice
+        try attach.run()
+        #expect(app.respawnArrived.wait(timeout: .now() + 20) == .success, "attach reached surface.respawn")
+
+        let close = try runCLI(["local-zellij", "close", "work"], fixture)
+        app.releaseRespawn.signal()
+        attach.waitUntilExit()
+
+        #expect(close.status == 0, Comment(rawValue: close.stderr))
+        let list = try runCLI(["local-zellij", "list", "--json"], fixture)
+        #expect(try jsonObject(list.stdout)["count"] as? Int == 0, Comment(rawValue: list.stdout))
+    }
+
     @Test func nameTooLongForTheSocketPathIsRejectedBeforeZellijRuns() throws {
         let fixture = try makeFixture("long")
         defer { try? FileManager.default.removeItem(at: fixture.base) }
@@ -225,5 +258,89 @@ struct CLILocalZellijLifecycleTests {
 
     private func jsonObject(_ text: String) throws -> [String: Any] {
         try #require(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+    }
+}
+
+/// A cmux control socket that answers the lookups a GUI attach makes and
+/// holds `surface.respawn` until the test releases it.
+private final class AttachHoldingCmuxSocket: @unchecked Sendable {
+    static let windowID = "0A000000-0000-0000-0000-000000000001"
+    static let workspaceID = "0B000000-0000-0000-0000-000000000002"
+    static let surfaceID = "0C000000-0000-0000-0000-000000000003"
+
+    let socketPath = makeCodexHookSocketPath("zjrace")
+    let respawnArrived = DispatchSemaphore(value: 0)
+    let releaseRespawn = DispatchSemaphore(value: 0)
+    private let listenerFD: Int32
+    private let stopped = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var isStopping = false
+
+    init() throws {
+        listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let listenerFD = listenerFD
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            defer { stopped.signal() }
+            while !stopping {
+                var pollFD = pollfd(fd: listenerFD, events: Int16(POLLIN), revents: 0)
+                guard Darwin.poll(&pollFD, 1, 100) > 0 else { continue }
+                let clientFD = Darwin.accept(listenerFD, nil, nil)
+                guard clientFD >= 0 else { continue }
+                DispatchQueue.global(qos: .userInitiated).async { [self] in serve(clientFD) }
+            }
+        }
+    }
+
+    private var stopping: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return isStopping
+    }
+
+    func stop() {
+        lock.lock(); isStopping = true; lock.unlock()
+        releaseRespawn.signal()
+        _ = stopped.wait(timeout: .now() + 5)
+        Darwin.close(listenerFD)
+        unlink(socketPath)
+    }
+
+    private func serve(_ clientFD: Int32) {
+        defer { Darwin.close(clientFD) }
+        guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD) else { return }
+        var pending = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let count = Darwin.read(clientFD, &buffer, buffer.count)
+            if count < 0, errno == EINTR { continue }
+            guard count > 0 else { return }
+            pending.append(buffer, count: count)
+            while let newline = pending.firstRange(of: Data([0x0A])) {
+                let line = String(decoding: pending.subdata(in: 0..<newline.lowerBound), as: UTF8.self)
+                pending.removeSubrange(0...newline.lowerBound)
+                let request = codexHookJSONObject(line) ?? [:]
+                let id = request["id"] as? String ?? "unknown"
+                let result = response(to: request["method"] as? String ?? "")
+                guard writeAllToFixtureSocket(codexHookV2Response(id: id, ok: true, result: result) + "\n", fd: clientFD) else { return }
+            }
+        }
+    }
+
+    private func response(to method: String) -> [String: Any] {
+        let workspace: [String: Any] = ["id": Self.workspaceID, "ref": "workspace:1", "index": 0, "title": "work"]
+        let surface: [String: Any] = ["id": Self.surfaceID, "ref": "surface:1", "index": 0, "type": "terminal"]
+        switch method {
+        case "window.list":
+            return ["windows": [["id": Self.windowID, "ref": "window:1", "index": 0]]]
+        case "workspace.list":
+            return ["workspaces": [workspace]]
+        case "surface.list":
+            return ["surfaces": [surface]]
+        case "surface.respawn":
+            respawnArrived.signal()
+            _ = releaseRespawn.wait(timeout: .now() + 30)
+            return ["workspace_id": Self.workspaceID, "surface_id": Self.surfaceID]
+        default:
+            return ["workspace_id": Self.workspaceID, "surface_id": Self.surfaceID, "window_id": Self.windowID]
+        }
     }
 }
