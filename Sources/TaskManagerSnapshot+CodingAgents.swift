@@ -92,7 +92,8 @@ extension CmuxTaskManagerSnapshot {
             detail: titles.detail(
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                processCount: processCountDetail(resources.processCount)
+                processCount: processIdentityDetail(instance["processes"] as? [[String: Any]] ?? [])
+                    ?? processCountDetail(resources.processCount)
             ),
             resources: resources,
             isDimmed: false,
@@ -105,6 +106,20 @@ extension CmuxTaskManagerSnapshot {
             agentAssetName: assetName,
             agentStatus: isTerminal ? surfaceId.flatMap { panels.statusBySurfaceId[$0] } : nil
         )
+    }
+
+    /// "PID 61879 (2.1.283)": the PID and OS process name Activity Monitor
+    /// shows, so a version-numbered row there maps back to this agent.
+    /// Falls back to the process count past three processes.
+    static func processIdentityDetail(_ processes: [[String: Any]]) -> String? {
+        let identities = processes.compactMap { process -> String? in
+            guard let pid = process["pid"] as? Int else { return nil }
+            let pidText = String(localized: "taskManager.row.pid", defaultValue: "PID \(pid)")
+            guard let name = nonEmptyString(process["name"]) else { return pidText }
+            return "\(pidText) (\(name))"
+        }
+        guard !identities.isEmpty, identities.count <= 3 else { return nil }
+        return identities.joined(separator: ", ")
     }
 
     private static func hibernatedAgentRow(
