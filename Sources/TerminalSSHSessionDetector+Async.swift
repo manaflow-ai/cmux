@@ -23,7 +23,8 @@ extension TerminalSSHSessionDetector {
         },
         timeoutSleep: @escaping @Sendable (TimeInterval) async -> Void = {
             timeout in
-            await defaultDetectionTimeoutSleep(timeout)
+            await TerminalSSHSessionDetector
+                .defaultDetectionTimeoutSleep(timeout)
         }
     ) async -> DetectedSSHSession? {
         let gate = TerminalSSHSessionDetectionTimeoutGate()

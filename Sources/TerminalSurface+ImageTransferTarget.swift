@@ -1,4 +1,5 @@
 import CmuxTerminal
+import Foundation
 
 extension TerminalSurface {
     @MainActor
