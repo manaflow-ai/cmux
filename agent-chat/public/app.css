@@ -610,6 +610,10 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
   white-space: pre-wrap; color: var(--text-faint); font: calc(var(--font-size-base) - 2px)/1.5 var(--font-sans);
   padding: 4px 6px 6px;
 }
+/* A running turn renders its activity directly in the turn, outside the
+   collapsed summary; keep thinking and interim text in the content column. */
+.turn-live-activity { max-width: 760px; margin: 0 auto 10px; padding: 0 24px; }
+.turn-live-activity .turn-thinking-detail { padding-left: 0; padding-right: 0; }
 
 .turn-actions {
   max-width: 760px; margin: -8px auto 18px; padding: 0 24px; display: flex; align-items: center; gap: 6px;
@@ -670,6 +674,29 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-input));
   color: var(--text-dim); font: 400 calc(var(--font-size-base) - 2px) var(--font-sans);
 }
+.transcript-composer-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; padding: 0 0 1px 8px;
+}
+.transcript-hint {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0;
+  color: var(--text-faint); font: 400 calc(var(--font-size-base) - 2px) var(--font-sans);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.transcript-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); }
+.transcript-dot.running { background: var(--accent); animation: transcript-pulse 1.4s ease-in-out infinite; }
+@keyframes transcript-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .transcript-dot.running { animation: none; } }
+.terminal-attention {
+  display: flex; align-items: center; gap: 10px; margin: 0 0 7px; padding: 8px 8px 8px 12px; border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-input));
+  color: var(--text); font: 400 calc(var(--font-size-base) - 1.5px) var(--font-sans);
+}
+.terminal-attention-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.terminal-attention-btn {
+  flex: none; height: 28px; padding: 0 11px; border: 0; border-radius: 8px; cursor: default;
+  background: var(--accent); color: #fff; font: 500 calc(var(--font-size-base) - 2px) var(--font-sans);
+}
+.terminal-attention-btn:hover { filter: brightness(1.08); }
 #chat-card {
   display: flex; flex-direction: column; gap: 6px; padding: 6px;
   background: var(--bg-input); border: 0; border-radius: 14px;

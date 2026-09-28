@@ -1,5 +1,6 @@
 import { authorizeCronRequest } from "../../../../services/cronAuth";
 import { vmModelPlaneRevoker } from "../../../../services/vms/modelPlaneGateway";
+import { vmTeamDirectory } from "../../../../services/vms/teamDirectory";
 import {
   reconcileVmProviderStatuses,
   runVmWorkflow,
@@ -13,7 +14,7 @@ export async function GET(request: Request): Promise<Response> {
 
   try {
     // Machines the provider reports gone get their coderouter tokens revoked.
-    const result = await runVmWorkflow(reconcileVmProviderStatuses({ modelPlane: vmModelPlaneRevoker() }));
+    const result = await runVmWorkflow(reconcileVmProviderStatuses({ modelPlane: vmModelPlaneRevoker(), teamDirectory: vmTeamDirectory() }));
     return Response.json({ ok: true, ...result });
   } catch (err) {
     console.error("[VM] cron status reconcile failed", err);

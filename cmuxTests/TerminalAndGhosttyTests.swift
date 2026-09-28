@@ -1020,7 +1020,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
         defer {
             panel.hostedView.removeFromSuperview()
-            panel.surface.teardownSurface()
+            panel.surface.teardownHostedSurfaceForTesting()
             window.orderOut(nil)
         }
 
@@ -1134,7 +1134,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     func testColdSocketInputQueuesInsteadOfDroppingWhenRuntimeSurfaceIsMissing() {
         let panel = TerminalPanel(workspaceId: UUID())
 
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         XCTAssertNil(panel.surface.surface)
         panel.surface.sendInput("touch /tmp/cmux-cold-send\n")
 
@@ -1150,7 +1150,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     func testColdSocketInputRejectsOversizedQueueInsteadOfDroppingExistingInput() {
         let panel = TerminalPanel(workspaceId: UUID())
 
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         XCTAssertTrue(panel.surface.sendInput("echo keep-me\n"))
 
         let oversizedInput = String(repeating: "x", count: 1_100_000)
@@ -1167,7 +1167,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     func testColdSocketInputQueuesBackspaceControlCharacterAsKeyEvent() {
         let panel = TerminalPanel(workspaceId: UUID())
 
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         XCTAssertTrue(panel.surface.sendInput("abc\u{08}"))
 
         let pending = panel.surface.debugPendingSocketInputForTesting()
@@ -1181,7 +1181,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     func testColdSocketInputQueuesReturnAsCommittedTextInputInsteadOfPasteOrKeyEvent() {
         let panel = TerminalPanel(workspaceId: UUID())
 
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         XCTAssertTrue(panel.surface.sendInput("printf 'ok\\n'\n"))
 
         let pending = panel.surface.debugPendingSocketInputForTesting()
@@ -1207,7 +1207,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     func testColdSocketInputQueuesOSC11AsRawTerminalBytes() {
         let panel = TerminalPanel(workspaceId: UUID())
 
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         let osc11 = "\u{1B}]11;#341c1c\u{1B}\\"
         XCTAssertTrue(panel.surface.sendInput(osc11))
 
@@ -1238,7 +1238,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     func testColdSocketInputChunksLongCommittedTextInput() {
         let panel = TerminalPanel(workspaceId: UUID())
 
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         let command = "printf '" + String(repeating: "x", count: 360) + "'\n"
         XCTAssertTrue(panel.surface.sendInput(command))
 
@@ -1260,7 +1260,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
         XCTAssertTrue(panel.surface.debugHasHeadlessStartupWindowForTesting())
 
-        panel.surface.teardownSurface()
+        panel.surface.teardownHostedSurfaceForTesting()
 
         XCTAssertFalse(
             panel.surface.debugHasHeadlessStartupWindowForTesting(),
@@ -1271,7 +1271,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     func testClosedSurfaceRejectsColdSocketInputInsteadOfQueueingIt() {
         let panel = TerminalPanel(workspaceId: UUID())
 
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         panel.surface.beginPortalCloseLifecycle(reason: "test.closed")
 
         XCTAssertFalse(panel.surface.sendInput("echo should-not-queue\n"))
@@ -1297,7 +1297,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         // A recognized-but-undeliverable key returns `.surfaceUnavailable` on a closed
         // surface, whereas an unrecognized key returns `.unknownKey`.
         let panel = TerminalPanel(workspaceId: UUID())
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         panel.surface.beginPortalCloseLifecycle(reason: "test.closed")
 
         XCTAssertEqual(
@@ -1338,7 +1338,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         XCTAssertNil(panel.surface.surface)
 
         let response = TerminalController.shared.handleSocketLine(
@@ -1368,7 +1368,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         panel.surface.beginPortalCloseLifecycle(reason: "test.mobile.closed")
 
         let response = await TerminalController.shared.mobileHostHandleRPC(
@@ -1688,7 +1688,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             return
         }
         defer {
-            terminalPanel.surface.teardownSurface()
+            terminalPanel.surface.teardownHostedSurfaceForTesting()
         }
 
         XCTAssertFalse(
@@ -3321,7 +3321,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "Expected runtime surface before simulating the detach race"
         )
 
-        surface.releaseSurfaceForTesting()
+        surface.releaseHostedSurfaceForTesting()
         XCTAssertNil(surface.surface, "Expected runtime surface to be released for the regression setup")
 
         hostedView.removeFromSuperview()
@@ -3391,7 +3391,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "Focused terminal should start with desired Ghostty focus"
         )
 
-        surface.releaseSurfaceForTesting()
+        surface.releaseHostedSurfaceForTesting()
         XCTAssertNil(surface.surface, "Expected runtime surface to be released for the regression setup")
 
         hostedView.removeFromSuperview()
@@ -4187,7 +4187,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     override func tearDown() {
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
         for surface in surfacesToRelease.reversed() {
-            surface.releaseSurfaceForTesting()
+            surface.releaseHostedSurfaceForTesting()
         }
         surfacesToRelease.removeAll()
         super.tearDown()
@@ -4235,7 +4235,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             for surface in surfaces {
                 surface.hostedView.removeFromSuperview()
                 if !didTeardown {
-                    surface.teardownSurface()
+                    surface.teardownHostedSurfaceForTesting()
                 }
             }
             window.orderOut(nil)
@@ -4445,7 +4445,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         for surface in surfaces {
             surface.hostedView.removeFromSuperview()
-            surface.teardownSurface()
+            surface.teardownHostedSurfaceForTesting()
         }
         didTeardown = true
         XCTAssertTrue(surfaces.allSatisfy { $0.surface == nil && !$0.isRendererRealized })
@@ -5464,7 +5464,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
         hostedView.reconcileGeometryNow()
-        surface.releaseSurfaceForTesting()
+        surface.releaseHostedSurfaceForTesting()
         XCTAssertNil(surface.surface, "Surface should be nil after test release helper")
 
         hostedView.reconcileGeometryNow()
@@ -5496,7 +5496,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
 
-        surface?.releaseSurfaceForTesting()
+        surface?.releaseHostedSurfaceForTesting()
         surface = nil
         waitUntil(description: "terminal surface to deallocate after search overlay mount") {
             weakSurface == nil
