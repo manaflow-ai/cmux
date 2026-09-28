@@ -256,7 +256,7 @@ extension CMUXCLI {
         }
         if record.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex",
            let checkpointID = normalizedHookValue(record.checkpointID) {
-            _ = clearAgentSurfaceResumeBindingOutcome(
+            let clearOutcome = clearAgentSurfaceResumeBindingOutcome(
                 client: client,
                 workspaceId: payload["workspace_id"] as? String
                     ?? processEnvironment["CMUX_WORKSPACE_ID"]
@@ -265,6 +265,13 @@ extension CMUXCLI {
                 sessionId: checkpointID,
                 sessionDidEnd: true
             )
+            guard clearOutcome == .cleared else {
+                throw loggedForkError(
+                    .bindingChanged,
+                    stage: "binding.clear",
+                    detail: String(describing: clearOutcome)
+                )
+            }
         }
         client.close()
         try execForkInvocation(
