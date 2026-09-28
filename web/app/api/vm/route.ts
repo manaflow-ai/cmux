@@ -1,3 +1,8 @@
+import {
+  creatorFor,
+  creatorUserIds,
+  readCreatorDisplayNames,
+} from "../../../services/vms/creators";
 import { normalizedDisplayName } from "../../../services/vms/displayName";
 import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../services/vms/teamDirectory";
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
@@ -141,6 +146,9 @@ export async function GET(request: Request): Promise<Response> {
       const freeAccessWindowDays = listEntitlements && !isPaidVmPlan(listEntitlements.planId)
         ? vmFreeAccessWindowDays()
         : 0;
+      // Who made each machine. A team list is scoped by owner team, so this is
+      // the only thing separating one member's machines from another's.
+      const creatorNames = await readCreatorDisplayNames(creatorUserIds(entries));
       const vms = entries.map((entry) => ({
         id: entry.providerVmId,
         provider: entry.provider,
@@ -154,6 +162,11 @@ export async function GET(request: Request): Promise<Response> {
         createdAt: entry.createdAt,
         displayName: entry.displayName,
         slug: entry.slug,
+        // The account that made this machine, for display. `displayName` is
+        // null when nothing has recorded a name for that account; clients fall
+        // back to "Unknown", never to the raw id. Null for rows that predate
+        // the column.
+        createdBy: creatorFor(entry, creatorNames),
         // The machine's address on its owner's private network (reachable over
         // the WireGuard tunnel); null for machines created before private
         // networking. Clients surface it as "Copy IP Address".
