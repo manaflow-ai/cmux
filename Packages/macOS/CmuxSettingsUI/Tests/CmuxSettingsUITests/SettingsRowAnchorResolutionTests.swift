@@ -36,6 +36,7 @@ struct SettingsRowAnchorResolutionTests {
     /// fails if a curated search result has no backing anchor, and
     /// ``rowAnchorsAreUniqueAcrossRows`` fails if two rows collide on one id.
     static let rowConfigPaths: [String] = [
+        "app.accentColor",
         "app.commandPaletteSearchesAllSurfaces",
         "app.confirmQuit",
         "app.equalizeSplitsOnCreate",
@@ -57,11 +58,13 @@ struct SettingsRowAnchorResolutionTests {
         "app.sendAnonymousTelemetry",
         "app.warnBeforeClosingTab",
         "app.warnBeforeClosingTabXButton",
-        "app.whatsNew",
+        "app.warnBeforeClosingWindow",
         "app.warnBeforeClosingWorkspace",
+        "app.whatsNew",
         "app.workspaceInheritWorkingDirectory",
         "automation.claudeBinaryPath",
         "automation.claudeCodeIntegration",
+        "automation.piIntegration",
         "automation.cursorIntegration",
         "automation.geminiIntegration",
         "automation.portBase",
@@ -180,6 +183,8 @@ struct SettingsRowAnchorResolutionTests {
         "setting:mobile:iOSPairingHost",
         "setting:mobile:iOSPairingPort",
         "setting:mobile:iOSPairingDisplayName",
+        "setting:computers:incoming-access",
+        "setting:computers:discovery",
         "setting:betaFeatures:feed",
         "setting:betaFeatures:dock",
         "setting:betaFeatures:cloudMachines",

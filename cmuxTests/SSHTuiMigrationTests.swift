@@ -118,6 +118,48 @@ struct SSHTuiMigrationTests {
         #expect(SSHTuiConnection(configuration: original).id == SSHTuiConnection(configuration: restored).id)
     }
 
+    @Test("A restored carrier logs in through the ControlMaster its open shared")
+    func restoredCarrierSharesTheOpensControlMaster() throws {
+        // `cmux ssh` opens with cmux's sharing defaults. The restored carrier
+        // runs in batch mode, so on a password-only host the live master is
+        // its only way in.
+        let opened = configuration(options: SSHConnectionSharingOptions().mergingDefaults(into: ["ProxyJump=bastion"]))
+        let snapshot = try #require(opened.sessionSnapshot())
+        let persisted = try JSONEncoder().encode(snapshot)
+        let restored = try #require(try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: persisted).workspaceConfiguration())
+        let openedCarrier = try resolvedControlSettings(SSHTuiConnection(configuration: opened))
+        #expect(openedCarrier["controlmaster"] == "auto")
+        #expect(openedCarrier["controlpath"]?.hasPrefix("/tmp/cmux-ssh-") == true)
+        #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored)) == openedCarrier)
+    }
+
+    /// The control settings OpenSSH resolves for the carrier's own ssh arguments.
+    private func resolvedControlSettings(_ connection: SSHTuiConnection) throws -> [String: String] {
+        let arguments = connection.arguments(stateDirectory: "/tmp/cmux-tui-client", deviceName: "test")
+        let sshArguments = arguments.indices.compactMap { index -> String? in
+            guard index > 0, arguments[index - 1] == "--ssh-arg" else { return nil }
+            return arguments[index]
+        }
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = ["-G", "-F", "/dev/null"] + sshArguments + [connection.configuration.destination]
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        try #require(process.terminationStatus == 0)
+        var settings: [String: String] = [:]
+        for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
+            let parts = line.split(separator: " ", maxSplits: 1)
+            guard parts.count == 2, ["controlmaster", "controlpath", "controlpersist"].contains(parts[0]) else { continue }
+            settings[String(parts[0])] = String(parts[1])
+        }
+        return settings
+    }
+
     @Test("Legacy persistent SSH snapshots are not claimed by the TUI owner")
     func legacySnapshotDoesNotBecomeTuiSession() throws {
         let legacy = SessionRemoteWorkspaceSnapshot(transport: .ssh, destination: "fixture@host",

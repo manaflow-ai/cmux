@@ -115,37 +115,17 @@ func titlebarControlForegroundNSColor(opacity: CGFloat, appearance: WindowAppear
     )
 }
 
-func cmuxAccentNSColor(for colorScheme: ColorScheme) -> NSColor {
-    switch colorScheme {
-    case .dark:
-        return NSColor(
-            srgbRed: 0,
-            green: 145.0 / 255.0,
-            blue: 1.0,
-            alpha: 1.0
-        )
-    default:
-        return NSColor(
-            srgbRed: 0,
-            green: 136.0 / 255.0,
-            blue: 1.0,
-            alpha: 1.0
-        )
+extension CmuxAccentColor {
+    /// The accent for a SwiftUI color scheme.
+    func nsColor(for colorScheme: ColorScheme) -> NSColor {
+        nsColor(isDark: colorScheme == .dark)
     }
-}
 
-func cmuxAccentNSColor(for appAppearance: NSAppearance?) -> NSColor {
-    let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
-    let scheme: ColorScheme = (bestMatch == .darkAqua) ? .dark : .light
-    return cmuxAccentNSColor(for: scheme)
-}
-
-func cmuxAccentNSColor() -> NSColor {
-    cmuxAccentNSColor(for: SidebarAppearanceColorResolver().currentColorScheme())
-}
-
-func cmuxAccentColor() -> Color {
-    Color(nsColor: cmuxAccentNSColor())
+    /// The accent for the scheme chosen by the terminal-theme authority, for
+    /// AppKit chrome that has no view appearance of its own to resolve with.
+    var themeNSColor: NSColor {
+        nsColor(for: SidebarAppearanceColorResolver().currentColorScheme())
+    }
 }
 
 /// Fill for an unread notification badge: the Notification Badge color
@@ -335,14 +315,15 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
     activeTabIndicatorStyle: WorkspaceIndicatorStyle = .leftRail,
     subtleSelection: Bool = false,
     isEmphasized: Bool = true,
-    increaseContrast: Bool = false
+    increaseContrast: Bool = false,
+    accent: CmuxAccentColor = CmuxAccentColor()
 ) -> NSColor {
     if let hex = sidebarSelectionColorHex,
        let parsed = NSColor(hex: hex) {
         return parsed
     }
     if activeTabIndicatorStyle == .solidFill || !subtleSelection {
-        return cmuxAccentNSColor(for: colorScheme)
+        return accent.nsColor(for: colorScheme)
     }
     let surface = NSColor(white: colorScheme == .dark ? 0.16 : 0.93, alpha: 1)
     let fill = CmuxSelectionFill.resolve(
@@ -405,7 +386,8 @@ func sidebarWorkspaceRowBackgroundStyle(
     sidebarSelectionColorHex: String?,
     subtleSelection: Bool = false,
     isEmphasized: Bool = true,
-    increaseContrast: Bool = false
+    increaseContrast: Bool = false,
+    accent: CmuxAccentColor = CmuxAccentColor()
 ) -> SidebarWorkspaceRowBackgroundStyle {
     // Increase Contrast: the multi-selection wash is otherwise too faint to
     // read against the sidebar material.
@@ -416,9 +398,10 @@ func sidebarWorkspaceRowBackgroundStyle(
         activeTabIndicatorStyle: activeTabIndicatorStyle,
         subtleSelection: subtleSelection,
         isEmphasized: isEmphasized,
-        increaseContrast: increaseContrast
+        increaseContrast: increaseContrast,
+        accent: accent
     )
-    let accentBackground = cmuxAccentNSColor(for: colorScheme)
+    let accentBackground = accent.nsColor(for: colorScheme)
     // A configured selection color is an explicit request for a solid fill.
     let usesSubtleSelection = subtleSelection
         && sidebarSelectionColorHex.flatMap { NSColor(hex: $0) } == nil

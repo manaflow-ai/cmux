@@ -9,6 +9,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "appearanceMode"
     )
 
+    /// Accent for cmux-drawn chrome: cmux's fixed blue or the macOS accent.
+    /// See ``CmuxAccentColorMode``.
+    public let accentColor = DefaultsKey<CmuxAccentColorMode>(
+        id: "app.accentColor",
+        defaultValue: CmuxAccentColorMode.defaultValue,
+        userDefaultsKey: CmuxAccentColorMode.userDefaultsKey
+    )
+
     public let language = DefaultsKey<AppLanguage>(
         id: "app.language",
         defaultValue: .system,
@@ -208,6 +216,29 @@ public struct AppCatalogSection: SettingCatalogSection {
                 commandPalette: .init(
                     id: "warnBeforeClosingWorkspace",
                     keywords: ["warn", "close", "workspace", "confirmation", "cmd-shift-w"]
+                )
+            ))
+        )
+    )
+
+    /// Gates the "Close window?" prompts (the Close Window command, and closing
+    /// every workspace in a window at once).
+    public let warnBeforeClosingWindow = DefaultsKey<Bool>(
+        id: "app.warnBeforeClosingWindow",
+        defaultValue: true,
+        userDefaultsKey: "warnBeforeClosingWindow",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.warnBeforeClosingWindow",
+                defaultValue: "Warn Before Closing Window"
+            ),
+            section: .app,
+            searchID: "warn-before-closing-window",
+            searchKeywords: ["close", "window", "confirmation", "command-control-w", "cmd-ctrl-w", "running"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "warnBeforeClosingWindow",
+                    keywords: ["warn", "close", "window", "confirmation", "cmd-ctrl-w"]
                 )
             ))
         )
