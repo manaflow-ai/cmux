@@ -3305,7 +3305,56 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
         }
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        func storedReconnectRoutes(_ mac: MobilePairedMac) -> [CmxAttachRoute] {
+            orderedReconnectRoutes(for: mac, supportedKinds: supportedKinds)
+        }
+        // The active row is a small indexed read compared with the full
+        // account snapshot. Start its cached-route dial as soon as the launch
+        // restore begins, while the visible pairing list and backup refresh
+        // continue in parallel. The result is still checked against the same
+        // scope and reconnect generation before it can claim the connection.
+        let cachedActiveDialTask: Task<StoredMacReconnectOutcome?, Never>?
         if hydratePairedMacs {
+            cachedActiveDialTask = Task { @MainActor [weak self] in
+                guard let self,
+                      let cached = try? await pairedMacStore.activeMac(
+                          stackUserID: scope.userID,
+                          teamID: scope.teamID
+                      ),
+                      let cached,
+                      self.storedMacReconnectGeneration == generation,
+                      await self.isScopeCurrent(scope),
+                      await !self.isHiddenMacDeviceID(
+                          cached.macDeviceID,
+                          instanceTag: cached.instanceTag,
+                          scope: scope
+                      ),
+                      !self.isDemonstrationPairedMac(cached) else {
+                    return nil
+                }
+                let routes = storedReconnectRoutes(cached)
+                guard !routes.isEmpty else { return .failed(.noRoute) }
+                return await self.connectStoredMacOutcome(
+                    name: cached.displayName ?? cached.macDeviceID,
+                    routes: routes,
+                    pairedMacDeviceID: cached.macDeviceID,
+                    instanceTag: cached.instanceTag,
+                    legacyTailscaleRoutes: cached.legacyTailscaleRoutes ?? [],
+                    automaticReconnectAccountID: scope.userID,
+                    knownPairing: cached,
+                    ifStillCurrent: { [weak self] in
+                        self?.storedMacReconnectGeneration == generation
+                    }
+                )
+            }
+        } else {
+            cachedActiveDialTask = nil
+        }
+        if hydratePairedMacs {
+            // Give the indexed active-row read a scheduling turn before the
+            // full snapshot starts its own SQLite operation.
+            await Task.yield()
             // Hydrate the published pairing snapshot before resolving any route
             // or method through shell state. The workspace shell and Computers
             // view can request the same load concurrently; `loadPairedMacs()`
@@ -3315,8 +3364,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // reconnect owner indefinitely. The shared read may finish later
             // for the UI, but this reconnect attempt remains retryable.
             guard await loadPairedMacs() else {
+                _ = await cachedActiveDialTask?.value
                 finishStoredMacReconnectAttempt(generation: generation)
                 return .failed(.timedOut)
+            }
+            // The cached dial may have completed while the full snapshot was
+            // loading. Return immediately when it won the foreground session;
+            // the hydrated list remains available to the UI either way.
+            _ = await cachedActiveDialTask?.value
+            if connectionState == .connected {
+                finishStoredMacReconnectAttempt(generation: generation)
+                return .connected
             }
             if let result = storedMacReconnectInterruptionResult(generation: generation) {
                 return result ? .connected : .superseded
@@ -3328,10 +3386,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
-        }
-        let supportedKinds = runtime?.supportedRouteKinds ?? []
-        func storedReconnectRoutes(_ mac: MobilePairedMac) -> [CmxAttachRoute] {
-            orderedReconnectRoutes(for: mac, supportedKinds: supportedKinds)
         }
         // `loadPairedMacs()` just hydrated the same scoped store snapshot used
         // by the Computers screen. Re-reading `activeMac` and `loadAll` here
