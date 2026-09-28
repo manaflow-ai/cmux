@@ -543,6 +543,14 @@ try {
     await timed("pause", async () => {
       expectStatus(await api("POST", `/api/vm/${encodeURIComponent(vmId)}/pause`, {}, 3 * 60 * 1000), [200, 202], "pause");
     });
+    // Is the machine asleep? What the control plane says, and whether the
+    // terminal still runs commands.
+    const shown = await api("GET", `/api/vm/${encodeURIComponent(vmId)}`);
+    result.statusAfterPause = shown.json?.status ?? `http ${shown.status}`;
+    await typeLine(terminal, `echo ${marker}-$((2+2))`).catch((error) => note(`terminal write while paused failed: ${error.message.slice(0, 120)}`));
+    result.terminalLiveWhilePaused = await waitForScreen(localSocket, terminal, `${marker}-4`, 5_000)
+      .then(() => true, () => false);
+    if (result.terminalLiveWhilePaused) note("the terminal still ran a command after pause returned");
     // How the headless client reports a sleeping machine.
     const lostAfter = await link.waitFor((event) => event.event === "connection-snapshot" && event.connection?.state !== "connected", 60_000, "non-connected snapshot after pause", beforePause)
       .then((event) => event.connection.state)
