@@ -14,6 +14,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{Mutex, mpsc};
 
+use crate::ssh_args::background_ssh_arguments;
+
 const SSH_BOOTSTRAP_OUTPUT_LIMIT: usize = 4_096;
 /// Printed by the staging command when the remote can decompress an upload.
 const GZIP_UPLOAD_MARKER: &str = "cmux-upload:gzip";
@@ -525,11 +527,14 @@ impl SshBootstrapper {
     }
 
     fn configure_ssh_command(&self, command: &mut Command) {
-        command.arg("-T");
-        if let Some(port) = self.config.port {
-            command.arg("-p").arg(port.to_string());
-        }
-        command.args(&self.config.extra_args).arg(&self.config.destination);
+        // Forwarding stays as configured unless `extra_args` pin
+        // `ControlMaster=no`: otherwise this run can become the shared master
+        // that interactive sessions reuse.
+        command.args(background_ssh_arguments(
+            self.config.port,
+            &self.config.extra_args,
+            &self.config.destination,
+        ));
     }
 
     /// Runs one ssh command. With `compressed_input`, that file is gzipped
@@ -998,6 +1003,53 @@ mod tests {
         };
         assert!(
             matches!(error, BootstrapError::Configuration(message) if message.contains("destination"))
+        );
+    }
+
+    /// Every bootstrap step starts `ssh` the same way. This run is pinned to
+    /// `ControlMaster=no`, so it cannot become a shared master and turns
+    /// forwarding off.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn bootstrap_uses_hardened_ssh_argv() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let log = directory.path().join("argv");
+        let script = directory.path().join("ssh");
+        fs::write(
+            &script,
+            format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nexit 127\n", log.display()),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut config = SshBootstrapConfig::defaults("alice@example.com");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        config.port = Some(2222);
+        config.extra_args = vec!["-o".into(), "ControlMaster=no".into()];
+
+        assert_eq!(SshBootstrapper::new(config).unwrap().probe().await.unwrap(), None);
+        assert_eq!(
+            fs::read_to_string(&log).unwrap().lines().collect::<Vec<_>>(),
+            [
+                "-T",
+                "-p",
+                "2222",
+                "-o",
+                "ForwardAgent=no",
+                "-o",
+                "ForwardX11=no",
+                "-o",
+                "ClearAllForwardings=yes",
+                "-o",
+                "ControlMaster=no",
+                "--",
+                "alice@example.com",
+                "~/.local/bin/cmux-tui",
+                "remote-probe",
+                "--json",
+            ]
         );
     }
 
