@@ -667,7 +667,7 @@ enum CmuxEmbeddedConfigSchema {
             }
           ],
           "default": true,
-          "description": "Automatic workspace reordering. true or \"notifications\" moves workspaces with new notifications toward the top. \"agentActivity\" also moves them when an agent finishes a turn, needs input, or fails, at most once per burst and never while the pointer is over the sidebar. false or \"off\" keeps the order stable."
+          "description": "Automatic workspace reordering. true or \"notifications\" moves workspaces with new notifications toward the top. \"agentActivity\" also moves them when a prompt is sent or an agent finishes a turn, needs input, or fails, at most once per burst and never while the pointer is over the sidebar. false or \"off\" keeps the order stable."
         },
         "iMessageMode": {
           "type": "boolean",
@@ -718,6 +718,13 @@ enum CmuxEmbeddedConfigSchema {
           "default": false,
           "descriptionKey": "schemaDescriptions.app.hideTabCloseButton",
           "description": "Hide tab close buttons in the pane tab bar."
+        },
+        "tabBarVisibility": {
+          "type": "string",
+          "enum": ["always", "multiple-tabs"],
+          "default": "always",
+          "descriptionKey": "schemaDescriptions.app.tabBarVisibility",
+          "description": "Decide when a pane draws its tab bar. \"always\" draws it even for a pane holding one tab; \"multiple-tabs\" hides it while a pane holds one tab and draws it once a second tab opens. Minimal mode (app.minimalMode) always draws it, because there the top pane's tab bar doubles as the window titlebar."
         },
         "renameSelectsExistingName": {
           "type": "boolean",
