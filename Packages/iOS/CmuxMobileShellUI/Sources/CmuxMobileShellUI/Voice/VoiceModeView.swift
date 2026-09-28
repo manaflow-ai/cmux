@@ -94,8 +94,18 @@ private struct VoiceModeContentView: View {
                 approvalCard(approval)
             }
             controls
-                .padding(.bottom, 12)
+            #if DEBUG
+            // Pipeline truth for devices with no log channel: mic chunks
+            // sent, server events seen, transcript/audio arrivals. Dev
+            // builds only; the user reads this back when voice misbehaves.
+            Text("dbg mic:\(controller.debugAudioChunksSent) in:\(controller.debugInputTranscriptChars) out:\(controller.debugOutputAudioChunks) last:\(controller.debugLastEventType)")
+                .font(.caption2.monospaced())
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .accessibilityIdentifier("MobileVoiceDebugFooter")
+            #endif
         }
+        .padding(.bottom, 12)
         .padding(.horizontal, 20)
     }
 

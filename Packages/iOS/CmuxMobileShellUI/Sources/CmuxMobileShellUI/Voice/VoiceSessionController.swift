@@ -88,6 +88,16 @@ public final class VoiceSessionController {
     /// occurs across an approval the model talks through.
     public private(set) var pendingApprovals: [PendingToolApproval] = []
 
+    #if DEBUG
+    /// Live pipeline counters surfaced in the sheet's debug footer so a
+    /// device with no log channel can still show which link is dead:
+    /// mic chunks sent, server events seen, transcript and audio arrivals.
+    public private(set) var debugAudioChunksSent = 0
+    public private(set) var debugOutputAudioChunks = 0
+    public private(set) var debugInputTranscriptChars = 0
+    public private(set) var debugLastEventType = "-"
+    #endif
+
     public var microphoneMuted = false {
         didSet {
             guard microphoneMuted != oldValue else { return }
@@ -266,10 +276,16 @@ public final class VoiceSessionController {
         // Task per chunk would race and reorder the audio.
         let queue = sendQueue
         audio.start(
-            onCapturedAudio: { chunk in
+            onCapturedAudio: { [weak self] chunk in
                 queue?.yield { client in
                     try await client.send(.inputAudioAppend(chunk))
                 }
+                #if DEBUG
+                // Counter only; the ordered send happened above.
+                Task { @MainActor [weak self] in
+                    self?.debugAudioChunksSent += 1
+                }
+                #endif
             },
             onPlaybackActivity: { [weak self] active in
                 Task { @MainActor [weak self] in
@@ -392,13 +408,14 @@ public final class VoiceSessionController {
             : "Confirm with the user before acting on a workspace (sending prompts, answering for the agent, interrupting, renaming, closing)."
         return """
         You are the voice assistant for cmux, an app for running AI coding \
-        agents in terminal workspaces on the user's computers. Be brief and \
-        conversational. Delegate any request about the user's workspaces, \
-        agents, or notifications to the backend; it can read everything, act \
-        on the app like an on-device user, and remember things the user \
-        tells it, so delegate "remember ..." statements too. Do not \
-        interrogate the user about directories, agents, or names; the \
-        backend knows the defaults. \(confirmation)
+        agents in terminal workspaces on the user's computers. Greet the \
+        user with one short sentence as soon as the conversation begins. Be \
+        brief and conversational. Delegate any request about the user's \
+        workspaces, agents, or notifications to the backend; it can read \
+        everything, act on the app like an on-device user, and remember \
+        things the user tells it, so delegate "remember ..." statements \
+        too. Do not interrogate the user about directories, agents, or \
+        names; the backend knows the defaults. \(confirmation)
         """
     }
 
@@ -434,8 +451,10 @@ public final class VoiceSessionController {
     private static func terminalVoiceInstructions(workspaceName: String) -> String {
         """
         You are the voice link between the user and the AI coding agent \
-        working in the cmux workspace "\(workspaceName)". Delegate every \
-        instruction, question, or reply that is meant for the coding agent. \
+        working in the cmux workspace "\(workspaceName)". Greet the user \
+        with one short sentence as soon as the conversation begins. \
+        Delegate every instruction, question, or reply that is meant for \
+        the coding agent. \
         Notes about the agent's progress and its replies are appended to \
         your context; relay them briefly and naturally, skipping code and \
         technical noise. If the user is only talking to you, answer directly \
@@ -446,6 +465,24 @@ public final class VoiceSessionController {
     // MARK: - Server events
 
     private func handle(_ event: VoiceLiveServerEvent) async {
+        #if DEBUG
+        switch event {
+        case .outputAudioDelta:
+            debugOutputAudioChunks += 1
+            debugLastEventType = "output_audio"
+        case .inputTranscriptDelta(let delta):
+            debugInputTranscriptChars += delta.count
+            debugLastEventType = "input_transcript"
+        case .started: debugLastEventType = "started"
+        case .outputTranscriptDelta: debugLastEventType = "output_transcript"
+        case .delegationCreated: debugLastEventType = "delegation"
+        case .functionCall(_, let name, _, _): debugLastEventType = "call:\(name)"
+        case .usageUpdated: break
+        case .errorEvent(let code, _): debugLastEventType = "error:\(code ?? "?")"
+        case .closed(let reason): debugLastEventType = "closed:\(reason ?? "?")"
+        case .other(let type): debugLastEventType = type
+        }
+        #endif
         switch event {
         case .started:
             voiceSessionLog.info("session.started received; going live")
