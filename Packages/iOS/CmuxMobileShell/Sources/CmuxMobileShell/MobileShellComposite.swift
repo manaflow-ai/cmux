@@ -3287,14 +3287,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
         }
-        // Pull the authoritative per-user backup first so saved-Mac routes are
-        // current before we dial: a Mac that relaunched on a new port republishes
-        // to the backup, and LWW by lastSeenAt keeps any live local edit. Without
-        // this a stale port makes the auto-connect fail and the app falls back to
-        // the Mac picker, the screen we want to avoid showing.
+        // A launch already has a cached route that can be dialed immediately.
+        // Refresh the authoritative backup in parallel during that startup
+        // path, then await it only if the cached route needs a second attempt.
+        // Manual and recovery reconnects keep the freshness-first behavior.
+        let deferredBackupRefresh: Task<Void, Never>?
         if refreshBackupBeforeDial,
            let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
-            await refresher.refreshFromBackup(stackUserID: scope.userID)
+            if hydratePairedMacs {
+                deferredBackupRefresh = Task { @MainActor in
+                    await refresher.refreshFromBackup(stackUserID: scope.userID)
+                }
+            } else {
+                await refresher.refreshFromBackup(stackUserID: scope.userID)
+                deferredBackupRefresh = nil
+            }
+        } else {
+            deferredBackupRefresh = nil
         }
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
@@ -3430,13 +3439,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // authenticated Presence write that lands during the request wins. The
         // immutable indexes are then reused for every candidate, keeping this
         // reconnect pass linear and on one authority generation.
-        var didLoadRefreshSnapshot = false
-        var refreshSnapshot: ReconnectRefreshSnapshot?
-        func loadRefreshSnapshotIfNeeded() async -> ReconnectRefreshSnapshot? {
-            if didLoadRefreshSnapshot { return refreshSnapshot }
-            didLoadRefreshSnapshot = true
-            refreshSnapshot = await loadReconnectRefreshSnapshot(scope: scope)
-            return refreshSnapshot
+        let refreshSnapshot = ReconnectRefreshSnapshotLoader { [weak self] in
+            // The local route gets the first attempt. If it failed, make the
+            // backup refresh part of the authoritative second attempt before
+            // reading the registry and refreshed paired-Mac snapshot.
+            await deferredBackupRefresh?.value
+            return await self?.loadReconnectRefreshSnapshot(scope: scope)
         }
 
         var firstCandidateNeedingMacUpdate: MobilePairedMac?
@@ -3444,7 +3452,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var strictTailscaleFailure = false
         var lastDialOutcome: StoredMacReconnectOutcome = .failed(.noRoute)
         // Try each candidate until one connects, so a single offline Mac never
-        // blocks the others.
+        // blocks the others. Each Mac dials under its own deadline, so a Mac
+        // that accepts the transport but never answers cannot spend the whole
+        // reconnect attempt before a live Mac behind it is dialed.
         for (candidateIndex, mac) in candidates.enumerated() {
             guard generation == storedMacReconnectGeneration,
                   await isScopeCurrent(scope) else { break }
@@ -3455,80 +3465,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                       instanceTag: mac.instanceTag,
                       scope: scope
                   ) else { break }
-            // Tailscale Only excludes Iroh for every pairing. Automatic may
-            // use Iroh, while Direct has its own address allowlist.
             let candidateUsesStrictTailscale = connectionMethod(for: mac) == .tailscale
-            let irohReconnectIsBlocked = candidateUsesStrictTailscale
-                || automaticIrohReconnectIsBlocked(accountID: scope.userID)
-            let localRoutes = storedReconnectRoutes(mac).filter {
-                !irohReconnectIsBlocked || $0.kind != .iroh
-            }
-            let localHasIroh = localRoutes.contains { $0.kind == .iroh }
-            let localCanConnectSecurely = localHasIroh
-                || localRoutes.contains { $0.kind == .debugLoopback }
-                || localRoutes.contains { route in
-                    Self.legacyTailscaleAuthorizationEvidence(
-                        for: route,
-                        macDeviceID: mac.macDeviceID,
-                        persistedRoutes: mac.legacyTailscaleRoutes ?? []
-                    ) != nil
-                }
-            let isLegacyPrivateNetworkPairing = !mac.routes.contains { $0.kind == .iroh }
-                && mac.routes.contains { $0.kind == .tailscale }
-
-            // Raw Tailscale/TCP is bearer-capable only for an exact local route
-            // retained by the pairing. A selected Tailscale method has no Iroh
-            // fallback, so an absent or stale grant remains unavailable.
             let candidateOwnsForegroundSelection = reconnectSelectionKey
                 == MacPairingKey(mac)
-            if localCanConnectSecurely {
-                attemptedAutomaticIroh = attemptedAutomaticIroh || localHasIroh
-                lastDialOutcome = await connectStoredMacOutcome(
-                    name: mac.displayName ?? mac.macDeviceID,
-                    routes: localRoutes,
-                    pairedMacDeviceID: mac.macDeviceID,
-                    instanceTag: mac.instanceTag,
-                    legacyTailscaleRoutes: mac.legacyTailscaleRoutes ?? [],
-                    automaticReconnectAccountID: scope.userID,
-                    knownPairing: mac,
-                    ifStillCurrent: { [weak self] in
-                        self?.storedMacReconnectGeneration == generation
-                    }
-                )
-            }
-            if connectionState != .connected,
-               !candidateUsesStrictTailscale,
-               !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
-                switch await freshReconnectRoutesAfterLocalFailure(
-                    for: mac,
-                    scope: scope,
-                    snapshot: await loadRefreshSnapshotIfNeeded()
-                ) {
-                case .refreshedRoutes(let refreshedRoutes):
-                    attemptedAutomaticIroh = attemptedAutomaticIroh
-                        || refreshedRoutes.contains { $0.kind == .iroh }
-                    lastDialOutcome = await connectStoredMacOutcome(
-                        name: mac.displayName ?? mac.macDeviceID,
-                        routes: refreshedRoutes,
-                        pairedMacDeviceID: mac.macDeviceID,
-                        instanceTag: mac.instanceTag,
-                        legacyTailscaleRoutes: mac.legacyTailscaleRoutes ?? [],
-                        automaticReconnectAccountID: scope.userID,
-                        knownPairing: mac,
-                        ifStillCurrent: { [weak self] in
-                            self?.storedMacReconnectGeneration == generation
-                        }
-                    )
-                case .confirmedMissingIroh:
-                    lastDialOutcome = .failed(.unsupportedRoute)
-                    if isLegacyPrivateNetworkPairing,
-                       candidateIndex == candidates.startIndex {
-                        firstCandidateNeedingMacUpdate = mac
-                    }
-                case .inconclusive:
-                    break
-                }
-            }
+            let dial = await dialSavedCandidateUnderDeadline(
+                mac,
+                storedRoutes: storedReconnectRoutes(mac),
+                isFirstCandidate: candidateIndex == candidates.startIndex,
+                usesStrictTailscale: candidateUsesStrictTailscale,
+                scope: scope,
+                generation: generation,
+                refreshSnapshot: refreshSnapshot
+            )
+            if let outcome = dial.outcome { lastDialOutcome = outcome }
+            attemptedAutomaticIroh = attemptedAutomaticIroh || dial.attemptedIroh
+            if dial.needsMacUpdate { firstCandidateNeedingMacUpdate = mac }
             if connectionState == .connected { break }
             if candidateUsesStrictTailscale && candidateOwnsForegroundSelection {
                 // An explicit Tailscale selection owns this reconnect pass.
@@ -3584,7 +3535,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     storedReconnectRoutes(mac).contains { $0.kind == .iroh }
                 }
             let dialRace = ZeroTouchDialRace(
-                candidates: zeroTouchCandidates
+                candidates: zeroTouchCandidates,
+                dialDeadline: macDialDeadline()
             ) { [weak self] mac, track in
                 await self?.dialZeroTouchCandidate(
                     mac,
@@ -12096,6 +12048,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if hasActiveMacConnection {
             macSwitchRestoreBaseline = nil
         }
+        supersedeConnectionRecoveryForMacSwitch()
         invalidatePairingAttempt()
         connectionAttemptGeneration = UUID()
         return attemptID
