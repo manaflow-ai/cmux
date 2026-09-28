@@ -1357,6 +1357,7 @@
           "warnBeforeQuit": "用于退出确认的旧布尔回退值。新配置请使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用标签关闭按钮关闭标签前显示确认。",
           "hideTabCloseButton": "在窗格标签栏中隐藏标签关闭按钮。",
+          "tabBarVisibility": "决定窗格何时绘制其标签栏。\"always\" 即使窗格只有一个标签也会绘制；\"multiple-tabs\" 在窗格只有一个标签时隐藏，开启第二个标签后绘制。极简模式（app.minimalMode）始终绘制，因为在该模式下顶部窗格的标签栏同时充当窗口标题栏。",
           "forkConversationDefaultDestination": "标签页上下文菜单中主要 Fork Conversation 操作的默认目标。子菜单仍会显示所有目标。",
           "globalFontMagnification": "按百分比缩放 cmux 自行绘制的所有内容：终端文本、标签页标题、侧边栏、设置、浮层和窗口边框。浏览器 surface 中的网页保持自身的大小。"
         },

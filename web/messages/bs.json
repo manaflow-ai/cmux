@@ -1357,6 +1357,7 @@
           "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Prikaži potvrdu prije zatvaranja taba dugmetom za zatvaranje taba.",
           "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna.",
+          "tabBarVisibility": "Određuje kada okno iscrtava svoju traku tabova. \"always\" je iscrtava i kada okno ima samo jedan tab; \"multiple-tabs\" je skriva dok okno ima jedan tab i iscrtava je čim se otvori drugi. Minimalni način rada (app.minimalMode) je iscrtava uvijek, jer traka tabova gornjeg okna tu ujedno služi kao naslovna traka prozora.",
           "forkConversationDefaultDestination": "Zadano odredište za primarnu radnju Fork Conversation u kontekstnom meniju kartice. Podmeni i dalje prikazuje sva odredišta.",
           "globalFontMagnification": "Procentualno uvećanje za sve što cmux sam iscrtava: tekst terminala, naslove kartica, bočne trake, Settings, preklopne elemente i okvir prozora. Web stranice unutar površina preglednika zadržavaju vlastitu veličinu."
         },

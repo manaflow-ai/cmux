@@ -716,7 +716,7 @@ enum CmuxEmbeddedConfigSchema {
           "enum": ["always", "multiple-tabs"],
           "default": "always",
           "descriptionKey": "schemaDescriptions.app.tabBarVisibility",
-          "description": "Control when each pane's surface tab bar is shown. \"always\" shows it even when the pane has a single tab; \"multiple-tabs\" hides the bar until the pane has two or more tabs. Minimal mode (app.minimalMode) always shows it, because there the top tab bar is the titlebar row."
+          "description": "Decide when a pane draws its tab bar. \"always\" draws it even for a pane holding one tab; \"multiple-tabs\" hides it while a pane holds one tab and draws it once a second tab opens. Minimal mode (app.minimalMode) always draws it, because there the top pane's tab bar doubles as the window titlebar."
         },
         "renameSelectsExistingName": {
           "type": "boolean",
