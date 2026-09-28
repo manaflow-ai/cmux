@@ -139,8 +139,8 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
 
 /// Keeps the titlebar control row inside the sidebar.
 ///
-/// The row starts at the traffic-light inset and sits over the sidebar in both
-/// the standard titlebar and the minimal-mode sidebar header. A row that runs
+/// The row clears the traffic lights and sits over the sidebar in both the
+/// standard titlebar and the minimal-mode sidebar header. A row that runs
 /// past the sidebar's edge straddles the boundary into the workspace, so the
 /// controls use the largest density, up to the chosen one, whose row ends
 /// `edgeClearance` points before the narrowest the sidebar can be. Compact is
@@ -155,11 +155,22 @@ enum TitlebarControlsDensityFit {
         )
     }
 
-    /// Width the row may use: the narrowest sidebar minus the controls'
-    /// leading inset and the edge clearance.
+    /// Width the row may use: the narrowest sidebar minus the row's leading
+    /// inset and the edge clearance.
+    ///
+    /// The same row starts from two different insets. The minimal-mode sidebar
+    /// header places it at the left-controls inset; the standard titlebar
+    /// places it at the traffic-light inset, which is further in. The fit has
+    /// to hold in both, so measure from the further of the two: measuring from
+    /// the nearer one silently spends the difference out of `edgeClearance`
+    /// whenever the standard titlebar draws the row.
     static func availableRowWidth(defaults: UserDefaults = .standard) -> CGFloat {
-        CGFloat(SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults))
-            - MinimalModeSidebarTitlebarControlsMetrics.leadingInset(defaults: defaults)
+        let leadingInset = max(
+            MinimalModeSidebarTitlebarControlsMetrics.leadingInset(defaults: defaults),
+            MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInset(defaults: defaults)
+        )
+        return CGFloat(SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults))
+            - leadingInset
             - edgeClearance
     }
 

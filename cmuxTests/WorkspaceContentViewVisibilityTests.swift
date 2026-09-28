@@ -539,9 +539,15 @@ final class WorkspaceContentViewVisibilityTests {
 
     @Test
     func titlebarControlsStayInsideTheDefaultSidebar() {
-        // Controls start at the traffic-light inset and must end before the
-        // sidebar edge, or they straddle the sidebar/workspace boundary.
-        let leadingInset = CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset)
+        // Controls must end before the sidebar edge, or they straddle the
+        // sidebar/workspace boundary. The row starts at the left-controls inset
+        // in the minimal-mode sidebar header and at the traffic-light inset,
+        // further in, in the standard titlebar; checking the further of the two
+        // covers both, since a row that fits there fits nearer the edge too.
+        let leadingInset = max(
+            CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset),
+            CGFloat(MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset)
+        )
         let sidebarEdge = CGFloat(SessionPersistencePolicy.defaultMinimumSidebarWidth)
         for density in InterfaceDensity.allCases {
             let config = TitlebarControlsStyle.classic.config(density: density)
@@ -556,6 +562,37 @@ final class WorkspaceContentViewVisibilityTests {
             let iconTop = (WindowChromeMetrics.appTitlebarHeight - iconFrame) / 2
             #expect(iconTop + config.badgeOffset.height >= 0)
         }
+    }
+
+    @Test
+    func titlebarFitMeasuresFromTheFurtherLeadingInset() throws {
+        // A sidebar minimum that fits comfortable only when measured from the
+        // nearer of the two leading insets has to step down anyway: the
+        // standard titlebar starts the row further in, so keeping comfortable
+        // there would eat into the edge clearance instead of keeping it.
+        let nearInset = CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset)
+        let farInset = CGFloat(MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset)
+        try #require(farInset > nearInset, "This case only exists while the two insets differ.")
+        let comfortableExtent = TitlebarControlsLayoutMetrics.rowExtent(
+            config: TitlebarControlsStyle.classic.config(density: .comfortable)
+        )
+        // One point short of fitting comfortable from the further inset, and so
+        // still wide enough for it from the nearer one.
+        let minimumWidth = farInset + comfortableExtent + TitlebarControlsDensityFit.edgeClearance - 1
+        try #require(SessionPersistencePolicy.sidebarMinimumWidthRange.contains(Double(minimumWidth)))
+        try #require(comfortableExtent <= minimumWidth - nearInset - TitlebarControlsDensityFit.edgeClearance)
+
+        let suiteName = "cmux-titlebar-fit-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(Double(minimumWidth), forKey: SessionPersistencePolicy.sidebarMinimumWidthKey)
+        defaults.set(InterfaceDensity.comfortable.rawValue, forKey: InterfaceDensity.userDefaultsKey)
+
+        #expect(
+            TitlebarControlsDensityFit.availableRowWidth(defaults: defaults)
+                == minimumWidth - farInset - TitlebarControlsDensityFit.edgeClearance
+        )
+        #expect(TitlebarControlsDensityFit.effectiveDensity(defaults: defaults) == .standard)
     }
 
     @Test
