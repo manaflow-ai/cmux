@@ -214,6 +214,13 @@ class SetupWait(unittest.TestCase):
         self.assertIn("runner setup", look.reason)
         self.assertEqual(rescue.assess([changes()(60), setup_job(past_setup=True)], now=late,
                                        budget_seconds=90).action, "watch")
+        # a sibling still running is not cancelled for it, until the watch is about to end
+        shard = job("macos / shard", status="in_progress", labels=[MINI], runner="mini-2")
+        look = rescue.assess([changes()(60), waiting, shard], now=late, budget_seconds=90)
+        self.assertEqual((look.action, look.waiting), ("watch", True))
+        look = rescue.assess([changes()(60), waiting, shard], now=late, budget_seconds=90,
+                             deadline=late + dt.timedelta(seconds=rescue.END_MARGIN_SECONDS - 1))
+        self.assertEqual(look.action, "rescue")
 
 
 class Refusal(unittest.TestCase):

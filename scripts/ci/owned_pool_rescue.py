@@ -56,9 +56,10 @@ here instead (rescue with failed_only=False).
 glaeda's hook does not refuse a job for the mini's capacity: it waits, with
 no limit, inside the runner's setup until the units and tokens the job needs
 are free. A job on the persistent pool still in its runner's setup
-SETUP_WAIT_SECONDS after it started is stuck like a queued one: the run is
-cancelled and re-run the same way, and until then the job is not accepted, so
-the watch goes on.
+SETUP_WAIT_SECONDS after it started is stuck like a queued one: once no
+sibling is still running (or the watch is about to end), the run is cancelled
+and re-run the same way. Until then the job is not accepted, so the watch goes
+on.
 
 A refused job never goes back to the fleet: this rescue re-runs as
 github-actions[bot], and every runs-on sends the bot's re-run to retry_runner
@@ -494,7 +495,12 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
                               f"{min(budgets[id(job)] for job in stuck)}s with no runner")
     settling = [job for job in jobs if job_pool(job) and in_setup(job)]
     held = [job for job in settling if setup_seconds(job, now) >= SETUP_WAIT_SECONDS]
-    if held:
+    # Cancelling the run would kill siblings still running (run 36198335113 lost five
+    # shards that way to a refusal), so a job held in setup waits for them, as a
+    # refusal does, until the watch is about to end.
+    running = [job for job in jobs if job.get("status") == "in_progress" and not in_setup(job)]
+    closing = deadline is not None and now >= deadline - dt.timedelta(seconds=END_MARGIN_SECONDS)
+    if held and (not running or closing):
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in held))
         return Look("rescue", f"{names} waited in {job_pool(held[0])}'s runner setup for capacity for at least "
                               f"{SETUP_WAIT_SECONDS}s")
