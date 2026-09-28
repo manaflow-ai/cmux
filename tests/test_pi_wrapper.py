@@ -117,7 +117,7 @@ def main() -> int:
             text=True,
             timeout=2,
         )
-        if result.returncode != 127 or "not found" not in result.stderr:
+        if result.returncode != 127 or "unavailable" not in result.stderr:
             raise AssertionError(
                 f"missing Pi executable recursed or returned the wrong error: "
                 f"status={result.returncode} stderr={result.stderr!r}"

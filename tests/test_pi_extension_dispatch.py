@@ -376,6 +376,7 @@ await handlers.get("session_shutdown")({ reason: "dialog test" }, ctx);
         or question_payloads[0].get("turn_id") == response_payloads[1].get("turn_id")
         or response_payloads[0].get("cmux_pi_idle_dialog") is not True
         or response_payloads[1].get("cmux_pi_idle_dialog") is not False
+        or any("Which option should I use?" in line for line in question)
     ):
         print(f"FAIL: Pi UI dialog did not bracket a needs-input lifecycle: {calls!r}")
         return 1

@@ -60,7 +60,15 @@ async function publishPiWorkspaceMetadata(
     context,
   );
   const branch = await runPiGitCommand(context.cwd, ["branch", "--show-current"]);
-  if (!branch) return;
+  if (!branch) {
+    await dispatcher.run(
+      ["clear_git_branch", ...target],
+      context.cwd,
+      undefined,
+      context,
+    );
+    return;
+  }
   await dispatcher.run(
     ["report_git_branch", branch, "--status=unknown", ...target],
     context.cwd,
@@ -89,7 +97,6 @@ async function publishPiPullRequestHint(
 async function publishPiQuestion(
   dispatcher: PiCmuxCommandDispatcher,
   context: PiExtensionContextSnapshot,
-  message: string,
   turnId: string,
 ): Promise<void> {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
@@ -98,7 +105,9 @@ async function publishPiQuestion(
   await sendHook(dispatcher, "notification", context, {
     hook_event_name: "questionAsked",
     event: "questionAsked",
-    message: utf8Prefix(message, 512) || "Pi is waiting for input",
+    // Keep Pi's prompt text inside Pi. cmux needs only the semantic wait
+    // signal; the host localizes the notification body.
+    message: "needs_input",
     notification: { type: "question" },
     turn_id: turnId,
   });
@@ -143,7 +152,7 @@ function installPiUIDialogHooks(
   const originalSelect = ui.select.bind(ui);
   const originalInput = ui.input.bind(ui);
   const snapshot = () => snapshotContext(context);
-  const signal = (message: string): PiUIDialogLifecycle | undefined => {
+  const signal = (_message: string): PiUIDialogLifecycle | undefined => {
     const current = snapshot();
     const sessionId = current.sessionId;
     if (!sessionId) return undefined;
@@ -153,7 +162,6 @@ function installPiUIDialogHooks(
     void enqueueLifecycleTask(sessionId, current, () => publishPiQuestion(
       dispatcher,
       current,
-      message,
       turnId,
     ));
     return { turnId, resolveTurn: activeTurnId !== undefined };
@@ -172,23 +180,20 @@ function installPiUIDialogHooks(
 
   ui.confirm = (title: string, message: string, options?: unknown) => {
     const dialog = signal([title, message].filter(Boolean).join(": "));
-    return originalConfirm(title, message, options).then((value: boolean) => {
+    return Promise.resolve(originalConfirm(title, message, options)).finally(() => {
       resolved(dialog);
-      return value;
     });
   };
   ui.select = (title: string, options: string[], dialogOptions?: unknown) => {
     const dialog = signal([title, ...(options || []).slice(0, 4)].filter(Boolean).join(" — "));
-    return originalSelect(title, options, dialogOptions).then((value: string | undefined) => {
+    return Promise.resolve(originalSelect(title, options, dialogOptions)).finally(() => {
       resolved(dialog);
-      return value;
     });
   };
   ui.input = (title: string, placeholder?: string, options?: unknown) => {
     const dialog = signal([title, placeholder].filter(Boolean).join(": "));
-    return originalInput(title, placeholder, options).then((value: string | undefined) => {
+    return Promise.resolve(originalInput(title, placeholder, options)).finally(() => {
       resolved(dialog);
-      return value;
     });
   };
   ui[patchKey] = true;

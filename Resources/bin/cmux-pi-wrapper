@@ -35,7 +35,7 @@ resolve_pi() {
 
 cmux_pi="$(resolve_pi 2>/dev/null || true)"
 if [ -z "$cmux_pi" ]; then
-    echo "cmux-pi-wrapper: pi executable not found on PATH" >&2
+    echo "Configured agent is unavailable. Install it or check the command configuration." >&2
     exit 127
 fi
 
@@ -67,6 +67,21 @@ cmux_surface_tag="${CMUX_SURFACE_ID:-default}"
 cmux_extension_root="${TMPDIR:-/tmp}/cmux-pi-extensions/$cmux_surface_tag"
 cmux_extension="$cmux_extension_root/cmux-session.ts"
 cmux_extension_tmp="$cmux_extension_root/.cmux-session.ts.$$"
+if [ -s "$cmux_extension" ] && cmux_pi_managed_extension "$cmux_extension"; then
+    # Refresh a valid per-surface copy when the bundled source changes. If the
+    # CLI is temporarily unavailable, keep the last known-good copy.
+    if "$cmux_cli" hooks pi extension-source >"$cmux_extension_tmp" 2>/dev/null &&
+       cmux_pi_managed_extension "$cmux_extension_tmp"; then
+        if ! cmp -s "$cmux_extension_tmp" "$cmux_extension"; then
+            mv -f "$cmux_extension_tmp" "$cmux_extension"
+            chmod 600 "$cmux_extension" 2>/dev/null || true
+        else
+            rm -f "$cmux_extension_tmp"
+        fi
+    else
+        rm -f "$cmux_extension_tmp"
+    fi
+fi
 if [ ! -s "$cmux_extension" ] || ! cmux_pi_managed_extension "$cmux_extension"; then
     if mkdir -p "$cmux_extension_root" &&
        "$cmux_cli" hooks pi extension-source >"$cmux_extension_tmp" 2>/dev/null &&

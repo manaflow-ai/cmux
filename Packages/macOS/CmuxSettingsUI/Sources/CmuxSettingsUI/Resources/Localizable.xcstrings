@@ -4273,6 +4273,72 @@
             "state": "translated",
             "value": "Pi 整合"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi integracija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi-integration"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integrazione di Pi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការរួមបញ្ចូល Pi"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi-integrasjon"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integracja Pi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integração do Pi"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Интеграция Pi"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การผสานรวม Pi"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi entegrasyonu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інтеграція Pi"
+          }
         }
       }
     },
@@ -4331,6 +4397,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "啟用後，cmux 會包裝 pi 指令並載入內建工作階段擴充功能，不會變更你的 Pi 設定。若偏好自行管理 Pi 掛鉤，請停用此選項。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je omogućeno, cmux obavija naredbu pi i učitava ugrađeno proširenje sesije bez mijenjanja vaše Pi konfiguracije. Onemogućite ako želite sami upravljati Pi kukama."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når funktionen er aktiveret, indpakker cmux pi-kommandoen og indlæser den medfølgende sessionsudvidelse uden at ændre din Pi-konfiguration. Deaktiver den, hvis du selv vil administrere Pi-hooks."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando è abilitata, cmux avvolge il comando pi e carica l'estensione di sessione inclusa senza modificare la configurazione di Pi. Disabilitala se preferisci gestire autonomamente gli hook di Pi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលបើកដំណើរការ cmux នឹងរុំពាក្យបញ្ជា pi ហើយផ្ទុកផ្នែកបន្ថែមសម័យដែលភ្ជាប់មកជាមួយ ដោយមិនផ្លាស់ប្តូរការកំណត់ Pi របស់អ្នក។ បិទវា ប្រសិនបើអ្នកចង់គ្រប់គ្រង hooks របស់ Pi ដោយខ្លួនឯង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når dette er aktivert, pakker cmux inn pi-kommandoen og laster den medfølgende øktutvidelsen uten å endre Pi-konfigurasjonen din. Deaktiver hvis du vil administrere Pi-hookene selv."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po włączeniu cmux opakuje polecenie pi i załaduje dołączone rozszerzenie sesji bez zmieniania konfiguracji Pi. Wyłącz tę opcję, jeśli wolisz samodzielnie zarządzać hookami Pi."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando ativado, o cmux envolve o comando pi e carrega a extensão de sessão incluída sem alterar sua configuração do Pi. Desative se preferir gerenciar os hooks do Pi por conta própria."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При включении cmux оборачивает команду pi и загружает встроенное расширение сеанса, не изменяя конфигурацию Pi. Отключите этот параметр, если предпочитаете управлять хуками Pi самостоятельно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเปิดใช้งาน cmux จะครอบคำสั่ง pi และโหลดส่วนขยายเซสชันที่มาพร้อมกับโปรแกรมโดยไม่เปลี่ยนการตั้งค่า Pi ของคุณ ปิดใช้งานหากต้องการจัดการ hooks ของ Pi เอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etkinleştirildiğinde cmux, Pi yapılandırmanızı değiştirmeden pi komutunu sarar ve birlikte gelen oturum uzantısını yükler. Pi kancalarını kendiniz yönetmeyi tercih ediyorsanız devre dışı bırakın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо ввімкнено, cmux обгортає команду pi й завантажує вбудоване розширення сеансу, не змінюючи конфігурацію Pi. Вимкніть цей параметр, якщо хочете самостійно керувати хуками Pi."
           }
         }
       }
@@ -4391,6 +4523,72 @@
             "state": "translated",
             "value": "Pi 會在不使用 cmux 整合的情況下執行。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi radi bez cmux integracije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi kører uden cmux-integration."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi viene eseguito senza l'integrazione con cmux."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi ដំណើរការដោយគ្មានការរួមបញ្ចូល cmux។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi kjører uten cmux-integrasjon."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi działa bez integracji z cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Pi é executado sem a integração com o cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi работает без интеграции с cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi ทำงานโดยไม่มีการผสานรวมกับ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi, cmux entegrasyonu olmadan çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi працює без інтеграції з cmux."
+          }
         }
       }
     },
@@ -4449,6 +4647,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "側邊欄顯示 Pi 工作階段狀態和通知。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bočna traka prikazuje status Pi sesije i obavijesti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidepanelet viser Pi-sessionens status og notifikationer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La barra laterale mostra lo stato della sessione Pi e le notifiche."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារចំហៀងបង្ហាញស្ថានភាពសម័យ Pi និងការជូនដំណឹង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidepanelet viser status og varsler for Pi-økten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek boczny pokazuje stan sesji Pi i powiadomienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A barra lateral mostra o status da sessão do Pi e as notificações."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На боковой панели отображаются состояние сеанса Pi и уведомления."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบด้านข้างจะแสดงสถานะเซสชัน Pi และการแจ้งเตือน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğu, Pi oturumunun durumunu ve bildirimleri gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бічна панель показує стан сеансу Pi та сповіщення."
           }
         }
       }

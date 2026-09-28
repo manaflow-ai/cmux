@@ -31252,6 +31252,10 @@ struct CMUXCLI {
         let message = messageCandidates.compactMap { $0 }.first
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         let normalizedMessage = message.map { normalizedSingleLine($0) } ?? ""
+        if def.name == "pi", signalParts.contains(where: { $0?.lowercased().contains("questionasked") == true }) {
+            let waitingBody = String(localized: "feed.status.needsInput", defaultValue: "Needs input")
+            return classifyAgentHookNotification(def: def, signal: signal, message: waitingBody, isFallback: false)
+        }
         if let hermesApprovalMessage = hermesAgentApprovalNotificationMessage(def: def, object: object) {
             return classifyAgentHookNotification(
                 def: def,
@@ -41403,13 +41407,9 @@ export default CMUXSessionRestore;
         let isUninstall = uninstall || args.contains("--uninstall")
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
-
         print("cmux hooks \(isUninstall ? "uninstall" : "setup"): \(verb) agent hooks")
-        if !isUninstall {
-            print("  (Claude Code and Pi hooks are injected automatically via their cmux wrappers)")
-        }
+        if !isUninstall { print(String(localized: "cli.hooks.setup.wrapperNote", defaultValue: "  (Claude Code and Pi hooks are injected automatically via their cmux wrappers)")) }
         print("")
-
         var count = 0
         var skipped = 0
         var skippedNoBinary: [String] = []
