@@ -73,7 +73,6 @@ select_packages() {
     CMUXAuthCore
     CmuxBrowser
     CmuxCanvasUI
-    CmuxCloud
     CmuxCloudMachines
     CmuxCloudTui
     CmuxComputerUse
