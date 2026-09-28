@@ -117,7 +117,7 @@ import Testing
     @Test func workspaceInitialCommandWrapsZshExactly() {
         let actual = WorkspaceInitialCommandLoginShell.wrap("echo zsh", userShell: "/bin/zsh")
         let expected = """
-        '/bin/zsh' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
+        '/bin/zsh' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ] && [ ! -L "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ] && [ -O "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
         echo zsh'
         """
 
@@ -127,7 +127,7 @@ import Testing
     @Test func workspaceInitialCommandWrapsBashExactly() {
         let actual = WorkspaceInitialCommandLoginShell.wrap("echo bash", userShell: "/bin/bash")
         let expected = """
-        '/bin/bash' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
+        '/bin/bash' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ] && [ ! -L "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ] && [ -O "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
         echo bash'
         """
 
@@ -137,7 +137,7 @@ import Testing
     @Test func workspaceInitialCommandWrapsFishExactly() {
         let actual = WorkspaceInitialCommandLoginShell.wrap("echo fish", userShell: "/usr/local/bin/fish")
         let expected = """
-        '/usr/local/bin/fish' -lc 'if test -n "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; and test -d "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; set -gx PATH "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT" $PATH; end
+        '/usr/local/bin/fish' -lc 'if test -n "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; and test -d "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; and not test -L "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; and test -O "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; set -gx PATH "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT" $PATH; end
         echo fish'
         """
 
@@ -147,7 +147,7 @@ import Testing
     @Test func workspaceInitialCommandFallsBackToZshForNilShell() {
         let actual = WorkspaceInitialCommandLoginShell.wrap("echo nil", userShell: nil)
         let expected = """
-        '/bin/zsh' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
+        '/bin/zsh' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ] && [ ! -L "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ] && [ -O "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
         echo nil'
         """
 
@@ -157,7 +157,7 @@ import Testing
     @Test func workspaceInitialCommandFallsBackToZshForUnknownShell() {
         let actual = WorkspaceInitialCommandLoginShell.wrap("echo unknown", userShell: "/opt/weird/nu")
         let expected = """
-        '/bin/zsh' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
+        '/bin/zsh' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ] && [ ! -L "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ] && [ -O "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
         echo unknown'
         """
 
@@ -168,7 +168,7 @@ import Testing
         let command = "printf 'hello'\necho done"
         let actual = WorkspaceInitialCommandLoginShell.wrap(command, userShell: "/bin/zsh")
         let expected = """
-        '/bin/zsh' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
+        '/bin/zsh' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ] && [ ! -L "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ] && [ -O "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
         printf '"'"'hello'"'"'
         echo done'
         """
