@@ -25,12 +25,14 @@ final class SurfaceDropFeedback {
             badge.removeFromSuperview()
             host.addSubview(badge, positioned: .above, relativeTo: nil)
         }
-        // Portal stacking requires a window-level host, but the warning must
-        // still fit the destination instead of covering an adjacent sidebar.
+        // Keep the warning out of the adjacent sidebar. Retain the window's
+        // vertical room so the full message stays visible above a short split.
+        let layoutBounds = NSRect(x: visibleBounds.minX, y: host.bounds.minY,
+                                  width: visibleBounds.width, height: host.bounds.height)
         badge.show(
             text: rejection.message,
             centeredIn: targetBounds,
-            clippedTo: visibleBounds,
+            clippedTo: layoutBounds,
             warning: true
         )
         if changed, let application = NSApp {

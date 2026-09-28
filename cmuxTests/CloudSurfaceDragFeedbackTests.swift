@@ -200,8 +200,8 @@ struct CloudSurfaceDragFeedbackTests {
         }
     }
 
-    @Test("Pane warnings fit the pane even beside a wider sidebar")
-    func paneWarningPlacement() throws {
+    @Test("Pane warnings stay outside the sidebar and onscreen beside short splits", arguments: [false, true])
+    func paneWarningPlacement(short: Bool) throws {
         let fixture = try CloudSurfaceDragFixture(kind: .terminal)
         defer { fixture.finish() }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
@@ -209,7 +209,8 @@ struct CloudSurfaceDragFeedbackTests {
         let root = NSView(frame: window.contentLayoutRect)
         window.contentView = root
         defer { window.contentView = nil }
-        let gate = CloudSurfaceDropGateView(frame: NSRect(x: 0, y: 0, width: 240, height: 500), sourceResolver: fixture.resolver)
+        let frame = NSRect(x: 0, y: short ? 420 : 0, width: 240, height: short ? 80 : 500)
+        let gate = CloudSurfaceDropGateView(frame: frame, sourceResolver: fixture.resolver)
         root.addSubview(gate)
         gate.workspace = fixture.workspace
         gate.isActive = true
@@ -217,7 +218,11 @@ struct CloudSurfaceDragFeedbackTests {
         #expect(gate.draggingEntered(sender).isEmpty)
         let host = try #require(gate.feedback.badge.superview)
         #expect(host === window.contentView?.superview)
-        #expect(host.convert(gate.bounds, from: gate).contains(gate.feedback.badge.frame))
+        let paneBounds = host.convert(gate.bounds, from: gate)
+        #expect(gate.feedback.badge.frame.minX >= paneBounds.minX)
+        #expect(gate.feedback.badge.frame.maxX <= paneBounds.maxX)
+        #expect(host.bounds.contains(gate.feedback.badge.frame))
+        if !short { #expect(paneBounds.contains(gate.feedback.badge.frame)) }
         gate.draggingExited(sender)
         #expect(gate.feedback.badge.superview == nil)
         #expect(gate.draggingEntered(sender).isEmpty)
