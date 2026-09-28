@@ -642,6 +642,23 @@ final class CmuxSettingsFileStore {
                 logInvalid("sidebar.branchLayout", sourcePath: sourcePath)
             }
         }
+        if section.keys.contains("compactStatusIcons") {
+            if let rawIcons = section["compactStatusIcons"] as? [String: Any] {
+                var icons: [String: String] = [:]
+                for (key, rawValue) in rawIcons {
+                    guard SidebarCompactStatusGlyph.IconSlot(rawValue: key) != nil,
+                          let symbol = jsonString(rawValue)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                          !symbol.isEmpty else {
+                        logInvalid("sidebar.compactStatusIcons.\(key)", sourcePath: sourcePath)
+                        continue
+                    }
+                    icons[key] = symbol
+                }
+                snapshot.managedUserDefaults[SidebarCatalogSection().compactStatusIcons.userDefaultsKey] = .stringDictionary(icons)
+            } else {
+                logInvalid("sidebar.compactStatusIcons", sourcePath: sourcePath)
+            }
+        }
         if let rawBeta = section["beta"], let beta = rawBeta as? [String: Any] {
             parseSidebarWorkspaceTodosBeta(beta, sourcePath: sourcePath, snapshot: &snapshot)
         } else if section.keys.contains("beta") { logInvalid("sidebar.beta", sourcePath: sourcePath) }

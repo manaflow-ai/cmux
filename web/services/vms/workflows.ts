@@ -99,6 +99,10 @@ import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirect
 import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
+import {
+  VM_CREATE_ABANDONED_AFTER_MS,
+  VM_PREVIEW_LEASE_RETENTION_MS,
+} from "./operationTimeouts";
 import { withVmProductAnalytics } from "./productAnalytics";
 import {
   CREATE_CLEANUP_PROVIDER_VM_ID_KEY,
@@ -163,6 +167,20 @@ export type VmEntry = {
   readonly displayName: string | null;
   /** Generated three-word name (services/vms/vmNaming.ts); null on rows older than the column. */
   readonly slug: string | null;
+  /**
+   * The account that made the machine. A team's list is scoped by owner team,
+   * not by member, so without this a shared account is a pile of generated
+   * names with no way to tell whose is whose. It is an opaque id; the name to
+   * show for it comes from `services/vms/creators.ts`. Never null:
+   * `cloud_vms.user_id` is NOT NULL and has been there since the table was
+   * created (20260425062520_keen_kronos).
+   */
+  readonly createdByUserId: string;
+  /**
+   * The team that owns the machine, or the creator's own id for a personal
+   * machine. Creator names resolve only for current members of this team.
+   */
+  readonly ownerTeamId: string;
   /** The machine's address on its owner's private network, when it has one. */
   readonly addressIpv4: string | null;
   readonly addressIpv6: string | null;
@@ -220,6 +238,7 @@ export const VmWorkflowLive = Layer.mergeAll(VmRepositoryWithAnalyticsLive, VmPr
 const EXPIRED_IDENTITY_REVOKE_BATCH = 5;
 const EXPIRED_IDENTITY_REVOKE_RETRY_BACKOFF_MS = 10 * 60 * 1000;
 const IDENTITY_REVOKE_PROVIDER_TIMEOUT = "5 seconds";
+const MODEL_PLANE_REVOKE_TIMEOUT = "5 seconds";
 const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
 const ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
@@ -229,6 +248,8 @@ const CREATE_CLEANUP_LEASE_MS = 60 * 1000;
 const CREATE_CLEANUP_BACKOFF_BASE_MS = 5 * 1000;
 const CREATE_CLEANUP_BACKOFF_MAX_MS = 15 * 60 * 1000;
 const CREATE_CLEANUP_BATCH_LIMIT = 20;
+const ABANDONED_CREATE_BATCH_LIMIT = 20;
+const ABANDONED_CREATE_CONCURRENCY = 4;
 const LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT = 50;
 const LEGACY_RESOURCE_RECONCILE_CONCURRENCY = 5;
 const LEGACY_RESOURCE_RECONCILE_RETRY_AFTER_MS = 5 * 60 * 1000;
@@ -241,6 +262,7 @@ const FOREGROUND_PROVIDER_STATS_TIMEOUT = "2 seconds";
 const RESIZE_PENDING_RECOVERY_AFTER_MS = 15 * 60 * 1000;
 const RESIZE_UNCONFIRMED_RECOVERY_AFTER_MS = 30 * 60 * 1000;
 const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
+const PREVIEW_LEASE_PRUNE_BATCH = 5_000;
 
 type ExistingVmAccessInput = {
   readonly userId: string;
@@ -465,6 +487,11 @@ export function reconcileVmProviderStatuses(input: {
   return Effect.gen(function* () {
     const providers = yield* VmProviderGateway;
     const repo = yield* VmRepository;
+    yield* reconcileAbandonedProvisioningCreates(repo, {
+      before: new Date((input.now?.() ?? Date.now()) - VM_CREATE_ABANDONED_AFTER_MS),
+      limit: Math.min(boundedVmStatusReconcileLimit(input.limit), ABANDONED_CREATE_BATCH_LIMIT),
+      modelPlane: input.modelPlane,
+    });
     // Legacy resource claims are repaired by this background cron. Keeping
     // provider fanout here removes migration work from user-facing creates.
     yield* reconcileLegacyResourceReservations(repo, providers, {
@@ -616,6 +643,57 @@ function reconcilePendingCreateCleanups(
       },
       { concurrency: CREATE_CLEANUP_CONCURRENCY, discard: true },
     );
+  });
+}
+
+/**
+ * Reclaims a create row that never received a provider id. The repository
+ * performs the compare-and-set transition and Base rollback in one transaction;
+ * this layer only records the normal failure event for rows it actually won.
+ */
+function reconcileAbandonedProvisioningCreates(
+  repo: VmRepositoryShape,
+  input: {
+    readonly before: Date;
+    readonly limit: number;
+    readonly modelPlane?: VmModelPlaneRevoker;
+  },
+): Effect.Effect<void, never> {
+  const listCandidates = repo.abandonedProvisioningCandidates;
+  const markAbandoned = repo.markCreateAbandoned;
+  if (!listCandidates || !markAbandoned) return Effect.void;
+  return Effect.gen(function* () {
+    const candidates = yield* listCandidates({ before: input.before, limit: input.limit }).pipe(
+      Effect.catchAll(() => Effect.succeed([] as CloudVmRow[])),
+    );
+    yield* Effect.forEach(candidates, (candidate) => Effect.gen(function* () {
+      const now = new Date();
+      const abandoned = yield* markAbandoned({
+        id: candidate.id,
+        before: input.before,
+        now,
+        code: "create_abandoned",
+        message: "Cloud VM create exceeded the provider deadline without an allocation.",
+      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      if (!abandoned) return;
+      const vm = abandoned.vm;
+      yield* revokeModelPlane(input.modelPlane, vm.id);
+      yield* repo.recordUsageEvent({
+        userId: vm.userId,
+        billingTeamId: vm.billingTeamId,
+        billingPlanId: vm.billingPlanId,
+        vmId: vm.id,
+        eventType: abandoned.isBase ? "vm.base.create.failed" : "vm.create.failed",
+        provider: vm.provider,
+        imageId: vm.imageId,
+        metadata: {
+          operation: "create_abandoned",
+          source: "vm_reconcile",
+          ageMinutes: Math.max(0, Math.round((now.getTime() - vm.createdAt.getTime()) / 60_000)),
+          thresholdMinutes: Math.ceil(VM_CREATE_ABANDONED_AFTER_MS / 60_000),
+        },
+      }).pipe(Effect.catchAll(() => Effect.void));
+    }), { concurrency: ABANDONED_CREATE_CONCURRENCY, discard: true });
   });
 }
 
@@ -865,12 +943,11 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       Effect.tapError((err) =>
         awaitRequestedEvents.pipe(Effect.andThen(Effect.all([
           refundCredit(billing, repo, create.vm, creditReservation),
-          repo.markCreateFailed({
+          recordCreateFailureAfterMark(repo, repo.markCreateFailed({
             id: create.vm.id,
             code: VM_MODEL_PLANE_FAILURE_CODES[err.kind],
             message: errorMessage(err.cause),
-          }),
-          repo.recordUsageEvent({
+          }), {
             userId: input.userId,
             billingTeamId: input.billingTeamId,
             billingPlanId: input.billingPlanId,
@@ -915,7 +992,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         awaitRequestedEvents.pipe(Effect.andThen(Effect.all([
           revokeModelPlane(input.modelPlane, create.vm.id),
           refundCredit(billing, repo, create.vm, creditReservation),
-          repo.markCreateFailed({
+          recordCreateFailureAfterMark(repo, repo.markCreateFailed({
             id: create.vm.id,
             // An unconfirmed rollback remains owned by this failed row. Keep
             // its provider id and make same-key retries wait for reconciliation
@@ -926,8 +1003,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
             message: isProviderCreateCleanupError(err.cause)
               ? `${errorMessage(err.cause.cause)}; cleanup: ${errorMessage(err.cause.cleanupCause)}`
               : errorMessage(err.cause),
-          }),
-          repo.recordUsageEvent({
+          }), {
             userId: input.userId,
             billingTeamId: input.billingTeamId,
             billingPlanId: input.billingPlanId,
@@ -958,18 +1034,20 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
           yield* rollbackProviderCreate(providers, input.provider, handle);
           yield* revokeModelPlane(input.modelPlane, create.vm.id);
           yield* refundCredit(billing, repo, create.vm, creditReservation);
-          yield* repo.markCreateFailed({
+          const markedFailed = yield* repo.markCreateFailed({
             id: create.vm.id,
             code: "database_finalize_failed",
             message: "Cloud VM state update failed.",
-          }).pipe(Effect.catchAll(() => Effect.void));
-          yield* recordCreateFailureEvent(
-            repo,
-            input,
-            create.vm,
-            "database_finalize_failed",
-            errorMessage(err.cause),
-          ).pipe(Effect.catchAll(() => Effect.void));
+          }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+          if (markedFailed) {
+            yield* recordCreateFailureEvent(
+              repo,
+              input,
+              create.vm,
+              "database_finalize_failed",
+              errorMessage(err.cause),
+            ).pipe(Effect.catchAll(() => Effect.void));
+          }
           return yield* Effect.fail(err);
         }),
       ),
@@ -1055,6 +1133,10 @@ function revokeModelPlane(
 ): Effect.Effect<void> {
   if (!modelPlane) return Effect.void;
   return Effect.tryPromise(() => modelPlane.revoke(cloudVmId)).pipe(
+    Effect.timeoutFail({
+      duration: MODEL_PLANE_REVOKE_TIMEOUT,
+      onTimeout: () => new Error("model-plane revoke deadline"),
+    }),
     Effect.catchAll((err) =>
       Effect.sync(() => {
         console.error(`[vm] model-plane revoke failed for ${cloudVmId}`, errorMessage(err));
@@ -1197,6 +1279,7 @@ function finishBaseCreate(
     const creditReservation = yield* reserveCreateCredit(billing, repo, {
       ...input,
       idempotencyKey,
+      baseGeneration: { baseId: create.base.id, generation: create.generation.generation },
     }, create.vm);
     yield* recordCreateRequestedEvents(repo, {
       ...input,
@@ -1216,6 +1299,35 @@ function finishBaseCreate(
         Effect.provideService(VmRepository, repo),
         Effect.provideService(VmProviderGateway, providers),
       ),
+    ).pipe(
+      // Unlike createVm, this runs after the credit is reserved, so the
+      // reservation has to go back. resolveOwnerNetwork resolves a shared
+      // network rather than creating one, so there is nothing to unwind there,
+      // but the base and its generation exist by now and markBaseCreateFailed
+      // is the mark on this path that releases them: the ad-hoc markCreateFailed
+      // does not call restoreBaseAfterCreateFailure.
+      Effect.tapError((err) =>
+        Effect.all([
+          refundCredit(billing, repo, create.vm, creditReservation),
+          recordCreateFailureAfterMark(repo, repo.markBaseCreateFailed({
+            baseId: create.base.id,
+            generation: create.generation.generation,
+            vmId: create.vm.id,
+            userId: input.userId,
+            code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+            message: errorMessage(err),
+          }), {
+            userId: input.userId,
+            billingTeamId: input.billingTeamId,
+            billingPlanId: input.billingPlanId,
+            vmId: create.vm.id,
+            eventType: "vm.base.create.failed",
+            provider: input.provider,
+            imageId: input.image,
+            metadata: { operation: "resolve_network", message: errorMessage(err) },
+          }),
+        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void)),
+      ),
     );
 
     const materials = yield* measureVmEffect(
@@ -1226,15 +1338,23 @@ function finishBaseCreate(
       Effect.tapError((err) =>
         Effect.all([
           refundCredit(billing, repo, create.vm, creditReservation),
-          repo.markBaseCreateFailed({
+          recordCreateFailureAfterMark(repo, repo.markBaseCreateFailed({
             baseId: create.base.id,
             generation: create.generation.generation,
             vmId: create.vm.id,
             userId: input.userId,
             code: VM_MODEL_PLANE_FAILURE_CODES[err.kind],
             message: errorMessage(err.cause),
+          }), {
+            userId: input.userId,
+            billingTeamId: input.billingTeamId,
+            billingPlanId: input.billingPlanId,
+            vmId: create.vm.id,
+            eventType: "vm.base.create.failed",
+            provider: input.provider,
+            imageId: input.image,
+            metadata: { operation: "model_plane_provision", message: errorMessage(err.cause) },
           }),
-          recordCreateFailureEvent(repo, input, create.vm, "model_plane_provision", errorMessage(err.cause)),
         ], { discard: true }).pipe(Effect.catchAll(() => Effect.void)),
       ),
     );
@@ -1257,7 +1377,7 @@ function finishBaseCreate(
         Effect.all([
           refundCredit(billing, repo, create.vm, creditReservation),
           revokeModelPlane(input.modelPlane, create.vm.id),
-          repo.markBaseCreateFailed({
+          recordCreateFailureAfterMark(repo, repo.markBaseCreateFailed({
             baseId: create.base.id,
             generation: create.generation.generation,
             vmId: create.vm.id,
@@ -1266,8 +1386,7 @@ function finishBaseCreate(
               ? { code: PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE, cleanupProviderVmId: err.cause.providerVmId }
               : { code: err.operation }),
             message: errorMessage(err.cause),
-          }),
-          repo.recordUsageEvent({
+          }), {
             userId: input.userId,
             billingTeamId: input.billingTeamId,
             billingPlanId: input.billingPlanId,
@@ -1300,27 +1419,29 @@ function finishBaseCreate(
           yield* rollbackProviderCreate(providers, input.provider, handle);
           yield* revokeModelPlane(input.modelPlane, create.vm.id);
           yield* refundCredit(billing, repo, create.vm, creditReservation);
-          yield* repo.markBaseCreateFailed({
+          const markedFailed = yield* repo.markBaseCreateFailed({
             baseId: create.base.id,
             generation: create.generation.generation,
             vmId: create.vm.id,
             userId: input.userId,
             code: "database_finalize_failed",
             message: "Cloud VM Base state update failed.",
-          }).pipe(Effect.catchAll(() => Effect.void));
-          yield* recordCreateFailureEvent(
-            repo,
-            {
-              userId: input.userId,
-              billingTeamId: input.billingTeamId,
-              billingPlanId: input.billingPlanId,
-              provider: input.provider,
-              image: input.image,
-            },
-            create.vm,
-            "database_finalize_failed",
-            errorMessage(err.cause),
-          ).pipe(Effect.catchAll(() => Effect.void));
+          }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+          if (markedFailed) {
+            yield* recordCreateFailureEvent(
+              repo,
+              {
+                userId: input.userId,
+                billingTeamId: input.billingTeamId,
+                billingPlanId: input.billingPlanId,
+                provider: input.provider,
+                image: input.image,
+              },
+              create.vm,
+              "database_finalize_failed",
+              errorMessage(err.cause),
+            ).pipe(Effect.catchAll(() => Effect.void));
+          }
           return yield* Effect.fail(err);
         }),
       ),
@@ -2023,12 +2144,11 @@ export function forkVm(input: {
         Effect.tapError((err) =>
           Effect.all([
             refundCredit(billing, repo, create.vm, creditReservation),
-            repo.markCreateFailed({
+            recordCreateFailureAfterMark(repo, repo.markCreateFailed({
               id: create.vm.id,
               code: err.operation,
               message: errorMessage(err.cause),
-            }),
-            repo.recordUsageEvent({
+            }), {
               userId: input.userId,
               billingTeamId: input.billingTeamId,
               billingPlanId: input.billingPlanId,
@@ -2069,24 +2189,26 @@ export function forkVm(input: {
           Effect.gen(function* () {
             yield* rollbackProviderCreate(providers, source.provider, handle);
             yield* refundCredit(billing, repo, create.vm, creditReservation);
-            yield* repo.markCreateFailed({
+            const markedFailed = yield* repo.markCreateFailed({
               id: create.vm.id,
               code: "database_finalize_failed",
               message: "Cloud VM fork state update failed.",
-            }).pipe(Effect.catchAll(() => Effect.void));
-            yield* recordCreateFailureEvent(
-              repo,
-              {
-                userId: input.userId,
-                billingTeamId: input.billingTeamId,
-                billingPlanId: input.billingPlanId,
-                provider: source.provider,
-                image: source.imageId,
-              },
-              create.vm,
-              "database_finalize_failed",
-              errorMessage(err.cause),
-            ).pipe(Effect.catchAll(() => Effect.void));
+            }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+            if (markedFailed) {
+              yield* recordCreateFailureEvent(
+                repo,
+                {
+                  userId: input.userId,
+                  billingTeamId: input.billingTeamId,
+                  billingPlanId: input.billingPlanId,
+                  provider: source.provider,
+                  image: source.imageId,
+                },
+                create.vm,
+                "database_finalize_failed",
+                errorMessage(err.cause),
+              ).pipe(Effect.catchAll(() => Effect.void));
+            }
             return yield* Effect.fail(err);
           }),
         ),
@@ -3122,6 +3244,10 @@ export function revokeExpiredIdentityLeases(input: {
       if (revoked) revokedIds.push(lease.id);
     }
     yield* repo.markLeasesRevoked(revokedIds);
+    yield* (repo.pruneExpiredPreviewLeases?.({
+      before: new Date(now.getTime() - VM_PREVIEW_LEASE_RETENTION_MS),
+      limit: PREVIEW_LEASE_PRUNE_BATCH,
+    }) ?? Effect.succeed(0)).pipe(Effect.catchAll(() => Effect.succeed(0)));
     return revokedIds.length;
   });
 }
@@ -4197,9 +4323,44 @@ function reserveCreateCredit(
     readonly imageVersion?: string | null;
     readonly idempotencyKey?: string;
     readonly timing?: VmTimingSink;
+    /**
+     * Set by the Base flow. createVm and forkVm own a plain row, so failing it
+     * is the whole rollback. A Base row is also claimed by a base and a
+     * generation, and markBaseCreateFailed is the mark on this path that
+     * releases those; marking it with the ad-hoc path leaves the base
+     * "resetting" and its generation "creating". (markCreateAbandoned and
+     * resolveCreateCleanup also call restoreBaseAfterCreateFailure, but neither
+     * is reachable from here once the row carries a failure code.)
+     *
+     * Reset then 409s forever, because beginBaseReset refuses to start while an
+     * operation is in flight. Open does not: it has no such guard and the
+     * ad-hoc-failed row is not the active one, so it quietly allocates a new
+     * generation on a new provider machine and orphans the working one as
+     * retained. That still counts against maxActiveVms, so a user at their
+     * machine limit is stuck until they delete one by hand.
+     *
+     * The abandonment sweeper cannot recover either shape, because it matches
+     * only provisioning rows with no failure code, and the ad-hoc mark sets
+     * both.
+     */
+    readonly baseGeneration?: {
+      readonly baseId: string;
+      readonly generation: number;
+    };
   },
   vm: CloudVmRow,
 ) {
+  const markCreateFailed = (code: string, message: string) =>
+    input.baseGeneration
+      ? repo.markBaseCreateFailed({
+        baseId: input.baseGeneration.baseId,
+        generation: input.baseGeneration.generation,
+        vmId: vm.id,
+        userId: input.userId,
+        code,
+        message,
+      })
+      : repo.markCreateFailed({ id: vm.id, code, message });
   return measureVmEffect(
     input.timing,
     "billing",
@@ -4236,14 +4397,12 @@ function reserveCreateCredit(
       }).pipe(
         Effect.tapError((err) =>
           Effect.all([
-            repo.markCreateFailed({
-              id: vm.id,
-              code: isVmCreateCreditsInsufficientError(err)
+            recordCreateFailureAfterMark(repo, markCreateFailed(
+              isVmCreateCreditsInsufficientError(err)
                 ? "billing_credits_insufficient"
                 : "billing_reserve_failed",
-              message: errorMessage(err),
-            }),
-            repo.recordUsageEvent({
+              errorMessage(err),
+            ), {
               userId: input.userId,
               billingTeamId: input.billingTeamId,
               billingPlanId: input.billingPlanId,
@@ -4378,6 +4537,17 @@ function recordCreateFailureEvent(
     imageId: input.image,
     metadata: { operation, message },
   });
+}
+
+/** Records a failure only when its guarded lifecycle transition won the row. */
+function recordCreateFailureAfterMark(
+  repo: VmRepositoryShape,
+  marked: Effect.Effect<boolean, VmDatabaseError>,
+  event: VmUsageEventInput,
+): Effect.Effect<void, VmDatabaseError> {
+  return marked.pipe(
+    Effect.flatMap((updated) => updated ? repo.recordUsageEvent(event) : Effect.void),
+  );
 }
 
 function creditUsageEvent(
@@ -4531,6 +4701,8 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     createdAt: row.createdAt.getTime(),
     displayName: row.displayName ?? null,
     slug: row.slug ?? null,
+    createdByUserId: row.userId,
+    ownerTeamId: row.ownerTeamId,
     addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
     cmuxTuiContract: typeof metadata["cmuxTuiContract"] === "string" ? metadata["cmuxTuiContract"] : null,

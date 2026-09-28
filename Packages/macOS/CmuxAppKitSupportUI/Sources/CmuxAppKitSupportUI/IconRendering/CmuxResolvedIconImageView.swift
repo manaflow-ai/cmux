@@ -104,6 +104,7 @@ public final class CmuxResolvedIconImageView: NSView {
         private let fallbackTint: NSColor?
         private let symbolWeight: CGFloat
         private let symbolPointSize: CGFloat?
+        private let centersVisibleContent: Bool
         private let appearanceName: NSAppearance.Name
         private let appearanceIdentity: ObjectIdentifier
 
@@ -121,6 +122,7 @@ public final class CmuxResolvedIconImageView: NSView {
             self.fallbackTint = request.fallbackTintColor
             self.symbolWeight = request.symbolWeight.rawValue
             self.symbolPointSize = request.symbolPointSize
+            self.centersVisibleContent = request.centersVisibleContent
             self.appearanceName = appearance.name
             self.appearanceIdentity = ObjectIdentifier(appearance)
         }
@@ -136,6 +138,7 @@ public final class CmuxResolvedIconImageView: NSView {
                 height == other.height &&
                 symbolWeight == other.symbolWeight &&
                 symbolPointSize == other.symbolPointSize &&
+                centersVisibleContent == other.centersVisibleContent &&
                 appearanceName == other.appearanceName &&
                 appearanceIdentity == other.appearanceIdentity &&
                 Self.colorsEqual(tint, other.tint) &&
