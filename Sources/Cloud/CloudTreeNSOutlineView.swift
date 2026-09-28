@@ -7,7 +7,32 @@ import CmuxFoundation
 /// the mode shortcuts that jump between sidebar tabs.
 final class CloudTreeNSOutlineView: NSOutlineView {
     static let leadingMargin: CGFloat = 8
-    lazy var reorderPresentation = CloudTreeReorderPresentation(outline: self)
+    private var dragDestinationSequenceNumber: Int?
+
+    func trackDragDestination(sequenceNumber: Int) {
+        dragDestinationSequenceNumber = sequenceNumber
+    }
+
+    func isCurrentDragDestination(_ info: (any NSDraggingInfo)?) -> Bool {
+        guard let info, let sequence = dragDestinationSequenceNumber else { return true }
+        return sequence == info.draggingSequenceNumber
+    }
+
+    func clearDragDestination(sequence: Int? = nil) {
+        if let sequence, let current = dragDestinationSequenceNumber, current != sequence { return }
+        dragDestinationSequenceNumber = nil
+    }
+
+    /// Destination completion also releases a source whose native callback was lost.
+    func endDragDestination(_ info: any NSDraggingInfo) {
+        guard isCurrentDragDestination(info) else { return }
+        clearDragDestination(sequence: info.draggingSequenceNumber)
+        guard let source = info.draggingSource as? CloudTreeNSOutlineView, source === self,
+              let session = activeNativeDragSession,
+              session.draggingSequenceNumber == info.draggingSequenceNumber,
+              let coordinator = activeNativeDragCoordinator as? CloudTreeOutlineView.Coordinator else { return }
+        coordinator.outlineView(self, draggingSession: session, endedAt: .zero, operation: [])
+    }
     let disclosureScope = CloudTreeDisclosureScope()
 
     override init(frame frameRect: NSRect) {
@@ -97,7 +122,6 @@ final class CloudTreeNSOutlineView: NSOutlineView {
 
     @objc private func hoverEnvironmentDidChange(_ notification: Notification) {
         refreshHover()
-        reorderPresentation.layout()
     }
 
     override func updateTrackingAreas() {
@@ -129,7 +153,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if window !== newWindow {
-            reorderPresentation.clear()
+            clearDragDestination()
             menuPinnedNodeID = nil
         }
         updateHover(at: nil)
@@ -163,13 +187,12 @@ final class CloudTreeNSOutlineView: NSOutlineView {
 
     override func layout() {
         super.layout()
-        reorderPresentation.layout()
         refreshHover()
     }
 
     var activeNativeDragCoordinator: AnyObject?
     var activeNativeDragSession: NSDraggingSession? {
-        didSet { if activeNativeDragSession == nil { reorderPresentation.clear() } }
+        didSet { if activeNativeDragSession == nil { clearDragDestination() } }
     }
     var onNativeDragPointerBoundary: (() -> Void)?
     var onDocumentContentChanged: (() -> Void)?
@@ -224,32 +247,32 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        reorderPresentation.clear()
+        clearDragDestination()
         onNativeDragPointerBoundary?()
         super.mouseDown(with: event)
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
-        guard reorderPresentation.isCurrent(sender) else { return }
+        guard isCurrentDragDestination(sender) else { return }
         super.draggingExited(sender)
-        reorderPresentation.clear(sequence: sender?.draggingSequenceNumber)
+        clearDragDestination(sequence: sender?.draggingSequenceNumber)
     }
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
-        guard reorderPresentation.isCurrent(sender) else { return }
+        guard isCurrentDragDestination(sender) else { return }
         // NSOutlineView may not implement this optional destination notification.
-        reorderPresentation.ended(sender)
+        endDragDestination(sender)
     }
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
-        guard reorderPresentation.isCurrent(sender) else { return }
+        guard isCurrentDragDestination(sender) else { return }
         super.concludeDragOperation(sender)
-        reorderPresentation.clear(sequence: sender?.draggingSequenceNumber)
+        clearDragDestination(sequence: sender?.draggingSequenceNumber)
     }
 
     override func viewDidHide() {
         super.viewDidHide()
-        reorderPresentation.clear()
+        clearDragDestination()
     }
 
     override func keyDown(with event: NSEvent) {
@@ -367,7 +390,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     override func reloadData() {
-        reorderPresentation.clear()
+        clearDragDestination()
         updateHover(at: nil)
         super.reloadData()
         needsLayout = true
