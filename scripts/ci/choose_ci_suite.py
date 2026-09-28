@@ -51,7 +51,7 @@ UNIT_SUITE_LABEL = "unit-ci"
 # against the product compile admission already built, so asking for that one
 # job is enough to judge a cmuxTests/ diff. No pull request job runs
 # cmuxUITests/ at all -- only the dispatch-only test-e2e lane does -- so ci.yml's
-# `ui-tests` job dispatches that lane for the test classes a diff changes
+# `ui-tests` job runs that lane (through ci-ui-tests.yml) for the classes a diff changes
 # (changed_ui_selectors()). A change it cannot map to classes stays a gap.
 UNIT_JUDGED_PREFIXES = ("cmuxTests/",)
 UNJUDGED_BY_ANY_PR_JOB_PREFIXES = ("cmuxUITests/",)
