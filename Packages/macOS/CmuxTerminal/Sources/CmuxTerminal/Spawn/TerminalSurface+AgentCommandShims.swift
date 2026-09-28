@@ -120,15 +120,17 @@ extension TerminalSurface {
         defer {
             try? fileManager.removeItem(at: stagingDirectory)
         }
+        // A shared temporary directory lets another user create these
+        // directories first or plant a symlink, so each one must be a real
+        // directory this user owns before anything is written into it.
         let privateDirectoryCheck = PrivateDirectoryCheck()
         do {
             try fileManager.createDirectory(at: shimParentDirectory, withIntermediateDirectories: true)
+            guard privateDirectoryCheck.makePrivate(atPath: shimParentDirectory.path) else { return nil }
             try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: false)
+            guard privateDirectoryCheck.makePrivate(atPath: stagingDirectory.path) else { return nil }
         } catch {
             return nil
-        }
-        for directory in [shimParentDirectory, stagingDirectory] {
-            guard privateDirectoryCheck.makePrivate(atPath: directory.path) else { return nil }
         }
 
         let computerUseSettingURL = computerUseSettingFileURL ?? computerUseLiveSettingFileURL(
@@ -169,6 +171,7 @@ extension TerminalSurface {
         guard !shims.isEmpty else { return nil }
         do {
             if fileManager.fileExists(atPath: shimDirectory.path) {
+                guard privateDirectoryCheck.makePrivate(atPath: shimDirectory.path) else { return nil }
                 _ = try fileManager.replaceItemAt(
                     shimDirectory,
                     withItemAt: stagingDirectory,
