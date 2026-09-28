@@ -730,6 +730,11 @@ fi
 }
 
 cmux_codex_start_fork_session_watch
+# The monitor received a private copy of these launch markers in its argv.
+# Do not let a nested Codex wrapper inherit the parent fork transaction.
+unset CMUX_AGENT_FORK_PARENT_SESSION_ID
+unset CMUX_AGENT_FORK_LAUNCH_AT
+unset CMUX_AGENT_FORK_LAUNCH_ID
 
 # Fresh launches deliberately wait for Codex's real SessionStart payload so no
 # fallback identity is created. Explicit resumes do not emit that event, so

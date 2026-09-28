@@ -18,7 +18,6 @@ struct CodexForkSessionWatcher {
     }
 
     private static let maximumDirectories = 512
-    private static let maximumRollouts = 2_048
     private static let maximumMetadataBytes = 1 * 1_024 * 1_024
     private static let watchTimeout: TimeInterval = 15
 
@@ -113,27 +112,30 @@ struct CodexForkSessionWatcher {
         excludingSessionIDs: Set<String> = [],
         fileManager: FileManager = .default
     ) -> ChildSession? {
-        guard !parentSessionID.isEmpty,
-              let enumerator = fileManager.enumerator(
-                  at: sessionsRoot,
-                  includingPropertiesForKeys: [.isRegularFileKey, .creationDateKey, .contentModificationDateKey],
-                  options: [.skipsHiddenFiles]
-              ) else {
-            return nil
-        }
-
-        guard ownerPID > 0 else { return nil }
+        guard !parentSessionID.isEmpty, ownerPID > 0 else { return nil }
         let ownerRolloutPaths = Set(Self.openCodexRolloutPaths(pid: ownerPID).map {
-            URL(fileURLWithPath: $0).standardizedFileURL.path
+            URL(fileURLWithPath: $0).standardizedFileURL.resolvingSymlinksInPath().path
         })
         guard !ownerRolloutPaths.isEmpty else { return nil }
+        let sessionsRootPath = sessionsRoot
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
+        let sessionsRootPrefix = sessionsRootPath.hasSuffix("/") ? sessionsRootPath : "\(sessionsRootPath)/"
+        let candidateURLs = ownerRolloutPaths.compactMap { path -> URL? in
+            let url = URL(fileURLWithPath: path).standardizedFileURL
+            guard url.path.hasPrefix(sessionsRootPrefix),
+                  url.pathExtension.lowercased() == "jsonl",
+                  url.resolvingSymlinksInPath().path.hasPrefix(sessionsRootPrefix) else {
+                return nil
+            }
+            return url
+        }
+        guard !candidateURLs.isEmpty else { return nil }
         let timestampFormatter = ISO8601DateFormatter()
         var candidates: [CodexForkSessionCandidate] = []
-        var scanned = 0
-        while let item = enumerator.nextObject() as? URL, scanned < Self.maximumRollouts {
-            scanned += 1
-            guard item.pathExtension.lowercased() == "jsonl",
-                  let metadata = readMetadata(at: item, timestampFormatter: timestampFormatter),
+        for item in candidateURLs {
+            guard let metadata = readMetadata(at: item, timestampFormatter: timestampFormatter),
                   metadata.parentSessionID == parentSessionID,
                   metadata.sessionID != parentSessionID,
                   !excludingSessionIDs.contains(metadata.sessionID) else {
@@ -146,9 +148,6 @@ struct CodexForkSessionWatcher {
                 ?? resourceValues?.contentModificationDate
                 ?? .distantPast
             let candidateDate = metadata.timestamp ?? fileDate
-            guard candidateDate.timeIntervalSince1970 >= launchedAt.timeIntervalSince1970 - 2 else {
-                continue
-            }
             candidates.append(CodexForkSessionCandidate(
                 sessionID: metadata.sessionID,
                 parentSessionID: parentSessionID,
@@ -351,8 +350,9 @@ extension CMUXCLI {
             "surface_id": surfaceID,
             "checkpoint_id": parentSessionID,
             "source": "agent-hook",
+            "agent_session_ended": true,
         ])
-        let title = String(localized: "agent.codex.fork.notice.title", defaultValue: "Codex fork")
+        let title = String(localized: "agent.codex.fork.notice.title", defaultValue: "Agent fork")
         let body = String(
             localized: "agent.codex.fork.notice.body",
             defaultValue: "cmux could not identify the new fork session, so this pane was not bound to the parent. Start the fork again from the parent pane."

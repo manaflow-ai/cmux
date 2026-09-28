@@ -74,6 +74,9 @@ done
   printf 'CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND=%s\\n' "${CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND-__UNSET__}"
   printf 'CMUX_WORKSPACE_ID=%s\\n' "${CMUX_WORKSPACE_ID-__UNSET__}"
   printf 'CMUX_SURFACE_ID=%s\\n' "${CMUX_SURFACE_ID-__UNSET__}"
+  printf 'CMUX_AGENT_FORK_PARENT_SESSION_ID=%s\\n' "${CMUX_AGENT_FORK_PARENT_SESSION_ID-__UNSET__}"
+  printf 'CMUX_AGENT_FORK_LAUNCH_AT=%s\\n' "${CMUX_AGENT_FORK_LAUNCH_AT-__UNSET__}"
+  printf 'CMUX_AGENT_FORK_LAUNCH_ID=%s\\n' "${CMUX_AGENT_FORK_LAUNCH_ID-__UNSET__}"
 } > "$FAKE_REAL_ENV_LOG"
 """,
         )
@@ -131,6 +134,7 @@ exit 1
             "CMUX_CUSTOM_CODEX_PATH",
             "CMUX_CODEX_WRAPPER_SHIM",
             "CMUX_CODEX_WRAPPER_SHIM_ROOT",
+            "CMUX_CODEX_HOOK_CMUX_BIN",
         ):
             env.pop(key, None)
         env["FAKE_REAL_ARGS_LOG"] = str(real_args_log)
@@ -284,13 +288,23 @@ def test_direct_fork_is_instrumented(failures: list[str]) -> None:
 
 def test_direct_fork_starts_identity_watch(failures: list[str]) -> None:
     parent = "0198f073-0a5b-7000-8000-000000000059"
-    code, _, cmux_log, _, stderr = run_wrapper(
+    code, _, cmux_log, observed_env, stderr = run_wrapper(
         socket_state="live",
         argv=["fork", parent],
         fork_parent_session_id=parent,
         fork_launch_id="fork-launch-test",
     )
     expect(code == 0, f"fork-watch: wrapper exited {code}: {stderr}", failures)
+    for marker in (
+        "CMUX_AGENT_FORK_PARENT_SESSION_ID",
+        "CMUX_AGENT_FORK_LAUNCH_AT",
+        "CMUX_AGENT_FORK_LAUNCH_ID",
+    ):
+        expect(
+            observed_env.get(marker) == "__UNSET__",
+            f"fork-watch: {marker} leaked into nested Codex process: {observed_env}",
+            failures,
+        )
     expect(
         any(
             "hooks codex monitor" in line

@@ -9,13 +9,13 @@ public struct CodexForkSessionMatcher: Sendable {
     ///
     /// - Parameters:
     ///   - parentSessionID: The session being forked.
-    ///   - launchedAt: The fork launch time used as a bounded freshness guard.
+    ///   - launchedAt: The fork launch time retained for launch-correlation context.
     ///   - candidates: Rollouts whose metadata names the parent.
     ///   - ownerRolloutPaths: Rollout paths held open by the fork process.
     /// - Returns: The sole process-owned child candidate, or `nil` when evidence is ambiguous.
     public func match(
         parentSessionID: String,
-        launchedAt: Date,
+        launchedAt _: Date,
         candidates: [CodexForkSessionCandidate],
         ownerRolloutPaths: Set<String>
     ) -> CodexForkSessionCandidate? {
@@ -24,7 +24,6 @@ public struct CodexForkSessionMatcher: Sendable {
             .filter {
                 $0.parentSessionID == parentSessionID
                     && $0.sessionID != parentSessionID
-                    && $0.createdAt.timeIntervalSince1970 >= launchedAt.timeIntervalSince1970 - 2
                     && ownerRolloutPaths.contains($0.transcriptPath)
             }
         guard matches.count == 1 else { return nil }

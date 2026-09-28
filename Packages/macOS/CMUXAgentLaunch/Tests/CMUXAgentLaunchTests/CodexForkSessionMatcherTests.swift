@@ -82,4 +82,22 @@ struct CodexForkSessionMatcherTests {
             ) == nil
         )
     }
+
+    @Test
+    func ownerEvidenceAllowsSlowForkStartup() {
+        let candidate = CodexForkSessionCandidate(
+            sessionID: "child",
+            parentSessionID: "parent",
+            transcriptPath: "/sessions/child.jsonl",
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
+        #expect(
+            CodexForkSessionMatcher().match(
+                parentSessionID: "parent",
+                launchedAt: Date(timeIntervalSince1970: 100),
+                candidates: [candidate],
+                ownerRolloutPaths: [candidate.transcriptPath]
+            ) == candidate
+        )
+    }
 }

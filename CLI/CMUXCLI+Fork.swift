@@ -262,7 +262,8 @@ extension CMUXCLI {
                     ?? processEnvironment["CMUX_WORKSPACE_ID"]
                     ?? "",
                 surfaceId: surfaceID,
-                sessionId: checkpointID
+                sessionId: checkpointID,
+                sessionDidEnd: true
             )
         }
         client.close()

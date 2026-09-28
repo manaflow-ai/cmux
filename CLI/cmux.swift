@@ -35165,7 +35165,7 @@ export default CMUXSessionRestore;
                 allowedShellCommands: cursorApprovalSettings.allowedShellCommands,
                 deniedShellCommands: cursorApprovalSettings.deniedShellCommands
             )
-        let hookResponse = cursorShellNeedsApproval
+        var hookResponse = cursorShellNeedsApproval
             ? AgentHookNotificationPolicy.cursorNativeApprovalResponse
             : "{}"
         let lifecycleRoute = AgentHookLifecycleReconciler().route(
@@ -36229,10 +36229,12 @@ export default CMUXSessionRestore;
                 && env[CodexHookInvocation.forkSessionEnvironmentKey] == "1"
             func printCodexForkSessionStartResult(bound: Bool) {
                 if isCodexForkSession {
-                    let result = ["cmux_fork_binding": bound ? "bound" : "failed"]
-                    if let data = try? JSONSerialization.data(withJSONObject: result),
-                       let line = String(data: data, encoding: .utf8) {
-                        print(line)
+                    if bound { hookResponse = "{\"cmux_fork_binding\":\"bound\"}" } else {
+                        let result = ["cmux_fork_binding": "failed"]
+                        if let data = try? JSONSerialization.data(withJSONObject: result),
+                           let line = String(data: data, encoding: .utf8) {
+                            print(line)
+                        }
                     }
                 } else if !bound {
                     print("{}")
