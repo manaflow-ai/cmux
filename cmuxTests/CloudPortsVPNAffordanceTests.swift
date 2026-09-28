@@ -168,6 +168,28 @@ struct CloudPortsVPNAffordanceTests {
         #expect(calls == 1)
     }
 
+    @Test("Status rows are tall enough for every wrapped line", arguments: [150.0, 190.0, 230.0, 270.0])
+    func statusTextFitsRow(width: Double) throws {
+        let presentations = [CloudPortsStatusPresentation(state: .loading), .vpnGuidance,
+            CloudPortsStatusPresentation(state: .unavailable(.transport)),
+            CloudPortsStatusPresentation(state: .empty(.otherInterfaceOnly))]
+        for status in presentations {
+            let height = CloudPortsStatusContent.height(width: width, presentation: status, style: .defaultStyle)
+            let content = CloudPortsStatusContent(frame: NSRect(x: 0, y: 0, width: width, height: height))
+            content.configure(presentation: status, style: .defaultStyle) {}
+            content.layoutSubtreeIfNeeded()
+            let labels = descendants(of: content).compactMap { $0 as? NSTextField }
+            #expect(labels.count == 2)
+            for label in labels {
+                let cell = try #require(label.cell)
+                let needed = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: label.frame.width,
+                    height: .greatestFiniteMagnitude)).height
+                #expect(needed <= label.frame.height, "\(label.stringValue) needs \(needed) pt at width \(width)")
+                #expect(label.frame.maxY <= content.bounds.height, "\(label.stringValue) overflows its row")
+            }
+        }
+    }
+
     @Test("Opening Ports requests discovery once; closed Ports and collapsed machines do not scan")
     func openedPortsDemand() throws {
         let suite = "ports-demand-\(UUID())"
