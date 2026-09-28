@@ -119,6 +119,11 @@ private struct CloudSidebarDebugControls: View {
                                 }
                             }
                             .labelsHidden()
+                            // `labelsHidden()` leaves the picker with nothing a
+                            // dogfood tour can aim at, so a tour could reach the
+                            // lab but never change preset. The presets are the
+                            // point of the lab.
+                            .accessibilityIdentifier("CloudSidebarDebugLab.preset")
                             Spacer(minLength: 0)
                             CloudSidebarDebugResetButton(
                                 title: String(localized: "debug.cloudSidebarSpacing.preset", defaultValue: "Preset"),
@@ -302,6 +307,10 @@ private enum CloudSidebarDebugFixture {
                 isDesktop: true,
                 activity: .ready,
                 createdAt: Date(timeIntervalSinceNow: -86_400 * 12),
+                // A name long enough to compete with the id and the age on the
+                // same line: the lab exists to show the crowded case, not the
+                // flattering one.
+                createdBy: VMCreator(userId: "debug-user-1", displayName: "Ada Lovelace"),
                 label: "production-hotfix-review-machine-with-a-deliberately-very-long-name",
                 slug: "patient-otter",
                 stats: VMStats(
