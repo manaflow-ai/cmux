@@ -153,7 +153,14 @@ export class InMemoryMailBroker {
   /** Append once. Re-appending an identical id is a safe, idempotent no-op. */
   append(input: MailInput | MailEnvelope): MailAppendResult {
     const replyParent = input.inReplyTo ? this.messagesById.get(input.inReplyTo) : undefined;
-    const envelope = normalizeEnvelope(input, (input as MailInput).threadId ?? replyParent?.threadId);
+    const declaredThreadId = (input as MailInput).threadId;
+    // Without the parent or an explicit thread, there is nothing to attach the
+    // reply to, and normalizeEnvelope would root a new thread at the reply's
+    // own id while still stamping it kind "reply". Refuse instead, matching
+    // reply(). A caller replicating a reply from another broker names its
+    // threadId and still gets through.
+    if (input.inReplyTo && !replyParent && declaredThreadId === undefined) throw unknownParentError(input.inReplyTo);
+    const envelope = normalizeEnvelope(input, declaredThreadId ?? replyParent?.threadId);
     if (envelope.recipients.length > this.maxRecipients) throw new MailFanoutError(envelope.recipients.length, this.maxRecipients);
     const envelopeFingerprint = fingerprint(envelope);
     const existing = this.messagesById.get(envelope.id);
@@ -211,7 +218,7 @@ export class InMemoryMailBroker {
     const parentMessageId = typeof parentOrInput === "string" ? parentOrInput : parentOrInput.inReplyTo;
     const input = typeof parentOrInput === "string" ? maybeInput! : parentOrInput;
     const parent = this.messagesById.get(parentMessageId);
-    if (!parent) throw new Error(`cannot reply to unknown mail message ${parentMessageId}`);
+    if (!parent) throw unknownParentError(parentMessageId);
     return this.append({
       ...input,
       threadId: parent.threadId,
@@ -367,8 +374,16 @@ function freezeEnvelope(envelope: MailEnvelope): MailEnvelope {
   return deepFreeze(envelope);
 }
 
+function unknownParentError(parentMessageId: MailId): Error {
+  return new Error(`cannot reply to unknown mail message ${parentMessageId}`);
+}
+
 function fingerprint(envelope: MailEnvelope): string {
-  return JSON.stringify(canonicalize(envelope));
+  // Recipients are a set, so a retry listing them in another order is the same
+  // message and must stay idempotent. Sort for the comparison only; the stored
+  // envelope keeps the order the first append supplied. `references` is left
+  // alone because its order is the ancestry chain.
+  return JSON.stringify(canonicalize({ ...envelope, recipients: [...envelope.recipients].sort() }));
 }
 
 function canonicalize(value: unknown, ancestors = new Set<object>()): JsonValue {
