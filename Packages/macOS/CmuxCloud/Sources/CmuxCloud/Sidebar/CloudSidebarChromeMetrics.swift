@@ -19,9 +19,15 @@ import CoreGraphics
 /// These cover a bar's outer insets, not its full presentation: a real chrome
 /// bar also takes a fixed height and scales with the global font setting, which
 /// the Cloud banners still do not.
-public enum CloudSidebarChromeMetrics {
+///
+/// ``sidebar`` holds the numbers the app ships. A surface that needs different
+/// ones builds its own value rather than mutating shared state.
+public struct CloudSidebarChromeMetrics: Equatable, Sendable {
+    /// The right sidebar's chrome, as the app target defines it.
+    public static let sidebar = CloudSidebarChromeMetrics()
+
     /// Outer horizontal inset of a sidebar chrome bar.
-    public static let barHorizontalPadding: CGFloat = 8
+    public var barHorizontalPadding: CGFloat
 
     /// The trailing column the sidebar's *header* bars keep clear — narrower
     /// than the leading inset because the controls sitting in it are already
@@ -29,8 +35,18 @@ public enum CloudSidebarChromeMetrics {
     /// so they line up with the header's controls above them rather than
     /// stopping short. A chrome bar without header controls stays on
     /// ``barHorizontalPadding``, which is why the Cloud banners do.
-    public static let headerTrailingPadding: CGFloat = 6
+    public var headerTrailingPadding: CGFloat
 
     /// Outer vertical inset of a sidebar chrome bar.
-    public static let barVerticalPadding: CGFloat = 4
+    public var barVerticalPadding: CGFloat
+
+    public init(
+        barHorizontalPadding: CGFloat = 8,
+        headerTrailingPadding: CGFloat = 6,
+        barVerticalPadding: CGFloat = 4
+    ) {
+        self.barHorizontalPadding = barHorizontalPadding
+        self.headerTrailingPadding = headerTrailingPadding
+        self.barVerticalPadding = barVerticalPadding
+    }
 }
