@@ -121,6 +121,7 @@ else:
             shutil.copy(ROOT / "scripts/ci/require_swift_test_execution.py", helpers)
             shutil.copy(ROOT / "scripts/ci/hung_test_watchdog.py", helpers)
             shutil.copy(ROOT / "scripts/ci/ci_process_tree.py", helpers)
+            shutil.copy(ROOT / "scripts/ci/run_with_timeout.py", helpers)
             runner_temp = root / "runner-temp"
             runner_temp.mkdir()
             selected = runner_temp / "selected-packages.txt"
@@ -171,9 +172,23 @@ print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
         self.assertEqual(result.returncode, 0, result.stdout)
         for package in ("CMUXAgentLaunch", "CmuxAgentJournal"):
             matching = [args for args in calls if args[args.index('--package-path') + 1].endswith('/' + package)]
-            self.assertEqual(len(matching), 1)
-            args = matching[0]
-            self.assertEqual(args[args.index('-Xswiftc') + 1], '-warnings-as-errors')
+            # One prebuild and one test run, with the same flags, so the test
+            # run finds the prebuilt products up to date.
+            self.assertEqual(sorted(args[0] for args in matching), ["build", "test"])
+            for args in matching:
+                self.assertEqual(args[args.index('-Xswiftc') + 1], '-warnings-as-errors')
+
+    def test_packages_prebuild_in_parallel_then_test_serially(self):
+        result, calls = self.run_packages()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        builds = [args for args in calls if args[0] == "build"]
+        tests = [args for args in calls if args[0] == "test"]
+        self.assertTrue(builds)
+        self.assertTrue(all("--build-tests" in args for args in builds))
+        # Every build precedes every test run.
+        self.assertLess(max(calls.index(args) for args in builds),
+                        min(calls.index(args) for args in tests))
+        self.assertIn("at a time", result.stdout)
 
     def test_package_warning_is_still_fatal(self):
         for package in ("CMUXAgentLaunch", "CmuxAgentJournal"):
