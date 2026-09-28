@@ -2407,23 +2407,22 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
     func testSettingsFileStoreResolvesWorkspaceColorsSubtleSelection() throws {
         let defaults = UserDefaults.standard
         let managedKey = SettingCatalog().workspaceColors.subtleSelection.userDefaultsKey
-        let previousValue = defaults.object(forKey: managedKey)
-        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
+        let isolatedKeys = [managedKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]
+        let previousValues = isolatedKeys.reduce(into: [String: Any]()) { values, key in
+            values[key] = defaults.object(forKey: key)
+        }
         defer {
-            if let previousValue {
-                defaults.set(previousValue, forKey: managedKey)
-            } else {
-                defaults.removeObject(forKey: managedKey)
-            }
-            if let previousBackups {
-                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
-            } else {
-                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            for key in isolatedKeys {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
             }
         }
 
-        defaults.removeObject(forKey: managedKey)
-        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        isolatedKeys.forEach { defaults.removeObject(forKey: $0) }
         XCTAssertFalse(SidebarTabItemSettingsSnapshot(defaults: defaults).subtleSelection)
 
         let directoryURL = try makeTemporaryDirectory()

@@ -18,8 +18,8 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let isAnchorActive: Bool
     let isMultiSelected: Bool
     let multiSelectionBackgroundStyle: SidebarWorkspaceRowBackgroundStyle
-    /// Subtle-selection hairline for the anchor-active header; nil when the
-    /// header paints no edge.
+    /// Hairline painted while this header is anchor-active; nil when subtle
+    /// selection is off.
     var anchorActiveEdgeColor: NSColor? = nil
     let memberCount: Int
     let anchorUnreadCount: Int
