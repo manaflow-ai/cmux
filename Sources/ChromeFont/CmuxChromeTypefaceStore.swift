@@ -68,7 +68,7 @@ final class CmuxChromeTypefaceStore: ObservableObject {
             // Reading the Ghostty config touches the filesystem, so it stays
             // off the main actor exactly as the sidebar's own read does.
             let families = await Task.detached(priority: .utility) {
-                GhosttyConfig.loadForCmux().fontFamilies
+                GhosttyConfig.loadForCmux().effectiveFontFamilies
             }.value
             guard let self, !Task.isCancelled else { return }
             terminalFontFamilies = families
@@ -87,7 +87,7 @@ final class CmuxChromeTypefaceStore: ObservableObject {
         terminalFontFamilies: [String]
     ) -> CmuxChromeTypeface {
         let settings = UserDefaultsSettingsClient(defaults: defaults)
-        return CmuxChromeFont.resolvedTypeface(
+        return CmuxChromeTypeface.resolved(
             source: CmuxChromeFontSource(
                 settingValue: settings.value(for: AppCatalogSection().chromeFont)
             ),

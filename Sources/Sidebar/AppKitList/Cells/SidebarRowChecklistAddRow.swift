@@ -81,7 +81,7 @@ final class SidebarRowChecklistAddRow: NSView {
             } else if let addField {
                 // Retained editor (survives non-empty focus loss): keep the
                 // draft but follow the row's current presentation.
-                addField.font = CmuxChromeFont.appKitFont(typeface: model.chromeTypeface, size: 11 * model.fontScale, weight: .regular)
+                addField.font = model.chromeTypeface.appKitFont(size: 11 * model.fontScale, weight: .regular)
                 addField.textColor = primary
                 addField.caretColor = primary
             }
@@ -146,7 +146,7 @@ final class SidebarRowChecklistAddRow: NSView {
         field.usesSingleLineMode = true
         field.cell?.usesSingleLineMode = true
         field.lineBreakMode = .byTruncatingTail
-        field.font = CmuxChromeFont.appKitFont(typeface: model.chromeTypeface, size: 11 * model.fontScale, weight: .regular)
+        field.font = model.chromeTypeface.appKitFont(size: 11 * model.fontScale, weight: .regular)
         field.textColor = primary
         field.caretColor = primary
         field.placeholderString = String(

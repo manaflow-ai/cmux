@@ -37,6 +37,7 @@ struct SettingsRowAnchorResolutionTests {
     /// ``rowAnchorsAreUniqueAcrossRows`` fails if two rows collide on one id.
     static let rowConfigPaths: [String] = [
         "app.accentColor",
+        "app.chromeFont",
         "app.commandPaletteSearchesAllSurfaces",
         "app.confirmQuit",
         "app.equalizeSplitsOnCreate",

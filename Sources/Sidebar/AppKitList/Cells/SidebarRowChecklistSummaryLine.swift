@@ -52,7 +52,9 @@ final class SidebarRowChecklistSummaryLine: NSControl {
             weight: nil
         )
         iconView.contentTintColor = secondary
-        let summaryFont = NSFont.monospacedDigitSystemFont(ofSize: model.scaled(10), weight: .semibold)
+        // The counts change in place as items are checked off, so this label
+        // keeps fixed-width digits whichever family the chrome draws with.
+        let summaryFont = model.chromeFont(10, weight: .semibold, needs: .digits)
         let itemFont = model.chromeFont(10)
         countLabel.stringValue = "\(snapshot.checklistCompletedCount)/\(snapshot.checklistTotalCount)"
         countLabel.font = summaryFont

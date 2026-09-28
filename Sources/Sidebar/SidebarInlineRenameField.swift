@@ -38,7 +38,7 @@ struct SidebarInlineRenameField: NSViewRepresentable {
         field.usesSingleLineMode = true
         field.cell?.usesSingleLineMode = true
         field.lineBreakMode = .byTruncatingTail
-        field.font = CmuxChromeFont.appKitFont(typeface: typeface, size: fontSize, weight: fontWeight)
+        field.font = typeface.appKitFont(size: fontSize, weight: fontWeight)
         field.inlineRenameTextColor = textColor
         field.placeholderString = placeholder
         field.setAccessibilityLabel(accessibilityLabel)
@@ -54,7 +54,7 @@ struct SidebarInlineRenameField: NSViewRepresentable {
         // Keep driven visual/accessibility state in sync (NSViewRepresentable
         // convention). initialText/stringValue is intentionally NOT synced here:
         // doing so would reset the cursor and clobber in-progress typing.
-        nsView.font = CmuxChromeFont.appKitFont(typeface: typeface, size: fontSize, weight: fontWeight)
+        nsView.font = typeface.appKitFont(size: fontSize, weight: fontWeight)
         nsView.inlineRenameTextColor = textColor
         nsView.placeholderString = placeholder
         nsView.setAccessibilityLabel(accessibilityLabel)

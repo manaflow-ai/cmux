@@ -10935,7 +10935,7 @@ private enum SidebarFontSizeProvider {
             let configuration = GhosttyConfig.loadForCmux()
             return SidebarChromeTypographyInputs(
                 sidebarFontSize: configuration.sidebarFontSize,
-                terminalFontFamilies: configuration.fontFamilies
+                terminalFontFamilies: configuration.effectiveFontFamilies
             )
         }.value
     }
@@ -11429,7 +11429,7 @@ struct VerticalTabsSidebar: View, Equatable {
             let configuration = GhosttyConfig.loadForCmux()
             return SidebarChromeTypographyInputs(
                 sidebarFontSize: configuration.sidebarFontSize,
-                terminalFontFamilies: configuration.fontFamilies
+                terminalFontFamilies: configuration.effectiveFontFamilies
             )
         }()
     )
@@ -16077,10 +16077,13 @@ struct TabItemView: View, Equatable {
             // `.default` request here, which is the point of following it.
             font = Font.system(size: size, weight: weight, design: .monospaced)
         case .family:
-            font = CmuxChromeFont.swiftUIFont(
-                typeface: settings.chromeTypeface,
+            // A monospaced design, or monospaced digits, is a width the call
+            // site depends on rather than a style, so it is carried into
+            // resolution instead of being dropped for the chrome family.
+            font = settings.chromeTypeface.swiftUIFont(
                 size: size,
-                swiftUIWeight: weight
+                swiftUIWeight: weight,
+                needs: design == .monospaced ? .allGlyphs : (monospacedDigit ? .digits : .none)
             )
         }
         if monospacedDigit {

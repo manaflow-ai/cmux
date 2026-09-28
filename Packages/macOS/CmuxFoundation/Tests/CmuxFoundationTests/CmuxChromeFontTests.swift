@@ -28,7 +28,7 @@ import Testing
     }
 
     @Test func systemSourceKeepsTheSystemFont() {
-        let typeface = CmuxChromeFont.resolvedTypeface(
+        let typeface = CmuxChromeTypeface.resolved(
             source: .system,
             terminalFamilies: ["Berkeley Mono"],
             isInstalled: installed("Berkeley Mono")
@@ -38,7 +38,7 @@ import Testing
     }
 
     @Test func terminalSourceTakesTheFirstInstalledFamily() {
-        let typeface = CmuxChromeFont.resolvedTypeface(
+        let typeface = CmuxChromeTypeface.resolved(
             source: .terminal,
             terminalFamilies: ["Berkeley Mono", "JetBrains Mono"],
             isInstalled: installed("JetBrains Mono")
@@ -50,7 +50,7 @@ import Testing
     }
 
     @Test func terminalSourceFallsBackToMonospaceWhenNoFamilyIsDrawable() {
-        let typeface = CmuxChromeFont.resolvedTypeface(
+        let typeface = CmuxChromeTypeface.resolved(
             source: .terminal,
             terminalFamilies: ["Berkeley Mono"],
             isInstalled: nothingInstalled
@@ -62,7 +62,7 @@ import Testing
     }
 
     @Test func terminalSourceWithNoConfiguredFamilyFallsBackToMonospace() {
-        let typeface = CmuxChromeFont.resolvedTypeface(
+        let typeface = CmuxChromeTypeface.resolved(
             source: .terminal,
             terminalFamilies: [],
             isInstalled: installed("Berkeley Mono")
@@ -72,7 +72,7 @@ import Testing
     }
 
     @Test func explicitFamilyFallsBackToTheSystemFontNotTheTerminalFont() {
-        let typeface = CmuxChromeFont.resolvedTypeface(
+        let typeface = CmuxChromeTypeface.resolved(
             source: .explicit("Berkeley Mono"),
             terminalFamilies: ["JetBrains Mono"],
             isInstalled: installed("JetBrains Mono")
@@ -84,7 +84,7 @@ import Testing
     }
 
     @Test func installedExplicitFamilyWins() {
-        let typeface = CmuxChromeFont.resolvedTypeface(
+        let typeface = CmuxChromeTypeface.resolved(
             source: .explicit("Berkeley Mono"),
             terminalFamilies: ["JetBrains Mono"],
             isInstalled: installed("Berkeley Mono", "JetBrains Mono")
@@ -97,21 +97,20 @@ import Testing
         // The setting picks a family, never a point size, so the sizes that
         // carry global magnification and accessibility scaling pass through.
         for typeface in [CmuxChromeTypeface.system, .monospacedSystem, .family("Menlo")] {
-            let font = CmuxChromeFont.appKitFont(typeface: typeface, size: 17, weight: .semibold)
+            let font = typeface.appKitFont(size: 17, weight: .semibold)
             #expect(font.pointSize == 17)
         }
     }
 
     @Test func monospacedSystemTypefaceIsMonospaced() {
-        let font = CmuxChromeFont.appKitFont(typeface: .monospacedSystem, size: 13, weight: .regular)
-        let proportional = CmuxChromeFont.appKitFont(typeface: .system, size: 13, weight: .regular)
+        let font = CmuxChromeTypeface.monospacedSystem.appKitFont(size: 13, weight: .regular)
+        let proportional = CmuxChromeTypeface.system.appKitFont(size: 13, weight: .regular)
 
         #expect(font.fontName != proportional.fontName)
     }
 
     @Test func missingFamilyDrawsTheSystemFontRatherThanASubstitute() {
-        let font = CmuxChromeFont.appKitFont(
-            typeface: .family("Definitely Not An Installed Family"),
+        let font = CmuxChromeTypeface.family("Definitely Not An Installed Family").appKitFont(
             size: 13,
             weight: .regular
         )
@@ -119,15 +118,51 @@ import Testing
         #expect(font.fontName == NSFont.systemFont(ofSize: 13, weight: .regular).fontName)
     }
 
+    /// Labels that asked for a monospaced design or monospaced digits are asking
+    /// for a width, not a style: a proportional chrome family would let a count
+    /// move as it changes and a column of branch names stop lining up.
+    @Test func aProportionalFamilyDoesNotSatisfyAFixedWidthRequest() {
+        let proportional = CmuxChromeTypeface.family("Helvetica")
+        #expect(proportional.appKitFont(size: 12, weight: .regular).isFixedPitch == false)
+
+        let allGlyphs = proportional.appKitFont(size: 12, weight: .regular, needs: .allGlyphs)
+        #expect(
+            allGlyphs.fontName == NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).fontName
+        )
+        #expect(allGlyphs.pointSize == 12)
+
+        let digits = proportional.appKitFont(size: 12, weight: .semibold, needs: .digits)
+        #expect(
+            digits.fontName == NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold).fontName
+        )
+    }
+
+    @Test func aFixedPitchFamilyIsKeptForBothRequests() {
+        let menlo = CmuxChromeTypeface.family("Menlo")
+        let plain = menlo.appKitFont(size: 12, weight: .regular)
+
+        for need in [CmuxChromeTypeface.FixedPitchNeed.digits, .allGlyphs] {
+            #expect(menlo.appKitFont(size: 12, weight: .regular, needs: need).fontName == plain.fontName)
+        }
+    }
+
+    /// The system typeface is the case the old hardcoded call sites covered, so
+    /// asking for fixed digits there has to keep drawing what they drew.
+    @Test func theSystemTypefaceStillGetsMonospacedDigits() {
+        let digits = CmuxChromeTypeface.system.appKitFont(size: 10, weight: .semibold, needs: .digits)
+
+        #expect(digits.fontName == NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold).fontName)
+    }
+
     @Test func weightsMapAcrossTheTwoFrameworks() {
-        #expect(CmuxChromeFont.appKitWeight(matching: .regular) == .regular)
-        #expect(CmuxChromeFont.appKitWeight(matching: .semibold) == .semibold)
-        #expect(CmuxChromeFont.appKitWeight(matching: .bold) == .bold)
+        #expect(CmuxChromeTypeface.appKitWeight(matching: .regular) == .regular)
+        #expect(CmuxChromeTypeface.appKitWeight(matching: .semibold) == .semibold)
+        #expect(CmuxChromeTypeface.appKitWeight(matching: .bold) == .bold)
     }
 
     @Test func installedFamilyCheckRejectsNamesNoMachineHas() {
-        #expect(CmuxChromeFont.isFamilyInstalled("Menlo"))
-        #expect(!CmuxChromeFont.isFamilyInstalled("Definitely Not An Installed Family"))
-        #expect(!CmuxChromeFont.isFamilyInstalled("  "))
+        #expect(CmuxChromeTypeface.isFamilyInstalled("Menlo"))
+        #expect(!CmuxChromeTypeface.isFamilyInstalled("Definitely Not An Installed Family"))
+        #expect(!CmuxChromeTypeface.isFamilyInstalled("  "))
     }
 }

@@ -55,40 +55,31 @@ public enum CmuxChromeFontSource: Sendable, Hashable {
 /// has to mean following it into its fallback as well, otherwise the one
 /// population that sees a mismatched sidebar is the population missing a font,
 /// which is the least likely to be looking for it.
-public enum CmuxChromeTypeface: Sendable, Hashable {
-    case system
-    case monospacedSystem
-    case family(String)
-
-    public var familyName: String? {
-        if case .family(let name) = self { return name }
-        return nil
-    }
-}
-
-/// Resolves the chrome typeface and builds the fonts both sidebar renderers
-/// draw with.
 ///
-/// The workspace list has an AppKit path and a SwiftUI path. Both build their
-/// fonts here from the same descriptor, so a family that resolves one way in
-/// one renderer cannot resolve another way in the other.
+/// Both sidebar renderers build their fonts from this one descriptor, so a
+/// family that resolves one way in the AppKit path cannot resolve another way in
+/// the SwiftUI path.
 ///
 /// Point sizes are deliberately not decided here. Callers pass a size that has
 /// already been through the sidebar font scale and the global font
 /// magnification, exactly as they did when every one of these labels called
 /// `NSFont.systemFont(ofSize:weight:)` directly, so changing the family cannot
 /// quietly opt the chrome out of accessibility text sizing.
-public enum CmuxChromeFont {
+public enum CmuxChromeTypeface: Sendable, Hashable {
+    case system
+    case monospacedSystem
+    case family(String)
+
     /// The typeface the chrome should draw with.
     ///
     /// `terminalFamilies` is the ordered list of families configured for the
     /// terminal, most preferred first. A Ghostty config may name several and
     /// may name none, so the first one that is actually installed wins, and a
     /// list with nothing drawable in it lands on the terminal's own fallback.
-    public static func resolvedTypeface(
+    public static func resolved(
         source: CmuxChromeFontSource,
         terminalFamilies: [String],
-        isInstalled: (String) -> Bool = CmuxChromeFont.isFamilyInstalled
+        isInstalled: (String) -> Bool = CmuxChromeTypeface.isFamilyInstalled
     ) -> CmuxChromeTypeface {
         switch source {
         case .system:
@@ -114,32 +105,60 @@ public enum CmuxChromeFont {
         resolvedFont(family: family, size: NSFont.systemFontSize, weight: .regular) != nil
     }
 
+    /// What a piece of chrome text needs in order to keep its width.
+    ///
+    /// A monospaced request from a call site is about measurement, not style: a
+    /// count that shifts as it changes, or a column of hashes that does not line
+    /// up, is a worse result than not following the chrome family. So a family
+    /// that draws proportionally is overridden for these callers rather than
+    /// followed, and a family that is already fixed pitch satisfies them.
+    public enum FixedPitchNeed: Sendable, Hashable {
+        /// Nothing to keep; the chrome typeface decides.
+        case none
+        /// Digits share one advance, so numbers do not move as they change.
+        case digits
+        /// Every glyph shares one advance.
+        case allGlyphs
+    }
+
     /// The font for a piece of chrome text. Falls back to the system font if
     /// the family stops being drawable between resolution and drawing.
-    public static func appKitFont(
-        typeface: CmuxChromeTypeface,
+    public func appKitFont(
         size: CGFloat,
-        weight: NSFont.Weight
+        weight: NSFont.Weight,
+        needs: FixedPitchNeed = .none
     ) -> NSFont {
-        switch typeface {
+        let font = drawingFont(size: size, weight: weight)
+        switch needs {
+        case .none:
+            return font
+        case .digits:
+            return font.isFixedPitch ? font : .monospacedDigitSystemFont(ofSize: size, weight: weight)
+        case .allGlyphs:
+            return font.isFixedPitch ? font : .monospacedSystemFont(ofSize: size, weight: weight)
+        }
+    }
+
+    private func drawingFont(size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        switch self {
         case .system:
             return .systemFont(ofSize: size, weight: weight)
         case .monospacedSystem:
             return .monospacedSystemFont(ofSize: size, weight: weight)
         case .family(let family):
-            return resolvedFont(family: family, size: size, weight: weight)
+            return Self.resolvedFont(family: family, size: size, weight: weight)
                 ?? .systemFont(ofSize: size, weight: weight)
         }
     }
 
     /// The SwiftUI font for the same text. Built from the AppKit font on
     /// purpose: one resolution, two renderers.
-    public static func swiftUIFont(
-        typeface: CmuxChromeTypeface,
+    public func swiftUIFont(
         size: CGFloat,
-        weight: NSFont.Weight
+        weight: NSFont.Weight,
+        needs: FixedPitchNeed = .none
     ) -> Font {
-        Font(appKitFont(typeface: typeface, size: size, weight: weight) as CTFont)
+        Font(appKitFont(size: size, weight: weight, needs: needs) as CTFont)
     }
 
     /// The SwiftUI font for a caller that has a `Font.Weight` in hand.
@@ -147,12 +166,12 @@ public enum CmuxChromeFont {
     /// SwiftUI and AppKit name the same nine weights, so this is a lookup
     /// rather than an approximation; an unrecognized weight falls back to
     /// regular, which is what `Font.system` would have drawn anyway.
-    public static func swiftUIFont(
-        typeface: CmuxChromeTypeface,
+    public func swiftUIFont(
         size: CGFloat,
-        swiftUIWeight: Font.Weight
+        swiftUIWeight: Font.Weight,
+        needs: FixedPitchNeed = .none
     ) -> Font {
-        swiftUIFont(typeface: typeface, size: size, weight: appKitWeight(matching: swiftUIWeight))
+        swiftUIFont(size: size, weight: Self.appKitWeight(matching: swiftUIWeight), needs: needs)
     }
 
     public static func appKitWeight(matching weight: Font.Weight) -> NSFont.Weight {
@@ -172,6 +191,11 @@ public enum CmuxChromeFont {
 
     /// `family` at `size` and `weight`, or `nil` when the machine substituted
     /// something else for it.
+    ///
+    /// A family shipped in one weight answers every weight with that weight, so
+    /// the sidebar's resting and selected rows can come back identical under such
+    /// a font. That is the family doing what it can rather than the weights being
+    /// ignored, and it is why the selected row also carries a background.
     static func resolvedFont(family: String, size: CGFloat, weight: NSFont.Weight) -> NSFont? {
         let trimmed = family.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }

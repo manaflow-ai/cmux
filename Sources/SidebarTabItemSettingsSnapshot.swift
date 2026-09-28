@@ -61,7 +61,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
         alwaysShowShortcutHints = ShortcutHintDebugSettings(defaults: defaults).alwaysShowHints
         sidebarFontScale = SidebarTabItemFontScale.scale(for: sidebarFontSize)
-        chromeTypeface = CmuxChromeFont.resolvedTypeface(
+        chromeTypeface = CmuxChromeTypeface.resolved(
             source: CmuxChromeFontSource(settingValue: settings.value(for: AppCatalogSection().chromeFont)),
             terminalFamilies: terminalFontFamilies
         )

@@ -411,7 +411,10 @@ final class SidebarRowIconTextLine: NSView {
         iconLabel.isHidden = true
         iconSize = 0
         stacked = content.stacked && content.branch != nil && !content.directoryCandidates.isEmpty
-        let font = NSFont.monospacedSystemFont(ofSize: model.scaled(10), weight: .regular)
+        // The SwiftUI rows draw this line with a monospaced design, so the cells
+        // follow the chrome family here too and only fall back to the
+        // monospaced system font when that family is not fixed pitch.
+        let font = model.chromeFont(10, needs: .allGlyphs)
         let color = palette.secondary(0.75)
         pendingCandidates = content.directoryCandidates
         if stacked {

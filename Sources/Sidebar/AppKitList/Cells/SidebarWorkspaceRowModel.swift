@@ -87,11 +87,15 @@ struct SidebarWorkspaceRowModel: Equatable {
     /// The size still goes through ``scaled(_:)``, so the sidebar font size and
     /// the global font magnification keep applying whatever family the chrome
     /// ends up drawing with; only the typeface is decided by the setting.
-    func chromeFont(_ base: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
-        CmuxChromeFont.appKitFont(
-            typeface: settings.chromeTypeface,
+    func chromeFont(
+        _ base: CGFloat,
+        weight: NSFont.Weight = .regular,
+        needs: CmuxChromeTypeface.FixedPitchNeed = .none
+    ) -> NSFont {
+        settings.chromeTypeface.appKitFont(
             size: scaled(base),
-            weight: weight
+            weight: weight,
+            needs: needs
         )
     }
 

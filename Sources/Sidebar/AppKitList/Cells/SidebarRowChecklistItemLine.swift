@@ -163,7 +163,7 @@ final class SidebarRowChecklistItemLine: NSView {
         guard editField == nil || editingItemId != item.id else {
             // Retained editor: keep the draft but follow the row's current
             // presentation (palette flips with selection; fonts with scale).
-            editField?.font = CmuxChromeFont.appKitFont(typeface: model.chromeTypeface, size: 11 * model.fontScale, weight: .regular)
+            editField?.font = model.chromeTypeface.appKitFont(size: 11 * model.fontScale, weight: .regular)
             editField?.textColor = primary
             editField?.caretColor = primary
             return
@@ -179,7 +179,7 @@ final class SidebarRowChecklistItemLine: NSView {
         field.usesSingleLineMode = true
         field.cell?.usesSingleLineMode = true
         field.lineBreakMode = .byTruncatingTail
-        field.font = CmuxChromeFont.appKitFont(typeface: model.chromeTypeface, size: 11 * model.fontScale, weight: .regular)
+        field.font = model.chromeTypeface.appKitFont(size: 11 * model.fontScale, weight: .regular)
         field.textColor = primary
         field.caretColor = primary
         field.placeholderString = String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text")
@@ -231,7 +231,7 @@ final class SidebarRowChecklistItemLine: NSView {
     /// FIRST line. The offset font intentionally approximates the item font
     /// without global magnification, matching the SwiftUI implementation.
     private func firstLineCenter(model: SidebarWorkspaceRowModel, itemFont: NSFont) -> CGFloat {
-        let approximation = CmuxChromeFont.appKitFont(typeface: model.chromeTypeface, size: 10 * model.fontScale, weight: .regular)
+        let approximation = model.chromeTypeface.appKitFont(size: 10 * model.fontScale, weight: .regular)
         return itemFont.ascender - (approximation.ascender + approximation.descender) / 2
     }
 

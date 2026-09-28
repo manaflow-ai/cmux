@@ -22,7 +22,7 @@ struct TerminalConfigurationPresentationMetrics: Equatable {
             surfaceTabBarFontSize:
                 configuration.surfaceTabBarFontSize,
             sidebarFontSize: configuration.sidebarFontSize,
-            terminalFontFamilies: configuration.fontFamilies,
+            terminalFontFamilies: configuration.effectiveFontFamilies,
             chromeConfigurationIdentity:
                 TerminalChromeConfigurationIdentity(
                     configuration: configuration,

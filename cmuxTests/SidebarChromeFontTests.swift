@@ -73,50 +73,60 @@ struct SidebarChromeFontTests {
         #expect(snapshot.chromeTypeface == .monospacedSystem)
     }
 
+    /// Line height of the name line for one typeface, and the row height the
+    /// header is measured at.
+    ///
+    /// Font magnification scales the name font but not the chevron, icon or plus
+    /// frames, so a magnified header is the case where the name line is the
+    /// tallest thing in the row and the measurement becomes observable. At the
+    /// default magnification the plus frame is taller than any name line, which
+    /// is why a height assertion at 100% would pass whatever font were measured.
+    private static func groupHeaderNameLine(
+        typeface: CmuxChromeTypeface,
+        magnificationPercent: Int = GlobalFontMagnification.maximumPercent
+    ) -> (rowHeight: CGFloat, nameLineHeight: CGFloat, font: NSFont) {
+        var model = Self.groupHeaderModel(globalFontMagnificationPercent: magnificationPercent)
+        model.chromeTypeface = typeface
+        let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
+        let font = SidebarGroupHeaderTableCellView.nameFont(model: model, metrics: metrics)
+        return (
+            SidebarGroupHeaderTableCellView.preferredHeight(model: model),
+            ceil(font.ascender - font.descender + font.leading),
+            font
+        )
+    }
+
     /// The header's measured height is derived from its name font, so the
     /// typeface has to reach the measuring font and the drawn font together.
     @Test
     func groupHeaderMeasuresTheFontItDraws() {
-        var model = Self.groupHeaderModel()
-        model.chromeTypeface = .family("Menlo")
-        let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
+        let measured = Self.groupHeaderNameLine(typeface: .family("Menlo"))
+        let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: 1)
 
-        let font = SidebarGroupHeaderRowView.nameFont(model: model, metrics: metrics)
-
-        #expect(font.familyName == "Menlo")
-        // `preferredHeight` builds its line height from this same call, so a
-        // family with taller metrics cannot be drawn into a row measured for
-        // the system font.
-        #expect(SidebarGroupHeaderRowView.preferredHeight(model: model) > 0)
+        #expect(measured.font.familyName == "Menlo")
+        // Establishes that the name line, not a fixed control frame, is what the
+        // row height is taken from here.
+        #expect(measured.nameLineHeight > max(metrics.chevronFrame, metrics.iconFrame, metrics.plusFrame))
+        // `preferredHeight` builds its line height from the same `nameFont` call
+        // the cell draws with, so a family with taller metrics cannot be drawn
+        // into a row measured for the system font.
+        #expect(measured.rowHeight == ceil(measured.nameLineHeight + 10))
     }
 
     @Test
     func groupHeaderHeightTracksTheTypefaceItWasMeasuredWith() {
-        var system = Self.groupHeaderModel()
-        system.chromeTypeface = .system
-        var monospaced = Self.groupHeaderModel()
-        monospaced.chromeTypeface = .monospacedSystem
+        let system = Self.groupHeaderNameLine(typeface: .system)
+        let monospaced = Self.groupHeaderNameLine(typeface: .monospacedSystem)
 
-        let systemHeight = SidebarGroupHeaderRowView.preferredHeight(model: system)
-        let monospacedHeight = SidebarGroupHeaderRowView.preferredHeight(model: monospaced)
-        let systemFont = SidebarGroupHeaderRowView.nameFont(
-            model: system,
-            metrics: SidebarWorkspaceGroupHeaderMetrics(fontScale: system.fontScale)
-        )
-        let monospacedFont = SidebarGroupHeaderRowView.nameFont(
-            model: monospaced,
-            metrics: SidebarWorkspaceGroupHeaderMetrics(fontScale: monospaced.fontScale)
-        )
-        func lineHeight(_ font: NSFont) -> CGFloat {
-            ceil(font.ascender - font.descender + font.leading)
-        }
-
-        // Whatever the two families measure, the row heights differ exactly
-        // where their line heights do.
-        #expect((systemHeight == monospacedHeight) == (lineHeight(systemFont) == lineHeight(monospacedFont)))
+        // Whatever the two families measure, the row heights differ by exactly
+        // what their name lines differ by.
+        #expect(system.rowHeight - monospaced.rowHeight == system.nameLineHeight - monospaced.nameLineHeight)
+        #expect(system.font.familyName != monospaced.font.familyName)
     }
 
-    private static func groupHeaderModel() -> SidebarGroupHeaderRowModel {
+    private static func groupHeaderModel(
+        globalFontMagnificationPercent: Int = 100
+    ) -> SidebarGroupHeaderRowModel {
         SidebarGroupHeaderRowModel(
             groupId: UUID(),
             anchorWorkspaceId: UUID(),
@@ -139,7 +149,7 @@ struct SidebarChromeFontTests {
             shortcutHintXOffset: 0,
             shortcutHintYOffset: 0,
             fontScale: 1,
-            globalFontMagnificationPercent: 100,
+            globalFontMagnificationPercent: globalFontMagnificationPercent,
             cwdContextMenuItems: [],
             rowSpacing: 2,
             isFirstRow: true,
@@ -169,8 +179,7 @@ struct SidebarChromeFontTitleRoomTests {
     /// Leading characters of `title` that fit on the title line at the default
     /// sidebar width, drawn in `typeface`.
     static func visibleCharacters(of title: String, typeface: CmuxChromeTypeface) -> Int {
-        let font = CmuxChromeFont.appKitFont(
-            typeface: typeface,
+        let font = typeface.appKitFont(
             size: SidebarRowTitleMetrics.fontSize,
             weight: .regular
         )
@@ -211,8 +220,7 @@ struct SidebarChromeFontTitleRoomTests {
         // A monospaced family covers Latin only; the rest is drawn by fallback
         // fonts, which is fine as long as the glyphs are not dropped.
         for typeface in [CmuxChromeTypeface.monospacedSystem, .family("Menlo")] {
-            let font = CmuxChromeFont.appKitFont(
-                typeface: typeface,
+            let font = typeface.appKitFont(
                 size: SidebarRowTitleMetrics.fontSize,
                 weight: .regular
             )

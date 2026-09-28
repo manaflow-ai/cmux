@@ -189,8 +189,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         let showsBadge = model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
         if showsBadge {
-            unreadBadgeFont = CmuxChromeFont.appKitFont(
-                typeface: model.chromeTypeface,
+            unreadBadgeFont = model.chromeTypeface.appKitFont(
                 size: GlobalFontMagnification.scaledSize(metrics.unreadFontSize, percent: percent),
                 weight: .semibold
             )
@@ -372,8 +371,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         model: SidebarGroupHeaderRowModel,
         metrics: SidebarWorkspaceGroupHeaderMetrics
     ) -> NSFont {
-        CmuxChromeFont.appKitFont(
-            typeface: model.chromeTypeface,
+        model.chromeTypeface.appKitFont(
             size: GlobalFontMagnification.scaledSize(
                 metrics.nameFontSize,
                 percent: model.globalFontMagnificationPercent
