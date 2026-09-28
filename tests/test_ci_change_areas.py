@@ -5564,7 +5564,7 @@ def test_merge_groups_stop_at_the_first_failure() -> None:
     assert len(checkouts) == 1, checkouts
     assert checkouts[0]["with"]["ref"] == "${{ github.event.repository.default_branch }}"
     assert checkouts[0]["with"]["persist-credentials"] is False
-    dispatch = next(step for step in steps if "scripts/run-e2e.sh" in str(step.get("run", "")))
+    dispatch = next(step for step in steps if step.get("name") == "Run the changed UI test classes")
     assert steps.index(checkouts[0]) < steps.index(dispatch)
     assert '"${selectors[@]}"' in dispatch["run"] and "$SELECTORS --ref" not in dispatch["run"]
     assert "^cmuxUITests/" in dispatch["run"]

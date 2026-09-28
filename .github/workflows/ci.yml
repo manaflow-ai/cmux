@@ -1573,12 +1573,16 @@ jobs:
   # the dispatch adopts that compile by its product key.
   #
   # The one job in this workflow with actions: write, which dispatching takes.
-  # Only a same-repository pull request reaches the dispatch; a fork's token is
-  # read-only regardless. The dispatcher that holds the token is main's code,
-  # never the pull request's: a pull request that edited scripts/run-e2e.sh or
-  # its helpers could otherwise spend the token on any workflow or run. The
-  # pull request only supplies the selectors, which must be plain UI test
-  # class or method names, and the revision under test.
+  # Only a same-repository pull request reaches the dispatch, and its author
+  # can already dispatch any workflow (and edit this job, which a pull_request
+  # run takes from the pull request); a fork's token is read-only regardless.
+  # The dispatcher it runs is main's, matching the test-e2e.yml definition it
+  # dispatches, so a change to scripts/run-e2e.sh or the helpers it imports
+  # never runs with the token before review. The pull request supplies only
+  # the selectors, which must be plain UI test class or method names, and the
+  # revision under test. The flags and CMUX_* variables below are this file's,
+  # read by main's dispatcher: a pull request that changes both takes effect
+  # here only once it merges, and its dispatcher change is not exercised here.
   ui-tests:
     needs:
       - changes
@@ -1652,16 +1656,16 @@ jobs:
           # The selectors come from the pull request's own `changes` job, so
           # each must be a UI test class or method, never an option.
           read -r -a selectors <<< "$SELECTORS"
+          if [ "${#selectors[@]}" -eq 0 ]; then
+            echo "::error::no UI test selectors to run"
+            exit 1
+          fi
           for selector in "${selectors[@]}"; do
             if [[ ! "$selector" =~ ^cmuxUITests/[A-Za-z_][A-Za-z0-9_]*(/[A-Za-z_][A-Za-z0-9_]*)?$ ]]; then
               echo "::error::refusing UI test selector '$selector': not cmuxUITests/<Class>[/<method>]"
               exit 1
             fi
           done
-          if [ "${#selectors[@]}" -eq 0 ]; then
-            echo "::error::no UI test selectors to run"
-            exit 1
-          fi
           extra=(--wait --no-video)
           if [ "$FORCE" = "--force" ]; then
             extra+=(--force)
