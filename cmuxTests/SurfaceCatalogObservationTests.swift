@@ -59,7 +59,15 @@ struct SurfaceCatalogObservationTests {
         await expectChange(catalog, projection, from: false, to: true) {
             catalog.record(projection)
         }
+        var reconciled = projection
+        reconciled.workspaceID = UUID()
         await expectChange(catalog, projection, from: true, to: false) {
+            // This path mutates only live projections. A no-op pending-restore
+            // mutation must not be able to satisfy the notification assertion.
+            catalog.reconcileRemotePlacements([projection: reconciled])
+        }
+        #expect(hasProjection(catalog, reconciled))
+        await expectChange(catalog, reconciled, from: true, to: false) {
             catalog.endProjections(panelID: projection.panelID)
         }
     }
