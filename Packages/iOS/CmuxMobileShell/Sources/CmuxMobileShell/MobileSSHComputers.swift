@@ -334,9 +334,22 @@ public final class MobileSSHComputers {
     /// Reconnect from the title menu: opens the host (connects if needed,
     /// relists) and reattaches the shown terminal when its session is no
     /// longer live. A shell whose session ended opens a new shell.
+    ///
+    /// A connect that fails must answer in the terminal the user is watching:
+    /// the title chrome already read Disconnected before the tap and the
+    /// failure sentence only replaces an identical one on the list row, so
+    /// without new bytes the tap looks ignored (HIG Feedback: show when a
+    /// command can't be carried out and help people understand why). Same
+    /// red-notice rendering as a failed attach. A declined identity question
+    /// leaves the status idle, not failed, so cancelling a prompt stays quiet.
     public func reconnect(hostID: UUID, surfaceID: String?) async {
         await open(hostID: hostID)
-        guard let surfaceID, statusByHost[hostID] == .connected,
+        guard let surfaceID else { return }
+        if case .failed(let reason) = statusByHost[hostID] ?? .idle {
+            sink?.sshDeliver(Self.errorNotice(reason), surfaceID: surfaceID)
+            return
+        }
+        guard statusByHost[hostID] == .connected,
               attachments[surfaceID] == nil, attachTasks[surfaceID] == nil else { return }
         replay(surfaceID: surfaceID)
     }
@@ -738,8 +751,7 @@ public final class MobileSSHComputers {
             } catch {
                 pendingInputBySurface[surfaceID] = nil
                 fail(hostID: hostID, error)
-                let message = "\r\n\u{1B}[31m" + Self.describe(error) + "\u{1B}[0m\r\n"
-                sink?.sshDeliver(Data(message.utf8), surfaceID: surfaceID)
+                sink?.sshDeliver(Self.errorNotice(Self.describe(error)), surfaceID: surfaceID)
             }
         }
     }
@@ -909,6 +921,11 @@ public final class MobileSSHComputers {
             statusByHost[hostID] = .failed(Self.describe(error))
         }
         if let host = hosts.first(where: { $0.id == hostID }) { publish(host: host) }
+    }
+
+    /// A failure sentence rendered into a terminal: on its own line, in red.
+    static func errorNotice(_ message: String) -> Data {
+        Data(("\r\n\u{1B}[31m" + message + "\u{1B}[0m\r\n").utf8)
     }
 
     static func describe(_ error: any Error) -> String {
