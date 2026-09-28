@@ -1637,6 +1637,53 @@ jobs:
           scripts/run-e2e.sh $SELECTORS --ref "$HEAD_SHA" --wait --no-video $FORCE > >(tee "$log") 2>&1 &
           wait $!
 
+  dogfood-build:
+    # One sticky comment per app pull request with a link to a tagged dev build
+    # of this exact head, so anyone can try the change in one click. The build
+    # controller treats this job's success as the build request and verifies the
+    # pull request itself before building, so the job name is part of that
+    # contract. Not required and not in ci-status: a comment failure never
+    # blocks a merge.
+    name: "Dogfood build #${{ github.event.pull_request.number }}"
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && github.event.action != 'labeled' && github.event.action != 'unlabeled' && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.result == 'success' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.cli == 'true') }}
+    runs-on: ubuntu-24.04 # github-hosted-required: trusted pull-request-write token
+    timeout-minutes: 5
+    # A failed comment must not turn the run red; the controller acts only on success.
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Post the dogfood link
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          tag="pr-$PR-${HEAD_SHA:0:8}"
+          marker='<!-- cmux:dogfood-build -->'
+          cat > body.md <<EOF
+          $marker
+          **Dogfood build** of \`$HEAD_SHA\`
+
+          [cmux DEV $tag.app](http://127.0.0.1:17320/$tag)
+
+          The link opens this exact commit in the cmux dev menu bar app. The build starts on each push and the page waits until it is ready; a newer push replaces it. It signs in against production, so Cloud or backend changes still need a tagged build with a development backend.
+          EOF
+          # One comment per pull request: edit ours in place on every push.
+          existing=$(gh api "repos/$GH_REPO/issues/$PR/comments" --paginate \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"$marker\"))) | .id")
+          existing=${existing%%$'\n'*}
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$GH_REPO/issues/comments/$existing" -F body=@body.md >/dev/null
+          else
+            gh api -X POST "repos/$GH_REPO/issues/$PR/comments" -F body=@body.md >/dev/null
+          fi
+          echo "Dogfood link for $tag posted on #$PR."
+
   ci-status:
     needs:
       - changes

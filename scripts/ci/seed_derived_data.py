@@ -88,6 +88,7 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import apfs_clone  # noqa: E402
 import e2e_warm_derived_data as warm  # noqa: E402
 
 MANIFEST = "cmux-seed-input-mtimes.json"
@@ -325,6 +326,8 @@ def clone_tree(source: Path, destination: Path) -> None:
     """An APFS clone of a directory tree, falling back to a copy."""
     shutil.rmtree(destination, ignore_errors=True)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if apfs_clone.clone_directory(source, destination):
+        return
     if subprocess.run(["cp", "-cR", str(source), str(destination)], capture_output=True).returncode != 0:
         shutil.rmtree(destination, ignore_errors=True)
         shutil.copytree(source, destination, symlinks=True)
