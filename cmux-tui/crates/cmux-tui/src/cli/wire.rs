@@ -777,6 +777,24 @@ mod tests {
     use super::*;
     use cmux_tui_core::resource::ResourceOperation;
 
+    fn plan(operation: ResourceOperation) -> RequestPlan {
+        RequestPlan {
+            operation: WireOperation::Typed(operation),
+            params: json!({}),
+            idempotency_key: None,
+            stream: false,
+        }
+    }
+
+    #[test]
+    fn screen_wait_timeout_exits_one_and_a_match_exits_zero() {
+        let wait = plan(ResourceOperation::TerminalWait);
+        assert_eq!(success_exit_code(&wait, &json!({"matched": false, "text": ""})), 1);
+        assert_eq!(success_exit_code(&wait, &json!({"matched": true, "text": "ready"})), 0);
+        let read = plan(ResourceOperation::TerminalScreenRead);
+        assert_eq!(success_exit_code(&read, &json!({"matched": false})), 0);
+    }
+
     #[test]
     fn capability_preflight_rejects_wrong_app_even_when_capability_is_present() {
         let identity = json!({"app":"other", "protocol":12, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
