@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -16,6 +17,7 @@ extension RemoteCLIRelayServer.Session {
     static func roundTripUnixSocket(
         socketDescriptor fd: Int32,
         socketPath: String,
+        peerCheck: UnixSocketPeerCheck,
         request: Data,
         maximumResponseBytes: Int,
         shouldContinue: () -> Bool

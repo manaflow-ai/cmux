@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 import Network
@@ -349,6 +350,33 @@ struct RemoteCLIRelayServerTests {
         let call = try #require(rewriter.calls.first)
         #expect(call.workspace == [workspaceAlias.remote: workspaceAlias.local])
         #expect(call.surface.isEmpty)
+    }
+
+    @Test("an authenticated command is not forwarded to a local socket run by another user")
+    func foreignLocalSocketPeerReceivesNothing() throws {
+        let unixServer = try FakeUnixSocketServer(response: Data("{\"ok\":true,\"result\":42}\n".utf8))
+        defer { unixServer.close() }
+        // No second local account exists in tests, so expect a user ID the
+        // fake socket's owner cannot have; the relay must treat it as foreign.
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: unixServer.path,
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter(),
+            localSocketPeerCheck: UnixSocketPeerCheck(expectedUserID: geteuid() &+ 1)
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        let client = RelayTestClient(port: port)
+        defer { client.cancel() }
+
+        try authenticate(client)
+        client.send(Data((#"{"id":"relay-test","method":"system.ping","params":{}}"# + "\n").utf8))
+
+        #expect(unixServer.waitForRequest())
+        #expect(unixServer.request.isEmpty, "The relay must not write to a socket another user listens on")
+        #expect(client.wait { _, closed in closed })
+        #expect(!client.receivedJSONLines().contains { $0["result"] != nil })
     }
 
     @Test("stopping the relay interrupts an outstanding local socket wait")

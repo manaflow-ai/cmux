@@ -1,7 +1,91 @@
+import CmuxFoundation
+import Darwin
 import Foundation
 import Testing
 import CmuxRemoteDaemon
 @testable import CmuxRemoteWorkspace
+
+/// One-shot unix socket server standing in for the local cmux socket: records
+/// every byte a bridge client writes, answers the first line as a successful
+/// `auth.login`, and answers end-of-input with a successful response.
+private final class RecordingLocalSocketServer: @unchecked Sendable {
+    let path: String
+    private let listenFD: Int32
+    private let lock = NSLock()
+    private var _received = Data()
+    private let finished = DispatchSemaphore(value: 0)
+
+    var received: Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return _received
+    }
+
+    init() throws {
+        path = NSTemporaryDirectory() + "cmux-bridge-test-\(UUID().uuidString.prefix(8)).sock"
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw NSError(domain: "RecordingLocalSocketServer", code: Int(errno))
+        }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = Array(path.utf8CString)
+        precondition(pathBytes.count <= MemoryLayout.size(ofValue: address.sun_path))
+        let offset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+        withUnsafeMutableBytes(of: &address) { raw in
+            pathBytes.withUnsafeBytes { source in
+                raw.baseAddress!.advanced(by: offset).copyMemory(from: source.baseAddress!, byteCount: pathBytes.count)
+            }
+        }
+        let length = socklen_t(MemoryLayout.size(ofValue: address.sun_family) + pathBytes.count)
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, length) }
+        }
+        guard bound == 0, listen(fd, 1) == 0 else {
+            let failure = errno
+            Darwin.close(fd)
+            throw NSError(domain: "RecordingLocalSocketServer", code: Int(failure))
+        }
+        listenFD = fd
+        Thread.detachNewThread { [self] in
+            defer { finished.signal() }
+            let client = accept(fd, nil, nil)
+            guard client >= 0 else { return }
+            defer { Darwin.close(client) }
+            var noSigPipe: Int32 = 1
+            _ = setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+            var answeredAuth = false
+            var scratch = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = Darwin.read(client, &scratch, scratch.count)
+                guard count > 0 else { break }
+                lock.lock()
+                _received.append(scratch, count: count)
+                let sawLine = _received.contains(0x0A)
+                lock.unlock()
+                if sawLine, !answeredAuth {
+                    answeredAuth = true
+                    Self.write("{\"ok\":true}\n", to: client)
+                }
+            }
+            Self.write("{\"ok\":true,\"result\":{}}\n", to: client)
+        }
+    }
+
+    private static func write(_ line: String, to fd: Int32) {
+        let bytes = Array(line.utf8)
+        _ = bytes.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
+    }
+
+    func waitUntilFinished(timeout: TimeInterval = 5) -> Bool {
+        finished.wait(timeout: .now() + timeout) == .success
+    }
+
+    func close() {
+        Darwin.close(listenFD)
+        unlink(path)
+    }
+}
 
 @Suite("RemoteDaemonProxyTunnel cloud CLI bridge")
 struct RemoteDaemonProxyTunnelCloudCLITests {
@@ -328,6 +412,31 @@ struct RemoteDaemonProxyTunnelCloudCLITests {
         #expect(params["password"] as? String == "secret")
         #expect(RemoteDaemonProxyTunnel.cloudCLIAuthResponseSucceeded(Data(#"{"ok":true,"result":{"authenticated":true}}"#.utf8)))
         #expect(!RemoteDaemonProxyTunnel.cloudCLIAuthResponseSucceeded(Data(#"{"ok":false,"error":{"code":"unauthorized"}}"#.utf8)))
+    }
+
+    @Test("the bridge writes no password or request to a local socket run by another user")
+    func foreignLocalSocketPeerReceivesNothing() throws {
+        let localSocket = try RecordingLocalSocketServer()
+        defer { localSocket.close() }
+        let request = try jsonData([
+            "id": "bridge-test",
+            "method": "notification.create",
+            "params": ["title": "t"],
+        ]) + Data([0x0A])
+
+        // No second local account exists in tests, so expect a user ID the
+        // fake socket's owner cannot have; the bridge must treat it as foreign.
+        #expect(throws: (any Error).self) {
+            _ = try RemoteDaemonProxyTunnel.roundTripUnixSocket(
+                socketPath: localSocket.path,
+                request: request,
+                peerCheck: UnixSocketPeerCheck(expectedUserID: geteuid() &+ 1),
+                socketPassword: { "bridge-secret" }
+            )
+        }
+
+        #expect(localSocket.waitUntilFinished())
+        #expect(localSocket.received.isEmpty, "The bridge must not write to a socket another user listens on")
     }
 
     private func jsonData(_ object: [String: Any]) throws -> Data {

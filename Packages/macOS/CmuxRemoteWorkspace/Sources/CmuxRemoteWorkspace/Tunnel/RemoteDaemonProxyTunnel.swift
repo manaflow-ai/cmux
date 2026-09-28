@@ -1,4 +1,5 @@
 public import CmuxCore
+internal import CmuxFoundation
 public import CmuxRemoteDaemon
 internal import CmuxSettings
 internal import Darwin
@@ -615,7 +616,23 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         return envelope["ok"] as? Bool == true
     }
 
-    private static func roundTripUnixSocket(socketPath: String, request: Data) throws -> Data {
+    /// Sends one validated cloud CLI request to the local cmux socket,
+    /// authenticating first when a socket password is configured.
+    ///
+    /// - Parameters:
+    ///   - socketPath: The local cmux control socket.
+    ///   - request: The validated, newline-terminated request.
+    ///   - peerCheck: Check run on the listening peer before anything,
+    ///     the password included, is written.
+    ///   - socketPassword: Reads the configured socket password.
+    internal static func roundTripUnixSocket(
+        socketPath: String,
+        request: Data,
+        peerCheck: UnixSocketPeerCheck = UnixSocketPeerCheck(),
+        socketPassword: () -> String? = {
+            SocketControlPasswordStore().configuredPassword(allowLazyKeychainFallback: true)
+        }
+    ) throws -> Data {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
             throw NSError(domain: "cmux.remote.cli-bridge", code: 1, userInfo: [
@@ -658,7 +675,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
             ])
         }
 
-        if let socketPassword = SocketControlPasswordStore().configuredPassword(allowLazyKeychainFallback: true),
+        if let socketPassword = socketPassword(),
            !socketPassword.isEmpty {
             try writeAll(cloudCLIAuthLoginRequest(password: socketPassword), to: fd)
             let authResponse = try readLineFromUnixSocket(fd: fd)
