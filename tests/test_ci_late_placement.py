@@ -118,12 +118,12 @@ def guis(idle: int, busy: int) -> list[dict]:
 
 
 class GuiOverflow(unittest.TestCase):
-    def backlog(self, queued: int):
+    def backlog(self, queued: int, retry_queued: int = 0):
         calls = []
 
-        def count(label: str, enough: int) -> int:
-            calls.append((label, enough))
-            return queued
+        def count(labels):
+            calls.append(list(labels))
+            return {label: queued if label == GUI else retry_queued for label in labels}
         return count, calls
 
     def test_a_full_gui_pool_sends_the_jobs_past_one_round_to_blacksmith(self):
@@ -132,8 +132,45 @@ class GuiOverflow(unittest.TestCase):
         # Ten online gui runners and six jobs queued ahead: four more places within one round.
         self.assertEqual(placed, {"shard-5": RETRY, "shard-6": RETRY, "shard-7": RETRY,
                                   "lag": RETRY, "cli-product": RETRY})
-        self.assertEqual(calls, [(GUI, 10)])
-        self.assertIn("6 gui job(s) queued ahead on 10 online", why)
+        self.assertEqual(calls, [[GUI, RETRY]])
+        self.assertIn(f"6 gui job(s) queued ahead on 10 online and 0 on `{RETRY}`", why)
+
+    def test_a_longer_blacksmith_queue_keeps_the_owned_gui_jobs_on_the_minis(self):
+        # Six gui jobs ahead on ten gui runners is under two rounds; fifty on 12vcpu's five machines is ten.
+        count, _ = self.backlog(queued=6, retry_queued=50)
+        placed, why = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=10)], count)
+        self.assertEqual(placed, {})
+        self.assertIn(f"and 50 on `{RETRY}`", why)
+
+    def test_jobs_move_only_while_blacksmith_would_start_them_sooner(self):
+        # 25 ahead on ten gui runners: a job starts in 2.6 rounds there, 1.8 behind 8 on 12vcpu's five.
+        # A move lengthens Blacksmith's queue by a fifth of a round, a job that stays the gui one by a
+        # tenth: 1st to 4th move (1.8 to 2.4), 5th stays (2.6 against 2.6), 6th moves (2.6 against 2.7),
+        # 7th and 8th stay, 9th moves (2.8 against 2.9).
+        count, _ = self.backlog(queued=25, retry_queued=8)
+        placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=10)], count)
+        mine = sorted({*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"}, key=late.pool.priority)
+        self.assertEqual(placed, {mine[i]: RETRY for i in (0, 1, 2, 3, 5, 8)})
+
+    def test_an_empty_blacksmith_pool_takes_its_machines_at_once(self):
+        # Twenty gui runners, twenty jobs ahead: each job waits over a round there, none on an idle 12vcpu.
+        count, _ = self.backlog(queued=20, retry_queued=0)
+        placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=20)], count)
+        self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"})
+
+    def test_no_gui_runner_online_moves_every_owned_gui_job_without_a_read(self):
+        count, calls = self.backlog(queued=0, retry_queued=99)
+        placed, _ = late.decide(OWNED, roots(idle=2), count)
+        self.assertEqual(set(placed.values()), {RETRY})
+        self.assertEqual(len(placed), 9)
+        self.assertEqual(calls, [])
+
+    def test_the_kill_switch_reads_only_the_gui_backlog(self):
+        count, calls = self.backlog(queued=1, retry_queued=99)
+        placed, _ = late.decide(dict(OWNED, POOL_QUEUE_ROUNDS="0"), [*roots(idle=2), *guis(idle=3, busy=7)], count)
+        self.assertEqual(calls, [[GUI]])
+        # The one queued ahead takes an idle runner: two of the nine stay, whatever Blacksmith's queue.
+        self.assertEqual(len(placed), 7)
 
     def test_a_backlog_past_a_round_moves_every_owned_gui_job(self):
         count, _ = self.backlog(queued=25)
@@ -152,7 +189,7 @@ class GuiOverflow(unittest.TestCase):
         self.assertEqual(late.decide(OWNED, [*roots(idle=2), *guis(idle=3, busy=7)], count)[0], {})
 
     def test_an_unreadable_backlog_moves_nothing(self):
-        def broken(label: str, enough: int) -> int:
+        def broken(labels):
             raise RuntimeError("HTTP 403")
         placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=10)], broken)
         self.assertEqual(placed, {})
@@ -190,8 +227,7 @@ class GuiOverflow(unittest.TestCase):
         count, calls = self.backlog(queued=8)
         placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=2, busy=8)], count)
         self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(5, 8)), "lag", "cli-product"})
-        # The count stops at what can change the answer: the idle runners plus a round.
-        self.assertEqual(calls, [(GUI, 12)])
+        self.assertEqual(calls, [[GUI, RETRY]])
 
     def test_the_kill_switch_with_nothing_idle_moves_every_owned_gui_job_without_a_read(self):
         count, calls = self.backlog(queued=0)
@@ -206,7 +242,7 @@ class GuiOverflow(unittest.TestCase):
         # shard-1 and shard-2 keep two idle runners; the other two take shard-3 and shard-4 off Blacksmith.
         self.assertEqual(placed, {"shard-3": GUI, "shard-4": GUI})
 
-    def test_backlog_reads_queued_and_running_runs_oldest_first_and_stops_when_enough(self):
+    def test_backlog_reads_queued_and_running_runs_and_counts_each_label(self):
         import datetime as dt
         now = dt.datetime(2026, 9, 28, 1, 0, tzinfo=dt.timezone.utc)
 
@@ -230,18 +266,17 @@ class GuiOverflow(unittest.TestCase):
                 return {"jobs": [{"status": "queued", "labels": [GUI]}, {"status": "queued", "labels": [ROOT_STD]},
                                  {"status": "in_progress", "labels": [GUI]}, {"status": "queued", "labels": [GUI]}]}
         api = API()
-        # One batch of readers takes every eligible run, so the count may pass `enough` (decide() only
-        # compares against it). Run 4 is too young to have gui jobs and 7 is this run.
-        self.assertEqual(late.gui_backlog(api, GUI, exclude_run_id=7, enough=5, now=now), 8)
+        # Run 4 is too young to have gui jobs and 7 is this run.
+        self.assertEqual(late.gui_backlog(api, [GUI, ROOT_STD], exclude_run_id=7, now=now), {GUI: 8, ROOT_STD: 4})
         self.assertEqual(sorted(api.jobs_read), [5, 6, 8, 9])
         self.assertEqual(api.statuses, [("ci.yml", "queued"), ("ci.yml", "in_progress")])
 
-    def test_backlog_reads_runs_concurrently_oldest_batch_first_and_stops_when_enough(self):
+    def test_backlog_reads_runs_concurrently(self):
         import datetime as dt
         import threading
         now = dt.datetime(2026, 9, 28, 1, 0, tzinfo=dt.timezone.utc)
         runs = [{"id": i, "created_at": (now - dt.timedelta(minutes=100 - i)).strftime("%Y-%m-%dT%H:%M:%SZ")}
-                for i in range(1, 21)]
+                for i in range(1, 2 * late.BACKLOG_READERS + 1)]
         # Every read of a batch must be in flight at once, or the barrier breaks and the read raises.
         together = threading.Barrier(late.BACKLOG_READERS, timeout=30)
 
@@ -258,10 +293,29 @@ class GuiOverflow(unittest.TestCase):
                     self.jobs_read.append(int(path.split("/")[3]))
                 return {"jobs": [{"status": "queued", "labels": [GUI]}]}
         api = API()
-        self.assertEqual(late.gui_backlog(api, GUI, exclude_run_id=None, enough=late.BACKLOG_READERS, now=now),
-                         late.BACKLOG_READERS)
-        # One batch: the oldest BACKLOG_READERS runs, and nothing after `enough`.
-        self.assertEqual(sorted(api.jobs_read), list(range(1, late.BACKLOG_READERS + 1)))
+        self.assertEqual(late.gui_backlog(api, [GUI], exclude_run_id=None, now=now), {GUI: len(runs)})
+        self.assertEqual(sorted(api.jobs_read), [run["id"] for run in runs])
+
+    def test_backlog_reads_at_most_the_oldest_lookups(self):
+        import datetime as dt
+        now = dt.datetime(2026, 9, 28, 1, 0, tzinfo=dt.timezone.utc)
+        runs = [{"id": i, "created_at": (now - dt.timedelta(minutes=100 - i)).strftime("%Y-%m-%dT%H:%M:%SZ")}
+                for i in range(1, late.BACKLOG_LOOKUPS + 11)]
+
+        class API:
+            def __init__(self):
+                self.jobs_read = []
+
+            def runs_since(self, workflow, since, **filters):
+                return runs if filters["status"] == "in_progress" else []
+
+            def get(self, path):
+                self.jobs_read.append(int(path.split("/")[3]))
+                return {"jobs": [{"status": "queued", "labels": [RETRY]}]}
+        api = API()
+        self.assertEqual(late.gui_backlog(api, [GUI, RETRY], exclude_run_id=None, now=now),
+                         {GUI: 0, RETRY: late.BACKLOG_LOOKUPS})
+        self.assertEqual(sorted(api.jobs_read), list(range(1, late.BACKLOG_LOOKUPS + 1)))
 
     def test_a_failed_backlog_read_raises_so_nothing_moves(self):
         import datetime as dt
@@ -277,7 +331,7 @@ class GuiOverflow(unittest.TestCase):
                     raise RuntimeError("HTTP 502")
                 return {"jobs": []}
         with self.assertRaises(RuntimeError):
-            late.gui_backlog(API(), GUI, exclude_run_id=None, enough=5, now=now)
+            late.gui_backlog(API(), [GUI], exclude_run_id=None, now=now)
 
 
 class Output(unittest.TestCase):
@@ -299,9 +353,9 @@ class Output(unittest.TestCase):
             def runners(self):
                 return [*roots(idle=2), *guis(idle=0, busy=10)]
 
-        def backlog(github, label, *, exclude_run_id, enough, now):
+        def backlog(github, labels, *, exclude_run_id, now):
             seen["exclude"] = exclude_run_id
-            return 40
+            return {label: 40 if label == GUI else 0 for label in labels}
         with tempfile.NamedTemporaryFile("r+", suffix=".out") as out, \
                 mock.patch.object(late.pool, "GitHub", API), mock.patch.object(late, "gui_backlog", backlog):
             env = dict(OWNED, GITHUB_OUTPUT=out.name, ROUTE_TOKEN="t", GITHUB_REPOSITORY="o/r", GITHUB_RUN_ID="77")

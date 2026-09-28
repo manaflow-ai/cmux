@@ -1,5 +1,10 @@
 {
- "paths": ["Sources/*AutoReorder*", "Sources/*Reorder*", "Sources/TabManager*", "Sources/*AgentActivity*", "Sources/*WorkspaceOrder*"],
+ "paths": [
+  "Sources/Sidebar/*Reorder*",
+  "Sources/AgentJournalLifecycleCenter*",
+  "Packages/macOS/CmuxWorkspaces/*",
+  "Packages/macOS/CmuxAgentJournal/*"
+ ],
  "launch": {
   "args": [
    "-workspaceAutoReorderOnNotification",
