@@ -28,7 +28,13 @@ struct CloudTreeLayoutMetricsTests {
 
     @Test("title width receives space after stable trailing content")
     func titleWidthReservesControls() {
-        #expect(metrics.titleWidth(rowWidth: 420, leadingContentWidth: 92, trailingContentWidth: 76) == 240)
+        // Written against the inset rather than a literal: the trailing column
+        // is now the sidebar's, so a number here would have to be rewritten
+        // every time the sidebar's chrome moves.
+        #expect(
+            metrics.titleWidth(rowWidth: 420, leadingContentWidth: 92, trailingContentWidth: 76)
+                == 420 - 92 - 76 - metrics.referenceInset
+        )
         #expect(metrics.titleWidth(rowWidth: 180, leadingContentWidth: 92, trailingContentWidth: 76) == 0)
     }
 
@@ -46,9 +52,10 @@ struct CloudTreeLayoutMetricsTests {
     @Test("the tree's trailing column is the sidebar's trailing column")
     func trailingColumnFollowsSidebarChrome() {
         #expect(CloudTreeStyle.compact.rowGrid.trailingPadding == RightSidebarChromeMetrics.headerTrailingPadding)
-        // The outline document and the hosted row content compute their own
-        // trailing reservation. If these two disagree a title truncates before
-        // the space it was given runs out.
+        // `CloudTreeLayoutMetrics` states the same column a second time and has
+        // no production reader today, so nothing would catch it sitting at the
+        // old 12 until someone wires `titleWidth` up and gets titles that
+        // truncate 6pt early. Pinned here instead.
         #expect(metrics.referenceInset == CloudTreeStyle.compact.rowGrid.trailingPadding)
     }
 
