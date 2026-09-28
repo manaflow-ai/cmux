@@ -433,11 +433,24 @@ def await_verdict(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[flo
         return 1
     print(f"UI tests for this run: {found.get('html_url')}", flush=True)
 
-    def check() -> dict | None:
-        run = gh.get(f"repos/{{repo}}/actions/runs/{found['id']}")
-        return run if run.get("status") == "completed" else None
+    while True:
+        watched = found
 
-    finished = poll(check, sleep=sleep)
+        def check() -> dict | None:
+            run = gh.get(f"repos/{{repo}}/actions/runs/{watched['id']}")
+            return run if run.get("status") == "completed" else None
+
+        finished = poll(check, sleep=sleep)
+        if finished.get("conclusion") != "cancelled":
+            break
+        # A second dispatch for this attempt (the build controller, a re-running
+        # bot) joins the same concurrency group and cancels the one watched
+        # here; follow it instead of reporting the cancel.
+        newer = retrying(lambda: find_dispatch_run(gh, run_id, attempt, since, default_branch), sleep=sleep)
+        if newer is None or newer["id"] == watched["id"] or newer.get("created_at", "") < watched.get("created_at", ""):
+            break
+        found = newer
+        print(f"{watched.get('html_url')} was replaced; UI tests for this run: {found.get('html_url')}", flush=True)
     step = retrying(lambda: dispatch_step_conclusion(gh, found["id"]), sleep=sleep)
     if finished.get("conclusion") == "success" and step == "success":
         print(f"UI tests passed: {found.get('html_url')}", flush=True)

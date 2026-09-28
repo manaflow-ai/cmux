@@ -161,8 +161,9 @@ class AwaitRequestTests(unittest.TestCase):
             ui.await_request(gh, "100", "1", sleep=self.fail)
 
 
-def dispatch_run(conclusion="success", status="completed", title=None, run_id=900, branch="main"):
-    return {"id": run_id, "status": status, "conclusion": conclusion, "created_at": "2026-09-28T10:00:05Z",
+def dispatch_run(conclusion="success", status="completed", title=None, run_id=900, branch="main",
+                 created_at="2026-09-28T10:00:05Z"):
+    return {"id": run_id, "status": status, "conclusion": conclusion, "created_at": created_at,
             "head_branch": branch,
             "display_title": title or ui.dispatch_title("100", "1"), "html_url": f"https://x/{run_id}"}
 
@@ -201,6 +202,26 @@ class AwaitVerdictTests(unittest.TestCase):
             LIST: [{"workflow_runs": [dispatch_run()]}],
             f"repos/{REPO}/actions/runs/900/jobs": [jobs("skipped")],
             f"repos/{REPO}/actions/runs/900": [dispatch_run()],
+        }), 1)
+
+    def test_follows_a_dispatch_that_replaced_the_watched_one(self) -> None:
+        # The build controller's dispatch landed after this job found the
+        # bot's, and cancelled it through the shared concurrency group.
+        newer = dispatch_run(run_id=901, created_at="2026-09-28T10:00:30Z")
+        self.assertEqual(self.verdict({
+            LIST: [{"workflow_runs": [dispatch_run(status="in_progress")]},
+                   {"workflow_runs": [newer, dispatch_run(conclusion="cancelled")]}],
+            f"repos/{REPO}/actions/runs/901/jobs": [jobs("success")],
+            f"repos/{REPO}/actions/runs/900": [dispatch_run(conclusion="cancelled")],
+            f"repos/{REPO}/actions/runs/901": [newer],
+        }), 0)
+
+    def test_a_cancel_with_no_newer_dispatch_fails(self) -> None:
+        cancelled = dispatch_run(conclusion="cancelled")
+        self.assertEqual(self.verdict({
+            LIST: [{"workflow_runs": [cancelled]}],
+            f"repos/{REPO}/actions/runs/900/jobs": [jobs("cancelled")],
+            f"repos/{REPO}/actions/runs/900": [cancelled],
         }), 1)
 
     def test_gives_up_when_no_dispatch_run_appears(self) -> None:
