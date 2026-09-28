@@ -211,6 +211,7 @@ extension CMUXCLI {
             var forkEnvironment = invocation.environment
             forkEnvironment[CodexForkSessionWatcher.parentSessionEnvironmentKey] = parentSessionID
             forkEnvironment[CodexForkSessionWatcher.launchAtEnvironmentKey] = String(Date.now.timeIntervalSince1970)
+            forkEnvironment[CodexForkSessionWatcher.launchIDEnvironmentKey] = UUID().uuidString.lowercased()
             invocation = AgentRestoreInvocation(
                 arguments: invocation.arguments,
                 workingDirectory: invocation.workingDirectory,

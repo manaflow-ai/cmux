@@ -9,6 +9,7 @@ import Foundation
 struct CodexForkSessionWatcher {
     static let parentSessionEnvironmentKey = "CMUX_AGENT_FORK_PARENT_SESSION_ID"
     static let launchAtEnvironmentKey = "CMUX_AGENT_FORK_LAUNCH_AT"
+    static let launchIDEnvironmentKey = "CMUX_AGENT_FORK_LAUNCH_ID"
     static let forkSessionEnvironmentKey = "CMUX_CODEX_FORK_SESSION"
 
     struct ChildSession: Equatable {
@@ -24,6 +25,8 @@ struct CodexForkSessionWatcher {
     let parentSessionID: String
     let sessionsRoot: URL
     let launchedAt: Date
+    let launchID: String
+    let claimsDirectory: URL
     let fileManager: FileManager
 
     init(
@@ -33,22 +36,32 @@ struct CodexForkSessionWatcher {
     ) {
         self.parentSessionID = parentSessionID
         self.fileManager = fileManager
+        launchID = environment[Self.launchIDEnvironmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         sessionsRoot = URL(
             fileURLWithPath: CodexHomeResolver().resolve(ambientEnvironment: environment),
             isDirectory: true
         ).appendingPathComponent("sessions", isDirectory: true)
         let launchTimestamp = Double(environment[Self.launchAtEnvironmentKey] ?? "") ?? Date.now.timeIntervalSince1970
         launchedAt = Date(timeIntervalSince1970: launchTimestamp)
+        let stateRoot = environment["CMUX_AGENT_HOOK_STATE_DIR"]
+            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+            ?? URL(fileURLWithPath: environment["HOME"] ?? NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent(".cmuxterm", isDirectory: true).path
+        claimsDirectory = URL(fileURLWithPath: stateRoot, isDirectory: true)
+            .appendingPathComponent("codex-fork-claims", isDirectory: true)
     }
 
     func wait() -> ChildSession? {
-        if let child = Self.findForkedSession(
+        var excludedSessionIDs: Set<String> = []
+        while let child = Self.findForkedSession(
             parentSessionID: parentSessionID,
             sessionsRoot: sessionsRoot,
             launchedAt: launchedAt,
+            excludingSessionIDs: excludedSessionIDs,
             fileManager: fileManager
         ) {
-            return child
+            if claim(child) { return child }
+            excludedSessionIDs.insert(child.sessionID)
         }
 
         let signal = DispatchSemaphore(value: 0)
@@ -58,13 +71,15 @@ struct CodexForkSessionWatcher {
 
         let deadline = Date.now.addingTimeInterval(Self.watchTimeout)
         while Date.now < deadline {
-            if let child = Self.findForkedSession(
+            while let child = Self.findForkedSession(
                 parentSessionID: parentSessionID,
                 sessionsRoot: sessionsRoot,
                 launchedAt: launchedAt,
+                excludingSessionIDs: excludedSessionIDs,
                 fileManager: fileManager
             ) {
-                return child
+                if claim(child) { return child }
+                excludedSessionIDs.insert(child.sessionID)
             }
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { break }
@@ -72,18 +87,24 @@ struct CodexForkSessionWatcher {
             // the short-lived CLI watcher; it does not guard mutable state.
             _ = signal.wait(timeout: .now() + min(remaining, 1))
         }
-        return Self.findForkedSession(
+        while let child = Self.findForkedSession(
             parentSessionID: parentSessionID,
             sessionsRoot: sessionsRoot,
             launchedAt: launchedAt,
+            excludingSessionIDs: excludedSessionIDs,
             fileManager: fileManager
-        )
+        ) {
+            if claim(child) { return child }
+            excludedSessionIDs.insert(child.sessionID)
+        }
+        return nil
     }
 
     static func findForkedSession(
         parentSessionID: String,
         sessionsRoot: URL,
         launchedAt: Date,
+        excludingSessionIDs: Set<String> = [],
         fileManager: FileManager = .default
     ) -> ChildSession? {
         guard !parentSessionID.isEmpty,
@@ -102,7 +123,8 @@ struct CodexForkSessionWatcher {
             guard item.pathExtension.lowercased() == "jsonl",
                   let metadata = readMetadata(at: item),
                   metadata.parentSessionID == parentSessionID,
-                  metadata.sessionID != parentSessionID else {
+                  metadata.sessionID != parentSessionID,
+                  !excludingSessionIDs.contains(metadata.sessionID) else {
                 continue
             }
             let resourceValues = try? item.resourceValues(
@@ -174,6 +196,23 @@ struct CodexForkSessionWatcher {
             source.setCancelHandler { close(descriptor) }
             source.resume()
             return source
+        }
+    }
+
+    private func claim(_ child: ChildSession) -> Bool {
+        guard !launchID.isEmpty else { return true }
+        do {
+            try fileManager.createDirectory(at: claimsDirectory, withIntermediateDirectories: true)
+            let claimURL = claimsDirectory.appendingPathComponent("\(child.sessionID).claim", isDirectory: false)
+            let descriptor = open(claimURL.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+            guard descriptor >= 0 else { return false }
+            defer { close(descriptor) }
+            let bytes = Array(launchID.utf8)
+            return bytes.withUnsafeBytes { buffer in
+                Darwin.write(descriptor, buffer.baseAddress, bytes.count) == bytes.count
+            }
+        } catch {
+            return false
         }
     }
 
