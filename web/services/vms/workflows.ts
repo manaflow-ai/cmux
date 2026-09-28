@@ -4285,9 +4285,18 @@ function reserveCreateCredit(
      * is the whole rollback. A Base row is also claimed by a base and a
      * generation, and only markBaseCreateFailed releases those; marking it with
      * the ad-hoc path leaves the base "resetting" and its generation
-     * "creating", which makes every later open and reset 409 forever. The
-     * abandonment sweeper cannot recover it either, because it matches only
-     * provisioning rows with no failure code.
+     * "creating".
+     *
+     * Reset then 409s forever, because beginBaseReset refuses to start while an
+     * operation is in flight. Open does not: it has no such guard and the
+     * ad-hoc-failed row is not the active one, so it quietly allocates a new
+     * generation on a new provider machine and orphans the working one as
+     * retained. That still counts against maxActiveVms, so a user at their
+     * machine limit is stuck until they delete one by hand.
+     *
+     * The abandonment sweeper cannot recover either shape, because it matches
+     * only provisioning rows with no failure code, and the ad-hoc mark sets
+     * both.
      */
     readonly baseGeneration?: {
       readonly baseId: string;

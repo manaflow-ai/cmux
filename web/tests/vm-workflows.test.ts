@@ -3949,15 +3949,23 @@ describe("VM Effect workflows", () => {
     expect(error).toBeInstanceOf(VmCreateCreditsInsufficientError);
     // The Base-aware mark is the only one that also runs
     // restoreBaseAfterCreateFailure, which fails the generation row and
-    // promotes the retained generation back onto the base.
-    expect(baseMarks).toHaveLength(1);
-    expect(baseMarks[0]).toMatchObject({
+    // releases the base, promoting a retained generation back onto it when
+    // there is one. This scenario has no earlier generation to promote, so it
+    // asserts the mark rather than the promotion; the database-backed case
+    // below covers the promotion.
+    // Exhaustive rather than toMatchObject, so an extra field on the mark is a
+    // failure too. The message is empty on purpose: it is errorMessage(err) of
+    // a VmCreateCreditsInsufficientError, and that tagged error sets no Error
+    // message, so production stores "" here as well. The reason is carried by
+    // `code`, which is what the routes and the sweeper read.
+    expect(baseMarks).toEqual([{
       baseId: base.id,
       generation: generation.generation,
       vmId: requested.id,
       userId: requested.userId,
       code: "billing_credits_insufficient",
-    });
+      message: "",
+    }]);
     expect(adHocMarks).toEqual([]);
   });
 
