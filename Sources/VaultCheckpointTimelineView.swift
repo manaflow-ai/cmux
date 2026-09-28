@@ -418,7 +418,7 @@ private struct VaultCheckpointRow: View, Equatable {
             .padding(.horizontal, 8)
             .frame(height: 22)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
                     .fill(
                         isForkEnabled
                             ? cmuxAccent.color.opacity(isHovered ? 0.16 : 0.10)
