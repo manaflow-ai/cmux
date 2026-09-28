@@ -153,6 +153,9 @@ PATH_OWNERS = {
     # workflow; owned_pool_rescue.py and classify_failures.py import it too.
     "scripts/ci/ui_tests_dispatch.py": frozenset(("app-host-execution", "ci")),
     ".github/workflows/ci-ui-tests.yml": frozenset(("app-host-execution", "ci")),
+    # tests/test_ci_pr_media.py imports the script and reads the workflow.
+    "scripts/ci/pr_media.py": frozenset(("app-host-execution",)),
+    ".github/workflows/pr-media.yml": frozenset(("app-host-execution",)),
     # detect_ci_change_areas.py imports this to decide the swift-package-tests
     # route, so the ci group's router tests observe an edit to it even though
     # no guard step names it in a `run:`.

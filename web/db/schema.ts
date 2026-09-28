@@ -907,6 +907,11 @@ export const cloudVmSessions = pgTable(
     title: text("title"),
     kind: text("kind").notNull().default("terminal"),
     status: cloudVmSessionStatus("status").notNull().default("running"),
+    // Lifetime number of attaches, not the number of clients attached now.
+    // upsertVmSession is the only writer and there is no detach writer at all,
+    // so the count only grows and never returns to zero. Pair it with
+    // lastAttachedAt to reason about recency; do not present it as a live
+    // viewer or participant count.
     attachmentCount: integer("attachment_count").notNull().default(0),
     effectiveCols: integer("effective_cols"),
     effectiveRows: integer("effective_rows"),

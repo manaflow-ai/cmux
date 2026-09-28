@@ -85,12 +85,12 @@ struct CloudWorkspaceTargetingTests {
         let original = owner.selectedTabId
         let otherIDs = other.tabs.map(\.id)
         let host = SurfaceCatalog.NewWorkspaceHost(tabManager: owner)
-        let created = try host.create("Cloud workspace")
+        let created = try host.create("Cloud workspace", false)
         #expect(owner.workspacesById[created.workspaceID] != nil)
         #expect(owner.selectedTabId == original)
         #expect(other.tabs.map(\.id) == otherIDs)
         owner.finalizeAllWorkspacesForWindowClose()
-        #expect(throws: CancellationError.self) { try host.create("Late workspace") }
+        #expect(throws: CancellationError.self) { try host.create("Late workspace", false) }
     }
 
     @Test("A Cloud binding arriving after initial selection is remembered when switching to local")
