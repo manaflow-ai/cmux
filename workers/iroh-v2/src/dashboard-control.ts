@@ -7,9 +7,9 @@ import { canonicalJSON, hash } from "./crypto";
 import { DASHBOARD_AUTHORITY_HEADER, DashboardClaimsSchema, type DashboardClaims } from "./dashboard-auth";
 import { acknowledgeDelivery, DeliveryStateSchema, deliveryUsage, emptyDeliveryState, prepareDelivery } from "./delivery";
 import type { Environment } from "./environment";
-import { failureDiagnostics, OperationError } from "./errors";
+import { failureDiagnostics, OperationError, unwrap } from "./errors";
 import { observe } from "./observability";
-import { unwrap, type UserUsage } from "./user-usage-object";
+import type { UserUsage } from "./user-usage-object";
 
 const AttachmentSchema = z.strictObject({
   kind: z.literal("dashboard"), sessionId: identifier, claims: DashboardClaimsSchema,

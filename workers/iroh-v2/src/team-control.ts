@@ -7,12 +7,11 @@ import type { ControlResponse } from "./contracts/responses";
 import { identityKey, issueTicket } from "./crypto";
 import { acknowledgeDelivery, DeliveryStateSchema, deliveryUsage, emptyDeliveryState, prepareDelivery } from "./delivery";
 import { environmentScope, runtime, type Environment } from "./environment";
-import { failureDiagnostics, OperationError, publicError } from "./errors";
+import { failureDiagnostics, OperationError, publicError, unwrap } from "./errors";
 import { AuthoritySchema, objectName, readInternalRequest } from "./routing";
 import { applyStorageMigrations } from "./storage/migrations";
 import { TeamStore } from "./storage/team-store";
 import type { UsageOperation } from "./storage/user-usage";
-import { unwrap } from "./user-usage-object";
 import { observe } from "./observability";
 import { DashboardControl } from "./dashboard-control";
 
