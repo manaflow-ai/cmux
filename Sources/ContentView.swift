@@ -3460,16 +3460,25 @@ struct ContentView: View {
         // A fresh install is asked once which shortcut style it wants, the way
         // a game asks WASD or arrow keys. Everyone else reaches the same
         // chooser from Settings or the Command Palette.
-        view = AnyView(view.sheet(isPresented: $isKeymapChooserPresented) {
+        // onDismiss covers Escape, which closes the sheet through SwiftUI
+        // without running either button's closure. Being shown the chooser at
+        // all is what counts as being asked.
+        view = AnyView(view.sheet(
+            isPresented: $isKeymapChooserPresented,
+            onDismiss: { Self.recordKeymapChooserAnswered() }
+        ) {
             ShortcutKeymapChooserView(
                 onApply: { preset in
                     await Self.applyKeymapChooserChoice(preset)
                     isKeymapChooserPresented = false
                 },
                 onKeepCurrent: {
-                    Self.recordKeymapChooserAnswered()
                     isKeymapChooserPresented = false
-                }
+                },
+                // The app's own factory defaults, so the preview shows the keys
+                // this build ships for the actions a preset leaves alone.
+                defaultShortcutResolver: AppDelegate.shared?.settingsRuntime?
+                    .shortcutDefaultResolver ?? .builtIn
             )
         })
 

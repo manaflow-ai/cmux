@@ -568242,6 +568242,185 @@
         }
       }
     },
+    "shortcut.keymap.chooser.previewMore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This style also changes %ld other shortcut, listed in Settings > Keyboard Shortcuts."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This style also changes %ld other shortcuts, all listed in Settings > Keyboard Shortcuts."
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "لا يغيّر هذا النمط أي اختصار آخر (%ld)."
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "يغيّر هذا النمط أيضاً اختصاراً واحداً آخر (%ld)، وهو مذكور في الإعدادات > اختصارات لوحة المفاتيح."
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "يغيّر هذا النمط أيضاً اختصارين آخرين (%ld)، وهما مذكوران في الإعدادات > اختصارات لوحة المفاتيح."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "يغيّر هذا النمط أيضاً %ld اختصارات أخرى، وكلها مذكورة في الإعدادات > اختصارات لوحة المفاتيح."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "يغيّر هذا النمط أيضاً %ld اختصاراً آخر، وكلها مذكورة في الإعدادات > اختصارات لوحة المفاتيح."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "يغيّر هذا النمط أيضاً %ld اختصار آخر، وكلها مذكورة في الإعدادات > اختصارات لوحة المفاتيح."
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Dieser Stil ändert außerdem %ld weiteren Kurzbefehl, der unter Einstellungen > Tastaturkurzbefehle aufgeführt ist."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Dieser Stil ändert außerdem %ld weitere Kurzbefehle, die alle unter Einstellungen > Tastaturkurzbefehle aufgeführt sind."
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Este estilo también cambia %ld atajo más, indicado en Ajustes > Atajos de teclado."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Este estilo también cambia %ld atajos más, todos indicados en Ajustes > Atajos de teclado."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Este estilo también cambia %ld atajos más, todos indicados en Ajustes > Atajos de teclado."
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Ce style modifie également %ld autre raccourci, listé dans Réglages > Raccourcis clavier."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Ce style modifie également %ld de raccourcis supplémentaires, tous listés dans Réglages > Raccourcis clavier."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Ce style modifie également %ld autres raccourcis, tous listés dans Réglages > Raccourcis clavier."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "このスタイルは他に %ld 個のショートカットも変更します。すべて「設定」>「キーボードショートカット」に記載されています。"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "이 스타일은 다른 단축키 %ld개도 변경하며, 모두 설정 > 키보드 단축키에 나열되어 있습니다."
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "此风格还会更改另外 %ld 个快捷键，均列在“设置”>“键盘快捷键”中。"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "此風格還會變更另外 %ld 個快捷鍵，均列在「設定」>「鍵盤快速鍵」中。"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "shortcut.keymap.chooser.previewTitle": {
       "extractionState": "manual",
       "localizations": {

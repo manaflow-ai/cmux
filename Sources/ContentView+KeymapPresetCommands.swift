@@ -21,7 +21,21 @@ extension ContentView {
     @MainActor
     static func claimKeymapChooserPresentation() -> Bool {
         guard !hasPresentedKeymapChooserThisLaunch else { return false }
-        guard keymapChooserLaunchDecision() == .open else { return false }
+        // Every XCUITest launches with HOME pointed at a throwaway directory, so
+        // each one looks like a fresh install. A modal sheet over the main
+        // window swallows the keystrokes those tests send.
+        guard !MacSentryStartupPolicy.isRunningUnderXCTest(
+            environment: ProcessInfo.processInfo.environment
+        ) else { return false }
+        let decision = keymapChooserLaunchDecision()
+        guard decision == .open else {
+            // An install with history is answered for good, so a config file
+            // that later goes missing cannot re-arm the sheet.
+            if decision == .skipExistingInstall {
+                recordKeymapChooserAnswered()
+            }
+            return false
+        }
         hasPresentedKeymapChooserThisLaunch = true
         return true
     }
@@ -33,15 +47,28 @@ extension ContentView {
     /// ``KeyboardShortcutSettingsFileStore/primaryTemplateBootstrap`` captured
     /// the answer at the one moment it was knowable, and anything other than a
     /// file cmux itself created from the built-in template counts as history.
+    ///
+    /// Shortcuts that older builds saved in UserDefaults count as history too.
+    /// They outlive the config file, so a machine that has them has run cmux
+    /// before even when cmux.json had to be created from the template.
     @MainActor
     static func keymapChooserLaunchDecision(
         defaults: UserDefaults = .standard
     ) -> ShortcutKeymapChooserDecision {
-        ShortcutKeymapChooserPolicy.decide(
+        let createdFresh = KeyboardShortcutSettings.settingsFileStore
+            .primaryTemplateBootstrap == .createdFresh
+        let hasLegacyBindings = !keymapChooserLegacyBindings().isEmpty
+        return ShortcutKeymapChooserPolicy.decide(
             hasAnsweredChooser: defaults.bool(forKey: keymapChooserAnsweredDefaultsKey),
-            installHasHistory: KeyboardShortcutSettings.settingsFileStore
-                .primaryTemplateBootstrap != .createdFresh
+            installHasHistory: !createdFresh || hasLegacyBindings
         )
+    }
+
+    /// Shortcuts older Settings builds saved in UserDefaults, keyed by action id.
+    @MainActor
+    static func keymapChooserLegacyBindings() -> [String: StoredShortcut] {
+        AppDelegate.shared?.settingsRuntime?.userDefaultsStore
+            .initialLegacyShortcutBindings() ?? [:]
     }
 
     /// Marks the chooser answered so it never opens by itself again.
@@ -52,17 +79,21 @@ extension ContentView {
 
     /// Writes the preset chosen in the first-run chooser.
     ///
-    /// This plans against empty bindings rather than reading the file, which is
-    /// correct only because the chooser opens solely when cmux just created the
-    /// config file from the built-in template. That file carries no
-    /// `shortcuts.bindings`, so there is nothing to preserve and nothing to
-    /// race with. Settings plans against the live file instead.
+    /// This plans against empty file bindings rather than reading the file,
+    /// which is correct only because the chooser opens solely when cmux just
+    /// created the config file from the built-in template. Every section of
+    /// that template is commented out, so it carries no `shortcuts.bindings`
+    /// and there is nothing in the file to preserve or race with. Legacy
+    /// UserDefaults bindings are passed in, because those do outlive the file
+    /// and a managed profile can force them onto a machine with no config yet.
+    /// Settings plans against the live file instead.
     @MainActor
     static func applyKeymapChooserChoice(_ preset: ShortcutKeymapPreset) async {
         recordKeymapChooserAnswered()
         guard let runtime = AppDelegate.shared?.settingsRuntime else { return }
         let plan = preset.plan(
             from: ShortcutBindingsSnapshot(bindings: [:], managedActionIDs: []),
+            legacyBindings: runtime.userDefaultsStore.initialLegacyShortcutBindings(),
             defaultShortcutResolver: runtime.shortcutDefaultResolver
         )
         guard !plan.isEmpty else { return }

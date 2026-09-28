@@ -57,6 +57,9 @@ public struct ShortcutKeymapChooserView: View {
     private let onApply: (ShortcutKeymapPreset) async -> Void
     /// Closes the chooser without writing anything.
     private let onKeepCurrent: () -> Void
+    /// The host's factory defaults, so the preview shows the keys this build
+    /// actually ships rather than the package's built-in table.
+    private let defaultShortcutResolver: ShortcutDefaultResolver
 
     @State private var selection: ShortcutKeymapPreset
     @State private var isApplying = false
@@ -70,16 +73,19 @@ public struct ShortcutKeymapChooserView: View {
     ///   - currentPreset: The preset in the file now, marked in the list.
     ///   - onApply: Writes the chosen preset.
     ///   - onKeepCurrent: Closes the chooser without writing.
+    ///   - defaultShortcutResolver: The host's factory defaults for the preview.
     public init(
         initialPreset: ShortcutKeymapPreset = .cmux,
         currentPreset: ShortcutKeymapPreset? = nil,
         onApply: @escaping (ShortcutKeymapPreset) async -> Void,
-        onKeepCurrent: @escaping () -> Void
+        onKeepCurrent: @escaping () -> Void,
+        defaultShortcutResolver: ShortcutDefaultResolver = .builtIn
     ) {
         self.initialPreset = initialPreset
         self.currentPreset = currentPreset
         self.onApply = onApply
         self.onKeepCurrent = onKeepCurrent
+        self.defaultShortcutResolver = defaultShortcutResolver
         _selection = State(initialValue: initialPreset)
     }
 
@@ -175,7 +181,10 @@ public struct ShortcutKeymapChooserView: View {
             ))
             .cmuxFont(.caption)
             .foregroundColor(.secondary)
-            ForEach(selection.highlights(), id: \.action) { highlight in
+            ForEach(
+                selection.highlights(defaultShortcutResolver: defaultShortcutResolver),
+                id: \.action
+            ) { highlight in
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(highlight.action.displayName)
                         .cmuxFont(.callout)
@@ -189,12 +198,26 @@ public struct ShortcutKeymapChooserView: View {
                     .foregroundColor(highlight.isWrittenByPreset ? .primary : .secondary)
                 }
             }
-            Text(String(
-                localized: "shortcut.keymap.chooser.previewLegend",
-                defaultValue: "Dimmed keys are the same in every style."
-            ))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(
+                    localized: "shortcut.keymap.chooser.previewLegend",
+                    defaultValue: "Dimmed keys are the same in every style."
+                ))
+                let others = selection.overridesBeyondHighlights
+                if others > 0 {
+                    Text(String(
+                        format: String(
+                            localized: "shortcut.keymap.chooser.previewMore",
+                            defaultValue: "This style also changes %ld other shortcuts, all listed in Settings > Keyboard Shortcuts."
+                        ),
+                        others
+                    ))
+                    .accessibilityIdentifier("KeymapChooserPreviewMore")
+                }
+            }
             .cmuxFont(.caption)
             .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.top, 2)
         }
         .accessibilityIdentifier("KeymapChooserPreview")
@@ -209,6 +232,7 @@ public struct ShortcutKeymapChooserView: View {
             )) {
                 onKeepCurrent()
             }
+            .keyboardShortcut(.cancelAction)
             .disabled(isApplying)
             .accessibilityIdentifier("KeymapChooserKeepCurrent")
             Button(String(

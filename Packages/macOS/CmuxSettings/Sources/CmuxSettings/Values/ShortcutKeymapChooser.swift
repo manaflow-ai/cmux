@@ -84,6 +84,16 @@ extension ShortcutKeymapPreset {
         .closeTab,
     ]
 
+    /// How many shortcuts this preset writes that ``highlights()`` never shows.
+    ///
+    /// The preview is a fixed six rows so switching styles reads as a column
+    /// changing, but tmux alone writes seventeen bindings. The chooser says how
+    /// many it is not showing rather than letting the six rows imply they are
+    /// the whole change set.
+    public var overridesBeyondHighlights: Int {
+        overrides.keys.filter { !Self.highlightActions.contains($0) }.count
+    }
+
     /// The preview rows for this preset.
     ///
     /// This describes the preset itself, not the current config file: it is

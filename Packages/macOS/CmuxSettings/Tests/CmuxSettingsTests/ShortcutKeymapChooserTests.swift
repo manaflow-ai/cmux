@@ -88,7 +88,7 @@ struct ShortcutKeymapChooserTests {
 
         let previous = try #require(byAction[.prevSurface])
         #expect(previous.shortcut == StoredShortcut(
-            first: ShortcutStroke(key: "\t", control: true, shift: true)
+            first: ShortcutStroke(key: "\t", shift: true, control: true)
         ))
         #expect(previous.isWrittenByPreset)
 
@@ -96,6 +96,30 @@ struct ShortcutKeymapChooserTests {
         // as kept rather than changed.
         #expect(byAction[.newSurface]?.isWrittenByPreset == false)
         #expect(byAction[.closeTab]?.isWrittenByPreset == false)
+    }
+
+    @Test("The footnote count covers exactly the overrides the preview omits",
+          arguments: ShortcutKeymapPreset.allCases)
+    func overridesBeyondHighlightsCountsWhatIsNotShown(preset: ShortcutKeymapPreset) {
+        // The preview is six fixed rows, so the footnote is the only thing that
+        // tells someone a style writes more than that. A count that drifted
+        // from the override set would understate the change.
+        let shown = preset.overrides.keys.filter {
+            ShortcutKeymapPreset.highlightActions.contains($0)
+        }
+        #expect(preset.overridesBeyondHighlights == preset.overrides.count - shown.count)
+        #expect(preset.overridesBeyondHighlights >= 0)
+    }
+
+    @Test("A style whose every override is previewed has no footnote to show")
+    func presetsWithNoHiddenOverridesReportZero() {
+        // cmux writes nothing at all, and browser writes only rows the preview
+        // already lists, so neither should claim hidden changes.
+        #expect(ShortcutKeymapPreset.cmux.overridesBeyondHighlights == 0)
+        #expect(ShortcutKeymapPreset.browser.overridesBeyondHighlights == 0)
+        // tmux rebinds far more than it previews, which is the case the
+        // footnote exists for.
+        #expect(ShortcutKeymapPreset.tmux.overridesBeyondHighlights > 0)
     }
 
     @Test("The numbered rows render as a range, not as a bare 1")

@@ -243,9 +243,26 @@ final class CmuxSettingsFileStore {
     }
 
     /// How the config file came to exist. See ``PrimaryTemplateBootstrap``.
-    private(set) var primaryTemplateBootstrap: PrimaryTemplateBootstrap = .existingFile
+    ///
+    /// Answered by the first bootstrap only. Later ones re-create a file the
+    /// user deleted or moved aside mid-session, which is not a new install.
+    var primaryTemplateBootstrap: PrimaryTemplateBootstrap {
+        synchronized { storedPrimaryTemplateBootstrap }
+    }
+
+    private var storedPrimaryTemplateBootstrap: PrimaryTemplateBootstrap = .existingFile
+    private var hasAnsweredPrimaryTemplateBootstrap = false
 
     private func bootstrapPrimaryTemplateIfNeeded() {
+        // Latch before any early return: whichever call gets here first is the
+        // one that can tell a fresh install from an old one, and a file that
+        // exists at that moment settles the question as `.existingFile`.
+        let isFirstBootstrap = synchronized {
+            let first = !hasAnsweredPrimaryTemplateBootstrap
+            hasAnsweredPrimaryTemplateBootstrap = true
+            return first
+        }
+
         guard !fileManager.fileExists(atPath: primaryPath) else { return }
 
         let fileURL = URL(fileURLWithPath: primaryPath)
@@ -258,7 +275,6 @@ final class CmuxSettingsFileStore {
                 attributes: [.posixPermissions: 0o755]
             )
             let legacy = legacySettingsDataForBootstrap()
-            primaryTemplateBootstrap = legacy == nil ? .createdFresh : .createdFromLegacy
             let template = legacy ?? Data(Self.defaultTemplate().utf8)
             let contents = Self.materializeBootstrapSocketPolicy(
                 in: template,
@@ -267,6 +283,13 @@ final class CmuxSettingsFileStore {
             )
             try contents.write(to: fileURL, options: [.atomic])
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+            // Recorded only once the file is actually on disk. A machine that
+            // cannot write its config stays `.existingFile`, so nothing
+            // downstream treats it as a first run.
+            guard isFirstBootstrap else { return }
+            synchronized {
+                storedPrimaryTemplateBootstrap = legacy == nil ? .createdFresh : .createdFromLegacy
+            }
         } catch {
             cmuxSettingsFileStoreLogger.warning("failed to bootstrap \(self.primaryPath, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .private(mask: .hash))")
         }

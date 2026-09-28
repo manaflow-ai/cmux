@@ -104,7 +104,8 @@ struct ShortcutKeymapPresetRow: View {
                 onApply: { preset in
                     await applyFromChooser(preset)
                 },
-                onKeepCurrent: { isChooserPresented = false }
+                onKeepCurrent: { isChooserPresented = false },
+                defaultShortcutResolver: model.defaultShortcutResolver
             )
         }
     }

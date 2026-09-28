@@ -554,6 +554,12 @@
       2
     ]
   },
+  "shortcut.keymap.chooser.previewMore": {
+    "source": "This style also changes %ld other shortcuts, all listed in Settings > Keyboard Shortcuts.",
+    "arguments": [
+      1
+    ]
+  },
   "sidebar.agentActivity.tooltip.many": {
     "source": "Loading (%lld active tasks)",
     "arguments": [
