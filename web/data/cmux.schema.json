@@ -1448,7 +1448,9 @@
           "properties": {
             "error": { "type": "string", "minLength": 1 },
             "needsInput": { "type": "string", "minLength": 1 },
+            "subagents": { "type": "string", "minLength": 1 },
             "running": { "type": "string", "minLength": 1 },
+            "waiting": { "type": "string", "minLength": 1 },
             "starting": { "type": "string", "minLength": 1 },
             "unseen": { "type": "string", "minLength": 1 },
             "pullRequestOpen": { "type": "string", "minLength": 1 },

@@ -902,7 +902,8 @@ class TerminalController {
         color: String?,
         url: URL?,
         priority: Int,
-        format: SidebarMetadataFormat
+        format: SidebarMetadataFormat,
+        workState: SidebarAgentWorkState?
     ) -> Bool {
         guard let current else { return true }
         return current.key != key ||
@@ -911,7 +912,8 @@ class TerminalController {
             current.color != color ||
             current.url != url ||
             current.priority != priority ||
-            current.format != format
+            current.format != format ||
+            current.workState != workState
     }
 
     nonisolated static func shouldReplaceMetadataBlock(
@@ -14691,6 +14693,16 @@ class TerminalController {
             return "ERROR: Invalid metadata format '\(formatRaw)' — use: plain, markdown"
         }
 
+        let workState: SidebarAgentWorkState?
+        if let rawWorkState = normalizedOptionValue(parsed.options["work"]) {
+            guard let parsedWorkState = SidebarAgentWorkState.parse(rawWorkState) else {
+                return "ERROR: Invalid work state '\(rawWorkState)' — use: running, subagents, waiting"
+            }
+            workState = parsedWorkState
+        } else {
+            workState = nil
+        }
+
         let priority: Int
         if let rawPriority = normalizedOptionValue(parsed.options["priority"]) {
             guard let parsedPriority = Int(rawPriority) else {
@@ -14719,7 +14731,7 @@ class TerminalController {
         }
         let panelResolution = parseOptionalPanelIdOption(
             options: parsed.options,
-            usage: "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID]"
+            usage: "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--work=running|subagents|waiting] [--tab=X] [--panel=ID]"
         )
         if let error = panelResolution.error {
             return error
@@ -14745,7 +14757,8 @@ class TerminalController {
                 color: color,
                 url: parsedURL,
                 priority: priority,
-                format: format
+                format: format,
+                workState: workState
             ) else {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pidValue {
@@ -14761,7 +14774,8 @@ class TerminalController {
                 url: parsedURL,
                 priority: priority,
                 format: format,
-                timestamp: Date()
+                timestamp: Date(),
+                workState: workState
             )
             if let pidValue {
                 tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)

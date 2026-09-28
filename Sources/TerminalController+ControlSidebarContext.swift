@@ -26,9 +26,11 @@ extension TerminalController: ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        workState: ControlSidebarAgentWorkState?
     ) {
         let appFormat = SidebarMetadataFormat(rawValue: format.rawValue) ?? .plain
+        let appWorkState = workState.flatMap { SidebarAgentWorkState(rawValue: $0.rawValue) }
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
             guard Self.shouldReplaceStatusEntry(
                 current: owner.statusEntry(key: key, panelId: panelID),
@@ -38,7 +40,8 @@ extension TerminalController: ControlSidebarContext {
                 color: color,
                 url: url,
                 priority: priority,
-                format: appFormat
+                format: appFormat,
+                workState: appWorkState
             ) else {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pid {
@@ -54,7 +57,8 @@ extension TerminalController: ControlSidebarContext {
                 url: url,
                 priority: priority,
                 format: appFormat,
-                timestamp: Date()
+                timestamp: Date(),
+                workState: appWorkState
             ), key: key, panelId: panelID)
             if let pid {
                 owner.recordAgentPID(key: key, pid: pid, panelId: panelID)
