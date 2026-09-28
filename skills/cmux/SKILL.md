@@ -38,9 +38,9 @@ cmux trigger-flash --surface surface:7
 When you give the user a command to run themselves, also offer it as a block so they can copy it exactly or run it with one click instead of selecting text out of the terminal:
 
 ```bash
-cmux code-block --lang bash --label "Run the migration" -- npm run db:migrate
+cmux code-block --lang bash --label "Run the migration" -- 'npm run db:migrate -- --env "staging"'
 
-# Multi-line text, heredocs and quotes: pass it on stdin so newlines survive.
+# The text is ONE quoted argument, or stdin. Use stdin for multi-line text so newlines survive.
 cmux code-block --lang bash --label "Write the env file" <<'BLOCK'
 cat <<'ENV' > .env.local
 API_URL=http://localhost:3000

@@ -26,7 +26,7 @@ enum TerminalCodeBlockStrings {
     static var reviewMessage: String {
         String(
             localized: "terminal.codeBlock.review.message",
-            defaultValue: "cmux types the command below at the prompt of a new split in the same directory. Nothing runs until you press Return there."
+            defaultValue: "cmux opens a new split in the same directory and types the command below at its prompt, or puts it on the clipboard if that shell can't take a multi-line paste safely. Nothing runs until you press Return there."
         )
     }
     static var reviewConfirm: String {
@@ -71,12 +71,19 @@ struct TerminalCodeBlockActionButtons: View {
             Button {
                 onCopy()
                 copied = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { copied = false }
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(1400))
+                    copied = false
+                }
             } label: {
-                Label(
-                    isShowingCopied ? TerminalCodeBlockStrings.copied : TerminalCodeBlockStrings.copy,
-                    systemImage: isShowingCopied ? "checkmark" : "doc.on.doc"
-                )
+                // Both labels are laid out so the button keeps the wider
+                // width and the overlay frame never clips "Copied".
+                ZStack {
+                    Label(TerminalCodeBlockStrings.copied, systemImage: "checkmark")
+                        .opacity(isShowingCopied ? 1 : 0)
+                    Label(TerminalCodeBlockStrings.copy, systemImage: "doc.on.doc")
+                        .opacity(isShowingCopied ? 0 : 1)
+                }
             }
             .buttonStyle(TerminalCodeBlockButtonStyle())
             .help(TerminalCodeBlockStrings.copyHelp)

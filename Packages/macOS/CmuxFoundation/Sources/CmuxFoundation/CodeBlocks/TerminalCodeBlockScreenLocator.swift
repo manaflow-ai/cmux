@@ -19,9 +19,19 @@ public struct TerminalCodeBlockScreenLocator: Sendable {
     ///   - lines: The block as written (fence body or offered text lines).
     ///   - rows: The screen, one string per grid row.
     public func locate(_ lines: [String], in rows: [String]) -> ClosedRange<Int>? {
+        locate(lines, inSquashedScreen: squashedScreen(rows))
+    }
+
+    /// The screen in the form ``locate(_:inSquashedScreen:)`` compares
+    /// against; compute once when locating several blocks.
+    public func squashedScreen(_ rows: [String]) -> [String] {
+        rows.map { Self.squashed(Self.strippingDecoration($0)) }
+    }
+
+    /// ``locate(_:in:)`` against a screen from ``squashedScreen(_:)``.
+    public func locate(_ lines: [String], inSquashedScreen screen: [String]) -> ClosedRange<Int>? {
         let target = lines.map(Self.squashed).filter { !$0.isEmpty }
         guard let first = target.first else { return nil }
-        let screen = rows.map { Self.squashed(Self.strippingDecoration($0)) }
         var start = screen.count - 1
         while start >= 0 {
             let row = screen[start]
@@ -84,6 +94,16 @@ public struct TerminalCodeBlockRunPolicy: Sendable {
         return paste.contains("\n")
             || paste.count > reviewCharacterThreshold
             || paste != unsanitized
+    }
+
+    /// Whether `text` may be typed into a shell now.
+    ///
+    /// Typed text reaches the shell as a paste. A newline in a paste is
+    /// Return unless the line editor has bracketed paste (DEC mode 2004) on,
+    /// so a multi-line command waits for that mode; a one-line command has
+    /// no newline to run it.
+    public func mayPaste(_ text: String, bracketedPasteActive: Bool) -> Bool {
+        !pasteText(text).contains("\n") || bracketedPasteActive
     }
 
     /// The text Run pastes: control characters other than newline and tab

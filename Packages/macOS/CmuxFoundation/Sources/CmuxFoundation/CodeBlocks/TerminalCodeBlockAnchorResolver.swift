@@ -24,14 +24,19 @@ public struct TerminalCodeBlockAnchorResolver: Sendable {
     ///
     /// - Parameters:
     ///   - rows: The viewport, one string per grid row.
+    ///   - unwrappedLines: The same viewport with soft-wrapped rows joined
+    ///     (Ghostty's viewport text). Screen fences take their copy text from
+    ///     here so a wrapped long line stays one line; `nil` uses `rows`.
     ///   - offered: Blocks offered through `cmux code-block`, oldest first.
     ///   - transcript: Fences from the pane's agent transcript, oldest first.
     public func anchors(
         rows: [String],
+        unwrappedLines: [String]? = nil,
         offered: [TerminalCodeBlock] = [],
         transcript: [AgentTranscriptCodeBlockExtractor.Entry] = []
     ) -> [TerminalCodeBlockAnchor] {
         let locator = TerminalCodeBlockScreenLocator()
+        let screen = locator.squashedScreen(rows)
         var claimed: [TerminalCodeBlockAnchor] = []
 
         func claim(_ anchor: TerminalCodeBlockAnchor) {
@@ -41,22 +46,22 @@ public struct TerminalCodeBlockAnchorResolver: Sendable {
 
         for block in offered.reversed() {
             let lines = block.text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-            if let range = locator.locate(lines, in: rows) {
+            if let range = locator.locate(lines, inSquashedScreen: screen) {
                 claim(TerminalCodeBlockAnchor(block: block, rows: range))
             }
         }
         for entry in transcript.reversed() {
-            if let range = locator.locate(entry.fence.body, in: rows) {
+            if let range = locator.locate(entry.fence.body, inSquashedScreen: screen) {
                 claim(TerminalCodeBlockAnchor(block: entry.block, rows: range))
             }
         }
         let cleaner = TerminalCodeBlockText()
-        for fence in TerminalCodeFenceParser().fences(inLines: rows, includeUnclosed: false) {
-            guard let closing = fence.closingLine else { continue }
+        for fence in TerminalCodeFenceParser().fences(inLines: unwrappedLines ?? rows, includeUnclosed: false) {
             let text = cleaner.copyText(for: fence)
-            guard !text.isEmpty else { continue }
+            guard !text.isEmpty,
+                  let range = locator.locate(fence.body, inSquashedScreen: screen) else { continue }
             let block = TerminalCodeBlock(text: text, language: fence.infoString, origin: .screen)
-            claim(TerminalCodeBlockAnchor(block: block, rows: fence.openingLine...closing))
+            claim(TerminalCodeBlockAnchor(block: block, rows: range))
         }
         return claimed.sorted { $0.rows.lowerBound < $1.rows.lowerBound }
     }

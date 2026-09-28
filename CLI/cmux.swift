@@ -7391,12 +7391,20 @@ struct CMUXCLI {
                         if arg.hasPrefix("--") {
                             throw CLIError(message: "code-block: unknown flag '\(arg)'")
                         }
+                        // Flags end at the text, so later words stay text.
+                        cbOptionsEnded = true
                         cbPositional.append(arg)
                     }
                 }
                 cbIndex += 1
             }
-            var cbText = cbPositional.joined(separator: " ")
+            // Re-joining several words would drop the shell quoting the user
+            // needs (`grep "a b"` would become `grep a b`), so the text is
+            // one argument or stdin.
+            guard cbPositional.count <= 1 else {
+                throw CLIError(message: "code-block: pass the text as one quoted argument, or on stdin")
+            }
+            var cbText = cbPositional.first ?? ""
             if !cbClear, cbPositional.isEmpty {
                 guard isatty(STDIN_FILENO) != 1 else {
                     throw CLIError(message: "code-block: pass the text as arguments or on stdin")
@@ -7405,15 +7413,12 @@ struct CMUXCLI {
                 while cbText.hasSuffix("\n") { cbText.removeLast() }
             }
             let cbEnv = ProcessInfo.processInfo.environment
-            let cbWsId = try resolveWorkspaceIdAllowingFallback(
-                cbWorkspaceArg ?? cbEnv["CMUX_WORKSPACE_ID"],
-                client: client
-            )
-            let cbSurfaceId = try resolveSurfaceIdAllowingFallback(
-                cbSurfaceArg ?? cbEnv["CMUX_SURFACE_ID"],
-                workspaceId: cbWsId,
-                client: client
-            )
+            // Explicit handles resolve strictly; only the caller's own env
+            // falls back (a restored pane can carry a stale id).
+            let cbWsId = try cbWorkspaceArg.map { try resolveWorkspaceId($0, client: client) }
+                ?? resolveWorkspaceIdAllowingFallback(cbEnv["CMUX_WORKSPACE_ID"], client: client)
+            let cbSurfaceId = try cbSurfaceArg.map { try resolveSurfaceId($0, workspaceId: cbWsId, client: client) }
+                ?? resolveSurfaceIdAllowingFallback(cbEnv["CMUX_SURFACE_ID"], workspaceId: cbWsId, client: client)
             var cbParams: [String: Any] = ["workspace_id": cbWsId, "surface_id": cbSurfaceId]
             if cbClear {
                 cbParams["clear"] = true
@@ -19835,16 +19840,16 @@ struct CMUXCLI {
             """
         case "code-block":
             return """
-            Usage: cmux code-block [--label <text>] [--lang <tag>] [--run|--no-run] [--surface <id|ref>] [--] [text...]
+            Usage: cmux code-block [--label <text>] [--lang <tag>] [--run|--no-run] [--surface <id|ref>] [--] [text]
                    cmux code-block --clear
 
             Hand the user a block of code as a card on your terminal pane, with a
             Copy button that copies the exact text and, for shell blocks, a Run
             button. Run opens a new split in the pane's directory and types the
             command at its prompt; it never presses Return, and multi-line or long
-            commands are shown in full first. Text comes from the arguments after
-            the flags, or from stdin when there are none, so heredocs keep their
-            newlines.
+            commands are shown in full first. The text is one quoted argument after
+            the flags, or stdin when there is none, so quoting and heredoc newlines
+            are kept exactly.
 
             Flags:
               --label <text>          Card title
@@ -19855,7 +19860,7 @@ struct CMUXCLI {
               --workspace <id|ref>    Workspace context (default: $CMUX_WORKSPACE_ID)
 
             Example:
-              cmux code-block --lang bash --label "Run the tests" -- npm test
+              cmux code-block --lang bash --label "Run the tests" -- 'npm test -- --grep "login flow"'
               cmux code-block --lang bash --label "Write the env file" <<'EOF'
               cat <<'ENV' > .env.local
               API_URL=http://localhost:3000

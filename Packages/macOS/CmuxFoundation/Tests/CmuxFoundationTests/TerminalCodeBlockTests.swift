@@ -194,6 +194,27 @@ struct TerminalCodeBlockTests {
         #expect(policy.pasteText("echo \u{1B}[201~hi\u{07}") == "echo [201~hi")
     }
 
+    @Test("A multi-line command is pasted only while bracketed paste is on")
+    func multilinePasteNeedsBracketedPaste() {
+        let policy = TerminalCodeBlockRunPolicy()
+        #expect(policy.mayPaste("make test", bracketedPasteActive: false))
+        #expect(policy.mayPaste("make test\n", bracketedPasteActive: false))
+        #expect(!policy.mayPaste("cd app\nmake", bracketedPasteActive: false))
+        #expect(policy.mayPaste("cd app\nmake", bracketedPasteActive: true))
+    }
+
+    @Test("A soft-wrapped screen fence copies as one line")
+    func softWrappedScreenFence() {
+        // The terminal wrapped one long line across two rows; the unwrapped
+        // viewport text has it whole.
+        let rows = ["```bash", "gh workflow run ci.yml --repo example/app --re", "f main", "```"]
+        let unwrapped = ["```bash", "gh workflow run ci.yml --repo example/app --ref main", "```"]
+        let anchors = TerminalCodeBlockAnchorResolver().anchors(rows: rows, unwrappedLines: unwrapped)
+        #expect(anchors.count == 1)
+        #expect(anchors.first?.block.text == "gh workflow run ci.yml --repo example/app --ref main")
+        #expect(anchors.first?.rows == 1...2)
+    }
+
     @Test("Multi-line, long, or sanitized commands need review; short ones do not")
     func reviewRules() {
         let policy = TerminalCodeBlockRunPolicy(reviewCharacterThreshold: 20)

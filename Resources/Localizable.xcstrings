@@ -566514,55 +566514,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux types the command below at the prompt of a new split in the same directory. Nothing runs until you press Return there."
+            "value": "cmux opens a new split in the same directory and types the command below at its prompt, or puts it on the clipboard if that shell can't take a multi-line paste safely. Nothing runs until you press Return there."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يكتب cmux الأمر أدناه في سطر الأوامر لتقسيم جديد في المجلد نفسه. لا يُنفَّذ شيء حتى تضغط على Return هناك."
+            "value": "يفتح cmux تقسيمًا جديدًا في المجلد نفسه ويكتب الأمر أدناه في سطر الأوامر، أو يضعه في الحافظة إذا كانت تلك الصدفة لا تستطيع استقبال لصق متعدد الأسطر بأمان. لا يُنفَّذ شيء حتى تضغط على Return هناك."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux tippt den folgenden Befehl an der Eingabeaufforderung eines neuen Splits im selben Verzeichnis ein. Nichts wird ausgeführt, bis du dort Return drückst."
+            "value": "cmux öffnet einen neuen Split im selben Verzeichnis und tippt den folgenden Befehl an der Eingabeaufforderung ein, oder legt ihn in die Zwischenablage, wenn diese Shell mehrzeiliges Einfügen nicht sicher verarbeitet. Nichts wird ausgeführt, bis du dort Return drückst."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux escribe el siguiente comando en el prompt de una nueva división en el mismo directorio. No se ejecuta nada hasta que pulses Retorno allí."
+            "value": "cmux abre una nueva división en el mismo directorio y escribe el siguiente comando en su prompt, o lo copia al portapapeles si ese shell no admite pegar varias líneas de forma segura. No se ejecuta nada hasta que pulses Retorno allí."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux saisit la commande ci-dessous à l’invite d’une nouvelle division dans le même dossier. Rien ne s’exécute avant que vous y appuyiez sur Retour."
+            "value": "cmux ouvre une nouvelle division dans le même dossier et saisit la commande ci-dessous à l’invite, ou la place dans le presse-papiers si ce shell ne peut pas recevoir un collage multiligne en toute sécurité. Rien ne s’exécute avant que vous y appuyiez sur Retour."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux は同じディレクトリの新しい分割のプロンプトに下のコマンドを入力します。そこで Return を押すまで何も実行されません。"
+            "value": "cmux は同じディレクトリに新しい分割を開き、下のコマンドをプロンプトに入力します。そのシェルが複数行の貼り付けを安全に受け取れない場合はクリップボードに入れます。そこで Return を押すまで何も実行されません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 같은 디렉터리의 새 분할 창 프롬프트에 아래 명령을 입력합니다. 그곳에서 Return을 누르기 전에는 아무것도 실행되지 않습니다."
+            "value": "cmux가 같은 디렉터리에 새 분할 창을 열고 프롬프트에 아래 명령을 입력합니다. 해당 셸이 여러 줄 붙여넣기를 안전하게 받을 수 없으면 클립보드에 복사합니다. 그곳에서 Return을 누르기 전에는 아무것도 실행되지 않습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 会在同一目录的新分屏提示符处输入下方命令。在那里按下 Return 之前不会运行任何内容。"
+            "value": "cmux 会在同一目录打开新的分屏，并在提示符处输入下方命令；如果该 shell 无法安全接收多行粘贴，则改为放到剪贴板。在那里按下 Return 之前不会运行任何内容。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 會在同一目錄的新分割畫面提示字元輸入下方指令。在那裡按下 Return 前不會執行任何內容。"
+            "value": "cmux 會在同一目錄開啟新的分割畫面，並在提示字元輸入下方指令；若該 shell 無法安全接收多行貼上，則改為放到剪貼簿。在那裡按下 Return 前不會執行任何內容。"
           }
         }
       }

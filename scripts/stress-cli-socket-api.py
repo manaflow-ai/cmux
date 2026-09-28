@@ -944,7 +944,7 @@ def build_cli_cases(ctx: StressContext) -> list[CliCase]:
         CliCase("surface-health", ctx_argv(lambda c: ["surface-health", "--workspace", require(c.workspace_id, "workspace")]), covered_command="surface-health"),
         CliCase("debug-terminals", argv("debug-terminals"), covered_command="debug-terminals"),
         CliCase("trigger-flash", ctx_argv(lambda c: ["trigger-flash", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface")]), covered_command="trigger-flash"),
-        CliCase("code-block", ctx_argv(lambda c: ["code-block", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "--lang", "bash", "--label", "stress", "--", "echo", "stress"]), covered_command="code-block"),
+        CliCase("code-block", ctx_argv(lambda c: ["code-block", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "--lang", "bash", "--label", "stress", "--", "echo stress"]), covered_command="code-block"),
         CliCase("list-panels", ctx_argv(lambda c: ["list-panels", "--workspace", require(c.workspace_id, "workspace")]), covered_command="list-panels"),
         CliCase("focus-panel", ctx_argv(lambda c: ["focus-panel", "--workspace", require(c.workspace_id, "workspace"), "--panel", require(c.surface_id, "surface")]), covered_command="focus-panel"),
         CliCase("close-surface-help", argv("close-surface", "--help"), no_socket=True, covered_command="close-surface"),

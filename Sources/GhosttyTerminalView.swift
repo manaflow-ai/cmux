@@ -10876,7 +10876,8 @@ final class GhosttySurfaceScrollView: NSView {
            let hit = overlay.hitTest(convert(point, to: overlay)) {
             return hit
         }
-        if let hit = codeBlocks.hitTest(hostPoint: point) {
+        // `point` is in the superview's space; the overlays are subviews.
+        if let hit = codeBlocks.hitTest(hostPoint: convert(point, from: superview)) {
             return hit
         }
         return super.hitTest(point)

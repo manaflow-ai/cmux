@@ -29,7 +29,9 @@ final class TerminalCodeBlockController {
     /// Delay between a new split's first prompt report and the paste, so the
     /// shell's line editor has turned bracketed paste on.
     private static let promptPasteDelay: TimeInterval = 0.25
-    /// Deadline for a new split's shell to report its prompt.
+    /// How often a pending paste re-checks the new shell's paste mode.
+    private static let pasteCheckInterval: TimeInterval = 0.15
+    /// Deadline for a new split's shell to become ready for the paste.
     private static let promptPasteDeadline: TimeInterval = 6
 
     private weak var host: GhosttySurfaceScrollView?
@@ -37,6 +39,8 @@ final class TerminalCodeBlockController {
     private var viewport: TerminalViewportRows?
     private var anchors: [TerminalCodeBlockAnchor] = []
     private var viewportReadAt = Date.distantPast
+    /// Inputs of the last anchor computation, to skip unchanged recomputes.
+    private var lastAnchorInputs: AnchorInputs?
 
     private var transcriptEntries: [AgentTranscriptCodeBlockExtractor.Entry] = []
     private var transcriptStamp: TranscriptStamp?
@@ -52,6 +56,8 @@ final class TerminalCodeBlockController {
 
     private(set) var offered: [TerminalCodeBlock] = []
     private var pendingPaste: String?
+    private var pendingPasteDeadline = Date.distantPast
+    private var pendingPastePromptSeen = false
 
     init(host: GhosttySurfaceScrollView) {
         self.host = host
@@ -59,7 +65,7 @@ final class TerminalCodeBlockController {
 
     // MARK: Pointer
 
-    /// Called from the terminal view's mouse-moved and mouse-entered events.
+    /// Called from the terminal view's mouse-moved events.
     func pointerMoved(to point: NSPoint, in surfaceView: NSView) {
         guard NSEvent.pressedMouseButtons == 0 else {
             hidePill()
@@ -87,7 +93,7 @@ final class TerminalCodeBlockController {
     }
 
     private func revalidatePointer() {
-        guard let host, let window = host.window else {
+        guard let host, let window = host.window, !host.isHiddenOrHasHiddenAncestor else {
             hidePill()
             return
         }
@@ -105,6 +111,8 @@ final class TerminalCodeBlockController {
     }
 
     private func update(forSurfacePoint point: NSPoint, surfaceView: NSView) {
+        // The review popover is anchored to the current pill; keep it.
+        guard reviewPopover == nil else { return }
         guard let host, let viewport, let geometry = RowGeometry(viewport: viewport, surfaceView: surfaceView) else {
             hidePill()
             return
@@ -143,18 +151,20 @@ final class TerminalCodeBlockController {
             anchors = []
             return
         }
-        // Row-by-row reads cost one runtime call per row. With nothing offered
-        // and no agent transcript, only a literal fence can match, so one
-        // whole-viewport read decides whether the row read is needed.
-        if offered.isEmpty, transcriptEntries.isEmpty {
-            let visible = terminalSurface.readText(region: .viewport) ?? ""
-            guard visible.contains("```") || visible.contains("~~~") else {
-                viewport = nil
-                anchors = []
-                return
-            }
-        }
-        guard let rows = terminalSurface.readViewportRows() else {
+        // One whole-viewport read (soft wraps joined) is cheap; the row read
+        // costs one runtime call per row. Skip the row read when nothing on
+        // screen or in the inputs changed, or when nothing could match.
+        let visible = terminalSurface.readText(region: .viewport) ?? ""
+        let inputs = AnchorInputs(
+            visible: visible,
+            offeredIDs: offered.map(\.id),
+            transcriptIDs: transcriptEntries.map(\.block.id)
+        )
+        if inputs == lastAnchorInputs, viewport != nil { return }
+        lastAnchorInputs = inputs
+        let hasFence = visible.contains("```") || visible.contains("~~~")
+        guard hasFence || !offered.isEmpty || !transcriptEntries.isEmpty,
+              let rows = terminalSurface.readViewportRows() else {
             viewport = nil
             anchors = []
             return
@@ -162,7 +172,8 @@ final class TerminalCodeBlockController {
         viewport = rows
         anchors = TerminalCodeBlockAnchorResolver().anchors(
             rows: rows.rows,
-            offered: offered,
+            unwrappedLines: visible.split(separator: "\n", omittingEmptySubsequences: false).map(String.init),
+            offered: Array(offered.reversed()),
             transcript: transcriptEntries
         )
     }
@@ -171,7 +182,8 @@ final class TerminalCodeBlockController {
         guard transcriptLoad == nil,
               let surfaceID = host?.surfaceView.terminalSurface?.id,
               let service = TerminalController.shared.agentChatTranscriptService,
-              let path = service.registry.liveSession(surfaceID: surfaceID.uuidString)?.transcriptPath,
+              let record = service.registry.liveSession(surfaceID: surfaceID.uuidString),
+              let path = service.resolver.boundedTranscriptPath(for: record),
               !path.isEmpty else {
             if transcriptLoad == nil { transcriptEntries = [] }
             return
@@ -255,8 +267,14 @@ final class TerminalCodeBlockController {
     /// pointer event; re-check on a slow timer.
     private func startRevalidating() {
         guard revalidateTimer == nil else { return }
-        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.revalidatePointer() }
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self else {
+                    timer.invalidate()
+                    return
+                }
+                self.revalidatePointer()
+            }
         }
         RunLoop.main.add(timer, forMode: .common)
         revalidateTimer = timer
@@ -275,7 +293,7 @@ final class TerminalCodeBlockController {
         offered.insert(block, at: 0)
         if offered.count > Self.offeredLimit { offered.removeLast(offered.count - Self.offeredLimit) }
         viewportReadAt = .distantPast
-        layoutTray()
+        rebuildTray()
     }
 
     /// Removes offered blocks: one by id, or all.
@@ -286,11 +304,11 @@ final class TerminalCodeBlockController {
             offered.removeAll()
         }
         viewportReadAt = .distantPast
-        layoutTray()
+        rebuildTray()
     }
 
-    /// Positions the offered cards; call after the pane resizes.
-    func layoutTray() {
+    /// Rebuilds the offered cards after `offered` changes.
+    private func rebuildTray() {
         guard let host else { return }
         guard !offered.isEmpty else {
             trayView?.removeFromSuperview()
@@ -317,6 +335,12 @@ final class TerminalCodeBlockController {
             )
         )
         container.install(hosting)
+        layoutTray()
+    }
+
+    /// Positions the offered cards; the host calls this on every layout.
+    func layoutTray() {
+        guard let host, let container = trayView else { return }
         let surfaceView = host.surfaceView
         let size = container.fittingSize
         let topRight = surfaceView.convert(NSPoint(x: surfaceView.bounds.maxX, y: surfaceView.bounds.maxY), to: host)
@@ -386,39 +410,63 @@ final class TerminalCodeBlockController {
 
     // MARK: Paste into a new split
 
-    /// Holds `text` until this pane's shell reports its first prompt.
+    /// Types `text` at this pane's prompt once its shell is ready for it.
     ///
-    /// A shell pastes a newline as Return unless its line editor has turned
-    /// bracketed paste on, so a multi-line command waits for the prompt. When
-    /// the shell never reports one (no cmux shell integration) a one-line
-    /// command is still typed, since it contains no newline; a multi-line one
-    /// goes to the clipboard instead, where Cmd+V gets the terminal's own
-    /// paste protection.
+    /// Typed text reaches the shell as a paste, and a pasted newline is Return
+    /// unless the line editor has bracketed paste (DEC mode 2004) on. So a
+    /// multi-line command is typed only once the terminal reports that mode;
+    /// if it never does (bash 3.2, a shell with it disabled) the command goes
+    /// to the clipboard instead, where Cmd+V gets the terminal's own paste
+    /// protection. A one-line command has no newline to run it and is typed
+    /// at the first prompt report, or at the deadline.
     func pasteAtFirstPrompt(_ text: String) {
         pendingPaste = text
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.promptPasteDeadline) { [weak self] in
-            self?.deliverPendingPaste(promptConfirmed: false)
-        }
+        pendingPasteDeadline = Date().addingTimeInterval(Self.promptPasteDeadline)
+        pendingPastePromptSeen = false
+        schedulePasteCheck(after: Self.pasteCheckInterval)
     }
 
     /// Called when this pane's shell reports an idle prompt.
     func shellDidReportPrompt() {
         guard pendingPaste != nil else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.promptPasteDelay) { [weak self] in
-            self?.deliverPendingPaste(promptConfirmed: true)
+        pendingPastePromptSeen = true
+        schedulePasteCheck(after: Self.promptPasteDelay)
+    }
+
+    private func schedulePasteCheck(after delay: TimeInterval) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.checkPendingPaste()
         }
     }
 
-    private func deliverPendingPaste(promptConfirmed: Bool) {
+    private func checkPendingPaste() {
         guard let text = pendingPaste else { return }
-        pendingPaste = nil
-        guard let terminalSurface = host?.surfaceView.terminalSurface else { return }
-        if promptConfirmed || !text.contains("\n") {
-            _ = terminalSurface.sendTextResult(text)
-        } else {
-            _ = GhosttyApp.terminalPasteboard.writeString(text, to: .general)
+        guard let terminalSurface = host?.surfaceView.terminalSurface else {
+            pendingPaste = nil
+            return
         }
+        let policy = TerminalCodeBlockRunPolicy()
+        let bracketed = terminalSurface.isBracketedPasteActive()
+        if policy.mayPaste(text, bracketedPasteActive: bracketed),
+           bracketed || pendingPastePromptSeen || Date() >= pendingPasteDeadline {
+            pendingPaste = nil
+            _ = terminalSurface.sendTextResult(text)
+            return
+        }
+        if Date() >= pendingPasteDeadline {
+            pendingPaste = nil
+            _ = GhosttyApp.terminalPasteboard.writeString(text, to: .general)
+            return
+        }
+        schedulePasteCheck(after: Self.pasteCheckInterval)
     }
+}
+
+/// What the last anchor computation read.
+private struct AnchorInputs: Equatable {
+    let visible: String
+    let offeredIDs: [String]
+    let transcriptIDs: [String]
 }
 
 /// Maps between grid rows and the surface view's vertical positions.
