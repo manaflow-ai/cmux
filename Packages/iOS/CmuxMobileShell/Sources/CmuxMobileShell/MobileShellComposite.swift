@@ -3572,7 +3572,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             var attemptedForegroundConnect = false
             for await arrival in dialRace.arrivals {
-                let client = dialRace.claim(arrival)
+                guard let client = dialRace.claim(arrival) else { break }
                 let mac = arrival.mac
                 guard generation == storedMacReconnectGeneration,
                       await isScopeCurrent(scope) else {

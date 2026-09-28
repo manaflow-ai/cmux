@@ -71,8 +71,12 @@ final class ZeroTouchDialRace {
     }
 
     /// Takes ownership of a yielded client so ``close()`` leaves it alone.
-    func claim(_ arrival: Arrival) -> MobileCoreRPCClient {
-        unclaimedClients[ObjectIdentifier(arrival.client)] = nil
+    /// Returns `nil` for an arrival still buffered when the race closed; the
+    /// race already released that client.
+    func claim(_ arrival: Arrival) -> MobileCoreRPCClient? {
+        guard !isClosed,
+              unclaimedClients.removeValue(forKey: ObjectIdentifier(arrival.client)) != nil
+        else { return nil }
         startQueuedDials()
         return arrival.client
     }

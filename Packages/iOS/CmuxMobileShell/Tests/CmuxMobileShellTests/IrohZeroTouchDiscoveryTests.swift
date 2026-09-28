@@ -714,9 +714,11 @@ struct IrohZeroTouchDiscoveryTests {
             shell.connectionState == .connected
                 && shell.foregroundMacDeviceID == live.deviceID
         }
-        var stalledDialsStillHeld = true
-        for router in stalledRouters where await router.heldRequestCount() != 1 {
-            stalledDialsStillHeld = false
+        let stalledDialsStillHeld = try await pollUntil {
+            for router in stalledRouters where await router.heldRequestCount() != 1 {
+                return false
+            }
+            return true
         }
         for router in stalledRouters {
             await router.releaseAllHeld()
@@ -774,6 +776,13 @@ struct IrohZeroTouchDiscoveryTests {
         for router in stalledRouters {
             await router.delayHostStatusRequest(number: 1)
         }
+        // The first stalled Mac answers as a different Mac once released, so
+        // its authentication fails and the race stays open for the live dial.
+        await stalledRouters[0].setHostIdentity(
+            deviceID: "mac-impostor",
+            instanceTag: stalled[0].instanceTag,
+            displayName: "Impostor"
+        )
         let factory = RoutedZeroTouchFactory(routers: routers)
         let shell = MobileShellComposite(
             runtime: LivenessTestRuntime(
@@ -811,19 +820,18 @@ struct IrohZeroTouchDiscoveryTests {
         }
         let liveDialedWhileWindowFull = factory.attemptedRouteIDs()
             .contains(live.routes[0].id)
-        // Freeing one slot starts the queued live dial. (The released Mac
-        // also answers, so either may become the foreground; this test only
-        // pins the queueing.)
+        // Freeing one slot starts the queued live dial, which then connects.
         await stalledRouters[0].releaseAllHeld()
-        let liveDialedAfterSlotFreed = try await pollUntil {
-            factory.attemptedRouteIDs().contains(live.routes[0].id)
+        let liveConnectedAfterSlotFreed = try await pollUntil {
+            shell.connectionState == .connected
+                && shell.foregroundMacDeviceID == live.deviceID
         }
         for router in stalledRouters {
             await router.releaseAllHeld()
         }
         #expect(windowFilled)
         #expect(!liveDialedWhileWindowFull)
-        #expect(liveDialedAfterSlotFreed)
+        #expect(liveConnectedAfterSlotFreed)
         #expect(await reconnect.value)
     }
 
