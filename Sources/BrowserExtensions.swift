@@ -1424,7 +1424,9 @@ final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
         _ = located.workspace.closePanel(panel.id)
     }
 
-    func takeSnapshot(using configuration: WKSnapshotConfiguration, for context: WKWebExtensionContext) async throws -> NSImage? {
+    // The Swift async name WebKit declares (WK_SWIFT_ASYNC_NAME) is
+    // `snapshot(using:for:)`; any other name is never called.
+    func snapshot(using configuration: WKSnapshotConfiguration, for context: WKWebExtensionContext) async throws -> NSImage? {
         // The capture is asynchronous, so the page can navigate while it runs.
         // Refuse during a load, and drop the image unless the same document
         // in the same web view is still showing and still accessible.
