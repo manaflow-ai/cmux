@@ -543,14 +543,17 @@ try {
     await timed("pause", async () => {
       expectStatus(await api("POST", `/api/vm/${encodeURIComponent(vmId)}/pause`, {}, 3 * 60 * 1000), [200, 202], "pause");
     });
-    // Is the machine asleep? What the control plane says, and whether the
-    // terminal still runs commands.
+    // Is the machine asleep? Whether the terminal still runs commands within
+    // 5 s of pause returning, and what the control plane says.
+    const liveDeadline = Date.now() + 5_000;
+    await typeLine(terminal, `echo ${marker}-$((2+2))`).catch((error) => note(`terminal write while paused failed: ${error.message.slice(0, 120)}`));
+    const liveWindowMs = liveDeadline - Date.now();
+    if (liveWindowMs <= 0) note("terminal write while paused took over 5 s");
+    result.terminalLiveWhilePaused = liveWindowMs > 0
+      && await waitForScreen(localSocket, terminal, `${marker}-4`, liveWindowMs).then(() => true, () => false);
     const shown = await api("GET", `/api/vm/${encodeURIComponent(vmId)}`)
       .catch((error) => ({ status: 0, json: null, text: error.message }));
     result.statusAfterPause = shown.json?.status ?? `http ${shown.status}`;
-    await typeLine(terminal, `echo ${marker}-$((2+2))`).catch((error) => note(`terminal write while paused failed: ${error.message.slice(0, 120)}`));
-    result.terminalLiveWhilePaused = await waitForScreen(localSocket, terminal, `${marker}-4`, 5_000)
-      .then(() => true, () => false);
     if (result.terminalLiveWhilePaused) note("the terminal still ran a command after pause returned");
     // How the headless client reports a sleeping machine.
     const lostAfter = await link.waitFor((event) => event.event === "connection-snapshot" && event.connection?.state !== "connected", 60_000, "non-connected snapshot after pause", beforePause)
