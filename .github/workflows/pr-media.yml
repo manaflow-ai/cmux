@@ -215,7 +215,11 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pr-media-${{ matrix.tour }}
-          path: ${{ runner.temp }}/media/${{ matrix.tour }}
+          # The folder above the tour's, so the archive holds <tour>/...: a
+          # download of a single artifact lands without a per-artifact folder.
+          # The hidden .frames-<tour> scratch next to it stays out
+          # (include-hidden-files defaults to false).
+          path: ${{ runner.temp }}/media
           if-no-files-found: ignore
           overwrite: true
           retention-days: 3
@@ -249,7 +253,7 @@ jobs:
         with:
           pattern: pr-media-*
           path: ${{ runner.temp }}/media
-          merge-multiple: false
+          merge-multiple: true
 
       - name: Upload the media and update the dogfood comment
         env:
@@ -260,8 +264,4 @@ jobs:
           TOURS: ${{ needs.plan.outputs.tours }}
         run: |
           set -euo pipefail
-          # download-artifact puts each artifact in a folder named for it.
-          for dir in "$RUNNER_TEMP"/media/pr-media-*; do
-            [ -d "$dir" ] && mv "$dir" "$RUNNER_TEMP/media/${dir##*/pr-media-}"
-          done
           python3 scripts/ci/pr_media.py publish --media "$RUNNER_TEMP/media"

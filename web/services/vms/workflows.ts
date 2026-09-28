@@ -167,6 +167,20 @@ export type VmEntry = {
   readonly displayName: string | null;
   /** Generated three-word name (services/vms/vmNaming.ts); null on rows older than the column. */
   readonly slug: string | null;
+  /**
+   * The account that made the machine. A team's list is scoped by owner team,
+   * not by member, so without this a shared account is a pile of generated
+   * names with no way to tell whose is whose. It is an opaque id; the name to
+   * show for it comes from `services/vms/creators.ts`. Never null:
+   * `cloud_vms.user_id` is NOT NULL and has been there since the table was
+   * created (20260425062520_keen_kronos).
+   */
+  readonly createdByUserId: string;
+  /**
+   * The team that owns the machine, or the creator's own id for a personal
+   * machine. Creator names resolve only for current members of this team.
+   */
+  readonly ownerTeamId: string;
   /** The machine's address on its owner's private network, when it has one. */
   readonly addressIpv4: string | null;
   readonly addressIpv6: string | null;
@@ -4687,6 +4701,8 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     createdAt: row.createdAt.getTime(),
     displayName: row.displayName ?? null,
     slug: row.slug ?? null,
+    createdByUserId: row.userId,
+    ownerTeamId: row.ownerTeamId,
     addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
     cmuxTuiContract: typeof metadata["cmuxTuiContract"] === "string" ? metadata["cmuxTuiContract"] : null,

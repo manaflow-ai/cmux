@@ -3237,8 +3237,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let windowId = appDelegate.createMainWindow(sessionWindowSnapshot: snapshot)
         defer { closeWindow(withId: windowId) }
 
-        guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected tab manager for created window")
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected window and tab manager for created window")
             return
         }
 
@@ -3255,6 +3256,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // collapsed sidebar, but the selected workspace's live Bonsplit inset is stale.
         sourceWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset = 0
 
+        // This API deliberately routes to the focused window. Reassert focus after
+        // draining the run loop so unrelated window activity cannot redirect the test.
+        window.makeKeyAndOrderFront(nil)
         guard let createdWorkspace = appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "test.issue2737") else {
             XCTFail("Expected workspace creation to route to the test window")
             return
