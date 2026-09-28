@@ -115,6 +115,10 @@ final class MobilePairingModel {
     /// Observes host status while a code is shown and tracks new connections.
     /// Cancelled on each refresh.
     private var connectionObservationTask: Task<Void, Never>?
+    /// Observes the coordinator's team-scope stream while the sheet is open.
+    /// Kept separate from host status observation so the recovery refresh stays
+    /// owned and cancellable for the entire sheet lifetime.
+    private var teamScopeRecoveryTask: Task<Void, Never>?
     /// Bumped on each ``refresh()`` so a slower in-flight run (the UI fires
     /// refresh from several places) can't overwrite a newer result with a stale
     /// ticket. Each run captures its value and bails after an `await` if superseded.
@@ -165,7 +169,11 @@ final class MobilePairingModel {
         } ?? targets[0]
     }
 
-    deinit { preparationTimeoutTask?.cancel() }
+    deinit {
+        connectionObservationTask?.cancel()
+        teamScopeRecoveryTask?.cancel()
+        preparationTimeoutTask?.cancel()
+    }
 
     private var coordinator: AuthCoordinator? { coordinatorOverride ?? AppDelegate.shared?.auth?.coordinator }
 
@@ -189,8 +197,16 @@ final class MobilePairingModel {
     /// Re-evaluates sign-in and pairing opt-in before starting the v2 listener.
     /// Safe to call repeatedly when auth or settings change.
     func refresh() async {
+        await refresh(cancelTeamScopeRecovery: true)
+    }
+
+    private func refresh(cancelTeamScopeRecovery: Bool) async {
         connectionObservationTask?.cancel()
         connectionObservationTask = nil
+        if cancelTeamScopeRecovery {
+            teamScopeRecoveryTask?.cancel()
+            teamScopeRecoveryTask = nil
+        }
         refreshGeneration &+= 1
         let generation = refreshGeneration
         state = .loading
@@ -258,7 +274,7 @@ final class MobilePairingModel {
             observeHostStatus()
             return
         }
-        guard generation == refreshGeneration else { return }
+        guard generation == refreshGeneration, !Task.isCancelled else { return }
         receiveHostStatus(status, baselineConnectionCount: status.activeConnectionCount)
         observeHostStatus()
     }
@@ -304,6 +320,8 @@ final class MobilePairingModel {
         refreshGeneration &+= 1
         connectionObservationTask?.cancel()
         connectionObservationTask = nil
+        teamScopeRecoveryTask?.cancel()
+        teamScopeRecoveryTask = nil
         preparationTimeoutTask?.cancel()
         preparationTimeoutTask = nil
     }
@@ -312,15 +330,17 @@ final class MobilePairingModel {
     /// recovers without Try Again.
     private func observeTeamScopeRecovery(_ coordinator: AuthCoordinator) {
         connectionObservationTask?.cancel()
+        teamScopeRecoveryTask?.cancel()
         let generation = refreshGeneration
-        connectionObservationTask = Task { [weak self] in
+        teamScopeRecoveryTask = Task { [weak self] in
             for await scope in coordinator.authenticatedTeamScopes() where scope != nil {
                 guard let self, !Task.isCancelled, generation == self.refreshGeneration else { return }
-                // A new task: refresh() cancels this observer, and a cancelled
-                // task would cut short the listener readiness wait.
-                Task { [weak self] in
-                    guard let self, generation == self.refreshGeneration else { return }
-                    await self.refresh()
+                // Keep this refresh in the owned task. The refresh skips
+                // cancelling its own observer, while stopObserving() can still
+                // cancel the whole operation before listener startup.
+                await self.refresh(cancelTeamScopeRecovery: false)
+                if generation == self.refreshGeneration {
+                    self.teamScopeRecoveryTask = nil
                 }
                 return
             }

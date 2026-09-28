@@ -260698,65 +260698,381 @@
         }
       }
     },
-    "mobile.pairing.error.teamUnavailable": {
+    "cli.auth.status.teamNotLoaded": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not load your cmux team. Check your internet connection, then try again."
+            "value": "  team:     not loaded"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux チームを読み込めませんでした。インターネット接続を確認してから、もう一度お試しください。"
+            "value": "  チーム:   未読み込み"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法加载你的 cmux 团队。请检查网络连接，然后重试。"
+            "value": "  团队：    未加载"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dein cmux-Team konnte nicht geladen werden. Prüfe deine Internetverbindung und versuche es erneut."
+            "value": "  Team:     nicht geladen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de charger votre équipe cmux. Vérifiez votre connexion Internet, puis réessayez."
+            "value": "  équipe:   non chargée"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر تحميل فريق cmux الخاص بك. تحقّق من اتصالك بالإنترنت، ثم حاول مرة أخرى."
+            "value": "  الفريق:   لم يتم تحميله"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo cargar tu equipo de cmux. Comprueba tu conexión a internet e inténtalo de nuevo."
+            "value": "  equipo:   no cargado"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法載入你的 cmux 團隊。請檢查網路連線，然後再試一次。"
+            "value": "  團隊：    未載入"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 팀을 불러올 수 없습니다. 인터넷 연결을 확인한 후 다시 시도하세요."
+            "value": "  팀:       로드되지 않음"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  tim:      nije učitan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  team:     ikke indlæst"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  team:     non caricato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  ក្រុម៖    មិនទាន់បានផ្ទុក"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  team:     ikke lastet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  zespół:   nie załadowano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  equipe:   não carregada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  команда:  не загружена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  ทีม:       ยังไม่ได้โหลด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  ekip:     yüklenmedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  команда:  не завантажена"
           }
         }
       }
     },
+    "cli.auth.status.teamNotLoadedRetrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  team:     not loaded (retrying)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  チーム:   未読み込み（再試行中）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  团队：    未加载（正在重试）"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  Team:     nicht geladen (wird erneut versucht)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  équipe:   non chargée (nouvel essai)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  الفريق:   لم يتم تحميله (جارٍ إعادة المحاولة)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  equipo:   no cargado (reintentando)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  團隊：    未載入（重試中）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  팀:       로드되지 않음 (재시도 중)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  tim:      nije učitan (ponovni pokušaj)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  team:     ikke indlæst (prøver igen)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  team:     non caricato (nuovo tentativo)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  ក្រុម៖    មិនទាន់បានផ្ទុក (កំពុងព្យាយាមម្ដងទៀត)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  team:     ikke lastet (prøver igjen)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  zespół:   nie załadowano (ponawianie próby)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  equipe:   não carregada (tentando novamente)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  команда:  не загружена (повторная попытка)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  ทีม:       ยังไม่ได้โหลด (กำลังลองอีกครั้ง)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  ekip:     yüklenmedi (yeniden deneniyor)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  команда:  не завантажена (повторна спроба)"
+          }
+        }
+      }
+    },
+    "mobile.pairing.error.teamUnavailable": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Could not load your cmux team. Check your internet connection, then try again."
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "cmux チームを読み込めませんでした。インターネット接続を確認してから、もう一度お試しください。"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "无法加载你的 cmux 团队。请检查网络连接，然后重试。"
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Dein cmux-Team konnte nicht geladen werden. Prüfe deine Internetverbindung und versuche es erneut."
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Impossible de charger votre équipe cmux. Vérifiez votre connexion Internet, puis réessayez."
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "تعذّر تحميل فريق cmux الخاص بك. تحقّق من اتصالك بالإنترنت، ثم حاول مرة أخرى."
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "No se pudo cargar tu equipo de cmux. Comprueba tu conexión a internet e inténtalo de nuevo."
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "無法載入你的 cmux 團隊。請檢查網路連線，然後再試一次。"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "cmux 팀을 불러올 수 없습니다. 인터넷 연결을 확인한 후 다시 시도하세요."
+      }
+    },
+    "bs": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nije moguće učitati vaš cmux tim. Provjerite internetsku vezu i pokušajte ponovo."
+      }
+    },
+    "da": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Din cmux-team kunne ikke indlæses. Kontrollér din internetforbindelse, og prøv igen."
+      }
+    },
+    "it": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Impossibile caricare il tuo team cmux. Controlla la connessione Internet e riprova."
+      }
+    },
+    "km": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "មិនអាចផ្ទុកក្រុម cmux របស់អ្នកបានទេ។ សូមពិនិត្យការតភ្ជាប់អ៊ីនធឺណិត ហើយព្យាយាមម្ដងទៀត។"
+      }
+    },
+    "nb": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Kunne ikke laste inn cmux-teamet ditt. Kontroller internettilkoblingen, og prøv igjen."
+      }
+    },
+    "pl": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nie udało się załadować Twojego zespołu cmux. Sprawdź połączenie z internetem i spróbuj ponownie."
+      }
+    },
+    "pt-BR": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Não foi possível carregar sua equipe cmux. Verifique sua conexão com a internet e tente novamente."
+      }
+    },
+    "ru": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Не удалось загрузить вашу команду cmux. Проверьте подключение к интернету и попробуйте ещё раз."
+      }
+    },
+    "th": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ไม่สามารถโหลดทีม cmux ของคุณได้ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองอีกครั้ง"
+      }
+    },
+    "tr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "cmux ekibiniz yüklenemedi. İnternet bağlantınızı kontrol edip tekrar deneyin."
+      }
+    },
+    "uk": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Не вдалося завантажити вашу команду cmux. Перевірте підключення до інтернету й спробуйте ще раз."
+      }
+    }
+  }
+},
     "mobile.pairing.error.noTicket": {
       "extractionState": "manual",
       "localizations": {
