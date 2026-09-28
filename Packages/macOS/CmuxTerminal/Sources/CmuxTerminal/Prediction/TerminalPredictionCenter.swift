@@ -142,6 +142,19 @@ public final class TerminalPredictionCenter {
         engines[surfaceID]?.seedAlternateScreen(isActive)
     }
 
+    /// Classifies a surface again at its next keystroke, because the machine
+    /// its shell runs on may have changed: a remote session registered after
+    /// the surface was first typed into, or it ended. Anything drawn is
+    /// withdrawn and the surface stops being scanned until then.
+    public func surfaceMachineMayHaveChanged(surfaceID: UUID) {
+        guard isEnabled, engines[surfaceID] != nil else { return }
+        inbox.forget(surfaceID: surfaceID)
+        engines[surfaceID] = TerminalPredictionEngine(isEnabled: true)
+        expiryTasks.removeValue(forKey: surfaceID)?.cancel()
+        surfacesAwaitingSeed.insert(surfaceID)
+        redrawHandlers[surfaceID]?()
+    }
+
     /// Stops predicting for a surface whose runtime is gone.
     ///
     /// Called from the byte-tee `dropSurface` hook rather than from the view,

@@ -5690,9 +5690,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             TerminalPredictionCenter.shared.register(
                 surfaceID: surfaceID,
                 isRemote: { [weak self] in
-                    guard let terminalSurface = self?.terminalSurface,
-                          let workspace = terminalSurface.owningWorkspace() else { return false }
-                    return workspace.terminalRunsOnAnotherMachine(terminalSurface.id)
+                    guard let terminalSurface = self?.terminalSurface else { return false }
+                    return TerminalRemoteMachineClassification.runsOnAnotherMachine(
+                        surfaceID: terminalSurface.id,
+                        workspaceID: terminalSurface.tabId
+                    )
                 },
                 isAlternateScreen: { [weak self] in
                     self?.terminalSurface?.isAlternateScreenActive() ?? false
