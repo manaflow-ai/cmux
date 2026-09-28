@@ -30,9 +30,12 @@ struct UserDefaultsWindowBackgroundSettings: WindowBackgroundSettingsReading {
 /// later, mirroring the other transitional `GhosttyApp` statics.
 enum WindowBackgroundComposition {
     /// The window-background policy reading from `UserDefaults.standard`.
-    static let policy = WindowBackgroundPolicy(
-        settings: UserDefaultsWindowBackgroundSettings()
-    )
+    /// Build the policy at the point of use so settings changes are observed
+    /// by subsequent window and terminal backdrop applications. The legacy
+    /// free functions read `UserDefaults` on every call as well.
+    static var policy: WindowBackgroundPolicy {
+        WindowBackgroundPolicy(settings: UserDefaultsWindowBackgroundSettings())
+    }
 
     /// The compositor-blur controller wrapping the private CGS shims.
     static let blurController = CompositorBlurController()
