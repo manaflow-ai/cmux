@@ -8,15 +8,85 @@ extension GhosttyNSView {
         mode: TerminalImageTransferMode = .drop,
         onCancel: @escaping () -> Void
     ) -> Bool {
+        switch preparedContent {
+        case .reject, .rejectOversizedImage:
+            return false
+        case .insertText(let text):
+            return terminalSurface?.sendText(text) ?? false
+        case .fileURLs:
+            guard let terminalSurface else {
+                preparedContent.cleanupTransferredTemporaryFiles(
+                    using: GhosttyApp.terminalPasteboard
+                )
+                return false
+            }
+            let knownTarget = terminalSurface.resolvedImageTransferTarget(mode: mode)
+            guard terminalSurface.imageTransferDetectionTTY(mode: mode) != nil else {
+                return executePreparedImageTransfer(
+                    preparedContent,
+                    mode: mode,
+                    target: knownTarget,
+                    onCancel: onCancel
+                )
+            }
+            let runtimeGeneration = terminalSurface.runtimeSurfaceGeneration
+            let task = Task { @MainActor [weak self, weak terminalSurface] in
+                guard let self, let terminalSurface else {
+                    preparedContent.cleanupTransferredTemporaryFiles(
+                        using: GhosttyApp.terminalPasteboard
+                    )
+                    return
+                }
+                let target = await terminalSurface
+                    .resolvedImageTransferTargetAsync(mode: mode)
+                guard self.terminalSurface === terminalSurface,
+                      terminalSurface.runtimeSurfaceGeneration == runtimeGeneration else {
+                    preparedContent.cleanupTransferredTemporaryFiles(
+                        using: GhosttyApp.terminalPasteboard
+                    )
+                    return
+                }
+                _ = self.executePreparedImageTransfer(
+                    preparedContent,
+                    mode: mode,
+                    target: target,
+                    onCancel: onCancel
+                )
+            }
+            // The AppKit drop/paste callbacks are synchronous. Returning true
+            // acknowledges ownership while the target lookup runs off-main.
+            _ = task
+            return true
+        }
+    }
+
+    @MainActor
+    @discardableResult
+    private func executePreparedImageTransfer(
+        _ preparedContent: TerminalImageTransferPreparedContent,
+        mode: TerminalImageTransferMode,
+        target: TerminalImageTransferTarget,
+        onCancel: @escaping () -> Void
+    ) -> Bool {
         if mode == .paste, case .fileURLs(let urls) = preparedContent,
-           resolvedImageTransferTarget(mode: mode) == .cloud,
-           deferRuntimeInputDuringClipboardRead(estimatedBytes: urls.reduce(0) { $0 + $1.path.utf8.count + 256 }, replay: { [weak self] in
-               if let self {
-                   _ = self.executePreparedImageTransfer(preparedContent, mode: mode, onCancel: onCancel)
-               } else {
-                   preparedContent.cleanupTransferredTemporaryFiles(using: GhosttyApp.terminalPasteboard)
+           target == .cloud,
+           deferRuntimeInputDuringClipboardRead(
+               estimatedBytes: urls.reduce(0) { $0 + $1.path.utf8.count + 256 },
+               replay: { [weak self] in
+                   if let self {
+                       _ = self.executePreparedImageTransfer(
+                           preparedContent,
+                           mode: mode,
+                           target: target,
+                           onCancel: onCancel
+                       )
+                   } else {
+                       preparedContent.cleanupTransferredTemporaryFiles(
+                           using: GhosttyApp.terminalPasteboard
+                       )
+                   }
                }
-           }) {
+           ) {
             return true
         }
         switch preparedContent {
@@ -27,7 +97,7 @@ extension GhosttyNSView {
         case .fileURLs(let fileURLs):
             let plan = TerminalImageTransferPlanner.plan(
                 fileURLs: fileURLs,
-                target: resolvedImageTransferTarget(mode: mode),
+                target: target,
                 mode: mode
             )
             guard plan != .reject else {
@@ -36,10 +106,7 @@ extension GhosttyNSView {
                 )
                 return false
             }
-            return executeImageTransferPlan(
-                plan,
-                onCancel: onCancel
-            )
+            return executeImageTransferPlan(plan, onCancel: onCancel)
         }
     }
 

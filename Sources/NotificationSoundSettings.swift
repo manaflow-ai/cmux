@@ -47,6 +47,11 @@ enum NotificationSoundSettings {
         }
     }
 
+    /// Whether a notification for the already-focused pane still plays sound.
+    static func soundWhenFocused(defaults: UserDefaults = .standard) -> Bool {
+        UserDefaultsSettingsClient(defaults: defaults).value(for: catalog.soundWhenFocused)
+    }
+
     static let systemSounds: [(label: String, value: String)] = {
         let catalog = NotificationSoundOptionCatalog()
         return catalog.options.map {
