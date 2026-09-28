@@ -107,10 +107,11 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     let cliRequestHandler: (@Sendable (Data) throws -> Data)?
     let keepaliveInterval: TimeInterval
     let keepaliveTimeout: TimeInterval
-    /// Test seam: replaces the `/usr/bin/ssh` stdio-transport executable.
-    /// Kept off the public initializer so the package API carries no
-    /// test-injection surface; keepalive tests set it via `@testable import`
-    /// before calling ``start()``. Production always launches `/usr/bin/ssh`.
+    /// Test seam: replaces the `/usr/bin/ssh` executable of the stdio and
+    /// baked-VM socket-forward transports. Kept off the public initializer so
+    /// the package API carries no test-injection surface; transport tests set
+    /// it via `@testable import` before calling ``start()``. Production always
+    /// launches `/usr/bin/ssh`.
     var transportExecutableOverride: String?
     let onUnexpectedTermination: (String) -> Void
     let transportKeepaliveQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.keepalive.\(UUID().uuidString)")
