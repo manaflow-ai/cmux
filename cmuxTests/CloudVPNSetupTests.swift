@@ -216,6 +216,12 @@ struct CloudVPNSetupTests {
             "Settings must bring the main window with the pane forward")
         ports.performPortAction(.setupVPN, machineID: .cloud("vpn-setup-vm"))
         #expect(setupPanes().count == 1 && broughtForward.count == 1)
+
+        manager.closeWorkspace(opened.workspace, recordHistory: false)
+        #expect(setupPanes().isEmpty)
+        settings.openCloudVPNSetup()
+        #expect(setupPanes().count == 1 && broughtForward.count == 2,
+            "Settings must open a new pane and bring the main window forward")
         #expect(!NSApp.windows.contains { $0.identifier?.rawValue == "cmux.cloudVPNSetup" },
             "Setup must not open a separate window")
     }
