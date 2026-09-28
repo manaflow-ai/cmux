@@ -72,9 +72,12 @@ struct CloudCreateTests {
     private static let machine = CloudMachine(id: "vm-1", provider: "freestyle", status: "running", slug: "sleepy-teal-otter")
     private static let hostID = CloudAddress(machineID: "vm-1").identifier
 
-    private func settle(until condition: () -> Bool) async {
-        for _ in 0..<2_000 {
-            if condition() { return }
+    /// Lets main-actor work run until `condition` holds, bounded by wall
+    /// time rather than a yield count, so a busy runner cannot turn a slow
+    /// pass into a failure.
+    private func settle(until condition: () -> Bool, timeout: Duration = .seconds(10)) async {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while !condition(), ContinuousClock.now < deadline {
             await Task.yield()
         }
     }
