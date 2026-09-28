@@ -33,7 +33,7 @@ final class MobileIrohSoakRunner {
             }
         }
 
-        let planVersion = 1
+        let planVersion = 2
         let profile: Profile
         let requestedDurationSeconds: Int
         var elapsedSeconds: Double = 0
@@ -63,7 +63,6 @@ final class MobileIrohSoakRunner {
     private let requiresRelay: Bool
     private var operationDeadline = ContinuousClock.now
     private var terminalRecoveryAttempts = 0
-    private var transportWasRecovered = false
 
     init(
         profile: Profile, durationSeconds: Int? = nil, minimumCycles: Int? = nil,
@@ -87,7 +86,6 @@ final class MobileIrohSoakRunner {
         recovery: @escaping @MainActor () async -> Bool = { false }
     ) async throws -> MobileIrohReleaseGateProbeResult {
         terminalRecoveryAttempts = 0
-        transportWasRecovered = false
         let started = ContinuousClock.now
         operationDeadline = started.advanced(by: operationTimeout)
         // A task group would wait for an uncooperative terminal stream to finish.
@@ -101,6 +99,7 @@ final class MobileIrohSoakRunner {
                         recovery: recovery
                     )))
                 } catch {
+                    self.evidence.elapsedSeconds = Self.seconds(started.duration(to: .now))
                     continuation.yield(.failure(error))
                 }
                 continuation.finish()
@@ -151,11 +150,16 @@ final class MobileIrohSoakRunner {
             let cycle = evidence.completedCycles
             let cycleMarker = "\(marker)_\(cycle)"
             evidence.currentOperation = "app_rpc_and_terminal_round_trip"
-            last = try await probeWithRecovery(
+            let transaction = try await operationWithRecovery(
                 marker: cycleMarker,
-                probe: probe,
+                connection: connection,
+                operation: probe,
                 recovery: recovery
             )
+            last = transaction.value
+            if let recoveredConnection = transaction.recoveredConnection {
+                expectedConnection = recoveredConnection
+            }
             try Task.checkCancellation()
             for (operation, seconds) in last?.operationLatencies ?? [:] {
                 evidence.operationLatencies[operation, default: .init()].record(seconds)
@@ -164,25 +168,28 @@ final class MobileIrohSoakRunner {
                               "independent_events", "notification_reconcile", "chat_sessions", "artifact_scan"] {
                 evidence.operationCounts[operation, default: 0] += 1
             }
-            if transportWasRecovered {
-                expectedConnection = try observe(await connection())
-                transportWasRecovered = false
-            }
             guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
             if profile == .stress {
-                evidence.currentOperation = cycle % 120 == 119 ? "forced_reconnect" : [
-                    "workspace_navigation", "unicode_output_burst", "workspace_create_close", "terminal_after_refresh",
-                ][cycle % 4]
-                for (operation, seconds) in try await stress(cycle, cycleMarker) {
+                evidence.currentOperation = cycle % 120 == 119
+                    ? "forced_reconnect"
+                    : [
+                        "workspace_navigation", "unicode_output_burst", "workspace_create_close", "terminal_after_refresh",
+                    ][cycle % 4]
+                let usage = try await operationWithRecovery(
+                    marker: cycleMarker,
+                    connection: connection,
+                    operation: { try await stress(cycle, $0) },
+                    recovery: recovery
+                )
+                for (operation, seconds) in usage.value {
                     try Task.checkCancellation()
                     evidence.operationCounts[operation, default: 0] += 1
                     evidence.operationLatencies[operation, default: .init()].record(seconds)
                 }
-                if cycle % 120 == 119 {
-                    expectedConnection = try observe(await connection())
-                } else if try observe(await connection()) != expectedConnection {
-                    throw Failure.connectionChanged
+                if let recoveredConnection = usage.recoveredConnection {
+                    expectedConnection = recoveredConnection
                 }
+                guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
             }
             let duration = Self.seconds(cycleStarted.duration(to: clock.now))
             evidence.maximumCycleSeconds = max(evidence.maximumCycleSeconds, duration)
@@ -197,18 +204,19 @@ final class MobileIrohSoakRunner {
         evidence.currentOperation = "final_terminal_round_trip"
         operationDeadline = ContinuousClock.now.advanced(by: operationTimeout)
         guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
-        last = try await probeWithRecovery(
+        let final = try await operationWithRecovery(
             marker: "\(marker)_FINAL",
-            probe: probe,
+            connection: connection,
+            operation: probe,
             recovery: recovery
         )
+        last = final.value
+        if let recoveredConnection = final.recoveredConnection {
+            expectedConnection = recoveredConnection
+        }
         try Task.checkCancellation()
         for (operation, seconds) in last?.operationLatencies ?? [:] {
             evidence.operationLatencies[operation, default: .init()].record(seconds)
-        }
-        if transportWasRecovered {
-            expectedConnection = try observe(await connection())
-            transportWasRecovered = false
         }
         guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
         evidence.elapsedSeconds = Self.seconds(started.duration(to: clock.now))
@@ -219,26 +227,32 @@ final class MobileIrohSoakRunner {
         return last
     }
 
-    private func probeWithRecovery(
+    private func operationWithRecovery<Value>(
         marker: String,
-        probe: (String) async throws -> MobileIrohReleaseGateProbeResult,
+        connection: () async -> CmxTransportConnectionObservation?,
+        operation: (String) async throws -> Value,
         recovery: () async -> Bool
-    ) async throws -> MobileIrohReleaseGateProbeResult {
+    ) async throws -> (value: Value, recoveredConnection: UInt64?) {
         do {
-            return try await probe(marker)
+            return (try await operation(marker), nil)
         } catch let failure as MobileIrohReleaseGateProbeFailure
             where profile == .stress && failure == .terminalRoundTripFailed {
+            try Task.checkCancellation()
             evidence.recoverableFailures[failure.rawValue, default: 0] += 1
             guard terminalRecoveryAttempts == 0 else { throw failure }
             terminalRecoveryAttempts += 1
             evidence.currentOperation = "terminal_round_trip_recovery"
-            guard await recovery() else {
+            let recovered = await recovery()
+            try Task.checkCancellation()
+            guard recovered else {
                 throw MobileIrohReleaseGateProbeFailure.soakReconnectFailed
             }
-            transportWasRecovered = true
+            // Pin the replacement before the retry. Another redial during the
+            // retried operation must still fail the outer continuity check.
+            let recoveredConnection = try observe(await connection())
             evidence.currentOperation = "terminal_round_trip_retry"
             do {
-                return try await probe(marker + "_RETRY")
+                return (try await operation(marker + "_RETRY"), recoveredConnection)
             } catch let retryFailure as MobileIrohReleaseGateProbeFailure
                 where retryFailure == .terminalRoundTripFailed {
                 evidence.recoverableFailures[retryFailure.rawValue, default: 0] += 1

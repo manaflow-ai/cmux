@@ -232,7 +232,7 @@ final class MobileIrohReleaseGateRunner {
                                 cycle: cycle,
                                 marker: marker,
                                 terminalSession: terminalSession,
-                                includeForcedReconnect: false
+                                includeForcedReconnect: true
                             )
                         },
                         recovery: {
@@ -532,7 +532,8 @@ final class MobileIrohReleaseGateRunner {
                 mode: configuration.mode,
                 scenario: configuration.scenario,
                 failure: failure,
-                selectedPath: pathBeforeProbe
+                selectedPath: pathBeforeProbe,
+                soak: soakRunner?.evidence
             )
         } catch {
             return Self.failureReport(
@@ -546,7 +547,7 @@ final class MobileIrohReleaseGateRunner {
         if let soakRunner, let selectedPath = soakRunner.evidence.selectedPath {
             return Self.completedReport(
                 mode: configuration.mode, scenario: configuration.scenario,
-                probe: probe, selectedPath: selectedPath
+                probe: probe, selectedPath: selectedPath, soak: soakRunner.evidence
             )
         }
 
@@ -734,11 +735,12 @@ final class MobileIrohReleaseGateRunner {
         }
     }
 
-    private static func completedReport(
+    static func completedReport(
         mode: CmxIrohTransportVerificationMode,
         scenario: MobileIrohReleaseGateScenario,
         probe: MobileIrohReleaseGateProbeResult,
-        selectedPath: String
+        selectedPath: String,
+        soak: MobileIrohSoakRunner.Evidence? = nil
     ) -> Report {
         Report(
             schemaVersion: 4,
@@ -752,6 +754,7 @@ final class MobileIrohReleaseGateRunner {
                 && probe.notificationReconcileVerified
                 && probe.chatSessionsVerified
                 && probe.artifactScanCountVerified
+                && (soak?.recoverableFailures.isEmpty ?? true)
                 && scenarioPassed(scenario, probe: probe),
             hostStatusVerified: probe.hostStatusVerified,
             rpcMethodInventoryVerified: probe.rpcMethodInventoryVerified,
@@ -771,9 +774,10 @@ final class MobileIrohReleaseGateRunner {
             soakDurationSeconds: probe.soakDurationSeconds,
             routeKind: CmxAttachTransportKind.iroh.rawValue,
             selectedPath: selectedPath,
-            failure: nil,
+            failure: (soak?.recoverableFailures.isEmpty ?? true) ? nil : "soak_terminal_recovered",
             lastDiagnosticEventCode: nil,
-            lastDiagnosticFailureKind: nil
+            lastDiagnosticFailureKind: nil,
+            soak: soak
         )
     }
 
@@ -800,7 +804,8 @@ final class MobileIrohReleaseGateRunner {
         mode: CmxIrohTransportVerificationMode,
         scenario: MobileIrohReleaseGateScenario,
         failure: MobileIrohReleaseGateProbeFailure,
-        selectedPath: String?
+        selectedPath: String?,
+        soak: MobileIrohSoakRunner.Evidence? = nil
     ) -> Report {
         Report(
             schemaVersion: 4,
@@ -827,7 +832,8 @@ final class MobileIrohReleaseGateRunner {
             selectedPath: selectedPath,
             failure: failure.rawValue,
             lastDiagnosticEventCode: nil,
-            lastDiagnosticFailureKind: nil
+            lastDiagnosticFailureKind: nil,
+            soak: soak
         )
     }
 

@@ -11,12 +11,11 @@ The stress workload runs for 3,600 seconds, with a five-second target cadence.
 Each cycle runs the basic transactions and the next step of a fixed four-step
 sequence: workspace navigation and refresh; 128 lines of Unicode output;
 create, open, use and close a scratch workspace; then refresh and use the
-terminal again. Every 120th cycle replaces the fourth step with an explicit
-terminal again. The release gate keeps the native connection unchanged for
-the entire foreground workload. A separate recovery test may opt into an
-explicit disconnect and reconnect, preserving the saved pairing; that test is
-never mixed into the uninterrupted foreground evidence. Unexpected
-connection replacement fails the foreground workload. A cycle exceeding 30
+terminal again. Every 120th cycle replaces that fourth step with an explicit
+disconnect and reconnect, preserving the saved pairing, then proves a terminal
+round trip on the replacement connection. Workload plan 2 checks continuity
+around every healthy step, and an unexpected connection replacement fails the
+foreground workload. A cycle exceeding 30
 seconds fails.
 
 These are app-action and transport checks in an isolated Simulator. They do
@@ -154,4 +153,8 @@ Stress permits one bounded reconnect and terminal retry after a
 `recoverableFailures`, and the monitor keeps the check failed while preserving
 the rest of the hour's workload. A failed reconnect or a second terminal
 failure stops the run and reports that primary failure without cascading
-coverage noise.
+coverage noise. The retry covers the regular probe, workspace usage steps,
+and the final terminal transaction. Workspace cleanup and restoration must
+succeed before retrying a failed scratch-workspace step. Both attempts and
+reconnection share the existing 30-second cycle deadline. Successful recovery
+still produces `passed: false` with `soak_terminal_recovered` in the app report.

@@ -9,6 +9,25 @@ import Testing
 
 @MainActor
 struct MobileIrohReleaseGateRunnerTests {
+    @Test func completedRecoveryPreservesFailureAndSuccessfulProofs() throws {
+        var soak = MobileIrohSoakRunner.Evidence(profile: .stress, requestedDurationSeconds: 3_600)
+        soak.elapsedSeconds = 3_600
+        soak.completedCycles = 700
+        soak.currentOperation = "complete"
+        soak.recoverableFailures = ["terminalRoundTripFailed": 1]
+        let report = MobileIrohReleaseGateRunner.completedReport(
+            mode: .relayOnly, scenario: .standard, probe: Self.successfulProbe,
+            selectedPath: "relay", soak: soak
+        )
+        let serialized = try JSONEncoder().encode(report)
+        let restored = try JSONDecoder().decode(MobileIrohReleaseGateRunner.Report.self, from: serialized)
+        #expect(!restored.passed)
+        #expect(restored.failure == "soak_terminal_recovered")
+        #expect(restored.terminalRoundTripVerified)
+        #expect(restored.soak?.recoverableFailures == ["terminalRoundTripFailed": 1])
+        #expect(restored.soak?.currentOperation == "complete")
+    }
+
     @Test
     func taskRestartReusesOneRunAndOneReportWrite() async throws {
         let configuration = try temporaryConfiguration(mode: .relayOnly)
