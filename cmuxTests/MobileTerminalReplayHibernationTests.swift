@@ -16,28 +16,7 @@ import Testing
 struct MobileTerminalReplayHibernationTests {
     @Test func replayResumesHibernatedAgentTerminal() async throws {
         try await withAppContext { workspace in
-            let panelId = try #require(workspace.focusedPanelId)
-            let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
-            let agent = SessionRestorableAgentSnapshot(
-                kind: .codex,
-                sessionId: "codex-remote-replay-resume",
-                workingDirectory: "/tmp/cmux-agent-hibernation",
-                launchCommand: AgentLaunchCommandSnapshot(
-                    launcher: "codex",
-                    executablePath: "/usr/local/bin/codex",
-                    arguments: ["/usr/local/bin/codex"],
-                    workingDirectory: "/tmp/cmux-agent-hibernation",
-                    environment: nil,
-                    capturedAt: nil,
-                    source: nil
-                )
-            )
-            try #require(workspace.enterAgentHibernation(
-                panelId: panelId,
-                agent: agent,
-                lastActivityAt: Date(timeIntervalSince1970: 0)
-            ))
-            try #require(panel.isAgentHibernated)
+            let (panelId, panel) = try hibernateFocusedAgent(in: workspace)
 
             let result = TerminalController.shared.v2MobileTerminalReplay(params: [
                 "workspace_id": workspace.id.uuidString,
@@ -54,6 +33,51 @@ struct MobileTerminalReplayHibernationTests {
             )
             #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand)
         }
+    }
+
+    @Test func rejectedReplayLeavesHibernatedAgentAsleep() async throws {
+        try await withAppContext { workspace in
+            let (panelId, panel) = try hibernateFocusedAgent(in: workspace)
+
+            let result = TerminalController.shared.v2MobileTerminalReplay(params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+                "client_id": "remote-viewer",
+            ])
+            guard case .err(let code, _, _) = result else {
+                Issue.record("Expected a rejected viewport report, got \(result)")
+                return
+            }
+
+            #expect(code == "invalid_params")
+            #expect(panel.isAgentHibernated, "A rejected attach must not wake the agent")
+        }
+    }
+
+    private func hibernateFocusedAgent(in workspace: Workspace) throws -> (UUID, TerminalPanel) {
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-remote-replay-resume",
+            workingDirectory: "/tmp/cmux-agent-hibernation",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                workingDirectory: "/tmp/cmux-agent-hibernation",
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        try #require(workspace.enterAgentHibernation(
+            panelId: panelId,
+            agent: agent,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        ))
+        try #require(panel.isAgentHibernated)
+        return (panelId, panel)
     }
 
     private func withAppContext(
