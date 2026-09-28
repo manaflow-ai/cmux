@@ -527,6 +527,9 @@ impl SshBootstrapper {
     }
 
     fn configure_ssh_command(&self, command: &mut Command) {
+        // Forwarding stays as configured unless `extra_args` pin
+        // `ControlMaster=no`: otherwise this run can become the shared master
+        // that interactive sessions reuse.
         command.args(background_ssh_arguments(
             self.config.port,
             &self.config.extra_args,

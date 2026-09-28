@@ -176,6 +176,9 @@ impl LinkGroup for SshLinkGroup {
             return Err(ProviderError::Transport("SSH connection group is closed".into()));
         }
         let mut command = Command::new(&self.config.ssh_binary);
+        // Forwarding stays as configured unless `extra_args` pin
+        // `ControlMaster=no`: otherwise this run can become the shared master
+        // that interactive sessions reuse.
         command
             .args(background_ssh_arguments(self.port, &self.config.extra_args, &self.destination))
             .args(remote_link_command(&self.config));

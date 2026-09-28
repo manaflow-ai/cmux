@@ -67,10 +67,16 @@ impl SshCloudConnector {
             OsString::from("RequestTTY=no"),
             OsString::from("-o"),
             OsString::from("RemoteCommand=none"),
+            // This link never becomes a ControlMaster, so turning forwarding
+            // off can't reach an interactive session to the same host.
+            OsString::from("-o"),
+            OsString::from("ControlMaster=no"),
             OsString::from("-o"),
             OsString::from("ClearAllForwardings=yes"),
             OsString::from("-o"),
             OsString::from("ForwardAgent=no"),
+            OsString::from("-o"),
+            OsString::from("ForwardX11=no"),
             OsString::from("-o"),
             OsString::from("ServerAliveInterval=15"),
             OsString::from("-o"),
