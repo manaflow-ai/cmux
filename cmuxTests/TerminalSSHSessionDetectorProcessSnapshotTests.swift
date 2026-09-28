@@ -92,9 +92,12 @@ struct TerminalSSHSessionDetectorProcessSnapshotTests {
             self.leader = leader
         }
 
+        /// script(1) owns and reaps its child, so stop only script; the child
+        /// gets SIGHUP when the PTY closes. Signalling a stored PID could hit a
+        /// reused PID after the child exits.
         func stop() {
-            if let leader { kill(-leader.pgid, SIGKILL) }
             script.terminate()
+            script.waitUntilExit()
         }
 
         private static func childWithControllingTTY(of parent: pid_t) -> (pid: Int32, ttyName: String)? {
