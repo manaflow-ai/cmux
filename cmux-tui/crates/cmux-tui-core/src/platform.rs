@@ -32,6 +32,20 @@ pub mod transport {
         imp::connect(path)
     }
 
+    /// Connect and refuse a listener that runs as another user before the
+    /// caller writes anything. Windows sockets report no peer credentials, so
+    /// there this is a plain connect.
+    pub fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
+        imp::connect_same_user(path)
+    }
+
+    /// A listener serves its owner and root. Root can already open any
+    /// socket file, so refusing it would only get in the way of an admin.
+    #[cfg(unix)]
+    pub(crate) fn peer_may_connect(peer_uid: u32, owner_uid: u32) -> bool {
+        peer_uid == owner_uid || peer_uid == 0
+    }
+
     impl Listener {
         pub fn accept(&self) -> io::Result<Box<dyn Stream>> {
             self.inner.accept()
@@ -59,9 +73,22 @@ pub mod transport {
             Ok(Box::new(UnixStream::connect(path)?))
         }
 
+        pub(super) fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
+            let stream = UnixStream::connect(path)?;
+            crate::platform::require_unix_peer_uid(&stream, crate::platform::effective_uid())?;
+            Ok(Box::new(stream))
+        }
+
         impl Listener {
             pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
                 let (stream, _) = self.inner.accept()?;
+                let peer_uid = crate::platform::unix_peer_uid(&stream)?;
+                if !super::peer_may_connect(peer_uid, crate::platform::effective_uid()) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        format!("refused a socket client running as uid {peer_uid}"),
+                    ));
+                }
                 Ok(Box::new(stream))
             }
         }
@@ -106,6 +133,10 @@ pub mod transport {
             Ok(Box::new(UnixStream::connect(path)?))
         }
 
+        pub(super) fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
+            connect(path)
+        }
+
         impl Listener {
             pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
                 let (stream, _) = self.inner.accept()?;
@@ -131,6 +162,99 @@ pub mod transport {
             }
         }
     }
+}
+
+/// The effective uid that owns this process's private sockets.
+#[cfg(unix)]
+pub fn effective_uid() -> u32 {
+    // SAFETY: geteuid has no preconditions and does not dereference pointers.
+    unsafe { libc::geteuid() }
+}
+
+/// The uid the kernel reports for the process on the other end of a
+/// connected Unix socket.
+#[cfg(unix)]
+pub fn unix_peer_uid(socket: &impl std::os::fd::AsRawFd) -> io::Result<u32> {
+    peer_uid_of(socket.as_raw_fd())
+}
+
+/// Refuses a connected Unix socket whose peer is not `expected_uid`. Call it
+/// before writing anything to a socket found at a path the caller derived.
+#[cfg(unix)]
+pub fn require_unix_peer_uid(
+    socket: &impl std::os::fd::AsRawFd,
+    expected_uid: u32,
+) -> io::Result<()> {
+    let peer_uid = unix_peer_uid(socket)?;
+    if peer_uid != expected_uid {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("socket peer uid {peer_uid} does not match the expected uid {expected_uid}"),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn peer_uid_of(fd: std::os::fd::RawFd) -> io::Result<u32> {
+    use std::mem::{size_of, zeroed};
+
+    // SAFETY: ucred is plain data and all-zero is a valid value.
+    let mut credentials = unsafe { zeroed::<libc::ucred>() };
+    let mut length = size_of::<libc::ucred>() as libc::socklen_t;
+    // SAFETY: both out-pointers are valid for writes of the lengths passed.
+    let result = unsafe {
+        libc::getsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&raw mut credentials).cast(),
+            &raw mut length,
+        )
+    };
+    if result != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if length as usize != size_of::<libc::ucred>() {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid peer credentials"));
+    }
+    Ok(credentials.uid)
+}
+
+#[cfg(any(
+    target_vendor = "apple",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+fn peer_uid_of(fd: std::os::fd::RawFd) -> io::Result<u32> {
+    let mut uid: libc::uid_t = 0;
+    let mut gid: libc::gid_t = 0;
+    // SAFETY: both out-pointers are valid for writes of one id each.
+    if unsafe { libc::getpeereid(fd, &raw mut uid, &raw mut gid) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(uid)
+}
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))
+))]
+fn peer_uid_of(_fd: std::os::fd::RawFd) -> io::Result<u32> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "socket peer credentials are not available on this platform",
+    ))
 }
 
 /// The path to exec THIS running build again (terminal hosts, headless
@@ -988,6 +1112,51 @@ pub fn foreground_cwd(pid: u32) -> Option<String> {
     process_cwd(foreground_process_group(pid)?)
 }
 
+/// Executable path or name of a terminal's live foreground process-group
+/// leader (see [`foreground_cwd`] for the leader resolution contract). Exposed
+/// as generic terminal metadata so userland plugins can identify their own
+/// foreground applications.
+/// Returns `None` when the leader is gone, the child has no controlling
+/// terminal, or the platform denies the lookup.
+pub fn foreground_process_name(pid: u32) -> Option<String> {
+    process_name(foreground_process_group(pid)?)
+}
+
+#[cfg(target_os = "linux")]
+fn process_name(pid: u32) -> Option<String> {
+    // argv[0]'s basename beats /proc/<pid>/comm: comm truncates to 15
+    // bytes and wrapper launchers exec with a meaningful argv[0].
+    let argv0 = std::fs::read(format!("/proc/{pid}/cmdline")).ok().and_then(|cmdline| {
+        let argv0 = cmdline.split(|byte| *byte == 0).next()?;
+        let argv0 = std::str::from_utf8(argv0).ok()?.trim();
+        (!argv0.is_empty()).then(|| argv0.to_string())
+    });
+    argv0.or_else(|| {
+        let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+        let comm = comm.trim();
+        (!comm.is_empty()).then(|| comm.to_string())
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn process_name(pid: u32) -> Option<String> {
+    let pid = libc::c_int::try_from(pid).ok()?;
+    let mut path = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    // SAFETY: proc_pidpath writes at most `path.len()` bytes and returns
+    // the written byte count (0 on failure).
+    let written = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
+    if written <= 0 {
+        return None;
+    }
+    let path = std::str::from_utf8(&path[..written as usize]).ok()?;
+    (!path.is_empty()).then(|| path.to_string())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn process_name(_pid: u32) -> Option<String> {
+    None
+}
+
 #[cfg(target_os = "linux")]
 fn foreground_process_group(pid: u32) -> Option<u32> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
@@ -1349,6 +1518,30 @@ mod tests {
         let paths = ghostty_config_paths_from(Some(xdg.clone()), Some(home));
 
         assert_eq!(paths, vec![xdg.join("ghostty/config"), xdg.join("ghostty/config.ghostty")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_socket_peer_uid_must_match_the_expected_user() {
+        let (client, server) = std::os::unix::net::UnixStream::pair().unwrap();
+        let owner = effective_uid();
+
+        assert_eq!(unix_peer_uid(&client).unwrap(), owner);
+        assert_eq!(unix_peer_uid(&server).unwrap(), owner);
+        require_unix_peer_uid(&client, owner).unwrap();
+        let error = require_unix_peer_uid(&client, owner.wrapping_add(1))
+            .expect_err("a peer running as another user must be refused");
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_socket_listener_admits_only_the_owner_and_root() {
+        assert!(transport::peer_may_connect(501, 501));
+        assert!(transport::peer_may_connect(0, 501));
+        assert!(transport::peer_may_connect(0, 0));
+        assert!(!transport::peer_may_connect(502, 501));
+        assert!(!transport::peer_may_connect(501, 0));
     }
 
     #[test]

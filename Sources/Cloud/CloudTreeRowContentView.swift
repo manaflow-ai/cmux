@@ -1,4 +1,7 @@
+import CmuxCloud
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
+import CmuxWorkspacePresence
 import SwiftUI
 enum CloudTreeIconPalette {
     static let workspace = Color.blue
@@ -9,7 +12,9 @@ enum CloudTreeIconPalette {
 }
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
+    var presenceHeads: [WorkspacePresenceParticipant] = []
     var style: CloudTreeStyle = CloudTreeStyleStore.current
+    var resources: CloudTreeMachineResourceSection? = nil
 
     private static func nonEmptyTrimmed(_ value: String?) -> String? {
         guard let value else { return nil }
@@ -38,7 +43,7 @@ struct CloudTreeRowContentView: View {
     private var row: some View {
         switch kind {
         case .machine(let machine, _):
-            CloudTreeMachineRowContent(machine: machine, style: style)
+            CloudTreeMachineRowContent(machine: machine, style: style, resources: resources)
         case .pendingMachine(let operation):
             CloudTreePendingMachineRowContent(operation: operation, style: style)
         case .localMachine(let row):
@@ -65,7 +70,12 @@ struct CloudTreeRowContentView: View {
                 icon: "folder.fill",
                 tint: CloudTreeIconPalette.workspace,
                 title: workspace.name,
-                titleWeight: workspace.focused ? .medium : .regular
+                titleWeight: workspace.focused ? .medium : .regular,
+                accessories: {
+                    if !presenceHeads.isEmpty {
+                        SidebarWorkspacePresenceHeadsView(participants: presenceHeads)
+                    }
+                }
             )
         case .localWorkspace(let row):
             CloudTreeLeafRow(
@@ -172,6 +182,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
     let style: CloudTreeStyle
     let icon: String
     let tint: Color
+    var iconAsset: String? = nil
     let title: String
     var titleWeight: Font.Weight = .regular
     var titleDimmed: Bool = false
@@ -187,6 +198,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         style: CloudTreeStyle,
         icon: String,
         tint: Color,
+        iconAsset: String? = nil,
         title: String,
         titleWeight: Font.Weight = .regular,
         titleDimmed: Bool = false,
@@ -197,6 +209,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         self.style = style
         self.icon = icon
         self.tint = tint
+        self.iconAsset = iconAsset
         self.title = title
         self.titleWeight = titleWeight
         self.titleDimmed = titleDimmed
@@ -208,7 +221,13 @@ struct CloudTreeLeafRow<Accessories: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: GlobalFontMagnification.scaledSize(style.iconGap, percent: magnification)) {
             if style.iconSlot > 0 {
-                CloudTreeRowIcon(style: style, systemName: icon, tint: tint, dimmed: titleDimmed)
+                CloudTreeRowIcon(
+                    style: style,
+                    systemName: icon,
+                    tint: tint,
+                    assetName: iconAsset,
+                    dimmed: titleDimmed
+                )
             }
             switch style.leafLayout {
             case .twoLine:
@@ -274,6 +293,7 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
         style: CloudTreeStyle,
         icon: String,
         tint: Color,
+        iconAsset: String? = nil,
         title: String,
         titleWeight: Font.Weight = .regular,
         titleDimmed: Bool = false,
@@ -284,6 +304,7 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
             style: style,
             icon: icon,
             tint: tint,
+            iconAsset: iconAsset,
             title: title,
             titleWeight: titleWeight,
             titleDimmed: titleDimmed,
@@ -294,12 +315,17 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
     }
 }
 
-/// A cmux-tui terminal row: lifecycle glyph and title, with secondary details on hover.
+/// A cmux-tui terminal row with its provider mark, title, directory and optional view count.
 struct CloudTreeTerminalRowContent: View {
     let row: CloudTreeTerminalRow
     var style: CloudTreeStyle = CloudTreeStyleStore.current
 
     private var terminal: SurfaceResource { row.resource }
+    private var resolvedTitle: String {
+        row.displayTitle.isEmpty
+            ? String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal")
+            : row.displayTitle
+    }
 
     /// Detached styling is reserved for a live terminal whose resolved daemon
     /// view list is empty. A stale exited record can have the same empty list,
@@ -319,17 +345,22 @@ struct CloudTreeTerminalRowContent: View {
             style: style,
             icon: glyph,
             tint: CloudTreeIconPalette.terminal,
-            title: row.displayTitle.isEmpty ? String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal") : row.displayTitle,
+            iconAsset: terminal.terminalAgentIconAssetName,
+            title: resolvedTitle,
             titleDimmed: terminal.lifecycle == .exited || showsDetachedState
         )
         .help(toolTip)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(toolTip)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    var accessibilityLabel: String {
+        [resolvedTitle, toolTip].filter { !$0.isEmpty }.joined(separator: "\n")
     }
 
     /// Keep secondary information on hover so the narrow row gives its width to the title.
     var toolTip: String {
-        var details = [row.displayTitle, row.directoryHelp, agentLabel].compactMap { $0 }
+        var details = [row.directoryHelp, agentLabel].compactMap { $0 }
         if showsDetachedState {
             details.append(String(localized: "cloudTree.terminal.detached.help", defaultValue: "Still running on the machine, but no tab shows it. Click to open it in a pane; right-click to kill it."))
         } else if let views = Self.multiplierBadge(row.viewBadge) {

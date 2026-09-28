@@ -1,4 +1,6 @@
+import CmuxCloud
 import AppKit
+import CmuxSurfaceCatalogModel
 import Foundation
 /// Closure bundle handed to Cloud outline rows for the nodes below a machine.
 struct CloudTreeNodeActions {
@@ -54,6 +56,8 @@ struct CloudTreeNodeActions {
     var setDeviceIncomingAccess: @MainActor (Bool) -> Void = { _ in }
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     var newDisplay: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
+    /// Opens the New Machine flow through the same action as Cmd-Y.
+    var newMachine: @MainActor () -> Void = {}
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
     /// Navigates a nested terminal through its owning Cloud workspace.
     var openRemoteTerminal: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ resource: SurfaceResourceID, _ view: SurfaceRemoteView?, _ openIn: UUID?) -> Void = { _, _, _, _, _ in }
@@ -154,7 +158,8 @@ struct CloudTreeNodeActions {
                             resource,
                             into: .workspace(id: workspaceID, placement: placement),
                             focus: true,
-                            reuseExisting: reuseExisting
+                            reuseExisting: reuseExisting,
+                            reuseInWorkspace: resource.kind == .display ? workspaceID : nil
                         )
                     }
                     let projection = opened.projection

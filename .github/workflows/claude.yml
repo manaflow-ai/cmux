@@ -29,7 +29,9 @@ jobs:
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Anyone can write @claude, and the job starts before the action checks
+    # write access, so no runner variable may pick the machine.
+    runs-on: ubuntu-24.04 # github-hosted-required: any commenter can start it
     timeout-minutes: 15
     # The workflow-level group only deduplicates webhook retries by event ID.
     # The pinned action checks repository write access before it invokes Claude.

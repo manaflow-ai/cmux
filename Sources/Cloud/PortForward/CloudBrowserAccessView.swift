@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import SwiftUI
 
@@ -34,13 +35,10 @@ struct CloudBrowserAccessView<Content: View>: View {
                             message: state.failureMessage ?? model.failureMessage,
                             onRetry: {
                                 _ = panel.reload()
-                                navigateIfReady()
                             }
                         )
                     }
                 }
-                .task(id: model.phase) { navigateIfReady() }
-                .task(id: state.remoteURL) { navigateIfReady() }
             } else if let message = state.unavailable {
                 CloudBrowserConnectionCard(address: "", message: message, onRetry: nil)
             } else {
@@ -60,7 +58,6 @@ struct CloudBrowserAccessView<Content: View>: View {
             if state.model != nil {
                 Button(String(localized: "common.retry", defaultValue: "Retry")) {
                     _ = panel.reload()
-                    navigateIfReady()
                 }
             }
             Button(String(localized: "common.close", defaultValue: "Close"), role: .cancel) { state.dismissFailure() }
@@ -77,10 +74,5 @@ struct CloudBrowserAccessView<Content: View>: View {
         return state.unavailable != nil
             || state.failureMessage != nil
             || (state.isDesktop && !state.showsPage)
-    }
-
-    private func navigateIfReady() {
-        guard let url = panel.cloudAccess.nextURL() else { return }
-        _ = panel.navigate(to: url)
     }
 }

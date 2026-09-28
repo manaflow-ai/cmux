@@ -98,7 +98,8 @@ export async function requireVmPrincipal(
     : await authenticateRequestRouteToken(request);
   if (!auth.ok) return { ok: false, reason: auth.reason };
   const identity = auth.identity;
-  if (identity.vmId === null) return { ok: false, reason: "vm_bound_token_required" };
+  // A chatmux machine is not a Cloud VM; it has no cloud_vms row.
+  if (identity.vmId === null || identity.machine === "chatmux") return { ok: false, reason: "vm_bound_token_required" };
   const row = await dependencies.loadVm(identity.vmId);
   if (!row) return { ok: false, reason: "vm_not_found" };
   if (!vmPrincipalOwns(row, identity)) return { ok: false, reason: "vm_owner_mismatch" };

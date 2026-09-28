@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 public import IrohLib
 import CmuxIrohTransport
@@ -59,6 +60,7 @@ public struct IrxEndpointConfiguration: Sendable {
 public actor IrxEndpointSupervisor {
     private let configuration: IrxEndpointConfiguration
     private let journal: IrxJournal
+    private let diagnosticLog: DiagnosticLog?
     private var driver: Endpoint?
     private var generation = 0
     private var onlineReached = false
@@ -75,9 +77,13 @@ public actor IrxEndpointSupervisor {
     private var lifecycleEpoch: UInt64 = 0
     private var deactivated = false
 
-    public init(configuration: IrxEndpointConfiguration, journal: IrxJournal) {
+    public init(
+        configuration: IrxEndpointConfiguration, journal: IrxJournal,
+        diagnosticLog: DiagnosticLog? = nil
+    ) {
         self.configuration = configuration
         self.journal = journal
+        self.diagnosticLog = diagnosticLog
     }
 
     public var currentGeneration: Int { generation }
@@ -157,7 +163,8 @@ public actor IrxEndpointSupervisor {
             let connection = try await accepting.connect()
             if alpn == IrxProtocol().alpnData {
                 return .irx(
-                    IrxConnection(connection: connection, role: .acceptor, journal: journal))
+                    IrxConnection(connection: connection, role: .acceptor, journal: journal,
+                        diagnosticLog: diagnosticLog))
             }
             journal.record(
                 "endpoint", "foreign-alpn-accepted",
@@ -206,6 +213,19 @@ public actor IrxEndpointSupervisor {
 
     /// Health check after suspension/resume: a closed driver is replaced on
     /// the next `readyEndpoint` call.
+    /// Tells the live endpoint that the platform network may have changed.
+    ///
+    /// iroh recommends calling `Endpoint.networkChange()` from platform
+    /// connectivity callbacks: its own interface monitor cannot see every
+    /// change on iOS. Without it, a phone that leaves Wi-Fi keeps sending on
+    /// the dead direct path until heartbeat and path-idle timeouts abandon it,
+    /// stalling ordered streams (terminal output) for seconds. Harmless when
+    /// nothing changed; a no-op when no endpoint is bound.
+    public func notifyNetworkChange() async {
+        guard let driver, !driver.isClosed() else { return }
+        await driver.networkChange()
+    }
+
     public func isHealthy() -> Bool {
         guard let driver else { return false }
         return !driver.isClosed() && onlineReached
@@ -462,7 +482,8 @@ extension IrxEndpointSupervisor {
             addr: target, alpn: IrxProtocol().alpnData)
         let elapsedMs =
             (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
-        let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
+        let irx = IrxConnection(connection: connection, role: .dialer, journal: journal,
+            diagnosticLog: diagnosticLog)
         journal.record(
             "endpoint", "dialed",
             [

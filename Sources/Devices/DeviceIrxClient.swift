@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxIrxTransport
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Owns outgoing control sessions while borrowing the Mac's single registered endpoint.
@@ -37,6 +38,7 @@ actor DeviceIrxClient {
         let permissionExpiresAt: Int
         let relayURLs: [String]
         let revoked: Bool
+        let rules: [String]
 
         init?(cache: V2CachedState?) {
             guard let cache, let directory = cache.directory else { return nil }
@@ -47,6 +49,7 @@ actor DeviceIrxClient {
             }.sorted { $0.deviceRecordID < $1.deviceRecordID }
             permissionExpiresAt = directory.permissionExpiresAt
             relayURLs = directory.relayURLs
+            rules = (directory.rules ?? []).sorted()
             revoked = cache.authorityRevoked
         }
     }
@@ -69,6 +72,14 @@ actor DeviceIrxClient {
         guard !stopped, await borrowed.isCurrent() else { throw DeviceLinkError.notConnected }
         let cache = await borrowed.control.snapshot().cache
         return Self.displayBindings(cache: cache, now: permissionNow())
+    }
+
+    /// The stamp of the complete directory that authorizes outgoing control,
+    /// or nil before one is loaded.
+    func directoryStamp() async -> DeviceDirectoryStamp? {
+        guard !stopped, let borrowed = try? await context(), await borrowed.isCurrent(),
+              let directory = await borrowed.control.snapshot().cache.directory else { return nil }
+        return DeviceDirectoryStamp(revision: directory.revision, issuedAt: directory.issuedAt)
     }
 
     /// A pushed account-directory revision triggers a discovery refresh without polling.
@@ -284,14 +295,24 @@ actor DeviceIrxClient {
         let connection = try await context.supervisor.dial(address: address, credentials: credentials)
         do {
             guard await context.isCurrent() else { throw DeviceLinkError.notConnected }
-            let (admit, control) = try await IrxAdmission().performClient(connection: connection, journal: journal)
-            let latest = try intent.resolve(cache: await context.control.snapshot().cache,
-                localIdentity: context.localDevice.descriptor.identity, now: now())
-            guard latest.deviceRecordID == target.deviceRecordID,
-                  latest.descriptor.identityGeneration == target.descriptor.identityGeneration,
-                  await context.isCurrent(), await recordBinding(target) else { throw DeviceLinkError.identityMismatch }
+            // Post-admit binding recheck. On the direct-path lane it runs
+            // inside performClient before NAT traversal is authorized, so a
+            // dial that went stale during admission never discloses direct
+            // candidates; on the relay-only lane it runs here, exactly once
+            // either way (recordBinding has a side effect).
+            let recheckBinding: @Sendable () async throws -> Void = {
+                let latest = try intent.resolve(cache: await context.control.snapshot().cache,
+                    localIdentity: context.localDevice.descriptor.identity, now: now())
+                guard latest.deviceRecordID == target.deviceRecordID,
+                      latest.descriptor.identityGeneration == target.descriptor.identityGeneration,
+                      await context.isCurrent(), await recordBinding(target) else { throw DeviceLinkError.identityMismatch }
+            }
+            let (admit, control) = try await IrxAdmission().performClient(
+                connection: connection, journal: journal,
+                authorizesDirectPaths: context.allowsDirectPaths,
+                preAuthorization: recheckBinding)
+            if !context.allowsDirectPaths { try await recheckBinding() }
             await connection.raiseRemoteStreamCredit(bi: 0, uni: 4)
-            if context.allowsDirectPaths { await connection.authorizeDirectPaths() }
             return IrxClientSession(connection: connection, admit: admit, control: control, establishedAt: now())
         } catch {
             await connection.close(code: .userRequested, origin: .local)

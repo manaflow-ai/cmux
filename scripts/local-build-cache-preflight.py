@@ -26,6 +26,7 @@ import time
 
 DEFAULT_URL = "https://ci-cache.cmux.com"
 LOCKFILE = "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+SPM_CACHE_LAYOUT = "scripts/ci/swiftpm-cache-layout"
 MAX_ARCHIVE = 2 * 1024**3
 MAX_EXPANDED = 16 * 1024**3
 MAX_MEMBERS = 300_000
@@ -65,10 +66,14 @@ def run(command, deadline, *, env=None, cwd=None, pass_fds=()):
             raise CommandFailed(command[0], status)
 
 
-def spm_key(lockfile):
-    # Actions hashFiles hashes the binary SHA256 digest of each matching file.
-    # This workflow's key has exactly one explicit Package.resolved input.
-    return "spm-" + hashlib.sha256(hashlib.sha256(lockfile.read_bytes()).digest()).hexdigest()
+def spm_key(repo):
+    # Actions hashFiles hashes the binary SHA256 digest of each matching file,
+    # in pattern order. The workflows' key names Package.resolved, then the
+    # cache layout version.
+    digests = hashlib.sha256()
+    for name in (LOCKFILE, SPM_CACHE_LAYOUT):
+        digests.update(hashlib.sha256((repo / name).read_bytes()).digest())
+    return "spm-" + digests.hexdigest()
 
 
 def populated(path):
@@ -268,7 +273,7 @@ def remember_local_spm(seed_root, key):
 
 
 def seed_spm(repo, destination, cache, url, namespace, deadline, *, allow_network=False, warm_only=False):
-    requested = spm_key(repo / LOCKFILE)
+    requested = spm_key(repo)
     result = {"requested_key": requested, "namespace": namespace,
               "destination": str(destination) if destination is not None else None}
     if destination is not None and populated(destination):

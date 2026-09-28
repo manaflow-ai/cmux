@@ -86,12 +86,12 @@ extension Workspace {
                 agentPIDIdentitiesForPanel[key] = agentPIDProcessIdentitiesByKey[key]
             }
             let statusKey = agentStatusKey(forAgentPIDKey: key)
-            if let statusEntry = statusEntries[statusKey] {
+            if let statusEntry = agentStatusEntry(key: statusKey, panelId: panelId) ?? statusEntries[statusKey] {
                 statusEntriesForPanel[statusKey] = statusEntry
             }
         }
         for (statusKey, lifecycle) in lifecycleStates where lifecycle == .needsInput {
-            if let statusEntry = statusEntries[statusKey] {
+            if let statusEntry = agentStatusEntry(key: statusKey, panelId: panelId) ?? statusEntries[statusKey] {
                 statusEntriesForPanel[statusKey] = statusEntry
             }
         }
@@ -197,6 +197,9 @@ extension Workspace {
             }
         }
         if refreshPorts { refreshTrackedAgentPorts() }
+        for changedPanelID in Set([previous.panelId, panelId].compactMap { $0 }) {
+            syncTerminalTabAgentIconAsset(forPanelId: changedPanelID)
+        }
         return didClearOtherStructuredAgentRuntime
     }
 
@@ -337,11 +340,14 @@ extension Workspace {
         }
         if let statusKeyToClear,
            !hasAgentRuntime(forStatusKey: statusKeyToClear),
-           statusEntries.removeValue(forKey: statusKeyToClear) != nil {
+           removeStatusEntry(forKey: statusKeyToClear) {
             didChange = true
         }
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
+        }
+        if didChange, let changedPanelId = ownedPanelId ?? panelId {
+            syncTerminalTabAgentIconAsset(forPanelId: changedPanelId)
         }
         return didChange
     }
@@ -349,6 +355,7 @@ extension Workspace {
     /// Clears a panel's restored agent snapshot and resume metadata.
     func clearRestoredAgentSnapshot(panelId: UUID) {
         restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
+        syncTerminalTabAgentIconAsset(forPanelId: panelId)
     }
 
     func refreshTrackedAgentPorts() {
@@ -395,7 +402,7 @@ extension Workspace {
         for (statusKey, capturedStatusEntry) in runtimeState.statusEntries
             where !hasAgentRuntime(forStatusKey: statusKey)
                 && statusEntries[statusKey] == capturedStatusEntry {
-            statusEntries.removeValue(forKey: statusKey)
+            removeStatusEntry(forKey: statusKey)
             didChange = true
         }
         if didChange {
@@ -407,7 +414,7 @@ extension Workspace {
     func adoptDetachedAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) {
         guard let runtimeState else { return }
         for (statusKey, statusEntry) in runtimeState.statusEntries {
-            statusEntries[statusKey] = statusEntry
+            setStatusEntry(statusEntry, key: statusKey, panelId: runtimeState.panelId)
         }
         var didAdoptAgentPID = false
         for (key, pid) in runtimeState.agentPIDs {
@@ -425,6 +432,16 @@ extension Workspace {
         }
         if didAdoptAgentPID {
             refreshTrackedAgentPorts()
+        }
+    }
+
+    /// Starts the restored terminals held for this workspace's first visit.
+    func admitStartupRestoresAwaitingFirstVisit() {
+        guard !startupRestorePanelIdsAwaitingFirstVisit.isEmpty else { return }
+        let panelIds = startupRestorePanelIdsAwaitingFirstVisit
+        startupRestorePanelIdsAwaitingFirstVisit.removeAll()
+        for panelId in panelIds {
+            terminalPanel(for: panelId)?.surface.admitStartupRestoreRuntime()
         }
     }
 
@@ -446,6 +463,9 @@ extension Workspace {
         preservesTerminalForTransfer: Bool = false,
         preservesRemoteTerminalTracking: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
+        if closePanel, !preservesTerminalForTransfer {
+            journalClosedAgentSessions(panelId: panelId)
+        }
         clearCloudMaterializationFailure(surfaceID: panelId)
         cancelReservedCloudTerminalPane(panelID: panelId)
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
@@ -534,6 +554,7 @@ extension Workspace {
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
+        agentStatusEntriesByPanelId.removeValue(forKey: panelId)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)

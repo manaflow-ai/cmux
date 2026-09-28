@@ -1,4 +1,5 @@
 import CmuxTerminal
+import Foundation
 
 extension TerminalSurface {
     @MainActor
@@ -9,6 +10,13 @@ extension TerminalSurface {
         // The bound session remains authoritative even during reconnect, before
         // its local workspace or a fresh remote numeric surface can be resolved.
         let workspace = workspace ?? owningWorkspace()
+        // Native SSH projections use SCP/SFTP upload for both paste and drag/drop.
+        // They have no Cloud image coordinator, so never turn an SSH file into
+        // a local path or a Cloud image request.
+        if let workspace, workspace.usesSSHTui,
+           workspace.machineOwningSurface(id)?.isSSH == true {
+            return .remote(.workspaceRemote)
+        }
         if mode == .paste, isManagedCloudImageTarget(in: workspace) { return .cloud }
         guard let workspace else { return .local }
         if workspace.isRemoteTerminalSurface(id) {
@@ -18,11 +26,47 @@ extension TerminalSurface {
         if let target = AppDelegate.shared?.remoteTmuxController.remoteUploadTarget(forSurfaceId: id) {
             return .remote(target)
         }
-        if let ttyName = workspace.surfaceTTYNames[id],
-           let session = TerminalSSHSessionDetector.detect(forTTY: ttyName) {
-            return .remote(.detectedSSH(session))
-        }
         return .local
+    }
+
+    @MainActor
+    func resolvedImageTransferTargetAsync(
+        mode: TerminalImageTransferMode = .paste,
+        in workspace: Workspace? = nil,
+        detector: @escaping @Sendable (String) -> DetectedSSHSession? = { tty in
+            TerminalSSHSessionDetector.detect(forTTY: tty)
+        },
+        timeoutSleep: @escaping @Sendable (TimeInterval) async -> Void = {
+            timeout in
+            await TerminalSSHSessionDetector
+                .defaultDetectionTimeoutSleep(timeout)
+        }
+    ) async -> TerminalImageTransferTarget {
+        let workspace = workspace ?? owningWorkspace()
+        let knownTarget = resolvedImageTransferTarget(mode: mode, in: workspace)
+        guard let ttyName = imageTransferDetectionTTY(mode: mode, in: workspace),
+              let session = await TerminalSSHSessionDetector.detectAsync(
+                  forTTY: ttyName,
+                  detector: detector,
+                  timeoutSleep: timeoutSleep
+              ) else {
+            return knownTarget
+        }
+        return .remote(.detectedSSH(session))
+    }
+
+    @MainActor
+    func imageTransferDetectionTTY(
+        mode: TerminalImageTransferMode = .paste,
+        in workspace: Workspace? = nil
+    ) -> String? {
+        let workspace = workspace ?? owningWorkspace()
+        guard resolvedImageTransferTarget(mode: mode, in: workspace) == .local,
+              let ttyName = workspace?.surfaceTTYNames[id],
+              !ttyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return ttyName
     }
 
     @MainActor

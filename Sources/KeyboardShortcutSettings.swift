@@ -133,6 +133,7 @@ enum KeyboardShortcutSettings {
         case moveWorkspaceUp, moveWorkspaceDown
         case focusHistoryBack
         case focusHistoryForward
+        case focusHistoryLast
         case selectWorkspaceByNumber
         case renameTab
         case renameWorkspace
@@ -152,6 +153,7 @@ enum KeyboardShortcutSettings {
         case toggleTerminalCopyMode
         case focusTextBoxInput, cycleTextBoxSubmitAction, attachTextBoxFile
         case sendCtrlFToTerminal
+        case pasteLastScreenshot
         case clearScreenKeepScrollback
         // Panes / splits
         case focusLeft
@@ -161,7 +163,7 @@ enum KeyboardShortcutSettings {
         case focusPreviousPane
         case focusNextPane
         case splitRight
-        case splitDown, toggleSplitZoom
+        case splitDown, toggleSplitZoom, newPaneAutoLayout
         case increaseWorkspaceTerminalFontSize
         case decreaseWorkspaceTerminalFontSize
         case resetWorkspaceTerminalFontSize
@@ -196,12 +198,10 @@ enum KeyboardShortcutSettings {
         case fileExplorerOpenSelectionFinderAlias
 
         // Panels
-        case saveFilePreview
+        case saveFilePreview, toggleFileEditorWordWrap
         case openBrowser
         case focusBrowserAddressBar
-        case browserBack
-        case browserForward
-        case browserReload
+        case browserBack, browserForward, browserReload
         case browserHardReload
         case browserZoomIn
         case browserZoomOut
@@ -233,7 +233,7 @@ enum KeyboardShortcutSettings {
         case diffViewerNextFile, diffViewerPreviousFile
 
         var id: String { rawValue }
-
+        /// Localized action title displayed by shortcut settings and command surfaces.
         var label: String {
             switch self {
             case .openSettings: return String(localized: "menu.app.settings", defaultValue: "Settings…")
@@ -294,6 +294,7 @@ enum KeyboardShortcutSettings {
             case .moveWorkspaceDown: return String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down")
             case .focusHistoryBack: return String(localized: "shortcut.focusHistoryBack.label", defaultValue: "Focus Back")
             case .focusHistoryForward: return String(localized: "shortcut.focusHistoryForward.label", defaultValue: "Focus Forward")
+            case .focusHistoryLast: return String(localized: "shortcut.focusHistoryLast.label", defaultValue: "Focus Last")
             case .selectWorkspaceByNumber: return String(localized: "shortcut.selectWorkspaceByNumber.label", defaultValue: "Select Workspace 1…9")
             case .renameTab: return String(localized: "shortcut.renameTab.label", defaultValue: "Rename Tab")
             case .renameWorkspace: return String(localized: "shortcut.renameWorkspace.label", defaultValue: "Rename Workspace")
@@ -315,6 +316,7 @@ enum KeyboardShortcutSettings {
             case .cycleTextBoxSubmitAction: return String(localized: "shortcut.cycleTextBoxSubmitAction.label", defaultValue: "Cycle TextBox Submit Action")
             case .attachTextBoxFile: return String(localized: "shortcut.attachTextBoxFile.label", defaultValue: "Attach File to TextBox Input")
             case .sendCtrlFToTerminal: return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
+            case .pasteLastScreenshot: return String(localized: "shortcut.pasteLastScreenshot.label", defaultValue: "Paste Last Screenshot")
             case .clearScreenKeepScrollback: return String(localized: "shortcut.clearScreenKeepScrollback.label", defaultValue: "Clear Screen (Keep Scrollback)")
             case .focusLeft: return String(localized: "shortcut.focusPaneLeft.label", defaultValue: "Focus Pane Left")
             case .focusRight: return String(localized: "shortcut.focusPaneRight.label", defaultValue: "Focus Pane Right")
@@ -324,6 +326,7 @@ enum KeyboardShortcutSettings {
             case .focusNextPane: return String(localized: "shortcut.focusNextPane.label", defaultValue: "Focus Next Pane")
             case .splitRight: return String(localized: "shortcut.splitRight.label", defaultValue: "Split Right")
             case .splitDown: return String(localized: "shortcut.splitDown.label", defaultValue: "Split Down")
+            case .newPaneAutoLayout: return String(localized: "shortcut.newPaneAutoLayout.label", defaultValue: "New Pane (Auto Layout)")
             case .toggleSplitZoom: return String(localized: "shortcut.togglePaneZoom.label", defaultValue: "Toggle Pane Zoom")
             case .increaseWorkspaceTerminalFontSize:
                 return String(
@@ -366,6 +369,7 @@ enum KeyboardShortcutSettings {
             case .fileExplorerOpenSelection: return String(localized: "shortcut.fileExplorerOpenSelection.label", defaultValue: "File Explorer: Open Selection")
             case .fileExplorerOpenSelectionFinderAlias: return String(localized: "shortcut.fileExplorerOpenSelectionFinderAlias.label", defaultValue: "File Explorer: Open Selection (Finder Alias)")
             case .saveFilePreview: return String(localized: "shortcut.saveFilePreview.label", defaultValue: "Save File Preview")
+            case .toggleFileEditorWordWrap: return String(localized: "shortcut.toggleFileEditorWordWrap.label", defaultValue: "Toggle File Editor Word Wrap")
             case .openBrowser: return String(localized: "shortcut.openBrowser.label", defaultValue: "Open Browser")
             case .focusBrowserAddressBar: return String(localized: "command.browserFocusAddressBar.title", defaultValue: "Focus Address Bar")
             case .browserBack: return String(localized: "menu.view.back", defaultValue: "Back")
@@ -408,7 +412,7 @@ enum KeyboardShortcutSettings {
         }
 
         var defaultsKey: String { "shortcut.\(rawValue)" }
-
+        /// Factory binding used when the user has not supplied a shortcut override.
         var defaultShortcut: StoredShortcut {
             switch self {
             case .openSettings:
@@ -500,6 +504,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "[", command: true, shift: false, option: false, control: false)
             case .focusHistoryForward:
                 return StoredShortcut(key: "]", command: true, shift: false, option: false, control: false)
+            case .focusHistoryLast:
+                return .unbound
             case .renameTab:
                 return StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
             case .renameWorkspace:
@@ -550,13 +556,12 @@ enum KeyboardShortcutSettings {
             // cycles panes on the terminal-config keys when Focus Back/Forward do
             // not claim them; these entries exist so pane cycling stays rebindable
             // now that ⌘[ / ⌘] reach global focus history.
-            case .focusPreviousPane:
-                return .unbound
-            case .focusNextPane:
+            case .focusPreviousPane, .focusNextPane:
                 return .unbound
             case .splitRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             case .splitDown: return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
+            case .newPaneAutoLayout: return StoredShortcut(key: "n", command: true, shift: false, option: false, control: true)
             case .toggleSplitZoom: return StoredShortcut(key: "\r", command: true, shift: true, option: false, control: false)
             case .increaseWorkspaceTerminalFontSize:
                 return StoredShortcut(key: "=", command: true, shift: false, option: false, control: true)
@@ -630,6 +635,10 @@ enum KeyboardShortcutSettings {
                 // (e.g. Claude Code's Ctrl-F force-stop) to the focused terminal. Binding it to plain Ctrl-F
                 // would be self-referential, so users opt in via Settings; it stays reachable through the command palette and the `send_key ctrl-f` socket command.
                 return .unbound
+            case .pasteLastScreenshot:
+                // Unbound by default: reachable through the command palette; users opt into a
+                // key in Settings or cmux.json.
+                return .unbound
             case .clearScreenKeepScrollback:
                 // Cmd+Shift+K: the less-destructive sibling of Ghostty's Cmd+K (clear_screen),
                 // which also wipes scrollback. Shift+K is unbound in both Ghostty defaults and
@@ -647,6 +656,7 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "↓", command: true, shift: false, option: false, control: false)
             case .saveFilePreview:
                 return StoredShortcut(key: "s", command: true, shift: false, option: false, control: false)
+            case .toggleFileEditorWordWrap: return StoredShortcut(key: "z", command: false, shift: false, option: true, control: false)
             case .openBrowser:
                 return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
             case .focusBrowserAddressBar:
@@ -1109,9 +1119,21 @@ enum KeyboardShortcutSettings {
 
     static func clearShortcut(for action: Action) { setShortcut(.unbound, for: action) }
 
+    /// Clears every stored shortcut override.
+    ///
+    /// WHY the presence check: `removeObject(forKey:)` posts
+    /// `UserDefaults.didChangeNotification` even when the key was never
+    /// written, so an unguarded sweep over `Action.allCases` fans out one post
+    /// per action. Every post drives the live `ManagedPolicyEnforcementObserver`
+    /// through a full `reevaluate()` (dozens of forced-preference probes), and
+    /// `KeyboardShortcutSettingsFileStore` through
+    /// `reapplyManagedSettingsIfNeeded()`. Removing a key that is not stored is
+    /// a no-op, so skipping it keeps the reset identical while collapsing the
+    /// notification storm to the single `didChangeNotification` below.
     static func resetAll() {
-        for action in Action.allCases {
-            UserDefaults.standard.removeObject(forKey: action.defaultsKey)
+        let defaults = UserDefaults.standard
+        for action in Action.allCases where defaults.object(forKey: action.defaultsKey) != nil {
+            defaults.removeObject(forKey: action.defaultsKey)
         }
         postDidChangeNotification()
     }

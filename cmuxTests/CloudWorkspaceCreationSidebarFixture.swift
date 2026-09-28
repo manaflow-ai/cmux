@@ -23,12 +23,12 @@ final class CloudWorkspaceCreationSidebarFixture {
     private let defaults: UserDefaults
     private let defaultsName = "cloud-workspace-creation-\(UUID().uuidString)"
 
-    init() throws {
+    init(useSharedCatalog: Bool = false) throws {
         defaults = try #require(UserDefaults(suiteName: defaultsName))
         manager = TabManager(autoWelcomeIfNeeded: false, settings: UserDefaultsSettingsClient(defaults: defaults))
         originalWorkspaceID = try #require(manager.selectedTabId)
         let owner = manager
-        catalog = SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(environment: .init(
+        catalog = useSharedCatalog ? SurfaceCatalog.shared : SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(environment: .init(
             workspace: { owner.workspacesById[$0] }, tabManager: { _ in owner }, workspaces: { owner.tabs }
         )))
         provider = CloudWorkspaceCreationSidebarProvider(catalog: catalog)
