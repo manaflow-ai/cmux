@@ -1,5 +1,6 @@
 import Foundation
 import CmuxFoundation
+import CmuxSettings
 import CmuxTerminalCore
 
 extension CMUXCLI {
@@ -85,18 +86,28 @@ extension CMUXCLI {
             throw CLIError(message: Self.themesExportTargetMessage)
         }
 
-        let configColors = themeConfigSearchURLs(targetBundleIdentifier: targetBundleIdentifier)
-            .compactMap { try? String(contentsOf: $0, encoding: .utf8) }
-            .map { GhosttyThemeColors(parsing: $0) }
-        // Mirrors the app: with no `theme`, cmux draws its own light/dark
-        // default unless the config sets terminal colors, which then apply
-        // over Ghostty's built-in palette (a `nil` theme here).
-        let selection = currentThemeSelection(targetBundleIdentifier: targetBundleIdentifier)
-        let configSetsColors = configColors.contains { $0 != GhosttyThemeColors() }
+        // Read the config the way the app does: every config file in Ghostty's
+        // load order, including `config-file` includes, last value wins.
+        let configPaths = themeConfigSearchURLs(targetBundleIdentifier: targetBundleIdentifier).map(\.path)
+        let summary = GhosttyConfig.userAppearanceConfigSummary(configPaths: configPaths)
+        let colorDirectives = GhosttyConfig.resolvedDirectiveValues(
+            forKeys: Set(Self.themeExportColorKeys),
+            configPaths: configPaths
+        ).values
+        let configColors = GhosttyThemeColors(parsing: Self.themeExportColorKeys.flatMap { key in
+            (colorDirectives[key] ?? []).map { "\(key) = \($0)" }
+        }.joined(separator: "\n"))
+        // Mirrors the app: with no `theme` and no terminal colors, cmux draws
+        // its own light/dark default when the adaptive default theme setting
+        // is on. Otherwise the config colors apply over Ghostty's built-in
+        // palette (a `nil` theme here).
+        let selection = parseThemeSelection(rawValue: summary.lastThemeDirective, sourcePath: nil)
+        let usesManagedDefault = summary.shouldApplyDefaultAppearance
+            && adaptiveDefaultThemeEnabled(targetBundleIdentifier: targetBundleIdentifier)
         let lightTheme = selection.light
-            ?? (configSetsColors ? nil : GhosttyConfig.cmuxDefaultLightThemeName)
+            ?? (usesManagedDefault ? GhosttyConfig.cmuxDefaultLightThemeName : nil)
         let darkTheme = selection.dark
-            ?? (configSetsColors ? nil : GhosttyConfig.cmuxDefaultDarkThemeName)
+            ?? (usesManagedDefault ? GhosttyConfig.cmuxDefaultDarkThemeName : nil)
         func displayName(_ theme: String?) -> String {
             theme ?? "Ghostty"
         }
@@ -112,18 +123,11 @@ extension CMUXCLI {
         switch appearance {
         case "light": singleTheme = lightTheme
         case "dark": singleTheme = darkTheme
-        default: singleTheme = defaultAppearancePrefersDarkThemes() ? darkTheme : lightTheme
+        default: singleTheme = appPrefersDarkTheme(targetBundleIdentifier: targetBundleIdentifier) ? darkTheme : lightTheme
         }
         let themeName = exportsPair
             ? "\(displayName(darkTheme)) \(displayName(lightTheme))"
             : displayName(singleTheme)
-
-        guard let slug = AgentThemeSlug(name: name ?? themeName) else {
-            throw CLIError(message: String(
-                localized: "cli.themes.export.error.name",
-                defaultValue: "themes export: --name needs at least one letter or digit"
-            ))
-        }
 
         let contents: String
         switch target {
@@ -144,6 +148,14 @@ extension CMUXCLI {
             return
         }
 
+        // Only the file name needs a slug, so printing works for any theme name.
+        guard let slug = AgentThemeSlug(name: name ?? themeName) else {
+            throw CLIError(message: String(
+                localized: "cli.themes.export.error.name",
+                defaultValue: "themes export: --name needs at least one letter or digit"
+            ))
+        }
+
         guard let directory = target.themeDirectory(environment: ProcessInfo.processInfo.environment) else {
             throw CLIError(message: String(
                 localized: "cli.themes.export.error.noHome",
@@ -151,8 +163,12 @@ extension CMUXCLI {
             ))
         }
         let fileURL = directory.appendingPathComponent(slug.fileName, isDirectory: false)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try Data(contents.utf8).write(to: fileURL, options: .atomic)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data(contents.utf8).write(to: fileURL, options: .atomic)
+        } catch {
+            throw CLIError(message: error.localizedDescription)
+        }
 
         let hint: String
         switch target {
@@ -205,6 +221,31 @@ extension CMUXCLI {
             ))
         }
         return GhosttyThemeColors(parsing: contents)
+    }
+
+    /// Config keys that color the terminal and are parsed into ``GhosttyThemeColors``.
+    private static let themeExportColorKeys = [
+        "background", "foreground", "cursor-color",
+        "selection-background", "selection-foreground", "palette",
+    ]
+
+    /// The app's adaptive default theme setting (on unless turned off).
+    private func adaptiveDefaultThemeEnabled(targetBundleIdentifier: String) -> Bool {
+        let key = SettingCatalog().terminal.adaptiveDefaultTheme
+        return UserDefaults(suiteName: targetBundleIdentifier)?
+            .object(forKey: key.userDefaultsKey) as? Bool ?? key.defaultValue
+    }
+
+    /// Whether the terminal currently draws its dark theme: the app's
+    /// Light or Dark appearance setting when forced, else macOS's.
+    private func appPrefersDarkTheme(targetBundleIdentifier: String) -> Bool {
+        let key = SettingCatalog().app.appearance
+        let raw = UserDefaults(suiteName: targetBundleIdentifier)?.string(forKey: key.userDefaultsKey)
+        switch raw {
+        case "light": return false
+        case "dark": return true
+        default: return defaultAppearancePrefersDarkThemes()
+        }
     }
 
     private static var themesExportTargetMessage: String {

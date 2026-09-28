@@ -463,7 +463,7 @@ extension CMUXCLI {
         print("OK cleared config=\(configURL.path) reload=requested")
     }
 
-    func currentThemeSelection(targetBundleIdentifier: String) -> ThemeSelection {
+    private func currentThemeSelection(targetBundleIdentifier: String) -> ThemeSelection {
         var rawValue: String?
         var sourcePath: String?
 
@@ -479,7 +479,7 @@ extension CMUXCLI {
         return parseThemeSelection(rawValue: rawValue, sourcePath: sourcePath)
     }
 
-    private func parseThemeSelection(rawValue: String?, sourcePath: String?) -> ThemeSelection {
+    func parseThemeSelection(rawValue: String?, sourcePath: String?) -> ThemeSelection {
         guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines), !rawValue.isEmpty else {
             return ThemeSelection(rawValue: nil, light: nil, dark: nil, sourcePath: sourcePath)
         }
