@@ -122,6 +122,7 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         let state = FileExplorerState(defaults: defaults)
 
         XCTAssertEqual(state.mode, .customSidebar)
+        XCTAssertTrue(RightSidebarMode.availableModes(defaults: defaults).contains(.customSidebar))
         state.selectCustomSidebar(name: "next-board")
         state.mode = .customSidebar
         XCTAssertEqual(state.customSidebarName, "next-board")
