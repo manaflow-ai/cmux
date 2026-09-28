@@ -9449,6 +9449,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cmdHeld: event.modifierFlags.contains(.command),
             suppressPathHover: suppressCommandPathHover
         )
+        terminalSurface?.hostedView.codeBlocks.pointerMoved(to: eventPoint, in: self)
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -9502,6 +9503,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             wordPathHoverActive = false
             NSCursor.pop()
         }
+        terminalSurface?.hostedView.codeBlocks.pointerExited()
         guard let surface = surface else { return }
         if !ghosttyMouseSessionLedger.activeButtons.isEmpty {
             return
@@ -10206,6 +10208,8 @@ final class GhosttySurfaceScrollView: NSView {
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     let cloudTerminalOverlay = CloudTerminalOverlayCoordinator(dismissalStore: CloudBannerDismissalStore(defaults: .standard))
+    /// Copy / Run affordances for code blocks in this pane.
+    private(set) lazy var codeBlocks = TerminalCodeBlockController(host: self)
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView? { cloudTerminalOverlay.overlay }
     var hasVisibilityRevealRefreshScheduled = false
     var pendingVisibilityRefreshTransition: TerminalWorkContext.Transition = .unknown
@@ -10886,6 +10890,10 @@ final class GhosttySurfaceScrollView: NSView {
            let hit = overlay.hitTest(convert(point, to: overlay)) {
             return hit
         }
+        // `point` is in the superview's space; the overlays are subviews.
+        if let hit = codeBlocks.hitTest(hostPoint: convert(point, from: superview)) {
+            return hit
+        }
         return super.hitTest(point)
     }
 
@@ -10928,6 +10936,7 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeGeometryAndContent()
         _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
         bringPaneDropTargetToFrontIfNeeded()
+        codeBlocks.layoutTray()
         scheduleSuppressedFirstResponderFocusReapplyIfReady(
             reason: "becomeFirstResponder.hiddenOrTiny.layout"
         )

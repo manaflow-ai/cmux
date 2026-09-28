@@ -14,6 +14,7 @@ extension TerminalPanel {
         textBoxState.updateShellActivityState(state)
         if state == .promptIdle {
             surface.shellDidBecomeReadyForStartupInput()
+            surface.hostedView.codeBlocks.shellDidReportPrompt()
         }
     }
 }

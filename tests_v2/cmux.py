@@ -694,6 +694,31 @@ class cmux:
             params["surface_id"] = sid
         self._call("surface.trigger_flash", params)
 
+    def offer_code_block(
+        self,
+        surface: Union[str, int],
+        text: str = "",
+        language: Optional[str] = None,
+        label: Optional[str] = None,
+        runnable: Optional[bool] = None,
+        clear: bool = False,
+    ) -> Dict[str, Any]:
+        sid = self._resolve_surface_id(surface)
+        if not sid:
+            raise cmuxError(f"Invalid surface: {surface!r}")
+        params: Dict[str, Any] = {"surface_id": sid}
+        if clear:
+            params["clear"] = True
+        else:
+            params["text"] = text
+        if language is not None:
+            params["language"] = language
+        if label is not None:
+            params["label"] = label
+        if runnable is not None:
+            params["runnable"] = runnable
+        return self._call("surface.offer_code_block", params)
+
     def refresh_surfaces(self, workspace: Union[str, int, None] = None) -> None:
         params: Dict[str, Any] = {}
         if workspace is not None:

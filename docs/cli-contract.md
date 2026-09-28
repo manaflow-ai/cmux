@@ -149,6 +149,7 @@ Environment:
 | `surface-health` | Print terminal surface health information. |
 | `debug-terminals` | Print debug terminal state. |
 | `trigger-flash` | Trigger a visual flash on a workspace or surface. |
+| `code-block` | Offer a copyable, optionally runnable code block as a card on a terminal surface. |
 | `list-panels` | List panels. Compatibility alias over pane/surface data. |
 | `focus-panel` | Focus a panel. Compatibility alias over surface focus. |
 | `close-workspace` | Close a workspace. |
@@ -922,6 +923,7 @@ the expected text without connecting to a cmux socket.
 - `cmux surface-health --help` -> `Usage: cmux surface-health`
 - `cmux debug-terminals --help` -> `Usage: cmux debug-terminals`
 - `cmux trigger-flash --help` -> `Usage: cmux trigger-flash`
+- `cmux code-block --help` -> `Usage: cmux code-block`
 - `cmux list-panels --help` -> `Usage: cmux list-panels`
 - `cmux focus-panel --help` -> `Usage: cmux focus-panel`
 - `cmux close-workspace --help` -> `Usage: cmux close-workspace`

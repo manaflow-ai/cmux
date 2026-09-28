@@ -7477,6 +7477,85 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "surface.trigger_flash", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
+        case "code-block":
+            // Offer a copyable (and, for shell blocks, runnable) block to the
+            // caller's own pane. Text comes from the arguments after the
+            // options, or from stdin when there are none.
+            var cbLabel: String?
+            var cbLanguage: String?
+            var cbRunnable: Bool?
+            var cbClear = false
+            var cbSurfaceArg: String?
+            var cbWorkspaceArg: String?
+            var cbPositional: [String] = []
+            var cbIndex = 0
+            var cbOptionsEnded = false
+            while cbIndex < commandArgs.count {
+                let arg = commandArgs[cbIndex]
+                func cbValue() throws -> String {
+                    guard cbIndex + 1 < commandArgs.count,
+                          !commandArgs[cbIndex + 1].hasPrefix("--") else {
+                        throw CLIError(message: "code-block: \(arg) requires a value")
+                    }
+                    cbIndex += 1
+                    return commandArgs[cbIndex]
+                }
+                if cbOptionsEnded {
+                    cbPositional.append(arg)
+                } else {
+                    switch arg {
+                    case "--": cbOptionsEnded = true
+                    case "--label": cbLabel = try cbValue()
+                    case "--lang", "--language": cbLanguage = try cbValue()
+                    case "--surface", "--panel": cbSurfaceArg = try cbValue()
+                    case "--workspace": cbWorkspaceArg = try cbValue()
+                    case "--run": cbRunnable = true
+                    case "--no-run": cbRunnable = false
+                    case "--clear": cbClear = true
+                    default:
+                        if arg.hasPrefix("--") {
+                            throw CLIError(message: "code-block: unknown flag '\(arg)'")
+                        }
+                        // Flags end at the text, so later words stay text.
+                        cbOptionsEnded = true
+                        cbPositional.append(arg)
+                    }
+                }
+                cbIndex += 1
+            }
+            // Re-joining several words would drop the shell quoting the user
+            // needs (`grep "a b"` would become `grep a b`), so the text is
+            // one argument or stdin.
+            guard cbPositional.count <= 1 else {
+                throw CLIError(message: "code-block: pass the text as one quoted argument, or on stdin")
+            }
+            var cbText = cbPositional.first ?? ""
+            if !cbClear, cbPositional.isEmpty {
+                guard isatty(STDIN_FILENO) != 1 else {
+                    throw CLIError(message: "code-block: pass the text as arguments or on stdin")
+                }
+                cbText = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
+                while cbText.hasSuffix("\n") { cbText.removeLast() }
+            }
+            let cbEnv = ProcessInfo.processInfo.environment
+            // Explicit handles resolve strictly; only the caller's own env
+            // falls back (a restored pane can carry a stale id).
+            let cbWsId = try cbWorkspaceArg.map { try resolveWorkspaceId($0, client: client) }
+                ?? resolveWorkspaceIdAllowingFallback(cbEnv["CMUX_WORKSPACE_ID"], client: client)
+            let cbSurfaceId = try cbSurfaceArg.map { try resolveSurfaceId($0, workspaceId: cbWsId, client: client) }
+                ?? resolveSurfaceIdAllowingFallback(cbEnv["CMUX_SURFACE_ID"], workspaceId: cbWsId, client: client)
+            var cbParams: [String: Any] = ["workspace_id": cbWsId, "surface_id": cbSurfaceId]
+            if cbClear {
+                cbParams["clear"] = true
+            } else {
+                cbParams["text"] = cbText
+                if let cbLabel { cbParams["label"] = cbLabel }
+                if let cbLanguage { cbParams["language"] = cbLanguage }
+                if let cbRunnable { cbParams["runnable"] = cbRunnable }
+            }
+            let payload = try client.sendV2(method: "surface.offer_code_block", params: cbParams)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+
         case "list-panels":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             var params: [String: Any] = [:]
@@ -20136,6 +20215,35 @@ struct CMUXCLI {
 
             Print live Ghostty terminal runtime metadata across all windows and workspaces.
             Intended for debugging stray or detached terminal views.
+            """
+        case "code-block":
+            return """
+            Usage: cmux code-block [--label <text>] [--lang <tag>] [--run|--no-run] [--surface <id|ref>] [--] [text]
+                   cmux code-block --clear
+
+            Hand the user a block of code as a card on your terminal pane, with a
+            Copy button that copies the exact text and, for shell blocks, a Run
+            button. Run opens a new split in the pane's directory and types the
+            command at its prompt; it never presses Return, and multi-line or long
+            commands are shown in full first. The text is one quoted argument after
+            the flags, or stdin when there is none, so quoting and heredoc newlines
+            are kept exactly.
+
+            Flags:
+              --label <text>          Card title
+              --lang <tag>            Fence tag such as bash, zsh, json (shell tags enable Run)
+              --run / --no-run        Force Run on or off regardless of --lang
+              --clear                 Remove this pane's offered blocks
+              --surface <id|ref>      Target surface (default: $CMUX_SURFACE_ID)
+              --workspace <id|ref>    Workspace context (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux code-block --lang bash --label "Run the tests" -- 'npm test -- --grep "login flow"'
+              cmux code-block --lang bash --label "Write the env file" <<'EOF'
+              cat <<'ENV' > .env.local
+              API_URL=http://localhost:3000
+              ENV
+              EOF
             """
         case "trigger-flash":
             return """

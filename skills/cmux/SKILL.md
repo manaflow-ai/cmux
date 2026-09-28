@@ -1,6 +1,6 @@
 ---
 name: cmux
-description: End-user control of cmux topology and routing (windows, workspaces, panes/surfaces, focus, moves, reorder, identify, trigger flash). Use when automation needs deterministic placement and navigation in a multi-pane cmux layout.
+description: End-user control of cmux topology and routing (windows, workspaces, panes/surfaces, focus, moves, reorder, identify, trigger flash), plus one-click copy/run command blocks. Use when automation needs deterministic placement and navigation in a multi-pane cmux layout, or when an agent hands the user a command to run.
 ---
 
 # cmux Core Control
@@ -32,6 +32,29 @@ cmux workspace-action --action set-description --description "Ship checklist"
 # attention cue
 cmux trigger-flash --surface surface:7
 ```
+
+## Hand the user a command (copy / run blocks)
+
+When you give the user a command to run themselves, also offer it as a block so they can copy it exactly or run it with one click instead of selecting text out of the terminal:
+
+```bash
+cmux code-block --lang bash --label "Run the migration" -- 'npm run db:migrate -- --env "staging"'
+
+# The text is ONE quoted argument, or stdin. Use stdin for multi-line text so newlines survive.
+cmux code-block --lang bash --label "Write the env file" <<'BLOCK'
+cat <<'ENV' > .env.local
+API_URL=http://localhost:3000
+ENV
+BLOCK
+
+cmux code-block --clear          # remove this pane's offered blocks
+```
+
+The block appears as a card at the top-right of your own pane (`$CMUX_SURFACE_ID`) with **Copy** (exact text, original newlines) and, for shell tags (`bash`, `sh`, `zsh`, `fish`, `shell`, `console`), **Run**. Run opens a new split in the pane's directory and types the command at its prompt. It never presses Return and never touches your pane. Multi-line or long commands are shown in full first and need a second click. `--no-run` makes a shell block copy-only; `--run` enables Run for an untagged one. Keep the command in your reply too: the card is a shortcut, not a replacement. A pane shows at most three cards, newest on top.
+
+Fenced blocks in your normal replies get a hover Copy / Run pill without any command: cmux reads the fences from your Claude Code or Codex transcript and finds them on screen. Tag shell commands with `bash` (or another shell tag) so they get Run.
+
+Socket method: `surface.offer_code_block` with `surface_id`, `text`, and optional `language`, `label`, `runnable`, `clear`.
 
 ## Handle model
 
