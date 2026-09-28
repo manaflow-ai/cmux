@@ -9064,15 +9064,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
 #endif
 
-        // Suppress the old view's becomeFirstResponder side-effects during SwiftUI reparenting.
-        // Without this, reparenting triggers onFocus + ghostty_surface_set_focus on the old view,
-        // stealing focus from the new panel and creating model/surface divergence.
         if focus {
-            suppressReparentFocusUntilLayoutFollowUp(
-                previousHostedView,
-                reason: "workspace.terminalSplitReparent"
-            )
-            focusPanel(newPanel.id, previousHostedView: previousHostedView)
+            focusNewSplitPanel(newPanel.id, previousHostedView: previousHostedView, reason: "workspace.terminalSplitReparent")
         } else {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -11430,6 +11423,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return destinationConfiguration.hasSameRemoteRelayNamespace(as: originConfiguration)
     }
     // MARK: - Focus Management
+
+    /// Focuses a panel a split just created. `previousHostedView` is the terminal that
+    /// had focus before Bonsplit moved it. SwiftUI reparents that view into the new
+    /// split, which would trigger onFocus + ghostty_surface_set_focus on it and steal
+    /// focus back from the new panel, so its becomeFirstResponder side effects stay
+    /// suppressed until the layout follow-up.
+    func focusNewSplitPanel(_ panelId: UUID, previousHostedView: GhosttySurfaceScrollView?, reason: String) {
+        suppressReparentFocusUntilLayoutFollowUp(previousHostedView, reason: reason)
+        focusPanel(panelId, previousHostedView: previousHostedView)
+    }
 
     func preserveFocusAfterNonFocusSplit(
         preferredPanelId: UUID?,
