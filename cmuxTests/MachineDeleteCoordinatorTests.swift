@@ -137,6 +137,28 @@ struct MachineDeleteCoordinatorTests {
         #expect(detached.isEmpty, "A machine listed again by the later turn detaches nothing")
     }
 
+    @Test func createCleanupDetachesOnlyOnceItsDestroyRequestStarts() async throws {
+        let fixture = MachineDeleteFixture()
+        let coordinator = fixture.makeCoordinator()
+        coordinator.beginCleanup("m1")
+        #expect(coordinator.hiddenMachineIDs == ["m1"], "The machine hides at once")
+        // A CLI's exit reaches the app on a later main-actor turn than the cancel.
+        await Task { @MainActor in }.value
+        coordinator.launchEnded("m1")
+        #expect(fixture.detached.isEmpty, "A cleanup whose CLI never reached the socket closes nothing")
+        #expect(coordinator.hiddenMachineIDs.isEmpty && fixture.restored == ["m1"])
+
+        coordinator.beginCleanup("m2")
+        await Task { @MainActor in }.value
+        #expect(fixture.detached.isEmpty)
+        let request = Task { try await coordinator.destroy(id: "m2") }
+        try await fixture.waitForRequest()
+        #expect(fixture.detached == ["m2"], "The cleanup's request detaches the machine")
+        fixture.answer()
+        let wasGone = try await request.value
+        #expect(!wasGone && fixture.requested == ["m2"] && fixture.retired == ["m2"])
+    }
+
     @Test func notFoundRetiresTheMachineAndOtherFailuresRestoreIt() async throws {
         let fixture = MachineDeleteFixture()
         let coordinator = fixture.makeCoordinator()
