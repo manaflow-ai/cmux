@@ -547,7 +547,9 @@ public struct ChatUsageAccumulator: Sendable {
                 codexCumulativeBanked += current
             }
             codexCumulativeCurrent = nil
-            codexInheritedCumulativeBaseline = nil
+            // Unlike the inherited opening snapshot, an explicit zero is a
+            // known baseline. The next run belongs wholly to this transcript.
+            codexInheritedCumulativeBaseline = ChatTokenUsage()
             return
         }
         guard let baseline = codexInheritedCumulativeBaseline else {

@@ -864,6 +864,35 @@ struct ChatUsageAccumulatorTests {
         #expect(!totals.cumulativeUsageIsAmbiguous)
     }
 
+    @Test("an inherited explicit zero starts a fully countable cumulative run")
+    func codexInheritedZeroStartsCountableRun() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexSessionMetaLine(model: "", inheritedHistory: true),
+            codexTokenCountLine(
+                cumulativeInput: 1_000, cumulativeOutput: 0,
+                lastInput: 0, lastOutput: 0
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 1_020, cumulativeOutput: 0,
+                lastInput: 20, lastOutput: 0
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 0, cumulativeOutput: 0,
+                lastInput: 0, lastOutput: 0
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 30, cumulativeOutput: 0,
+                lastInput: 30, lastOutput: 0
+            ),
+        ])
+
+        let totals = accumulator.totals
+        #expect(accumulator.codexSource == .cumulativeEvents)
+        #expect(totals.usage.freshInputTokens == 50)
+        #expect(!totals.cumulativeUsageIsAmbiguous)
+    }
+
     @Test("camel-case mixed-case subagent metadata discards the inherited prefix")
     func codexCamelCaseSubagentMetadataDiscardsPrefix() {
         let metadata = Self.json([
