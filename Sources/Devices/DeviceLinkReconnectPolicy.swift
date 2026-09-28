@@ -31,6 +31,8 @@ struct DeviceLinkReconnectPolicy: Equatable, Sendable {
         case directory(dialable: Bool, precondition: DeviceLinkFailure? = nil)
         case connectSucceeded
         case connectFailed(DeviceLinkFailure)
+        /// The dial was canceled below the link owner, so it must be retried.
+        case connectInterrupted
         /// The live transport closed or an RPC on it failed.
         case transportLost
         case waitElapsed
@@ -97,6 +99,10 @@ struct DeviceLinkReconnectPolicy: Equatable, Sendable {
             phase = failure.isRetryable
                 ? .waiting(attempt: attempt, delay: Self.delay(afterFailures: attempt))
                 : .blocked(failure)
+        case .connectInterrupted:
+            // Regression-test placeholder: the owner currently drops this
+            // signal until the connect cancellation fix lands.
+            return phase
         case .transportLost:
             guard phase == .connected else { return phase }
             guard isDialable else { phase = .idle; return phase }

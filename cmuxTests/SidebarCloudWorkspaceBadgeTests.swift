@@ -51,6 +51,35 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(shown.workspaceSnapshotStorage?.remoteWorkspaceBadgeSymbol == "desktopcomputer")
     }
 
+    @Test("A saved device projection keeps the computer badge before resources load")
+    func deviceBadgeSurvivesEmptyLoadingProjection() throws {
+        let workspace = Workspace(title: "Project", initialSurface: .cloudVMLoading)
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "restore"))
+        let record = SurfaceProjectionRecord(
+            panelID: panelID,
+            resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "saved-terminal"),
+            remoteWorkspaceID: "saved-workspace",
+            remoteTabID: "saved-terminal"
+        )
+        let catalog = SurfaceCatalog.shared
+        catalog.restore([record], workspaceID: workspace.id, restoringWorkspace: workspace)
+        defer { catalog.endProjections(panelID: panelID) }
+
+        // The provider is still loading, so the live sidebar projection is empty.
+        workspace.cloudBindingState.updateCatalogMetadata(resources: [:], machineNames: [:])
+        let snapshot = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults()),
+            showsAgentActivity: false
+        ).makeSnapshot()
+
+        #expect(snapshot.remoteWorkspaceBadgeSymbol == "desktopcomputer")
+        #expect(snapshot.cloudWorkspaceLabel == nil)
+        #expect(snapshot.remoteWorkspaceBadgeLabel?.contains(machine.rawValue) == true)
+    }
+
     /// Ensures Cloud identity changes alter only the immutable row projection.
     @Test func cloudBindingChangesSidebarSnapshotWithoutTitleOrPathChanges() {
         let workspace = Workspace(title: "vm:vivid-newt", workingDirectory: "/tmp", initialSurface: .cloudVMLoading)
