@@ -131,13 +131,12 @@ public final class UpdateController {
         self.hostBundle = hostBundle
         var isDevLikeBundle = isDevLikeBundle ?? Self.isDevLikeBundleIdentifier(hostBundle.bundleIdentifier)
 #if DEBUG
-        // Dogfooding a real update cycle between two tagged builds: an explicit test feed plus
-        // this opt-in lets a DEV build update from that feed (never from the public appcast).
-        let env = ProcessInfo.processInfo.environment
-        if isDevLikeBundle,
-           env["CMUX_UPDATE_DOGFOOD_ALLOW_DEV_BUILD"] == "1",
-           !(env["CMUX_UI_TEST_FEED_URL"] ?? "").isEmpty {
-            log.append("dev build updates from the test feed (dogfood opt-in)")
+        // Dogfooding a real update cycle between two tagged builds: an explicit dogfood feed
+        // lets a DEV build update from that feed (never from the public appcast). It is not a
+        // `CMUX_UI_TEST_*` variable because those mark the process as a test host, which never
+        // starts the updater.
+        if isDevLikeBundle, Self.dogfoodFeedURL() != nil {
+            log.append("dev build updates from the dogfood feed")
             isDevLikeBundle = false
         }
 #endif
@@ -430,6 +429,16 @@ extension UpdateController {
     /// `isStagingBundleIdentifier` (in the CmuxSettings package). The classification is
     /// duplicated here deliberately to avoid introducing a `CmuxUpdater → CmuxSettings` package
     /// dependency edge for a small string check.
+#if DEBUG
+    /// The feed a DEV build dogfoods updates from, set with `CMUX_UPDATE_DOGFOOD_FEED_URL`.
+    static func dogfoodFeedURL(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        guard let url = environment["CMUX_UPDATE_DOGFOOD_FEED_URL"], !url.isEmpty else { return nil }
+        return url
+    }
+#endif
+
     static func isDevLikeBundleIdentifier(_ bundleIdentifier: String?) -> Bool {
         guard let bundleIdentifier else { return false }
         return bundleIdentifier == "com.cmuxterm.app.debug"
