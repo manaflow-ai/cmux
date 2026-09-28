@@ -42,8 +42,10 @@ capacity: from 07:00 to 10:30Z on 2026-09-28 it ran 22 macOS jobs at most
 across its three pools with a median of 100 queued behind them, and the
 post-admission jobs this moved there after an owned admission waited 18.4
 minutes on average against 5.6 for those that stayed on the minis. With
-CI_PR_POOL_QUEUE_ROUNDS at 0 (the kill switch) no job queues on purpose. An
-unreadable backlog moves nothing.
+CI_PR_POOL_QUEUE_ROUNDS at 0 (the kill switch) no job queues on purpose. With
+no gui runner idle and either the kill switch on or no gui runner online,
+every owned gui job moves without a read. Otherwise an unreadable backlog
+moves nothing.
 
 Output `runners` is a JSON object from job key (shard-N, lag, cli-product)
 to label. Any failure prints a warning and outputs {} (no change).
@@ -158,7 +160,7 @@ def overflow(jobs: Sequence[str], *, owned_jobs: str, gui_idle: int, gui_online:
     highest priority jobs. Past those, in priority order, each job goes wherever it starts sooner: behind
     the jobs that stayed on the gui label, or behind `retry_queued` and the jobs moved before it on the
     retry pool's `retry_capacity` machines, which start at once while nothing is queued there. Without
-    `retry_queued` (rounds 0, the kill switch) every job past the allowed places moves."""
+    `retry_queued` (the kill switch, or no gui runner online) every job past the allowed places moves."""
     owned = f" {owned_jobs.strip()} "
     mine = sorted((key for key in jobs if f" {key} " in owned and pool.gui_token_job(key)), key=pool.priority)
     # GitHub hands the idle runners to the jobs queued before these first.
