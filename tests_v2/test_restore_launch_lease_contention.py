@@ -18,6 +18,7 @@ import pty
 import select
 import socketserver
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -97,6 +98,12 @@ def exercise(cli: Path, reports_owner: bool, owner_cli: Path, launching: bool = 
 
         class Server(socketserver.ThreadingUnixStreamServer):
             daemon_threads = True
+
+            def handle_error(self, request, client_address) -> None:
+                # A bounded client can close while a deliberately late reply is
+                # being written. Other fixture errors must remain visible.
+                if not isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError)):
+                    super().handle_error(request, client_address)
 
         path = root / "app.sock"
         server = Server(str(path), Handler)
