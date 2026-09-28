@@ -647,9 +647,17 @@
           "description": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
         "reorderOnNotification": {
-          "type": "boolean",
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "enum": ["off", "notifications", "agentActivity"]
+            }
+          ],
           "default": true,
-          "description": "Move workspaces with new notifications toward the top."
+          "description": "Automatic workspace reordering. true or \"notifications\" moves workspaces with new notifications toward the top. \"agentActivity\" also moves them when an agent finishes a turn, needs input, or fails, at most once per burst and never while the pointer is over the sidebar. false or \"off\" keeps the order stable."
         },
         "iMessageMode": {
           "type": "boolean",
