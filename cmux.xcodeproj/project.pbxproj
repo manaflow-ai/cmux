@@ -12322,11 +12322,8 @@
 				E97B65696F71CE797D211070 /* ScrollbackTestTerminal.swift */,
 				B5C6895DE9644DD1B59FDCE2 /* SidebarWorkspaceDragDelegateTests.swift */,
 				F5C553AF2050E7E6D7CD62EC /* VMSSHTransportFallbackTests.swift */,
-<<<<<<< HEAD
 				F5F200000000000000000002 /* SessionPipSurfaceSnapshotTests.swift */,
-=======
 				E9D3F4EA811FB31EA9AEB386 /* DeviceGridQueueTests.swift */,
->>>>>>> origin/main
 				F9B0A2A7DE77E3E17F144879 /* PiHookNeedsInputRegressionTests.swift */,
 				1EC28906670BF54F49F89FFE /* MobileHostSurfaceEventLaneTests.swift */,
 				CDB53053B8C69BDF0B219DE3 /* CloudWorkspaceRenameRefreshTests.swift */,
