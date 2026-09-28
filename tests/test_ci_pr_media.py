@@ -168,6 +168,13 @@ class GateTests(StubbedTest):
                 {"name": "macos / macOS compile admission", "status": "in_progress", "conclusion": None}]
         self.assertTrue(self.gate(jobs))
 
+    def test_media_waits_for_a_successful_dogfood_comment(self) -> None:
+        admission = {"name": "macos / macOS compile admission", "status": "in_progress", "conclusion": None}
+        self.assertFalse(self.gate([{"name": "Dogfood build #42", "status": "completed", "conclusion": "failure"},
+                                    admission]))
+        self.assertFalse(self.gate([{"name": "Dogfood build #42", "status": "in_progress", "conclusion": None},
+                                    admission], run_status="completed"))
+
     def test_a_skipped_dogfood_job_means_no_app_change(self) -> None:
         self.assertFalse(self.gate([{"name": "Dogfood build #42", "status": "completed", "conclusion": "skipped"}]))
 

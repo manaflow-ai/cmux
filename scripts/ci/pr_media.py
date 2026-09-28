@@ -215,10 +215,12 @@ def app_build_gate(repository: str, run_id: str, attempt: str, pr: int,
         jobs = (gh_json([f"repos/{repository}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100"])
                 or {}).get("jobs", [])
         dogfood = next((job for job in jobs if job.get("name") == name), None)
-        if dogfood and dogfood.get("status") == "completed" and dogfood.get("conclusion") not in ("success", "failure"):
+        # Only after the dogfood comment exists: publish edits it, and the job
+        # rewrites the whole comment when it posts.
+        if dogfood and dogfood.get("status") == "completed" and dogfood.get("conclusion") != "success":
             return False
         admission = next((job for job in jobs if str(job.get("name", "")).endswith(ADMISSION_JOB_SUFFIX)), None)
-        if dogfood and admission:
+        if dogfood and dogfood.get("status") == "completed" and admission:
             return admission.get("conclusion") != "skipped"
         run = gh_json([f"repos/{repository}/actions/runs/{run_id}"]) or {}
         if run.get("status") == "completed":
