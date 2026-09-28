@@ -108,11 +108,13 @@ pool, whatever the rule above or its fallbacks picked, and a re-run of it
 stays there too (retry_runner()). That overrides "an owned pool is never
 the fewest-queued fallback" and the move to Blacksmith for re-runs, for UI
 runs only. It overrides "an explicit runner is never rerouted" too, for the
-Blacksmith macOS 26 pools only (BLACKSMITH_NO_UI): their sessions cannot
-capture the screen either, so a recorded UI run pinned there fails in its
-capture preflight before any test runs (every one of 21 such runs between
-2026-09-27 and 2026-09-28, e.g. run 36426283823). A pinned macOS 15 run, an
-owned label, or a fleet the rule above leaves alone keeps its pin.
+Blacksmith macOS 26 and macos-latest pools only (BLACKSMITH_NO_UI): their
+sessions cannot capture the screen either, so a recorded UI run pinned there
+fails in its capture preflight before any test runs (every one of 21 such runs
+between 2026-09-27 and 2026-09-28, 2 of them on macos-latest, e.g. run
+36426283823). A pinned macOS 15 run, an owned label, or a fleet the rule above
+leaves alone keeps its pin. A moved run keeps its pinned title, so the replay
+charges it to the Blacksmith pool it names, as for a moved `auto` run.
 """
 from __future__ import annotations
 
