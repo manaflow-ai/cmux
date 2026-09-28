@@ -168,7 +168,9 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
     }
 
     func popoverDidClose(_ notification: Notification) {
-        guard isCurrentPopover(notification) else { return }
+        // A didClose that lands after `present` showed the same popover again
+        // belongs to the superseded close; the popover on screen stays.
+        guard isCurrentPopover(notification), popover?.isShown != true else { return }
         finishClose()
     }
 

@@ -111,6 +111,8 @@ struct SidebarRowSwiftUIPopoverPresenterTests {
         let clock = SidebarTestManualClock()
         let presenter = SidebarRowSwiftUIPopoverPresenter(closeCompletionClock: clock)
         defer { host.tearDown(presenter) }
+        var dismissals = 0
+        presenter.onExternalDismiss = { dismissals += 1 }
         host.present(presenter)
         let popover = try #require(presenter.popover)
         try #require(presenter.isShown)
@@ -135,6 +137,13 @@ struct SidebarRowSwiftUIPopoverPresenterTests {
         await AppKitTestEventPump().drain()
         #expect(presenter.isShown, "The superseded fallback must not close the re-presented popover")
         #expect(presenter.popover === popover)
+
+        // The superseded close's didClose arriving late must not tear down
+        // or report a dismissal of the popover now showing.
+        presenter.popoverDidClose(Notification(name: NSPopover.didCloseNotification, object: popover))
+        #expect(presenter.isShown, "A late didClose must not close the re-presented popover")
+        #expect(presenter.popover === popover)
+        #expect(dismissals == 0, "A late didClose is not an external dismissal")
     }
 
     @Test
