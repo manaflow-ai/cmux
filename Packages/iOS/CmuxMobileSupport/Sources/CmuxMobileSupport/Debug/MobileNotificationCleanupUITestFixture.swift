@@ -1,6 +1,7 @@
 #if DEBUG && targetEnvironment(simulator)
 import Foundation
 import OSLog
+import UIKit
 import UserNotifications
 
 /// Seeds real Notification Center entries for the foreground-cleanup UI test.
@@ -21,14 +22,22 @@ public final class MobileNotificationCleanupUITestFixture {
         guard !payloads.isEmpty else { return }
         _ = try? await UNUserNotificationCenter.current()
             .requestAuthorization(options: [.alert, .badge])
-        // Schedule while the app is active. A scene-phase callback can be
-        // suspended as soon as the test presses Home, before the async add
-        // calls reach UserNotifications. The one-second triggers still land
-        // in Notification Center while the app is backgrounded.
-        await scheduleNotifications()
     }
 
     public func scheduleOnBackground() async {
+        guard !payloads.isEmpty, !scheduled else { return }
+
+        // Keep the async request additions alive after the test backgrounds
+        // the app. Without this, the scene-phase Task can be suspended before
+        // UserNotifications receives the requests, leaving Notification
+        // Center empty and making the UI test meaningless.
+        let backgroundTask = UIApplication.shared.beginBackgroundTask(
+            withName: "cmux.notification-cleanup-ui-fixture"
+        )
+        defer {
+            guard backgroundTask != .invalid else { return }
+            UIApplication.shared.endBackgroundTask(backgroundTask)
+        }
         await scheduleNotifications()
     }
 

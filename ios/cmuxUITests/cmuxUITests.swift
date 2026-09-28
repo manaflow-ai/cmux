@@ -44,8 +44,9 @@ final class cmuxUITests: XCTestCase {
         await awaitReconcile()
 
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        func openNotificationCenter() {
+        func openNotificationCenter() async {
             XCUIDevice.shared.press(.home)
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
             let top = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.01))
             top.press(forDuration: 0.1, thenDragTo: springboard.coordinate(
                 withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)
@@ -70,7 +71,7 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(summary.waitForExistence(timeout: 8), "Missing grouped cmux notifications")
         }
 
-        openNotificationCenter()
+        await openNotificationCenter()
         assertGroupedNotificationsRetained()
         capture("01-delivered-before-cleanup")
 
@@ -78,7 +79,7 @@ final class cmuxUITests: XCTestCase {
         var nextReconcile = await server.notificationReconcileRequests().count + 1
         app.activate()
         await awaitReconcile(nextReconcile)
-        openNotificationCenter()
+        await openNotificationCenter()
         assertGroupedNotificationsRetained()
         capture("02-read-state-unavailable-keeps-notifications")
 
@@ -86,7 +87,7 @@ final class cmuxUITests: XCTestCase {
         nextReconcile = await server.notificationReconcileRequests().count + 1
         app.activate()
         await awaitReconcile(nextReconcile)
-        openNotificationCenter()
+        await openNotificationCenter()
         for name in ["Still unread", "Other computer", "Unrelated alert"] {
             XCTAssertTrue(title(name).waitForExistence(timeout: 8), "Cleanup removed \(name)")
         }
