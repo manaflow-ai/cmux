@@ -564653,6 +564653,756 @@
           }
         }
       }
+    },
+    "settings.automation.pi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi Integration"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكامل Pi"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi-Integration"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integración de Pi"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intégration de Pi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi連携"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi 연동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi 集成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi 整合"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi integracija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi-integration"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integrazione di Pi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការរួមបញ្ចូល Pi"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi-integrasjon"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integracja Pi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integração do Pi"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Интеграция Pi"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การผสานรวม Pi"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi entegrasyonu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інтеграція Pi"
+          }
+        }
+      }
+    },
+    "settings.automation.pi.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When enabled, cmux wraps the pi command and loads its bundled session extension without changing your Pi configuration. Disable if you prefer to manage Pi hooks yourself."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند التفعيل، يغلّف cmux أمر pi ويحمّل امتداد الجلسة المضمّن دون تغيير إعدادات Pi. عطّل هذا الخيار إذا كنت تفضّل إدارة خطافات Pi بنفسك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn aktiviert, umhüllt cmux den pi-Befehl und lädt seine gebündelte Sitzungserweiterung, ohne deine Pi-Konfiguration zu ändern. Deaktiviere dies, wenn du die Pi-Hooks selbst verwalten möchtest."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando está activado, cmux envuelve el comando pi y carga su extensión de sesión integrada sin cambiar tu configuración de Pi. Desactívalo si prefieres gestionar tú mismo los hooks de Pi."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lorsque cette option est activée, cmux encapsule la commande pi et charge son extension de session intégrée sans modifier votre configuration Pi. Désactivez-la si vous préférez gérer les hooks Pi vous-même."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効にすると、cmuxはpiコマンドをラップし、Piの設定を変更せずにバンドルされたセッション拡張機能を読み込みます。Piのフックを自分で管理する場合は無効にしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성화하면 cmux가 pi 명령을 래핑하고 Pi 설정을 변경하지 않고 번들 세션 확장을 로드합니다. Pi 훅을 직접 관리하려면 비활성화하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用后，cmux 会包装 pi 命令并加载内置会话扩展，不会更改你的 Pi 配置。如果你希望自行管理 Pi 钩子，请禁用此选项。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用後，cmux 會包裝 pi 指令並載入內建工作階段擴充功能，不會變更你的 Pi 設定。若偏好自行管理 Pi 掛鉤，請停用此選項。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je omogućeno, cmux obavija naredbu pi i učitava ugrađeno proširenje sesije bez mijenjanja vaše Pi konfiguracije. Onemogućite ako želite sami upravljati Pi kukama."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når funktionen er aktiveret, indpakker cmux pi-kommandoen og indlæser den medfølgende sessionsudvidelse uden at ændre din Pi-konfiguration. Deaktiver den, hvis du selv vil administrere Pi-hooks."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando è abilitata, cmux avvolge il comando pi e carica l'estensione di sessione inclusa senza modificare la configurazione di Pi. Disabilitala se preferisci gestire autonomamente gli hook di Pi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលបើកដំណើរការ cmux នឹងរុំពាក្យបញ្ជា pi ហើយផ្ទុកផ្នែកបន្ថែមសម័យដែលភ្ជាប់មកជាមួយ ដោយមិនផ្លាស់ប្តូរការកំណត់ Pi របស់អ្នក។ បិទវា ប្រសិនបើអ្នកចង់គ្រប់គ្រង hooks របស់ Pi ដោយខ្លួនឯង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når dette er aktivert, pakker cmux inn pi-kommandoen og laster den medfølgende øktutvidelsen uten å endre Pi-konfigurasjonen din. Deaktiver hvis du vil administrere Pi-hookene selv."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po włączeniu cmux opakuje polecenie pi i załaduje dołączone rozszerzenie sesji bez zmieniania konfiguracji Pi. Wyłącz tę opcję, jeśli wolisz samodzielnie zarządzać hookami Pi."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando ativado, o cmux envolve o comando pi e carrega a extensão de sessão incluída sem alterar sua configuração do Pi. Desative se preferir gerenciar os hooks do Pi por conta própria."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При включении cmux оборачивает команду pi и загружает встроенное расширение сеанса, не изменяя конфигурацию Pi. Отключите этот параметр, если предпочитаете управлять хуками Pi самостоятельно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเปิดใช้งาน cmux จะครอบคำสั่ง pi และโหลดส่วนขยายเซสชันที่มาพร้อมกับโปรแกรมโดยไม่เปลี่ยนการตั้งค่า Pi ของคุณ ปิดใช้งานหากต้องการจัดการ hooks ของ Pi เอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etkinleştirildiğinde cmux, Pi yapılandırmanızı değiştirmeden pi komutunu sarar ve birlikte gelen oturum uzantısını yükler. Pi kancalarını kendiniz yönetmeyi tercih ediyorsanız devre dışı bırakın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо ввімкнено, cmux обгортає команду pi й завантажує вбудоване розширення сеансу, не змінюючи конфігурацію Pi. Вимкніть цей параметр, якщо хочете самостійно керувати хуками Pi."
+          }
+        }
+      }
+    },
+    "settings.automation.pi.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi runs without cmux integration."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل Pi بدون تكامل cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi läuft ohne cmux-Integration."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi se ejecuta sin integración con cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi s’exécute sans intégration cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Piはcmux連携なしで実行されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi가 cmux 연동 없이 실행됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi 在没有 cmux 集成的情况下运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi 會在不使用 cmux 整合的情況下執行。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi radi bez cmux integracije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi kører uden cmux-integration."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi viene eseguito senza l'integrazione con cmux."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi ដំណើរការដោយគ្មានការរួមបញ្ចូល cmux។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi kjører uten cmux-integrasjon."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi działa bez integracji z cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Pi é executado sem a integração com o cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi работает без интеграции с cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi ทำงานโดยไม่มีการผสานรวมกับ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi, cmux entegrasyonu olmadan çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi працює без інтеграції з cmux."
+          }
+        }
+      }
+    },
+    "settings.automation.pi.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar shows Pi session status and notifications."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض الشريط الجانبي حالة جلسة Pi والإشعارات."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Seitenleiste zeigt den Pi-Sitzungsstatus und Benachrichtigungen an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La barra lateral muestra el estado de la sesión de Pi y las notificaciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La barre latérale affiche le statut de la session Pi et les notifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーにPiセッションのステータスと通知が表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에 Pi 세션 상태와 알림이 표시됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "侧边栏显示 Pi 会话状态和通知。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄顯示 Pi 工作階段狀態和通知。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bočna traka prikazuje status Pi sesije i obavijesti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidepanelet viser Pi-sessionens status og notifikationer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La barra laterale mostra lo stato della sessione Pi e le notifiche."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារចំហៀងបង្ហាញស្ថានភាពសម័យ Pi និងការជូនដំណឹង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidepanelet viser status og varsler for Pi-økten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek boczny pokazuje stan sesji Pi i powiadomienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A barra lateral mostra o status da sessão do Pi e as notificações."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На боковой панели отображаются состояние сеанса Pi и уведомления."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบด้านข้างจะแสดงสถานะเซสชัน Pi และการแจ้งเตือน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğu, Pi oturumunun durumunu ve bildirimleri gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бічна панель показує стан сеансу Pi та сповіщення."
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.automation.pi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration pi hooks agent integration status notifications"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration تكامل Pi خطافات وكيل حالة إشعارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi kukice integracija agenta status obavijesti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi-hooks agentintegration status notifikationer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi Hooks Agent Integration Status Benachrichtigungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi hooks integración de agente estado notificaciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi hooks intégration agent état notifications"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration hook Pi integrazione agente stato notifiche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi フック エージェント連携 ステータス 通知"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration hooks Pi ការរួមបញ្ចូលភ្នាក់ងារ ស្ថានភាព ការជូនដំណឹង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi 훅 에이전트 연동 상태 알림"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi-hook agentintegrasjon status varsler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration hooki Pi integracja agenta stan powiadomienia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration hooks do Pi integração do agente status notificações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration хуки Pi интеграция агента состояние уведомления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration hooks ของ Pi การผสานรวมเอเจนต์ สถานะ การแจ้งเตือน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi kancaları aracı entegrasyonu durum bildirimler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration хуки Pi інтеграція агента стан сповіщення"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi 钩子 代理集成 状态 通知"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.piIntegration Pi 掛鉤 代理程式整合 狀態 通知"
+          }
+        }
+      }
+    },
+    "cli.hooks.setup.wrapperNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  (Claude Code and Pi hooks are injected automatically via their cmux wrappers)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  (يتم حقن خطافات Claude Code وPi تلقائيًا عبر أغلفة cmux)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  (Claude Code i Pi kukice se automatski ubacuju putem cmux omotača)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  (Claude Code- og Pi-hooks indsættes automatisk via deres cmux-wrappere)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  (Claude-Code- und Pi-Hooks werden automatisch über ihre cmux-Wrapper eingefügt)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  (Los hooks de Claude Code y Pi se inyectan automáticamente mediante sus wrappers de cmux)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  (Les hooks de Claude Code et Pi sont injectés automatiquement par leurs wrappers cmux)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  (Gli hook di Claude Code e Pi vengono iniettati automaticamente tramite i rispettivi wrapper cmux)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  (Claude Code と Pi のフックは cmux ラッパーによって自動的に注入されます)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  (hooks របស់ Claude Code និង Pi ត្រូវបានបញ្ចូលដោយស្វ័យប្រវត្តិតាមរយៈ wrapper របស់ cmux)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  (Claude Code 및 Pi 훅은 cmux 래퍼를 통해 자동으로 주입됩니다)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  (Claude Code- og Pi-hooker settes inn automatisk via cmux-innpakningene)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  (Hooki Claude Code i Pi są automatycznie wstrzykiwane przez ich opakowania cmux)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  (Os hooks do Claude Code e do Pi são injetados automaticamente pelos respectivos wrappers do cmux)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  (Хуки Claude Code и Pi автоматически внедряются их оболочками cmux)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  (hooks ของ Claude Code และ Pi จะถูกฉีดโดยอัตโนมัติผ่าน wrapper ของ cmux)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  (Claude Code ve Pi kancaları, cmux sarmalayıcıları aracılığıyla otomatik olarak eklenir)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  (Хуки Claude Code і Pi автоматично додаються їхніми обгортками cmux)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  （Claude Code 和 Pi 的钩子会通过各自的 cmux 包装器自动注入）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  （Claude Code 和 Pi 的掛鉤會透過各自的 cmux 包裝器自動注入）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -162,6 +162,7 @@ Socket control and automation settings from Settings > Automation.
 | `automation.socketPassword` | string or null | `""` | Password for password-mode socket access. Use null or an empty string to clear it. |
 | `automation.claudeCodeIntegration` | boolean | `true` | Enable cmux integration hooks for Claude Code. |
 | `automation.codexIntegration` | boolean | `true` | Enable cmux integration hooks for Codex. When disabled, cmux no longer wraps the codex command but still tracks live Codex sessions it can observe. |
+| `automation.piIntegration` | boolean | `true` | Enable cmux integration hooks for Pi. |
 | `automation.claudeBinaryPath` | string | `""` | Custom path to the claude binary. |
 | `automation.cursorIntegration` | boolean | `true` | Enable cmux integration hooks for Cursor. |
 | `automation.geminiIntegration` | boolean | `true` | Enable cmux integration hooks for Gemini. |
