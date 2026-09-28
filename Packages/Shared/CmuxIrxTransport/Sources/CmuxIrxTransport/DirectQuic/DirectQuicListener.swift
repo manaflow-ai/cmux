@@ -35,7 +35,7 @@ public final class DirectQuicListener: @unchecked Sendable {
         maximumPendingAdmissions: Int = 16
     ) throws {
         self.maximumPendingAdmissions = maximumPendingAdmissions
-        guard let tlsIdentity = DirectQuicTLSIdentity.load(),
+        guard let tlsIdentity = DirectQuicTLSIdentity().load(),
               let nwPort = NWEndpoint.Port(rawValue: port) else {
             throw DirectQuicError.listenerUnavailable
         }
@@ -72,6 +72,7 @@ public final class DirectQuicListener: @unchecked Sendable {
         }
     }
 
+    /// Stops accepting connections and ends the `connections` stream.
     public func cancel() {
         listener.cancel()
         continuation.finish()

@@ -12,11 +12,15 @@ import Security
 /// cannot produce either device's signature over the other session, so a
 /// shared, public certificate key costs nothing. TLS 1.3 key agreement stays
 /// ephemeral, so the certificate key cannot decrypt recorded traffic.
-enum DirectQuicTLSIdentity {
-    static let passphrase = "cmux-direct-quic"
+struct DirectQuicTLSIdentity {
+    init() {}
+
+    /// Protects the embedded PKCS#12 blob; its secrecy is irrelevant because
+    /// peers never trust the certificate (see above).
+    let passphrase = "cmux-direct-quic"
 
     /// Self-signed P-256 certificate, CN=cmux-direct-quic, valid until 2126.
-    static let pkcs12Base64 = """
+    let pkcs12Base64 = """
 MIIELAIBAzCCA+IGCSqGSIb3DQEHAaCCA9MEggPPMIIDyzCCAnoGCSqGSIb3DQEHBqCCAmswggJn
 AgEAMIICYAYJKoZIhvcNAQcBMF8GCSqGSIb3DQEFDTBSMDEGCSqGSIb3DQEFDDAkBBDdCwjnu1D1
 ZQmgGBaSYafKAgIIADAMBggqhkiG9w0CCQUAMB0GCWCGSAFlAwQBKgQQSby00Z+3LYjvfPnPmoZn
@@ -43,7 +47,7 @@ vAfNkYbr+46FJXF5FyNCVVtth3LvefO6QfLf/WfnIbsECDvvGihiV7xGAgIIAA==
     /// in-memory PKCS#12 import. Both paths yield the same shared identity;
     /// peers never trust it (see above), so where it is stored is only a
     /// bookkeeping difference.
-    static func load() -> sec_identity_t? {
+    func load() -> sec_identity_t? {
         guard let data = Data(base64Encoded: pkcs12Base64, options: .ignoreUnknownCharacters) else {
             return nil
         }
@@ -78,7 +82,7 @@ vAfNkYbr+46FJXF5FyNCVVtth3LvefO6QfLf/WfnIbsECDvvGihiV7xGAgIIAA==
         #endif
     }
 
-    private static func importIdentity(_ data: Data, options: [String: Any]) -> sec_identity_t? {
+    private func importIdentity(_ data: Data, options: [String: Any]) -> sec_identity_t? {
         var items: CFArray?
         guard SecPKCS12Import(data as CFData, options as CFDictionary, &items) == errSecSuccess,
               let entries = items as? [[String: Any]],
