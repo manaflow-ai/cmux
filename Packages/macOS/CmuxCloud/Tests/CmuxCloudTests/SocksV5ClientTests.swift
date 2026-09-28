@@ -1,12 +1,6 @@
-import CmuxCloud
+@testable import CmuxCloud
 import Foundation
 import Testing
-
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
 
 /// The byte-level contract with the cmux-tui hub's SOCKS5 subset: CONNECT to a
 /// literal IP with no authentication, and a reply whose bound address must be

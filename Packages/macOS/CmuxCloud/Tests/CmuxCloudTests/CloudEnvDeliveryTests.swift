@@ -1,12 +1,7 @@
-import CmuxCloud
+@testable import CmuxCloud
 import CmuxCloudTui
 import Foundation
 import Testing
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
 
 /// The env delivery protocol's pure half: what is typed into `cmux env receive`, how it
 /// is chunked, and how the receiver's verdict is read back. The shim's side of the same

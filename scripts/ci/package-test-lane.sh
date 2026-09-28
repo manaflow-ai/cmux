@@ -78,6 +78,7 @@ select_packages() {
     CMUXAuthCore
     CmuxBrowser
     CmuxCanvasUI
+    CmuxCloud
     CmuxCloudMachines
     CmuxCloudTui
     CmuxComputerUse
@@ -171,7 +172,7 @@ select_packages() {
   output "selected_packages=$selected"
   output "selected_count=$count"
 
-  if grep -qxE 'CmuxTerminal|CmuxTerminalCore|CmuxCloudTui' "$selected"; then
+  if grep -qxE 'CmuxTerminal|CmuxTerminalCore|CmuxCloudTui|CmuxCloud' "$selected"; then
     needs_ghosttykit=true
   else
     needs_ghosttykit=false
@@ -387,7 +388,7 @@ run_package_tests() {
     CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxIrxTransport)
       ./scripts/ci/run-swift-testing-suites.sh "$pkgdir" || return $?
       ;;
-    CmuxTerminal|CmuxTerminalCore|CmuxCloudTui)
+    CmuxTerminal|CmuxTerminalCore|CmuxCloudTui|CmuxCloud)
       run_swift_test
       if [ "$test_status" -ne 0 ]; then
         if [ "$test_status" -eq 1 ] \

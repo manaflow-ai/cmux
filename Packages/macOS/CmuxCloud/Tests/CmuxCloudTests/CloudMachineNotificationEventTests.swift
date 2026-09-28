@@ -1,12 +1,7 @@
-import CmuxCloud
+@testable import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
 
 /// The pure half of cloud-machine notifications: what the Mac accepts off a machine's
 /// `session current events --jsonl` stream, how it bounds and cleans it, how it rate-limits
@@ -337,7 +332,6 @@ import Testing
     private static func projection(_ key: String, machine: SurfaceMachineID = machine, kind: SurfaceResourceKind = .terminal, workspace: UUID, panel: UUID) -> SurfaceProjection {
         SurfaceProjection(resource: SurfaceResourceID(machine: machine, kind: kind, key: key), workspaceID: workspace, panelID: panel)
     }
-
 
     private static func notificationRow(terminalID: String?) -> CloudVMNotificationRow {
         CloudVMNotificationRow(
