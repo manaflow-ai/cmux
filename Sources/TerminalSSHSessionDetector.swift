@@ -449,27 +449,6 @@ enum TerminalSSHSessionDetector {
         )
     }
 
-    /// Whether the TTY's foreground job contains an `ssh` or `et` process.
-    /// `processGroupID` is the PTY's foreground process group (`tcgetpgrp`).
-    /// Cheap enough for the main actor; see
-    /// ``processSnapshots(inProcessGroup:ttyName:)`` for the complexity contract.
-    ///
-    /// `nil` means the group could not be read, which is not the same answer as
-    /// `false`. Only `false` is a confident "no remote shell here", so a caller
-    /// may skip the async lookup on `false` and must keep it on `nil`.
-    static func foregroundJobHasRemoteShell(processGroupID: Int32, ttyName: String) -> Bool? {
-        let normalizedTTY = normalizeTTYName(ttyName)
-        guard !normalizedTTY.isEmpty else { return nil }
-        let snapshots = processSnapshots(inProcessGroup: processGroupID, ttyName: normalizedTTY)
-        // A live foreground group has at least one member on this TTY, since
-        // the kernel just named it as the group reading from the terminal. An
-        // empty result means the TTY name did not resolve, `proc_listpids`
-        // failed, or the job exited between the two syscalls. None of those is
-        // evidence that the job is local.
-        guard !snapshots.isEmpty else { return nil }
-        return snapshots.contains { isForegroundRemoteShellProcess($0, ttyName: normalizedTTY) }
-    }
-
     static func detectForTesting(
         ttyName: String,
         processes: [ProcessSnapshot],
@@ -560,7 +539,7 @@ enum TerminalSSHSessionDetector {
         )
     }
 
-    private static func normalizeTTYName(_ ttyName: String) -> String {
+    static func normalizeTTYName(_ ttyName: String) -> String {
         let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
         if let lastComponent = trimmed.split(separator: "/").last {
@@ -569,7 +548,7 @@ enum TerminalSSHSessionDetector {
         return trimmed
     }
 
-    private static func isForegroundRemoteShellProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
+    static func isForegroundRemoteShellProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
         normalizeTTYName(process.tty) == normalizeTTYName(ttyName) &&
             RemoteShellTransport(executableName: process.executableName) != nil &&
             process.pgid > 0 &&
