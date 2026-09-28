@@ -35,7 +35,16 @@ struct CloudTreeLayoutMetricsTests {
             metrics.titleWidth(rowWidth: 420, leadingContentWidth: 92, trailingContentWidth: 76)
                 == 420 - 92 - 76 - metrics.referenceInset
         )
-        #expect(metrics.titleWidth(rowWidth: 180, leadingContentWidth: 92, trailingContentWidth: 76) == 0)
+        #expect(
+            metrics.titleWidth(rowWidth: 180, leadingContentWidth: 92, trailingContentWidth: 76)
+                == 180 - 92 - 76 - metrics.referenceInset
+        )
+        // The clamp, stated on its own. Before this the narrow case happened to
+        // come out at exactly zero with the old 12pt inset, so it read like a
+        // clamp test and was really more arithmetic: moving the inset to the
+        // sidebar's 6pt turned it into 6 and the assertion failed without any
+        // clamping behaviour having changed.
+        #expect(metrics.titleWidth(rowWidth: 140, leadingContentWidth: 92, trailingContentWidth: 76) == 0)
     }
 
     /// CmuxCloud cannot import the app target, so `CloudSidebarChromeMetrics`
