@@ -23,6 +23,7 @@
 		D0B102010000000000000001 /* AcknowledgmentsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */; };
 		A9E020000000000000000006 /* agent-session-react in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000006 /* agent-session-react */; };
 		A9E020000000000000000007 /* agent-session-solid in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000007 /* agent-session-solid */; };
+		CF6691E746957D8EAA5E1131 /* AgentActivityIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1547E2C6E5DE666CAE3B77F8 /* AgentActivityIndex.swift */; };
 		5FAC71D5AC71D5AC71D50001 /* AgentChatChildRunTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FAC71D5AC71D5AC71D50002 /* AgentChatChildRunTests.swift */; };
 		C7A52E000000000000000002 /* AgentChatEndedTranscriptListabilityCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */; };
 		C7A53F000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A53F000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinator.swift */; };
@@ -122,6 +123,7 @@
 		F65760200000000000000001 /* AgentHibernationTranscriptHookStoreFileMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760200000000000000002 /* AgentHibernationTranscriptHookStoreFileMirror.swift */; };
 		F65760210000000000000001 /* AgentHibernationTranscriptHookStoreRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760210000000000000002 /* AgentHibernationTranscriptHookStoreRecord.swift */; };
 		F65760250000000000000001 /* AgentHibernationTranscriptSnapshotRaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760250000000000000002 /* AgentHibernationTranscriptSnapshotRaceTests.swift */; };
+		D0228AE2BD13B63BCBD94780 /* AgentHookActivityTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2CAA8C3B254E024F4749E2E /* AgentHookActivityTracker.swift */; };
 		A61E00010000000000000001 /* AgentHookDeliveryEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61E00010000000000000003 /* AgentHookDeliveryEvent.swift */; };
 		A61E00010000000000000005 /* AgentHookDeliveryProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61E00010000000000000006 /* AgentHookDeliveryProcess.swift */; };
 		A61E00010000000000000002 /* AgentHookDeliveryQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61E00010000000000000004 /* AgentHookDeliveryQueue.swift */; };
@@ -3370,6 +3372,7 @@
 		F87920000000000000000005 /* TerminalConfigurationReloadPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87920000000000000000006 /* TerminalConfigurationReloadPhase.swift */; };
 		A10557050000000000000001 /* TerminalConfigurationSurfaceApplyState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10557050000000000000002 /* TerminalConfigurationSurfaceApplyState.swift */; };
 		A77A0007A1B2C3D4E5F60001 /* TerminalController+AgentJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A0008A1B2C3D4E5F60001 /* TerminalController+AgentJournal.swift */; };
+		B9DED2921D296B8417DAABD0 /* TerminalController+AgentList.swift in Sources */ = {isa = PBXBuildFile; fileRef = F45034D44F7A14E4019983BD /* TerminalController+AgentList.swift */; };
 		D35A00000000000000000014 /* TerminalController+AgentPromptDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000014 /* TerminalController+AgentPromptDelivery.swift */; };
 		110434021104340211043402 /* TerminalController+AgentRestoreAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110434011104340111043401 /* TerminalController+AgentRestoreAdmission.swift */; };
 		1C2E31B0392EDA1F21B150A4 /* TerminalController+AgentRestoreRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BC27608B94D9C9D703147F2 /* TerminalController+AgentRestoreRecovery.swift */; };
@@ -3751,6 +3754,7 @@
 		A500120D /* UpdateLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001223 /* UpdateLogStore.swift */; };
 		F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */; };
 		C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */; };
+		77D1FD996484655FFF4656A9 /* UpdateRelaunchAgentClassification.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A6AE29EA7AF1FB12876663D /* UpdateRelaunchAgentClassification.swift */; };
 		3AD574FB82F03F846DB54DE1 /* UpdateRelaunchAgentResumeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A634CA3FCA39C6F02FA78DC7 /* UpdateRelaunchAgentResumeTests.swift */; };
 		ECA7FC852F69AAF9FE972D06 /* UpdateRelaunchBlockersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E40AA0639D63F947BB321B4 /* UpdateRelaunchBlockersTests.swift */; };
 		A5001208 /* UpdateTitlebarAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001218 /* UpdateTitlebarAccessory.swift */; };
@@ -4226,6 +4230,7 @@
 		D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AcknowledgmentsWindowController.swift; sourceTree = "<group>"; };
 		A9E010000000000000000006 /* agent-session-react */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-react"; sourceTree = "<group>"; };
 		A9E010000000000000000007 /* agent-session-solid */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-solid"; sourceTree = "<group>"; };
+		1547E2C6E5DE666CAE3B77F8 /* AgentActivityIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Agents/AgentActivityIndex.swift; sourceTree = "<group>"; };
 		5FAC71D5AC71D5AC71D50002 /* AgentChatChildRunTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatChildRunTests.swift; sourceTree = "<group>"; };
 		C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatEndedTranscriptListabilityCache.swift"; sourceTree = "<group>"; };
 		C7A53F000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatFallbackTranscriptResolutionCoordinator.swift"; sourceTree = "<group>"; };
@@ -4324,6 +4329,7 @@
 		F65760200000000000000002 /* AgentHibernationTranscriptHookStoreFileMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationTranscriptHookStoreFileMirror.swift"; sourceTree = "<group>"; };
 		F65760210000000000000002 /* AgentHibernationTranscriptHookStoreRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationTranscriptHookStoreRecord.swift"; sourceTree = "<group>"; };
 		F65760250000000000000002 /* AgentHibernationTranscriptSnapshotRaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTranscriptSnapshotRaceTests.swift; sourceTree = "<group>"; };
+		E2CAA8C3B254E024F4749E2E /* AgentHookActivityTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Agents/AgentHookActivityTracker.swift; sourceTree = "<group>"; };
 		A61E00010000000000000003 /* AgentHookDeliveryEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookDeliveryEvent.swift; sourceTree = "<group>"; };
 		A61E00010000000000000006 /* AgentHookDeliveryProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookDeliveryProcess.swift; sourceTree = "<group>"; };
 		A61E00010000000000000004 /* AgentHookDeliveryQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookDeliveryQueue.swift; sourceTree = "<group>"; };
@@ -7398,6 +7404,7 @@
 		F87920000000000000000006 /* TerminalConfigurationReloadPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalConfigurationReloadPhase.swift; sourceTree = "<group>"; };
 		A10557050000000000000002 /* TerminalConfigurationSurfaceApplyState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalConfigurationSurfaceApplyState.swift; sourceTree = "<group>"; };
 		A77A0008A1B2C3D4E5F60001 /* TerminalController+AgentJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentJournal.swift"; sourceTree = "<group>"; };
+		F45034D44F7A14E4019983BD /* TerminalController+AgentList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Agents/TerminalController+AgentList.swift"; sourceTree = "<group>"; };
 		D35B00000000000000000014 /* TerminalController+AgentPromptDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentPromptDelivery.swift"; sourceTree = "<group>"; };
 		110434011104340111043401 /* TerminalController+AgentRestoreAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentRestoreAdmission.swift"; sourceTree = "<group>"; };
 		8BC27608B94D9C9D703147F2 /* TerminalController+AgentRestoreRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentRestoreRecovery.swift"; sourceTree = "<group>"; };
@@ -7779,6 +7786,7 @@
 		A5001223 /* UpdateLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateLogStore.swift; sourceTree = "<group>"; };
 		F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
 		C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
+		2A6AE29EA7AF1FB12876663D /* UpdateRelaunchAgentClassification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateRelaunchAgentClassification.swift; sourceTree = "<group>"; };
 		A634CA3FCA39C6F02FA78DC7 /* UpdateRelaunchAgentResumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UpdateRelaunchAgentResumeTests.swift"; sourceTree = "<group>"; };
 		8E40AA0639D63F947BB321B4 /* UpdateRelaunchBlockersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UpdateRelaunchBlockersTests.swift"; sourceTree = "<group>"; };
 		A5001218 /* UpdateTitlebarAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTitlebarAccessory.swift; sourceTree = "<group>"; };
@@ -10951,8 +10959,12 @@
 				2DA313712597F71E6015ABBC /* TerminalSSHSessionDetectionTimeoutGate.swift */,
 				7611B3AEEB664825A7DD8733 /* TerminalSSHSessionDetector+Async.swift */,
 				61BF07E91B28C5740AD10DD9 /* TerminalSSHSessionDetector+ProcessInfo.swift */,
+				E2CAA8C3B254E024F4749E2E /* AgentHookActivityTracker.swift */,
+				1547E2C6E5DE666CAE3B77F8 /* AgentActivityIndex.swift */,
+				F45034D44F7A14E4019983BD /* TerminalController+AgentList.swift */,
 				3840C3CAEE266F282EE96A37 /* SidebarReorderInteractionState.swift */,
 				01AFEB5B2588D6391DC94892 /* WorkspaceActivityReorderController.swift */,
+				2A6AE29EA7AF1FB12876663D /* UpdateRelaunchAgentClassification.swift */,
 				FFFCEC5E783F29C91BC6A8EE /* Workspace+SplitSpace.swift */,
 			);
 			path = Sources;
@@ -13130,6 +13142,7 @@
 				A5C017000000000000000007 /* AccountSignInView.swift in Sources */,
 				D0B102020000000000000001 /* AcknowledgmentsView.swift in Sources */,
 				D0B102010000000000000001 /* AcknowledgmentsWindowController.swift in Sources */,
+				CF6691E746957D8EAA5E1131 /* AgentActivityIndex.swift in Sources */,
 					C7A52E000000000000000002 /* AgentChatEndedTranscriptListabilityCache.swift in Sources */,
 				C7A53F000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinator.swift in Sources */,
 				A6E57A0D0000000000000001 /* AgentChatProseStreamWakeDriver.swift in Sources */,
@@ -13199,6 +13212,7 @@
 				F65760050000000000000001 /* AgentHibernationTranscriptGuard.swift in Sources */,
 				F65760200000000000000001 /* AgentHibernationTranscriptHookStoreFileMirror.swift in Sources */,
 				F65760210000000000000001 /* AgentHibernationTranscriptHookStoreRecord.swift in Sources */,
+				D0228AE2BD13B63BCBD94780 /* AgentHookActivityTracker.swift in Sources */,
 				A61E00010000000000000001 /* AgentHookDeliveryEvent.swift in Sources */,
 				A61E00010000000000000005 /* AgentHookDeliveryProcess.swift in Sources */,
 				A61E00010000000000000002 /* AgentHookDeliveryQueue.swift in Sources */,
@@ -14987,6 +15001,7 @@
 				F87920000000000000000005 /* TerminalConfigurationReloadPhase.swift in Sources */,
 				A10557050000000000000001 /* TerminalConfigurationSurfaceApplyState.swift in Sources */,
 				A77A0007A1B2C3D4E5F60001 /* TerminalController+AgentJournal.swift in Sources */,
+				B9DED2921D296B8417DAABD0 /* TerminalController+AgentList.swift in Sources */,
 				D35A00000000000000000014 /* TerminalController+AgentPromptDelivery.swift in Sources */,
 				110434021104340211043402 /* TerminalController+AgentRestoreAdmission.swift in Sources */,
 				1C2E31B0392EDA1F21B150A4 /* TerminalController+AgentRestoreRecovery.swift in Sources */,
@@ -15294,6 +15309,7 @@
 				197D3DA9292D64327F43E992 /* UITestSocketCommandScript.swift in Sources */,
 			E7F100000000000000000001 /* UITestSocketSanityCoordinator.swift in Sources */,
 				A500120D /* UpdateLogStore.swift in Sources */,
+				77D1FD996484655FFF4656A9 /* UpdateRelaunchAgentClassification.swift in Sources */,
 				A5001208 /* UpdateTitlebarAccessory.swift in Sources */,
 				0D5183AD0EC5E5C47A7E6E91 /* UserDefaults+CloudTreeExpansionPersistence.swift in Sources */,
 				F76550040000000000000001 /* VaultAgentProcessScanner+CodexSessionCwd.swift in Sources */,

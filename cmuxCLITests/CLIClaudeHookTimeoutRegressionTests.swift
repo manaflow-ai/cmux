@@ -165,6 +165,10 @@ struct CLIClaudeHookTimeoutRegressionTests {
         for (event, subcommand) in queuedHooks {
             try expectQueuedHook(hooks, event: event, subcommand: subcommand)
         }
+        // Tool completion only closes an open call, so nothing waits on it.
+        for event in ["PostToolUse", "PostToolUseFailure"] {
+            try expectQueuedHook(hooks, event: event, subcommand: "post-tool-use", isAsync: true)
+        }
         try expectDirectHook(
             hooks,
             event: "PreToolUse",
@@ -1466,7 +1470,8 @@ struct CLIClaudeHookTimeoutRegressionTests {
     private func expectQueuedHook(
         _ hooks: [String: Any],
         event: String,
-        subcommand: String
+        subcommand: String,
+        isAsync: Bool = false
     ) throws {
         let command = try hookCommand(
             hooks,
@@ -1479,7 +1484,11 @@ struct CLIClaudeHookTimeoutRegressionTests {
             return entries.first { $0["command"] as? String == command }
         }.first)
         #expect(hook["timeout"] as? Int == 5)
-        #expect(hook["async"] == nil)
+        if isAsync {
+            #expect(hook["async"] as? Bool == true)
+        } else {
+            #expect(hook["async"] == nil)
+        }
         #expect(command.contains(#"--socket "$CMUX_SOCKET_PATH""#))
         #expect(command.contains("CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5"))
         #expect(command.contains("cat >/dev/null"))

@@ -293308,124 +293308,6 @@
         }
       }
     },
-    "settings.app.compactAgentStatus": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compact Agent Status"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حالة الوكيل المختصرة"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kompakter Agentenstatus"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Estado de agente compacto"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Statut d’agent compact"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェント状態のコンパクト表示"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "간결한 에이전트 상태"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "精简代理状态"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "精簡代理狀態"
-          }
-        }
-      }
-    },
-    "settings.app.compactAgentStatus.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show a workspace's agent, unread and pull request state as one colored icon before the title instead of separate rows. Hover the icon for details."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار حالة الوكيل والعناصر غير المقروءة وطلب السحب لمساحة العمل كأيقونة ملونة واحدة قبل العنوان بدلاً من صفوف منفصلة. مرّر المؤشر فوق الأيقونة لعرض التفاصيل."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenten-, Ungelesen- und Pull-Request-Status eines Workspace als ein farbiges Symbol vor dem Titel anzeigen statt in eigenen Zeilen. Details erscheinen, wenn du den Zeiger über das Symbol bewegst."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar el estado del agente, lo no leído y la pull request de un espacio de trabajo como un único icono de color antes del título, en lugar de filas separadas. Pasa el cursor sobre el icono para ver los detalles."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher l’état de l’agent, des éléments non lus et de la pull request d’un espace de travail sous forme d’une seule icône colorée avant le titre, au lieu de lignes distinctes. Survolez l’icône pour voir les détails."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースのエージェント、未読、プルリクエストの状態を、個別の行ではなくタイトルの前の色付きアイコン1つで示します。詳細はアイコンにポインタを合わせると表示されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "워크스페이스의 에이전트, 읽지 않음, 풀 리퀘스트 상태를 별도의 줄이 아니라 제목 앞의 색상 아이콘 하나로 나타냅니다. 자세한 내용은 아이콘 위에 포인터를 올려 확인하세요."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用标题前的单个彩色图标表示工作区的代理、未读和拉取请求状态，而不是各自占一行。将指针悬停在图标上可查看详细信息。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "以標題前的單一彩色圖示表示工作區的代理、未讀與拉取請求狀態，而非各自佔一行。將游標移到圖示上可查看詳細資訊。"
-          }
-        }
-      }
-    },
     "settings.app.configWindow": {
       "extractionState": "manual",
       "localizations": {
@@ -303406,6 +303288,244 @@
           "stringUnit": {
             "state": "translated",
             "value": "傳送匿名遙測資料"
+          }
+        }
+      }
+    },
+    "settings.app.installUpdatesAutomatically": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تثبيت التحديثات تلقائيًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski instaliraj ažuriranja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer opdateringer automatisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates automatisch installieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install Updates Automatically"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalar actualizaciones automáticamente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer les mises à jour automatiquement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installa aggiornamenti automaticamente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートを自動的にインストール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 자동 설치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer oppdateringer automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instaluj aktualizacje automatycznie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalar atualizações automaticamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Устанавливать обновления автоматически"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตั้งอัปเดตโดยอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncellemeleri otomatik olarak yükle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установлювати оновлення автоматично"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动安装更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動安裝更新"
+          }
+        }
+      }
+    },
+    "settings.app.installUpdatesAutomatically.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنزيل التحديثات في الخلفية وتثبيتها عندما لا يعمل أي وكيل وتبتعد عن الجهاز لمدة دقيقة. تستأنف مساحات العمل والوكلاء من حيث توقفت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preuzimaj ažuriranja u pozadini i instaliraj ih kada nijedan agent ne radi i kada se udaljiš na minut. Radni prostori i agenti nastavljaju tamo gdje su stali."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hent opdateringer i baggrunden, og installer dem, når ingen agent arbejder, og du går fra i et minut. Arbejdsområder og agenter fortsætter, hvor de slap."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates im Hintergrund laden und installieren, wenn kein Agent arbeitet und du eine Minute Pause machst. Workspaces und Agenten machen dort weiter, wo sie aufgehört haben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download updates in the background and install them when no agent is working and you step away for a minute. Workspaces and agents resume where they left off."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descarga las actualizaciones en segundo plano y las instala cuando ningún agente está trabajando y te ausentas un minuto. Los espacios de trabajo y los agentes continúan donde se quedaron."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Télécharger les mises à jour en arrière-plan et les installer quand aucun agent ne travaille et que vous vous absentez une minute. Les espaces de travail et les agents reprennent là où ils en étaient."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scarica gli aggiornamenti in background e installali quando nessun agente è al lavoro e ti allontani per un minuto. Spazi di lavoro e agenti riprendono da dove si erano interrotti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートをバックグラウンドでダウンロードし、作業中のエージェントがなく 1 分間席を離れたときにインストールします。ワークスペースとエージェントは中断したところから再開します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트를 백그라운드에서 다운로드하고, 작업 중인 에이전트가 없고 1분 동안 자리를 비우면 설치합니다. 워크스페이스와 에이전트는 중단된 지점에서 재개됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last ned oppdateringer i bakgrunnen og installer dem når ingen agent arbeider og du går fra i ett minutt. Arbeidsområder og agenter fortsetter der de slapp."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pobieraj aktualizacje w tle i instaluj je, gdy żaden agent nie pracuje, a Ty odejdziesz na minutę. Obszary robocze i agenci wznowią pracę tam, gdzie ją przerwali."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixar atualizações em segundo plano e instalá-las quando nenhum agente estiver trabalhando e você se afastar por um minuto. Espaços de trabalho e agentes continuam de onde pararam."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загружать обновления в фоне и устанавливать их, когда ни один агент не работает и вы отходите на минуту. Рабочие пространства и агенты продолжат с того места, где остановились."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดาวน์โหลดอัปเดตในเบื้องหลังและติดตั้งเมื่อไม่มีเอเจนต์ทำงานอยู่และคุณไม่ได้ใช้งานเครื่องเป็นเวลาหนึ่งนาที พื้นที่ทำงานและเอเจนต์จะทำงานต่อจากจุดที่ค้างไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncellemeleri arka planda indir ve hiçbir ajan çalışmıyorken bir dakika uzaklaştığında yükle. Çalışma alanları ve ajanlar kaldıkları yerden devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завантажувати оновлення у фоні та встановлювати їх, коли жоден агент не працює, а ви відходите на хвилину. Робочі простори й агенти продовжать з того місця, де зупинилися."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在后台下载更新，并在没有代理工作且你离开一分钟时安装。工作区和代理会从中断处继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在背景下載更新，並在沒有代理運作且你離開一分鐘時安裝。工作區與代理會從中斷處繼續。"
           }
         }
       }
@@ -345744,65 +345864,6 @@
         }
       }
     },
-    "settings.search.alias.setting.app.compact-agent-status": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex مختصر وكيل حالة أيقونة سطر العنوان"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex kompakt Agent Status Symbol Titelzeile"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex compacto agente estado icono línea de título"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex compact agent statut icône ligne de titre"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex コンパクト エージェント 状態 アイコン タイトル行"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 간결 에이전트 상태 아이콘 제목 줄"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 精简 代理 状态 图标 标题行"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 精簡 代理 狀態 圖示 標題列"
-          }
-        }
-      }
-    },
     "settings.search.alias.setting.app.default-terminal": {
       "extractionState": "manual",
       "localizations": {
@@ -386984,65 +387045,6 @@
         }
       }
     },
-    "sidebar.agentStatus.glyph.tooltip": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ : %2$@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@：%2$@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@：%2$@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@：%2$@"
-          }
-        }
-      }
-    },
     "sidebar.browserStack.closeGroup": {
       "extractionState": "manual",
       "localizations": {
@@ -388999,65 +389001,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 上的雲端工作區"
-          }
-        }
-      }
-    },
-    "sidebar.compactStatus.profile": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Profile"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الملف الشخصي"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Profil"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Perfil"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Profil"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プロファイル"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "프로필"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "配置文件"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "設定檔"
           }
         }
       }
@@ -558647,7 +558590,125 @@
         }
       }
     },
-    "update.readyWaiting.agents": {
+    "update.autoInstall.waitingRisky": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installs after these finish and you step away."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird installiert, sobald diese fertig sind und du eine Pause machst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "S’installe quand ceux-ci ont terminé et que vous vous absentez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتم التثبيت بعد انتهاء هذه العناصر وابتعادك عن الجهاز."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se instala cuando terminen estos y te ausentes."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將在這些完成且你離開後安裝。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将在这些完成且你离开后安装。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 항목들이 끝나고 자리를 비우면 설치합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらが終了し、席を離れるとインストールします。"
+          }
+        }
+      }
+    },
+    "update.relaunch.confirmRisky": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relaunching now stops what these are running."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Neustart jetzt beendet, was diese gerade ausführen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relancer maintenant arrête ce qu’ils exécutent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تؤدي إعادة التشغيل الآن إلى إيقاف ما تشغّله هذه العناصر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reiniciar ahora detiene lo que estos están ejecutando."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在重新啟動會停止這些項目正在執行的工作。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "现在重新启动会停止这些项目正在运行的工作。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 재실행하면 이 항목들이 실행 중인 작업이 중지됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今すぐ再起動すると、これらが実行中の処理は停止します。"
+          }
+        }
+      }
+    },
+    "update.relaunch.resumesMidTask": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -558656,13 +558717,13 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Installs and relaunches when %lld agent finishes. Agents resume after the relaunch."
+                  "value": "%lld agent will be resumed mid-task."
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Installs and relaunches when %lld agents finish. Agents resume after the relaunch."
+                  "value": "%lld agents will be resumed mid-task."
                 }
               }
             }
@@ -558674,13 +558735,13 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Wird installiert und neu gestartet, sobald %lld Agent fertig ist. Agenten werden nach dem Neustart fortgesetzt."
+                  "value": "%lld Agent wird mitten in der Aufgabe fortgesetzt."
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Wird installiert und neu gestartet, sobald %lld Agenten fertig sind. Agenten werden nach dem Neustart fortgesetzt."
+                  "value": "%lld Agenten werden mitten in der Aufgabe fortgesetzt."
                 }
               }
             }
@@ -558692,19 +558753,19 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "S’installe et redémarre quand %lld agent a terminé. Les agents reprennent après le redémarrage."
+                  "value": "%lld agent reprendra en cours de tâche."
                 }
               },
               "many": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "S’installe et redémarre quand %lld d’agents ont terminé. Les agents reprennent après le redémarrage."
+                  "value": "%lld d’agents reprendront en cours de tâche."
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "S’installe et redémarre quand %lld agents ont terminé. Les agents reprennent après le redémarrage."
+                  "value": "%lld agents reprendront en cours de tâche."
                 }
               }
             }
@@ -558716,37 +558777,37 @@
               "zero": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء الوكلاء (%lld). تستأنف الوكلاء بعد إعادة التشغيل."
+                  "value": "سيُستأنف الوكلاء (%lld) من منتصف المهمة."
                 }
               },
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء وكيل واحد (%lld). تستأنف الوكلاء بعد إعادة التشغيل."
+                  "value": "سيُستأنف وكيل واحد (%lld) من منتصف المهمة."
                 }
               },
               "two": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء وكيلين (%lld). تستأنف الوكلاء بعد إعادة التشغيل."
+                  "value": "سيُستأنف وكيلان (%lld) من منتصف المهمة."
                 }
               },
               "few": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء %lld وكلاء. تستأنف الوكلاء بعد إعادة التشغيل."
+                  "value": "سيُستأنف %lld وكلاء من منتصف المهمة."
                 }
               },
               "many": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء %lld وكيلًا. تستأنف الوكلاء بعد إعادة التشغيل."
+                  "value": "سيُستأنف %lld وكيلًا من منتصف المهمة."
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء %lld وكيل. تستأنف الوكلاء بعد إعادة التشغيل."
+                  "value": "سيُستأنف %lld وكيل من منتصف المهمة."
                 }
               }
             }
@@ -558758,19 +558819,19 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Se instala y reinicia cuando termine %lld agente. Los agentes se reanudan tras el reinicio."
+                  "value": "%lld agente se reanudará a mitad de la tarea."
                 }
               },
               "many": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Se instala y reinicia cuando terminen %lld de agentes. Los agentes se reanudan tras el reinicio."
+                  "value": "%lld de agentes se reanudarán a mitad de la tarea."
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Se instala y reinicia cuando terminen %lld agentes. Los agentes se reanudan tras el reinicio."
+                  "value": "%lld agentes se reanudarán a mitad de la tarea."
                 }
               }
             }
@@ -558782,7 +558843,7 @@
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "將在 %lld 個代理完成後安裝並重新啟動。代理會在重新啟動後繼續。"
+                  "value": "%lld 個代理將從任務中途繼續。"
                 }
               }
             }
@@ -558794,7 +558855,7 @@
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "将在 %lld 个代理完成后安装并重新启动。代理会在重新启动后继续。"
+                  "value": "%lld 个代理将从任务中途继续。"
                 }
               }
             }
@@ -558806,7 +558867,7 @@
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "에이전트 %lld개가 끝나면 설치하고 다시 시작합니다. 다시 시작한 후 에이전트가 재개됩니다."
+                  "value": "에이전트 %lld개가 작업 도중부터 재개됩니다."
                 }
               }
             }
@@ -558818,7 +558879,7 @@
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%lld 個のエージェントが終了するとインストールして再起動します。エージェントは再起動後に再開されます。"
+                  "value": "%lld 個のエージェントが作業の途中から再開されます。"
                 }
               }
             }
@@ -558826,7 +558887,7 @@
         }
       }
     },
-    "update.readyWaiting.commands": {
+    "update.relaunch.runningCommands": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -558835,13 +558896,13 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Relaunching will stop %lld running command. Choose Install Now when you're ready."
+                  "value": "%lld running command"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Relaunching will stop %lld running commands. Choose Install Now when you're ready."
+                  "value": "%lld running commands"
                 }
               }
             }
@@ -558853,13 +558914,13 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Der Neustart beendet %lld laufenden Befehl. Wähle „Jetzt installieren“, wenn du bereit bist."
+                  "value": "%lld laufender Befehl"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Der Neustart beendet %lld laufende Befehle. Wähle „Jetzt installieren“, wenn du bereit bist."
+                  "value": "%lld laufende Befehle"
                 }
               }
             }
@@ -558871,19 +558932,19 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Le redémarrage arrêtera %lld commande en cours. Choisissez Installer maintenant quand vous êtes prêt."
+                  "value": "%lld commande en cours"
                 }
               },
               "many": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Le redémarrage arrêtera %lld de commandes en cours. Choisissez Installer maintenant quand vous êtes prêt."
+                  "value": "%lld de commandes en cours"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Le redémarrage arrêtera %lld commandes en cours. Choisissez Installer maintenant quand vous êtes prêt."
+                  "value": "%lld commandes en cours"
                 }
               }
             }
@@ -558895,37 +558956,37 @@
               "zero": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "ستؤدي إعادة التشغيل إلى إيقاف الأوامر قيد التشغيل (%lld). اختر التثبيت الآن عندما تكون جاهزًا."
+                  "value": "أوامر قيد التشغيل (%lld)"
                 }
               },
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "ستؤدي إعادة التشغيل إلى إيقاف أمر واحد قيد التشغيل (%lld). اختر التثبيت الآن عندما تكون جاهزًا."
+                  "value": "أمر واحد قيد التشغيل (%lld)"
                 }
               },
               "two": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "ستؤدي إعادة التشغيل إلى إيقاف أمرين قيد التشغيل (%lld). اختر التثبيت الآن عندما تكون جاهزًا."
+                  "value": "أمران قيد التشغيل (%lld)"
                 }
               },
               "few": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "ستؤدي إعادة التشغيل إلى إيقاف %lld أوامر قيد التشغيل. اختر التثبيت الآن عندما تكون جاهزًا."
+                  "value": "%lld أوامر قيد التشغيل"
                 }
               },
               "many": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "ستؤدي إعادة التشغيل إلى إيقاف %lld أمرًا قيد التشغيل. اختر التثبيت الآن عندما تكون جاهزًا."
+                  "value": "%lld أمرًا قيد التشغيل"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "ستؤدي إعادة التشغيل إلى إيقاف %lld أمر قيد التشغيل. اختر التثبيت الآن عندما تكون جاهزًا."
+                  "value": "%lld أمر قيد التشغيل"
                 }
               }
             }
@@ -558937,19 +558998,19 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "El reinicio detendrá %lld comando en ejecución. Elige Instalar ahora cuando estés listo."
+                  "value": "%lld comando en ejecución"
                 }
               },
               "many": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "El reinicio detendrá %lld de comandos en ejecución. Elige Instalar ahora cuando estés listo."
+                  "value": "%lld de comandos en ejecución"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "El reinicio detendrá %lld comandos en ejecución. Elige Instalar ahora cuando estés listo."
+                  "value": "%lld comandos en ejecución"
                 }
               }
             }
@@ -558961,7 +559022,7 @@
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "重新啟動將停止 %lld 個執行中的命令。準備好後請選擇「立即安裝」。"
+                  "value": "%lld 個執行中的命令"
                 }
               }
             }
@@ -558973,7 +559034,7 @@
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "重新启动将停止 %lld 个正在运行的命令。准备好后请选择“立即安装”。"
+                  "value": "%lld 个正在运行的命令"
                 }
               }
             }
@@ -558985,7 +559046,7 @@
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "다시 시작하면 실행 중인 명령 %lld개가 중지됩니다. 준비되면 지금 설치를 선택하세요."
+                  "value": "실행 중인 명령 %lld개"
                 }
               }
             }
@@ -558997,10 +559058,1013 @@
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "再起動すると実行中の %lld 個のコマンドが停止します。準備ができたら「今すぐインストール」を選択してください。"
+                  "value": "実行中のコマンド %lld 個"
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "update.safety.safe": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sicher"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sûr"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آمن"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguro"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "안전"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全"
+          }
+        }
+      }
+    },
+    "update.safety.care": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird fortgesetzt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reprend"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُستأنف"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se reanuda"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "會繼續"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会继续"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재개됨"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再開"
+          }
+        }
+      }
+    },
+    "update.safety.risky": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risky"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riskant"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risqué"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خطر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arriesgado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有風險"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有风险"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위험"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リスクあり"
+          }
+        }
+      }
+    },
+    "update.wait": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wait"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attendre"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتظار"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機"
+          }
+        }
+      }
+    },
+    "update.updateWhenFinished": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update When These Finish"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisieren, wenn diese fertig sind"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre à jour quand ils auront terminé"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحديث عند انتهاء هذه العناصر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar cuando terminen"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在這些完成後更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在这些完成后更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "완료되면 업데이트"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了後にアップデート"
+          }
+        }
+      }
+    },
+    "update.updateAnyway": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Anyway"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trotzdem aktualisieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre à jour quand même"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحديث على أي حال"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar de todos modos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍要更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍要更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그래도 업데이트"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "それでもアップデート"
+          }
+        }
+      }
+    },
+    "update.agentActivity.remote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps running on the remote host"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läuft auf dem Remote-Host weiter"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue de s’exécuter sur l’hôte distant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستمر في العمل على المضيف البعيد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sigue ejecutándose en el host remoto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在遠端主機上持續執行"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在远程主机上继续运行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 호스트에서 계속 실행됨"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートホストで実行を継続"
+          }
+        }
+      }
+    },
+    "update.agentActivity.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for your answer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf deine Antwort"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente de votre réponse"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "في انتظار إجابتك"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando tu respuesta"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待你的回答"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待你的回答"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "답변을 기다리는 중"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答を待っています"
+          }
+        }
+      }
+    },
+    "update.agentActivity.working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Working"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En cours"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيد العمل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trabajando"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "處理中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "处理中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 중"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業中"
+          }
+        }
+      }
+    },
+    "update.agentActivity.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktiv"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inactif"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خامل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inactivo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閒置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空闲"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유휴"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイドル"
+          }
+        }
+      }
+    },
+    "update.agentActivity.awaitingInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for your next message"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf deine nächste Nachricht"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attend votre prochain message"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بانتظار رسالتك التالية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando tu próximo mensaje"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待你的下一則訊息"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待你的下一条消息"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 메시지를 기다리는 중"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のメッセージを待っています"
+          }
+        }
+      }
+    },
+    "update.agentActivity.permission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for your permission"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf deine Erlaubnis"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attend votre autorisation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بانتظار إذنك"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando tu permiso"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待你的許可"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待你的许可"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권한 승인을 기다리는 중"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可を待っています"
+          }
+        }
+      }
+    },
+    "update.agentActivity.thinking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thinking"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denkt nach"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réflexion en cours"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يفكر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pensando"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "思考中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "思考中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "생각 중"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "考え中"
+          }
+        }
+      }
+    },
+    "update.agentActivity.tool": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Using a tool"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendet ein Werkzeug"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilise un outil"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستخدم أداة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usando una herramienta"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在使用工具"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在使用工具"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도구 사용 중"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツールを使用中"
+          }
+        }
+      }
+    },
+    "update.agentActivity.subagents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running subagents"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Führt Subagenten aus"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exécute des sous-agents"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشغّل وكلاء فرعيين"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ejecutando subagentes"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在執行子代理"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在运行子代理"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트 실행 중"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェントを実行中"
+          }
+        }
+      }
+    },
+    "update.agentActivity.background": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running background tasks"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Führt Hintergrundaufgaben aus"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exécute des tâches en arrière-plan"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشغّل مهام في الخلفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ejecutando tareas en segundo plano"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在執行背景工作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在运行后台任务"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "백그라운드 작업 실행 중"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックグラウンドタスクを実行中"
+          }
+        }
+      }
+    },
+    "update.autoInstall.waitingQuiet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installs the next time you step away for a minute. Workspaces and agents resume where they left off."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird installiert, wenn du das nächste Mal eine Minute Pause machst. Workspaces und Agenten machen dort weiter, wo sie aufgehört haben."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "S’installe la prochaine fois que vous vous absentez une minute. Les espaces de travail et les agents reprennent là où ils en étaient."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتم التثبيت في المرة التالية التي تبتعد فيها عن الجهاز لمدة دقيقة. تستأنف مساحات العمل والوكلاء من حيث توقفت."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se instala la próxima vez que te ausentes un minuto. Los espacios de trabajo y los agentes continúan donde se quedaron."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將在你下次離開一分鐘時安裝。工作區與代理會從中斷處繼續。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将在你下次离开一分钟时安装。工作区和代理会从中断处继续。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음에 1분 동안 자리를 비우면 설치합니다. 워크스페이스와 에이전트는 중단된 지점에서 재개됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次に 1 分間席を離れたときにインストールします。ワークスペースとエージェントは中断したところから再開します。"
           }
         }
       }
@@ -567888,6 +568952,482 @@
         }
       }
     },
+    "settings.app.reorderOnNotification.mode.agentActivity": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نشاط الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivnost agenata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentaktivitet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentenaktivität"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Activity"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actividad de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activité des agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attività degli agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのアクティビティ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 활동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentaktivitet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktywność agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atividade dos agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Активность агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กิจกรรมของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan etkinliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Активність агентів"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理活动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理活動"
+          }
+        }
+      }
+    },
+    "settings.app.reorderOnNotification.mode.notifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإشعارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obavještenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifikationer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benachrichtigungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notificaciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur notification"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifiche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiadomienia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notificações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแจ้งเตือน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildirimler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сповіщення"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        }
+      }
+    },
+    "settings.app.reorderOnNotification.mode.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выкл."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимкнено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "settings.app.reorderOnNotification.modeSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينقل مساحات العمل إلى الأعلى عندما تتلقى إشعارًا. مع نشاط الوكيل، ينقلها أيضًا عندما ترسل مطالبة أو ينهي وكيل دورة أو يحتاج إلى إدخال أو يفشل، لكن ليس أبدًا أثناء وجود المؤشر فوق الشريط الجانبي. الإيقاف يحافظ على ثبات مواضع الاختصارات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomjera radne prostore na vrh kada prime obavještenje. Aktivnost agenata ih pomjera i kada pošaljete upit ili agent završi potez, treba unos ili ne uspije, ali nikad dok je pokazivač iznad bočne trake. Isključeno čuva stabilne pozicije prečica."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytter arbejdsområder til toppen, når de modtager en notifikation. Agentaktivitet flytter dem også, når du sender en prompt eller en agent afslutter en tur, har brug for input eller fejler, men aldrig mens markøren er over sidepanelet. Fra holder genvejspositionerne stabile."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verschiebt Workspaces nach oben, wenn sie eine Benachrichtigung erhalten. Mit Agentenaktivität auch dann, wenn Sie einen Prompt senden oder ein Agent einen Durchlauf beendet, eine Eingabe braucht oder fehlschlägt, aber nie, während der Zeiger über der Seitenleiste ist. Aus hält die Positionen der Tastenkürzel stabil."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move workspaces to the top when they receive a notification. Agent Activity also moves them when you send a prompt or an agent finishes a turn, needs input, or fails, but never while you point at the sidebar. Off keeps shortcut positions stable."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mueve los espacios de trabajo arriba cuando reciben una notificación. Con Actividad de agentes, también cuando envías un prompt o un agente termina un turno, necesita una respuesta o falla, pero nunca mientras el puntero está sobre la barra lateral. Desactivado mantiene estables las posiciones de los atajos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Place les espaces de travail en haut lorsqu’ils reçoivent une notification. Avec Activité des agents, aussi lorsque vous envoyez un prompt ou qu’un agent termine un tour, attend une saisie ou échoue, mais jamais pendant que le pointeur survole la barre latérale. Désactivé garde les positions des raccourcis stables."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta gli spazi di lavoro in cima quando ricevono una notifica. Attività degli agenti li sposta anche quando invii un prompt o un agente termina un turno, attende un input o fallisce, ma mai mentre il puntatore è sulla barra laterale. Disattivato mantiene stabili le posizioni delle scorciatoie."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知を受け取ったワークスペースを先頭に移動します。「エージェントのアクティビティ」では、プロンプトを送信したときや、エージェントがターンを終えたとき、入力を待っているとき、失敗したときにも移動しますが、ポインタがサイドバー上にある間は移動しません。「オフ」ではショートカットの位置が変わりません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림을 받으면 워크스페이스를 맨 위로 옮깁니다. 에이전트 활동을 선택하면 프롬프트를 보내거나 에이전트가 턴을 마치거나 입력이 필요하거나 실패할 때도 옮기지만, 포인터가 사이드바 위에 있을 때는 옮기지 않습니다. 끔은 단축키 위치를 고정합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytter arbeidsområder til toppen når de mottar et varsel. Agentaktivitet flytter dem også når du sender en ledetekst eller en agent fullfører en runde, trenger input eller feiler, men aldri mens pekeren er over sidefeltet. Av holder snarveisposisjonene stabile."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przenosi obszary robocze na górę, gdy otrzymają powiadomienie. Aktywność agentów przenosi je także, gdy wyślesz prompt lub agent zakończy turę, potrzebuje danych lub zakończy się błędem, ale nigdy, gdy wskaźnik jest nad paskiem bocznym. Wyłączone zachowuje stałe pozycje skrótów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move os espaços de trabalho para o topo quando recebem uma notificação. Atividade dos agentes também os move quando você envia um prompt ou um agente termina um turno, precisa de uma resposta ou falha, mas nunca enquanto o ponteiro está sobre a barra lateral. Desativado mantém as posições dos atalhos estáveis."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемещает рабочие области наверх, когда они получают уведомление. «Активность агентов» также перемещает их, когда вы отправляете запрос или агент завершает ход, ждёт ввода или завершается с ошибкой, но никогда, пока указатель находится над боковой панелью. «Выкл.» сохраняет позиции сочетаний клавиш."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ย้ายเวิร์กสเปซขึ้นด้านบนเมื่อได้รับการแจ้งเตือน กิจกรรมของเอเจนต์จะย้ายเมื่อคุณส่งพรอมต์หรือเอเจนต์จบรอบ ต้องการข้อมูล หรือล้มเหลวด้วย แต่จะไม่ย้ายขณะที่ตัวชี้อยู่เหนือแถบด้านข้าง ปิดจะคงตำแหน่งของทางลัดไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildirim aldıklarında çalışma alanlarını en üste taşır. Ajan etkinliği, bir istem gönderdiğinizde, bir ajan turunu bitirdiğinde, girdi beklediğinde veya başarısız olduğunda da taşır, ancak işaretçi kenar çubuğunun üzerindeyken asla taşımaz. Kapalı, kısayol konumlarını sabit tutar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переміщує робочі області вгору, коли вони отримують сповіщення. «Активність агентів» також переміщує їх, коли ви надсилаєте запит або агент завершує хід, чекає на введення або завершується з помилкою, але ніколи, поки вказівник над бічною панеллю. «Вимкнено» зберігає позиції скорочень."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区收到通知时移到顶部。选择“代理活动”时，你发送提示词或代理完成一轮、需要输入或失败时也会移动，但指针停在侧边栏上时绝不移动。关闭可让快捷键位置保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區收到通知時移到頂部。選擇「代理活動」時，你送出提示詞或代理完成一輪、需要輸入或失敗時也會移動，但指標停在側邊欄上時絕不移動。關閉可讓快捷鍵位置保持不變。"
+          }
+        }
+      }
+    },
     "cli.session.help": {
       "extractionState": "manual",
       "localizations": {
@@ -568714,1072 +570254,6 @@
         }
       }
     },
-    "agent.claude.stopFailure.body.generic": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code stopped on an API error"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code は API エラーで停止しました"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code 因 API 错误而停止"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code wurde wegen eines API-Fehlers gestoppt"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code s'est arrêté sur une erreur d'API"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "توقف Claude Code بسبب خطأ في واجهة API"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code se detuvo por un error de la API"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code 因 API 錯誤而停止"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code가 API 오류로 중지되었습니다"
-          }
-        }
-      }
-    },
-    "agent.claude.stopFailure.status.apiError": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API error"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API エラー"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API 错误"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API-Fehler"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erreur d'API"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "خطأ في واجهة API"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Error de la API"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API 錯誤"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API 오류"
-          }
-        }
-      }
-    },
-    "agent.claude.stopFailure.status.authentication": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Auth error"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "認証エラー"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "认证错误"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Authentifizierungsfehler"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erreur d'authentification"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "خطأ في المصادقة"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Error de autenticación"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "驗證錯誤"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "인증 오류"
-          }
-        }
-      }
-    },
-    "agent.claude.stopFailure.status.billing": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Billing error"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "請求エラー"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "账单错误"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abrechnungsfehler"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erreur de facturation"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "خطأ في الفوترة"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Error de facturación"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "帳單錯誤"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "결제 오류"
-          }
-        }
-      }
-    },
-    "agent.claude.stopFailure.status.connectionDropped": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connection dropped"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "接続が切断されました"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "连接已断开"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verbindung abgebrochen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connexion interrompue"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "انقطع الاتصال"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conexión perdida"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "連線已中斷"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "연결 끊김"
-          }
-        }
-      }
-    },
-    "agent.claude.stopFailure.status.outputLimit": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Output limit"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "出力上限"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "输出上限"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ausgabelimit"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Limite de sortie"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حد المخرجات"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Límite de salida"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "輸出上限"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "출력 한도"
-          }
-        }
-      }
-    },
-    "agent.claude.stopFailure.status.overloaded": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API overloaded"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API 過負荷"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API 过载"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API überlastet"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API surchargée"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "واجهة API محمّلة فوق طاقتها"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API sobrecargada"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API 過載"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API 과부하"
-          }
-        }
-      }
-    },
-    "agent.claude.stopFailure.status.rateLimited": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rate limited"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "レート制限中"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已限速"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ratenbegrenzt"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Limite de requêtes atteinte"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تم تقييد المعدل"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Límite de frecuencia alcanzado"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已限速"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "속도 제한됨"
-          }
-        }
-      }
-    },
-    "agent.claude.stopFailure.status.usageLimit": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usage limit"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用量の上限"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用量上限"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nutzungslimit"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Limite d'utilisation"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حد الاستخدام"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Límite de uso"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用量上限"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용량 한도"
-          }
-        }
-      }
-    },
-    "agent.claude.stopFailure.status.usageLimitResets": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usage limit, resets %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用量の上限、%@ にリセット"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用量上限，%@ 重置"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nutzungslimit, Reset %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Limite d'utilisation, réinitialisation %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حد الاستخدام، يُعاد التعيين %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Límite de uso, se restablece %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用量上限，%@ 重設"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용량 한도, %@에 초기화"
-          }
-        }
-      }
-    },
-    "settings.app.reorderOnNotification.mode.agentActivity": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "نشاط الوكيل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktivnost agenata"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agentaktivitet"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agentenaktivität"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent Activity"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Actividad de agentes"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activité des agents"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attività degli agenti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントのアクティビティ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 활동"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agentaktivitet"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktywność agentów"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Atividade dos agentes"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Активность агентов"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กิจกรรมของเอเจนต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajan etkinliği"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Активність агентів"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理活动"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理活動"
-          }
-        }
-      }
-    },
-    "settings.app.reorderOnNotification.mode.notifications": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الإشعارات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Obavještenja"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notifikationer"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Benachrichtigungen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notifications"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notificaciones"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sur notification"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notifiche"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "알림"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Varsler"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Powiadomienia"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notificações"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Уведомления"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การแจ้งเตือน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bildirimler"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сповіщення"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知"
-          }
-        }
-      }
-    },
-    "settings.app.reorderOnNotification.mode.off": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إيقاف"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Isključeno"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fra"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aus"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Off"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desactivado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Désactivé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disattivato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "オフ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "끔"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Av"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wyłączone"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desativado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Выкл."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ปิด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kapalı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вимкнено"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關閉"
-          }
-        }
-      }
-    },
-    "settings.app.reorderOnNotification.modeSubtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ينقل مساحات العمل إلى الأعلى عندما تتلقى إشعارًا. مع نشاط الوكيل، ينقلها أيضًا عندما ترسل مطالبة أو ينهي وكيل دورة أو يحتاج إلى إدخال أو يفشل، لكن ليس أبدًا أثناء وجود المؤشر فوق الشريط الجانبي. الإيقاف يحافظ على ثبات مواضع الاختصارات."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pomjera radne prostore na vrh kada prime obavještenje. Aktivnost agenata ih pomjera i kada pošaljete upit ili agent završi potez, treba unos ili ne uspije, ali nikad dok je pokazivač iznad bočne trake. Isključeno čuva stabilne pozicije prečica."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Flytter arbejdsområder til toppen, når de modtager en notifikation. Agentaktivitet flytter dem også, når du sender en prompt eller en agent afslutter en tur, har brug for input eller fejler, men aldrig mens markøren er over sidepanelet. Fra holder genvejspositionerne stabile."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verschiebt Workspaces nach oben, wenn sie eine Benachrichtigung erhalten. Mit Agentenaktivität auch dann, wenn Sie einen Prompt senden oder ein Agent einen Durchlauf beendet, eine Eingabe braucht oder fehlschlägt, aber nie, während der Zeiger über der Seitenleiste ist. Aus hält die Positionen der Tastenkürzel stabil."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Move workspaces to the top when they receive a notification. Agent Activity also moves them when you send a prompt or an agent finishes a turn, needs input, or fails, but never while you point at the sidebar. Off keeps shortcut positions stable."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mueve los espacios de trabajo arriba cuando reciben una notificación. Con Actividad de agentes, también cuando envías un prompt o un agente termina un turno, necesita una respuesta o falla, pero nunca mientras el puntero está sobre la barra lateral. Desactivado mantiene estables las posiciones de los atajos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Place les espaces de travail en haut lorsqu’ils reçoivent une notification. Avec Activité des agents, aussi lorsque vous envoyez un prompt ou qu’un agent termine un tour, attend une saisie ou échoue, mais jamais pendant que le pointeur survole la barre latérale. Désactivé garde les positions des raccourcis stables."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sposta gli spazi di lavoro in cima quando ricevono una notifica. Attività degli agenti li sposta anche quando invii un prompt o un agente termina un turno, attende un input o fallisce, ma mai mentre il puntatore è sulla barra laterale. Disattivato mantiene stabili le posizioni delle scorciatoie."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知を受け取ったワークスペースを先頭に移動します。「エージェントのアクティビティ」では、プロンプトを送信したときや、エージェントがターンを終えたとき、入力を待っているとき、失敗したときにも移動しますが、ポインタがサイドバー上にある間は移動しません。「オフ」ではショートカットの位置が変わりません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "알림을 받으면 워크스페이스를 맨 위로 옮깁니다. 에이전트 활동을 선택하면 프롬프트를 보내거나 에이전트가 턴을 마치거나 입력이 필요하거나 실패할 때도 옮기지만, 포인터가 사이드바 위에 있을 때는 옮기지 않습니다. 끔은 단축키 위치를 고정합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Flytter arbeidsområder til toppen når de mottar et varsel. Agentaktivitet flytter dem også når du sender en ledetekst eller en agent fullfører en runde, trenger input eller feiler, men aldri mens pekeren er over sidefeltet. Av holder snarveisposisjonene stabile."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przenosi obszary robocze na górę, gdy otrzymają powiadomienie. Aktywność agentów przenosi je także, gdy wyślesz prompt lub agent zakończy turę, potrzebuje danych lub zakończy się błędem, ale nigdy, gdy wskaźnik jest nad paskiem bocznym. Wyłączone zachowuje stałe pozycje skrótów."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Move os espaços de trabalho para o topo quando recebem uma notificação. Atividade dos agentes também os move quando você envia um prompt ou um agente termina um turno, precisa de uma resposta ou falha, mas nunca enquanto o ponteiro está sobre a barra lateral. Desativado mantém as posições dos atalhos estáveis."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перемещает рабочие области наверх, когда они получают уведомление. «Активность агентов» также перемещает их, когда вы отправляете запрос или агент завершает ход, ждёт ввода или завершается с ошибкой, но никогда, пока указатель находится над боковой панелью. «Выкл.» сохраняет позиции сочетаний клавиш."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ย้ายเวิร์กสเปซขึ้นด้านบนเมื่อได้รับการแจ้งเตือน กิจกรรมของเอเจนต์จะย้ายเมื่อคุณส่งพรอมต์หรือเอเจนต์จบรอบ ต้องการข้อมูล หรือล้มเหลวด้วย แต่จะไม่ย้ายขณะที่ตัวชี้อยู่เหนือแถบด้านข้าง ปิดจะคงตำแหน่งของทางลัดไว้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bildirim aldıklarında çalışma alanlarını en üste taşır. Ajan etkinliği, bir istem gönderdiğinizde, bir ajan turunu bitirdiğinde, girdi beklediğinde veya başarısız olduğunda da taşır, ancak işaretçi kenar çubuğunun üzerindeyken asla taşımaz. Kapalı, kısayol konumlarını sabit tutar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Переміщує робочі області вгору, коли вони отримують сповіщення. «Активність агентів» також переміщує їх, коли ви надсилаєте запит або агент завершує хід, чекає на введення або завершується з помилкою, але ніколи, поки вказівник над бічною панеллю. «Вимкнено» зберігає позиції скорочень."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工作区收到通知时移到顶部。选择“代理活动”时，你发送提示词或代理完成一轮、需要输入或失败时也会移动，但指针停在侧边栏上时绝不移动。关闭可让快捷键位置保持不变。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工作區收到通知時移到頂部。選擇「代理活動」時，你送出提示詞或代理完成一輪、需要輸入或失敗時也會移動，但指標停在側邊欄上時絕不移動。關閉可讓快捷鍵位置保持不變。"
-          }
-        }
-      }
-    },
     "cli.restore.notice.routedLauncherUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -569839,65 +570313,6 @@
         }
       }
     },
-    "sidebar.extensions.action.noSpaceForPane": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No space for new pane"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا توجد مساحة للوحة جديدة"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kein Platz für einen neuen Bereich"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No hay espacio para un panel nuevo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pas de place pour un nouveau panneau"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいペインを置く場所がありません"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "새 창을 위한 공간이 없습니다"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "没有空间容纳新窗格"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "沒有空間容納新窗格"
-          }
-        }
-      }
-    },
     "agent.claude.stopFailure.body.generic": {
       "extractionState": "manual",
       "localizations": {
@@ -570484,6 +570899,360 @@
           "stringUnit": {
             "state": "translated",
             "value": "사용량 한도, %@에 초기화"
+          }
+        }
+      }
+    },
+    "settings.app.compactAgentStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact Agent Status"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حالة الوكيل المختصرة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompakter Agentenstatus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estado de agente compacto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statut d’agent compact"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント状態のコンパクト表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "간결한 에이전트 상태"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "精简代理状态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "精簡代理狀態"
+          }
+        }
+      }
+    },
+    "settings.app.compactAgentStatus.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a workspace's agent, unread and pull request state as one colored icon before the title instead of separate rows. Hover the icon for details."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار حالة الوكيل والعناصر غير المقروءة وطلب السحب لمساحة العمل كأيقونة ملونة واحدة قبل العنوان بدلاً من صفوف منفصلة. مرّر المؤشر فوق الأيقونة لعرض التفاصيل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten-, Ungelesen- und Pull-Request-Status eines Workspace als ein farbiges Symbol vor dem Titel anzeigen statt in eigenen Zeilen. Details erscheinen, wenn du den Zeiger über das Symbol bewegst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar el estado del agente, lo no leído y la pull request de un espacio de trabajo como un único icono de color antes del título, en lugar de filas separadas. Pasa el cursor sobre el icono para ver los detalles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’état de l’agent, des éléments non lus et de la pull request d’un espace de travail sous forme d’une seule icône colorée avant le titre, au lieu de lignes distinctes. Survolez l’icône pour voir les détails."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのエージェント、未読、プルリクエストの状態を、個別の行ではなくタイトルの前の色付きアイコン1つで示します。詳細はアイコンにポインタを合わせると表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스의 에이전트, 읽지 않음, 풀 리퀘스트 상태를 별도의 줄이 아니라 제목 앞의 색상 아이콘 하나로 나타냅니다. 자세한 내용은 아이콘 위에 포인터를 올려 확인하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用标题前的单个彩色图标表示工作区的代理、未读和拉取请求状态，而不是各自占一行。将指针悬停在图标上可查看详细信息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以標題前的單一彩色圖示表示工作區的代理、未讀與拉取請求狀態，而非各自佔一行。將游標移到圖示上可查看詳細資訊。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.compact-agent-status": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex مختصر وكيل حالة أيقونة سطر العنوان"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex kompakt Agent Status Symbol Titelzeile"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex compacto agente estado icono línea de título"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex compact agent statut icône ligne de titre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex コンパクト エージェント 状態 アイコン タイトル行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 간결 에이전트 상태 아이콘 제목 줄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 精简 代理 状态 图标 标题行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 精簡 代理 狀態 圖示 標題列"
+          }
+        }
+      }
+    },
+    "sidebar.agentStatus.glyph.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ : %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        }
+      }
+    },
+    "sidebar.compactStatus.profile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الملف الشخصي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profil"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perfil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profil"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定檔"
+          }
+        }
+      }
+    },
+    "sidebar.extensions.action.noSpaceForPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No space for new pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مساحة للوحة جديدة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Platz für einen neuen Bereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay espacio para un panel nuevo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas de place pour un nouveau panneau"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいペインを置く場所がありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 창을 위한 공간이 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有空间容纳新窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有空間容納新窗格"
           }
         }
       }

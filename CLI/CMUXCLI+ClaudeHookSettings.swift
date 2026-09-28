@@ -61,6 +61,21 @@ extension CMUXCLI {
                 matcher: "PushNotification",
                 subcommand: "push-notification"
             ),
+            // Closes the call PreToolUse opened, so the app can tell a running
+            // tool from a finished one. The app records it at admission and
+            // starts no hook process for it. Async: nothing waits on it, and a
+            // late delivery only closes a call, never reopens a turn.
+            Self.claudeQueuedHookGroup(
+                subcommand: "post-tool-use",
+                isAsync: true
+            ),
+        ]
+        // A failed, denied or interrupted call reports here instead of PostToolUse.
+        hooks["PostToolUseFailure"] = [
+            Self.claudeQueuedHookGroup(
+                subcommand: "post-tool-use",
+                isAsync: true
+            ),
         ]
         hooks["PermissionRequest"] = [
             Self.claudeHookGroup(
@@ -82,7 +97,8 @@ extension CMUXCLI {
 
     private static func claudeQueuedHookGroup(
         matcher: String = "",
-        subcommand: String
+        subcommand: String,
+        isAsync: Bool = false
     ) -> [String: Any] {
         // Wrapped sessions publish to their spool with shell builtins; the
         // CLI admission command is the fallback outside a live forwarder.
@@ -97,7 +113,8 @@ extension CMUXCLI {
                     disableEnvironmentVariable: producer.disableEnvironmentKey
                 )
             ),
-            timeout: agentHookDeclaredTimeoutSeconds
+            timeout: agentHookDeclaredTimeoutSeconds,
+            isAsync: isAsync
         )
     }
 

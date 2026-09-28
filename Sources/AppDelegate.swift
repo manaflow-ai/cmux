@@ -1340,6 +1340,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastSessionAutosavePersistedAt: Date = .distantPast
     private var lastPersistedSessionWindowIds: [UUID] = []
     private var lastTypingActivityAt: TimeInterval = 0
+    /// Fresh resume indexes captured by `updaterPrepareForRelaunch()` just before an update
+    /// relaunch, for the synchronous relaunch save.
+    var updateRelaunchIndexCapture = UpdateRelaunchIndexCapture()
+    /// Panels whose agent was mid-task when `updaterPrepareForRelaunch()` ran, with the uptime
+    /// they were captured at. The relaunch save marks them to continue after the relaunch.
+    var updateRelaunchMidTaskCapture: (panelIds: Set<UUID>, capturedAt: TimeInterval)?
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
@@ -2510,11 +2516,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
         mainWindowLifecycleCoordinator.cancelAllWindowlessRouteFreezeTasks()
-        _ = saveSessionSnapshotUsingCachedProcessDetectedIndexes(
-            includeScrollback: true,
-            removeWhenEmpty: false
-        )
+        // Stays set for the terminate-path save that follows. If the app is still running a
+        // minute later the install failed, and ordinary saves must not mark these panels.
+        UpdateRelaunchContinuationNudges.shared.midTaskPanelIds = takeUpdateRelaunchMidTaskPanelIds()
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(60))
+            UpdateRelaunchContinuationNudges.shared.midTaskPanelIds = []
+        }
+        if let prepared = updateRelaunchIndexCapture.take(now: ProcessInfo.processInfo.systemUptime) {
+            _ = saveSessionSnapshot(
+                includeScrollback: true,
+                removeWhenEmpty: false,
+                restorableAgentIndex: prepared.restorableAgentIndex,
+                surfaceResumeBindingIndex: prepared.surfaceResumeBindingIndex
+            )
+        } else {
+            _ = saveSessionSnapshotUsingCachedProcessDetectedIndexes(
+                includeScrollback: true,
+                removeWhenEmpty: false
+            )
+        }
         ClosedItemHistoryStore.shared.flushPendingSaves()
+    }
+
+    /// Captures fresh resume indexes for the update relaunch save. The cached index misses an
+    /// agent session started since the last scan, which the save would then record as not
+    /// running, so it would not resume after the relaunch.
+    func prepareUpdateRelaunchIndexes() async {
+        let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
+        guard let indexes = await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
+            ttyDeviceBindings: ttyDeviceBindings
+        ) else {
+            StartupBreadcrumbLog.append("appDelegate.updateRelaunch.freshIndexTimedOut")
+            return
+        }
+        updateRelaunchIndexCapture.store(indexes, capturedAt: ProcessInfo.processInfo.systemUptime)
+    }
+
+    /// Remembers which agents the update relaunch is about to cut off mid-task.
+    func captureUpdateRelaunchMidTaskPanels() async {
+        updateRelaunchMidTaskCapture = (
+            await updaterRelaunchBlockers().midTaskPanelIds,
+            ProcessInfo.processInfo.systemUptime
+        )
+    }
+
+    /// The recent pre-relaunch capture. Every update relaunch runs
+    /// ``updaterPrepareForRelaunch()`` first, so without a recent capture no panel is marked.
+    private func takeUpdateRelaunchMidTaskPanelIds() -> Set<UUID> {
+        defer { updateRelaunchMidTaskCapture = nil }
+        if let capture = updateRelaunchMidTaskCapture,
+           ProcessInfo.processInfo.systemUptime - capture.capturedAt <= UpdateRelaunchIndexCapture.lifetime {
+            return capture.panelIds
+        }
+        return []
     }
 
     func configure(
@@ -20439,6 +20494,20 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
         checkForUpdates(nil)
     }
 
+    func updaterPrepareForRelaunch() async {
+        await prepareUpdateRelaunchIndexes()
+        await captureUpdateRelaunchMidTaskPanels()
+    }
+
+    func updaterTimeSinceLastUserInput() -> Duration {
+        let seconds = MacPresenceMonitor.liveSecondsSinceLastHardwareInput() ?? 0
+        return .milliseconds(Int64(seconds * 1000))
+    }
+
+    func installUpdatesAutomaticallyDidChange() {
+        updateController.installAutomaticallyDidChange()
+    }
+
     func updaterWillRelaunchApplication() {
         persistSessionForUpdateRelaunch()
         TerminalController.shared.stop(cleanupDiscoveryState: true)
@@ -20448,7 +20517,7 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
         }
     }
 
-    func updaterRelaunchBlockers() -> UpdateRelaunchBlockers {
+    func updaterRelaunchBlockers() async -> UpdateRelaunchBlockers {
         var seen = Set<ObjectIdentifier>()
         let managers = mainWindowContexts.values.map { $0.tabManager }
             + [tabManager].compactMap { $0 }
@@ -20456,46 +20525,27 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
         let workspaces = managers
             .filter { seen.insert(ObjectIdentifier($0)).inserted }
             .flatMap(\.tabs)
-        var activity: [UpdateRelaunchPanelActivity] = []
+        var titles: [UUID: String] = [:]
+        var shellPanels: [UpdateRelaunchShellPanel] = []
         for workspace in workspaces {
+            titles[workspace.id] = workspace.title
             let isRemote = workspace.isRemoteWorkspace || workspace.isRemoteTmuxMirror
             for panelId in workspace.panels.keys {
-                activity.append(UpdateRelaunchPanelActivity(
-                    agentLifecycles: workspace.agentLifecycleStatesByPanelId[panelId] ?? [:],
+                shellPanels.append(UpdateRelaunchShellPanel(
+                    panelId: panelId,
                     shellActivity: workspace.panelShellActivityStates[panelId],
                     isRemote: isRemote
                 ))
             }
             if let dock = workspace._dockSplit {
-                activity += dock.updateRelaunchPanelActivity(isRemote: isRemote)
+                shellPanels += dock.updateRelaunchShellPanels(isRemote: isRemote)
             }
         }
         for dock in existingWindowDocks {
-            activity += dock.updateRelaunchPanelActivity(isRemote: false)
+            shellPanels += dock.updateRelaunchShellPanels(isRemote: false)
         }
-        return Self.updateRelaunchBlockers(panels: activity)
-    }
-
-    /// Counts what an update relaunch would interrupt. A panel with a mid-turn agent is a busy
-    /// agent. A local panel running some other foreground command is a running command; panels
-    /// with agent lifecycle state are left to the agent count, and remote panels are skipped
-    /// because their processes live on the remote host. Manual `cmux workspace loading` keys
-    /// are not agents and are ignored.
-    nonisolated static func updateRelaunchBlockers(
-        panels: [UpdateRelaunchPanelActivity]
-    ) -> UpdateRelaunchBlockers {
-        var blockers = UpdateRelaunchBlockers.empty
-        for panel in panels {
-            let agentStates = panel.agentLifecycles
-                .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
-                .values
-            if agentStates.contains(.running) {
-                blockers.busyAgentCount += 1
-            } else if agentStates.isEmpty, !panel.isRemote, panel.shellActivity == .commandRunning {
-                blockers.runningCommandCount += 1
-            }
-        }
-        return blockers
+        let agents = await TerminalController.captureAgentActivity() ?? []
+        return Self.updateRelaunchBlockers(agents: agents, workspaceTitles: titles, shellPanels: shellPanels)
     }
 
     func attemptUpdate() {
@@ -20511,26 +20561,6 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 
     var updateLogPath: String {
         updateLog.logPath()
-    }
-}
-
-/// One terminal panel's agent and shell activity, as read by ``AppDelegate/updaterRelaunchBlockers()``.
-struct UpdateRelaunchPanelActivity: Sendable {
-    var agentLifecycles: [String: AgentHibernationLifecycleState]
-    var shellActivity: PanelShellActivityState?
-    var isRemote: Bool
-}
-
-extension DockSplitStore {
-    /// Dock panels keep agent lifecycle in their runtime map and shell state on the panel.
-    func updateRelaunchPanelActivity(isRemote: Bool) -> [UpdateRelaunchPanelActivity] {
-        panels.map { panelId, panel in
-            UpdateRelaunchPanelActivity(
-                agentLifecycles: agentRuntimeByPanelId[panelId]?.agentLifecycleStates ?? [:],
-                shellActivity: (panel as? TerminalPanel)?.shellActivity.state,
-                isRemote: isRemote || terminalLinkIsRemoteTerminal(panelId)
-            )
-        }
     }
 }
 

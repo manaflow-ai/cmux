@@ -29087,6 +29087,13 @@ struct CMUXCLI {
                     pendingWork: notifyPending), client: client)
             }
             printClaudeHookAck()
+        case "post-tool-use":
+            // The app records tool completion when it admits this event and
+            // starts no delivery process for it; this ack covers a direct call.
+            telemetry.breadcrumb("claude-hook.post-tool-use")
+            didSendFeedTelemetry = true
+            printClaudeHookAck()
+
         case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, routing: hookRouting, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
@@ -29472,7 +29479,7 @@ struct CMUXCLI {
             telemetry.breadcrumb("claude-hook.help")
             print(
                 """
-                cmux claude-hook <session-start|stop|session-end|notification|push-notification|prompt-submit|pre-tool-use> [--workspace <id|index>] [--surface <id|index>]
+                cmux claude-hook <session-start|stop|session-end|notification|push-notification|prompt-submit|pre-tool-use|post-tool-use> [--workspace <id|index>] [--surface <id|index>]
                 """
             )
 

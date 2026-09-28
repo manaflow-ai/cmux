@@ -606,6 +606,10 @@ final class HostSettingsActions: SettingsHostActions {
         NSApp.terminate(nil)
     }
 
+    func installUpdatesAutomaticallyDidChange() {
+        AppDelegate.shared?.installUpdatesAutomaticallyDidChange()
+    }
+
     func socketControlConfigurationDidChange() {
         AppDelegate.shared?.reconcileSocketListenerConfiguration(
             source: "settings.automation.socketControlMode.commit"
