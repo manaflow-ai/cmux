@@ -114,23 +114,38 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         guard fileManager.fileExists(atPath: fileURL.path) else {
             return .failure(.fileNotFound(fileURL))
         }
-        // Only read regular files of a bounded size: a FIFO or device node
-        // would block the reader forever and an unbounded file would be read
-        // whole into memory. `fileExists` follows symlinks, so check the
-        // resolved target.
-        let resolvedPath = fileURL.resolvingSymlinksInPath().path
-        guard let attributes = try? fileManager.attributesOfItem(atPath: resolvedPath),
-              attributes[.type] as? FileAttributeType == .typeRegular else {
+        switch Self.readRegularFile(atPath: fileURL.path, maximumBytes: Self.maximumImportableSnapshotBytes) {
+        case .data(let data):
+            return importableSnapshot(data: data, fileURL: fileURL)
+        case .notRegularOrTooLarge:
             return .failure(.notASessionSnapshot(fileURL))
-        }
-        if let size = (attributes[.size] as? NSNumber)?.int64Value,
-           size > Self.maximumImportableSnapshotBytes {
-            return .failure(.notASessionSnapshot(fileURL))
-        }
-        guard let data = try? Data(contentsOf: fileURL) else {
+        case .unreadable:
             return .failure(.unreadable(fileURL))
         }
-        return importableSnapshot(data: data, fileURL: fileURL)
+    }
+
+    private enum BoundedFileRead {
+        case data(Data)
+        case notRegularOrTooLarge
+        case unreadable
+    }
+
+    /// Reads a regular file of at most `maximumBytes`. A FIFO or device node
+    /// would block the reader forever and an unbounded file would be read
+    /// whole into memory, so the file is opened non-blocking and its type
+    /// and size are checked on the same descriptor that is read (no window
+    /// for a symlink to be re-pointed between the check and the read).
+    private static func readRegularFile(atPath path: String, maximumBytes: Int64) -> BoundedFileRead {
+        let descriptor = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { return .unreadable }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        var status = stat()
+        guard fstat(descriptor, &status) == 0 else { return .unreadable }
+        guard (status.st_mode & S_IFMT) == S_IFREG, Int64(status.st_size) <= maximumBytes else {
+            return .notRegularOrTooLarge
+        }
+        guard let data = try? handle.readToEnd() else { return .unreadable }
+        return .data(data)
     }
 
     /// Upper bound on a snapshot file accepted for import. Real snapshots
