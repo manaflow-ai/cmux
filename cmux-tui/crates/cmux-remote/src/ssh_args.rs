@@ -23,11 +23,57 @@ pub(crate) fn background_ssh_arguments(
     if let Some(port) = port {
         arguments.extend(["-p".to_owned(), port.to_string()]);
     }
+    let overrides = forwarding_overrides(extra_args);
+    arguments.extend(overrides.iter().map(|argument| (*argument).to_owned()));
+    let (extra, has_separator) = normalized_caller_arguments(extra_args, !overrides.is_empty());
+    arguments.extend(extra);
+    if !has_separator {
+        arguments.push("--".to_owned());
+    }
+    arguments.push(destination.to_owned());
     arguments
-        .extend(forwarding_overrides(extra_args).iter().map(|argument| (*argument).to_owned()));
-    arguments.extend(extra_args.iter().cloned());
-    arguments.extend(["--".to_owned(), destination.to_owned()]);
-    arguments
+}
+
+/// Preserves option values and a caller's separator while removing direct
+/// forwarding-enable flags from runs that must keep agent and X11 forwarding off.
+/// `-A`, `-X`, and `-Y` override an earlier `-o`, unlike repeated `-o` keywords.
+fn normalized_caller_arguments(extra_args: &[String], forwarding_off: bool) -> (Vec<String>, bool) {
+    let mut normalized = Vec::with_capacity(extra_args.len());
+    let mut arguments = extra_args.iter();
+    while let Some(argument) = arguments.next() {
+        if argument == "--" {
+            normalized.push(argument.clone());
+            normalized.extend(arguments.cloned());
+            return (normalized, true);
+        }
+        let Some(flags) = argument.strip_prefix('-').filter(|flags| !flags.is_empty()) else {
+            normalized.push(argument.clone());
+            continue;
+        };
+        let mut kept = String::from("-");
+        for (index, flag) in flags.char_indices() {
+            if forwarding_off && matches!(flag, 'A' | 'X' | 'Y') {
+                continue;
+            }
+            kept.push(flag);
+            if u8::try_from(flag).is_ok_and(|flag| FLAGS_WITH_VALUE.contains(&flag)) {
+                let attached = &flags[index + flag.len_utf8()..];
+                kept.push_str(attached);
+                normalized.push(kept);
+                kept = String::from("-");
+                if attached.is_empty() {
+                    if let Some(value) = arguments.next() {
+                        normalized.push(value.clone());
+                    }
+                }
+                break;
+            }
+        }
+        if kept.len() > 1 {
+            normalized.push(kept);
+        }
+    }
+    (normalized, false)
 }
 
 /// Forwarding overrides for a run with the caller's `extra_args`.
