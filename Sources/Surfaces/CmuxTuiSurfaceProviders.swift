@@ -81,9 +81,17 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         catalog.updateMachine(info, from: self)
     }
 
-    func requestPortDiscovery() {
-        portDiscovery.request()
+    @discardableResult
+    func requestPortDiscovery() -> UInt64 {
+        let request = portDiscovery.request()
         publishPortDiscovery()
+        return request
+    }
+
+    func abandonPortDiscoveryRequest(_ request: UInt64) {
+        let previousState = portDiscovery.state
+        portDiscovery.abandonRequest(request)
+        if portDiscovery.state != previousState { publishPortDiscovery() }
     }
     /// Panels this provider created (or replaced) in this process. A projection whose
     /// panel is not here came back from a restored session as a placeholder shell.

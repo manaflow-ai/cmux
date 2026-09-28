@@ -11,11 +11,15 @@ extension SurfaceCatalog {
     /// User refresh includes the metadata needed to recover a missing private address.
     func refreshPortDiscovery(machine: SurfaceMachineID) async {
         guard let provider = provider(for: machine) as? CmuxTuiSurfaceProvider else { return }
-        provider.requestPortDiscovery()
+        let request = provider.requestPortDiscovery()
         do {
             try await provider.refreshPortMetadata()
         } catch {
-            guard provider.isRegisteredInCatalog(), !Task.isCancelled else { return }
+            // The machines panel cancels its refreshes when it closes; a request no scan picked up must not stay loading.
+            guard provider.isRegisteredInCatalog(), !Task.isCancelled else {
+                provider.abandonPortDiscoveryRequest(request)
+                return
+            }
             // A current private address is sufficient for the authenticated
             // daemon route. Keep scanning through that link when only the
             // control-plane metadata retry failed; without an address, surface
@@ -26,7 +30,10 @@ extension SurfaceCatalog {
                 return
             }
         }
-        guard provider.isRegisteredInCatalog(), !Task.isCancelled else { return }
+        guard provider.isRegisteredInCatalog(), !Task.isCancelled else {
+            provider.abandonPortDiscoveryRequest(request)
+            return
+        }
         await provider.refresh(force: true)
     }
 }

@@ -6,6 +6,9 @@ extension CmuxTuiSurfaceProvider {
     /// Re-read only this machine's metadata, fencing deletion, replacement, account changes, and newer summaries.
     func refreshPortMetadata() async throws {
         guard isRegisteredInCatalog() else { throw CancellationError() }
+        // Only Cloud machines have control-plane metadata. An SSH machine's loopback route needs none,
+        // and its id must not reach the Cloud API.
+        guard summary.cloudSummary != nil else { return }
         let lifecycle = currentLifecycleGeneration
         let summaryVersion = summaryGeneration
         let next = try await loadPortSummary(machineID)

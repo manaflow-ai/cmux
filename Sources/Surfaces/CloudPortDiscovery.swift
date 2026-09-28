@@ -35,9 +35,22 @@ struct CloudPortDiscovery: Sendable {
         }
     }
 
-    mutating func request() {
+    /// Returns the token `abandonRequest` uses to tell whether a scan started since.
+    @discardableResult
+    mutating func request() -> UInt64 {
         wasRequested = true
         if blocker == nil { state = .loading }
+        return requestID
+    }
+
+    /// A request cancelled before any scan started stops showing loading. Demand stays, so the next refresh scans.
+    mutating func abandonRequest(_ request: UInt64) {
+        guard request == requestID, state == .loading else { return }
+        if let scan {
+            state = scannedAt == nil ? .stale : scan.state
+        } else {
+            state = .notRequested
+        }
     }
 
     var mayScan: Bool { wasRequested && blocker == nil }
