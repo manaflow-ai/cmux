@@ -194,6 +194,10 @@ enum AppSettingsFileMapping {
             defaultsKey: app.warnBeforeClosingWorkspace.userDefaultsKey
         ),
         .init(
+            jsonKey: "warnBeforeClosingWindow",
+            defaultsKey: app.warnBeforeClosingWindow.userDefaultsKey
+        ),
+        .init(
             jsonKey: "hideTabCloseButton",
             defaultsKey: app.hideTabCloseButton.userDefaultsKey
         ),
@@ -222,8 +226,16 @@ enum NotificationSettingsFileMapping {
         .init(jsonKey: "unreadPaneRing", defaultsKey: NotificationPaneRingSettings.enabledKey),
         .init(jsonKey: "paneFlash", defaultsKey: NotificationPaneFlashSettings.enabledKey),
         .init(
+            jsonKey: "soundWhenFocused",
+            defaultsKey: notifications.soundWhenFocused.userDefaultsKey
+        ),
+        .init(
             jsonKey: "suppressOnlyFocusedSurface",
             defaultsKey: notifications.suppressOnlyFocusedSurface.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "suppressWhenAppFocused",
+            defaultsKey: notifications.suppressWhenAppFocused.userDefaultsKey
         ),
         .init(
             jsonKey: "agentPermissionPrompt",
@@ -386,6 +398,7 @@ enum AutomationSettingsFileMapping {
 
     static let booleanSettings: [SettingsFileBooleanMapping] = [
         .init(jsonKey: "claudeCodeIntegration", defaultsKey: automation.claudeCodeIntegration.userDefaultsKey),
+        .init(jsonKey: "piIntegration", defaultsKey: automation.piIntegration.userDefaultsKey),
         .init(
             jsonKey: "suppressSubagentNotifications",
             defaultsKey: automation.suppressSubagentNotifications.userDefaultsKey

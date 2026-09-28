@@ -50,7 +50,7 @@ public struct AppSection: View {
     @State private var fileEditorCurrentLineHighlight: DefaultsValueModel<Bool>
     @State private var fileEditorTabWidth: DefaultsValueModel<Int>
     @State private var iMessage: DefaultsValueModel<Bool>
-    @State private var reorder: DefaultsValueModel<Bool>
+    @State private var reorder: DefaultsValueModel<WorkspaceAutoReorderMode>
     @State private var dockBadge: DefaultsValueModel<Bool>
     @State private var menuBarOnly: DefaultsValueModel<Bool>
     @State private var showInMenuBar: DefaultsValueModel<Bool>
@@ -61,6 +61,7 @@ public struct AppSection: View {
     @State private var agentTurnComplete: DefaultsValueModel<String>
     @State private var agentIdleReminder: DefaultsValueModel<Bool>
     @State private var soundName: DefaultsValueModel<String>
+    @State private var soundWhenFocused: DefaultsValueModel<Bool>
     @State private var soundCommand: DefaultsValueModel<String>
     @State private var customSoundFile: DefaultsValueModel<String>
     @State private var soundOverrides: DefaultsValueModel<String>
@@ -71,6 +72,7 @@ public struct AppSection: View {
     @State private var warnCloseTab: DefaultsValueModel<Bool>
     @State private var warnCloseX: DefaultsValueModel<Bool>
     @State private var warnCloseWorkspace: DefaultsValueModel<Bool>
+    @State private var warnCloseWindow: DefaultsValueModel<Bool>
     @State private var hideCloseButton: DefaultsValueModel<Bool>
     @State private var renameSelects: DefaultsValueModel<Bool>
     @State private var paletteAllSurfaces: DefaultsValueModel<Bool>
@@ -131,6 +133,7 @@ public struct AppSection: View {
         _agentTurnComplete = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentTurnComplete))
         _agentIdleReminder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentIdleReminder))
         _soundName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.sound))
+        _soundWhenFocused = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.soundWhenFocused))
         _soundCommand = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.command))
         _customSoundFile = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.customSoundFilePath))
         _soundOverrides = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.soundOverrides))
@@ -142,6 +145,7 @@ public struct AppSection: View {
         _warnCloseTab = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTab))
         _warnCloseX = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTabXButton))
         _warnCloseWorkspace = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingWorkspace))
+        _warnCloseWindow = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingWindow))
         _hideCloseButton = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.hideTabCloseButton))
         _renameSelects = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.renameSelectsExistingName))
         _paletteAllSurfaces = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.commandPaletteSearchesAllSurfaces))
@@ -167,7 +171,7 @@ public struct AppSection: View {
             AppChannelSwitchCard(hostActions: hostActions)
         }
         .task {
-            startSettingsObservation([language, appearance, accentColor, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, accentColor, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
             await soundAgentCache.loadIfNeeded { await hostActions.notificationSoundAgentOptions() }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
@@ -652,11 +656,16 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.reorderOnNotification"),
                 String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification"),
-                subtitle: String(localized: "settings.app.reorderOnNotification.subtitle", defaultValue: "Move workspaces to the top when they receive a notification. Disable for stable shortcut positions.")
+                subtitle: String(localized: "settings.app.reorderOnNotification.modeSubtitle", defaultValue: "Move workspaces to the top when they receive a notification. Agent Activity also moves them when you send a prompt or an agent finishes a turn, needs input, or fails, but never while you point at the sidebar. Off keeps shortcut positions stable."),
+                controlWidth: Self.columnWidth
             ) {
-                Toggle("", isOn: Binding(get: { reorder.current }, set: { reorder.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
+                Picker("", selection: Binding(get: { reorder.current }, set: { reorder.set($0) })) {
+                    Text(String(localized: "settings.app.reorderOnNotification.mode.off", defaultValue: "Off")).tag(WorkspaceAutoReorderMode.off)
+                    Text(String(localized: "settings.app.reorderOnNotification.mode.notifications", defaultValue: "Notifications")).tag(WorkspaceAutoReorderMode.notifications)
+                    Text(String(localized: "settings.app.reorderOnNotification.mode.agentActivity", defaultValue: "Agent Activity")).tag(WorkspaceAutoReorderMode.agentActivity)
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
             }
             SettingsCardDivider()
 
@@ -783,6 +792,17 @@ public struct AppSection: View {
             SettingsCardDivider()
 
             SettingsCardRow(
+                configurationReview: .json("notifications.soundWhenFocused"),
+                String(localized: "settings.notifications.soundWhenFocused.title", defaultValue: "Sound for Focused Pane"),
+                subtitle: String(localized: "settings.notifications.soundWhenFocused.subtitle", defaultValue: "Play the notification sound even when the pane that notified is already focused. When off, a focused pane shows its ring without a sound.")
+            ) {
+                Toggle("", isOn: Binding(get: { soundWhenFocused.current }, set: { soundWhenFocused.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
                 configurationReview: .json("notifications.soundOverrides"),
                 String(localized: "settings.notifications.soundOverrides.title", defaultValue: "Per-Agent Notification Sounds"),
                 subtitle: String(localized: "settings.notifications.soundOverrides.subtitle", defaultValue: "Override the sound for a specific agent and alert type."),
@@ -902,6 +922,20 @@ public struct AppSection: View {
                     : String(localized: "settings.app.warnBeforeClosingWorkspace.subtitleOff", defaultValue: "Workspaces close immediately without confirmation. Pinned workspaces still ask.")
             ) {
                 Toggle("", isOn: Binding(get: { warnCloseWorkspace.current }, set: { warnCloseWorkspace.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Warn Before Closing Window
+            SettingsCardRow(
+                configurationReview: .json(catalog.app.warnBeforeClosingWindow.id),
+                catalog.app.warnBeforeClosingWindow.userFacing!.title,
+                subtitle: warnCloseWindow.current
+                    ? String(localized: "settings.app.warnBeforeClosingWindow.subtitleOn", defaultValue: "Show a confirmation before closing a window with a running process, or all of a window's workspaces at once.")
+                    : String(localized: "settings.app.warnBeforeClosingWindow.subtitleOff", defaultValue: "Windows close immediately without confirmation.")
+            ) {
+                Toggle("", isOn: Binding(get: { warnCloseWindow.current }, set: { warnCloseWindow.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }

@@ -145,9 +145,11 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "app.iMessageMode"
     )
 
-    public let reorderOnNotification = DefaultsKey<Bool>(
+    /// Automatic workspace reordering. Legacy Bool values decode as
+    /// ``WorkspaceAutoReorderMode/off`` and ``WorkspaceAutoReorderMode/notifications``.
+    public let reorderOnNotification = DefaultsKey<WorkspaceAutoReorderMode>(
         id: "app.reorderOnNotification",
-        defaultValue: true,
+        defaultValue: .notifications,
         userDefaultsKey: "workspaceAutoReorderOnNotification"
     )
 
@@ -213,6 +215,29 @@ public struct AppCatalogSection: SettingCatalogSection {
         )
     )
 
+    /// Gates the "Close window?" prompts (the Close Window command, and closing
+    /// every workspace in a window at once).
+    public let warnBeforeClosingWindow = DefaultsKey<Bool>(
+        id: "app.warnBeforeClosingWindow",
+        defaultValue: true,
+        userDefaultsKey: "warnBeforeClosingWindow",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.warnBeforeClosingWindow",
+                defaultValue: "Warn Before Closing Window"
+            ),
+            section: .app,
+            searchID: "warn-before-closing-window",
+            searchKeywords: ["close", "window", "confirmation", "command-control-w", "cmd-ctrl-w", "running"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "warnBeforeClosingWindow",
+                    keywords: ["warn", "close", "window", "confirmation", "cmd-ctrl-w"]
+                )
+            ))
+        )
+    )
+
     public let warnBeforeClosingTabXButton = DefaultsKey<Bool>(
         id: "app.warnBeforeClosingTabXButton",
         defaultValue: false,
@@ -238,6 +263,15 @@ public struct AppCatalogSection: SettingCatalogSection {
                 )
             ))
         )
+    )
+
+    /// Pane tab bar visibility. Maps to bonsplit's `TabBarVisibility` at
+    /// the split-controller boundary; `.multipleTabs` hides the bar until a
+    /// pane has two or more tabs.
+    public let tabBarVisibility = DefaultsKey<PaneTabBarVisibility>(
+        id: "app.tabBarVisibility",
+        defaultValue: .always,
+        userDefaultsKey: "paneTabBarVisibility"
     )
 
     public let renameSelectsExistingName = DefaultsKey<Bool>(

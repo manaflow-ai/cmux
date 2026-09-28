@@ -43,9 +43,9 @@ class SettingsUITestCase: XCTestCase {
     /// override this to `true`.
     var isolatesUserState: Bool { false }
 
-    func makeLaunchedApp() -> XCUIApplication {
+    func makeLaunchedApp(additionalArguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication.cmuxTestApplication()
-        app.launchArguments += settingsLaunchArguments
+        app.launchArguments += settingsLaunchArguments + additionalArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         if isolatesUserState {
             isolateUserState(app)

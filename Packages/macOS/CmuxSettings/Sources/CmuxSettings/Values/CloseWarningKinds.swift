@@ -19,4 +19,7 @@ public struct CloseWarningKinds: OptionSet, Sendable, Hashable {
 
     /// `app.warnBeforeClosingWorkspace`: the "Close workspace?" prompts.
     public static let workspace = CloseWarningKinds(rawValue: 1 << 2)
+
+    /// `app.warnBeforeClosingWindow`: the "Close window?" prompts.
+    public static let window = CloseWarningKinds(rawValue: 1 << 3)
 }

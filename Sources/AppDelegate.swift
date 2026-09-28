@@ -1201,6 +1201,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         uiTestDiagnosticsWriter.write(stage: stage)
     }
     var debugCloseMainWindowConfirmationHandler: ((NSWindow) -> Bool)?
+    /// Test seam: with `debugCloseMainWindowConfirmationHandler`, reports the
+    /// "Don't ask again" warnings offered and returns whether it was ticked.
+    var debugCloseMainWindowDontAskAgainHandler: ((CloseWarningKinds) -> Bool)?
     /// Test seam: when set, ``openDiffViewerForFocusedWorkspace(for:)`` invokes this
     /// instead of spawning the bundled `cmux diff` CLI, so shortcut-dispatch tests can
     /// assert routing without launching a subprocess.
@@ -1270,6 +1273,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// the current run arms its sentinel so a crash can recover a missing primary
     /// snapshot from the immutable `-previous` copy.
     private var previousSessionLaunchWasUnclean = false
+    /// Read-only view for agent session recovery (`AgentSessionRecovery.swift`).
+    var previousLaunchWasUncleanForRecovery: Bool { previousSessionLaunchWasUnclean }
+    /// When the previous (possibly crashed) run launched; recovery only
+    /// considers agent sessions active since then.
+    var previousSessionLaunchStartedAt: Date?
+    var didScheduleAgentSessionRecovery = false
     private var didCaptureSessionLaunchState = false
     private var didArmSessionLaunchSentinel = false
     var didAttemptStartupSessionRestore = false
@@ -3628,6 +3637,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // this also keeps isolated unit-test app delegates from affecting the
         // user's next launch.
         guard !isRunningUnderXCTest(environment), !isRunningUnderXCTestCached else { return }
+        previousSessionLaunchStartedAt = GhosttyCrashBreadcrumb.priorSessionLaunchStartDate(environment: environment)
         previousSessionLaunchWasUnclean = GhosttyCrashBreadcrumb.captureSessionLaunchState(
             environment: environment
         )
@@ -3864,6 +3874,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // completeSessionRestoreOperation triggers replay after the
             // restored panel-identity aliases are recorded.
             AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
+            scheduleAgentSessionRecoveryAfterUncleanLaunchIfNeeded()
         }
         if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
             isTerminatingApp: isTerminatingApp,
@@ -3976,6 +3987,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Every restored workspace has enqueued its identity aliases by now;
         // the journal consumer is FIFO, so the replay fold sees all of them.
         AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
+        if !isManualReopen {
+            scheduleAgentSessionRecoveryAfterUncleanLaunchIfNeeded()
+        }
         startupSessionSnapshot = nil
         let wasApplyingSessionRestore = isApplyingSessionRestore
         isApplyingSessionRestore = false
@@ -6722,10 +6736,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func confirmCloseMainWindow(_ window: NSWindow) -> Bool {
+    private func confirmCloseMainWindow(_ window: NSWindow, warningDefaults: UserDefaults) -> Bool {
+        let dontAskAgain: CloseWarningKinds = .window
 #if DEBUG
         if let debugCloseMainWindowConfirmationHandler {
-            return debugCloseMainWindowConfirmationHandler(window)
+            let accepted = debugCloseMainWindowConfirmationHandler(window)
+            if debugCloseMainWindowDontAskAgainHandler?(dontAskAgain) == true {
+                CloseTabWarningStore(defaults: warningDefaults).disableWarnings(dontAskAgain)
+            }
+            return accepted
         }
 #endif
 
@@ -6748,7 +6767,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        return alert.runModal() == .alertFirstButtonReturn
+        CloseDontAskAgainCheckbox.add(to: alert, offering: dontAskAgain)
+        let accepted = alert.runModal() == .alertFirstButtonReturn
+        CloseDontAskAgainCheckbox.apply(from: alert, offering: dontAskAgain, defaults: warningDefaults)
+        return accepted
     }
 
     @discardableResult
@@ -6757,7 +6779,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.performClose(nil)
             return true
         }
-        guard confirmCloseMainWindow(window) else { return true }
+        // Ask only when something would be lost, counting the window Dock that
+        // closes with the window. A close that skips the dialog is not
+        // preconfirmed, so the last-window quit policy still applies. Without a
+        // context there is no way to tell, so only the setting decides.
+        let shouldConfirm: Bool
+        let warningDefaults: UserDefaults
+        if let context = mainWindowContext(forExactWindowIdentity: window) {
+            warningDefaults = context.tabManager.closeTabWarningDefaults
+            shouldConfirm = context.tabManager.shouldConfirmWindowClose(
+                windowDockNeedsConfirmation: context.existingWindowDock()?.needsConfirmClose() == true
+            )
+        } else {
+            warningDefaults = .standard
+            shouldConfirm = CloseTabWarningStore(defaults: warningDefaults).warnsBeforeClosingWindow
+        }
+        guard shouldConfirm else {
+            window.performClose(nil)
+            return true
+        }
+        guard confirmCloseMainWindow(window, warningDefaults: warningDefaults) else { return true }
         performPreconfirmedMainWindowClose(window)
         return true
     }
@@ -7509,7 +7550,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return context.tabManager
     }
 
-    private struct FocusedTerminalShortcutContext {
+    struct FocusedTerminalShortcutContext {
         let tabManager: TabManager
         let workspaceId: UUID
         let panelId: UUID
@@ -7557,7 +7598,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func focusedTerminalShortcutContext(preferredWindow: NSWindow? = nil) -> FocusedTerminalShortcutContext? {
+    func focusedTerminalShortcutContext(preferredWindow: NSWindow? = nil) -> FocusedTerminalShortcutContext? {
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
         let responder = shortcutRoutingFirstResponder(preferredWindow: targetWindow)
         guard let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
@@ -9902,6 +9943,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserTransparentBackground: Bool = false,
         placementOverride: WorkspacePlacement? = nil,
         applyCreationTitleAsCustomTitle: Bool = true,
+        select: Bool = true,
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
@@ -9943,7 +9985,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             discardOrphanedMainWindowContext(context)
             return nil
         }
-        setActiveMainWindow(window)
+        // `select: false` (a socket open without focus) creates the workspace behind
+        // the current selection: no window switch, no workspace switch.
+        if select {
+            setActiveMainWindow(window)
+        }
         if shouldBringToFront {
             bringToFront(window)
         }
@@ -9956,7 +10002,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                select: true,
+                select: select,
                 placementOverride: placementOverride,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
@@ -9965,7 +10011,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 title: title, titleSource: titleSource,
                 workingDirectory: workingDirectory,
                 initialTerminalInput: initialTerminalInput,
-                select: true,
+                select: select,
                 placementOverride: placementOverride,
                 autoWelcomeIfNeeded: initialTerminalInput == nil,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
@@ -9973,13 +10019,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else if title != nil {
             workspace = context.tabManager.addWorkspaceIfActive(
                 title: title, titleSource: titleSource,
-                select: true,
+                select: select,
                 placementOverride: placementOverride,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else {
             workspace = context.tabManager.addWorkspaceIfActive(
-                select: true,
+                select: select,
                 placementOverride: placementOverride
             )
         }
@@ -14462,6 +14508,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// launch-time config load, which ran before the reload observer existed.
     private func startGhosttyConfigLiveReload() {
         ghosttyConfigLiveReloadCoordinator.start()
+        GhosttyApp.shared.configurationFilesWillLoad = { [weak self] in
+            self?.ghosttyConfigLiveReloadCoordinator.noteConfigurationFilesWillLoad()
+        }
         ghosttyConfigDiagnosticsNoticePresenter.update(
             diagnosticMessages: GhosttyApp.shared.lastLoadedConfigDiagnosticMessages
         )
@@ -18314,9 +18363,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         Task { @MainActor [weak self] in
-            let options = self?.notificationDelivery.presentationOptions(for: notification) ?? []
-            completionHandler(options)
+            completionHandler(self?.foregroundPresentationOptions(for: notification.request.content) ?? [])
         }
+    }
+
+    /// Foreground presentation for a delivered banner. A banner whose pane became
+    /// focused after it was scheduled presents without sound.
+    func foregroundPresentationOptions(for content: UNNotificationContent) -> UNNotificationPresentationOptions {
+        let keepsSoundQuiet = notificationStore?.keepsPresentedNotificationQuiet(
+            userInfo: content.userInfo
+        ) ?? false
+        let options = notificationDelivery.presentationOptions(
+            for: content,
+            keepsSoundQuiet: keepsSoundQuiet
+        )
+#if DEBUG
+        cmuxDebugLog(
+            "notification.present hasSound=\(content.sound != nil ? 1 : 0) keepsSoundQuiet=\(keepsSoundQuiet ? 1 : 0) sound=\(options.contains(.sound) ? 1 : 0)"
+        )
+#endif
+        return options
     }
 
     /// Installs window focus routing and returns the registrations to its lifecycle owner.

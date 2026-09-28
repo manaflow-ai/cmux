@@ -4,7 +4,7 @@ enum SettingsSearchAliasIndex {
     static func sectionAliases(for target: SettingsNavigationTarget) -> String {
         switch target {
         case .computers:
-            return localized("settings.computers.keywords", defaultValue: "computers devices mac tailscale pairing remote workspaces")
+            return localized("settings.devices.keywords", defaultValue: "devices my devices computers macs mac discovery discover discoverable incoming access tailscale pairing remote workspaces")
         case .account:
             return localized("settings.search.alias.section.account", defaultValue: "auth authentication login logout sign in sign out email user profile team")
         case .app:
@@ -85,7 +85,7 @@ enum SettingsSearchAliasIndex {
         "app:file-editor-current-line-highlight": localized("settings.search.alias.setting.app.file-editor-current-line-highlight", defaultValue: "fileEditor.currentLineHighlight current line caret"),
         "app:file-editor-tab-width": localized("settings.search.alias.setting.app.file-editor-tab-width", defaultValue: "fileEditor.tabWidth tab width indent columns"),
         "app:imessage-mode": localized("settings.search.alias.setting.app.imessage-mode", defaultValue: "app.iMessageMode imessage message messages chat prompt prompts submitted message texting reorder move workspace top agent send"),
-        "app:reorder-notification": localized("settings.search.alias.setting.app.reorder-notification", defaultValue: "app.reorderOnNotification notification reorder move workspace top unread sort"),
+        "app:reorder-notification": localized("settings.search.alias.setting.app.reorder-notification", defaultValue: "app.reorderOnNotification notification reorder move workspace top unread sort agent activity agents prompt turn finished needs input"),
         "app:dock-badge": localized("settings.search.alias.setting.app.dock-badge", defaultValue: "notifications.dockBadge badge dock unread count icon notifications red bubble"),
         "app:menu-bar-only": localized("settings.search.alias.setting.app.menu-bar-only", defaultValue: "app.menuBarOnly menubar menu bar dockless hide dock app switcher cmd-tab command-tab"),
         "app:show-menu-bar": localized("settings.search.alias.setting.app.show-menu-bar", defaultValue: "notifications.showInMenuBar menubar menu bar status item tray extra"),
@@ -105,6 +105,10 @@ enum SettingsSearchAliasIndex {
         "app:warn-before-closing-workspace": localized(
             "settings.search.alias.setting.app.warn-before-closing-workspace",
             defaultValue: "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent"
+        ),
+        "app:warn-before-closing-window": localized(
+            "settings.search.alias.setting.app.warn-before-closing-window",
+            defaultValue: "app.warnBeforeClosingWindow close window confirmation command-control-w cmd-ctrl-w running process"
         ),
         "app:hide-tab-close-button": localized(
             "settings.search.alias.setting.app.hide-tab-close-button",
@@ -172,6 +176,7 @@ enum SettingsSearchAliasIndex {
         "automation:socket-mode": localized("settings.search.alias.setting.automation.socket-mode", defaultValue: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),
         "automation:socket-password": localized("settings.search.alias.setting.automation.socket-password", defaultValue: "automation.socketPassword auth token credential secret password access key"),
         "automation:claude-code": localized("settings.search.alias.setting.automation.claude-code", defaultValue: "automation.claudeCodeIntegration claude code hooks agent integration status notifications"),
+        "automation:pi": localized("settings.search.alias.setting.automation.pi", defaultValue: "automation.piIntegration pi hooks agent integration status notifications"),
         "automation:claude-path": localized("settings.search.alias.setting.automation.claude-path", defaultValue: "automation.claudeBinaryPath claude binary executable path cli command custom"),
         "automation:workspace-auto-naming": localized("settings.search.alias.setting.automation.workspace-auto-naming", defaultValue: "automation.workspaceAutoNaming automation.autoNamingAgent ai auto naming auto-name auto name workspace tab workspaces tabs title titles rename workspace rename tab renaming generated name summarize summary summarizer conversation agent picker naming agent"),
         "automation:ripgrep-path": localized("settings.search.alias.setting.automation.ripgrep-path", defaultValue: "automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom"),

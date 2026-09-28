@@ -3,7 +3,7 @@ import SwiftUI
 enum SettingsSearchIndex {
     static let defaultSelectionID = sectionID(for: .account)
 
-    private static let sectionEntries: [SettingsSearchEntry] = SettingsNavigationTarget.visibleCases.map { target in
+    private static let sectionEntries: [SettingsSearchEntry] = SettingsNavigationTarget.allCases.map { target in
         SettingsSearchEntry(
             id: sectionID(for: target),
             kind: .section,
@@ -80,6 +80,12 @@ enum SettingsSearchIndex {
         ),
         setting(
             .app,
+            "warn-before-closing-window",
+            String(localized: "settings.app.warnBeforeClosingWindow", defaultValue: "Warn Before Closing Window"),
+            "cmd ctrl w close window confirmation running process"
+        ),
+        setting(
+            .app,
             "hide-tab-close-button",
             String(localized: "settings.app.hideTabCloseButton", defaultValue: "Hide Tab Close Button"),
             "hide x button close tab"
@@ -152,6 +158,7 @@ enum SettingsSearchIndex {
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
+        setting(.automation, "pi", String(localized: "settings.automation.pi", defaultValue: "Pi Integration"), "pi agent hooks notifications"),
         setting(.automation, "claude-path", String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), "custom claude executable"),
         setting(
             .automation,
@@ -260,6 +267,7 @@ enum SettingsSearchIndex {
         "app.warnBeforeClosingTab": settingID(for: .app, idSuffix: "warn-before-closing-tab"),
         "app.warnBeforeClosingTabXButton": settingID(for: .app, idSuffix: "warn-before-closing-tab-x-button"),
         "app.warnBeforeClosingWorkspace": settingID(for: .app, idSuffix: "warn-before-closing-workspace"),
+        "app.warnBeforeClosingWindow": settingID(for: .app, idSuffix: "warn-before-closing-window"),
         "app.hideTabCloseButton": settingID(for: .app, idSuffix: "hide-tab-close-button"),
         "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),
         "app.commandPaletteSearchesAllSurfaces": settingID(for: .app, idSuffix: "palette-search-all"),
@@ -323,6 +331,7 @@ enum SettingsSearchIndex {
         "automation.socketControlMode": settingID(for: .automation, idSuffix: "socket-mode"),
         "automation.socketPassword": settingID(for: .automation, idSuffix: "socket-password"),
         "automation.claudeCodeIntegration": settingID(for: .automation, idSuffix: "claude-code"),
+        "automation.piIntegration": settingID(for: .automation, idSuffix: "pi"),
         "automation.claudeBinaryPath": settingID(for: .automation, idSuffix: "claude-path"),
         "automation.workspaceAutoNaming": settingID(for: .automation, idSuffix: "workspace-auto-naming"),
         "automation.ripgrepBinaryPath": settingID(for: .automation, idSuffix: "ripgrep-path"),
@@ -377,9 +386,7 @@ enum SettingsSearchIndex {
     }
 
     static func sectionEntry(for target: SettingsNavigationTarget) -> SettingsSearchEntry {
-        entriesByID[sectionID(for: target)]
-            ?? entriesByID[sectionID(for: target.canonicalTarget)]
-            ?? sectionEntries[0]
+        entriesByID[sectionID(for: target)] ?? sectionEntries[0]
     }
 
     static func sectionID(for target: SettingsNavigationTarget) -> String { "section:\(target.rawValue)" }

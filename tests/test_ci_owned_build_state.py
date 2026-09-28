@@ -494,6 +494,47 @@ class WarmKeys(Fixture):
             with self.assertRaises(OSError):
                 self.kept(pr="11")
 
+    def test_out_of_space_also_evicts_swiftpm_builds_no_job_holds(self):
+        # A root-2 store's keep frees the mini's SwiftPM scratch beside root 1's store.
+        scratch = self.store / "spm-scratch" / "old-xcode"
+        (scratch / "pkg").mkdir(parents=True)
+        second = self.store / "cmux-ci-2"
+        real, calls = state.clone, []
+
+        def full_once(source, destination):
+            calls.append(destination)
+            if len(calls) == 1:
+                raise OSError(28, "No space left on device")
+            real(source, destination)
+        self.build("one")
+        with unittest.mock.patch("owned_build_state.clone", full_once):
+            self.assertEqual(self.kept(store=second)["kept"], "true")
+        self.assertFalse(scratch.exists())
+        self.assertEqual(len(calls), 2)
+
+    def test_a_full_volume_evicts_at_once_instead_of_copying(self):
+        # clonefile's ENOSPC reaches keep's handler directly: no cp or copytree
+        # of the whole DerivedData onto a full disk first.
+        if sys.platform != "darwin":
+            self.skipTest("clonefile(2) is macOS only")
+        for number in ("7", "8"):
+            self.build(number)
+            self.kept(pr=number)
+        real, clones = state.apfs_clone.clone_directory, []
+
+        def full_once(source, destination):
+            clones.append(destination)
+            if len(clones) == 1:
+                raise OSError(28, "No space left on device")
+            return real(source, destination)
+        self.build("nine")
+        with unittest.mock.patch.object(state.apfs_clone, "clone_directory", full_once), \
+                unittest.mock.patch.object(state.shutil, "copytree", side_effect=AssertionError("copied")), \
+                unittest.mock.patch.object(state.subprocess, "run", side_effect=AssertionError("cp ran")):
+            self.assertEqual(self.kept(pr="9")["kept"], "true")
+        self.assertEqual(len(clones), 2)
+        self.assertEqual(self.kept_marker(), "nine")
+
     def test_evict_parked_takes_the_oldest_first(self):
         for number in ("7", "8", "9"):
             self.build(number)
