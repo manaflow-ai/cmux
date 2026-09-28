@@ -57,8 +57,8 @@ async function withStatsFixture(
       writes.push(input);
       if (options.failObservation) return Effect.fail(new VmDatabaseError({ operation: "fixture", cause: new Error("offline") }));
       // A provider 404 is not always a destroy. A machine with a persistent
-      // home volume has lost its compute and nothing else, so the row lands on
-      // paused and the machine can come back.
+      // home volume has lost its compute and not its volume, so the row lands
+      // on paused rather than on a terminal status.
       expect(input).toEqual({
         id: row.id,
         providerVmId: row.providerVmId,
@@ -140,8 +140,9 @@ describe("stats provider missing classification", () => {
       expect(tag).toBe("VmNotFoundError");
       expect(response.status).toBe(404);
       expect(payload.error).toBe("vm_not_found");
-      // But the row is not terminal, so a later attach can still resurrect it,
-      // and no vm.destroyed is billed for a machine that was not destroyed.
+      // But the row is not terminal, so nothing here forecloses a later
+      // recovery, and no vm.destroyed is billed for a machine the provider
+      // never destroyed.
       expect(row.status).toBe("paused");
       expect(writes).toHaveLength(1);
       expect(usageEvents).toEqual([]);
