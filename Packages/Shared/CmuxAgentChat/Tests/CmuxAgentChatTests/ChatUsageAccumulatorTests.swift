@@ -235,6 +235,23 @@ struct ChatUsageAccumulatorTests {
 
     // MARK: - Codex: the cumulative trap
 
+    @Test("Claude's synthetic client-side messages are not responses")
+    func claudeSyntheticMessagesSkipped() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(claudeLines: [
+            claudeLine(uuid: "a"),
+            claudeLine(
+                uuid: "b", requestID: "req_2", messageID: "synthetic-1",
+                model: "<synthetic>", input: 0, cacheRead: 0, cacheWrite: 0, output: 0
+            ),
+        ])
+        let totals = accumulator.totals
+        #expect(totals.responses == 1)
+        #expect(totals.usageByModel["<synthetic>"] == nil)
+        #expect(totals.duplicateReports == 0)
+        #expect(totals.unidentifiedReports == 0)
+    }
+
     @Test("Codex cumulative totals are never summed")
     func codexCumulativeIsNotSummed() {
         var accumulator = ChatUsageAccumulator()

@@ -140,6 +140,12 @@ public struct ChatUsageAccumulator: Sendable {
               usageValue.object != nil
         else { return }
 
+        // Claude Code writes client-side assistant messages (API errors,
+        // interrupts) with model `<synthetic>` and an all-zero usage block.
+        // No API call happened, so they are not responses and must not
+        // count as one or open a `<synthetic>` bucket in the model split.
+        if message["model"]?.string == "<synthetic>" { return }
+
         // A usage block with no response id cannot be deduplicated, and
         // counting it risks the 1.8x overstatement this whole type exists
         // to avoid. Skipping it undercounts by one response instead, which
