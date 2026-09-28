@@ -666,6 +666,7 @@
           "type": "string",
           "enum": ["off", "quiet", "sheet"],
           "default": "quiet",
+          "descriptionKey": "schemaDescriptions.app.whatsNew",
           "description": "How cmux shows what's new after an update. off shows nothing, quiet marks the sidebar help button with a dot until you open the recap, and sheet opens the recap once after the first launch of a new version. Help > What's New in cmux opens it any time."
         },
         "warnBeforeQuit": {
@@ -684,6 +685,11 @@
           "default": false,
           "descriptionKey": "schemaDescriptions.app.warnBeforeClosingTabXButton",
           "description": "Show a confirmation before closing a tab with the tab close button."
+        },
+        "warnBeforeClosingWorkspace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a confirmation before closing a workspace with a running process, or several workspaces at once. Pinned workspaces still ask when this is off."
         },
         "hideTabCloseButton": {
           "type": "boolean",
@@ -763,10 +769,25 @@
           "default": false,
           "description": "When true, copying terminal text also joins a line that exactly fills the terminal width onto the next line, undoing hard wraps a program inserted at the grid edge. Soft-wrapped rows are always joined."
         },
+        "confirmUnsafePaste": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, a paste that Ghostty's clipboard-paste-protection flags as unsafe (for example, text with a line break going to a program that has not enabled bracketed paste) waits for confirmation in a sheet attached to the terminal's window. When false, cmux pastes it without asking. OSC 52 clipboard reads are not affected."
+        },
         "textEditingGestures": {
           "type": "boolean",
           "default": false,
           "description": "Replay macOS text-editing gestures as line-editor keys: Command and Option arrow keys move by line and word, and Command and Option Delete kill by line and word. Applications receive these translated keys instead of the original chords, so leave this off for full-screen TUIs that bind those chords."
+        },
+        "showPasswordInputIndicator": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a lock badge in the terminal corner while the foreground program has turned echo off for a password prompt (sudo, ssh, passwd, gpg). cmux draws the badge itself and never changes terminal text."
+        },
+        "showPasswordInputDots": {
+          "type": "boolean",
+          "default": false,
+          "description": "When the password input badge is shown, also draw one dot per typed character. cmux keeps only a count, never the typed characters. Backspace removes a dot; Enter or echo turning back on clears them."
         },
         "autoResumeAgentSessions": {
           "type": "boolean",
@@ -1409,6 +1430,11 @@
           "default": null,
           "description": "Override the selected workspace background color."
         },
+        "subtleSelection": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the selected workspace as a faint accent tint with a thin edge instead of a solid fill. A custom selectionColor still uses a solid fill."
+        },
         "notificationBadgeColor": {
           "$ref": "#/$defs/colorHexOrNull",
           "default": null,
@@ -1997,6 +2023,7 @@
               "cycleTextBoxSubmitAction",
               "attachTextBoxFile",
               "sendCtrlFToTerminal",
+              "pasteLastScreenshot",
               "clearScreenKeepScrollback",
               "simulatorHome",
               "simulatorRotateLeft",

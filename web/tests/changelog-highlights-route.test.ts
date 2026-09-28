@@ -9,7 +9,11 @@ describe("changelog highlights route", () => {
     const response = await GET(new Request("https://cmux.test/api/changelog/highlights"));
     expect(response.status).toBe(200);
     const payload = (await response.json()) as ReturnType<typeof buildHighlights>;
-    expect(payload.releases.length).toBe(Object.keys(changelogMedia).length);
+    // Only shipped versions are announced; placeholder keys such as
+    // "Unreleased" (renamed at release cut) stay off the app's recap.
+    const shipped = Object.keys(changelogMedia).filter((key) => /^\d+(\.\d+)*$/.test(key));
+    expect(payload.releases.length).toBe(shipped.length);
+    expect(payload.releases.map((release) => release.version)).not.toContain("Unreleased");
     const versions = payload.releases.map((release) => release.version);
     const sorted = [...versions].sort((a, b) => {
       const left = a.split(".").map(Number);
@@ -35,7 +39,7 @@ describe("changelog highlights route", () => {
     expect(second.status).toBe(304);
   });
 
-  test("makes media absolute and passes optional tryIt and video through", () => {
+  test("makes media absolute and passes tryIt and the clip's mp4 through", () => {
     const payload = buildHighlights({
       "0.10.0": {
         title: "Ten",
@@ -46,8 +50,13 @@ describe("changelog highlights route", () => {
             description: "Does a thing.",
             image: "/changelog/feature.png",
             tryIt: "  Press Cmd+K.  ",
-            video: "/changelog/feature.mp4",
-          } as never,
+            video: { src: "/changelog/feature.mp4", webm: "/changelog/feature.webm" },
+          },
+          {
+            title: "Clip",
+            description: "Poster only.",
+            video: { src: "/changelog/clip.mp4", poster: "/changelog/clip.png" },
+          },
           { title: "Plain", description: "No media." },
         ],
       },
@@ -64,7 +73,13 @@ describe("changelog highlights route", () => {
       image: "https://cmux.com/changelog/feature.png",
       video: "https://cmux.com/changelog/feature.mp4",
     });
-    expect(ten.features[1]).toEqual({ title: "Plain", description: "No media." });
+    expect(ten.features[1]).toEqual({
+      title: "Clip",
+      description: "Poster only.",
+      image: "https://cmux.com/changelog/clip.png",
+      video: "https://cmux.com/changelog/clip.mp4",
+    });
+    expect(ten.features[2]).toEqual({ title: "Plain", description: "No media." });
     expect(nine.features).toEqual([]);
   });
 });

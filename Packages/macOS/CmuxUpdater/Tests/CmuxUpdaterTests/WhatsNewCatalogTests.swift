@@ -79,5 +79,25 @@ import Testing
         #expect(first.features[0].image?.absoluteString == "https://cmux.com/changelog/a.png")
         #expect(first.features[0].video?.absoluteString == "https://cmux.com/changelog/a.mp4")
         #expect(first.features[1].tryIt == nil)
+        // The dropped "B" leaves no gap: ids follow the surviving cards.
+        #expect(first.features.map(\.id) == [0, 1])
+    }
+
+    @Test func featuresWithTheSameTitleKeepDistinctIds() throws {
+        let json = """
+        {"releases": [{"version": "0.64.25", "title": "Twenty five", "features": [
+          {"title": "Same", "description": "one"},
+          {"title": "Same", "description": "two"},
+          {"title": "Same", "description": "two"}
+        ]}]}
+        """
+        let decoded = try #require(try WhatsNewCatalog.decode(Data(json.utf8)).releases.first)
+        #expect(Set(decoded.features.map(\.id)).count == 3)
+
+        let duplicate = WhatsNewRelease.Feature(title: "Same", description: "same")
+        var built = WhatsNewRelease(version: "0.64.26", title: "Built", features: [duplicate, duplicate])
+        #expect(built.features.map(\.id) == [0, 1])
+        built.features.insert(duplicate, at: 0)
+        #expect(built.features.map(\.id) == [0, 1, 2])
     }
 }

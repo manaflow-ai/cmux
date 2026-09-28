@@ -50,8 +50,9 @@ struct cmuxApp: App {
     }
 
     init() {
-        // Before any workspace can mark the welcome as shown.
-        WhatsNewCenter.captureFirstRunState()
+        // Create the What's New center before any workspace can mark the
+        // welcome as shown: it records at creation whether this is a first run.
+        _ = WhatsNewCenter.shared
         // Gather settings package dependencies once. The runtime itself
         // is assigned after the saved language override below, because
         // it owns localized search-index text for the process lifetime.
@@ -554,6 +555,11 @@ struct cmuxApp: App {
                 }
                 Button(String(localized: "menu.app.checkForUpdates", defaultValue: "Check for Updates…")) {
                     appDelegate.checkForUpdates(nil)
+                }
+                if let target = appDelegate.appChannelSwitchTarget {
+                    Button(AppChannelSwitchPresenter.menuTitle(for: target)) {
+                        appDelegate.switchAppChannel(nil)
+                    }
                 }
                 InstallUpdateMenuItem(model: appDelegate.updateViewModel, actions: appDelegate)
             }

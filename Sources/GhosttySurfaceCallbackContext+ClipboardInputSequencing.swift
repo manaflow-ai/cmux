@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxTerminal
 import CmuxTerminalCore
 import GhosttyKit
@@ -161,6 +162,7 @@ extension GhosttySurfaceCallbackContext {
     func confirmClipboardRead(
         _ text: String,
         stateAddress: UInt,
+        isPasteRequest: Bool,
         surfaceIdentity: TerminalClipboardRequestSurfaceIdentity
     ) {
         surfaceView?.clipboardReadRequiresConfirmation(stateAddress)
@@ -177,6 +179,50 @@ extension GhosttySurfaceCallbackContext {
             )
             return
         }
+        let window = surfaceView?.window
+        let policy = TerminalUnsafePasteConfirmationPolicy(
+            confirmationEnabled: TerminalCatalogSection().confirmUnsafePaste
+                .value(in: .standard)
+        )
+        switch policy.decision(
+            isPasteRequest: isPasteRequest,
+            hasWindow: window != nil
+        ) {
+        case .approve:
+            break
+        case .askInWindowSheet:
+            if let window,
+               askToConfirmUnsafePaste(
+                   text,
+                   preview: policy.preview(of: text),
+                   stateAddress: stateAddress,
+                   surfaceIdentity: surfaceIdentity,
+                   window: window
+               ) {
+                return
+            }
+            // The request could not be tracked while the sheet is open, so
+            // there is no safe way to ask. Do not paste unasked.
+            NSSound.beep()
+            finishConfirmedClipboardRead("", state: state, surface: surface)
+            return
+        case .reject:
+            NSSound.beep()
+            finishConfirmedClipboardRead("", state: state, surface: surface)
+            return
+        }
+        finishConfirmedClipboardRead(text, state: state, surface: surface)
+    }
+
+    /// Completes a request Ghostty held for confirmation. Empty text
+    /// completes it without pasting and still releases libghostty's request.
+    @MainActor
+    private func finishConfirmedClipboardRead(
+        _ text: String,
+        state: UnsafeMutableRawPointer,
+        surface: ghostty_surface_t
+    ) {
+        let stateAddress = UInt(bitPattern: state)
         text.withCString { pointer in
             ghostty_surface_complete_clipboard_request(
                 surface,
@@ -185,8 +231,135 @@ extension GhosttySurfaceCallbackContext {
                 true
             )
         }
+        let terminalSurface = terminalSurface
         surfaceView?.completeClipboardRead(stateAddress, confirmed: true) {
-            terminalSurface.noteClipboardReadCompleted()
+            terminalSurface?.noteClipboardReadCompleted()
         }
+    }
+
+    /// Shows the `terminal.confirmUnsafePaste` sheet on `window` and answers
+    /// Ghostty when the user chooses.
+    ///
+    /// The native request is registered again for the sheet's lifetime, so
+    /// runtime teardown completes it and closes the sheet instead of leaving
+    /// a request that points at a freed surface.
+    ///
+    /// - Returns: Whether the sheet was shown and now owns the request.
+    @MainActor
+    private func askToConfirmUnsafePaste(
+        _ text: String,
+        preview: String,
+        stateAddress: UInt,
+        surfaceIdentity: TerminalClipboardRequestSurfaceIdentity,
+        window: NSWindow
+    ) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "terminal.unsafePasteConfirmation.title",
+            defaultValue: "Paste Potentially Unsafe Text?"
+        )
+        let explanation = String(
+            localized: "terminal.unsafePasteConfirmation.message",
+            defaultValue: "This text could run commands as soon as it is pasted, for example because it contains a line break. Paste it only if you trust it."
+        )
+        alert.informativeText = preview.isEmpty
+            ? explanation
+            : explanation + "\n\n" + preview
+        alert.addButton(withTitle: String(
+            localized: "terminal.unsafePasteConfirmation.paste",
+            defaultValue: "Paste"
+        ))
+        alert.addButton(withTitle: String(
+            localized: "common.cancel",
+            defaultValue: "Cancel"
+        ))
+
+        let surfaceAddress = surfaceIdentity.surfaceAddress
+        let requestSurfaceView = surfaceView
+        guard registerRuntimeClipboardRequest(
+            id: stateAddress,
+            onInvalidation: {
+                @MainActor [weak alert, weak requestSurfaceView]
+                _,
+                completesNativeRequest,
+                _,
+                deferredInputDisposition in
+                if let sheet = alert?.window, let parent = sheet.sheetParent {
+                    parent.endSheet(sheet, returnCode: .abort)
+                }
+                if completesNativeRequest,
+                   let surface = ghostty_surface_t(bitPattern: surfaceAddress) {
+                    // Teardown cannot wait for an answer; approving empty
+                    // text makes libghostty release its request.
+                    "".withCString { pointer in
+                        ghostty_surface_complete_clipboard_request(
+                            surface,
+                            pointer,
+                            UnsafeMutableRawPointer(bitPattern: stateAddress),
+                            true
+                        )
+                    }
+                }
+                requestSurfaceView?.cancelClipboardRead(
+                    stateAddress,
+                    currentEpoch: requestSurfaceView?.terminalSurface?
+                        .runtimeSurfaceGeneration ?? .max,
+                    deferredInputDisposition: deferredInputDisposition
+                )
+            }
+        ) else {
+            return false
+        }
+        guard commitRuntimeClipboardRequest(stateAddress) else {
+            invalidateRuntimeClipboardRequest(
+                stateAddress,
+                completingNativeRequest: false,
+                deferredInputDisposition: .replay
+            )
+            return false
+        }
+
+        alert.beginSheetModal(for: window) { [weak self] response in
+            MainActor.assumeIsolated {
+                self?.answerUnsafePasteConfirmation(
+                    approved: response == .alertFirstButtonReturn,
+                    text: text,
+                    stateAddress: stateAddress,
+                    surfaceIdentity: surfaceIdentity
+                )
+            }
+        }
+        return true
+    }
+
+    @MainActor
+    private func answerUnsafePasteConfirmation(
+        approved: Bool,
+        text: String,
+        stateAddress: UInt,
+        surfaceIdentity: TerminalClipboardRequestSurfaceIdentity
+    ) {
+        // Teardown may already have completed the request and closed the
+        // sheet; only the first completion may answer libghostty.
+        guard completeRuntimeClipboardRequest(stateAddress) else { return }
+        guard let state = UnsafeMutableRawPointer(bitPattern: stateAddress),
+              let terminalSurface,
+              surfaceIdentity.matches(terminalSurface),
+              let surface = terminalSurface.surface,
+              UInt(bitPattern: surface) == surfaceIdentity.surfaceAddress else {
+            surfaceView?.cancelClipboardRead(
+                stateAddress,
+                currentEpoch: surfaceView?.terminalSurface?
+                    .runtimeSurfaceGeneration ?? .max,
+                deferredInputDisposition: .discard
+            )
+            return
+        }
+        finishConfirmedClipboardRead(
+            approved ? text : "",
+            state: state,
+            surface: surface
+        )
     }
 }

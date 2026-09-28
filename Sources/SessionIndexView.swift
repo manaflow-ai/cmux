@@ -939,6 +939,32 @@ private struct SectionGapDropDelegate: DropDelegate {
     }
 }
 
+/// Session row fill. The previewed row keeps its selection fill under the
+/// pointer; hover only tints rows that are not selected.
+enum SessionIndexRowHighlight: Equatable {
+    case previewed
+    case hovered
+    case plain
+
+    init(isPreviewPresented: Bool, isHovered: Bool) {
+        if isPreviewPresented {
+            self = .previewed
+        } else if isHovered {
+            self = .hovered
+        } else {
+            self = .plain
+        }
+    }
+
+    var backgroundColor: Color {
+        switch self {
+        case .previewed: return Color.accentColor.opacity(0.10)
+        case .hovered: return Color.primary.opacity(0.05)
+        case .plain: return Color.clear
+        }
+    }
+}
+
 private struct SessionRow: View, Equatable {
     let entry: SessionEntry
     /// Shared display facts for the status circle and optional repository /
@@ -1026,13 +1052,8 @@ private struct SessionRow: View, Equatable {
     }
 
     private var rowBackgroundColor: Color {
-        if isHovered {
-            return Color.primary.opacity(0.05)
-        }
-        if isPreviewPresented {
-            return Color.accentColor.opacity(0.10)
-        }
-        return Color.clear
+        SessionIndexRowHighlight(isPreviewPresented: isPreviewPresented, isHovered: isHovered)
+            .backgroundColor
     }
 
     private var helpText: String {
