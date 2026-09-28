@@ -97,7 +97,7 @@ SEVERITY_RULES: list[SeverityRule] = [
         re.compile(
             r"\b(crash(?:es|ed|ing)?|panic(?:s|ked)?|deadlock|freeze[sd]?|frozen|hang(?:s|ing)?"
             r"|unusable|unresponsive|wedged"
-            r"|lost? (?:session|state|scrollback|history)|session(?:s)? (?:are )?lost"
+            r"|(?:lose[sd]?|lost) (?:session|state|scrollback|history)|session(?:s)? (?:are )?lost"
             r"|cannot connect|can'?t connect|could not connect|connection fail(?:s|ed|ure)?"
             r"|connection refused|refuse[sd]? connection"
             r"|auth(?:entication)? fail(?:s|ed|ure)?|fails? to (?:connect|authenticate|sign in)"

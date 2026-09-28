@@ -149,7 +149,10 @@ def render_comment(result: Classification) -> str:
         )
     if result.areas:
         pretty = ", ".join(f"`{area}`" for area in result.areas)
-        lines.append(f"- **Area:** {pretty}, from words in the title.")
+        if any(note.startswith("area from the issue form:") for note in result.notes):
+            lines.append(f"- **Area:** {pretty}, selected in the issue form.")
+        else:
+            lines.append(f"- **Area:** {pretty}, from words in the title.")
     else:
         lines.append(
             f"- **`{NEEDS_TRIAGE}`** — the title did not point at one area more than the others."

@@ -49,6 +49,12 @@ class SeverityTests(unittest.TestCase):
         result = RULES.classify("Sidebar reorder no longer works after 0.64.24", "")
         self.assertEqual(result.severity, "S2: major")
 
+    def test_present_tense_session_loss_is_major(self):
+        for wording in ("lose session state", "loses session state"):
+            with self.subTest(wording=wording):
+                result = RULES.classify(f"Terminal {wording} after sleep", "")
+                self.assertEqual(result.severity, "S2: major")
+
     def test_plain_bug_defaults_to_minor(self):
         result = RULES.classify("Tab title shows the wrong directory after rename", "")
         self.assertEqual(result.severity, "S3: minor")
@@ -308,6 +314,12 @@ class CommentTests(unittest.TestCase):
     def test_comment_says_how_to_override(self):
         result = RULES.classify("theme error", "")
         self.assertIn("Change the labels", AUTO.render_comment(result))
+
+    def test_comment_credits_the_issue_form_for_its_area(self):
+        result = RULES.classify("Wrong item highlighted after reorder", form_body("sidebar"))
+        body = AUTO.render_comment(result)
+        self.assertIn("selected in the issue form", body)
+        self.assertNotIn("from words in the title", body)
 
 
 class WorkflowSafetyTests(unittest.TestCase):
