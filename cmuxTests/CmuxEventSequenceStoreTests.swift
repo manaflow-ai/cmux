@@ -87,7 +87,7 @@ final class CmuxEventSequenceStoreTests: XCTestCase {
         let replay = bus.subscribe(afterSequence: 0, names: [], categories: [])
         defer { bus.unsubscribe(replay.subscription) }
 
-        let sequencesByName = Dictionary(uniqueKeysWithValues: replay.replay.compactMap { event in
+        let sequencesByName: [String: Int64] = Dictionary(uniqueKeysWithValues: replay.replay.compactMap { event in
             guard let name = event["name"] as? String else { return nil }
             guard let sequence = CmuxEventBus.int64(event["seq"]) else { return nil }
             return (name, sequence)
