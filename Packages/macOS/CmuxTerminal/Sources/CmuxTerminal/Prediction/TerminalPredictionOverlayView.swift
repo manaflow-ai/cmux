@@ -80,6 +80,9 @@ public final class TerminalPredictionOverlayView: NSView {
 
             style.background.setFill()
             cell.fill()
+            // A deleted character: the background covers its echo until the
+            // remote's erase lands.
+            if glyph.standing == .erased { continue }
 
             let attributes = glyph.standing == .speculative ? speculativeAttributes : confirmedAttributes
             let text = String(glyph.character) as NSString

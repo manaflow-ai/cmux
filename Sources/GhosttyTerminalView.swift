@@ -4270,12 +4270,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func recordPredictedEchoInput(
         _ keyEvent: ghostty_input_key_s,
         isPlainBackspace: Bool,
+        isLineErase: Bool,
         isBound: Bool
     ) {
         guard let surfaceID = terminalSurface?.id,
               TerminalPredictionCenter.shared.predictsInput(surfaceID: surfaceID) else { return }
         if isPlainBackspace {
             TerminalPredictionCenter.shared.typedBackspace(surfaceID: surfaceID)
+            return
+        }
+        if isLineErase {
+            TerminalPredictionCenter.shared.typedLineErase(surfaceID: surfaceID)
             return
         }
         TerminalPredictionCenter.shared.typed(
@@ -4299,6 +4304,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             | GHOSTTY_MODS_ALT.rawValue
             | GHOSTTY_MODS_SUPER.rawValue
         return keyEvent.mods.rawValue & anyMods == 0
+    }
+
+    /// Whether this is Ctrl-U, Ctrl-W or Option-Backspace, which line editors
+    /// bind to deleting back by a word or to the start of the line.
+    private static func isLineErase(_ keyEvent: ghostty_input_key_s) -> Bool {
+        guard !keyEvent.composing else { return false }
+        let mods = keyEvent.mods.rawValue & (
+            GHOSTTY_MODS_SHIFT.rawValue
+                | GHOSTTY_MODS_CTRL.rawValue
+                | GHOSTTY_MODS_ALT.rawValue
+                | GHOSTTY_MODS_SUPER.rawValue
+        )
+        if keyEvent.keycode == UInt32(kVK_Delete) {
+            return mods == GHOSTTY_MODS_ALT.rawValue
+        }
+        guard mods == GHOSTTY_MODS_CTRL.rawValue else { return false }
+        if keyEvent.keycode == UInt32(kVK_ANSI_U) || keyEvent.keycode == UInt32(kVK_ANSI_W) {
+            return true
+        }
+        guard let text = keyEvent.text else { return false }
+        let first = UInt8(bitPattern: text[0])
+        return (first == 0x15 || first == 0x17) && text[1] == 0
     }
 
     /// The single printable byte a key sends, or `nil` when its effect on the
@@ -7527,6 +7554,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let isPlainBackspace = predictsInput
             && !isBoundForPrediction
             && Self.isPlainBackspace(keyEvent)
+        let isLineErase = predictsInput
+            && !isBoundForPrediction
+            && Self.isLineErase(keyEvent)
         let handled = withPotentialClipboardPasteIntent {
             ghostty_surface_key(surface, keyEvent)
         }
@@ -7535,6 +7565,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             recordPredictedEchoInput(
                 keyEvent,
                 isPlainBackspace: isPlainBackspace,
+                isLineErase: isLineErase,
                 isBound: isBoundForPrediction
             )
         }

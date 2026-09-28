@@ -256,6 +256,19 @@ public final class TerminalPredictionCenter {
         scheduleExpiry(surfaceID: surfaceID)
     }
 
+    /// Ctrl-U, Ctrl-W or Option-Backspace: a key that deletes more than one
+    /// character. Glyphs still in flight are drawn blank until the remote's
+    /// erase lands instead of flashing back as their echoes arrive.
+    public func typedLineErase(surfaceID: UUID) {
+        guard isEnabled, engines[surfaceID] != nil else { return }
+        seedIfNeeded(surfaceID: surfaceID)
+        guard engines[surfaceID]?.isRemoteSurface == true else { return }
+        if engines[surfaceID]?.typedLineErase(at: now) == true {
+            redrawHandlers[surfaceID]?()
+        }
+        scheduleExpiry(surfaceID: surfaceID)
+    }
+
     /// Input that reached the surface without passing through the keystroke
     /// path: a paste, dropped text, or text and keys sent over the socket or
     /// from a paired device. Withdraws what is drawn, because its echo moves

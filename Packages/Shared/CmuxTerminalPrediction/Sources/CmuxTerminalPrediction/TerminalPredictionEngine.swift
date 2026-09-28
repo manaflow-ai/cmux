@@ -19,6 +19,17 @@
 /// the character and then erases it; the engine waits for exactly that and
 /// withdraws on anything else. Backspace over anything the remote already
 /// drew is the remote's to render, and withdraws as any other editing key.
+///
+/// A deleted character must not come back. A retracted glyph's echo is still
+/// on its way when the user deletes it, so its cell is drawn blank (`.erased`)
+/// until the remote's erase lands. A key whose effect is not modelled while
+/// glyphs are in flight (Return, an arrow, Backspace over echoed text) leaves
+/// those glyphs drawn behind a barrier: they are still exactly what the
+/// remote echoes next, and dropping them would blank text the user just saw
+/// until its echo repaints it. Ctrl-U and Ctrl-W (`typedLineErase(at:)`)
+/// turn the glyphs in flight into blanks instead, because the remote is about
+/// to delete them. Any output that is not the expected echo or erase clears
+/// everything, blanks included, so a blank never hides real output.
 public struct TerminalPredictionEngine: Sendable {
     public enum Status: Sendable, Equatable {
         /// The setting is off.
@@ -56,6 +67,10 @@ public struct TerminalPredictionEngine: Sendable {
         case glyph(Character, byte: UInt8)
         /// A Backspace that retracted the newest glyph before it.
         case erase(EraseProgress)
+        /// A key whose effect is not modelled, typed while glyphs were in
+        /// flight. The echoes before it are still predicted; any output once
+        /// it is next withdraws everything.
+        case barrier
     }
 
     /// One keystroke the remote has not finished echoing, in the order sent.
@@ -78,14 +93,28 @@ public struct TerminalPredictionEngine: Sendable {
         /// A later Backspace took it back. The remote still echoes it, but
         /// the overlay never draws it again.
         var isRetracted = false
+        /// Ctrl-U or Ctrl-W deleted it while it was in flight. Its cell is
+        /// drawn blank until the output after its echo, the remote's erase.
+        var isMasked = false
 
-        var isDrawn: Bool { isDisplayed && !isRetracted }
+        var isDrawn: Bool { isDisplayed && !isRetracted && !isMasked }
+
+        /// Whether its cell is drawn blank: deleted by the user, not yet by
+        /// the remote.
+        var isBlanked: Bool {
+            guard case .glyph = keystroke else { return false }
+            return isMasked || (isRetracted && isDisplayed)
+        }
+
+        /// Whether the overlay covers its cell at all.
+        var isOnScreen: Bool { isDrawn || isBlanked }
 
         /// Cells this keystroke moves the cursor once fully echoed.
         var cellAdvance: Int {
             switch keystroke {
             case .glyph: 1
             case .erase: -1
+            case .barrier: 0
             }
         }
 
@@ -94,13 +123,13 @@ public struct TerminalPredictionEngine: Sendable {
             switch keystroke {
             case .glyph: standing == .confirmed ? 1 : 0
             case .erase(.movedLeft): -1
-            case .erase(.awaitingMoveLeft), .erase(.blanked): 0
+            case .erase(.awaitingMoveLeft), .erase(.blanked), .barrier: 0
             }
         }
 
         var isHeldConfirmation: Bool {
             guard case .glyph = keystroke else { return false }
-            return standing == .confirmed && !isRetracted
+            return standing == .confirmed && !isRetracted && !isMasked
         }
     }
 
@@ -167,7 +196,9 @@ public struct TerminalPredictionEngine: Sendable {
         var cell = 0
         var drawn: [PredictedGlyph] = []
         for entry in entries {
-            if entry.isDrawn, case .glyph(let character, _) = entry.keystroke {
+            if entry.isBlanked {
+                drawn.append(PredictedGlyph(character: " ", offset: cell - cursor, standing: .erased))
+            } else if entry.isDrawn, case .glyph(let character, _) = entry.keystroke {
                 drawn.append(PredictedGlyph(
                     character: character,
                     offset: cell - cursor,
@@ -176,7 +207,10 @@ public struct TerminalPredictionEngine: Sendable {
             }
             cell += entry.cellAdvance
         }
-        return drawn
+        // A glyph typed after a Backspace lands on the cell the blank masks;
+        // the glyph is what the cell will show, so the blank gives way.
+        let lettered = Set(drawn.filter { $0.standing != .erased }.map(\.offset))
+        return drawn.filter { $0.standing != .erased || !lettered.contains($0.offset) }
     }
 
     /// Round trip from keystroke to echo, smoothed. `nil` until the first echo.
@@ -192,7 +226,7 @@ public struct TerminalPredictionEngine: Sendable {
     /// ones count too: an erase that never arrives expires on its own
     /// keystroke's clock, not on that of a glyph typed after it.
     public var nextExpiry: PredictionInstant? {
-        guard entries.contains(where: \.isDrawn) else { return nil }
+        guard entries.contains(where: \.isOnScreen) else { return nil }
         return entries.compactMap { entry -> PredictionInstant? in
             if entry.standing == .speculative {
                 return entry.typedAt + configuration.speculativeLifetime
@@ -253,8 +287,13 @@ public struct TerminalPredictionEngine: Sendable {
     public mutating func typed(printableASCII byte: UInt8?, at now: PredictionInstant) -> Bool {
         guard isActive else { return false }
         let expired = expire(at: now)
+        // Behind a barrier the remote's state is unknown, so nothing typed
+        // now can be placed. Its echo arrives after the barrier resolves,
+        // which starts the untracked window that covers it.
+        if hasBarrier { return expired }
 
         guard let byte, (0x20...0x7E).contains(byte) else {
+            if raiseBarrierIfInFlight(at: now) { return expired }
             return withdrawAll(countingMisprediction: false, at: now, sendingKeystroke: true) || expired
         }
         guard entries.count < configuration.maximumSpeculativeGlyphs else {
@@ -291,6 +330,7 @@ public struct TerminalPredictionEngine: Sendable {
     public mutating func typedBackspace(at now: PredictionInstant) -> Bool {
         guard isActive else { return false }
         let expired = expire(at: now)
+        if hasBarrier { return expired }
 
         // Everything after the newest unretracted glyph is retracted glyphs
         // and their erases, which occupy no cells, so it is the one the
@@ -303,6 +343,10 @@ public struct TerminalPredictionEngine: Sendable {
               entries[index].standing == .speculative,
               entries.count < configuration.maximumSpeculativeGlyphs
         else {
+            // Backspace over text the remote already drew is the remote's to
+            // render. Retracted glyphs still waiting for their erase keep
+            // their blanks until it lands.
+            if raiseBarrierIfInFlight(at: now) { return expired }
             return withdrawAll(countingMisprediction: false, at: now, sendingKeystroke: true) || expired
         }
 
@@ -370,7 +414,28 @@ public struct TerminalPredictionEngine: Sendable {
                 changed = consumeErase(signal, at: now) || changed
             }
         }
-        return changed || (movedCursor && entries.contains { $0.isDrawn })
+        return changed || (movedCursor && entries.contains { $0.isOnScreen })
+    }
+
+    /// Record a key that deletes backwards by more than one character: Ctrl-U,
+    /// Ctrl-W, Option-Backspace. The remote erases the glyphs still in flight
+    /// along with text it already drew, so their cells are drawn blank until
+    /// its erase lands instead of flashing back as their echoes arrive.
+    /// Returns whether the drawn overlay changed.
+    @discardableResult
+    public mutating func typedLineErase(at now: PredictionInstant) -> Bool {
+        guard isActive else { return false }
+        let expired = expire(at: now)
+        var changed = false
+        for index in entries.indices where entries[index].standing == .speculative {
+            guard case .glyph = entries[index].keystroke,
+                  !entries[index].isRetracted, !entries[index].isMasked else { continue }
+            entries[index].isMasked = true
+            changed = true
+        }
+        if hasBarrier { return changed || expired }
+        if raiseBarrierIfInFlight(at: now) { return changed || expired }
+        return withdrawAll(countingMisprediction: false, at: now, sendingKeystroke: true) || expired
     }
 
     /// Record input that reached the remote without passing through
@@ -415,6 +480,9 @@ public struct TerminalPredictionEngine: Sendable {
             // actor), so it cannot be the echo of it.
             return withdrawAll(countingMisprediction: false, at: now)
         }
+        if entries[index].keystroke == .barrier {
+            return resolveBarrier(at: now)
+        }
         guard case .glyph(_, let expected) = entries[index].keystroke else {
             // Mid-erase, the only printable a line editor sends is the space
             // of `BS SP BS`; the erase withdraws on anything else.
@@ -425,12 +493,18 @@ public struct TerminalPredictionEngine: Sendable {
         }
 
         record(echoLatency: now - entries[index].typedAt)
+        if entries[index].isMasked {
+            // Its blank now covers the echo it was waiting for, and stays
+            // until the erase after it. It re-arms nothing: the user deleted it.
+            entries[index].standing = .confirmed
+            return true
+        }
         isEchoRunActive = true
         if entries[index].isRetracted {
-            // Its cell is the grid's until the erase arrives. Nothing is held,
-            // but the cursor moved, so drawn glyphs are measured afresh.
+            // Its blank covers the echo until the erase arrives. Nothing is
+            // held, but the cursor moved, so drawn cells are measured afresh.
             entries[index].standing = .confirmed
-            return entries.contains { $0.isDrawn }
+            return entries.contains { $0.isOnScreen }
         }
         // A glyph the user never saw has nothing to hold on screen for; the
         // real character is already on its way into the grid. It still
@@ -463,6 +537,9 @@ public struct TerminalPredictionEngine: Sendable {
             // Already in flight when the key was typed, as in
             // `consumePrintable`: not its echo, and not a wrong guess.
             return withdrawAll(countingMisprediction: false, at: now)
+        }
+        if entries[index].keystroke == .barrier {
+            return resolveBarrier(at: now)
         }
         guard case .erase = entries[index].keystroke else {
             return withdrawAll(countingMisprediction: true, at: now)
@@ -505,10 +582,12 @@ public struct TerminalPredictionEngine: Sendable {
                 return withdrawAll(countingMisprediction: false, at: now)
             }
             entries.removeSubrange((index - 1)...index)
+            // The blank that covered the erased cell goes with the pair.
+            return true
         default:
             return withdrawAll(countingMisprediction: false, at: now)
         }
-        return entries.contains { $0.isDrawn }
+        return entries.contains { $0.isOnScreen }
     }
 
     private mutating func record(echoLatency sample: Duration) {
@@ -529,6 +608,7 @@ public struct TerminalPredictionEngine: Sendable {
         sendingKeystroke: Bool = false
     ) -> Bool {
         let wasVisible = entries.contains { $0.isDrawn }
+        let wasOnScreen = entries.contains { $0.isOnScreen }
         if countingMisprediction, wasVisible {
             recentMispredictions.append(now)
             recentMispredictions.removeAll { now - $0 > configuration.mispredictionWindow }
@@ -550,7 +630,40 @@ public struct TerminalPredictionEngine: Sendable {
         }
         entries.removeAll()
         isEchoRunActive = false
-        return wasVisible
+        return wasOnScreen
+    }
+
+    private var hasBarrier: Bool {
+        entries.contains { $0.keystroke == .barrier }
+    }
+
+    /// Puts a barrier behind the glyphs in flight, when there are any the
+    /// user can see, so they stay drawn until their own echoes confirm them.
+    /// Returns whether it did; without one the caller withdraws as before.
+    private mutating func raiseBarrierIfInFlight(at now: PredictionInstant) -> Bool {
+        let inFlight = entries.contains {
+            ($0.isDrawn && $0.standing == .speculative) || $0.isBlanked
+        }
+        guard inFlight else { return false }
+        entries.append(Entry(
+            keystroke: .barrier,
+            typedAt: now,
+            standing: .speculative,
+            confirmedAt: nil,
+            isDisplayed: false
+        ))
+        isEchoRunActive = false
+        return true
+    }
+
+    /// Output arrived for the unmodelled key behind the barrier: its effect
+    /// is unknown, so everything goes, and output stays untracked for a
+    /// settle period covering the keys typed behind the barrier.
+    private mutating func resolveBarrier(at now: PredictionInstant) -> Bool {
+        let changed = withdrawAll(countingMisprediction: false, at: now)
+        let deadline = now + untrackedEchoSettle
+        untrackedEchoDeadline = max(untrackedEchoDeadline ?? deadline, deadline)
+        return changed
     }
 
     /// How long after a withdrawal output may still belong to keystrokes the
