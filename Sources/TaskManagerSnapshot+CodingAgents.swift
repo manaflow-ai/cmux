@@ -146,7 +146,9 @@ private struct CodingAgentRowGroup {
             kind: .codingAgentAggregate,
             level: 0,
             title: title,
-            detail: CmuxTaskManagerSnapshot.processCountDetail(resources.processCount),
+            detail: resources.processCount > 0
+                ? CmuxTaskManagerSnapshot.processCountDetail(resources.processCount)
+                : "",
             resources: resources,
             isDimmed: false,
             workspaceId: nil,

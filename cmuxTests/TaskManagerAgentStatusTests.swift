@@ -118,6 +118,32 @@ struct TaskManagerAgentStatusTests {
         #expect(codexTotal.resources.processCount == 0)
     }
 
+    @MainActor
+    @Test func workspaceReportsLifecycleOverlaysAndSkipsManualLoaders() throws {
+        let workspace = Workspace(title: "Tests")
+        let panelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.taskManagerAgentPanelPayloads().isEmpty)
+
+        workspace.setAgentLifecycle(key: "manual", panelId: panelId, lifecycle: .running)
+        #expect(workspace.taskManagerAgentPanelPayloads().isEmpty)
+
+        workspace.setAgentLifecycle(
+            key: FeedCoordinator.attentionStatusKey(forSource: "claude"),
+            panelId: panelId,
+            lifecycle: .needsInput
+        )
+        let payloads = workspace.taskManagerAgentPanelPayloads()
+        let payload = try #require(payloads.first)
+        #expect(payloads.count == 1)
+        #expect(payload["surface_id"] as? String == panelId.uuidString)
+        #expect(payload["workspace_id"] as? String == workspace.id.uuidString)
+        #expect(payload["state"] as? String == AgentHibernationLifecycleState.needsInput.rawValue)
+        #expect(CmuxTaskManagerAgentStatus.State(
+            wireValue: payload["state"] as? String,
+            statusText: nil
+        ) == .needsInput)
+    }
+
     private func payload(agentPanels: [[String: Any]]) -> [String: Any] {
         [
             "sample": ["sampled_at": sampledAt],

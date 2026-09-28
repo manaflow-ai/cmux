@@ -19,14 +19,14 @@ extension Workspace {
                 ])
                 continue
             }
-            let lifecycleStates = (agentLifecycleStatesByPanelId[panelId] ?? [:])
-                .filter { AgentHibernationLifecycleStatusKeys.isAllowed($0.key) }
+            // Same reduction agent hibernation uses, so
+            // overlay keys such as a Feed permission prompt count too; only
+            // `cmux workspace loading` manual keys are left out.
+            let hasAgentLifecycle = (agentLifecycleStatesByPanelId[panelId] ?? [:]).keys
+                .contains { !AgentHibernationLifecycleStatusKeys.isManualKey($0) }
             let status = mobileAgentStatus(forPanel: panelId)
-            guard !lifecycleStates.isEmpty || status != nil else { continue }
-            let lifecycle = AgentHibernationLifecycleState.aggregate(
-                statusKeyedStates: lifecycleStates,
-                fallback: nil
-            )
+            guard hasAgentLifecycle || status != nil else { continue }
+            let lifecycle = agentHibernationLifecycleState(panelId: panelId, fallback: nil)
             payloads.append([
                 "workspace_id": id.uuidString,
                 "surface_id": panelId.uuidString,
@@ -50,6 +50,8 @@ extension Workspace {
     }
 
     private static func taskManagerTimestamp(_ date: Date) -> String {
-        ISO8601DateFormatter().string(from: date)
+        taskManagerTimestampFormatter.string(from: date)
     }
+
+    private static let taskManagerTimestampFormatter = ISO8601DateFormatter()
 }
