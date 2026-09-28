@@ -51,6 +51,13 @@ describe("network policy parsing", () => {
     expect(storedNetworkPolicy(null).mode).toBe("full");
     expect(storedNetworkPolicy({ mode: "sideways" }).mode).toBe("none");
   });
+
+  test("a stored row keeps its policy when a preset it names is retired", () => {
+    const stored = storedNetworkPolicy({ mode: "allowlist", presets: ["openrouter", "retired-preset"], domains: ["example.com"] });
+    expect(stored.mode).toBe("allowlist");
+    expect(stored.presets).toEqual(["openrouter"]);
+    expect(stored.domains).toEqual(["example.com"]);
+  });
 });
 
 describe("network policy compilation", () => {
