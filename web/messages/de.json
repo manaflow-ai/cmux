@@ -1338,6 +1338,9 @@
       "schemaDescriptions": {
         "root": "cmux-Konfiguration. Die globale cmux.json unterstützt App-Einstellungen, Tastenkürzel, Aktionen, benutzerdefinierte Befehle, Benachrichtigungs-Hooks und Workspace-Layouts. Eine projektlokale .cmux/cmux.json oder cmux.json unterstützt Aktionen, Befehle, Benachrichtigungs-Hooks, die Verknüpfung von UI-Aktionen, Agent-Chat-Überschreibungen, Vault-Agenten, Workspace-Gruppen-Überschreibungen sowie die Konfiguration von Workspace-Starts und -Schaltflächen.",
         "rightSidebar": "Veraltete und von Erweiterungen verwaltete Konfiguration der rechten Seitenleiste, die in cmux.json beibehalten wird.",
+        "agentActions": {
+          "turnControl": "Zeigt eine Stopp-Taste über dem Terminal, während Claude Code oder Codex einen Durchgang bearbeitet. Ein Klick sendet Escape, die eigene Unterbrechungstaste des Agenten, und markiert den Durchgang als gestoppt."
+        },
         "packs": {
           "description": "Lokale cmux-Paketdateien oder Verzeichnisse, die vor dieser Konfiguration geladen werden. Verzeichnisse verweisen auf cmux.pack.json. Verwenden Sie eine Pfadzeichenfolge oder ein Objekt mit einem path-Feld.",
           "path": "Lokaler Datei- oder Verzeichnispfad, relativ zu dieser Konfigurationsdatei, sofern nicht absolut."

@@ -566448,6 +566448,72 @@
             "state": "translated",
             "value": "停止"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaustavi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afbryd"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrompi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ឈប់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatrzymaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Остановить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durdur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зупинити"
+          }
         }
       }
     },
@@ -566506,6 +566572,197 @@
           "stringUnit": {
             "state": "translated",
             "value": "代理停止按鈕"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dugme za zaustavljanje agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopknap til agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulsante Interrompi agente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប៊ូតុងបញ្ឈប់ភ្នាក់ងារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stoppknapp for agent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przycisk zatrzymania agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Botão Parar do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопка остановки агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปุ่มหยุดเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aracı Durdur düğmesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопка зупинки агента"
+          }
+        }
+      }
+    },
+    "settings.agentActions.turnControl.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows a Stop button over a terminal while Claude Code or Codex is working. Clicking it interrupts the turn, like pressing Esc."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض زر إيقاف فوق الطرفية أثناء عمل Claude Code أو Codex. النقر عليه يقاطع الدورة مثل الضغط على Esc."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt eine Stopp-Taste über dem Terminal, während Claude Code oder Codex arbeitet. Ein Klick unterbricht den Durchgang wie die Esc-Taste."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra un botón Detener sobre el terminal mientras Claude Code o Codex trabaja. Al hacer clic se interrumpe el turno, como al pulsar Esc."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche un bouton Arrêter sur le terminal pendant que Claude Code ou Codex travaille. Un clic interrompt le tour, comme la touche Échap."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code または Codex が作業している間、ターミナル上に停止ボタンを表示します。クリックすると Esc キーと同じようにターンを中断します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code나 Codex가 작업하는 동안 터미널 위에 중지 버튼을 표시합니다. 클릭하면 Esc를 누른 것처럼 현재 턴을 중단합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 或 Codex 工作时，在终端上显示停止按钮。点击即可中断本轮，效果等同于按下 Esc。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 或 Codex 工作時，在終端機上顯示停止按鈕。按一下即可中斷本輪，效果如同按下 Esc。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikazuje dugme Zaustavi iznad terminala dok Claude Code ili Codex radi. Klikom se prekida potez, kao pritiskom na Esc."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser en Stop-knap over en terminal, mens Claude Code eller Codex arbejder. Et klik afbryder turen ligesom et tryk på Esc."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra un pulsante Interrompi sopra il terminale mentre Claude Code o Codex è in esecuzione. Un clic interrompe il turno, come premere Esc."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញប៊ូតុងបញ្ឈប់នៅលើស្ថានីយ ខណៈពេល Claude Code ឬ Codex កំពុងដំណើរការ។ ចុចវាដើម្បីរំខានវេន ដូចជាចុច Esc។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser en Stopp-knapp over en terminal mens Claude Code eller Codex arbeider. Et klikk avbryter turen, som å trykke Esc."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyświetla przycisk Zatrzymaj nad terminalem, gdy działa Claude Code lub Codex. Kliknięcie przerywa turę tak jak naciśnięcie Esc."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra um botão Parar sobre o terminal enquanto o Claude Code ou o Codex está trabalhando. Clicar nele interrompe o turno, como pressionar Esc."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает кнопку «Остановить» над терминалом, пока работает Claude Code или Codex. Нажатие прерывает ход так же, как клавиша Esc."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงปุ่มหยุดเหนือเทอร์มินัลขณะที่ Claude Code หรือ Codex กำลังทำงาน การคลิกจะขัดจังหวะรอบเหมือนการกด Esc"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code veya Codex çalışırken terminalin üzerinde bir Durdur düğmesi gösterir. Tıklamak, Esc tuşuna basmak gibi turu keser."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує кнопку «Зупинити» над терміналом, поки працює Claude Code або Codex. Натискання перериває хід так само, як клавіша Esc."
           }
         }
       }
@@ -566566,6 +566823,72 @@
             "state": "translated",
             "value": "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click 代理 停止 中斷 按鈕"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click agent zaustavi prekini dugme"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click agent stop afbryd knap"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click agente interrompi annulla pulsante"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click ភ្នាក់ងារ បញ្ឈប់ រំខាន ប៊ូតុង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click agent stopp avbryt knapp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click agent zatrzymaj przerwij przycisk"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click agente parar interromper botão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click агент остановить прервать кнопка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click เอเจนต์ หยุด ขัดจังหวะ ปุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click aracı durdur kes düğme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click агент зупинити перервати кнопка"
+          }
         }
       }
     },
@@ -566624,6 +566947,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "中斷 %@（Esc）"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prekini %@ (Esc)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afbryd %@ (Esc)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrompi %@ (Esc)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រំខាន %@ (Esc)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avbryt %@ (Esc)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przerwij %@ (Esc)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interromper %@ (Esc)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прервать %@ (Esc)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขัดจังหวะ %@ (Esc)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ uygulamasını kes (Esc)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перервати %@ (Esc)"
           }
         }
       }

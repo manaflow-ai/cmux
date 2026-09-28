@@ -1338,6 +1338,9 @@
       "schemaDescriptions": {
         "root": "Configuración de cmux. El cmux.json global admite ajustes de la aplicación, atajos, acciones, comandos personalizados, hooks de notificación y diseños de espacios de trabajo. Un .cmux/cmux.json o cmux.json local del proyecto admite acciones, comandos, hooks de notificación, conexión de acciones de la interfaz, ajustes de Agent Chat, agentes del vault, ajustes de grupos de espacios de trabajo y configuración de inicio y botones del espacio de trabajo.",
         "rightSidebar": "Configuración heredada y propiedad de extensiones de la barra lateral derecha que se conserva en cmux.json.",
+        "agentActions": {
+          "turnControl": "Muestra un botón Detener sobre el terminal mientras Claude Code o Codex trabaja en un turno. Al hacer clic se envía Escape, la tecla de interrupción propia del agente, y se marca el turno como detenido."
+        },
         "packs": {
           "description": "Archivos o directorios de paquetes cmux locales que se cargan antes de esta configuración. Los directorios se resuelven como cmux.pack.json. Usa una cadena de ruta o un objeto con un campo path.",
           "path": "Ruta de archivo o directorio local, relativa a este archivo de configuración salvo que sea absoluta."

@@ -1338,6 +1338,9 @@
       "schemaDescriptions": {
         "root": "cmux 구성입니다. 전역 cmux.json은 앱 설정, 단축키, 작업, 사용자 지정 명령, 알림 훅, 워크스페이스 레이아웃을 지원합니다. 프로젝트 로컬 .cmux/cmux.json 또는 cmux.json은 작업, 명령, 알림 훅, UI 작업 연결, Agent Chat 재정의, vault 에이전트, 워크스페이스 그룹 재정의, 워크스페이스 시작 및 버튼 구성을 지원합니다.",
         "rightSidebar": "cmux.json에 보존되는 레거시 및 확장 프로그램 소유 오른쪽 사이드바 구성입니다.",
+        "agentActions": {
+          "turnControl": "Claude Code 또는 Codex가 턴을 처리하는 동안 터미널 위에 중지 버튼을 표시합니다. 클릭하면 에이전트의 자체 중단 키인 Escape를 보내고 턴을 중지됨으로 표시합니다."
+        },
         "packs": {
           "description": "이 설정보다 먼저 불러올 로컬 cmux 팩 파일 또는 디렉터리입니다. 디렉터리는 cmux.pack.json으로 해석됩니다. 경로 문자열 또는 path 필드가 있는 객체를 사용하세요.",
           "path": "로컬 파일 또는 디렉터리 경로입니다. 절대 경로가 아니면 이 설정 파일을 기준으로 합니다."

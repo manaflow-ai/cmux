@@ -1338,6 +1338,9 @@
       "schemaDescriptions": {
         "root": "Configurazione di cmux. Il file cmux.json globale supporta impostazioni dell’app, scorciatoie, azioni, comandi personalizzati, hook di notifica e layout degli spazi di lavoro. Un file .cmux/cmux.json o cmux.json locale al progetto supporta azioni, comandi, hook di notifica, collegamenti delle azioni dell’interfaccia, override di Agent Chat, agenti del vault, override dei gruppi di spazi di lavoro e configurazione di avvio e pulsanti degli spazi di lavoro.",
         "rightSidebar": "Configurazione legacy e gestita dalle estensioni della barra laterale destra, conservata in cmux.json.",
+        "agentActions": {
+          "turnControl": "Mostra un pulsante Interrompi sopra il terminale mentre Claude Code o Codex lavora a un turno. Un clic invia Escape, il tasto di interruzione dell’agente, e contrassegna il turno come interrotto."
+        },
         "packs": {
           "description": "File o directory di pacchetti cmux locali caricati prima di questa configurazione. Le directory vengono risolte in cmux.pack.json. Usa una stringa di percorso o un oggetto con un campo path.",
           "path": "Percorso di file o directory locale, relativo a questo file di configurazione se non assoluto."
