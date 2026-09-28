@@ -784,12 +784,7 @@ public final class MobileSSHComputers {
             sink?.sshApplyViewport(surfaceID: surfaceID)
         case .ended:
             attachments[surfaceID] = nil
-            endedSurfaces.insert(surfaceID)
-            let notice = L10nSSH().sessionEnded
-            sink?.sshDeliver(Data("\r\n\u{1B}[2m[\(notice)]\u{1B}[0m\r\n".utf8), surfaceID: surfaceID)
-            if let hostID = MobileSSHIdentifier(surfaceID).hostID {
-                Task { await self.refreshWorkspaces(hostID: hostID) }
-            }
+            endTerminalSurface(surfaceID: surfaceID)
         }
     }
 
@@ -863,14 +858,47 @@ public final class MobileSSHComputers {
         hostConnectionEnded(hostID: hostID)
     }
 
-    /// Tears a host's connection down after the transport closes.
+    /// Tears a host's connection down after the transport closes: every
+    /// terminal on it has ended, so announce and record that once here rather
+    /// than relying only on each child channel's own close event (which can lag
+    /// arbitrarily under load and leave the shown terminal with no "Session
+    /// ended" line), and drop the stale attach-in-flight state so a later
+    /// reconnect re-seeds through the ordinary subscribe path. Then stop the
+    /// host's forwards and return it to idle.
     private func hostConnectionEnded(hostID: UUID) {
         providers[hostID] = nil
-        attachments = attachments.filter { MobileSSHIdentifier($0.key).hostID != hostID }
+        // Every surface attached to (or attaching on) this host has ended.
+        let ownedByHost = { MobileSSHIdentifier($0).hostID == hostID }
+        let endedNow = Set(attachments.keys)
+            .union(attachAwaitingGrid)
+            .filter(ownedByHost)
+        for surfaceID in endedNow {
+            endTerminalSurface(surfaceID: surfaceID)
+        }
+        attachments = attachments.filter { !ownedByHost($0.key) }
+        // A pending attach waiting for the phone's grid can never land on a
+        // dead connection; drop it so `replay`/`input` re-attach after a
+        // reconnect instead of queueing behind a grid that already arrived.
+        attachAwaitingGrid = attachAwaitingGrid.filter { !ownedByHost($0) }
         // Browser pumps see the transport close and report `.ended` themselves.
         stopAllPortForwards(hostID: hostID)
         statusByHost[hostID] = .idle
         if let host = hosts.first(where: { $0.id == hostID }) { publish(host: host) }
+    }
+
+    /// Announces and records that a surface's remote session ended, once. A
+    /// child channel's close and a whole-transport drop can both land (and
+    /// either can lag under load), so this is idempotent through
+    /// ``endedSurfaces``: whichever arrives first writes the "Session ended"
+    /// line and the mark, and the other is a no-op until the surface attaches
+    /// again (``attach(surfaceID:)`` clears the mark).
+    private func endTerminalSurface(surfaceID: String) {
+        guard endedSurfaces.insert(surfaceID).inserted else { return }
+        let notice = L10nSSH().sessionEnded
+        sink?.sshDeliver(Data("\r\n\u{1B}[2m[\(notice)]\u{1B}[0m\r\n".utf8), surfaceID: surfaceID)
+        if let hostID = MobileSSHIdentifier(surfaceID).hostID {
+            Task { await self.refreshWorkspaces(hostID: hostID) }
+        }
     }
 
     /// Test seam: runs the teardown a dropped transport triggers, without a
