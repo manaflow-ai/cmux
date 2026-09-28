@@ -641,6 +641,44 @@ jobs:
           python3 scripts/ci/owned_build_state.py prefer "$OWNED_START" "$PWD" \
             "$SEED_PREFIX" "$MERGED_ONTO" "$MAX_DISTANCE"
 
+      # The key names only the Xcode version and the canonical paths, so it is
+      # known before the source tree is copied there.
+      - name: Compute test compilation cache key
+        if: steps.reuse-products.outputs.hit != 'true'
+        id: compilation-cache-key
+        run: |
+          set -euo pipefail
+          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
+
+      # The seed download (~40 s) needs only that key, so it starts before the
+      # GhosttyKit, Swift package and manifest cache restores and runs while
+      # they and the resolve do, instead of after them. "Adopt the nightly
+      # DerivedData seed" below reuses the seed this step picked and waits for
+      # it; if this step fails, adopt picks and downloads itself.
+      - name: Start the DerivedData seed download
+        if: steps.reuse-products.outputs.hit != 'true' && (steps.owned-state.outputs.warm != 'true' || steps.prefer-seed.outputs.prefer == 'true') && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        continue-on-error: true
+        # Picking the seed probes the bucket before the download detaches; a
+        # hung CDN must not hold up the cache restores and the resolve after
+        # it. adopt then picks for itself.
+        timeout-minutes: 3
+        env:
+          SEED_PREFIX: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
+          # A pull request builds on the merge commit's first parent, which
+          # ci.yml reads off the checkout and verifies is GITHUB_SHA's; base.sha
+          # is only the fallback. Main's full-suite dispatch builds GITHUB_SHA
+          # itself, whose own seed may already exist, else its parent's.
+          MERGED_ONTO: ${{ github.event_name == 'pull_request' && (inputs.source_parent1 || github.event.pull_request.base.sha) || github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          # A seed an owned Mac keeps is cloned, not downloaded (prefer-seed
+          # above), and it is the one prefer-seed compared.
+          CMUX_SEED_LOCAL_CACHE: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && vars.CI_OWNED_PREFER_SEED != '' && format('{0}/seeds', env.CMUX_OWNED_STATE_ROOT) || '' }}
+          CMUX_SEED_EXACT: ${{ steps.prefer-seed.outputs.local == 'true' && steps.prefer-seed.outputs.seed_key || '' }}
+          CMUX_SEED_DISTANCE: ${{ steps.prefer-seed.outputs.seed_distance }}
+        run: |
+          python3 scripts/ci/seed_derived_data.py start \
+            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_PREFIX" "$MERGED_ONTO"
+
       - name: Cache GhosttyKit.xcframework
         if: steps.reuse-products.outputs.hit != 'true'
         id: cache-ghosttykit-admission
@@ -696,42 +734,6 @@ jobs:
         if: steps.reuse-products.outputs.hit != 'true'
         continue-on-error: true
         run: scripts/ci/swiftpm-manifest-cache.sh install "$RUNNER_TEMP/swiftpm-manifests"
-
-      # The key names only the Xcode version and the canonical paths, so it is
-      # known before the source tree is copied there.
-      - name: Compute test compilation cache key
-        if: steps.reuse-products.outputs.hit != 'true'
-        id: compilation-cache-key
-        run: |
-          set -euo pipefail
-          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
-
-      # The seed download (~40 s) needs only that key, so it runs while
-      # packages resolve instead of after them. "Adopt the nightly DerivedData
-      # seed" below reuses the seed this step picked and waits for it; if this
-      # step fails, adopt picks and downloads itself.
-      - name: Start the DerivedData seed download
-        if: steps.reuse-products.outputs.hit != 'true' && (steps.owned-state.outputs.warm != 'true' || steps.prefer-seed.outputs.prefer == 'true') && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
-        continue-on-error: true
-        # Picking the seed probes the bucket before the download detaches; a
-        # hung CDN must not hold up the resolve. adopt then picks for itself.
-        timeout-minutes: 3
-        env:
-          SEED_PREFIX: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
-          # A pull request builds on the merge commit's first parent, which
-          # ci.yml reads off the checkout and verifies is GITHUB_SHA's; base.sha
-          # is only the fallback. Main's full-suite dispatch builds GITHUB_SHA
-          # itself, whose own seed may already exist, else its parent's.
-          MERGED_ONTO: ${{ github.event_name == 'pull_request' && (inputs.source_parent1 || github.event.pull_request.base.sha) || github.sha }}
-          GH_TOKEN: ${{ github.token }}
-          # A seed an owned Mac keeps is cloned, not downloaded (prefer-seed
-          # above), and it is the one prefer-seed compared.
-          CMUX_SEED_LOCAL_CACHE: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && vars.CI_OWNED_PREFER_SEED != '' && format('{0}/seeds', env.CMUX_OWNED_STATE_ROOT) || '' }}
-          CMUX_SEED_EXACT: ${{ steps.prefer-seed.outputs.local == 'true' && steps.prefer-seed.outputs.seed_key || '' }}
-          CMUX_SEED_DISTANCE: ${{ steps.prefer-seed.outputs.seed_distance }}
-        run: |
-          python3 scripts/ci/seed_derived_data.py start \
-            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_PREFIX" "$MERGED_ONTO"
 
       # Nothing here reads the workspace package cache after resolve, so it
       # moves into the canonical root instead of a second copy, and an exact
@@ -1597,8 +1599,9 @@ jobs:
     # admission's uploaded products there, as after an owned admission. Any
     # failure outputs {} and leaves every job where the picker put it.
     # It also moves owned gui-token jobs to pr_retry_runner (Blacksmith) when
-    # the gui runners' queue is more than a round long (late_placement.py
-    # "Overflow off a full gui pool"), so it runs after an owned admission too.
+    # the gui runners' queue is more than a round long and Blacksmith's queue
+    # would start them sooner (late_placement.py "Overflow off a full gui
+    # pool"), so it runs after an owned admission too.
     # Pull requests only: main's full-suite dispatch already runs on the owned
     # pools and keeps CI_OWNED_MAIN_RESERVE's machines for pull requests.
     needs:
@@ -1632,7 +1635,7 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
-          # The gui backlog: the jobs of in-flight CI runs (late_placement.gui_backlog()).
+          # The gui and Blacksmith backlogs: the jobs of in-flight CI runs (late_placement.gui_backlog()).
           permission-actions: read
       # All or nothing: without the org permission granted, the repository one alone.
       - name: Mint the routing token without the org permission
@@ -1779,19 +1782,22 @@ jobs:
       CMUX_SKIP_ZIG_BUILD: "1"
       # Strict groups share workers with the broad batches, so each worker
       # that runs one reserves that group's measured wall time (median step
-      # time over 24 hours of green runs) when the batches are packed. Global
-      # search once took about eight minutes and had worker 7 to itself; it
-      # now takes about 90 seconds, so worker 7 runs broad batches too.
-      CMUX_APP_HOST_GLOBAL_SEARCH_SHARD: "7"
-      CMUX_APP_HOST_CLI_REGRESSION_SHARD: "4"
+      # time over 24 hours of runs, setup steps included) when the batches
+      # are packed. No group may exceed a worker's share, or its worker gets
+      # no batch: global search and Cloud ordering (about 30 and 70 seconds)
+      # share worker 7, agent notification semantics (about 85 with its node
+      # and Bun setup) has worker 4.
+      CMUX_APP_HOST_AGENT_NOTIFICATION_SHARD: "4"
       CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD: "5"
       CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "6"
-      CMUX_APP_HOST_RESERVED_WALL_SECONDS: "4=226 5=110 6=210 7=90"
+      CMUX_APP_HOST_GLOBAL_SEARCH_SHARD: "7"
+      CMUX_APP_HOST_CLOUD_ORDERING_SHARD: "7"
+      CMUX_APP_HOST_RESERVED_WALL_SECONDS: "4=85 5=140 6=128 7=99"
       # Four-way packing now exceeds the app-host's memory budget as the suite
       # grows: a shard can crash around 1,000 UI tests and poison the remaining
-      # selectors. Seven workers of two batches each keep a batch near three
-      # minutes of measured work; allow focused gates and one app-host restart
-      # headroom.
+      # selectors. Seven workers of two batches each keep a batch near one
+      # and a half minutes of measured work; allow focused gates and one
+      # app-host restart headroom.
       CMUX_UNIT_TEST_TIMEOUT_SECONDS: "1800"
       # The broad shard can spend several minutes in XCTest's post-suite
       # teardown while native UI processes drain. Allow that quiet period
@@ -2354,24 +2360,6 @@ jobs:
             -only-testing:cmuxTests/SocketACLReloadRegressionTests \
             test-without-building
 
-      - name: Run terminal creation interactive-shell CLI regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
-        run: |
-          set -euo pipefail
-
-          CLI_BIN="$(
-            find "$CMUX_DERIVED_DATA_PATH" -path "*/Build/Products/Debug/cmux" -exec stat -f '%m %N' {} \; \
-              | sort -nr \
-              | head -1 \
-              | cut -d' ' -f2-
-          )"
-          if [ -z "${CLI_BIN:-}" ] || [ ! -x "$CLI_BIN" ]; then
-            echo "cmux CLI binary not found in DerivedData" >&2
-            exit 1
-          fi
-
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_creation_initial_command.py
-
       - name: Run settings file-store no-op persistence regression
         if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run settings file-store no-op persistence regression|')) }}
         run: |
@@ -2450,7 +2438,7 @@ jobs:
       # `command -v node` failure on minis whose runner PATH has no node.
       - name: Ensure node for app-host wrapper regressions
         id: detect-node
-        if: ${{ !cancelled() && (matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) || matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run agent notification semantics|')) }}
+        if: ${{ !cancelled() && (matrix.shard == fromJSON(env.CMUX_APP_HOST_AGENT_NOTIFICATION_SHARD) || contains(inputs.unit_strict_steps, '|Run agent notification semantics|')) }}
         run: |
           set -euo pipefail
           # App-host wrapper regressions, including OpenCode and Claude hooks,
@@ -2470,7 +2458,7 @@ jobs:
           echo "found=false" >> "$GITHUB_OUTPUT"
 
       - name: Install node (runner image has none)
-        if: ${{ !cancelled() && ((matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) || matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run agent notification semantics|')) && steps.detect-node.outputs.found == 'false') }}
+        if: ${{ !cancelled() && ((matrix.shard == fromJSON(env.CMUX_APP_HOST_AGENT_NOTIFICATION_SHARD) || contains(inputs.unit_strict_steps, '|Run agent notification semantics|')) && steps.detect-node.outputs.found == 'false') }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "20"
@@ -2519,7 +2507,7 @@ jobs:
             "$test_log" cmuxTests/GlobalSearchShortcutBehaviorTests
 
       - name: Run Cloud machine ordering acceptance
-        if: ${{ !cancelled() && steps.prepare-app-host-home.outcome == 'success' && (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run Cloud machine ordering acceptance|')) }}
+        if: ${{ !cancelled() && steps.prepare-app-host-home.outcome == 'success' && (matrix.shard == fromJSON(env.CMUX_APP_HOST_CLOUD_ORDERING_SHARD) || contains(inputs.unit_strict_steps, '|Run Cloud machine ordering acceptance|')) }}
         timeout-minutes: 10
         run: |
           # Separate invocations prove each selector executed tests; a healthy
@@ -2547,17 +2535,11 @@ jobs:
       - name: Run unit tests
         run: scripts/ci/run-app-host-unit-batches.sh
 
-      - name: Run bundled Ghostty theme picker helper regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
-        run: |
-          set -euo pipefail
-          ./tests/test_bundled_ghostty_theme_picker_helper.sh
-
-      # The notification semantics step below resolves `bun` too, and it runs
-      # on the focused regression shard, so Bun must be set up there as well.
-      # It runs after an earlier failure for the same reason that step does.
+      # The notification semantics step below resolves `bun`, so Bun is set up
+      # on its shard. It runs after an earlier failure for the same reason
+      # that step does.
       - name: Set up Bun for Pi extension dispatch regression
-        if: ${{ !cancelled() && (matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) || matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run agent notification semantics|')) }}
+        if: ${{ !cancelled() && (matrix.shard == fromJSON(env.CMUX_APP_HOST_AGENT_NOTIFICATION_SHARD) || contains(inputs.unit_strict_steps, '|Run agent notification semantics|')) }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.3.6"
@@ -2566,7 +2548,7 @@ jobs:
       # implicit success() so a failure in the broad unit batches cannot skip
       # it. Skipped, it hid a missing Bun setup in 7 of 12 main runs.
       - name: Run agent notification semantics
-        if: ${{ !cancelled() && steps.prepare-app-host-home.outcome == 'success' && (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run agent notification semantics|')) }}
+        if: ${{ !cancelled() && steps.prepare-app-host-home.outcome == 'success' && (matrix.shard == fromJSON(env.CMUX_APP_HOST_AGENT_NOTIFICATION_SHARD) || contains(inputs.unit_strict_steps, '|Run agent notification semantics|')) }}
         run: |
           set -euo pipefail
           # Reuse compile admission's product instead of rebuilding the app in
@@ -2598,93 +2580,6 @@ jobs:
               test-without-building
             scripts/ci/require_selected_test_execution.sh "$test_log" "cmuxTests/$suite"
           done
-
-      - name: Install pinned nushell (shell-integration tests)
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
-        run: |
-          set -euo pipefail
-
-          # tests/test_nushell_*.py drive the bundled nushell shell
-          # integration through a real `nu`. Pin the release binary (no brew:
-          # deterministic, fast, checksum-verified) and match the version the
-          # integration was verified against.
-          NU_VERSION="0.113.1"
-          case "$(uname -m)" in
-            arm64|aarch64)
-              NU_ARCH="aarch64-apple-darwin"
-              NU_SHA256="458aa21674221b2e8adbd784f9ba8113288b78f3c352465cef37b114ff3dffd5"
-              ;;
-            x86_64)
-              NU_ARCH="x86_64-apple-darwin"
-              NU_SHA256="18ec6448cd8562b4f94ba24bace6164c5d8b8d634c8105751ec45e17d34549b2"
-              ;;
-            *)
-              echo "unsupported runner arch for pinned nushell: $(uname -m)" >&2
-              exit 1
-              ;;
-          esac
-
-          NU_DIR="$RUNNER_TEMP/cmux-nushell"
-          mkdir -p "$NU_DIR"
-          curl -fsSL --retry 3 -o "$NU_DIR/nu.tar.gz" \
-            "https://github.com/nushell/nushell/releases/download/${NU_VERSION}/nu-${NU_VERSION}-${NU_ARCH}.tar.gz"
-          echo "$NU_SHA256  $NU_DIR/nu.tar.gz" | shasum -a 256 -c -
-          tar -xzf "$NU_DIR/nu.tar.gz" -C "$NU_DIR" --strip-components=1
-          test -x "$NU_DIR/nu"
-          "$NU_DIR/nu" --version
-          echo "$NU_DIR" >> "$GITHUB_PATH"
-
-      # The app-host checkout skips submodules (#13427). The bash prompt and
-      # CLI no-socket regressions read Ghostty's shell integration from
-      # ghostty/src, so fetch only that submodule on the CLI regression shard.
-      - name: Check out the ghostty submodule for shell regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
-        run: git submodule update --init --depth 1 ghostty
-
-      - name: Validate bash prompt bootstrap export compatibility
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
-        run: |
-          set -euo pipefail
-          # macOS provides the legacy Bash 3.2 path; install Homebrew Bash so
-          # this regression also exercises the newer PROMPT_COMMAND array path.
-          if ! brew list --formula bash >/dev/null 2>&1; then
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install bash
-          fi
-          BASH_NEW_BIN="$(brew --prefix bash)/bin/bash"
-          test -x /bin/bash
-          test -x "$BASH_NEW_BIN"
-          CMUX_BASH_32_BIN=/bin/bash \
-            CMUX_BASH_NEW_BIN="$BASH_NEW_BIN" \
-            python3 tests/test_issue_11257_prompt_command_export.py
-
-      - name: Run shell and CLI no-socket regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
-        run: |
-          set -euo pipefail
-
-          CLI_BIN="$(
-            find "$CMUX_DERIVED_DATA_PATH" -path "*/Build/Products/Debug/cmux" -exec stat -f '%m %N' {} \; \
-              | sort -nr \
-              | head -1 \
-              | cut -d' ' -f2-
-          )"
-          if [ -z "${CLI_BIN:-}" ] || [ ! -x "$CLI_BIN" ]; then
-            echo "cmux CLI binary not found in DerivedData" >&2
-            exit 1
-          fi
-
-          if ! command -v fish >/dev/null 2>&1; then
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install fish
-          fi
-          command -v fish >/dev/null 2>&1 || {
-            echo "fish is required for the issue #9075 shell socket regression" >&2
-            exit 1
-          }
-
-          # The lanes run together, eight tests at a time; serial registry
-          # entries run alone first. Run one after another, these ~70 files
-          # were this shard's ~7 minute tail.
-          CMUX_CLI_BIN="$CLI_BIN" python3 scripts/ci/run_python_test_lane.py --jobs 8 --lane macos-shell --lane macos-cli-no-socket --lane macos-shell-fish --lane macos-cli-no-socket-post-fish
 
       - name: Collect app-host failure diagnostics
         id: collect-app-host-diagnostics
@@ -3025,6 +2920,119 @@ jobs:
             "CMUX_CLI_BIN=$CMUX_CLI_PATH" \
             python3 scripts/ci/run_python_test_lane.py --lane macos-cli-product
 
+      # The shell and CLI no-socket lanes run wrapper regressions through
+      # `node` and the Pi extension regressions through `bun`. They moved here
+      # from app-host shard 4, where they were that shard's tail: they need the
+      # CLI product and no app host. Each runs after an earlier failure, so
+      # one failing lane does not hide the others.
+      - name: Ensure node for the CLI no-socket regressions
+        id: detect-node
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          for candidate in "$(command -v node || true)" /opt/homebrew/bin/node /usr/local/bin/node; do
+            if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+              dirname "$candidate" >> "$GITHUB_PATH"
+              "$candidate" --version
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "no node runtime in the runner image; installing via setup-node"
+          echo "found=false" >> "$GITHUB_OUTPUT"
+
+      - name: Install node (runner image has none)
+        if: ${{ !cancelled() && steps.detect-node.outputs.found == 'false' }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
+      - name: Set up Bun for Pi extension dispatch regression
+        if: ${{ !cancelled() }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.6"
+
+      - name: Install pinned nushell (shell-integration tests)
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+
+          # tests/test_nushell_*.py drive the bundled nushell shell
+          # integration through a real `nu`. Pin the release binary (no brew:
+          # deterministic, fast, checksum-verified) and match the version the
+          # integration was verified against.
+          NU_VERSION="0.113.1"
+          case "$(uname -m)" in
+            arm64|aarch64)
+              NU_ARCH="aarch64-apple-darwin"
+              NU_SHA256="458aa21674221b2e8adbd784f9ba8113288b78f3c352465cef37b114ff3dffd5"
+              ;;
+            x86_64)
+              NU_ARCH="x86_64-apple-darwin"
+              NU_SHA256="18ec6448cd8562b4f94ba24bace6164c5d8b8d634c8105751ec45e17d34549b2"
+              ;;
+            *)
+              echo "unsupported runner arch for pinned nushell: $(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+
+          NU_DIR="$RUNNER_TEMP/cmux-nushell"
+          mkdir -p "$NU_DIR"
+          curl -fsSL --retry 3 -o "$NU_DIR/nu.tar.gz" \
+            "https://github.com/nushell/nushell/releases/download/${NU_VERSION}/nu-${NU_VERSION}-${NU_ARCH}.tar.gz"
+          echo "$NU_SHA256  $NU_DIR/nu.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$NU_DIR/nu.tar.gz" -C "$NU_DIR" --strip-components=1
+          test -x "$NU_DIR/nu"
+          "$NU_DIR/nu" --version
+          echo "$NU_DIR" >> "$GITHUB_PATH"
+
+      # This job's checkout skips submodules. The bash prompt and CLI
+      # no-socket regressions read Ghostty's shell integration from
+      # ghostty/src, so fetch only that submodule.
+      - name: Check out the ghostty submodule for shell regressions
+        if: ${{ !cancelled() }}
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Validate bash prompt bootstrap export compatibility
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          # macOS provides the legacy Bash 3.2 path; install Homebrew Bash so
+          # this regression also exercises the newer PROMPT_COMMAND array path.
+          if ! brew list --formula bash >/dev/null 2>&1; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install bash
+          fi
+          BASH_NEW_BIN="$(brew --prefix bash)/bin/bash"
+          test -x /bin/bash
+          test -x "$BASH_NEW_BIN"
+          CMUX_BASH_32_BIN=/bin/bash \
+            CMUX_BASH_NEW_BIN="$BASH_NEW_BIN" \
+            python3 tests/test_issue_11257_prompt_command_export.py
+
+      - name: Run shell and CLI no-socket regressions
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+
+          if ! command -v fish >/dev/null 2>&1; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install fish
+          fi
+          command -v fish >/dev/null 2>&1 || {
+            echo "fish is required for the issue #9075 shell socket regression" >&2
+            exit 1
+          }
+
+          # The lanes run together, eight tests at a time; serial registry
+          # entries run alone first. Run one after another, these ~70 files
+          # took about seven minutes.
+          CMUX_CLI_BIN="$CMUX_CLI_PATH" python3 scripts/ci/run_python_test_lane.py --jobs 8 --lane macos-shell --lane macos-cli-no-socket --lane macos-shell-fish --lane macos-cli-no-socket-post-fish
+
+      - name: Run terminal creation interactive-shell CLI regression
+        if: ${{ !cancelled() }}
+        run: CMUX_CLI_BIN="$CMUX_CLI_PATH" python3 tests/test_cli_creation_initial_command.py
+
       - name: Upload CLI product test log
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -3042,8 +3050,8 @@ jobs:
     # than falling back when it cannot find one. The macos-26 image has no SDK 15.
     # It is the one pull-request macOS job MACOS_RUNNER_PR must not move.
     #
-    # The owned Macs: a same-repository pull request run whose picker placed
-    # ' swift-package ' in pr_owned_jobs takes the pool's side label
+    # The owned Macs: a same-repository pull request run (or main's full-suite
+    # dispatch) whose picker placed ' swift-package ' in pr_owned_jobs takes the pool's side label
     # (pr_side_runner), else the owned label, on attempt 1 only, with the
     # lane's Xcode. Any retry takes the macOS 15 Blacksmith default.
     # The picker places it only when this run builds no helper
@@ -3088,12 +3096,12 @@ jobs:
     # capacity ledger fits the light class; that mini checks out the commit
     # itself and streams the log and exit code back. PACKAGE_TESTS_VIA_STEP
     # below restates the runs-on branch for the steps.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(inputs.pr_owned_jobs, ' swift-package ') && ((github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && (inputs.pr_side_runner || inputs.pr_runner)) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1) && contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 60
     env:
       # The owned label's Xcode (the lane pin) exactly when runs-on took it;
       # the pool picker's Wiring tests keep the two conditions equal.
-      CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(inputs.pr_owned_jobs, ' swift-package ') && ((github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && (inputs.pr_side_runner || inputs.pr_runner)) && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1) && contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_HELPER_XCODE_APP: ${{ vars.CMUX_CI_HELPER_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       PACKAGE_TESTS_VIA_STEP: ${{ github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != '' && github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && '1' || '0' }}
@@ -3296,6 +3304,15 @@ jobs:
             rm -rf GhosttyKit.xcframework
             echo "valid=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # An owned Mac reuses this workspace, but checkout's clean deletes every
+      # package's .build, so each job built its packages from nothing. Point
+      # them at a per-runner directory outside the workspace instead
+      # (scripts/ci/owned_spm_scratch.py); anywhere else it does nothing.
+      - name: Keep Swift package builds on this owned Mac
+        if: ${{ env.PACKAGE_TESTS_VIA_STEP != '1' && contains(runner.name, '-glaeda') }}
+        continue-on-error: true
+        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
 
       # Selects again (the same files), then sets up what the selection needs:
       # DEVELOPER_DIR from "Select Xcode", a GhosttyKit.xcframework download
@@ -3864,18 +3881,28 @@ jobs:
     # compiles into the same artifact shape as nightly and stable releases.
     # Release builds need enough disk for a universal Release build plus the
     # restored SwiftPM cache, which the macOS 26 image already carries. The
-    # variable names that image, not this lane.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+    # variable names that image, not this lane. A same-repository pull request
+    # or main's full-suite dispatch takes the owned side label when the picker
+    # placed ' release-build ' in pr_owned_jobs (pr_runner_pool.RELEASE_BUILD_JOB)
+    # on attempt 1 or a manual re-run of a pull request (attempt 1 only on
+    # main, whose re-runs the janitor charges no owned machine), with the
+    # lane's Xcode; glaeda's hook classes the job isolated. A bot re-run
+    # (ci-owned-pool-rescue.yml) takes the macOS 26 variable. The picker never
+    # gives it the light pool's side runners,
+    # and swift-package-tests (the only lane ci.yml hands the light label
+    # through pr_side_runner) never shares a run with it.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     timeout-minutes: 60
     permissions:
       actions: read
       attestations: read
       contents: read
     env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      # The owned label's Xcode exactly when runs-on took it, as swift-package-tests.
+      CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
-      CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+      CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
       CMUX_RELEASE_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)

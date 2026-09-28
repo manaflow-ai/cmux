@@ -208,16 +208,9 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
 
 @Suite("Pane attention color")
 struct PaneAttentionColorTests {
-    /// The fallback is the cmux accent, not `NSColor.systemBlue`: the cmux
-    /// accent is a fixed color, while `systemBlue` differs between macOS 15
-    /// (#007AFF) and macOS 26 (#0088FF).
-    private static var accentHex: String { CmuxAccentColor().dynamicNSColor.hexString() }
-
     @Test
-    func fallsBackToCmuxAccentWhenUnset() {
-        #expect(
-            WorkspaceAttentionColor(configuredHex: nil).nsColor.hexString() == Self.accentHex
-        )
+    func fallsBackToInjectedAccentWhenUnset() {
+        assertUsesInjectedAccent(configuredHex: nil)
     }
 
     @Test
@@ -229,8 +222,16 @@ struct PaneAttentionColorTests {
 
     @Test(arguments: ["not-a-color", "#FFZZZZ", "FF69B4", "#FF69B4AA"])
     func rejectsValuesOutsideSchema(configuredHex: String) {
-        #expect(
-            WorkspaceAttentionColor(configuredHex: configuredHex).nsColor.hexString() == Self.accentHex
-        )
+        assertUsesInjectedAccent(configuredHex: configuredHex)
+    }
+
+    private func assertUsesInjectedAccent(configuredHex: String?) {
+        for mode in CmuxAccentColorMode.allCases {
+            let accent = CmuxAccentColor(mode: mode)
+            #expect(
+                WorkspaceAttentionColor(configuredHex: configuredHex, accent: accent).nsColor.hexString() ==
+                    accent.dynamicNSColor.hexString()
+            )
+        }
     }
 }

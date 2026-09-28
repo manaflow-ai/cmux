@@ -16,12 +16,17 @@ enum TerminalPanelCreationOutcome {
     case routedToRemote
     /// Nothing was created or routed.
     case failed
+    /// A split was refused because a resulting pane would fall below the
+    /// minimum pane size, even after borrowing room from its run (#15371).
+    case noSpace
 
     /// Whether the action was handled, so callers must not issue a fallback create.
     /// Acceptance does not mean the remote terminal is already usable.
     var isAccepted: Bool {
-        if case .failed = self { return false }
-        return true
+        switch self {
+        case .created, .routedToRemote: return true
+        case .failed, .noSpace: return false
+        }
     }
 
     /// The created panel, or `nil` for `.routedToRemote` / `.failed`.
