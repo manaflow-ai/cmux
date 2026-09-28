@@ -59,16 +59,17 @@ def make_fake_sleep(directory: Path, log: Path) -> None:
 
 
 def base_env(fake_bin: Path) -> dict[str, str]:
-    env = dict(os.environ)
-    env.update(
-        {
-            "PATH": f"{fake_bin}:/usr/bin:/bin:/usr/sbin:/sbin",
-            "LC_ALL": "C",
-            "TZ": "UTC",
-            "TERM": "dumb",
-        }
-    )
-    return env
+    root = fake_bin.parent
+    (root / "home").mkdir(exist_ok=True)
+    (root / "tmp").mkdir(exist_ok=True)
+    return {
+        "PATH": f"{fake_bin}:/usr/bin:/bin:/usr/sbin:/sbin",
+        "HOME": str(root / "home"),
+        "TMPDIR": str(root / "tmp"),
+        "LC_ALL": "C",
+        "TZ": "UTC",
+        "TERM": "dumb",
+    }
 
 
 def test_syntax_and_zselect_sleep(env: dict[str, str], log: Path) -> bool:
