@@ -130,15 +130,7 @@ struct CloudTreeRowToolTipTests {
     @Test("A machine row's age is measured against the clock it was given")
     func machineSubtitleUsesInjectedClock() {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
-        let machine = MachineSnapshot(
-            id: "vm-abc",
-            provider: "freestyle",
-            image: "devbox",
-            isDesktop: false,
-            activity: .ready,
-            createdAt: now.addingTimeInterval(-3 * 60 * 60),
-            label: "build box"
-        )
+        let machine = Self.machine(now: now)
         let content = CloudTreeMachineRowContent(machine: machine, style: .defaultStyle, now: now)
         let hoursLater = CloudTreeMachineRowContent(
             machine: machine,
@@ -148,7 +140,35 @@ struct CloudTreeRowToolTipTests {
         #expect(content.subtitle != hoursLater.subtitle)
     }
 
+    /// The compact preset is `machineRowLayout: .singleLine`, so the subtitle is
+    /// the one place the machine id and its age are written, and the pointer
+    /// reaches it through the tooltip. Assistive technology has no pointer, so
+    /// leaving the subtitle out of the label is the same row saying less to the
+    /// people who can least afford to lose it.
+    @Test("A machine row tells assistive technology its id and its age, like its hover text does")
+    func machineAccessibilityLabelCarriesIdentityAndAge() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let machine = Self.machine(now: now)
+        let content = CloudTreeMachineRowContent(machine: machine, style: .defaultStyle, now: now)
+        #expect(content.accessibilityLabel.contains("vm-abc"))
+        #expect(content.accessibilityLabel.contains(content.subtitle))
+    }
+
     // MARK: - Fixtures
+
+    /// Labelled, so `showsName` is true and the subtitle carries the id, and
+    /// three hours old, so the relative age is a stable non-empty string.
+    private static func machine(now: Date) -> MachineSnapshot {
+        MachineSnapshot(
+            id: "vm-abc",
+            provider: "freestyle",
+            image: "devbox",
+            isDesktop: false,
+            activity: .ready,
+            createdAt: now.addingTimeInterval(-3 * 60 * 60),
+            label: "build box"
+        )
+    }
 
     private static func cell(presence: [WorkspacePresenceParticipant]) -> CloudTreeCellView {
         CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 260, height: 24), collaborators: { _, _ in presence })
