@@ -107,8 +107,20 @@ struct ChatUsageAccumulatorTests {
         resetsAt: Double? = nil,
         secondaryUsedPercent: Double? = nil,
         secondaryWindowMinutes: Int = 10_080,
-        spendControlReached: Bool? = nil
+        spendControlReached: Bool? = nil,
+        includeUsageInfo: Bool = true,
+        includeLastTotal: Bool = true
     ) -> String {
+        var lastUsage: [String: Any] = [
+            "input_tokens": lastInput,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "output_tokens": lastOutput,
+            "reasoning_output_tokens": 0,
+        ]
+        if includeLastTotal {
+            lastUsage["total_tokens"] = Self.saturatedSum(lastInput, lastOutput)
+        }
         var info: [String: Any] = [
             "total_token_usage": [
                 "input_tokens": cumulativeInput,
@@ -118,23 +130,20 @@ struct ChatUsageAccumulatorTests {
                 "reasoning_output_tokens": 0,
                 "total_tokens": Self.saturatedSum(cumulativeInput, cumulativeOutput),
             ],
-            "last_token_usage": [
-                "input_tokens": lastInput,
-                "cached_input_tokens": 0,
-                "cache_write_input_tokens": 0,
-                "output_tokens": lastOutput,
-                "reasoning_output_tokens": 0,
-                "total_tokens": Self.saturatedSum(lastInput, lastOutput),
-            ],
+            "last_token_usage": lastUsage,
         ]
         if let contextWindow { info["model_context_window"] = contextWindow }
-        var payload: [String: Any] = ["type": "token_count", "info": info]
-        if let usedPercent {
-            var primary: [String: Any] = [
-                "used_percent": usedPercent, "window_minutes": windowMinutes,
-            ]
-            if let resetsAt { primary["resets_at"] = resetsAt }
-            var limits: [String: Any] = ["limit_id": "codex", "primary": primary]
+        var payload: [String: Any] = ["type": "token_count"]
+        if includeUsageInfo { payload["info"] = info }
+        if usedPercent != nil || secondaryUsedPercent != nil || spendControlReached != nil {
+            var limits: [String: Any] = ["limit_id": "codex"]
+            if let usedPercent {
+                var primary: [String: Any] = [
+                    "used_percent": usedPercent, "window_minutes": windowMinutes,
+                ]
+                if let resetsAt { primary["resets_at"] = resetsAt }
+                limits["primary"] = primary
+            }
             if let secondaryUsedPercent {
                 limits["secondary"] = [
                     "used_percent": secondaryUsedPercent,
@@ -297,8 +306,8 @@ struct ChatUsageAccumulatorTests {
         #expect(totals.duplicateReports == 1)
     }
 
-    @Test("Codex context occupancy comes from the last call, not the running total")
-    func codexContextFromLastCall() throws {
+    @Test("Codex last-token aggregate does not claim context occupancy")
+    func codexLastTokenAggregateIsNotContextOccupancy() {
         var accumulator = ChatUsageAccumulator()
         accumulator.ingest(codexLines: [
             codexTokenCountLine(
@@ -308,14 +317,29 @@ struct ChatUsageAccumulatorTests {
         ])
 
         let totals = accumulator.totals
-        // 388,256 cumulative against a 258,400 window would read as 150%
-        // full. What is actually resident is the last call: its 52,266-token
-        // prompt plus the 133 tokens it generated, which are the prefix of
-        // the next prompt. That is the same figure Codex itself shows.
-        #expect(totals.contextTokens == 52_399)
+        // Codex has emitted `last_token_usage` as both response usage and an
+        // aggregate depending on version. Neither shape identifies resident
+        // context, so even its explicit total is not an occupancy metric.
+        #expect(totals.contextTokens == nil)
         #expect(totals.contextWindowTokens == 258_400)
-        let fraction = try #require(totals.contextUsedFraction)
-        #expect(fraction > 0.20 && fraction < 0.21)
+        #expect(totals.contextUsedFraction == nil)
+    }
+
+    @Test("Codex last-token component counts do not claim context occupancy")
+    func codexLastTokenComponentsAreNotContextOccupancy() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexTokenCountLine(
+                cumulativeInput: 10_000, cumulativeOutput: 500,
+                lastInput: 128, lastOutput: 32,
+                includeLastTotal: false
+            ),
+        ])
+
+        let totals = accumulator.totals
+        #expect(totals.contextTokens == nil)
+        #expect(totals.contextWindowTokens == 258_400)
+        #expect(totals.contextUsedFraction == nil)
     }
 
     @Test("Codex input tokens include the cached part and are unpacked")
@@ -370,8 +394,9 @@ struct ChatUsageAccumulatorTests {
         #expect(totals.responses == 1)
         #expect(totals.usage.totalTokens == 28_090)
         #expect(totals.usageByModel["gpt-6-astra"]?.totalTokens == 28_090)
-        // The event still supplies context and window, which records lack.
-        #expect(totals.contextTokens == 28_090)
+        // The event supplies the declared window, but no authoritative
+        // resident-context metric.
+        #expect(totals.contextTokens == nil)
         #expect(totals.contextWindowTokens == 258_400)
     }
 
@@ -857,15 +882,61 @@ struct ChatUsageAccumulatorTests {
         ])
 
         let limit = try #require(accumulator.totals.rateLimit)
-        #expect(limit.primary.usedPercent == 12.0)
-        #expect(limit.primary.windowMinutes == 300)
+        #expect(limit.primary?.usedPercent == 12.0)
+        #expect(limit.primary?.windowMinutes == 300)
         let secondary = try #require(limit.secondary)
         #expect(secondary.usedPercent == 96.5)
         #expect(secondary.windowMinutes == 10_080)
-        #expect(limit.spendControlReached)
+        #expect(limit.spendControlReached == true)
         // The weekly window is the one that stops a day of work, so a caller
         // showing one number shows 96.5%, not the five-hour window's 12%.
-        #expect(limit.tightestWindow.usedPercent == 96.5)
+        #expect(limit.tightestWindow?.usedPercent == 96.5)
+    }
+
+    @Test("a spend-control-only snapshot is retained without inventing a window")
+    func codexSpendControlOnlyRateLimit() throws {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexTokenCountLine(
+                cumulativeInput: 0, cumulativeOutput: 0,
+                lastInput: 0, lastOutput: 0,
+                spendControlReached: true,
+                includeUsageInfo: false
+            ),
+        ])
+
+        let limit = try #require(accumulator.totals.rateLimit)
+        #expect(limit.primary == nil)
+        #expect(limit.secondary == nil)
+        #expect(limit.tightestWindow == nil)
+        #expect(limit.spendControlReached == true)
+
+        var explicitFalse = ChatUsageAccumulator()
+        explicitFalse.ingest(codexLines: [
+            codexTokenCountLine(
+                cumulativeInput: 0, cumulativeOutput: 0,
+                lastInput: 0, lastOutput: 0,
+                spendControlReached: false,
+                includeUsageInfo: false
+            ),
+        ])
+        #expect(explicitFalse.totals.rateLimit?.spendControlReached == false)
+    }
+
+    @Test("an omitted spend-control flag remains unknown")
+    func codexMissingSpendControlRemainsUnknown() throws {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexTokenCountLine(
+                cumulativeInput: 1_000, cumulativeOutput: 10,
+                lastInput: 1_000, lastOutput: 10,
+                usedPercent: 37.5
+            ),
+        ])
+
+        let limit = try #require(accumulator.totals.rateLimit)
+        #expect(limit.primary?.usedPercent == 37.5)
+        #expect(limit.spendControlReached == nil)
     }
 
     @Test("the complete public rate-limit and nested source APIs remain available")
@@ -889,15 +960,15 @@ struct ChatUsageAccumulatorTests {
         limit.windowMinutes = 301
         limit.resetsAt = Date(timeIntervalSince1970: 101)
 
-        #expect(limit.primary.usedPercent == 13)
-        #expect(limit.primary.windowMinutes == 301)
-        #expect(limit.primary.resetsAt == Date(timeIntervalSince1970: 101))
+        #expect(limit.primary?.usedPercent == 13)
+        #expect(limit.primary?.windowMinutes == 301)
+        #expect(limit.primary?.resetsAt == Date(timeIntervalSince1970: 101))
         #expect(limit.secondary == secondary)
-        #expect(limit.spendControlReached)
+        #expect(limit.spendControlReached == true)
         #expect(limit.tightestWindow == secondary)
 
         let primaryOnly = ChatUsageRateLimit(usedPercent: 25, windowMinutes: 60)
-        #expect(primaryOnly.primary.usedPercent == 25)
+        #expect(primaryOnly.primary?.usedPercent == 25)
         #expect(primaryOnly.secondary == nil)
         let source: ChatUsageAccumulator.CodexSource = .usageRecords
         #expect(source == .usageRecords)

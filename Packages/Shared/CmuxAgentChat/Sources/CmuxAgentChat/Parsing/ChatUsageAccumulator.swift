@@ -117,7 +117,6 @@ public struct ChatUsageAccumulator: Sendable {
     private var duplicateReports = 0
     private var unidentifiedReports = 0
     private var latestCodexModel: String?
-    private var contextTokens: Int?
     private var contextWindowTokens: Int?
     private var rateLimit: ChatUsageRateLimit?
 
@@ -165,7 +164,6 @@ public struct ChatUsageAccumulator: Sendable {
             responses: responses,
             duplicateReports: duplicateReports,
             unidentifiedReports: unidentifiedReports,
-            contextTokens: contextTokens,
             contextWindowTokens: contextWindowTokens,
             rateLimit: rateLimit
         )
@@ -354,28 +352,8 @@ public struct ChatUsageAccumulator: Sendable {
         if let window = info["model_context_window"]?.int, window > 0 {
             contextWindowTokens = window
         }
-        readCodexOccupancy(info)
         readCodexCumulative(info)
         readRateLimit(payload["rate_limits"])
-    }
-
-    /// Reads how full the context window is from the most recent call.
-    ///
-    /// The window holds the most recent *prompt*, not the session's running
-    /// total. `total_token_usage` is cumulative and routinely exceeds the
-    /// window, so reading occupancy from it would report a context several
-    /// times full. `last_token_usage.total_tokens` is the whole last call,
-    /// input and output, and the output is in the window too because it is
-    /// the prefix of the next prompt.
-    private mutating func readCodexOccupancy(_ info: TranscriptJSONValue) {
-        guard let last = info["last_token_usage"], last.object != nil else { return }
-        if let total = last["total_tokens"]?.int {
-            contextTokens = max(0, total)
-            return
-        }
-        let usage = codexUsage(from: last)
-        guard !usage.isEmpty else { return }
-        contextTokens = usage.totalTokens
     }
 
     /// Folds one cumulative report into the monotone-run total.
@@ -418,11 +396,14 @@ public struct ChatUsageAccumulator: Sendable {
 
     private mutating func readRateLimit(_ value: TranscriptJSONValue?) {
         guard let value, value.object != nil else { return }
-        guard let primary = Self.rateLimitWindow(value["primary"]) else { return }
+        let primary = Self.rateLimitWindow(value["primary"])
+        let secondary = Self.rateLimitWindow(value["secondary"])
+        let spendControlReached = value["spend_control_reached"]?.bool
+        guard primary != nil || secondary != nil || spendControlReached != nil else { return }
         rateLimit = ChatUsageRateLimit(
             primary: primary,
-            secondary: Self.rateLimitWindow(value["secondary"]),
-            spendControlReached: value["spend_control_reached"]?.bool ?? false
+            secondary: secondary,
+            spendControlReached: spendControlReached
         )
     }
 
