@@ -243,7 +243,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
           aria-activedescendant={
             activeIndex >= 0 ? `docs-search-result-${activeIndex}` : undefined
           }
-          className="w-full rounded-md border border-border bg-code-bg py-1.5 pl-8 pr-3 text-[13px] text-foreground transition-colors placeholder:text-muted hover:border-muted/40 focus:border-muted/60 focus:outline-none"
+          className="w-full rounded-md border border-border bg-code-bg py-1.5 pl-8 pr-3 text-[13px] text-foreground transition-colors placeholder:text-muted hover:border-muted/40 focus:border-muted focus:outline-none"
         />
       </div>
 
