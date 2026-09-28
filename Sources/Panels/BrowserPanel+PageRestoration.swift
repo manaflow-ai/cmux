@@ -375,7 +375,7 @@ extension BrowserNavigationDelegate {
     func recordAllowedNavigationRequest(_ navigationAction: WKNavigationAction) {
         let method = navigationAction.request.httpMethod?.uppercased() ?? "GET"
         owner?.pageRestoration.noteNavigationRequest(
-            isMainFrame: navigationAction.targetFrame?.isMainFrame != false,
+            targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame,
             isFormSubmission: method != "GET" && method != "HEAD"
         )
     }

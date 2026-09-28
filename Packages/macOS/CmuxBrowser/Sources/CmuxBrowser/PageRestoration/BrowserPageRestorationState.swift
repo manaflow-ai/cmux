@@ -73,9 +73,12 @@ public final class BrowserPageRestorationState {
     /// each redirect. WebKit keeps a form submission's request body in the
     /// entry's session state.
     ///
-    /// - Parameter isFormSubmission: Whether the request sends a body, such
-    ///   as a POST.
-    public func noteNavigationRequest(isMainFrame: Bool, isFormSubmission: Bool) {
+    /// - Parameters:
+    ///   - targetFrameIsMainFrame: Whether the request loads in the main frame
+    ///     or a subframe, or nil when it has no target frame.
+    ///   - isFormSubmission: Whether the request sends a body, such as a POST.
+    public func noteNavigationRequest(targetFrameIsMainFrame: Bool?, isFormSubmission: Bool) {
+        let isMainFrame = targetFrameIsMainFrame != false
         if isFormSubmission {
             liveContainsFormSubmission = true
         }

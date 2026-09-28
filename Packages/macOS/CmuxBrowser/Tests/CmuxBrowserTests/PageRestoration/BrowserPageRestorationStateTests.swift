@@ -29,7 +29,7 @@ struct BrowserPageRestorationStateTests {
     func discardCapturesLiveState() throws {
         let restoration = BrowserPageRestorationState()
         restoration.recordLiveFormState(form(pageURL))
-        restoration.noteNavigationRequest(isMainFrame: true, isFormSubmission: true)
+        restoration.noteNavigationRequest(targetFrameIsMainFrame: true, isFormSubmission: true)
         let token = restoration.beginHiddenSnapshot()
         restoration.completeHiddenSnapshot(token: token, image: image(1))
 
@@ -126,7 +126,7 @@ struct BrowserPageRestorationStateTests {
     func interactionStateCommit() {
         let restoration = BrowserPageRestorationState()
         restoration.recordLiveFormState(form(pageURL))
-        restoration.noteNavigationRequest(isMainFrame: true, isFormSubmission: true)
+        restoration.noteNavigationRequest(targetFrameIsMainFrame: true, isFormSubmission: true)
         discard(restoration)
         restoration.noteRestoreStarted(.interactionState)
 
@@ -143,7 +143,7 @@ struct BrowserPageRestorationStateTests {
     func urlReplayCommit() {
         let restoration = BrowserPageRestorationState()
         restoration.recordLiveFormState(form(pageURL))
-        restoration.noteNavigationRequest(isMainFrame: true, isFormSubmission: true)
+        restoration.noteNavigationRequest(targetFrameIsMainFrame: true, isFormSubmission: true)
         discard(restoration, covers: false)
         restoration.noteRestoreStarted(.urlReplay)
 
@@ -205,7 +205,7 @@ struct BrowserPageRestorationStateTests {
     @Test("A tainted capture is not persisted")
     func taintedCaptureIsNotPersisted() {
         let restoration = BrowserPageRestorationState()
-        restoration.noteNavigationRequest(isMainFrame: true, isFormSubmission: true)
+        restoration.noteNavigationRequest(targetFrameIsMainFrame: true, isFormSubmission: true)
         discard(restoration)
         #expect(restoration.persistableDiscardedInteractionState() == nil)
     }
@@ -228,7 +228,7 @@ struct BrowserPageRestorationStateTests {
     @Test("A page shown as a form submission result is marked in the capture")
     func submittedDocumentIsMarked() throws {
         let restoration = BrowserPageRestorationState()
-        restoration.noteNavigationRequest(isMainFrame: true, isFormSubmission: true)
+        restoration.noteNavigationRequest(targetFrameIsMainFrame: true, isFormSubmission: true)
         restoration.noteDocumentCommitted(isDiscardRestoreCommit: false)
         discard(restoration)
 
@@ -240,8 +240,8 @@ struct BrowserPageRestorationStateTests {
     @Test("A submission redirected to a GET page leaves that page unmarked")
     func redirectedSubmissionIsNotMarked() throws {
         let restoration = BrowserPageRestorationState()
-        restoration.noteNavigationRequest(isMainFrame: true, isFormSubmission: true)
-        restoration.noteNavigationRequest(isMainFrame: true, isFormSubmission: false)
+        restoration.noteNavigationRequest(targetFrameIsMainFrame: true, isFormSubmission: true)
+        restoration.noteNavigationRequest(targetFrameIsMainFrame: true, isFormSubmission: false)
         restoration.noteDocumentCommitted(isDiscardRestoreCommit: false)
         discard(restoration)
 
@@ -253,10 +253,10 @@ struct BrowserPageRestorationStateTests {
     @Test("A form submitted in a frame marks the page that holds the frame")
     func subframeSubmissionMarksPage() throws {
         let restoration = BrowserPageRestorationState()
-        restoration.noteNavigationRequest(isMainFrame: true, isFormSubmission: false)
+        restoration.noteNavigationRequest(targetFrameIsMainFrame: true, isFormSubmission: false)
         restoration.noteDocumentCommitted(isDiscardRestoreCommit: false)
-        restoration.noteNavigationRequest(isMainFrame: false, isFormSubmission: false)
-        restoration.noteNavigationRequest(isMainFrame: false, isFormSubmission: true)
+        restoration.noteNavigationRequest(targetFrameIsMainFrame: false, isFormSubmission: false)
+        restoration.noteNavigationRequest(targetFrameIsMainFrame: false, isFormSubmission: true)
         discard(restoration)
 
         let capture = try #require(restoration.discardedCapture)
@@ -264,12 +264,32 @@ struct BrowserPageRestorationStateTests {
         #expect(capture.containsFormSubmission)
     }
 
+    @Test("A request that opens a new window leaves this pane's marks alone")
+    func newWindowRequestIsIgnored() throws {
+        let restoration = BrowserPageRestorationState()
+        restoration.noteNavigationRequest(targetFrameIsMainFrame: true, isFormSubmission: true)
+        restoration.noteNavigationRequest(targetFrameIsMainFrame: nil, isFormSubmission: false)
+        restoration.noteDocumentCommitted(isDiscardRestoreCommit: false)
+        discard(restoration)
+        let submitted = try #require(restoration.discardedCapture)
+        #expect(submitted.documentHasFormSubmission)
+
+        let plain = BrowserPageRestorationState()
+        plain.noteNavigationRequest(targetFrameIsMainFrame: nil, isFormSubmission: true)
+        plain.noteNavigationRequest(targetFrameIsMainFrame: true, isFormSubmission: false)
+        plain.noteDocumentCommitted(isDiscardRestoreCommit: false)
+        discard(plain)
+        let capture = try #require(plain.discardedCapture)
+        #expect(!capture.documentHasFormSubmission)
+        #expect(!capture.containsFormSubmission)
+    }
+
     @Test("Only a commit moves the form submission mark to another page")
     func markFollowsCommits() throws {
         let navigatedAway = BrowserPageRestorationState()
-        navigatedAway.noteNavigationRequest(isMainFrame: true, isFormSubmission: true)
+        navigatedAway.noteNavigationRequest(targetFrameIsMainFrame: true, isFormSubmission: true)
         navigatedAway.noteDocumentCommitted(isDiscardRestoreCommit: false)
-        navigatedAway.noteNavigationRequest(isMainFrame: true, isFormSubmission: false)
+        navigatedAway.noteNavigationRequest(targetFrameIsMainFrame: true, isFormSubmission: false)
         navigatedAway.noteDocumentCommitted(isDiscardRestoreCommit: false)
         discard(navigatedAway)
         let away = try #require(navigatedAway.discardedCapture)
@@ -277,9 +297,9 @@ struct BrowserPageRestorationStateTests {
         #expect(away.containsFormSubmission)
 
         let stayed = BrowserPageRestorationState()
-        stayed.noteNavigationRequest(isMainFrame: true, isFormSubmission: true)
+        stayed.noteNavigationRequest(targetFrameIsMainFrame: true, isFormSubmission: true)
         stayed.noteDocumentCommitted(isDiscardRestoreCommit: false)
-        stayed.noteNavigationRequest(isMainFrame: true, isFormSubmission: false)
+        stayed.noteNavigationRequest(targetFrameIsMainFrame: true, isFormSubmission: false)
         discard(stayed)
         let stay = try #require(stayed.discardedCapture)
         #expect(stay.documentHasFormSubmission)
