@@ -942,7 +942,8 @@ struct WorkspaceListView: View {
             hasStore: store != nil,
             connectionRequiresReauth: store?.connectionRequiresReauth ?? false,
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
-            isRecoveringConnection: store?.isRecoveringConnection ?? false,
+            isRecoveringConnection: (store?.isRecoveringConnection ?? false)
+                && (store?.workspaceListShowsForegroundRecovery ?? true),
             isRecoveringWorkspaceList: isRecoveringWorkspaceList,
             connectionStatus: connectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,

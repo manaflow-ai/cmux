@@ -28,7 +28,8 @@ extension MobileShellComposite {
             foregroundKey = nil
         }
         let visibleStatuses = workspacesByMac.compactMap { entry -> MobileMacConnectionStatus? in
-            guard !entry.value.workspaces.isEmpty else { return nil }
+            guard !entry.value.workspaces.isEmpty,
+                  !hiddenExternalHostIDs.contains(entry.key.pairingID) else { return nil }
             if entry.key == foregroundKey {
                 return macConnectionStatus
             }
@@ -41,6 +42,25 @@ extension MobileShellComposite {
             return .reconnecting
         }
         return macConnectionStatus
+    }
+
+    /// Whether the foreground connection's recovery speaks for the visible
+    /// list.
+    ///
+    /// It does not when that connection contributes no rows while another
+    /// computer's rows are live (a Cloud machine, or a secondary Mac): the
+    /// list the user is looking at is healthy, and the recovering computer's
+    /// own state stays on the Computers screen. With no other live rows the
+    /// recovery is the only story the list has, so it keeps the header.
+    public var workspaceListShowsForegroundRecovery: Bool {
+        let foregroundKeys: Set<MacPairingKey> = [foregroundMacKey, .anonymousForeground]
+        var otherComputerServesRows = false
+        for (key, state) in workspacesByMac where !state.workspaces.isEmpty {
+            if foregroundKeys.contains(key) { return true }
+            if hiddenExternalHostIDs.contains(key.pairingID) { continue }
+            if state.status == .connected { otherComputerServesRows = true }
+        }
+        return !otherComputerServesRows
     }
 
     /// Whether the app currently holds a live serving path to a Mac: an

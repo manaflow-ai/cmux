@@ -264,6 +264,61 @@ struct ExternalHostHostingTests {
         #expect(composite.externalHostSummaries.first?.isHidden == true)
     }
 
+    @Test("A stored Mac redialing with no rows does not claim a list a Cloud machine serves")
+    func macRecoveryWithoutRowsYieldsTheHeader() {
+        let host = RecordingHost(hostID: Self.hostID, surfaceID: Self.surfaceID)
+        let composite = Self.composite(with: host)
+        composite.isRecoveringConnection = true
+
+        #expect(!composite.workspaceListShowsForegroundRecovery)
+        #expect(composite.workspaceListConnectionStatus == .connected)
+    }
+
+    @Test("With nothing else live, a Mac's recovery keeps the header")
+    func macRecoveryKeepsTheHeaderWhenNothingElseServes() {
+        let host = RecordingHost(hostID: Self.hostID, surfaceID: Self.surfaceID)
+        let composite = Self.composite(with: host)
+        var reconnecting = Self.state()
+        reconnecting.status = .reconnecting
+        composite.applyExternalHostWorkspaceState(reconnecting)
+        composite.isRecoveringConnection = true
+
+        #expect(composite.workspaceListShowsForegroundRecovery)
+        #expect(MobileShellComposite(workspaces: []).workspaceListShowsForegroundRecovery)
+    }
+
+    @Test("A Mac with rows on screen keeps its recovery in the header beside a Cloud machine")
+    func macWithRowsKeepsItsRecovery() {
+        let host = RecordingHost(hostID: Self.hostID, surfaceID: Self.surfaceID)
+        let composite = Self.composite(with: host)
+        composite.workspacesByMac[.anonymousForeground] = MacWorkspaceState(
+            macDeviceID: MacPairingKey.anonymousForeground.canonicalMacDeviceID,
+            workspaces: [
+                MobileWorkspacePreview(
+                    id: MobileWorkspacePreview.ID(rawValue: "mac-ws"),
+                    name: "mac work",
+                    terminals: []
+                )
+            ],
+            status: .reconnecting,
+            workspaceSnapshotIsAuthoritative: false
+        )
+        composite.isRecoveringConnection = true
+
+        #expect(composite.workspaceListShowsForegroundRecovery)
+    }
+
+    @Test("A hidden Cloud machine does not make the visible list look healthy")
+    func hiddenHostDoesNotHideRecovery() {
+        let host = RecordingHost(hostID: Self.hostID, surfaceID: Self.surfaceID)
+        let composite = Self.composite(with: host)
+        composite.setExternalHost(Self.hostID, hidden: true)
+        composite.isRecoveringConnection = true
+
+        #expect(composite.workspaceListShowsForegroundRecovery)
+        #expect(composite.workspaceListConnectionStatus == composite.macConnectionStatus)
+    }
+
     @Test("Unregistering a source disowns its surfaces")
     func unregisterDisowns() {
         let host = RecordingHost(hostID: Self.hostID, surfaceID: Self.surfaceID)

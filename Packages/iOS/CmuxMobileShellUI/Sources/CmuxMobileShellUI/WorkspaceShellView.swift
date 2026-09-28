@@ -1336,7 +1336,8 @@ struct WorkspaceShellView: View {
             hasStore: true,
             connectionRequiresReauth: store.connectionRequiresReauth,
             connectionRecoveryFailed: store.connectionRecoveryFailed,
-            isRecoveringConnection: store.isRecoveringConnection,
+            isRecoveringConnection: store.isRecoveringConnection
+                && store.workspaceListShowsForegroundRecovery,
             isRecoveringWorkspaceList: store.isRecoveringWorkspaceList,
             connectionStatus: listConnectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
