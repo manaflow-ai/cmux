@@ -5540,13 +5540,17 @@ struct CMUXCLI {
                 }
                 if (response["team_scope_ready"] as? Bool) == false {
                     let recovering = (response["team_scope_recovering"] as? Bool) ?? false
-                    let statusKey = recovering
-                        ? "cli.auth.status.teamNotLoadedRetrying"
-                        : "cli.auth.status.teamNotLoaded"
-                    let defaultStatus = recovering
-                        ? "  team:     not loaded (retrying)"
-                        : "  team:     not loaded"
-                    print(String(localized: statusKey, defaultValue: defaultStatus))
+                    if recovering {
+                        print(String(
+                            localized: "cli.auth.status.teamNotLoadedRetrying",
+                            defaultValue: "  team:     not loaded (retrying)"
+                        ))
+                    } else {
+                        print(String(
+                            localized: "cli.auth.status.teamNotLoaded",
+                            defaultValue: "  team:     not loaded"
+                        ))
+                    }
                 }
 
             case "login":
