@@ -184,7 +184,7 @@ Clickable agent actions, one toggle per category.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `agentActions.turnControl` | boolean | `false` | Show a Stop button over a terminal while Claude Code or Codex is working on a turn. Clicking it sends Escape, the agent's own interrupt key, and marks the turn stopped. |
+| `agentActions.turnControl` | boolean | `false` | Show a Stop button over a terminal while Claude Code or Codex is working on a turn, and Compact and Resume in the Turns popover. Stop sends Escape, the agent's own interrupt key, and marks the turn stopped. Compact and Resume compacts the session's context around its current task, then continues it. |
 | `agentActions.promptEditing` | boolean | `false` | Show a Turns button over agent terminals, listing the session's prompts to edit one again or fork from it, and, while Claude Code has prompts waiting in its input queue, an Edit Queued button that sends Up to move them back into the input. |
 
 ## browser

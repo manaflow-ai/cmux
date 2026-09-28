@@ -1871,6 +1871,10 @@ class TerminalController {
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 60) {
                 await self.v2VaultFork(params: request.params)
             }
+        case "agent.compact_resume":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2AgentCompactResume(params: request.params)
+            }
         case "surface.read_text":
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
         case "workspace.ssh.open":
@@ -5985,7 +5989,7 @@ class TerminalController {
         }
     }
 
-    private func readTerminalTextFromVTExportForSnapshot(
+    func readTerminalTextFromVTExportForSnapshot(
         terminalPanel: TerminalPanel? = nil,
         terminalTarget: ControlTerminalSocketTarget? = nil,
         bindingAction: String = "write_screen_file:copy,vt",

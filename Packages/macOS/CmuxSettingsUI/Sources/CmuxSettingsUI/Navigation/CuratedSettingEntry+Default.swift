@@ -213,9 +213,9 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "agent-turn-control",
                 title: String(localized: "settings.agentActions.turnControl", defaultValue: "Agent Stop Button"),
-                detailText: String(localized: "settings.agentActions.turnControl.subtitle", defaultValue: "Shows a Stop button over a terminal while Claude Code or Codex is working. Clicking it interrupts the turn, like pressing Esc."),
+                detailText: String(localized: "settings.agentActions.turnControl.subtitle", defaultValue: "Shows a Stop button over a terminal while Claude Code or Codex is working, and Compact and Resume in the Turns popover. Stop interrupts the turn, like pressing Esc."),
                 paths: ["agentActions.turnControl"],
-                synonyms: "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click"
+                synonyms: "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click compact resume context summarize continue"
             ),
             .init(
                 section: .terminal,

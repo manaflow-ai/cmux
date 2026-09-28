@@ -23,6 +23,7 @@ extension TerminalPanel {
         let target = AgentTurnInterruptTarget.resolve(statusKeyedStates: states)
         view.setAgents(running: target, present: AgentTurnInterruptTarget.present(statusKeyedStates: states))
         watchClaudeQueuedPrompts(target == .claudeCode && view.isPromptEditingEnabled)
+        agentCompactResumeRun?.lifecycleChanged()
     }
 
     /// Sends Up, which moves Claude's queued prompts back into its input.

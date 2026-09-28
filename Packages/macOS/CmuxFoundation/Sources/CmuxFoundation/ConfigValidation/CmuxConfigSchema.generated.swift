@@ -1567,7 +1567,7 @@ enum CmuxEmbeddedConfigSchema {
         "turnControl": {
           "type": "boolean",
           "default": false,
-          "description": "Show a Stop button over a terminal while Claude Code or Codex is working on a turn. Clicking it sends Escape, the agent's own interrupt key, and marks the turn stopped."
+          "description": "Show a Stop button over a terminal while Claude Code or Codex is working on a turn, and Compact and Resume in the Turns popover. Stop sends Escape, the agent's own interrupt key, and marks the turn stopped. Compact and Resume compacts the session's context around its current task, then continues it."
         },
         "promptEditing": {
           "type": "boolean",

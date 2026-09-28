@@ -2,13 +2,15 @@ import AppKit
 import SwiftUI
 
 /// Per-pane turn timeline: the running agent session's prompts and
-/// checkpoints, with Stop, Edit (put a past prompt back in the input), and
-/// Fork (a new workspace from just before that prompt).
+/// checkpoints, with Stop, Compact and Resume, Edit (put a past prompt back
+/// in the input), and Fork (a new workspace from just before that prompt).
 struct AgentTurnsPopoverView: View {
     let agentName: String
     let entry: SessionEntry?
     let isRunning: Bool
     let onStop: () -> Void
+    /// Compacts the context and continues; `nil` hides the button.
+    var onCompactResume: (() -> Void)?
     let onEditPrompt: (String) -> Void
     let onResume: (SessionEntry) -> Void
     let onDismiss: () -> Void
@@ -21,6 +23,21 @@ struct AgentTurnsPopoverView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 8)
+                if let onCompactResume {
+                    Button(action: onCompactResume) {
+                        Label(
+                            String(localized: "terminal.agentTurns.compactResume", defaultValue: "Compact and Resume"),
+                            systemImage: "rectangle.compress.vertical"
+                        )
+                        .cmuxFont(size: 11, weight: .semibold)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(String(
+                        localized: "terminal.agentTurns.compactResume.help",
+                        defaultValue: "Stop the turn if it's running, compact the context around the current task, then continue where it left off"
+                    ))
+                    .accessibilityIdentifier("AgentTurnsCompactResumeButton")
+                }
                 if isRunning {
                     Button(action: onStop) {
                         Label(

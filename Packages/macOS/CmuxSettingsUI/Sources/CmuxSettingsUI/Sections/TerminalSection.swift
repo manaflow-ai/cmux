@@ -496,7 +496,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("agentActions.turnControl"),
                 String(localized: "settings.agentActions.turnControl", defaultValue: "Agent Stop Button"),
-                subtitle: String(localized: "settings.agentActions.turnControl.subtitle", defaultValue: "Shows a Stop button over a terminal while Claude Code or Codex is working. Clicking it interrupts the turn, like pressing Esc.")
+                subtitle: String(localized: "settings.agentActions.turnControl.subtitle", defaultValue: "Shows a Stop button over a terminal while Claude Code or Codex is working, and Compact and Resume in the Turns popover. Stop interrupts the turn, like pressing Esc.")
             ) {
                 Toggle("", isOn: Binding(get: { agentTurnControl.current }, set: { agentTurnControl.set($0) }))
                     .labelsHidden()

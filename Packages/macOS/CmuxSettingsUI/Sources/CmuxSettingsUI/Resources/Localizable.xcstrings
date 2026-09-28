@@ -7167,55 +7167,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows a Stop button over a terminal while Claude Code or Codex is working. Clicking it interrupts the turn, like pressing Esc."
+            "value": "Shows a Stop button over a terminal while Claude Code or Codex is working, and Compact and Resume in the Turns popover. Stop interrupts the turn, like pressing Esc."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض زر إيقاف فوق الطرفية أثناء عمل Claude Code أو Codex. النقر عليه يقاطع الدورة مثل الضغط على Esc."
+            "value": "يعرض زر إيقاف فوق الطرفية أثناء عمل Claude Code أو Codex، وزر الضغط والاستئناف في نافذة الأدوار المنبثقة. الإيقاف يقاطع الدورة مثل الضغط على Esc."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt eine Stopp-Taste über dem Terminal, während Claude Code oder Codex arbeitet. Ein Klick unterbricht den Durchgang wie die Esc-Taste."
+            "value": "Zeigt eine Stopp-Taste über dem Terminal, während Claude Code oder Codex arbeitet, und „Komprimieren und fortsetzen“ im Popover „Durchgänge“. Stopp unterbricht den Durchgang wie die Esc-Taste."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra un botón Detener sobre el terminal mientras Claude Code o Codex trabaja. Al hacer clic se interrumpe el turno, como al pulsar Esc."
+            "value": "Muestra un botón Detener sobre el terminal mientras Claude Code o Codex trabaja, y Compactar y reanudar en la ventana de turnos. Detener interrumpe el turno, como al pulsar Esc."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affiche un bouton Arrêter sur le terminal pendant que Claude Code ou Codex travaille. Un clic interrompt le tour, comme la touche Échap."
+            "value": "Affiche un bouton Arrêter sur le terminal pendant que Claude Code ou Codex travaille, et Compacter et reprendre dans la fenêtre des tours. Arrêter interrompt le tour, comme la touche Échap."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code または Codex が作業している間、ターミナル上に停止ボタンを表示します。クリックすると Esc キーと同じようにターンを中断します。"
+            "value": "Claude Code または Codex が作業している間、ターミナル上に停止ボタンを表示し、ターンのポップオーバーに「圧縮して再開」を表示します。停止は Esc キーと同じようにターンを中断します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code나 Codex가 작업하는 동안 터미널 위에 중지 버튼을 표시합니다. 클릭하면 Esc를 누른 것처럼 현재 턴을 중단합니다."
+            "value": "Claude Code나 Codex가 작업하는 동안 터미널 위에 중지 버튼을 표시하고, 턴 팝오버에 압축 후 계속 버튼을 표시합니다. 중지는 Esc를 누른 것처럼 현재 턴을 중단합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code 或 Codex 工作时，在终端上显示停止按钮。点击即可中断本轮，效果等同于按下 Esc。"
+            "value": "Claude Code 或 Codex 工作时，在终端上显示停止按钮，并在回合弹出窗口中显示“压缩并继续”。停止会中断本轮，效果等同于按下 Esc。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code 或 Codex 工作時，在終端機上顯示停止按鈕。按一下即可中斷本輪，效果如同按下 Esc。"
+            "value": "Claude Code 或 Codex 工作時，在終端機上顯示停止按鈕，並在回合彈出視窗中顯示「壓縮並繼續」。停止會中斷本輪，效果如同按下 Esc。"
           }
         }
       }
