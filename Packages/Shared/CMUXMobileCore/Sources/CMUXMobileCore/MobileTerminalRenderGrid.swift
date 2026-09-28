@@ -364,7 +364,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     }
 
     /// A per-row signature capturing both text **and resolved styling**, used
-    /// to detect which rows changed between two full snapshots.
+    /// to detect which rows changed between two captures; 0 means the row
+    /// has no spans.
     ///
     /// Unlike ``plainRows()`` this changes when only a cell's style changes
     /// (for example a character typed over a dimmed shell autosuggestion, where
@@ -372,38 +373,49 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// style-only update is not dropped from the delta. The style is resolved
     /// to its visual attributes rather than keyed by ``Style/id``, because the
     /// producer reassigns style ids on every export.
-    public func rowSignatures() -> [String] {
-        var stylesByID: [Int: Style] = [:]
+    ///
+    /// Signatures are 64-bit hashes rather than rendered strings: this runs on
+    /// every capture of every visible terminal, and building a string per row
+    /// was most of the Mac's per-capture cost. They are only comparable within
+    /// one process, which is where the emission state lives. A collision would
+    /// leave one row stale until its next change, with probability about 2^-64
+    /// per comparison.
+    public func rowSignatures() -> [UInt64] {
+        var styleHashes: [Int: Int] = [:]
+        styleHashes.reserveCapacity(styles.count)
         for style in styles {
-            stylesByID[style.id] = style
+            var hasher = Hasher()
+            style.hashVisualAttributes(into: &hasher)
+            styleHashes[style.id] = hasher.finalize()
         }
-        var spansByRow: [Int: [RowSpan]] = [:]
-        for span in rowSpans {
-            spansByRow[span.row, default: []].append(span)
+        let defaultStyleHash: Int = {
+            var hasher = Hasher()
+            Style.default.hashVisualAttributes(into: &hasher)
+            return hasher.finalize()
+        }()
+        var spansByRow = Array(repeating: [RowSpan](), count: rows)
+        for span in rowSpans where span.row >= 0 && span.row < rows {
+            spansByRow[span.row].append(span)
         }
-        var signatures = Array(repeating: "", count: rows)
+        var signatures = Array(repeating: UInt64(0), count: rows)
         for row in 0..<rows {
-            guard let spans = spansByRow[row] else { continue }
-            signatures[row] = spans
-                .sorted { $0.column < $1.column }
-                .map { span in
-                    let style = stylesByID[span.styleID] ?? .default
-                    return "\(span.column):\(span.gridCellWidth):\(Self.styleSignature(style)):\(span.text)"
-                }
-                .joined(separator: "\u{1F}")
+            var spans = spansByRow[row]
+            guard !spans.isEmpty else { continue }
+            // Ghostty emits spans left to right; sort only if a caller did not.
+            if zip(spans, spans.dropFirst()).contains(where: { $0.column > $1.column }) {
+                spans.sort { $0.column < $1.column }
+            }
+            var hasher = Hasher()
+            for span in spans {
+                hasher.combine(span.column)
+                hasher.combine(span.gridCellWidth)
+                hasher.combine(styleHashes[span.styleID] ?? defaultStyleHash)
+                hasher.combine(span.text)
+            }
+            let signature = UInt64(bitPattern: Int64(hasher.finalize()))
+            signatures[row] = signature == 0 ? 1 : signature
         }
         return signatures
-    }
-
-    private static func styleSignature(_ style: Style) -> String {
-        let flags = [
-            style.bold, style.faint, style.italic, style.underline, style.blink,
-            style.inverse, style.invisible, style.strikethrough, style.overline,
-        ].map { $0 ? "1" : "0" }.joined()
-        let foregroundSource = style.foregroundSource?.rawValue ?? "legacy"
-        let backgroundSource = style.backgroundSource?.rawValue ?? "legacy"
-        return "\(style.foreground ?? "-"):\(foregroundSource):\(style.foregroundPaletteIndex ?? -1)/" +
-            "\(style.background ?? "-"):\(backgroundSource):\(style.backgroundPaletteIndex ?? -1)/\(flags)"
     }
 
     public func filteredRows(

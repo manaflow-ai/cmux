@@ -147,7 +147,7 @@ extension MobileTerminalRenderGridFrame {
             if allowScrollbackRequest, carried < min(missed, Self.maxBurstScrollbackRows) {
                 return .needsScrollback(rows: min(missed, Self.maxBurstScrollbackRows))
             }
-            let changedRows = Set((0..<rows).filter { !nextSignatures[$0].isEmpty })
+            let changedRows = Set((0..<rows).filter { nextSignatures[$0] != 0 })
             let deltaFrame = try filteredRows(
                 changedRows,
                 full: false,
@@ -170,7 +170,7 @@ extension MobileTerminalRenderGridFrame {
             where previous.rowSignatures[index + scrolled] != nextSignatures[index] {
                 changedRows.insert(index)
             }
-            for index in (rows - scrolled)..<rows where !nextSignatures[index].isEmpty {
+            for index in (rows - scrolled)..<rows where nextSignatures[index] != 0 {
                 changedRows.insert(index)
             }
         } else {

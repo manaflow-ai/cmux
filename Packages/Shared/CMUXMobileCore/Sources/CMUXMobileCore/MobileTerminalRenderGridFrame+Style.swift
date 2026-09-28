@@ -137,3 +137,21 @@ extension MobileTerminalRenderGridFrame {
         }
     }
 }
+
+extension MobileTerminalRenderGridFrame.Style {
+    /// Feeds everything that changes how a cell looks, and not ``id``, into
+    /// `hasher`. Row signatures use it so an id reassignment is invisible and
+    /// an attribute-only change is not.
+    func hashVisualAttributes(into hasher: inout Hasher) {
+        hasher.combine(foreground)
+        hasher.combine(foregroundSource)
+        hasher.combine(foregroundPaletteIndex)
+        hasher.combine(background)
+        hasher.combine(backgroundSource)
+        hasher.combine(backgroundPaletteIndex)
+        let flags = [bold, faint, italic, underline, blink, inverse, invisible, strikethrough, overline]
+        var bits = 0
+        for (index, isSet) in flags.enumerated() where isSet { bits |= 1 << index }
+        hasher.combine(bits)
+    }
+}
