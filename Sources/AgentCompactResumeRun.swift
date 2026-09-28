@@ -102,6 +102,14 @@ final class AgentCompactResumeRun {
         perform(flow.timedOut())
     }
 
+    /// Completes the post-interrupt settle step without waiting on a wall
+    /// clock. App-host tests use this after proving the lifecycle transition
+    /// entered `.settling`; the production path still uses `settleInterval`.
+    func settleForTesting() {
+        settleWait?.cancel()
+        perform(flow.settled(lifecycle: pane.lifecycle(), input: { pane.readInput() }))
+    }
+
     func matches(_ report: AgentCompactionReport) -> Bool {
         // The agent's own auto-compaction is never the one this run asked for.
         guard report.source == agent.hookSource, report.trigger != "auto" else { return false }

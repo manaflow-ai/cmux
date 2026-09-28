@@ -94,7 +94,9 @@ struct TerminalAgentCompactResumeTests {
         #expect(interrupted.pasteTextItems == before.pasteTextItems, "Nothing typed into a running turn")
 
         fixture.workspace.setAgentLifecycle(key: "claude_code", panelId: panel.id, lifecycle: .idle)
-        try await waitUntil { panel.surface.debugPendingSocketInputForTesting().pasteTextItems > interrupted.pasteTextItems }
+        let run = try #require(panel.agentCompactResumeRun)
+        #expect(run.flow.phase == .settling)
+        run.settleForTesting()
         let compacting = panel.surface.debugPendingSocketInputForTesting()
         #expect(compacting.pasteTextItems == interrupted.pasteTextItems + 1, "/compact after the settle wait")
         #expect(compacting.keyEvents == interrupted.keyEvents + 1, "Return, and no second Escape")
@@ -172,13 +174,6 @@ struct TerminalAgentCompactResumeTests {
 
     private func counts(_ panel: TerminalPanel) -> [Int] {
         counts(panel.surface.debugPendingSocketInputForTesting())
-    }
-
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        for _ in 0..<200 where !condition() {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(condition())
     }
 
     private func makeWorkspaceFixture() throws -> (
