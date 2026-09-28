@@ -1,0 +1,22 @@
+{
+  "steps": [
+    {"socket": "workspace.create", "params": {"title": "Review docs", "initial_input": "cp /bin/sleep /tmp/codex && /tmp/codex 900\n", "focus": false}, "save": "docs"},
+    {"socket": "workspace.create", "params": {"title": "Fix the login flow", "initial_input": "cp /bin/sleep /tmp/claude && /tmp/claude 900\n", "focus": true}, "save": "login"},
+    {"socket": "workspace.create", "params": {"title": "Scratch", "initial_input": "echo scratch\n", "focus": true}, "save": "scratch"},
+    {"wait": 2},
+    {"shot": "workspaces"},
+    {"menu": ["Window", "Task Manager..."]},
+    {"wait": 5},
+    {"shot": "task-manager"},
+    {"tree": "task-manager"},
+    {"click": {"labelContains": "Fix the login flow", "type": "button"}},
+    {"wait": 1.5},
+    {"shot": "after-jump"},
+    {"key": "p", "modifiers": ["command", "shift"]},
+    {"wait": 0.5},
+    {"type": "activity"},
+    {"wait": 0.8},
+    {"shot": "palette-activity"},
+    {"key": "escape"}
+  ]
+}
