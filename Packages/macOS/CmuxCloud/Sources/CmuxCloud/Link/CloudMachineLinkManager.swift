@@ -68,7 +68,8 @@ public actor CloudMachineLinkManager {
     private var browserProxyStarts: [String: Task<CloudBrowserProxyEndpoint, Error>] = [:]
     private var lastFailure: [String: (at: Date, error: String)] = [:]
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
-    /// a machine whose route is broken.
+    /// a machine whose route is broken. Only background upkeep waits it out
+    /// (``backoffRejects(failedAt:now:backoff:)``).
     private let retryBackoff: TimeInterval = 15
     /// How long a link may take to report its socket: the daemon accepts a
     /// carrier or enrolled session immediately, so anything slower than this is
@@ -186,7 +187,7 @@ public actor CloudMachineLinkManager {
                 "outcome": "started"
             ]
         )
-        if let failure = lastFailure[machineID], Date().timeIntervalSince(failure.at) < retryBackoff {
+        if let failure = lastFailure[machineID], Self.backoffRejects(failedAt: failure.at, now: Date(), backoff: retryBackoff) {
             recordPreflightFailure(machineID: machineID, reason: "retry_backoff", correlationID: correlationID)
             throw ManagerError.retryLater(failure.error)
         }
@@ -443,6 +444,14 @@ public actor CloudMachineLinkManager {
             }
             return machineIDs.count
         }
+    }
+
+    /// Whether an earlier failure refuses this connect without dialing. The
+    /// backoff keeps background upkeep from hammering a broken route. A
+    /// person's open always dials, or a machine that just woke would answer
+    /// their click with the stale error from a poll a few seconds earlier.
+    public static func backoffRejects(failedAt: Date, now: Date, backoff: TimeInterval) -> Bool {
+        CloudLinkUpkeep.isBackground && now.timeIntervalSince(failedAt) < backoff
     }
 
     public func status(machineID: String) async -> LinkStatus? {
