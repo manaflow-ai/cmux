@@ -151,22 +151,110 @@ struct CloudTreeRowToolTipTests {
         let machine = Self.machine(now: now)
         let content = CloudTreeMachineRowContent(machine: machine, style: .defaultStyle, now: now)
         #expect(content.accessibilityLabel.contains("vm-abc"))
-        #expect(content.accessibilityLabel.contains(content.subtitle))
+        #expect(content.accessibilityLabel.contains(machine.kindLabel))
+        // The age, stated against a clock the test owns rather than against the
+        // label's own text: comparing the label to `content.subtitle` would pass
+        // for any subtitle at all, including an empty one.
+        let older = CloudTreeMachineRowContent(
+            machine: machine,
+            style: .defaultStyle,
+            now: now.addingTimeInterval(20 * 60 * 60)
+        )
+        #expect(content.accessibilityLabel != older.accessibilityLabel)
+    }
+
+    /// An unlabelled machine's `displayName` is its id, and `showsName` is false
+    /// so the subtitle leaves the id out. Saying it twice is what a label that
+    /// pasted the subtitle in unconditionally would do, and VoiceOver reads
+    /// every word of it on every arrow key.
+    @Test("An unlabelled machine says its id once")
+    func unlabelledMachineDoesNotRepeatItsID() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let content = CloudTreeMachineRowContent(
+            machine: Self.machine(now: now, label: nil),
+            style: .defaultStyle,
+            now: now
+        )
+        #expect(content.accessibilityLabel.components(separatedBy: "vm-abc").count - 1 == 1)
+    }
+
+    /// The surface catalog finds a machine before the fleet list names it and
+    /// builds it with `image: info.image ?? ""`. The tooltip put that straight
+    /// into its line list, so hovering such a row opened a popup with a blank
+    /// line in the middle of it.
+    @Test("A machine whose image is not known yet has no blank line in its hover text")
+    func machineToolTipDropsAnEmptyImageLine() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let content = CloudTreeMachineRowContent(
+            machine: Self.machine(now: now, image: ""),
+            style: .defaultStyle,
+            now: now
+        )
+        #expect(content.toolTip.contains("\n\n") == false)
+        #expect(content.toolTip.hasSuffix("\n") == false)
+        // The rest of the tooltip is unchanged: dropping the empty line must not
+        // drop the facts around it.
+        #expect(content.toolTip.contains("vm-abc"))
+        #expect(content.toolTip.contains("build box"))
+    }
+
+    /// `CloudTreeBrowserDetail.text` returns the URL host, else the local
+    /// workspace showing the page. A browser with neither has nothing past the
+    /// title the row already draws, and a popup that repeats the row covers the
+    /// rows under it while saying nothing.
+    @Test("A browser row with nothing past its own title has no hover text")
+    func bareBrowserRowHasNoToolTip() {
+        let cell = Self.cell(presence: [])
+        cell.configure(
+            node: Self.browserNode(title: "Design docs", url: nil),
+            machineActions: Self.machineActions(),
+            nodeActions: Self.nodeActions()
+        )
+        #expect(cell.toolTip == nil)
+    }
+
+    /// The untitled case is the one `node.searchableTitle` cannot speak for: it
+    /// is the empty resource title, while the row and the tooltip both draw the
+    /// word "browser". The comparison has to be against what is drawn.
+    @Test("An untitled browser row with no address does not pop its own placeholder back")
+    func bareUntitledBrowserRowHasNoToolTip() {
+        let cell = Self.cell(presence: [])
+        cell.configure(
+            node: Self.browserNode(title: "", url: nil),
+            machineActions: Self.machineActions(),
+            nodeActions: Self.nodeActions()
+        )
+        #expect(cell.toolTip == nil)
+        // Still labelled: quiet for the pointer is not quiet for VoiceOver.
+        #expect(cell.accessibilityLabel()?.isEmpty == false)
+    }
+
+    @Test("A port row whose link is its whole title has no hover text")
+    func barePortRowHasNoToolTip() {
+        let cell = Self.cell(presence: [])
+        cell.configure(
+            node: Self.barePortNode(),
+            machineActions: Self.machineActions(),
+            nodeActions: Self.nodeActions()
+        )
+        #expect(cell.toolTip == nil)
     }
 
     // MARK: - Fixtures
 
     /// Labelled, so `showsName` is true and the subtitle carries the id, and
     /// three hours old, so the relative age is a stable non-empty string.
-    private static func machine(now: Date) -> MachineSnapshot {
+    /// `image` is a parameter because the catalog builds a machine it found
+    /// before the fleet list named it with `image: info.image ?? ""`.
+    private static func machine(now: Date, image: String = "devbox", label: String? = "build box") -> MachineSnapshot {
         MachineSnapshot(
             id: "vm-abc",
             provider: "freestyle",
-            image: "devbox",
+            image: image,
             isDesktop: false,
             activity: .ready,
             createdAt: now.addingTimeInterval(-3 * 60 * 60),
-            label: "build box"
+            label: label
         )
     }
 
@@ -254,7 +342,9 @@ struct CloudTreeRowToolTipTests {
         )
     }
 
-    private static func browserNode(title: String) -> CloudTreeNode {
+    /// `url` is a parameter because a browser that has not navigated yet has
+    /// none, and that is the row whose hover text has nothing to add.
+    private static func browserNode(title: String, url: String? = "https://example.com/docs") -> CloudTreeNode {
         let resource = SurfaceResource(
             id: SurfaceResourceID(machine: .cloud("tooltip-test"), kind: .browser, key: "browser-1"),
             title: title,
@@ -264,11 +354,35 @@ struct CloudTreeRowToolTipTests {
             remoteWorkspace: nil,
             remoteViews: nil,
             port: nil,
-            url: "https://example.com/docs"
+            url: url
         )
         return CloudTreeNode(
             id: "browser/tooltip-test/browser-1",
             kind: .browser(CloudTreeBrowserRow(resource: resource, isOpen: false, workspaceTitle: nil))
+        )
+    }
+
+    /// A forwarded port the daemon reported with no process name and no detail,
+    /// so its link is the only fact the row has and the row already draws it.
+    private static func barePortNode() -> CloudTreeNode {
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(
+                machine: .cloud("tooltip-test"),
+                kind: .browser,
+                key: SurfaceResourceID.portKey(3_000)
+            ),
+            title: "",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: nil,
+            remoteViews: nil,
+            port: 3_000,
+            url: nil
+        )
+        return CloudTreeNode(
+            id: "port/tooltip-test/3000",
+            kind: .port(resource, url: "http://10.0.0.4:3000", openIn: nil)
         )
     }
 
