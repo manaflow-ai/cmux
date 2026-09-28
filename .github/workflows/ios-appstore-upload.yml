@@ -40,6 +40,7 @@ jobs:
       # The batch step, when it runs, has the last word on scheduled polls.
       upload: ${{ steps.batch.outputs.upload || steps.decide.outputs.upload }}
       retry_build_number: ${{ steps.decide.outputs.retry_build_number }}
+      last_upload_sha: ${{ steps.decide.outputs.last_upload_sha }}
     steps:
       - name: Skip an unchanged scheduled revision
         id: decide
@@ -50,12 +51,12 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          # Resolve the notes base for scheduled and manual uploads. Successful
+          # runs can be skipped polls, so only completed upload evidence counts.
+          LAST_UPLOAD_SHA="$(gh api "repos/$REPOSITORY/actions/artifacts?name=cmux-app-testflight-upload&per_page=100" --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main")] | max_by(.created_at) | .workflow_run.head_sha // ""' 2>/dev/null || true)"
+          echo "last_upload_sha=$LAST_UPLOAD_SHA" >> "$GITHUB_OUTPUT"
           if [ "$EVENT_NAME" = schedule ]; then
             LAST_SHA="$(gh api "repos/$REPOSITORY/actions/workflows/ios-appstore-upload.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""')"
-            # Successful runs can be skipped polls: use durable upload evidence
-            # as the diff base, never advance it merely because a poll succeeded.
-            LAST_UPLOAD_SHA="$(gh api "repos/$REPOSITORY/actions/artifacts?name=cmux-app-testflight-upload&per_page=100" --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main")] | max_by(.created_at) | .workflow_run.head_sha // ""' 2>/dev/null || true)"
-            echo "last_upload_sha=$LAST_UPLOAD_SHA" >> "$GITHUB_OUTPUT"
             if [ "$LAST_SHA" = "$HEAD_SHA" ] && [ "$LAST_UPLOAD_SHA" = "$HEAD_SHA" ]; then
               echo 'upload=false' >> "$GITHUB_OUTPUT"
               echo 'Latest main already reached official internal TestFlight.' >> "$GITHUB_STEP_SUMMARY"
@@ -216,12 +217,18 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          # Shallow and without submodules: this lane reads no git history
-          # (notes come from ios/CHANGELOG.md, the build number is a UTC
-          # timestamp) and the archive needs only the prebuilt
-          # GhosttyKit.xcframework, keyed by the ghostty gitlink in this commit.
-          # A full recursive clone took ~12 min of macOS runner time per run.
+          # Fetch only the notes range below. The archive uses prebuilt
+          # GhosttyKit, so the initial checkout needs no history or submodules.
           fetch-depth: 1
+
+      - name: Fetch TestFlight notes history
+        # Match INTERNAL's bounded fetch and reuse its notes generator.
+        if: ${{ needs.decide.outputs.last_upload_sha != '' }}
+        timeout-minutes: 5
+        continue-on-error: true
+        env:
+          LAST_UPLOADED_SHA: ${{ needs.decide.outputs.last_upload_sha }}
+        run: ./ios/scripts/fetch-testflight-notes-history.sh "$LAST_UPLOADED_SHA"
 
       - name: Select Xcode
         env:
@@ -386,10 +393,14 @@ jobs:
           CMUX_IOS_SPM_CACHE_DIR: ${{ runner.temp }}/cmux-ios-spm
           CMUX_IOS_COMPILATION_CACHE: ${{ (vars.IOS_UPLOAD_COMPILATION_CACHE || '1') != '0' && '1' || '0' }}
           CMUX_BUILD_NUMBER_OUT_FILE: ${{ runner.temp }}/cmux-final-build-number.txt
+          LAST_UPLOADED_SHA: ${{ needs.decide.outputs.last_upload_sha }}
         run: |
           set -euo pipefail
           # Version comes from CMUX_IOS_APPSTORE_MARKETING_VERSION in main.
           ARGS=(--lane appstore --signing manual)
+          if [ -n "${LAST_UPLOADED_SHA:-}" ]; then
+            ARGS+=(--notes-from-range "$LAST_UPLOADED_SHA")
+          fi
           if [ -n "${INPUT_BUILD_NUMBER:-}" ]; then
             ARGS+=(--build-number "$INPUT_BUILD_NUMBER")
           fi
