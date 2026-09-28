@@ -92,6 +92,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/pr_media.py
             scripts/ci/find_admitted_build.py
+            scripts/ci/product_input_identity.py
             dogfood/scenarios
           sparse-checkout-cone-mode: false
 
