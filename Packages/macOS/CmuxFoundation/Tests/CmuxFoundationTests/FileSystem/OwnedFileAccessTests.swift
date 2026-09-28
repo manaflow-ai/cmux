@@ -1,0 +1,128 @@
+import Darwin
+import Foundation
+import Testing
+@testable import CmuxFoundation
+
+@Suite struct OwnedFileAppendOpenerTests {
+    @Test func createsAPrivateFileAndAppends() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let path = directory.path("debug.log")
+
+        try append("one\n", to: path)
+        try append("two\n", to: path)
+
+        #expect(try String(contentsOfFile: path, encoding: .utf8) == "one\ntwo\n")
+        let attributes = try FileManager.default.attributesOfItem(atPath: path)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+    }
+
+    @Test func refusesASymbolicLink() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let target = directory.path("target")
+        try Data("keep\n".utf8).write(to: URL(fileURLWithPath: target))
+        let link = directory.path("debug.log")
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: target)
+
+        #expect(OwnedFileAppendOpener().openDescriptor(atPath: link) == nil)
+        #expect(try String(contentsOfFile: target, encoding: .utf8) == "keep\n")
+    }
+
+    @Test func refusesAHardLinkedFile() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let target = directory.path("target")
+        try Data("keep\n".utf8).write(to: URL(fileURLWithPath: target))
+        let link = directory.path("debug.log")
+        try #require(Darwin.link(target, link) == 0)
+
+        #expect(OwnedFileAppendOpener().openDescriptor(atPath: link) == nil)
+        #expect(try String(contentsOfFile: target, encoding: .utf8) == "keep\n")
+    }
+
+    @Test func refusesAFIFOWithoutBlocking() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let path = directory.path("debug.log")
+        try #require(mkfifo(path, 0o600) == 0)
+
+        #expect(OwnedFileAppendOpener().openDescriptor(atPath: path) == nil)
+    }
+
+    @Test func refusesAFileOwnedByAnotherUser() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let path = directory.path("debug.log")
+        try Data().write(to: URL(fileURLWithPath: path))
+
+        #expect(OwnedFileAppendOpener(expectedOwnerID: geteuid() &+ 1).openDescriptor(atPath: path) == nil)
+    }
+
+    private func append(_ text: String, to path: String) throws {
+        let handle = try #require(OwnedFileAppendOpener().fileHandle(atPath: path))
+        defer { try? handle.close() }
+        try handle.write(contentsOf: Data(text.utf8))
+    }
+}
+
+@Suite struct OwnedMarkerFileReaderTests {
+    @Test func readsAnOwnedMarker() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let path = directory.path("marker")
+        try Data("  /tmp/cmux-debug-tag.log\n".utf8).write(to: URL(fileURLWithPath: path))
+
+        #expect(OwnedMarkerFileReader().trimmedContents(atPath: path) == "/tmp/cmux-debug-tag.log")
+    }
+
+    @Test func refusesASymbolicLinkMarker() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let target = directory.path("target")
+        try Data("/Users/someone/.zshrc\n".utf8).write(to: URL(fileURLWithPath: target))
+        let link = directory.path("marker")
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: target)
+
+        #expect(OwnedMarkerFileReader().trimmedContents(atPath: link) == nil)
+    }
+
+    @Test func refusesAMarkerOwnedByAnotherUser() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let path = directory.path("marker")
+        try Data("/tmp/cmux-debug.log\n".utf8).write(to: URL(fileURLWithPath: path))
+
+        #expect(OwnedMarkerFileReader(expectedOwnerID: geteuid() &+ 1).trimmedContents(atPath: path) == nil)
+    }
+
+    @Test func refusesAnOversizedOrEmptyMarker() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let large = directory.path("large")
+        try Data(repeating: UInt8(ascii: "a"), count: 64).write(to: URL(fileURLWithPath: large))
+        let empty = directory.path("empty")
+        try Data(" \n".utf8).write(to: URL(fileURLWithPath: empty))
+
+        #expect(OwnedMarkerFileReader(maximumBytes: 16).trimmedContents(atPath: large) == nil)
+        #expect(OwnedMarkerFileReader().trimmedContents(atPath: empty) == nil)
+    }
+}
+
+private struct TemporaryDirectory {
+    let url: URL
+
+    init() throws {
+        url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-owned-file-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+
+    func path(_ name: String) -> String {
+        url.appendingPathComponent(name, isDirectory: false).path
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(at: url)
+    }
+}
