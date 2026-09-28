@@ -457,11 +457,11 @@ struct ChatUsageAccumulatorTests {
     func codexDelayedRecordKeepsTurnModel() {
         var accumulator = ChatUsageAccumulator()
         accumulator.ingest(codexLines: [
-            codexTurnContextLine(model: "model-a", turnID: "turn-a", threadID: "thread-a"),
-            codexTurnContextLine(model: "model-b", turnID: "turn-b", threadID: "thread-b"),
+            codexTurnContextLine(model: "model-a", turnID: "turn-a", threadID: "shared-thread"),
+            codexTurnContextLine(model: "model-b", turnID: "turn-b", threadID: "shared-thread"),
             codexRecordLine(
                 responseID: "response-a", input: 100, cached: 0, output: 10,
-                threadID: "thread-a", turnID: "turn-a"
+                threadID: "shared-thread", turnID: "turn-a"
             ),
         ])
 
@@ -474,10 +474,12 @@ struct ChatUsageAccumulatorTests {
     func codexSessionModelIsTheOnlyIdentityFreeFallback() {
         var turnOnly = ChatUsageAccumulator()
         turnOnly.ingest(codexLines: [
-            codexTurnContextLine(model: "turn-model", turnID: "known-turn"),
+            codexTurnContextLine(
+                model: "turn-model", turnID: "known-turn", threadID: "shared-thread"
+            ),
             codexRecordLine(
                 responseID: "unknown-record", input: 100, cached: 0, output: 10,
-                threadID: "unknown-thread", turnID: "unknown-turn"
+                threadID: "shared-thread", turnID: "unknown-turn"
             ),
         ])
         #expect(turnOnly.totals.usageByModel.isEmpty)
@@ -491,6 +493,27 @@ struct ChatUsageAccumulatorTests {
             ),
         ])
         #expect(session.totals.usageByModel["session-model"]?.totalTokens == 110)
+    }
+
+    @Test("an evicted turn model falls back to the explicit session, not the thread's latest model")
+    func codexEvictedTurnDoesNotUseLatestThreadModel() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLine: codexSessionMetaLine(model: "session-model"))
+        for index in 0...Self.recentResponseLimit {
+            accumulator.ingest(codexLine: codexTurnContextLine(
+                model: "turn-model-\(index)",
+                turnID: "turn-\(index)",
+                threadID: "shared-thread"
+            ))
+        }
+        accumulator.ingest(codexLine: codexRecordLine(
+            responseID: "evicted-turn-record", input: 100, cached: 0, output: 10,
+            threadID: "shared-thread", turnID: "turn-0"
+        ))
+
+        let totals = accumulator.totals
+        #expect(totals.usageByModel["session-model"]?.totalTokens == 110)
+        #expect(totals.usageByModel["turn-model-\(Self.recentResponseLimit)"] == nil)
     }
 
     @Test("a repeated Codex record is counted once")

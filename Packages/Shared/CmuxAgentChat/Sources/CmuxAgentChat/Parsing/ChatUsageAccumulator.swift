@@ -372,15 +372,14 @@ public struct ChatUsageAccumulator: Sendable {
     }
 
     private func codexModel(for payload: TranscriptJSONValue) -> String? {
-        if let threadID = payload["thread_id"]?.string,
-           let model = codexModelByThread.value(forKey: threadID)
-        {
-            return model
+        if let turnID = payload["turn_id"]?.string, !turnID.isEmpty {
+            // A present turn identity is authoritative. If its bounded entry
+            // has expired, using the thread's latest model would silently
+            // charge an old turn to a newer one on the same thread.
+            return codexModelByTurn.value(forKey: turnID) ?? codexSessionModel
         }
-        if let turnID = payload["turn_id"]?.string,
-           let model = codexModelByTurn.value(forKey: turnID)
-        {
-            return model
+        if let threadID = payload["thread_id"]?.string, !threadID.isEmpty {
+            return codexModelByThread.value(forKey: threadID) ?? codexSessionModel
         }
         return codexSessionModel
     }
