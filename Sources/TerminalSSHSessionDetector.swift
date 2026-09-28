@@ -168,7 +168,7 @@ struct DetectedSSHSession: Equatable, Sendable {
         // Uploads and their cleanup run beside the user's session and never
         // become its master, so they forward nothing even when that session
         // used `-A`. Ahead of the user's options: OpenSSH keeps the first value.
-        args += SSHBackgroundForwardingOptions.allOff
+        args += SSHBackgroundForwarding.allOff.optionArguments
 
         if useIPv4 {
             args.append("-4")
@@ -221,7 +221,7 @@ struct DetectedSSHSession: Equatable, Sendable {
         // Uploads and their cleanup run beside the user's session and never
         // become its master, so they forward nothing even when that session
         // used `-A`. Ahead of the user's options: OpenSSH keeps the first value.
-        args += SSHBackgroundForwardingOptions.allOff
+        args += SSHBackgroundForwarding.allOff.optionArguments
 
         if useIPv4 {
             args.append("-4")

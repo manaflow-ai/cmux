@@ -13652,7 +13652,7 @@ struct CMUXCLI {
               let port = response["port"] as? Int,
               let username = response["username"] as? String,
               // The interactive ssh argv has no `--`: the destination must not read as an option.
-              !SSHDestinationArgument.isOptionLike(username),
+              !username.isOptionLikeSSHDestination,
               let cred = response["credential"] as? [String: Any],
               let kind = cred["kind"] as? String
         else {
@@ -16311,7 +16311,7 @@ struct CMUXCLI {
     }
 
     func shellQuote(_ value: String) -> String {
-        POSIXShellWord.quoted(value)
+        value.posixShellWord
     }
 
     func execInteractiveProgram(

@@ -787,6 +787,6 @@ extension CMUXCLI {
     /// The instance `shellQuote` rules, as a static so the pure command builders (and
     /// their tests) need no CLI instance: bare when safe, else single-quoted.
     static func vmShimShellQuote(_ value: String) -> String {
-        POSIXShellWord.quoted(value)
+        value.posixShellWord
     }
 }

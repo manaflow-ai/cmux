@@ -265,7 +265,7 @@ final class LocalSurfaceProvider: SurfaceProvider {
 
     static func shellQuote(_ value: String) -> String {
         if value.isEmpty { return "''" }
-        if POSIXShellWord.isBare(value, punctuation: "_./:=@%+-") { return value }
+        if value.isPOSIXShellBareWord(punctuation: "_./:=@%+-") { return value }
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

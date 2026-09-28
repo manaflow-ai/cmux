@@ -2694,6 +2694,6 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     }
 
     private func shellQuote(_ value: String) -> String {
-        POSIXShellWord.quoted(value)
+        value.posixShellWord
     }
 }

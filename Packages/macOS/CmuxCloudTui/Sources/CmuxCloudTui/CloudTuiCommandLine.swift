@@ -397,7 +397,7 @@ public struct CloudTuiCommandLine: Sendable {
 
     public static func shellQuote(_ value: String) -> String {
         if value.isEmpty { return "''" }
-        if POSIXShellWord.isBare(value, punctuation: "_./:@%+=,-") {
+        if value.isPOSIXShellBareWord(punctuation: "_./:@%+=,-") {
             return value
         }
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"

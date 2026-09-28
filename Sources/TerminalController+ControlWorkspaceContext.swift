@@ -473,7 +473,7 @@ extension TerminalController: ControlWorkspaceContext {
         guard let destination = v2String(params, "destination") else {
             return .err(code: "invalid_params", message: "Missing destination", data: nil)
         }
-        guard !SSHDestinationArgument.isOptionLike(destination) else {
+        guard !destination.isOptionLikeSSHDestination else {
             return .err(code: "invalid_params", message: "destination must not start with '-'", data: nil)
         }
 

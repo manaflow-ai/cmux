@@ -7755,7 +7755,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     private static func shellQuote(_ value: String) -> String {
-        POSIXShellWord.quoted(value)
+        value.posixShellWord
     }
 
     func effectiveRemoteTerminalStartupCommand(from configuration: WorkspaceRemoteConfiguration?) -> String? {

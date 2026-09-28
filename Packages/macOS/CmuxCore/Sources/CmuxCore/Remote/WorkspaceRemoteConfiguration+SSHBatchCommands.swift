@@ -55,7 +55,7 @@ extension WorkspaceRemoteConfiguration {
         ["-N", "-T", "-S", "none"]
             + batchSSHArguments(
                 sshOptions: sshOptions,
-                forwardingOverrides: SSHBackgroundForwardingOptions.agentAndX11Off
+                forwarding: .agentAndX11Off
             )
             + [
                 "-o", "ExitOnForwardFailure=yes",
@@ -119,22 +119,22 @@ extension WorkspaceRemoteConfiguration {
             + SSHHostConfiguredRemoteCommand().overrideArguments
             + batchSSHArguments(
                 sshOptions: effectiveSSHOptions,
-                forwardingOverrides: SSHBackgroundForwardingOptions.allOff
+                forwarding: .allOff
             )
             + ["-o", "RequestTTY=no", "--", destination, command]
     }
 
     // Shared batch-mode `ssh` options: keepalives, BatchMode, no new
-    // ControlMaster (existing ControlPath sockets may be reused), any
-    // forwarding overrides, port, identity, then the configuration's options
-    // minus ControlMaster/ControlPersist.
+    // ControlMaster (existing ControlPath sockets may be reused), the
+    // forwarding to turn off (none when `forwarding` is nil), port, identity,
+    // then the configuration's options minus ControlMaster/ControlPersist.
     private func batchSSHArguments() -> [String] {
         batchSSHArguments(sshOptions: sshOptions)
     }
 
     private func batchSSHArguments(
         sshOptions: [String],
-        forwardingOverrides: [String] = []
+        forwarding: SSHBackgroundForwarding? = nil
     ) -> [String] {
         let effectiveSSHOptions = backgroundSSHOptions(sshOptions)
         var args: [String] = [
@@ -149,7 +149,7 @@ extension WorkspaceRemoteConfiguration {
         // Batch helpers may reuse an existing ControlPath, but must not negotiate a new master.
         args += ["-o", "ControlMaster=no"]
         // Ahead of the configured options: OpenSSH keeps the first value.
-        args += forwardingOverrides
+        args += forwarding?.optionArguments ?? []
         if let port {
             args += ["-p", String(port)]
         }

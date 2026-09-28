@@ -350,6 +350,6 @@ enum SSHPTYAttachStartupCommandBuilder {
     }
 
     private static func shellQuote(_ value: String) -> String {
-        POSIXShellWord.quoted(value)
+        value.posixShellWord
     }
 }

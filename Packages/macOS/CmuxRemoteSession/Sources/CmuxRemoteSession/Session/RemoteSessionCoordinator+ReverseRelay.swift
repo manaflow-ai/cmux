@@ -318,7 +318,7 @@ extension RemoteSessionCoordinator {
         args += sshCommonArguments(
             batchMode: true,
             dropControlPath: true,
-            batchForwardingOverrides: SSHBackgroundForwardingOptions.agentAndX11Off
+            batchForwarding: .agentAndX11Off
         )
         args += [
             "-o", "ExitOnForwardFailure=yes",

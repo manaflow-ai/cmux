@@ -14,7 +14,7 @@ extension SessionRemoteWorkspaceSnapshot {
     ) -> WorkspaceRemoteConfiguration? {
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedDestination.isEmpty,
-              !SSHDestinationArgument.isOptionLike(normalizedDestination) else { return nil }
+              !normalizedDestination.isOptionLikeSSHDestination else { return nil }
         let normalizedManagedCloudVMID = WorkspaceRemoteConfiguration.normalizedOptionalValue(managedCloudVMID)
         if transport == .websocket {
             guard let normalizedManagedCloudVMID else { return nil }
@@ -579,6 +579,6 @@ extension SessionRemoteWorkspaceSnapshot {
     }
 
     private static func shellQuote(_ value: String) -> String {
-        POSIXShellWord.quoted(value)
+        value.posixShellWord
     }
 }
