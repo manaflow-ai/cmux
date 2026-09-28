@@ -1357,6 +1357,7 @@
           "warnBeforeQuit": "Eldre boolsk fallback for avslutningsbekreftelse. Bruk app.confirmQuit for nye konfigurasjoner.",
           "warnBeforeClosingTabXButton": "Vis en bekreftelse før en fane lukkes med fanens lukkeknapp.",
           "hideTabCloseButton": "Skjul lukkeknapper for faner i faneraden i ruten.",
+          "tabBarVisibility": "Bestemmer når en rute tegner faneraden sin. \"always\" tegner den selv for en rute med bare én fane; \"multiple-tabs\" skjuler den så lenge ruten har én fane, og tegner den så snart en fane nummer to åpnes. Minimal modus (app.minimalMode) tegner den alltid, fordi faneraden til den øverste ruten der også fungerer som vinduets tittellinje.",
           "forkConversationDefaultDestination": "Standardmål for den primære Fork Conversation-handlingen i fanehurtigmenyen. Undermenyen viser fortsatt alle mål.",
           "globalFontMagnification": "Prosentvis zoom for alt cmux tegner selv: terminaltekst, fanetitler, sidefelt, Settings, overlegg og vindusrammer. Nettsider i nettleserflater beholder sin egen størrelse."
         },

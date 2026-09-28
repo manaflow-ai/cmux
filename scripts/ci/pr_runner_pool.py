@@ -85,7 +85,8 @@ API (this repository's and the org's glaeda-minis group, GitHub.runners())
 gives the online runners carrying each label, its capacity, and the
 idle ones among them; every other online runner counts as busy
 (live_pools()); a label with no idle runner is charged the
-snapshot's queue and one job per run since it, since the API shows no queue.
+snapshot's queue, less what its machines finished since, and one job per run
+since it, since the API shows no queue.
 Read live, in-flight runs' peaks (`committed`, the markers' peaks beyond the
 live window) are not charged at all: those are the fallback without the
 runners API. With the runners read, attempt 1 does not need the snapshot
@@ -304,6 +305,7 @@ import datetime as dt
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import sys
@@ -437,6 +439,10 @@ DEFAULT_QUEUE_ROUNDS = 1
 # (owned_pool_rescue.QUEUE_ROUND_SECONDS), which must stay well inside its
 # 60-minute watch so a stuck job is still moved.
 MAX_QUEUE_ROUNDS = 3
+# One round of queue on an owned pool as the rescue counts it (owned_pool_rescue.QUEUE_ROUND_SECONDS):
+# a queued owned job is moved to Blacksmith after about this much wait per round, so no job is put
+# on an owned queue it would not leave within its rounds.
+QUEUE_ROUND_MINUTES = 15
 # A pool on another Xcode than the lane's pin (the macOS 15 pool, 26.3) has no
 # DerivedData seed: seed-derived-data.yml seeds the lane's Xcode only. Its
 # compile admission runs cold, 10 to 20 minutes longer than a seeded one
@@ -1300,7 +1306,7 @@ def live_online(runners: Sequence[Mapping[str, Any]], labels: Sequence[str]) -> 
 
 def live_pools(snapshot: Mapping[str, Any], idle: Mapping[str, int], slot_counts: Mapping[str, int],
                older: Mapping[str, int], online: Mapping[str, int] | None = None,
-               ) -> tuple[Mapping[str, Any], dict[str, int]]:
+               age_minutes: float | None = None) -> tuple[Mapping[str, Any], dict[str, int]]:
     """The snapshot with each owned label's counts read live, and the owned capacities.
 
     A label's capacity is its online runners (`online`, live_online()): the
@@ -1312,7 +1318,14 @@ def live_pools(snapshot: Mapping[str, Any], idle: Mapping[str, int], slot_counts
     a label with an idle runner has none, and one without counts the
     snapshot's queue plus `older`: the jobs of the runs that took the pool
     since the snapshot and before the live window that may still wait there
-    (pull request CI passes one per run, its admission).
+    (pull request CI passes one per run, its admission). The snapshot's queue
+    is drained by what the label's machines finished in the `age_minutes`
+    since it was taken, past the first half job length, a job each per
+    job_minutes(): charged whole, a
+    12-minute-old count of 26 on 19 root runners called them full while
+    their jobs waited at most 17 minutes (p90 10) from 07:00 to 10:30Z on
+    2026-09-28, and 30% of admissions went to Blacksmith, which queued them
+    for a median 26 minutes.
 
     The snapshot's `committed` (every in-flight run's peak) is not charged:
     charging it kept runs off idle minis ("0 of 19 root runners free" and
@@ -1336,7 +1349,12 @@ def live_pools(snapshot: Mapping[str, Any], idle: Mapping[str, int], slot_counts
         else:
             capacity[label] = max(int(slot_counts.get(label) or 0), free)
         seen = (pools.get(label) or {}) if isinstance(pools.get(label), Mapping) else {}
-        queued = 0 if free else int(seen.get("queued") or 0) + max(0, int(older.get(pool_label(label), 0)))
+        # Nothing counts as finished in the first half job length: a snapshot taken
+        # just after every runner started a job sees none of them done minutes later.
+        started = max(0.0, (age_minutes or 0.0) - job_minutes(label) / 2)
+        drained = capacity[label] * started / job_minutes(label)
+        waiting = max(0, math.ceil(int(seen.get("queued") or 0) - drained - 1e-9))
+        queued = 0 if free else waiting + max(0, int(older.get(pool_label(label), 0)))
         pools[label] = {"queued": queued, "running": capacity[label] - free, "committed": 0, "future": 0}
     return {**snapshot, "pools": pools}, capacity
 
@@ -1352,6 +1370,10 @@ class Pick:
     root_room: int | None = None  # owned with a root count only
     limit: float = 0.0  # owned only: the wait allowed there, in minutes
     blacksmith_wait: float | None = None  # the least expected wait on Blacksmith, when queueing
+    # Split only: admission's expected wait for a root runner past the queue bound, and its wait on
+    # Blacksmith, when it queues for the root runner because that is shorter (pick()).
+    root_wait: float | None = None
+    admission_blacksmith_wait: float | None = None
 
 
 def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable: Sequence[str],
@@ -1441,6 +1463,22 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
         # A pool with a root runner free first, when the run needs one.
         fits = [max(rooms, key=lambda label: (not root_jobs or rooms[label].root_room is None
                                               or rooms[label].root_room >= 1, rooms[label].room))]
+        label = fits[0]
+        room = rooms[label]
+        if queue_rounds and best and root_jobs > 0 and room.root_room is not None and room.root_room < 1:
+            # No root runner within the queue bound: admission, and so every job after it, would take
+            # the retry runner however long Blacksmith's queue is. On 2026-09-28 from 07:00 to 10:30Z
+            # 79 first-attempt admissions took Blacksmith (one at an expected 58 minutes); they waited
+            # 16 minutes on average there, while the root runners' queue drained with a p90 of 11.
+            # Admission queues for a root runner
+            # instead when its expected wait there is the shorter and ends half a job before the rescue's
+            # budget for the rounds (QUEUE_ROUND_MINUTES each), which would move it to Blacksmith's tail:
+            # a mini's admission runs past the 10 minutes a round is priced at (median 638 s), and runs
+            # 3 to 10 minutes old are missing from the live root count.
+            root_wait = expected_wait(label, roots[label], added[label] + root_taken_now.get(label, 0) + 1)
+            if root_wait < waits[best] and root_wait + job_minutes(label) / 2 <= queue_rounds * QUEUE_ROUND_MINUTES:
+                rooms[label] = dataclasses.replace(room, root_room=1, root_wait=root_wait,
+                                                   admission_blacksmith_wait=waits[best])
     for label in usable:
         if label in fits:
             return rooms[label]
@@ -1603,6 +1641,9 @@ def decide(
             if chosen.root_room > root_now:
                 root += f" and {chosen.root_room - root_now} queue places"
             root += f", it needs {root_jobs}"
+            if chosen.root_wait is not None:
+                root += (f"; admission queues for a root runner, about {chosen.root_wait:.0f} min against "
+                         f"{chosen.admission_blacksmith_wait:.0f} min on Blacksmith")
         whole = chosen.room >= jobs and (chosen.root_room is None or chosen.root_room >= root_jobs)
         kept = f", and {reserve} kept free for pull requests" if reserve else ""
         earlier = [other for other in candidates[:candidates.index(label)] if persistent(other)]
@@ -1855,7 +1896,8 @@ def choose(
         # cannot show. One job each (admission) may still wait where no
         # runner is idle; their later jobs are not charged (live_pools()).
         older = {label: max(0, count - recent.runs().get(label, 0)) for label, count in before.runs().items()}
-        snapshot, owned_capacity = live_pools(snapshot, live_owned or {}, owned_capacity, older, live_online)
+        snapshot, owned_capacity = live_pools(snapshot, live_owned or {}, owned_capacity, older, live_online,
+                                              snapshot_age_minutes(snapshot, now))
     # On a pool with gui runners each newer run holds one root runner (its
     # admission), not its whole peak: charging the peak left 0 of 15 root
     # runners for a run while 3 newer runs held 3 (cmux run 36371179217,

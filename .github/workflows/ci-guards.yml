@@ -542,6 +542,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_r2_cache_prune.py
 
+      - name: Validate the PR media pruner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_prune_pr_media.py
+
       - name: Validate nightly prune Python compatibility
         if: ${{ matrix.group == 'release-tooling' }}
         run: |
