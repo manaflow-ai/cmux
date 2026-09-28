@@ -51,6 +51,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return [
                     "workspace.updated", "mobile.sync.delta",
                     "terminal.bytes", "terminal.render_grid", "terminal.set_font",
+                    "mobile.terminal.size_state", "mobile.terminal.detached",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
                     "mobile.compatible_tags.changed",
@@ -61,6 +62,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return [
                     "workspace.updated", "mobile.sync.delta",
                     "terminal.render_grid", "terminal.set_font",
+                    "mobile.terminal.size_state", "mobile.terminal.detached",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
                     "mobile.compatible_tags.changed",
@@ -71,6 +73,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return [
                     "workspace.updated", "mobile.sync.delta",
                     "terminal.bytes", "terminal.set_font",
+                    "mobile.terminal.size_state", "mobile.terminal.detached",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
                     "mobile.compatible_tags.changed",
@@ -1555,6 +1558,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var secondaryAggregationScopeGeneration = 0
     var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     var effectiveViewportSizesBySurfaceID: [String: MobileTerminalViewportSize]; var reportedTerminalViewportSizesBySurfaceID: [String: MobileTerminalViewportSize]
+    /// Shared sizing state per terminal surface (size state, self participant,
+    /// attachment). See `MobileShellComposite+TerminalSizing.swift`.
+    var terminalSizingBySurfaceID: [String: MobileTerminalSizingSurface] = [:]
     /// Monotonic viewport fences scoped to the Mac app instance that consumes
     /// them. Warm Iroh focus swaps keep both peer connections alive, so their
     /// counters must survive independently for the signed-in account lifetime.
@@ -2411,7 +2417,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// click; a normal screen treats it as a harmless empty selection. The
     /// render-grid mirrors any resulting change back. Fire-and-forget.
     public func clickTerminal(surfaceID: String, col: Int, row: Int) async {
-        guard let client = remoteClient,
+        guard terminalAllowsTraffic(surfaceID: surfaceID),
+              let client = remoteClient,
               let workspaceID = workspaceID(forTerminalID: surfaceID) else {
             return
         }
@@ -13033,9 +13040,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         latencyBatchNumber: UInt64? = nil,
         sendStatusOperationID: UUID? = nil
     ) async {
-        guard let client = remoteClient else {
+        guard let client = remoteClient,
+              terminalAllowsTraffic(surfaceID: terminalID.rawValue) else {
             #if DEBUG
-            mobileShellLog.info("skip remote terminal input remoteClient=0")
+            mobileShellLog.info("skip remote terminal input remoteClient=\(self.remoteClient == nil ? 0 : 1, privacy: .public) detached=\(self.terminalAllowsTraffic(surfaceID: terminalID.rawValue) ? 0 : 1, privacy: .public)")
             #endif
             Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
             finishRawTerminalSend(
@@ -13402,9 +13410,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 surfaceID: terminalID.rawValue
             )
         }
-        guard let client = remoteClient else {
+        guard let client = remoteClient,
+              terminalAllowsTraffic(surfaceID: terminalID.rawValue) else {
             #if DEBUG
-            mobileShellLog.info("skip remote terminal paste remoteClient=0")
+            mobileShellLog.info("skip remote terminal paste remoteClient=\(self.remoteClient == nil ? 0 : 1, privacy: .public)")
             #endif
             return false
         }
@@ -13545,7 +13554,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
     ) async -> Bool {
-        guard let client = remoteClient else { return false }
+        guard let client = remoteClient,
+              terminalAllowsTraffic(surfaceID: terminalID.rawValue) else { return false }
         let generation = connectionGeneration
         do {
             #if DEBUG
@@ -13990,6 +14000,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     self.handleTerminalRenderGridEvent(event)
                 } else if event.topic == "terminal.set_font" {
                     self.handleTerminalSetFontEvent(event)
+                } else if event.topic == Self.terminalSizeStateTopic {
+                    self.handleTerminalSizeStateEvent(event)
+                } else if event.topic == Self.terminalDetachedTopic {
+                    self.handleTerminalDetachedEvent(event)
                 } else if event.topic == "terminal.bytes" {
                     // Raw PTY bytes coming from the Mac surface's libghostty
                     // pty-tee. This is the compatibility fallback when the Mac
@@ -15213,6 +15227,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             deliverDemonstrationTerminalReplay(surfaceID: surfaceID)
             return
         }
+        guard terminalAllowsTraffic(surfaceID: surfaceID) else {
+            // The host detached this phone from the terminal; only an
+            // explicit reattach may replay it again.
+            clearTerminalReplayBarrierIfCurrent(
+                surfaceID: surfaceID,
+                token: replayBarrierTokenForRequest,
+                reason: "detached"
+            )
+            return
+        }
         if replayBarrierToken == nil, terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] != nil {
             // A pending viewport acknowledgement owns the next replay
             // decision. Record the suppressed request as owed output so the
@@ -15449,6 +15473,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     return
                 }
                 let payload = decoded.payload
+                if let payload {
+                    self.applyTerminalReplaySizing(payload, surfaceID: surfaceID)
+                }
                 let bytes = decoded.bytes
                 let snapshotBytes = decoded.snapshotBytes
                 let decodedRenderGrid = payload?.renderGrid

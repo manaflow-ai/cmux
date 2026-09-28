@@ -29,6 +29,7 @@ extension MobileShellComposite {
     /// in flight, newer deltas are summed into the next request instead of
     /// piling up stale scroll packets.
     public func scrollTerminal(surfaceID: String, lines: Double, col: Int, row: Int) async {
+        guard terminalAllowsTraffic(surfaceID: surfaceID) else { return }
         // Screen-anchored sessions own primary-screen scrolling: the gesture
         // already moved the local mirror's viewport over locally accumulated
         // scrollback, the Mac's viewport is not shared, and no prefetch window
