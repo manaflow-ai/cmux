@@ -31,6 +31,11 @@ struct AgentFeedReplyComposer: View {
     let actions: AgentFeedActions
     @Environment(\.dismiss) private var dismiss
     @State private var draft = ""
+    /// The event's complete text once the user expands the quote; the sheet
+    /// focuses one event, so its full content is readable in place.
+    @State private var expandedFullText: String?
+    @State private var isLoadingFullText = false
+    @State private var fullTextLoadFailed = false
     @FocusState private var editorFocused: Bool
 
     private var model: AgentFeedRowModel { AgentFeedRowModel(item: context.item) }
@@ -110,10 +115,49 @@ struct AgentFeedReplyComposer: View {
                     }
                 }
                 if let output = model.presentation.outputText {
-                    Text(output)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(6)
+                    AgentFeedMarkdownText(
+                        markdown: expandedFullText ?? output,
+                        font: .subheadline,
+                        color: .secondary,
+                        lineLimit: expandedFullText == nil ? 6 : nil
+                    )
+                    .fixedSize(horizontal: false, vertical: true)
+                    if expandedFullText == nil, model.item.fullTextTruncated || fullTextLoadFailed {
+                        Button {
+                            guard !isLoadingFullText else { return }
+                            isLoadingFullText = true
+                            fullTextLoadFailed = false
+                            let item = context.item
+                            Task {
+                                defer { isLoadingFullText = false }
+                                do {
+                                    expandedFullText = try await actions.loadFullText(item)
+                                } catch {
+                                    fullTextLoadFailed = true
+                                }
+                            }
+                        } label: {
+                            if isLoadingFullText {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Text(fullTextLoadFailed
+                                    ? String(
+                                        localized: "mobile.agentFeed.compose.fullTextRetry",
+                                        defaultValue: "Couldn't load the full message. Try again",
+                                        bundle: .module
+                                    )
+                                    : String(
+                                        localized: "mobile.agentFeed.fullText.seeMore",
+                                        defaultValue: "See more",
+                                        bundle: .module
+                                    ))
+                                    .font(.footnote.weight(.medium))
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityIdentifier("MobileAgentFeedComposeSeeMore")
+                        .padding(.top, 2)
+                    }
                 }
                 Text(replyingToLine)
                     .font(.footnote)
