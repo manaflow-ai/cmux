@@ -17,16 +17,76 @@ struct CloudWorkspaceCreationReveal: Equatable {
 }
 
 /// The latest creation reveal per window, published to that window's Cloud tree.
+///
+/// A flow begins a reveal when its window selects the new local workspace,
+/// completes it once the daemon's receipt names the remote workspace, and
+/// withdraws it when the create fails, is cancelled or is rejected. The tree
+/// decides whether the selection is still its to move.
 @MainActor @Observable
 final class CloudWorkspaceCreationReveals {
-    func reveal(for manager: TabManager?) -> CloudWorkspaceCreationReveal? { nil }
+    private struct Entry {
+        weak var manager: TabManager?
+        var reveal: CloudWorkspaceCreationReveal
+    }
 
+    private var entries: [ObjectIdentifier: Entry] = [:]
+
+    func reveal(for manager: TabManager?) -> CloudWorkspaceCreationReveal? {
+        guard let manager, let entry = entries[ObjectIdentifier(manager)], entry.manager === manager else { return nil }
+        return entry.reveal
+    }
+
+    /// Starts a reveal in the window that selected the new workspace; a newer
+    /// create in the same window replaces it.
     @discardableResult
-    func begin(in manager: TabManager) -> UUID { UUID() }
+    func begin(in manager: TabManager) -> UUID {
+        entries = entries.filter { $0.value.manager != nil }
+        let token = UUID()
+        entries[ObjectIdentifier(manager)] = Entry(manager: manager, reveal: .init(token: token))
+        return token
+    }
 
-    func receive(_ token: UUID, machine: SurfaceMachineID, remoteWorkspaceID: String) {}
+    func receive(_ token: UUID, machine: SurfaceMachineID, remoteWorkspaceID: String) {
+        update(token) {
+            $0.machine = machine
+            $0.remoteWorkspaceID = remoteWorkspaceID
+        }
+    }
 
-    func receive(_ token: UUID, revealing workspace: Workspace) {}
+    /// Completes a reveal from the local workspace's Cloud binding.
+    func receive(_ token: UUID, revealing workspace: Workspace) {
+        guard let binding = workspace.cloudVMBinding, let remoteWorkspaceID = binding.remoteWorkspaceID,
+              !binding.vmID.isEmpty, !remoteWorkspaceID.isEmpty else {
+            withdraw(token)
+            return
+        }
+        receive(token, machine: SurfaceMachineID(rawValue: binding.vmID), remoteWorkspaceID: remoteWorkspaceID)
+    }
 
-    func withdraw(_ token: UUID) {}
+    /// Runs a create that selects its workspace only when it finishes. The
+    /// reveal starts now, so a selection made while it runs still wins, and
+    /// follows the workspace `body` selected, or is withdrawn.
+    func revealing(in manager: TabManager?, _ body: @MainActor () async throws -> Workspace?) async rethrows {
+        guard let manager else {
+            _ = try await body()
+            return
+        }
+        let token = begin(in: manager)
+        var selected: Workspace?
+        defer {
+            if let selected { receive(token, revealing: selected) } else { withdraw(token) }
+        }
+        selected = try await body()
+    }
+
+    func withdraw(_ token: UUID) {
+        update(token) { $0.isWithdrawn = true }
+    }
+
+    private func update(_ token: UUID, _ body: (inout CloudWorkspaceCreationReveal) -> Void) {
+        guard let key = entries.first(where: { $0.value.reveal.token == token })?.key,
+              var entry = entries[key], !entry.reveal.isWithdrawn else { return }
+        body(&entry.reveal)
+        entries[key] = entry
+    }
 }
