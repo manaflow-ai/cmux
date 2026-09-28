@@ -40,8 +40,8 @@ struct TerminalSurfaceMountOwnershipTests {
 
         #expect(surfaceView.window == nil)
         coordinator.attach(surfaceView: surfaceView)
-        for _ in 0..<20 {
-            await Task.yield()
+        _ = await waitUntil(timeout: .seconds(2)) {
+            store.terminalByteContinuationsBySurfaceID[surfaceID] != nil
         }
 
         #expect(store.terminalByteContinuationsBySurfaceID[surfaceID] == nil)
@@ -86,11 +86,11 @@ struct TerminalSurfaceMountOwnershipTests {
 
         surfaceView.frame = host.view.bounds
         host.view.addSubview(surfaceView)
-        for _ in 0..<20 {
-            await Task.yield()
-        }
+        #expect(await waitUntil { surfaceView.window != nil })
+        coordinator.attach(surfaceView: surfaceView)
         #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] == nil)
 
+        let firstReportID = surfaceView.requestViewportReportForMount()
         coordinator.ghosttySurfaceView(
             surfaceView,
             didResize: TerminalGridSize(
@@ -99,18 +99,20 @@ struct TerminalSurfaceMountOwnershipTests {
                 pixelWidth: 1_296,
                 pixelHeight: 2_135
             ),
-            reportID: 1
+            reportID: firstReportID
         )
         let mounted = await waitUntil {
             store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil
         }
         #expect(mounted)
         let firstToken = try #require(store.terminalOutputStreamTokensBySurfaceID[surfaceID])
-        #expect(store.terminalViewportGeneration(for: surfaceID) == 1)
         #expect(store.reportedViewportSizesByTerminalKey.values.contains(
             MobileTerminalViewportSize(columns: 72, rows: 61)
         ))
 
+        let generationBeforeDetach = try #require(
+            store.terminalViewportGeneration(for: surfaceID)
+        )
         surfaceView.removeFromSuperview()
         let unmounted = await waitUntil {
             store.terminalOutputStreamTokensBySurfaceID[surfaceID] == nil
@@ -120,17 +122,17 @@ struct TerminalSurfaceMountOwnershipTests {
         // viewport lease. Releasing it here manufactured clear→apply resize
         // pairs during transient SwiftUI remounts and fed #13474's SIGWINCH
         // replay loop.
-        #expect(store.terminalViewportGeneration(for: surfaceID) == 1)
+        #expect(store.terminalViewportGeneration(for: surfaceID) == generationBeforeDetach)
         #expect(store.reportedViewportSizesByTerminalKey.values.contains(
             MobileTerminalViewportSize(columns: 72, rows: 61)
         ))
 
         host.view.addSubview(surfaceView)
-        for _ in 0..<20 {
-            await Task.yield()
-        }
+        #expect(await waitUntil { surfaceView.window != nil })
+        coordinator.attach(surfaceView: surfaceView)
         #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] == nil)
 
+        let remountReportID = surfaceView.requestViewportReportForMount()
         coordinator.ghosttySurfaceView(
             surfaceView,
             didResize: TerminalGridSize(
@@ -139,7 +141,7 @@ struct TerminalSurfaceMountOwnershipTests {
                 pixelWidth: 1_296,
                 pixelHeight: 2_135
             ),
-            reportID: 2
+            reportID: remountReportID
         )
         let remounted = await waitUntil {
             guard let token = store.terminalOutputStreamTokensBySurfaceID[surfaceID] else { return false }
@@ -223,12 +225,13 @@ struct TerminalSurfaceMountOwnershipTests {
 
     @MainActor
     private func waitUntil(
-        attempts: Int = 100,
+        timeout: Duration = .seconds(5),
         _ predicate: () -> Bool
     ) async -> Bool {
-        for _ in 0..<attempts {
-            if predicate() { return true }
-            await Task.yield()
+        let clock = ContinuousClock()
+        let deadline = clock.now + timeout
+        while !predicate(), clock.now < deadline {
+            try? await clock.sleep(for: .milliseconds(10))
         }
         return predicate()
     }

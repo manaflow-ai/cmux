@@ -482,9 +482,21 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
                     self?.outputStartContinuation = continuation
                 }
             }
+            // The viewport scheduler can have a send already queued when UIKit
+            // reports that the surface left its window. Give this mount a
+            // generation before creating the scheduler so a deferred send or
+            // echo can prove that it still belongs to the mounted owner.
+            outputTaskGeneration &+= 1
+            let taskGeneration = outputTaskGeneration
             viewportReportScheduler = TerminalViewportReportScheduler(
-                send: { [weak self] report in
-                    guard let self, let store = self.store else { return nil }
+                send: { [weak self, weak surfaceView] report in
+                    guard let self,
+                          let store = self.store,
+                          let surfaceView,
+                          self.outputTaskGeneration == taskGeneration,
+                          self.terminalPresentationIsActive,
+                          self.surfaceView === surfaceView,
+                          surfaceView.window != nil else { return nil }
                     self.noteViewportReportAttempt(report)
                     // The replay state machine compares incoming frame grids
                     // against the capacity this phone last told the daemon,
@@ -508,7 +520,12 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
                     )
                 },
                 apply: { [weak self, weak surfaceView] report, effectiveGrid in
-                    guard let self, let surfaceView else { return }
+                    guard let self,
+                          let surfaceView,
+                          self.outputTaskGeneration == taskGeneration,
+                          self.terminalPresentationIsActive,
+                          self.surfaceView === surfaceView,
+                          surfaceView.window != nil else { return }
                     // Consume the generation entry for EVERY reply, including
                     // timeout/nil replies. Keeping a dead entry until remount
                     // made repeated relay timeouts accumulate stale negotiation
@@ -552,8 +569,6 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
             // Drive every output chunk into the libghostty surface. The output
             // stream owns delivery only; this coordinator's presentation owns
             // the sticky viewport lease and releases it explicitly on teardown.
-            outputTaskGeneration &+= 1
-            let taskGeneration = outputTaskGeneration
             let ownerID = UUID()
             outputConsumerOwnerID = ownerID
             outputTask = Task { @MainActor [weak self, weak store] in

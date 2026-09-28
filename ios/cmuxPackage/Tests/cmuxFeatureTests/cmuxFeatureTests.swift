@@ -2895,7 +2895,7 @@ struct TerminalStreamTests {
         routes: [route],
         expiresAt: Date().addingTimeInterval(60)
     )
-    let router = PullToRefreshWorkspaceListRouter(refreshResponseDelayNanoseconds: 50_000_000)
+    let router = PullToRefreshWorkspaceListRouter(refreshResponseDelayNanoseconds: 2_000_000_000)
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: RequestAwareTransportFactory(router: router),
@@ -2911,6 +2911,7 @@ struct TerminalStreamTests {
     // must coalesce onto a single `mobile.workspace.list` round-trip, not stack
     // two fetches.
     async let first: Void = store.refreshWorkspaces()
+    await router.waitForRefreshRequest()
     async let second: Void = store.refreshWorkspaces()
     _ = await (first, second)
 
@@ -3863,6 +3864,8 @@ private actor ColdAttachFirstPaintRouter: RequestAwareTransportRouter {
 private actor PullToRefreshWorkspaceListRouter: RequestAwareTransportRouter {
     private let refreshResponseDelayNanoseconds: UInt64
     private var requests: [RecordedRPCRequest] = []
+    private var refreshRequestWasSent = false
+    private var refreshRequestWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(refreshResponseDelayNanoseconds: UInt64 = 0) {
         self.refreshResponseDelayNanoseconds = refreshResponseDelayNanoseconds
@@ -3870,10 +3873,25 @@ private actor PullToRefreshWorkspaceListRouter: RequestAwareTransportRouter {
 
     func record(_ request: RecordedRPCRequest) {
         requests.append(request)
+        guard request.method == "mobile.workspace.list",
+              !refreshRequestWasSent else { return }
+        refreshRequestWasSent = true
+        let waiters = refreshRequestWaiters
+        refreshRequestWaiters = []
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 
     func sentRequests() -> [RecordedRPCRequest] {
         requests
+    }
+
+    func waitForRefreshRequest() async {
+        guard !refreshRequestWasSent else { return }
+        await withCheckedContinuation { continuation in
+            refreshRequestWaiters.append(continuation)
+        }
     }
 
     func response(for request: RecordedRPCRequest) async throws -> Data? {

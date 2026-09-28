@@ -11,6 +11,88 @@ import Testing
 @Suite
 struct MobileHostOrderedInputTests {
     @Test
+    @MainActor
+    func canonicalOwnerFencesLanesAndRejectsReconnectStaleWork() async {
+        let ordering = MobileTerminalInputOrdering()
+        let oldToken = ordering.beginConnection(identity: "client:phone")
+        let surfaceID = UUID()
+        guard case let .success(oldTicket) = ordering.reserve(
+            surfaceID: surfaceID,
+            token: oldToken,
+            inputSequence: 7
+        ) else {
+            Issue.record("the first input reservation should be admitted")
+            return
+        }
+        await oldTicket.waitForTurn()
+
+        let newToken = ordering.beginConnection(identity: "client:phone")
+        #expect(!ordering.isCurrent(oldTicket))
+        ordering.finish(oldTicket)
+
+        guard case let .success(newTicket) = ordering.reserve(
+            surfaceID: surfaceID,
+            token: newToken,
+            inputSequence: 1
+        ) else {
+            Issue.record("a reconnect should receive a fresh input sequence epoch")
+            return
+        }
+        await newTicket.waitForTurn()
+        #expect(ordering.isCurrent(newTicket))
+        ordering.commit(newTicket)
+        ordering.finish(newTicket)
+
+        guard case .failure(.staleSequence) = ordering.reserve(
+            surfaceID: surfaceID,
+            token: newToken,
+            inputSequence: 1
+        ) else {
+            Issue.record("a duplicate input sequence should be rejected")
+            return
+        }
+    }
+
+    @Test
+    @MainActor
+    func failedReservationCanRetryUntilInputIsAccepted() async {
+        let ordering = MobileTerminalInputOrdering()
+        let token = ordering.beginConnection(identity: "client:phone")
+        let surfaceID = UUID()
+        guard case let .success(firstTicket) = ordering.reserve(
+            surfaceID: surfaceID,
+            token: token,
+            inputSequence: 4
+        ) else {
+            Issue.record("the first input reservation should be admitted")
+            return
+        }
+        await firstTicket.waitForTurn()
+        ordering.finish(firstTicket)
+
+        guard case let .success(retryTicket) = ordering.reserve(
+            surfaceID: surfaceID,
+            token: token,
+            inputSequence: 4
+        ) else {
+            Issue.record("a failed input should release its sequence for retry")
+            return
+        }
+        await retryTicket.waitForTurn()
+        ordering.commit(retryTicket)
+        ordering.finish(retryTicket)
+
+        guard case .failure(.staleSequence) = ordering.reserve(
+            surfaceID: surfaceID,
+            token: token,
+            inputSequence: 4
+        ) else {
+            Issue.record("an accepted input sequence should reject duplicate retry")
+            return
+        }
+    }
+
+    @Test
     func terminalInputRunsSeriallyWhileOtherRequestsRemainConcurrent() async throws {
         let transport = OrderedInputRecordingTransport()
         let gate = OrderedInputHandlerGate()
@@ -128,6 +210,92 @@ struct MobileHostOrderedInputTests {
     }
 
     @Test
+    func equivalentSurfaceUUIDSpellingsShareOneOrderingDomain() async throws {
+        let transport = OrderedInputRecordingTransport()
+        let gate = CanonicalSurfaceInputGate()
+        let connection = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { request in
+                await gate.handle(request)
+                return .ok(["handled": request.id ?? NSNull()])
+            },
+            onClose: { _ in }
+        )
+        let surfaceID = UUID()
+        let batch = try Self.framedBatch(
+            [
+                ("input-1", "terminal.input"),
+                ("input-2", "terminal.input"),
+            ],
+            surfaceIDsByRequestID: [
+                "input-1": surfaceID.uuidString.uppercased(),
+                "input-2": surfaceID.uuidString.lowercased(),
+            ]
+        )
+
+        await connection.debugHandleReceiveDataForTesting(batch)
+        await gate.waitUntilFirstInputStarts()
+        // Both spellings identify the same UUID. The second write must wait
+        // behind the first even though the wire strings differ.
+        let deadline = ContinuousClock.now + .seconds(1)
+        var secondInputStarted = await gate.secondInputStarted()
+        while !secondInputStarted, ContinuousClock.now < deadline {
+            await Task.yield()
+            secondInputStarted = await gate.secondInputStarted()
+        }
+        #expect(!secondInputStarted)
+        await gate.releaseFirstInput()
+        _ = await transport.waitForResponseCount(2)
+        await connection.close(reason: "test complete")
+    }
+
+    @Test
+    func equivalentTerminalAndSurfaceAliasesShareOneOrderingDomain() async throws {
+        let transport = OrderedInputRecordingTransport()
+        let gate = CanonicalSurfaceInputGate()
+        let connection = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { request in
+                await gate.handle(request)
+                return .ok(["handled": request.id ?? NSNull()])
+            },
+            onClose: { _ in }
+        )
+        let surfaceID = UUID()
+        let batch = try Self.framedBatch(
+            [
+                ("input-1", "terminal.input"),
+                ("input-2", "terminal.input"),
+            ],
+            surfaceIDsByRequestID: [
+                "input-1": surfaceID.uuidString.uppercased(),
+            ],
+            terminalIDsByRequestID: [
+                "input-2": surfaceID.uuidString.lowercased(),
+            ]
+        )
+
+        await connection.debugHandleReceiveDataForTesting(batch)
+        await gate.waitUntilFirstInputStarts()
+        let deadline = ContinuousClock.now + .seconds(1)
+        var secondInputStarted = await gate.secondInputStarted()
+        while !secondInputStarted, ContinuousClock.now < deadline {
+            await Task.yield()
+            secondInputStarted = await gate.secondInputStarted()
+        }
+        #expect(!secondInputStarted)
+        await gate.releaseFirstInput()
+        _ = await transport.waitForResponseCount(2)
+        await connection.close(reason: "test complete")
+    }
+
+    @Test
     func stalledResponseWriteDoesNotBlockLaterOrderedInput() async throws {
         let transport = OrderedInputRecordingTransport()
         await transport.setHoldSends(true)
@@ -174,7 +342,8 @@ struct MobileHostOrderedInputTests {
 
     private static func framedBatch(
         _ requests: [(id: String, method: String)],
-        surfaceIDsByRequestID: [String: String] = [:]
+        surfaceIDsByRequestID: [String: String] = [:],
+        terminalIDsByRequestID: [String: String] = [:]
     ) throws -> Data {
         var batch = Data()
         for request in requests {
@@ -183,6 +352,9 @@ struct MobileHostOrderedInputTests {
                 : [:]
             if let surfaceID = surfaceIDsByRequestID[request.id] {
                 params["surface_id"] = surfaceID
+            }
+            if let terminalID = terminalIDsByRequestID[request.id] {
+                params["terminal_id"] = terminalID
             }
             let payload: [String: Any] = [
                 "id": request.id,
@@ -194,6 +366,44 @@ struct MobileHostOrderedInputTests {
             ))
         }
         return batch
+    }
+}
+
+private actor CanonicalSurfaceInputGate {
+    private var firstInputStarted = false
+    private var didSecondInputStart = false
+    private var firstInputRelease: CheckedContinuation<Void, Never>?
+    private var firstInputWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func handle(_ request: MobileHostRPCRequest) async {
+        switch request.id as? String {
+        case "input-1":
+            firstInputStarted = true
+            resume(&firstInputWaiters)
+            await withCheckedContinuation { firstInputRelease = $0 }
+        case "input-2":
+            didSecondInputStart = true
+        default:
+            break
+        }
+    }
+
+    func waitUntilFirstInputStarts() async {
+        if firstInputStarted { return }
+        await withCheckedContinuation { firstInputWaiters.append($0) }
+    }
+
+    func secondInputStarted() -> Bool { didSecondInputStart }
+
+    func releaseFirstInput() {
+        firstInputRelease?.resume()
+        firstInputRelease = nil
+    }
+
+    private func resume(_ waiters: inout [CheckedContinuation<Void, Never>]) {
+        let pending = waiters
+        waiters = []
+        for waiter in pending { waiter.resume() }
     }
 }
 

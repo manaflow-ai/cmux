@@ -353,7 +353,7 @@ extension MobileShellComposite {
                     return
                 }
                 MobileDebugLog.anchormux("sync.v2 fallback reload attempt \(attempt)")
-                if await self.reloadWorkspaceListFromMac() { return }
+                if await self.runForegroundWorkspacePullToRefresh() { return }
                 try? await ContinuousClock().sleep(for: .seconds(2 << attempt))
             }
             mobileStateSyncLog.error("legacy fallback reload exhausted retries; awaiting next event or recovery")

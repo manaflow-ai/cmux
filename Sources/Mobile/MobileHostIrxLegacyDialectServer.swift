@@ -106,6 +106,11 @@ enum MobileHostIrxLegacyDialectServer {
             session: session,
             promoteUsableSession: { true }
         )
+        let terminalInputOrderingToken = await MainActor.run {
+            MobileHostService.shared.terminalInputOrdering.beginConnection(
+                identity: "iroh:\(peer.bindingID)"
+            )
+        }
         let eventWriter = MobileHostIrohServerEventWriter(session: admitted)
         let artifactTransfers = MobileHostIrohArtifactTransferRegistry()
         let laneRouter = MobileHostIrohApplicationLaneRouter(
@@ -113,7 +118,8 @@ enum MobileHostIrxLegacyDialectServer {
             artifactHandler: MobileHostIrohArtifactLaneHandler(
                 registry: artifactTransfers
             ),
-            simulatorStreamHandler: MobileHostIrohSimulatorStreamLaneHandler()
+            simulatorStreamHandler: MobileHostIrohSimulatorStreamLaneHandler(),
+            terminalInputOrderingToken: terminalInputOrderingToken
         )
         let supervisor = CmxIrohAdmittedConnectionSupervisor(
             runControl: {
@@ -125,6 +131,7 @@ enum MobileHostIrxLegacyDialectServer {
                     independentEventWriter: eventWriter,
                     firstFrameTimeoutNanoseconds: 0,
                     promoteUsableSession: { await admitted.markUsable() },
+                    terminalInputOrderingToken: terminalInputOrderingToken,
                     isCurrent: isCurrent
                 )
             },

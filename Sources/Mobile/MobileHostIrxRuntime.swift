@@ -971,6 +971,11 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             await irx.close(code: .identityMismatch, origin: .local)
             return
         }
+        let terminalInputOrderingToken = await MainActor.run {
+            MobileHostService.shared.terminalInputOrdering.beginConnection(
+                identity: "iroh:\(peer.bindingID)"
+            )
+        }
 
         let artifactRegistry = MobileHostIrohArtifactTransferRegistry()
         let eventWriter = MobileHostIrxEventWriter(connection: irx, journal: journal)
@@ -981,6 +986,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 irx, admittedPeer: admittedPeer, artifactRegistry: artifactRegistry,
                 controlTransport: controlTransport,
                 journal: journal,
+                terminalInputOrderingToken: terminalInputOrderingToken,
                 onInteractiveSurface: { surfaceID in
                     // Fire-and-forget: input delivery never waits on the
                     // output side. Keystrokes arrive at human rate.
@@ -1010,6 +1016,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             irohAdmissionIsAuthorized: { stillAuthorized(peer.endpointIDHex) },
             remoteControlDisabledByPolicy: { !stillAuthorized(peer.endpointIDHex) },
             peerRequestHandler: peerRequestHandler,
+            terminalInputOrderingToken: terminalInputOrderingToken,
             isCurrent: { [weak self] in
                 let runtime = self
                 return await MainActor.run { runtime?.isCurrent(token) == true }
@@ -1037,6 +1044,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         artifactRegistry: MobileHostIrohArtifactTransferRegistry,
         controlTransport: IrxControlByteTransport,
         journal: IrxJournal,
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken,
         onInteractiveSurface: @escaping MobileHostIrxTerminalLaneServer.InteractiveSurfaceObserver
     ) async {
         let terminalLaneQuota = MobileHostIrxTerminalLaneQuota()
@@ -1066,6 +1074,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                         cursor: cursor,
                         stream: lane.bidirectional(),
                         journal: journal,
+                        terminalInputOrderingToken: terminalInputOrderingToken,
                         onInteractiveSurface: onInteractiveSurface
                     )
                     await terminalLaneQuota.release()
@@ -1082,6 +1091,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                         resourceID: resource,
                         stream: lane.bidirectional(),
                         journal: journal,
+                        terminalInputOrderingToken: terminalInputOrderingToken,
                         onInteractiveSurface: onInteractiveSurface
                     )
                     await terminalLaneQuota.release()

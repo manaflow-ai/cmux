@@ -265,6 +265,8 @@ final class MobileHostService {
     nonisolated private static let maximumActiveConnectionCount = 10
     /// Process-lifetime owner for the repository-root summary TTL cache.
     let workspaceChangesService = WorkspaceChangesService()
+    /// Shared PTY ordering owner for mobile control RPCs and Iroh input lanes.
+    let terminalInputOrdering = MobileTerminalInputOrdering()
 
     nonisolated private static let terminalThemeRevisionEpoch = UUID().uuidString
     /// The single shape every public `mobile.host.status` reply uses (the
@@ -861,6 +863,7 @@ final class MobileHostService {
             MobileRemoteControlPolicy.isDisabled
         },
         peerRequestHandler: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)? = nil,
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken? = nil,
         isCurrent: @escaping @Sendable () async -> Bool
     ) async -> CmxIrohAdmittedConnectionExit {
         let expectedExit = CmxIrohAdmittedConnectionExit(
@@ -883,6 +886,22 @@ final class MobileHostService {
         }
 
         let id = UUID()
+        let inputOrderingToken: MobileTerminalInputOrderingToken
+        if let terminalInputOrderingToken {
+            inputOrderingToken = terminalInputOrderingToken
+        } else {
+            inputOrderingToken = await MainActor.run {
+                let identity: String? = switch authorization {
+                case .stackBearer:
+                    nil
+                case let .irohAdmission(peer):
+                    "iroh:\(peer.bindingID)"
+                }
+                return MobileHostService.shared.terminalInputOrdering.beginConnection(
+                    identity: identity
+                )
+            }
+        }
         let defaultFirstFrameTimeout: UInt64 = switch authorization {
         case .irohAdmission:
             // Iroh owns admission and native connection liveness. A delayed
@@ -912,6 +931,14 @@ final class MobileHostService {
                     return
                 }
                 await MobileHostService.shared.recordClientID(clientID, for: id)
+                await MainActor.run {
+                    if case .stackBearer = authorization {
+                        MobileHostService.shared.terminalInputOrdering.rebind(
+                            inputOrderingToken,
+                            identity: "client:\(clientID)"
+                        )
+                    }
+                }
             },
             onUsableSession: {
                 guard await promoteUsableSession() else { return false }
@@ -947,7 +974,8 @@ final class MobileHostService {
                     executionContext: MobileHostRPCExecutionContext(
                         connectionID: id,
                         authorization: authorization,
-                        artifactTransfers: artifactTransfers
+                        artifactTransfers: artifactTransfers,
+                        terminalInputOrderingToken: inputOrderingToken
                     )
                 )
                 await MobileHostService.shared.recordCreatedResourcesIfNeeded(
@@ -956,7 +984,23 @@ final class MobileHostService {
                 )
                 return result
             },
+            orderedInputSurfaceKey: { request in
+                await MainActor.run {
+                    let resolved = TerminalController.shared.mobileResolveWorkspaceAndSurface(
+                        params: request.params,
+                        requireTerminal: true,
+                        materializeSurface: false
+                    )
+                    return resolved?.surfaceId?.uuidString.lowercased()
+                        ?? ""
+                }
+            },
             onClose: { id in
+                await MainActor.run {
+                    MobileHostService.shared.terminalInputOrdering.invalidate(
+                        inputOrderingToken
+                    )
+                }
                 await MobileHostService.shared.mobileBrowserStreamCoordinator.connectionClosed(id)
                 await MobileHostService.shared.mobileSimulatorStreamCoordinator.connectionClosed(id)
                 MobileHostConnectionRegistry.shared.remove(id: id)
@@ -971,6 +1015,11 @@ final class MobileHostService {
         )
         guard await isCurrent() else {
             await transport.close()
+            await MainActor.run {
+                MobileHostService.shared.terminalInputOrdering.invalidate(
+                    inputOrderingToken
+                )
+            }
             MobileHostRequestActivity.endConnection()
             return expectedExit
         }
@@ -984,6 +1033,11 @@ final class MobileHostService {
                 "mobile host rejected connection because an active connection quota was reached"
             )
             await transport.close()
+            await MainActor.run {
+                MobileHostService.shared.terminalInputOrdering.invalidate(
+                    inputOrderingToken
+                )
+            }
             MobileHostRequestActivity.endConnection()
             return expectedExit
         }
@@ -1446,6 +1500,10 @@ actor MobileHostConnection {
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
     private let onUsableSession: @Sendable () async -> Bool
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
+    /// Resolves an ordered request to the canonical live surface before it is
+    /// assigned to a per-surface FIFO. The default keeps standalone tests and
+    /// compatibility callers on the legacy request-key behavior.
+    private let orderedInputSurfaceKey: @Sendable (MobileHostRPCRequest) async -> String
     private let onClose: @Sendable (UUID) async -> Void
     private let requestSimulatorFrameReplay: @Sendable (UUID, Set<String>) async -> Void
     private let responseWorkQuota = MobileHostRPCWorkQuota()
@@ -1504,6 +1562,9 @@ actor MobileHostConnection {
         onUsableSession: @escaping @Sendable () async -> Bool = { true },
         isAuthorizationCurrent: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
+        orderedInputSurfaceKey: @escaping @Sendable (MobileHostRPCRequest) async -> String = {
+            $0.orderedInputSurfaceKey
+        },
         onClose: @escaping @Sendable (UUID) async -> Void,
         requestSimulatorFrameReplay: @escaping @Sendable (UUID, Set<String>) async -> Void = { _, _ in }
     ) {
@@ -1518,6 +1579,7 @@ actor MobileHostConnection {
         self.onAuthorizedRequest = onAuthorizedRequest
         self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
+        self.orderedInputSurfaceKey = orderedInputSurfaceKey
         self.onClose = onClose
         self.requestSimulatorFrameReplay = requestSimulatorFrameReplay
         self.eventQueue = eventQueue
@@ -1534,6 +1596,9 @@ actor MobileHostConnection {
         onUsableSession: @escaping @Sendable () async -> Bool = { true },
         isAuthorizationCurrent: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
+        orderedInputSurfaceKey: @escaping @Sendable (MobileHostRPCRequest) async -> String = {
+            $0.orderedInputSurfaceKey
+        },
         onClose: @escaping @Sendable (UUID) async -> Void,
         requestSimulatorFrameReplay: @escaping @Sendable (UUID, Set<String>) async -> Void = { _, _ in }
     ) {
@@ -1547,6 +1612,7 @@ actor MobileHostConnection {
         self.onAuthorizedRequest = onAuthorizedRequest
         self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
+        self.orderedInputSurfaceKey = orderedInputSurfaceKey
         self.onClose = onClose
         self.requestSimulatorFrameReplay = requestSimulatorFrameReplay
         self.eventQueue = eventQueue
@@ -1675,7 +1741,7 @@ actor MobileHostConnection {
                     }
                     for frame in frames {
                         guard !isClosed else { return }
-                        if !startResponseTask(for: frame) {
+                        if !(await startResponseTask(for: frame)) {
                             // Work pressure fails this request explicitly; it
                             // does not invalidate the authenticated connection.
                             let request = try? MobileHostRPCEnvelope.decodeRequest(frame).get()
@@ -1712,7 +1778,7 @@ actor MobileHostConnection {
         }
     }
 
-    private func startResponseTask(for frame: Data) -> Bool {
+    private func startResponseTask(for frame: Data) async -> Bool {
         guard !isClosed else {
             return false
         }
@@ -1730,7 +1796,7 @@ actor MobileHostConnection {
         ) else { return false }
         if case let .success(request) = decodedRequest,
            request.isOrderedTerminalInput {
-            let surfaceKey = request.orderedInputSurfaceKey
+            let surfaceKey = await orderedInputSurfaceKey(request)
             noteInteractiveSurface(surfaceKey)
             orderedRequestQueuesBySurfaceKey[surfaceKey, default: MobileHostOrderedRequestQueue()]
                 .enqueue(MobileHostOrderedRequest(
