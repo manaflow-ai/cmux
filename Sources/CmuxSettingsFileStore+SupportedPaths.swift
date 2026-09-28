@@ -73,6 +73,7 @@ extension CmuxSettingsFileStore {
         "notifications.paneFlash",
         "notifications.paneFlashColor",
         "notifications.sound",
+        "notifications.soundWhenFocused",
         "notifications.customSoundFilePath",
         "notifications.soundOverrides",
         "notifications.command",

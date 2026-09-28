@@ -1102,6 +1102,13 @@
           "descriptionKey": "schemaDescriptions.notifications.paneFlashColor",
           "description": "Override the pane flash and unread ring color. Null keeps the built-in blue."
         },
+        "soundWhenFocused": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.notifications.soundWhenFocused",
+          "description": "Play the notification sound even when the pane that notified is already focused. Off by default, so a focused pane shows only its ring and flash."
+        },
         "suppressOnlyFocusedSurface": {
           "x-cmux-scopes": ["global"],
           "type": "boolean",
