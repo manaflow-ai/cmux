@@ -12,58 +12,61 @@ import Testing
 struct TerminalSSHSessionDetectorProcessSnapshotTests {
     @Test("A TTY's foreground process group is read from the kernel with its members' names")
     func processSnapshotsFindTheForegroundProcessGroup() throws {
-        var controller: Int32 = -1
-        var follower: Int32 = -1
-        var nameBuffer = [CChar](repeating: 0, count: 128)
-        try #require(openpty(&controller, &follower, &nameBuffer, nil, nil) == 0)
-        defer { close(controller) }
-        let ttyPath = String(cString: nameBuffer)
-        // The child opens the TTY after setsid so it becomes the controlling terminal.
-        close(follower)
+        // script(1) gives its child a new PTY as the controlling terminal and
+        // makes it the foreground process group, like a shell job in a pane.
+        let script = Process()
+        script.executableURL = URL(fileURLWithPath: "/usr/bin/script")
+        script.arguments = ["-q", "/dev/null", "/bin/sleep", "30"]
+        script.standardInput = FileHandle.nullDevice
+        script.standardOutput = FileHandle.nullDevice
+        script.standardError = FileHandle.nullDevice
+        try script.run()
+        defer { script.terminate() }
 
-        var attributes: posix_spawnattr_t?
-        posix_spawnattr_init(&attributes)
-        defer { posix_spawnattr_destroy(&attributes) }
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID))
-
-        var fileActions: posix_spawn_file_actions_t?
-        posix_spawn_file_actions_init(&fileActions)
-        defer { posix_spawn_file_actions_destroy(&fileActions) }
-        posix_spawn_file_actions_addopen(&fileActions, 0, ttyPath, O_RDWR, 0)
-        posix_spawn_file_actions_adddup2(&fileActions, 0, 1)
-        posix_spawn_file_actions_adddup2(&fileActions, 0, 2)
-
-        let arguments = ["/bin/sleep", "30"].map { strdup($0) } + [nil]
-        defer { arguments.forEach { free($0) } }
-        var pid: pid_t = 0
-        try #require(posix_spawn(&pid, "/bin/sleep", &fileActions, &attributes, arguments, environ) == 0)
-        defer {
-            kill(pid, SIGKILL)
-            waitpid(pid, nil, 0)
-        }
-
-        let ttyName = (ttyPath as NSString).lastPathComponent
+        var child: (pid: Int32, ttyName: String)?
         var snapshot: TerminalSSHSessionDetector.ProcessSnapshot?
         let deadline = Date().addingTimeInterval(10)
-        // posix_spawn returns before the child has exec'd and opened its TTY.
-        while Date() < deadline {
-            snapshot = TerminalSSHSessionDetector.processSnapshots(inProcessGroup: pid, ttyName: ttyName)
-                .first { $0.pid == pid && $0.executableName == "sleep" }
-            if snapshot != nil { break }
-            usleep(20_000)
+        // The child execs sleep and acquires its TTY after script.run() returns.
+        while snapshot == nil, Date() < deadline {
+            child = Self.childWithControllingTTY(of: script.processIdentifier)
+            if let child {
+                snapshot = TerminalSSHSessionDetector
+                    .processSnapshots(inProcessGroup: child.pid, ttyName: child.ttyName)
+                    .first { $0.pid == child.pid && $0.executableName == "sleep" }
+            }
+            if snapshot == nil { usleep(20_000) }
         }
+        defer { if let child { kill(child.pid, SIGKILL) } }
 
         let found = try #require(snapshot)
+        let ttyName = try #require(child?.ttyName)
         #expect(found.tty == ttyName)
-        #expect(found.pgid == pid)
-        #expect(found.tpgid == pid)
+        #expect(found.pgid == found.pid)
+        #expect(found.tpgid == found.pid)
         // A TTY that does not exist matches no member of the group.
-        #expect(TerminalSSHSessionDetector.processSnapshots(inProcessGroup: pid, ttyName: "ttys-cmux-missing").isEmpty)
-        #expect(TerminalSSHSessionDetector.detect(foregroundProcessGroup: pid, ttyName: ttyName) == nil)
+        #expect(TerminalSSHSessionDetector.processSnapshots(inProcessGroup: found.pid, ttyName: "ttys-cmux-missing").isEmpty)
+        #expect(TerminalSSHSessionDetector.detect(foregroundProcessGroup: found.pid, ttyName: ttyName) == nil)
     }
 
     @Test("An empty process group has no processes")
     func processSnapshotsForMissingProcessGroupAreEmpty() {
         #expect(TerminalSSHSessionDetector.processSnapshots(inProcessGroup: 0, ttyName: "ttys000").isEmpty)
+    }
+
+    private static func childWithControllingTTY(of parent: pid_t) -> (pid: Int32, ttyName: String)? {
+        var children = [pid_t](repeating: 0, count: 8)
+        let count = proc_listchildpids(parent, &children, Int32(children.count * MemoryLayout<pid_t>.size))
+        for pid in children.prefix(Int(max(count, 0))) where pid > 0 {
+            var mib = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+            var info = kinfo_proc()
+            var size = MemoryLayout<kinfo_proc>.stride
+            guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0,
+                  info.kp_eproc.e_tdev != -1,
+                  let name = devname(info.kp_eproc.e_tdev, S_IFCHR) else {
+                continue
+            }
+            return (pid, String(cString: name))
+        }
+        return nil
     }
 }
