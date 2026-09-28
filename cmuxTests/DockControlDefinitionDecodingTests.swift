@@ -817,65 +817,67 @@ struct DockControlDefinitionDecodingTests {
     @Test("Dock pane close prompt lists every tab that will close")
     @MainActor
     func dockPaneClosePromptListsEveryTabThatWillClose() async throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        let manager = TabManager()
-        AppDelegate.shared = appDelegate
-        appDelegate.tabManager = manager
-        defer { AppDelegate.shared = previousAppDelegate }
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            let manager = TabManager()
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            defer { AppDelegate.shared = previousAppDelegate }
 
-        let workspace = try #require(manager.tabs.first)
-        defer { workspace.teardownAllPanels() }
+            let workspace = try #require(manager.tabs.first)
+            defer { workspace.teardownAllPanels() }
 
-        let store = workspace.requiredDockSplitForTesting
-        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
-        let dirtyPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
-        let cleanPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: false))
-        let dirtyPanel = try terminalPanel(in: store, panelId: dirtyPanelId)
-        let cleanPanel = try terminalPanel(in: store, panelId: cleanPanelId)
-        dirtyPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
-        cleanPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
-        let resumeBinding = SurfaceResumeBindingSnapshot(
-            name: "tmux",
-            kind: "tmux",
-            command: "tmux attach-session -t dock-cancelled-pane",
-            cwd: "/tmp",
-            checkpointId: "dock-cancelled-pane",
-            source: "process-detected",
-            autoResume: true,
-            updatedAt: 1_999_999_999
-        )
-        store.surfaceResumeBindingsByPanelId[dirtyPanelId] = resumeBinding
-        defer {
-            dirtyPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil)
-            cleanPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil)
+            let store = workspace.requiredDockSplitForTesting
+            let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+            let dirtyPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+            let cleanPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: false))
+            let dirtyPanel = try terminalPanel(in: store, panelId: dirtyPanelId)
+            let cleanPanel = try terminalPanel(in: store, panelId: cleanPanelId)
+            dirtyPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+            cleanPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
+            let resumeBinding = SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach-session -t dock-cancelled-pane",
+                cwd: "/tmp",
+                checkpointId: "dock-cancelled-pane",
+                source: "process-detected",
+                autoResume: true,
+                updatedAt: 1_999_999_999
+            )
+            store.surfaceResumeBindingsByPanelId[dirtyPanelId] = resumeBinding
+            defer {
+                dirtyPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil)
+                cleanPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil)
+            }
+
+            var capturedPrompt: (title: String, message: String, acceptCmdD: Bool)?
+            manager.confirmCloseHandler = { title, message, acceptCmdD in
+                capturedPrompt = (title, message, acceptCmdD)
+                return false
+            }
+
+            #expect(!store.splitTabBar(store.bonsplitController, shouldClosePane: rootPane))
+            for _ in 0..<10 where capturedPrompt == nil {
+                await Task.yield()
+            }
+
+            let expectedMessage = String(
+                format: String(
+                    localized: "dialog.closePane.message.other",
+                    defaultValue: "This will close %1$lld tabs in this pane:\n%2$@"
+                ),
+                locale: .current,
+                Int64(2),
+                "• Terminal\n• Terminal"
+            )
+            #expect(capturedPrompt?.title == String(localized: "dialog.closePane.title", defaultValue: "Close pane?"))
+            #expect(capturedPrompt?.message == expectedMessage)
+            #expect(capturedPrompt?.acceptCmdD == false)
+            #expect(store.containsPanel(dirtyPanelId))
+            #expect(store.surfaceResumeBindingsByPanelId[dirtyPanelId] == resumeBinding)
         }
-
-        var capturedPrompt: (title: String, message: String, acceptCmdD: Bool)?
-        manager.confirmCloseHandler = { title, message, acceptCmdD in
-            capturedPrompt = (title, message, acceptCmdD)
-            return false
-        }
-
-        #expect(!store.splitTabBar(store.bonsplitController, shouldClosePane: rootPane))
-        for _ in 0..<10 where capturedPrompt == nil {
-            await Task.yield()
-        }
-
-        let expectedMessage = String(
-            format: String(
-                localized: "dialog.closePane.message.other",
-                defaultValue: "This will close %1$lld tabs in this pane:\n%2$@"
-            ),
-            locale: .current,
-            Int64(2),
-            "• Terminal\n• Terminal"
-        )
-        #expect(capturedPrompt?.title == String(localized: "dialog.closePane.title", defaultValue: "Close pane?"))
-        #expect(capturedPrompt?.message == expectedMessage)
-        #expect(capturedPrompt?.acceptCmdD == false)
-        #expect(store.containsPanel(dirtyPanelId))
-        #expect(store.surfaceResumeBindingsByPanelId[dirtyPanelId] == resumeBinding)
     }
 
     @Test("Cancelled Dock tab close preserves its live resume binding")

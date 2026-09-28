@@ -39,6 +39,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let showProgressKey = sidebar.showProgress.userDefaultsKey
     static let showAgentActivityKey = sidebar.showAgentActivity.userDefaultsKey
     static let showCustomMetadataKey = sidebar.showCustomMetadata.userDefaultsKey
+    static let compactAgentStatusKey = sidebar.compactAgentStatus.userDefaultsKey
 
     static let showBranchDirectory = sidebar.showBranchDirectory.defaultValue
     static let showPullRequests = sidebar.showPullRequests.defaultValue
@@ -49,6 +50,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let showProgress = sidebar.showProgress.defaultValue
     static let showAgentActivity = sidebar.showAgentActivity.defaultValue
     static let showCustomMetadata = sidebar.showCustomMetadata.defaultValue
+    static let compactAgentStatus = sidebar.compactAgentStatus.defaultValue
 }
 
 enum SidebarWorkspaceTitleWrapSettings {
@@ -234,6 +236,10 @@ enum NotificationSettingsFileMapping {
             defaultsKey: notifications.suppressOnlyFocusedSurface.userDefaultsKey
         ),
         .init(
+            jsonKey: "suppressWhenAppFocused",
+            defaultsKey: notifications.suppressWhenAppFocused.userDefaultsKey
+        ),
+        .init(
             jsonKey: "agentPermissionPrompt",
             defaultsKey: notifications.agentPermissionPrompt.userDefaultsKey
         ),
@@ -374,6 +380,10 @@ enum SidebarSettingsFileMapping {
         .init(
             jsonKey: "showCustomMetadata",
             defaultsKey: SidebarWorkspaceDetailDefaults.showCustomMetadataKey
+        ),
+        .init(
+            jsonKey: "compactAgentStatus",
+            defaultsKey: SidebarWorkspaceDetailDefaults.compactAgentStatusKey
         ),
     ]
 

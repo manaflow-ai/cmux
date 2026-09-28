@@ -9,7 +9,7 @@ on:
         required: false
         default: ""
       test_filter:
-        description: "Test class or class/method, or a comma-separated list sharing one target; optionally target-qualified as cmuxUITests/Class or cmuxTests/Class"
+        description: "Test class or class/method, or a comma-separated list sharing one target; optionally target-qualified as cmuxUITests/Class or cmuxTests/Class. cmuxUITests/FuzzRegressions replays the UI fuzzer's checked-in repros against the app"
         required: true
       dispatch_id:
         description: "Optional caller-generated id echoed into the run name so dispatchers can resolve their exact run"
@@ -27,6 +27,11 @@ on:
         description: "Base64 JSON scenario for cmuxUITests/DogfoodScenarioUITests (scripts/run-e2e.sh --scenario builds it); empty otherwise"
         required: false
         default: ""
+      require_adopted_product:
+        description: "Fail instead of compiling when no compiled product of this revision can be adopted (scripts/run-e2e.sh --adopt-only)"
+        required: false
+        default: false
+        type: boolean
       record_video:
         description: Record the virtual display during UI tests
         required: false
@@ -227,6 +232,7 @@ jobs:
       selector: ${{ steps.filter.outputs.selector }}
       selectors: ${{ steps.filter.outputs.selectors }}
       count: ${{ steps.filter.outputs.count }}
+      fuzz_regressions: ${{ steps.filter.outputs.fuzz_regressions }}
       record_video: ${{ steps.filter.outputs.record_video }}
       build_timeout: ${{ steps.filter.outputs.build_timeout }}
     steps:
@@ -272,6 +278,7 @@ jobs:
           filters=""
           test_target=""
           count=0
+          fuzz_regressions=false
           rest="$raw_filter"
           while [ -n "$rest" ]; do
             case "$rest" in
@@ -323,6 +330,19 @@ jobs:
               exit 1
             fi
 
+            # Not a test class: the UI fuzzer's checked-in repros, which the
+            # E2E action replays against the same app after any selected
+            # classes (ui_tests_dispatch.FUZZ_REGRESSIONS_SELECTOR). It needs
+            # the UI product and the console session, so it is a UI entry.
+            if [ "$entry_target/$entry_filter" = "cmuxUITests/FuzzRegressions" ]; then
+              if [ "$fuzz_regressions" = true ]; then
+                echo "::error::test_filter repeats 'cmuxUITests/FuzzRegressions'"
+                exit 1
+              fi
+              fuzz_regressions=true
+              continue
+            fi
+
             case ",$selectors," in
               *",$entry_target/$entry_filter,"*)
                 echo "::error::test_filter repeats '$entry_target/$entry_filter'"
@@ -361,6 +381,7 @@ jobs:
             echo "selector=$test_selector"
             echo "selectors=$selectors"
             echo "count=$count"
+            echo "fuzz_regressions=$fuzz_regressions"
             echo "record_video=$record_video_effective"
             echo "build_timeout=$((JOB_TIMEOUT * 2))"
           } >> "$GITHUB_OUTPUT"
@@ -368,6 +389,7 @@ jobs:
           echo "Requested filter: $raw_filter"
           echo "Resolved target: $test_target"
           echo "Resolved selectors ($count): $selectors"
+          echo "Fuzz regressions: $fuzz_regressions"
 
   sibling:
     # Dispatches of one commit with other selectors run in other concurrency
@@ -586,6 +608,40 @@ jobs:
           CMUX_REUSE_SWITCH_ROOTS: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && '1' || '' }}
         run: python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"
 
+      # PR media tours (pr-media.yml) ask for CI's product and never pay for
+      # a second compile of the app.
+      # A reuse error is no evidence the product is unloadable, so it fails
+      # under its own name (pr_media.py notes a refusal as a skip). The
+      # lookup records API and transfer failures as miss reasons, so those
+      # count as errors too.
+      - name: Fail a dispatch that requires an adopted product when reuse errored
+        id: reuse_error
+        if: ${{ inputs.require_adopted_product && steps.reuse.outputs.hit != 'true' }}
+        env:
+          OUTCOME: ${{ steps.reuse.outcome }}
+          REASON: ${{ steps.reuse.outputs.reason }}
+          MISSES: ${{ steps.reuse.outputs.miss_reasons }}
+        run: |
+          errors=",artifact_listing_unavailable,consumer_provenance_unavailable,artifact_download_error,fingerprint_unavailable,reuse_api_or_validation_error,"
+          errored=""
+          if [ "$OUTCOME" != success ] || [ "$REASON" != miss ]; then errored=1; fi
+          IFS=, read -ra reasons <<<"$MISSES"
+          for reason in "${reasons[@]}"; do
+            case "$errors" in *",$reason,"*) errored=1 ;; esac
+          done
+          if [ -n "$errored" ]; then
+            echo "::error::Compiled-product reuse did not complete (${MISSES:-no reason recorded}), so this dispatch cannot tell whether a product loads."
+            exit 1
+          fi
+
+      - name: Refuse to compile for a dispatch that requires an adopted product
+        if: ${{ inputs.require_adopted_product && steps.reuse.outputs.hit != 'true' && steps.reuse_error.outcome == 'success' }}
+        env:
+          MISSES: ${{ steps.reuse.outputs.miss_reasons }}
+        run: |
+          echo "::error::No compiled product of this revision could be adopted (${MISSES:-no reason recorded}), and this dispatch asked not to compile one."
+          exit 1
+
       # An owned Mac (glaeda-*) keeps compile admission's DerivedData and
       # resolved packages between jobs (owned_build_state.py), at
       # this same root, path and fingerprint. Start from them instead of
@@ -630,7 +686,8 @@ jobs:
           tools="$RUNNER_TEMP/owned-state-tools"
           rm -rf -- "$tools"
           mkdir -p "$tools"
-          for name in owned_build_state.py apfs_clone.py e2e_warm_derived_data.py parallel_artifact_download.py \
+          for name in owned_build_state.py apfs_clone.py owned_spm_scratch.py e2e_warm_derived_data.py \
+            parallel_artifact_download.py \
             r2-cache.sh seed_derived_data.py; do
             curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
               -o "$tools/$name" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$WORKFLOW_SHA/scripts/ci/$name"
@@ -1101,6 +1158,7 @@ jobs:
           selector: ${{ needs.filter.outputs.selector }}
           selectors: ${{ needs.filter.outputs.selectors }}
           count: ${{ needs.filter.outputs.count }}
+          fuzz-regressions: ${{ needs.filter.outputs.fuzz_regressions }}
           record-video: ${{ needs.filter.outputs.record_video }}
           test-filter: ${{ inputs.test_filter }}
           test-timeout: ${{ inputs.test_timeout || '120' }}
@@ -1131,9 +1189,15 @@ jobs:
       # dispatch still publishes what it compiled. The tested revision's test
       # code ran between packaging and here, so the archive must still hash
       # to what the package step sealed.
+      #
+      # A product this job adopted is already published by the run that
+      # compiled it, under the same name, and later dispatches adopt it from
+      # there. Uploading it again only held the verdict: 162 s at the median
+      # on owned Macs (18 adopting runs, 2026-09-25 to 09-28). It is uploaded
+      # only when the `test` job needs it.
       - name: Check the product archive before the late upload
         id: late-upload-check
-        if: ${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' }}
+        if: ${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' && (steps.reuse.outputs.hit != 'true' || steps.test-here.outputs.tested != 'true') }}
         env:
           EXPECTED_SHA256: ${{ steps.package.outputs.sha256 }}
         run: echo "$EXPECTED_SHA256  $RUNNER_TEMP/app-host-products.tar.gz" | shasum -a 256 -c -
@@ -1312,6 +1376,7 @@ jobs:
           selector: ${{ needs.filter.outputs.selector }}
           selectors: ${{ needs.filter.outputs.selectors }}
           count: ${{ needs.filter.outputs.count }}
+          fuzz-regressions: ${{ needs.filter.outputs.fuzz_regressions }}
           record-video: ${{ needs.filter.outputs.record_video }}
           test-filter: ${{ inputs.test_filter }}
           test-timeout: ${{ inputs.test_timeout || '120' }}
