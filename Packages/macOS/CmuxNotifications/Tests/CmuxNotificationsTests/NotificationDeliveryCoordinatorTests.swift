@@ -295,6 +295,20 @@ struct NotificationDeliveryCoordinatorTests {
         #expect(audible.contains(.sound))
     }
 
+    @Test("presentation options drop sound for a banner whose pane became focused")
+    func presentationOptionsKeepSoundQuiet() {
+        let coordinator = makeCoordinator()
+        let content = UNMutableNotificationContent()
+        content.sound = .default
+
+        let quiet = coordinator.presentationOptions(for: content, keepsSoundQuiet: true)
+        #expect(quiet.contains(.banner))
+        #expect(quiet.contains(.list))
+        #expect(!quiet.contains(.sound))
+
+        #expect(coordinator.presentationOptions(for: content).contains(.sound))
+    }
+
     @Test("Feed permission always falls back to once when always is unsupported")
     func feedPermissionAlwaysFallsBackToOnce() {
         let feed = FakeFeedReplying()
