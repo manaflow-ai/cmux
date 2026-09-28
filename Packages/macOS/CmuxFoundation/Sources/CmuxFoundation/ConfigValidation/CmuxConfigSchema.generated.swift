@@ -657,9 +657,17 @@ enum CmuxEmbeddedConfigSchema {
           "description": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
         "reorderOnNotification": {
-          "type": "boolean",
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "enum": ["off", "notifications", "agentActivity"]
+            }
+          ],
           "default": true,
-          "description": "Move workspaces with new notifications toward the top."
+          "description": "Automatic workspace reordering. true or \"notifications\" moves workspaces with new notifications toward the top. \"agentActivity\" also moves them when a prompt is sent or an agent finishes a turn, needs input, or fails, at most once per burst and never while the pointer is over the sidebar. false or \"off\" keeps the order stable."
         },
         "iMessageMode": {
           "type": "boolean",
@@ -710,6 +718,13 @@ enum CmuxEmbeddedConfigSchema {
           "default": false,
           "descriptionKey": "schemaDescriptions.app.hideTabCloseButton",
           "description": "Hide tab close buttons in the pane tab bar."
+        },
+        "tabBarVisibility": {
+          "type": "string",
+          "enum": ["always", "multiple-tabs"],
+          "default": "always",
+          "descriptionKey": "schemaDescriptions.app.tabBarVisibility",
+          "description": "Decide when a pane draws its tab bar. \"always\" draws it even for a pane holding one tab; \"multiple-tabs\" hides it while a pane holds one tab and draws it once a second tab opens. Minimal mode (app.minimalMode) always draws it, because there the top pane's tab bar doubles as the window titlebar."
         },
         "renameSelectsExistingName": {
           "type": "boolean",
@@ -824,13 +839,13 @@ enum CmuxEmbeddedConfigSchema {
           "type": "object",
           "additionalProperties": false,
           "descriptionKey": "schemaDescriptions.terminal.agentHibernation",
-          "description": "Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, during critical memory pressure cmux may hibernate a bounded batch of safe idle background agents even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback.",
+          "description": "Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, under memory pressure (critical pressure from macOS or from the cmux app's own footprint, or cmux's total memory use past its aggregate warning threshold) cmux may hibernate every safe idle background agent even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback.",
           "properties": {
             "enabled": {
               "type": "boolean",
               "default": false,
               "descriptionKey": "schemaDescriptions.terminal.agentHibernationEnabled",
-              "description": "Enable routine Agent Hibernation based on the live-terminal limit. Critical-pressure safety hibernation remains active when false."
+              "description": "Enable routine Agent Hibernation based on the live-terminal limit. Memory-pressure safety hibernation remains active when false."
             },
             "idleSeconds": {
               "type": "integer",
@@ -1112,12 +1127,26 @@ enum CmuxEmbeddedConfigSchema {
           "descriptionKey": "schemaDescriptions.notifications.paneFlashColor",
           "description": "Override the pane flash and unread ring color. Null keeps the built-in blue."
         },
+        "soundWhenFocused": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.notifications.soundWhenFocused",
+          "description": "Play the notification sound even when the pane that notified is already focused. Off by default, so a focused pane shows only its ring and flash."
+        },
         "suppressOnlyFocusedSurface": {
           "x-cmux-scopes": ["global"],
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.notifications.suppressOnlyFocusedSurface",
           "description": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw."
+        },
+        "suppressWhenAppFocused": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.notifications.suppressWhenAppFocused",
+          "description": "When enabled, cmux skips the desktop banner for every notification while cmux is the active app, not only for the focused pane. Notifications still appear in the sidebar, the sound and custom command still run, and phone forwarding is unchanged. Off keeps showing banners for other workspaces and panes while cmux is focused."
         },
         "agentPermissionPrompt": {
           "x-cmux-scopes": ["global"],
