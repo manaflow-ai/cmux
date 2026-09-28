@@ -832,8 +832,20 @@ extension CMUXCLI {
             guard Date() < deadline else {
                 throw CLIError(message: "Timed out after \(timeoutSeconds)s waiting for \(vmID) (last status: \(status)). Re-run with --timeout <seconds> to wait longer.")
             }
-            Thread.sleep(forTimeInterval: 3)
+            Thread.sleep(forTimeInterval: Self.vmReadyPollInterval())
         }
+    }
+
+    /// Seconds between `vm.status` polls. `CMUX_VM_WAIT_POLL_SECONDS` overrides the
+    /// default so tests against a mock socket do not wait out the real cadence.
+    static func vmReadyPollInterval(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> TimeInterval {
+        guard let raw = environment["CMUX_VM_WAIT_POLL_SECONDS"],
+              let parsed = TimeInterval(raw), parsed >= 0 else {
+            return 3
+        }
+        return parsed
     }
 
     // MARK: - transfer plumbing

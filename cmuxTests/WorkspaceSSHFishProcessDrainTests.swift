@@ -24,7 +24,8 @@ struct WorkspaceSSHFishProcessDrainTests {
             executablePath: "/bin/sh",
             arguments: ["-c", "trap '' TERM; printf ready >&2; exec /bin/sleep 60"],
             environment: ProcessInfo.processInfo.environment,
-            timeout: 5
+            // The child ignores TERM forever, so any deadline proves the kill.
+            timeout: 1
         )
         #expect(result.timedOut)
         #expect(result.status == SIGKILL)
@@ -50,7 +51,10 @@ struct WorkspaceSSHFishProcessDrainTests {
             executablePath: "/bin/sh",
             arguments: ["-c", "/bin/sleep 15 & echo $! > \"$CMUX_DRAIN_PID_FILE\"; printf parent-exited >&2"],
             environment: environment,
-            timeout: 5
+            timeout: 5,
+            // The backgrounded writer holds the pipes past the parent's exit,
+            // so the drain always runs to its bound; a short one proves the same.
+            drainTimeout: 0.5
         )
         #expect(!result.timedOut)
         #expect(result.status == 0)
@@ -79,7 +83,8 @@ enum SSHFishProcessRunner {
         executablePath: String,
         arguments: [String],
         environment: [String: String],
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        drainTimeout: TimeInterval = 2
     ) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
@@ -139,7 +144,7 @@ enum SSHFishProcessRunner {
         // these write ends and holds them open past the direct child's exit,
         // so EOF may never arrive. Bound the drain and report what we read
         // rather than hanging the suite on it.
-        _ = drains.wait(timeout: .now() + 2)
+        _ = drains.wait(timeout: .now() + drainTimeout)
         let stderr = String(data: capturedStderr.value, encoding: .utf8) ?? ""
         return ProcessRunResult(
             status: process.terminationStatus,

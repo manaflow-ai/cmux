@@ -260,7 +260,13 @@ struct CloudLoopbackPortForwardTests {
         defer { hub.stop() }
         hub.replyCode = 0x05
         let dialer = FakeHubDialer(endpoint: hub.endpoint)
-        let forward = try CloudLoopbackPortForward(target: CloudPortForwardTarget(host: "10.0.0.7", port: 1), dialer: dialer)
+        // A refused CONNECT is redialed until the handshake deadline; a short one
+        // proves the same close without waiting out the production 15 s.
+        let forward = try CloudLoopbackPortForward(
+            target: CloudPortForwardTarget(host: "10.0.0.7", port: 1),
+            dialer: dialer,
+            relay: CloudPortForwardRelay(dialer: dialer, handshakeTimeout: .seconds(1))
+        )
         let localPort = try await forward.start()
         let client = try await Self.client(port: localPort)
         try? await client.sendAll(Data("hello".utf8))

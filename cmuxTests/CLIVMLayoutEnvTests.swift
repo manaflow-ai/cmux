@@ -612,10 +612,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
 
+        var environment = vmLayoutEnvEnvironment(socketPath: socketPath)
+        // Every attempt fails here, so do not wait out the one second between them.
+        environment["CMUX_VM_LAYOUT_OPEN_RETRY_DELAY_SECONDS"] = "0.05"
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["vm", "layout", "apply", "brave-otter", layoutFile.path, "--open"],
-            environment: vmLayoutEnvEnvironment(socketPath: socketPath),
+            environment: environment,
             timeout: 60
         )
 

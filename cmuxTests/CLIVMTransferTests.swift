@@ -573,6 +573,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        // The mock answers instantly, so do not wait out the three second poll.
+        environment["CMUX_VM_WAIT_POLL_SECONDS"] = "0.05"
 
         let result = runProcess(
             executablePath: cliPath,
