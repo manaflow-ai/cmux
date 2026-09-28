@@ -29,6 +29,7 @@ public struct TerminalSection: View {
     @State private var passwordInputIndicator: DefaultsValueModel<Bool>
     @State private var passwordInputDots: DefaultsValueModel<Bool>
     @State private var agentTurnControl: DefaultsValueModel<Bool>
+    @State private var agentKeyHints: DefaultsValueModel<Bool>
     @State private var adaptiveDefaultTheme: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
@@ -62,6 +63,7 @@ public struct TerminalSection: View {
         _passwordInputIndicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputIndicator))
         _passwordInputDots = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputDots))
         _agentTurnControl = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.agentActions.turnControl))
+        _agentKeyHints = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.agentActions.keyHints))
         _adaptiveDefaultTheme = State(
             initialValue: DefaultsValueModel(
                 store: defaultsStore,
@@ -104,6 +106,7 @@ public struct TerminalSection: View {
             passwordInputIndicator,
             passwordInputDots,
             agentTurnControl,
+            agentKeyHints,
             adaptiveDefaultTheme,
             autoResume,
             hibernation,
@@ -499,6 +502,17 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsAgentActionsTurnControlToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("agentActions.keyHints"),
+                String(localized: "settings.agentActions.keyHints", defaultValue: "Clickable Agent Key Hints"),
+                subtitle: String(localized: "settings.agentActions.keyHints.subtitle", defaultValue: "Click key hints that Claude Code, Codex, or OpenCode prints, like “ctrl+o to expand”, to press those keys. When the agent uses the mouse, Command-click instead.")
+            ) {
+                Toggle("", isOn: Binding(get: { agentKeyHints.current }, set: { agentKeyHints.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsAgentActionsKeyHintsToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(

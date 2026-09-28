@@ -1568,6 +1568,11 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": false,
           "description": "Show a Stop button over a terminal while Claude Code or Codex is working on a turn. Clicking it sends Escape, the agent's own interrupt key, and marks the turn stopped."
+        },
+        "keyHints": {
+          "type": "boolean",
+          "default": false,
+          "description": "Make key hints that Claude Code, Codex, or OpenCode prints in a terminal, like `ctrl+o to expand`, clickable. A click sends those keys to the agent; when the agent has captured the mouse, Command-click instead. Keys that quit or signal (ctrl+c, ctrl+d, ctrl+z) are never clickable."
         }
       }
     },

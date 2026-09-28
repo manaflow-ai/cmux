@@ -139,6 +139,10 @@ struct SettingCatalogTests {
         #expect(!SettingCatalog().agentActions.turnControl.defaultValue)
     }
 
+    @Test func agentKeyHintsDefaultOff() {
+        #expect(!SettingCatalog().agentActions.keyHints.defaultValue)
+    }
+
     @Test func keyIdsMatchTheirSectionPrefix() {
         // Each key's dotted id must start with its section's prefix; this is
         // the convention that lets the JSON store use `id` as the JSON path.

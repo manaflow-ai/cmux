@@ -150,6 +150,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.showPasswordInputIndicator",
         "terminal.showPasswordInputDots",
         "agentActions.turnControl",
+        "agentActions.keyHints",
         "terminal.textEditingGestures",
         "terminal.resumeCommands",
         "terminal.sessionContentAlignment",

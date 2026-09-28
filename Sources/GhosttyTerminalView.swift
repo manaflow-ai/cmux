@@ -3845,8 +3845,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var commandClickReleaseRuntimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome?
     private var commandClickReleaseCanOpenURL = false
     private var terminalPointerGesture = TerminalPointerGestureState()
-    private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
-    private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
+    lazy var agentKeyHintPointer = TerminalAgentKeyHintPointerState()
+    private(set) var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
+    static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
         switch shape {
         case GHOSTTY_MOUSE_SHAPE_DEFAULT:
             return .arrow
@@ -5166,6 +5167,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil {
+            cancelAgentKeyHintInteraction()
             // AppKit invokes this lifecycle edge on the UI thread before the
             // view can be deallocated. Release the native gesture here, while
             // the owning surface is still available; deinit only performs
@@ -5319,6 +5321,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func layout() {
         super.layout()
+        // The final deferred snapshot rejects a real grid change. Merely being
+        // asked to lay out again must not drop a completed click.
+        clearAgentKeyHintHover()
         // A portal-owned view is sized by the portal's commit; only a view
         // that AppKit lays out directly publishes its own bounds.
         _ = commitOwnBounds()
@@ -8218,6 +8223,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseDown(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
+        settleAgentKeyHintPendingPress(clickCount: event.clickCount)
         terminalPointerGesture.cancel()
         reconcileGhosttyMouseButtons(
             reason: "mouseDown.preflight",
@@ -8248,6 +8254,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             permitsLinkActivation: pressFlags.contains(.command) && bounds.contains(eventPoint)
         )
         trackMousePointIfUsable(eventPoint)
+        noteAgentKeyHintPress(at: eventPoint, clickCount: event.clickCount)
         // Only update mouse position on the first click to prevent unwanted cursor
         // movement during double-click selection (issue #1698)
         if event.clickCount == 1 {
@@ -8311,8 +8318,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let releaseFlags = completion.map {
             NSEvent.ModifierFlags(rawValue: $0.modifierFlagsRawValue)
         } ?? []
+        // A click on an agent key hint presses it instead of opening a link.
+        let agentKeyHintPress = agentKeyHintPressForRelease(
+            at: point, clickCount: event.clickCount, pressModifierFlags: completion == nil ? nil : releaseFlags, surface: surface
+        )
         let linkActivationAuthorized = completion?.permitsLinkActivation == true
             && event.modifierFlags.contains(.command) && bounds.contains(point) && desiredFocus
+            && agentKeyHintPress == nil
         _ = dispatchCommandClickRelease(
             surface: surface,
             at: point,
@@ -8320,6 +8332,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             mouseMods: mouseState.mods,
             linkActivationAuthorized: linkActivationAuthorized
         )
+        agentKeyHintPress?()
         _ = finishGhosttyMouseSession(pendingSession)
         return true
     }
@@ -9449,6 +9462,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cmdHeld: event.modifierFlags.contains(.command),
             suppressPathHover: suppressCommandPathHover
         )
+        updateAgentKeyHintHover(at: eventPoint)
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -9502,6 +9516,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             wordPathHoverActive = false
             NSCursor.pop()
         }
+        clearAgentKeyHintHover()
         guard let surface = surface else { return }
         if !ghosttyMouseSessionLedger.activeButtons.isEmpty {
             return
@@ -9551,6 +9566,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func scrollWheel(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
+        // Scrolling moves the text under both a pending click and its underline.
+        cancelAgentKeyHintInteraction()
+        clearAgentKeyHintHover()
         reconcileGhosttyMouseButtons(reason: "scrollWheel")
         guard let surface else {
             // Detached views used by previews and tests have no runtime

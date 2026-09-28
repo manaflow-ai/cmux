@@ -600,6 +600,29 @@ extension TerminalSurface {
         keycode: UInt32,
         mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE
     ) {
+        let (handled, codepoint) = Self.withSocketKeyEvent(keycode: keycode, mods: mods) { keyEvent in
+            (withRuntimeClipboardPasteIntent { ghostty_surface_key(surface, keyEvent) }, keyEvent.unshifted_codepoint)
+        }
+
+#if DEBUG
+        logDebugEvent(
+            "surface.socket_input.key surface=\(id.uuidString.prefix(8)) " +
+            "keycode=\(keycode) mods=\(mods.rawValue) " +
+            "codepoint=0x\(String(codepoint, radix: 16)) " +
+            "handled=\(handled ? 1 : 0)"
+        )
+#endif
+    }
+
+    /// Builds the press event ``sendKeyEvent(surface:keycode:mods:)`` sends.
+    /// The text pointer mirrors the desktop `keyDown` path's C-string
+    /// lifetime: it stays valid only for the duration of `body`.
+    @MainActor
+    private static func withSocketKeyEvent<Result>(
+        keycode: UInt32,
+        mods: ghostty_input_mods_e,
+        _ body: (ghostty_input_key_s) -> Result
+    ) -> Result {
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
         keyEvent.keycode = keycode
@@ -607,34 +630,60 @@ extension TerminalSurface {
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
         keyEvent.composing = false
 
-        let canonicalText = Self.canonicalKeyText(keycode: keycode)
+        let canonicalText = canonicalKeyText(keycode: keycode)
         keyEvent.unshifted_codepoint = canonicalText?.unicodeScalars.first?.value ?? 0
-
-        let handled: Bool
-        if let canonicalText {
-            // Mirror the desktop `keyDown` path's C-string lifetime: the text
-            // pointer must stay valid only for the `ghostty_surface_key` call.
-            handled = canonicalText.withCString { ptr in
-                keyEvent.text = ptr
-                return withRuntimeClipboardPasteIntent {
-                    ghostty_surface_key(surface, keyEvent)
-                }
-            }
-        } else {
+        guard let canonicalText else {
             keyEvent.text = nil
-            handled = withRuntimeClipboardPasteIntent {
-                ghostty_surface_key(surface, keyEvent)
-            }
+            return body(keyEvent)
         }
+        return canonicalText.withCString { ptr in
+            keyEvent.text = ptr
+            return body(keyEvent)
+        }
+    }
 
+    /// Sends one named key for a click on an agent key hint, so the agent
+    /// receives it even when a terminal keybinding owns the chord.
+    ///
+    /// A key event for a chord the live surface's Ghostty keybindings consume
+    /// would run that binding instead of reaching the program, so such a
+    /// chord is sent as its legacy encoding (`ctrl+o` as `0x0f`, `shift+tab`
+    /// as `ESC [ Z`), or skipped when it has none. Keys without a key event
+    /// (`?`) are typed. A cold surface queues the key event as
+    /// ``sendNamedKey(_:)`` does; bindings are checked once it is live.
+    ///
+    /// - Returns: Whether the key was sent or queued.
+    @MainActor
+    @discardableResult
+    public func sendNamedKeyAvoidingTerminalBindings(_ keyName: String) -> Bool {
+        let legacyText = String(terminalLegacyEncodingOfNamedKey: keyName)
+        guard let event = pendingKeyEvent(for: keyName) else {
+            guard let legacyText else { return false }
+            return sendKeyText(legacyText)
+        }
+        guard surface != nil,
+              let liveSurface = liveSurfaceForSocketWrite(reason: "socket.agentKeyHintBindingCheck"),
+              !ghostty_surface_process_exited(liveSurface),
+              Self.terminalBindingConsumes(event, on: liveSurface) else {
+            return sendNamedKey(keyName).accepted
+        }
 #if DEBUG
         logDebugEvent(
-            "surface.socket_input.key surface=\(id.uuidString.prefix(8)) " +
-            "keycode=\(keycode) mods=\(mods.rawValue) " +
-            "codepoint=0x\(String(keyEvent.unshifted_codepoint, radix: 16)) " +
-            "handled=\(handled ? 1 : 0)"
+            "surface.agentKeyHint.bindingFallback surface=\(id.uuidString.prefix(8)) " +
+            "key=\(keyName) legacy=\(legacyText == nil ? 0 : 1)"
         )
 #endif
+        guard let legacyText else { return false }
+        return sendKeyText(legacyText)
+    }
+
+    @MainActor
+    private static func terminalBindingConsumes(_ event: PendingKeyEvent, on surface: ghostty_surface_t) -> Bool {
+        var flags = ghostty_binding_flags_e(0)
+        let isBinding = withSocketKeyEvent(keycode: event.keycode, mods: event.mods) { keyEvent in
+            ghostty_surface_key_is_binding(surface, keyEvent, &flags)
+        }
+        return isBinding && flags.rawValue & GHOSTTY_BINDING_FLAGS_CONSUMED.rawValue != 0
     }
 
     @MainActor

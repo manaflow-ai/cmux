@@ -34,7 +34,7 @@ extension TerminalPanel {
     }
 
     /// Per-agent lifecycle for this pane from whichever container owns it.
-    private var containerAgentLifecycleStates: [String: AgentHibernationLifecycleState] {
+    var containerAgentLifecycleStates: [String: AgentHibernationLifecycleState] {
         if let dock = DockSplitStore.liveStore(containingPanel: id) {
             return dock.agentRuntimeByPanelId[id]?.agentLifecycleStates ?? [:]
         }

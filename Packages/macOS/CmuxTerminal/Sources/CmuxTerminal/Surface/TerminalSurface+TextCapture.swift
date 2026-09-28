@@ -19,26 +19,8 @@ extension TerminalSurface {
         surface: ghostty_surface_t,
         region: TerminalTextRegion
     ) -> String? {
-        let topLeft = ghostty_point_s(
-            tag: region.pointTag,
-            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-            x: 0,
-            y: 0
-        )
-        let bottomRight = ghostty_point_s(
-            tag: region.pointTag,
-            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-            x: 0,
-            y: 0
-        )
-        let selection = ghostty_selection_s(
-            top_left: topLeft,
-            bottom_right: bottomRight,
-            rectangle: false
-        )
-
         var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else {
+        guard ghostty_surface_read_text(surface, region.selection, &text) else {
             return nil
         }
         defer { ghostty_surface_free_text(surface, &text) }
