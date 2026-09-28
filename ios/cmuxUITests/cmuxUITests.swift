@@ -8404,7 +8404,6 @@ final class cmuxUITests: XCTestCase {
             // fixture. Keep the production disconnected-shell entrypoint as a
             // fallback so this helper still follows the user-visible path if
             // the initial presentation changes.
-            try finishLaunchWhatsNewIfPresented(app)
             let disconnectedShell = app.otherElements["MobileDisconnectedWorkspaceShell"]
             _ = try XCTUnwrap(
                 disconnectedShell.waitForExistence(timeout: 8) ? disconnectedShell : nil,
