@@ -20,13 +20,14 @@ struct WorkspaceBackButton: View {
                     .frame(width: 17, height: 22)
                 if unreadCount > 0 {
                     Text(countText)
-                        // Smaller than the chevron, on a small mono circle.
+                        // Keep a single count circular, but give the capped
+                        // `99+` label enough width to stay inside its badge.
                         .font(.caption2.weight(.semibold))
                         .monospacedDigit()
                         .foregroundStyle(badgeTextColor)
                         .padding(2)
-                        .frame(minWidth: 18, minHeight: 18)
-                        .background(badgeFillColor, in: .circle)
+                        .frame(minWidth: unreadCount > 99 ? 26 : 18, minHeight: 18)
+                        .background(badgeFillColor, in: Capsule())
                 }
             }
         }
