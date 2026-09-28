@@ -10,46 +10,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#ifndef CMUX_GHOSTTY_SURFACE_TYPE_DECLARED
-#define CMUX_GHOSTTY_SURFACE_TYPE_DECLARED
-typedef void* ghostty_surface_t;
-#endif
-
-typedef enum {
-  GHOSTTY_POINT_ACTIVE,
-  GHOSTTY_POINT_VIEWPORT,
-  GHOSTTY_POINT_SCREEN,
-  GHOSTTY_POINT_SURFACE,
-} ghostty_point_tag_e;
-
-typedef enum {
-  GHOSTTY_POINT_COORD_EXACT,
-  GHOSTTY_POINT_COORD_TOP_LEFT,
-  GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-} ghostty_point_coord_e;
-
-typedef struct {
-  ghostty_point_tag_e tag;
-  ghostty_point_coord_e coord;
-  uint32_t x;
-  uint32_t y;
-} ghostty_point_s;
-
-typedef struct {
-  ghostty_point_s top_left;
-  ghostty_point_s bottom_right;
-  bool rectangle;
-} ghostty_selection_s;
-
-typedef struct {
-  double tl_px_x;
-  double tl_px_y;
-  uint32_t offset_start;
-  uint32_t offset_len;
-  const char* text;
-  uintptr_t text_len;
-} ghostty_text_s;
-
 typedef struct {
   uint16_t row;
   uint16_t start_column;
