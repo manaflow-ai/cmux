@@ -184,22 +184,52 @@ struct AgentSessionRecoveryPlannerTests {
         candidate.launchCommand?.launcherPrefix = prefix + ["--resume", "old"]
         #expect(candidate.launcherResumeArguments(isReadableFile: { _ in true }) == nil)
 
-        // A proven Subrouter-routed launch resumes the way `cmux restore`
-        // does: through sr with only the account pin, never the private
-        // per-launch settings file.
+        // A proven routed launch is left to `cmux restore`, which checks the
+        // launcher on PATH, authorizes the wrapper and reapplies the mode.
         candidate.launchCommand = AgentLaunchCommand(
             arguments: ["claude", "--settings", "/tmp/subrouter-claude-settings-abc/settings.json", "--model", "opus"],
             environment: [
                 SubrouterClaudeResumeRouting.environmentKey: "sr claude proxy --resume",
                 SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: "sr claude proxy --resume",
             ],
-            launcherPrefix: prefix + ["--resume", "old", "prompt"]
+            launcherPrefix: prefix
         )
         #expect(candidate.routesThroughSubrouter)
-        #expect(
-            candidate.launcherResumeArguments(isReadableFile: { _ in true })
-                == ["sr", "claude", "proxy", "--account", "me@example.com", "--resume", "s1", "--model", "opus"]
+        #expect(candidate.launcherResumeArguments(isReadableFile: { _ in true }) == nil)
+    }
+
+    @Test("launcher resume reapplies the observed permission mode unless the launch pinned one")
+    func launcherResumeAppliesObservedPermissionMode() throws {
+        let prefix = ["caffeinate", "-i", "claude"]
+        var candidate = AgentRecoveryCandidate(
+            kind: "claude",
+            sessionId: "s1",
+            workspaceId: nil,
+            cwd: "/tmp",
+            launchCommand: AgentLaunchCommand(arguments: ["claude", "--model", "opus"], launcherPrefix: prefix),
+            permissionMode: "acceptEdits",
+            lastActivity: now
         )
+        let arguments = try #require(candidate.launcherResumeArguments(isReadableFile: { _ in true }))
+        #expect(Array(arguments.prefix(5)) == prefix + ["--resume", "s1"])
+        #expect(Array(arguments.suffix(2)) == ["--permission-mode", "acceptEdits"])
+
+        candidate.launchCommand?.arguments = ["claude", "--dangerously-skip-permissions"]
+        let pinned = try #require(candidate.launcherResumeArguments(isReadableFile: { _ in true }))
+        #expect(!pinned.contains("--permission-mode"))
+
+        // The planner carries the hook-observed mode onto the candidate.
+        let planned = AgentSessionRecoveryPlanner().candidates(
+            journal: [AgentRecoveryJournalSession(sessionId: "s1", source: "claude", lastOccurredAt: now, hasEnded: false)],
+            records: [AgentRecoveryLaunchRecord(
+                kind: "claude", sessionId: "s1", workspaceId: nil, cwd: "/tmp",
+                launchCommand: nil, pid: nil, permissionMode: "plan", updatedAt: now
+            )],
+            openSessionIds: [],
+            isProcessAlive: { _, _ in false },
+            now: now
+        )
+        #expect(planned.first?.permissionMode == "plan")
     }
 
     @Test("launch commands without a launcher prefix still decode")
@@ -207,5 +237,77 @@ struct AgentSessionRecoveryPlannerTests {
         let data = Data(#"{"arguments":["claude"],"launcher":"claude"}"#.utf8)
         let command = try JSONDecoder().decode(AgentLaunchCommand.self, from: data)
         #expect(command.launcherPrefix == nil)
+    }
+}
+
+/// A heavy user can have dozens of agents running when cmux dies; starting
+/// them all on relaunch spikes CPU and memory. Only a few start at once.
+@Suite("Agent session recovery start plan")
+struct AgentRecoveryStartPlanTests {
+    private let now = Date(timeIntervalSince1970: 1_790_428_300)
+
+    private func candidate(
+        _ id: String,
+        minutesAgo: Double,
+        workspaceId: UUID? = nil,
+        launcherPrefix: [String]? = nil
+    ) -> AgentRecoveryCandidate {
+        AgentRecoveryCandidate(
+            kind: "claude",
+            sessionId: id,
+            workspaceId: workspaceId?.uuidString,
+            cwd: "/tmp",
+            launchCommand: AgentLaunchCommand(arguments: ["claude"], launcherPrefix: launcherPrefix),
+            lastActivity: now.addingTimeInterval(-minutesAgo * 60)
+        )
+    }
+
+    @Test("the most recently active sessions start now and the rest wait for a visit")
+    func startsMostRecentFirst() {
+        let plan = AgentRecoveryStartPlan(
+            candidates: (1...6).map { candidate("s\($0)", minutesAgo: Double(7 - $0)) },
+            immediateLimit: 2
+        )
+        #expect(plan.startNow.map(\.sessionId) == ["s6", "s5"])
+        #expect(plan.startOnVisit.map(\.sessionId) == ["s4", "s3", "s2", "s1"])
+    }
+
+    @Test("sessions from a workspace on screen start before more recent ones")
+    func visibleWorkspacesStartFirst() {
+        let visible = UUID()
+        let plan = AgentRecoveryStartPlan(
+            candidates: [
+                candidate("recent", minutesAgo: 1),
+                candidate("on-screen", minutesAgo: 30, workspaceId: visible),
+                candidate("older", minutesAgo: 5),
+            ],
+            visibleWorkspaceIds: [visible],
+            immediateLimit: 2
+        )
+        #expect(plan.startNow.map(\.sessionId) == ["on-screen", "recent"])
+        #expect(plan.startOnVisit.map(\.sessionId) == ["older"])
+    }
+
+    /// A session resumed through its recorded launcher takes its launch claim
+    /// when it is typed, and nothing would claim it on a later visit.
+    @Test("a session resumed through its recorded launcher always starts now")
+    func launcherSessionsStartNow() {
+        let plan = AgentRecoveryStartPlan(
+            candidates: [
+                candidate("a", minutesAgo: 1),
+                candidate("b", minutesAgo: 2),
+                candidate("launcher", minutesAgo: 3, launcherPrefix: ["sr", "claude", "proxy", "--account", "me"]),
+            ],
+            immediateLimit: 1
+        )
+        #expect(plan.startNow.map(\.sessionId) == ["a", "launcher"])
+        #expect(plan.startOnVisit.map(\.sessionId) == ["b"])
+    }
+
+    @Test("everything starts now when there are only a few sessions")
+    func fewSessionsAllStartNow() {
+        let plan = AgentRecoveryStartPlan(candidates: [candidate("a", minutesAgo: 1), candidate("b", minutesAgo: 2)])
+        #expect(plan.startNow.map(\.sessionId) == ["a", "b"])
+        #expect(plan.startOnVisit.isEmpty)
     }
 }

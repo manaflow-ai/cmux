@@ -412,6 +412,82 @@ describe("codex responses proxy session routing", () => {
     expect(cancelled).toBe(true);
   });
 
+  for (const rejectedStatus of [401, 429]) {
+    test(`closes a discarded ${rejectedStatus} body when retry succeeds`, async () => {
+      let cancelled = 0;
+      let calls = 0;
+      const rejected = new ReadableStream<Uint8Array>({
+        cancel() { cancelled += 1; },
+      });
+      const retryingProxy = capacityProxy((async () => {
+        calls += 1;
+        return calls === 1
+          ? new Response(rejected, { status: rejectedStatus })
+          : new Response("data: done\n\n", {
+            headers: { "content-type": "text/event-stream" },
+          });
+      }) as typeof fetch);
+      try {
+        const response = await retryingProxy(responsesRequest());
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe("data: done\n\n");
+        expect(cancelled).toBe(1);
+        expect(calls).toBe(2);
+      } finally {
+        // Also release the fixture on the intentionally failing regression commit.
+        if (!rejected.locked) await rejected.cancel().catch(() => undefined);
+      }
+    });
+  }
+
+  test("closes a discarded 401 body when the refresh exhausts the header budget", async () => {
+    let cancelled = 0;
+    let logicalNow = 0;
+    const rejected = new ReadableStream<Uint8Array>({
+      cancel() { cancelled += 1; },
+    });
+    const boundedProxy = createCodexResponsesProxy({
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+      select: async () => ({
+        id: "acct-1",
+        provider: "codex" as const,
+        vaultRevision: 1,
+        credentialExpiresAt: null,
+        sticky: false,
+      }),
+      credential: async ({ accountId, force }) => {
+        // The forced refresh uses up the rest of the request's header budget.
+        if (force) logicalNow += 1_000;
+        return testCredential(accountId);
+      },
+      cooldown: async () => {},
+    }, {
+      fetch: (async () => new Response(rejected, { status: 401 })) as typeof fetch,
+      now: () => logicalNow,
+      upstreamHeadersBudgetMs: 200,
+      upstreamHeadersTimeoutMs: 120,
+    });
+    try {
+      const response = await boundedProxy(responsesRequest());
+      expect(response.status).not.toBe(200);
+      expect(cancelled).toBe(1);
+    } finally {
+      if (!rejected.locked) await rejected.cancel().catch(() => undefined);
+    }
+  });
+
+  test("keeps the final rejection body readable when no retry succeeds", async () => {
+    let calls = 0;
+    const retryingProxy = capacityProxy((async () => {
+      calls += 1;
+      if (calls > 1) throw new TypeError("connection reset");
+      return new Response("rate limited", { status: 429 });
+    }) as typeof fetch);
+    const response = await retryingProxy(responsesRequest());
+    expect(response.status).toBe(429);
+    expect(await response.text()).toBe("rate limited");
+  });
+
   test("passes the session_id header to account selection", async () => {
     accountsToServe = [{ id: "acct-1", sticky: true }];
     const response = await proxy(responsesRequest({ session_id: "session-abc" }));

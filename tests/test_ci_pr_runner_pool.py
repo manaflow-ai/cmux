@@ -2340,6 +2340,28 @@ class LiveCapacity(unittest.TestCase):
         _, capacity = pool.live_pools(snap, {MINI: 3, ROOT_MINI: 1}, slot_counts, {})
         self.assertEqual(capacity, {MINI: 40, ROOT_MINI: 18})
 
+    def test_the_snapshot_queue_drains_by_what_the_machines_finished_since(self):
+        snap = fleet(busy=0)
+        snap["pools"][ROOT_MINI] = dict(snap["pools"].get(ROOT_MINI) or {}, queued=26)
+        slot_counts = {MINI: 40, ROOT_MINI: 19}
+        online = {MINI: 40, ROOT_MINI: 19}
+
+        def queued(age, older=0, idle=0):
+            live, _ = pool.live_pools(snap, {MINI: 3, ROOT_MINI: idle}, slot_counts, {MINI: older},
+                                      online=online, age_minutes=age)
+            return live["pools"][ROOT_MINI]["queued"]
+        # Fresh, or within half a job length (ten minutes a job): all 26, as a burst that just started
+        # on every runner has finished nothing yet.
+        self.assertEqual(queued(None), 26)
+        self.assertEqual(queued(0), 26)
+        self.assertEqual(queued(5), 26)
+        # Twelve minutes: seven past the half, 19 runners x 0.7 = 13.3 done, 13 left (rounded up).
+        self.assertEqual(queued(12), 13)
+        # Past the whole queue, none, but newer runs' admissions still count; an idle runner means none.
+        self.assertEqual(queued(30), 0)
+        self.assertEqual(queued(30, older=3), 3)
+        self.assertEqual(queued(12, older=3, idle=1), 0)
+
     def test_an_offline_fleet_is_no_queue_to_join(self):
         busy = fleet(busy=0, small=21, large=6, old=4)
         # Every runner busy and 11 online: the queue is worth joining (test_live_busy_fleet_queues...).
@@ -2730,6 +2752,39 @@ class MainFullSuite(unittest.TestCase):
         pull = owned_choice(self.snap(roots_busy=5), owned_slots=self.SLOTS, jobs=9, root_jobs=9)
         self.assertEqual(pull.runner, MINI)
 
+    def test_a_split_run_queues_whole_on_the_owned_pool(self):
+        # Every root runner busy and 22 jobs queued there: 6 queue places, the
+        # run needs 9. A pull request would put the rest on the retry runner;
+        # main queues them on the minis instead, so they do not wait behind
+        # every overflowed pull request on Blacksmith (run 36402943637).
+        snap = self.snap(roots_busy=14)
+        snap["pools"][ROOT_MINI]["queued"] = 22
+        choice = self.main_choice(snap, split="1", queue_rounds="2")
+        self.assertEqual((choice.runner, choice.root_runner), (MINI, ROOT_MINI))
+        self.assertEqual(pool.place(self.PLAN, choice.owned_budget, root_budget=choice.root_budget)[0],
+                         ("admission", *(f"shard-{index}" for index in range(1, 8)), "lag", "cli-product"))
+        self.assertIn("0 of 14 root runners free and 6 queue places", choice.reason)
+        self.assertIn("the whole run queues there", choice.reason)
+        self.assertNotIn("the rest on the retry runner", choice.reason)
+        # A pull request with the same load still splits.
+        pull = owned_choice(snap, owned_slots=self.SLOTS, jobs=9, root_jobs=9, split="1", queue_rounds="2")
+        self.assertEqual((pull.runner, pull.root_budget), (MINI, 6))
+        # A pool too small for the whole run (light: 4 machines, 2 root
+        # runners) keeps the split: the excess would wait past the rescue.
+        light_root = "glaeda-root-light-xcode-26.6"
+        snap = self.snap(roots_busy=14)
+        snap["pools"][ROOT_MINI]["queued"] = 30
+        snap["pools"][LIGHT] = {"queued": 0, "running": 0}
+        snap["pools"][light_root] = {"queued": 0, "running": 0}
+        small = self.main_choice(snap, split="1", queue_rounds="2",
+                                 owned_slots=json.dumps({MINI: 36, ROOT_MINI: 14, LIGHT: 4, light_root: 2}))
+        self.assertEqual(small.runner, LIGHT, small.reason)
+        self.assertNotIn("the whole run queues there", small.reason)
+        self.assertLess(small.root_budget, pool.root_peak(self.PLAN))
+        # With the rounds at 0 (no queueing) main splits as before.
+        self.assertIn("the rest on the retry runner",
+                      self.main_choice(self.snap(roots_busy=6), split="1", queue_rounds="0").reason)
+
     def test_queues_a_round_like_a_pull_request_unless_a_reserve_is_set(self):
         # Every mini and root runner busy, Blacksmith backed up (12vcpu's wait
         # for 9 jobs is 15 minutes): a pull request queues its 9 root jobs
@@ -2818,6 +2873,51 @@ class MainFullSuite(unittest.TestCase):
                       picker["env"]["CMUX_CI_XCODE_APP_PR"])
         self.assertEqual(picker["env"]["OWNED_MAIN_RESERVE"], "${{ vars.CI_OWNED_MAIN_RESERVE }}")
 
+
+class PullRequestAdmissionRootQueue(unittest.TestCase):
+    """A split pull request whose root runners are past the queue bound queues admission there while shorter."""
+
+    SLOTS = MainFullSuite.SLOTS
+    PLAN = MainFullSuite.PLAN
+
+    def choice(self, *, roots_queued, blacksmith, rounds="2"):
+        snap = backlog(**blacksmith)
+        snap["pools"][MINI] = {"queued": 0, "running": 0}
+        snap["pools"][ROOT_MINI] = {"queued": roots_queued, "running": 14}
+        return owned_choice(snap, owned_slots=self.SLOTS, jobs=pool.owned_peak(self.PLAN),
+                            root_jobs=pool.root_peak(self.PLAN), split="1", queue_rounds=rounds)
+
+    def test_admission_queues_for_a_root_runner_when_blacksmith_is_longer(self):
+        # 30 queued behind 14 busy root runners is past two rounds' bound, so before this admission and
+        # every job after it took the retry runner. Its root wait (31 on 14, 22 min) is under 12vcpu's
+        # (41 on 5 at 5 min a job, 41 min), so it queues for a root runner and hands it on to one shard.
+        choice = self.choice(roots_queued=30, blacksmith={"small": 60, "large": 40, "old": 40})
+        self.assertEqual((choice.runner, choice.root_runner, choice.root_budget), (MINI, ROOT_MINI, 1))
+        self.assertEqual(pool.place(self.PLAN, choice.owned_budget, root_budget=choice.root_budget)[0],
+                         ("admission", "shard-1"))
+        self.assertIn("admission queues for a root runner, about 22 min against 41 min on Blacksmith",
+                      choice.reason)
+
+    def test_admission_takes_blacksmith_when_its_queue_is_shorter(self):
+        choice = self.choice(roots_queued=30, blacksmith={"small": 0, "large": 0, "old": 0})
+        self.assertEqual(choice.root_budget, 0)
+        self.assertNotIn("admission queues for a root runner", choice.reason)
+        self.assertNotIn("admission", pool.place(self.PLAN, choice.owned_budget, root_budget=choice.root_budget)[0])
+
+    def test_admission_ends_half_a_job_before_the_rescues_budget(self):
+        # Two rounds give the rescue 30 minutes. A root wait of 25 (34 queued, 35 on 14) leaves half a
+        # job; 26 (36 queued, 37 on 14) does not, and the rescue would move it to Blacksmith's tail.
+        blacksmith = {"small": 80, "large": 57, "old": 60}
+        self.assertEqual(self.choice(roots_queued=34, blacksmith=blacksmith).root_budget, 1)
+        late = self.choice(roots_queued=36, blacksmith=blacksmith)
+        self.assertEqual(late.root_budget, 0)
+        self.assertNotIn("admission queues for a root runner", late.reason)
+
+    def test_the_kill_switch_keeps_the_split(self):
+        choice = self.choice(roots_queued=30, blacksmith={"small": 60, "large": 40, "old": 40}, rounds="0")
+        self.assertNotIn("admission queues for a root runner", choice.reason)
+        self.assertNotIn("admission", pool.place(self.PLAN, choice.owned_budget,
+                                                 root_budget=choice.root_budget)[0])
 
 class IOSRouting(unittest.TestCase):
     """ios_runner_pool.py: the E2E rule, owned Macs only, with counted simulator capacity."""
