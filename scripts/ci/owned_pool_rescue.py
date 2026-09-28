@@ -53,6 +53,13 @@ both the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images reported
 Xcode 26.6 build 17F113. If those builds ever differ, re-run the whole run
 here instead (rescue with failed_only=False).
 
+glaeda's hook does not refuse a job for the mini's capacity: it waits, with
+no limit, inside the runner's setup until the units and tokens the job needs
+are free. A job on the persistent pool still in its runner's setup
+SETUP_WAIT_SECONDS after it started is stuck like a queued one: the run is
+cancelled and re-run the same way, and until then the job is not accepted, so
+the watch goes on.
+
 A refused job never goes back to the fleet: this rescue re-runs as
 github-actions[bot], and every runs-on sends the bot's re-run to retry_runner
 (Blacksmith), so it cannot land on the mini that refused it, and one re-run
@@ -310,10 +317,9 @@ JOB_TIMEOUT_SECONDS = E2E_WATCH_LIMIT_SECONDS + RESCUE_GRACE_SECONDS + JOB_TIMEO
 RERUN_MARGIN_SECONDS = 60
 # A refused job fails within the runner's setup; a real failure of the first
 # step after checkout takes longer than this, and one that does not is cheap to
-# retry. glaeda's hook may wait up to 240 s inside that setup for the mini's one
-# gui token (GUI_WAIT_S) before refusing, and an app-host shard waiting there
-# costs far less than a refusal's rescue round trip and a Blacksmith re-run
-# (cmuxterm-hq#661 Workstream 7), so the window covers that wait with room.
+# retry. glaeda's hook once waited up to 240 s inside that setup for the mini's
+# capacity before refusing; it now waits with no limit (SETUP_WAIT_SECONDS
+# covers that), so a refusal is the hook's other checks, which answer at once.
 REFUSAL_SECONDS = 360
 # The last attempt of the bot's own re-runs that may run on an owned pool: a
 # stuck run's full re-run on the light tier (CI_OWNED_LIGHT_RETRY). A person's
@@ -332,6 +338,13 @@ def person_rerun(run: Mapping[str, Any]) -> bool:
             and str((run.get("triggering_actor") or {}).get("login") or "") != RESCUE_ACTOR)
 # The runner's own steps, which run before glaeda's hook decides.
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
+# glaeda's hook no longer refuses a job for the mini's capacity: it waits,
+# with no limit, inside the runner's setup ("Set up runner") until the units
+# and tokens it needs are free (glaeda CAPACITY_WAIT, 2026-09-28). A job still
+# there this long after it started is stuck like a queued one and is moved the
+# same way (Look "rescue"). A compile waiting for a canonical root normally
+# waits for one running compile, about 7 minutes.
+SETUP_WAIT_SECONDS = 15 * 60
 MAX_JOB_PAGES = 3
 # Main's full-suite dispatch (ci-main-full-suite.yml) runs ci.yml on this branch.
 MAIN_BRANCH = "main"
@@ -382,6 +395,19 @@ def waiting_for_runner(job: Mapping[str, Any]) -> bool:
     return job.get("status") == "queued" and not job.get("runner_name")
 
 
+def in_setup(job: Mapping[str, Any]) -> bool:
+    """A job its runner took that is still in the runner's setup, where glaeda's hook waits for capacity."""
+    if job.get("status") != "in_progress":
+        return False
+    steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
+    return any(step.get("name") in SETUP_STEPS and step.get("status") == "in_progress" for step in steps)
+
+
+def setup_seconds(job: Mapping[str, Any], now: dt.datetime) -> float:
+    started = parse_time(job.get("started_at"))
+    return 0.0 if started is None else max(0.0, (now - started).total_seconds())
+
+
 def wait_start(job: Mapping[str, Any], first_seen: dt.datetime | None = None) -> dt.datetime | None:
     created = parse_time(job.get("created_at"))
     return max(filter(None, (created, first_seen)), default=None)
@@ -428,11 +454,12 @@ def refused(job: Mapping[str, Any]) -> bool:
 
 
 def accepted(job: Mapping[str, Any], now: dt.datetime) -> bool:
-    """An owned job its runner took and has not refused: started over REFUSAL_SECONDS ago, or done."""
+    """An owned job its runner took and has not refused: past its setup and started over REFUSAL_SECONDS ago,
+    or done."""
     if job.get("status") == "completed":
         return not refused(job)
     started = parse_time(job.get("started_at"))
-    return job.get("status") == "in_progress" and started is not None and \
+    return job.get("status") == "in_progress" and not in_setup(job) and started is not None and \
         (now - started).total_seconds() > REFUSAL_SECONDS
 
 
@@ -465,12 +492,19 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stuck))
         return Look("rescue", f"{names} queued on {job_pool(stuck[0])} for at least "
                               f"{min(budgets[id(job)] for job in stuck)}s with no runner")
+    settling = [job for job in jobs if job_pool(job) and in_setup(job)]
+    held = [job for job in settling if setup_seconds(job, now) >= SETUP_WAIT_SECONDS]
+    if held:
+        names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in held))
+        return Look("rescue", f"{names} waited in {job_pool(held[0])}'s runner setup for capacity for at least "
+                              f"{SETUP_WAIT_SECONDS}s")
     turned_away = [job for job in jobs if refused(job)]
     if turned_away:
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
         return Look("refused", f"{names} refused by {job_pool(turned_away[0])} at job start")
-    if waiting:
-        return Look("watch", f"{len(waiting)} job(s) waiting for a persistent runner", waiting=True)
+    if waiting or settling:
+        return Look("watch", f"{len(waiting)} job(s) waiting for a persistent runner, {len(settling)} in its setup",
+                    waiting=True)
     return Look("watch", "no job is waiting for a persistent runner")
 
 
