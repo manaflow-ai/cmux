@@ -187,6 +187,12 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.create") == .socketWorker(mainThreadCallable: false))
     }
 
+    @Test func agentListRunsOnTheWorkerAndIsNotMainThreadCallable() {
+        // agent.list awaits a process census; a main-thread caller would block on it.
+        #expect(ControlCommandExecutionPolicy(forMethod: "agent.list") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "current.list") == .socketWorker(mainThreadCallable: false))
+    }
+
     @Test func terminalReadsRunOnTheWorkerAndAreNotMainThreadCallable() {
         // Tranche C (issue #5757): the Ghostty capture is one v2MainSync hop,
         // the (possibly multi-MB) scrollback formatting runs on the worker.

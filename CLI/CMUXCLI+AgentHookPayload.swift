@@ -78,7 +78,7 @@ extension CMUXCLI {
         var compact: [String: Any] = [:]
 
         for key in [
-            "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath", "agent_id", "agentId",
+            "tool_name", "toolName", "tool_use_id", "toolUseId", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath", "agent_id", "agentId",
             "permission_mode", "permissionMode",
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
             "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
@@ -202,7 +202,7 @@ extension CMUXCLI {
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "permission_mode", "permissionMode", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "campfire_event_type", "campfireEventType", "capability":
+        case "tool_name", "toolName", "tool_use_id", "toolUseId", "turn_id", "turnId", "conversation_id", "conversationId", "permission_mode", "permissionMode", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "campfire_event_type", "campfireEventType", "capability":
             return 80
         case "transcript_path", "transcriptPath":
             return 240

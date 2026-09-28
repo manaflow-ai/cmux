@@ -24,7 +24,7 @@ public struct DarwinProcessEnumerator {
     public func capture() -> DarwinProcessListing {
         let initialCount = Int(listPIDs(nil, 0))
         guard initialCount > 0 else {
-            return DarwinProcessListing(processes: [], isComplete: false, missingProcessCount: 0)
+            return DarwinProcessListing(processes: [], isComplete: false, missingProcessCount: 0, pidListIsComplete: false)
         }
         // A bounded retry absorbs normal fork/exit churn. Exhausting it is an
         // incomplete sample, never evidence that the unseen subtree is empty.
@@ -63,7 +63,8 @@ public struct DarwinProcessEnumerator {
         return DarwinProcessListing(
             processes: processes,
             isComplete: listingComplete && missingCount == 0,
-            missingProcessCount: missingCount
+            missingProcessCount: missingCount,
+            pidListIsComplete: listingComplete
         )
     }
 }

@@ -23,6 +23,18 @@ struct DarwinResourceSamplingTests {
         ).capture()
         #expect(!listing.isComplete)
         #expect(listing.missingProcessCount == 1)
+        // The PID list was whole: 43 exited before it was read, it was not unseen.
+        #expect(listing.pidListIsComplete)
+    }
+
+    @Test("An empty PID list is never a whole one")
+    func emptyListing() {
+        let listing = DarwinProcessEnumerator(
+            listPIDs: { _, _ in 0 },
+            readProcess: { _ in nil }
+        ).capture()
+        #expect(!listing.isComplete)
+        #expect(!listing.pidListIsComplete)
     }
 
     @Test("Truncated PID buffers remain incomplete after bounded retries")
@@ -45,6 +57,7 @@ struct DarwinResourceSamplingTests {
         ).capture()
         #expect(readCount == 3)
         #expect(!listing.isComplete)
+        #expect(!listing.pidListIsComplete)
         #expect(!listing.processes.isEmpty)
     }
 

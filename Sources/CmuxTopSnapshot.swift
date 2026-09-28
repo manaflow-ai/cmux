@@ -75,6 +75,9 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
     let captureIsAvailable: Bool
     let enumerationIsComplete: Bool
     let enumerationMissingProcessCount: Int
+    /// Whether the PID list was whole, ignoring processes that exited before
+    /// they were read. Enough to rule out a live command; not a complete census.
+    let pidListIsComplete: Bool
     private let includesProcessDetails: Bool
     let includesResources: Bool
     private let includesCMUXScope: Bool
@@ -93,10 +96,13 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         includesResources: Bool = true,
         enumerationIsComplete: Bool = true,
         enumerationMissingProcessCount: Int = 0,
+        pidListIsComplete: Bool? = nil,
         captureIsAvailable: Bool = true
     ) {
         self.captureIsAvailable = captureIsAvailable
-        self.enumerationIsComplete = enumerationIsComplete && enumerationMissingProcessCount == 0
+        let complete = enumerationIsComplete && enumerationMissingProcessCount == 0
+        self.enumerationIsComplete = complete
+        self.pidListIsComplete = captureIsAvailable && (pidListIsComplete ?? complete)
         self.enumerationMissingProcessCount = max(0, enumerationMissingProcessCount)
         self.sampledAt = sampledAt
         self.includesProcessDetails = includesProcessDetails
@@ -151,7 +157,8 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "resource_details": includesResources,
             "cmux_scope": includesCMUXScope,
             "enumeration_complete": enumerationIsComplete,
-            "enumeration_missing_process_count": enumerationMissingProcessCount
+            "enumeration_missing_process_count": enumerationMissingProcessCount,
+            "pid_list_complete": pidListIsComplete
         ]
     }
 

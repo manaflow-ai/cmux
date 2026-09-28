@@ -84,7 +84,8 @@ final class SyntheticProcessSnapshotReader: CmuxTopProcessReading, Sendable {
         return DarwinProcessListing(
             processes: listing.processes,
             isComplete: listing.isComplete && state.withLock { $0.complete },
-            missingProcessCount: listing.missingProcessCount
+            missingProcessCount: listing.missingProcessCount,
+            pidListIsComplete: listing.pidListIsComplete && state.withLock { $0.complete }
         )
     }
 

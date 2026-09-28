@@ -70,6 +70,12 @@ struct AgentHookDeliveryEvent: Sendable {
         }
     }
 
+    /// Claude's PostToolUse exists only to close the call its PreToolUse opened
+    /// in ``AgentHookActivityTracker``; no hook process runs for it.
+    var isActivityRecordOnly: Bool {
+        agent == "claude" && subcommand == "post-tool-use"
+    }
+
     /// High-volume telemetry may use the replaceable ingress reservation, but
     /// tool events that can surface Needs input remain protected with lifecycle
     /// transitions and notifications.

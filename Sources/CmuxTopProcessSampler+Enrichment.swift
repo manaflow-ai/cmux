@@ -53,7 +53,8 @@ extension CmuxTopProcessSampler {
             includesProcessDetails: combined.contains(.details), includesCMUXScope: combined.contains(.scope),
             includesResources: combined.contains(.resources),
             enumerationIsComplete: capture.snapshot.enumerationIsComplete && missingCount == 0,
-            enumerationMissingProcessCount: missingCount
+            enumerationMissingProcessCount: missingCount,
+            pidListIsComplete: capture.snapshot.pidListIsComplete
         )
         return CmuxTopProcessCapture(listing: capture.listing, snapshot: snapshot, fields: combined)
     }
