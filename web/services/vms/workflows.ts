@@ -171,6 +171,20 @@ export type VmEntry = {
   readonly displayName: string | null;
   /** Generated three-word name (services/vms/vmNaming.ts); null on rows older than the column. */
   readonly slug: string | null;
+  /**
+   * The account that made the machine. A team's list is scoped by owner team,
+   * not by member, so without this a shared account is a pile of generated
+   * names with no way to tell whose is whose. It is an opaque id; the name to
+   * show for it comes from `services/vms/creators.ts`. Never null:
+   * `cloud_vms.user_id` is NOT NULL and has been there since the table was
+   * created (20260425062520_keen_kronos).
+   */
+  readonly createdByUserId: string;
+  /**
+   * The team that owns the machine, or the creator's own id for a personal
+   * machine. Creator names resolve only for current members of this team.
+   */
+  readonly ownerTeamId: string;
   /** The machine's address on its owner's private network, when it has one. */
   readonly addressIpv4: string | null;
   readonly addressIpv6: string | null;
@@ -1618,9 +1632,19 @@ function reopenBaseIfProviderDeleted(
     Effect.catchAll((err) =>
       isProviderNotFoundError(err)
         ? Effect.gen(function* () {
+          // forceStatus, the one caller that overrides the mapping. Everywhere
+          // else a missing provider machine follows the shared observation
+          // mapping. Here the override makes the Base generation's terminal
+          // requirement explicit: beginBaseOpen below only allocates a
+          // replacement once this row can no longer be opened.
+          //
+          // The home volume is not lost by this. beginBaseOpen retains the old
+          // generation rather than deleting it, which is the same place a
+          // normal reset leaves it.
           const markedDestroyed = yield* applyObservedProviderStatus(repo, providers, existing, {
             providerVmId,
             providerStatus: "destroyed",
+            forceStatus: "destroyed",
             usageEventSource: "base_open_provider_missing",
             modelPlane: input.modelPlane,
             usageEventMetadata: {
@@ -2824,10 +2848,11 @@ function applyObservedProviderStatus(
     readonly usageEventSource: VmDestroySource;
     readonly modelPlane?: VmModelPlaneRevoker;
     readonly usageEventMetadata?: Record<string, string | number | boolean | null>;
+    readonly forceStatus?: CloudVmStatus;
   },
 ): Effect.Effect<boolean, VmDatabaseError> {
   return Effect.gen(function* () {
-    const status = observedDbStatus(input.providerStatus);
+    const status = input.forceStatus ?? observedDbStatus(input.providerStatus);
     const usageEvent: VmUsageEventInput | undefined = status === "destroyed"
       ? {
         userId: vm.userId,
@@ -4882,6 +4907,8 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     createdAt: row.createdAt.getTime(),
     displayName: row.displayName ?? null,
     slug: row.slug ?? null,
+    createdByUserId: row.userId,
+    ownerTeamId: row.ownerTeamId,
     addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
     cmuxTuiContract: typeof metadata["cmuxTuiContract"] === "string" ? metadata["cmuxTuiContract"] : null,

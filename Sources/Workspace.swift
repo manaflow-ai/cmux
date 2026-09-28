@@ -3232,6 +3232,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Journals agent sessions ended by closing their terminal. Tests point it
     /// at a private journal.
     var agentSessionCloseJournal = AgentSessionCloseJournal()
+    /// Restored terminals held until this workspace is first shown (crash
+    /// recovery defers all but a few). Their panels already carry the session.
+    var startupRestorePanelIdsAwaitingFirstVisit: Set<UUID> = []
     /// In-memory compare-and-claim state held while a CLI restore hands the
     /// validated binding to its child process.
     @ObservationIgnored var surfaceResumeRestoreClaimsByPanelId: [
@@ -3986,6 +3989,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialTerminalInput: String? = nil,
         initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         initialTerminalStartupRestoreCommitOwner: WorkspaceTerminalStartupRestoreCommitOwner = .workspaceTopology,
+        initialTerminalStartsOnFirstVisit: Bool = false,
         initialTerminalEnvironment: [String: String] = [:],
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
@@ -4209,8 +4213,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                         snapshot: initialTerminalStartupRestoreAgent,
                         manualResumeAvailable: true,
                         willRunStartupInput: initialTerminalInput != nil,
-                        resumeWorkingDirectory: initialTerminalStartupRestoreAgent.workingDirectory
+                        resumeWorkingDirectory: initialTerminalStartupRestoreAgent.workingDirectory,
+                        defersStartupRestoreAdmission: initialTerminalStartsOnFirstVisit
                     )
+                    if initialTerminalStartsOnFirstVisit {
+                        startupRestorePanelIdsAwaitingFirstVisit.insert(terminalPanel.id)
+                    }
                     if initialTerminalStartupRestoreCommitOwner == .workspaceTopology {
                         terminalStartupRestoreCoordinator.commitPendingRestores(
                             panelIDs: [terminalPanel.id]
@@ -8925,6 +8933,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 from: panelId, orientation: orientation, insertFirst: insertFirst, focus: focus
             ) ? .routedToRemote : .failed
         }
+        // Auto layout re-tiles every pane itself, so only a plain split is
+        // checked against the minimum pane size (#15371).
+        let spaceVerdict: SplitSpaceVerdict = autoLayout
+            ? .fits
+            : splitSpaceVerdict(splittingPanel: panelId, orientation: orientation)
+        if spaceVerdict == .noSpace { return .noSpace }
         guard let panel = newTerminalSplitLocal(
             from: panelId,
             orientation: orientation,
@@ -8939,6 +8953,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault, autoLayout: autoLayout
         ) else { return .failed }
+        if !autoLayout {
+            finishSplitSpaceBorrow(
+                newPanelId: panel.id,
+                orientation: orientation,
+                explicitDividerPosition: initialDividerPosition
+            )
+        }
         return .created(panel)
     }
 
@@ -14355,7 +14376,9 @@ extension Workspace: BonsplitDelegate {
         guard !isRetiredFromOwningTabManager else { return false }
         // In a remote tmux mirror, split means tmux `split-window`; always veto
         // local splits so the mirror never gains an orphan pane.
-        guard isRemoteTmuxMirror else { return true }
+        guard isRemoteTmuxMirror else {
+            return admitsBonsplitUISplit(of: pane, orientation: orientation)
+        }
         if let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
            let panelId = panelIdFromSurfaceId(tabId) {
             _ = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(workspaceId: id, panelId: panelId, vertical: orientation == .vertical, focusIntent: .focusCreatedPane)
@@ -14575,6 +14598,8 @@ extension Workspace: BonsplitDelegate {
             scheduleTerminalGeometryReconcile()
             return
         }
+        // A bonsplit UI split admitted by borrowing room gets it now.
+        finishSplitSpaceBorrow(newPaneId: newPane, orientation: orientation)
 
         // If the new pane already has a tab, this split moved an existing tab (drag-to-split).
         //
