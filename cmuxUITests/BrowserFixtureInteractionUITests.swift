@@ -18,11 +18,13 @@ class BrowserFixtureSocketTestCase: XCTestCase {
     private(set) var socketPath = ""
     private var diagnosticsPath = ""
     private var launchTag = ""
+    private var usesNetcatTransport = false
     private(set) var app: XCUIApplication?
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
+        usesNetcatTransport = false
         socketPath = "/tmp/cmux-debug-\(UUID().uuidString).sock"
         diagnosticsPath = "/tmp/cmux-ui-test-browser-fixtures-\(UUID().uuidString).json"
         launchTag = "ui-tests-browser-\(UUID().uuidString.prefix(8))"
@@ -102,6 +104,9 @@ class BrowserFixtureSocketTestCase: XCTestCase {
             "method": method,
             "params": params,
         ]
+        if usesNetcatTransport {
+            return controlSocketJSONViaNetcat(request, socketPath: socketPath, responseTimeout: responseTimeout)
+        }
         return ControlSocketClient(path: socketPath, responseTimeout: responseTimeout).sendJSON(request)
     }
 
@@ -283,22 +288,21 @@ class BrowserFixtureSocketTestCase: XCTestCase {
                     guard FileManager.default.fileExists(atPath: candidate) else { continue }
                     if ControlSocketClient(path: candidate, responseTimeout: 1.0).sendLine("ping") == "PONG" {
                         self.socketPath = candidate
+                        self.usesNetcatTransport = false
+                        return true
+                    }
+                    // Select a working transport with a read-only probe. Do
+                    // not replay mutations after an ambiguous missing response.
+                    if self.controlSocketCommandViaNetcat("ping", socketPath: candidate) == "PONG" {
+                        self.socketPath = candidate
+                        self.usesNetcatTransport = true
                         return true
                     }
                 }
                 return false
             }
         )
-        if ready { return true }
-
-        let diagnostics = loadDiagnostics()
-        guard controlSocketDiagnosticsReportReady(diagnostics),
-              let expectedPath = diagnostics["socketExpectedPath"],
-              socketCandidates().contains(expectedPath) else {
-            return false
-        }
-        socketPath = expectedPath
-        return true
+        return ready
     }
 
     private func socketCandidates() -> [String] {

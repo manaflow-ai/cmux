@@ -43,11 +43,34 @@ final class CanvasBrowserRenderingUITests: BrowserFixtureSocketTestCase {
             try socketResult(method: "surface.focus", params: ["surface_id": browserID])
             let frameBeforeMove = webView.frame
             try setFrame(surfaceID: browserID, workspaceID: workspaceID, x: 120, y: -60)
+            try waitForFrameChange(webView: webView, from: frameBeforeMove, name: "moved-\(iteration)")
+            let frameBeforeZoom = webView.frame
+            let canvas = try socketResult(method: "canvas.info", params: ["workspace_id": workspaceID])
+            let previousZoom = try XCTUnwrap(canvas["magnification"] as? Double)
+            XCTAssertGreaterThan(previousZoom, 0)
+            let requestedZoom = previousZoom < 0.8 ? 0.9 : 0.7
             try socketResult(
                 method: "canvas.set_viewport",
-                params: ["workspace_id": workspaceID, "x": 330, "y": 90, "zoom": 0.7]
+                params: ["workspace_id": workspaceID, "x": 330, "y": 90, "zoom": requestedZoom]
             )
-            try waitForFrameChange(webView: webView, from: frameBeforeMove, name: "moved-and-zoomed-\(iteration)")
+            let zoomRatio = CGFloat(requestedZoom / previousZoom)
+            let expectedSize = CGSize(
+                width: frameBeforeZoom.width * zoomRatio,
+                height: frameBeforeZoom.height * zoomRatio
+            )
+            let zoomExpectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate { _, _ in
+                    let size = webView.frame.size
+                    return abs(size.width - expectedSize.width) < 2 &&
+                        abs(size.height - expectedSize.height) < 2
+                },
+                object: nil
+            )
+            XCTAssertEqual(
+                XCTWaiter.wait(for: [zoomExpectation], timeout: 8),
+                .completed,
+                "Browser must reflect zoom \(requestedZoom) before pixels are sampled; expected \(expectedSize), got \(webView.frame)"
+            )
             try assertAligned(webView: webView, window: window, name: "moved-and-zoomed-\(iteration)")
 
             let other = try socketResult(
