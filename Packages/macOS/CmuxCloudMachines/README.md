@@ -100,12 +100,16 @@ closing workspaces. Before closing the machine's workspaces it calls the create
 owner's `retireCreates(producing:presentedIn:)` with their IDs, so a create for the
 same machine stops without a second destroy request, even one whose receipt has
 not named the machine yet. It closes no presentation in those workspaces, since
-the adapter closes them whole, panes the person added included. After a failure it calls `machineDeletionFailed(_:)`, so
-a create whose receipt first names the restored machine keeps it. The creates the
-delete stopped stay stopped, and receipts seen while it ran request nothing, so no
-create retries the destroy on its own. When the account ends, the create owner's
-`endAccount()` clears its deletions without an outcome and counts their machines
-as cleaned up, so a departed create never destroys one of them:
+the adapter closes them whole, panes the person added included; a window's last
+tab stays open, emptied and unbound. A cancelled create's `cleanupMachineIDs`
+start deletions too, which close workspaces only after the create's presentation
+has closed, so a pane the person added there stays open. After a failure the
+adapter calls `machineDeletionFailed(_:)`, so a create whose receipt first names
+the restored machine keeps it. The creates the delete stopped stay stopped, and
+receipts seen while it ran request nothing, so no create retries the destroy on
+its own. When the account ends, the create owner's `endAccount()` clears its
+deletions without an outcome and counts their machines as cleaned up, so a
+departed create never destroys one of them:
 
 ```swift
 let deletions = CloudMachineDeletionCoordinator()
