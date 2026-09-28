@@ -1,5 +1,6 @@
 import CmuxMobilePairedMac
 import CmuxMobileRPC
+import Foundation
 
 /// The result of dialing one discovered Mac before any foreground ownership.
 enum ZeroTouchDialAttempt {
@@ -7,56 +8,66 @@ enum ZeroTouchDialAttempt {
     case reachable(MobileCoreRPCClient)
     /// The dial or its first response failed.
     case failed(any Error)
-    /// Local policy leaves nothing this build may dial for the Mac.
+    /// Local policy leaves nothing this build may dial for the Mac, or the
+    /// race closed before the dial started.
     case skipped
 }
 
-/// Dials every discovered Mac at once and yields each one as soon as it
+/// Dials discovered Macs concurrently and yields each one as soon as it
 /// answers, so a stalled directory entry never delays a live Mac behind it.
 ///
+/// Every candidate dials at once up to ``maximumConcurrentDials``, which
+/// stays inside the shell's connect-attempt budget so dials past it queue
+/// instead of being refused. Each finished dial starts the next queued one.
+///
 /// The consumer claims each yielded client and hands it to the foreground
-/// connect. ``close()`` cancels dials still in flight and disconnects every
-/// reachable client that was never claimed, including ones that answer late.
+/// connect. ``close()`` tears down dials still in flight, drops queued ones,
+/// and disconnects every reachable client that was never claimed, including
+/// ones that answer late. A newer reconnect generation, and sign-out, close
+/// the race so its dials cannot hold endpoint leases the new pass needs.
 @MainActor
 final class ZeroTouchDialRace {
+    typealias Dial = @Sendable @MainActor (
+        MobilePairedMac,
+        _ track: @MainActor (MobileCoreRPCClient) -> Bool
+    ) async -> ZeroTouchDialAttempt
+
     struct Arrival: Sendable {
         let mac: MobilePairedMac
         let client: MobileCoreRPCClient
     }
 
+    /// Half the shell's connect-attempt budget. A stalled dial torn down by
+    /// ``close()`` can linger as cleanup debt against that same budget, so the
+    /// other half stays free for the adopted foreground lane, secondary Macs,
+    /// and the next pass.
+    static let maximumConcurrentDials =
+        MobileRPCConnectAttemptRegistry.maximumGlobalOutstandingAttempts / 2
+
     let arrivals: AsyncStream<Arrival>
     /// The most recent dial failure, for reporting when no Mac answered.
     private(set) var lastFailure: (any Error)?
     private let continuation: AsyncStream<Arrival>.Continuation
-    private var dials: [Task<Void, Never>] = []
+    private let dial: Dial
+    private let maximumConcurrentDials: Int
+    private var queued: ArraySlice<MobilePairedMac>
+    private var dials: [UUID: Task<Void, Never>] = [:]
+    private var inFlightClients: [UUID: MobileCoreRPCClient] = [:]
     private var unclaimedClients: [ObjectIdentifier: MobileCoreRPCClient] = [:]
-    private var pendingDialCount: Int
     private var isClosed = false
 
     init(
         candidates: [MobilePairedMac],
-        dial: @escaping @Sendable @MainActor (MobilePairedMac) async -> ZeroTouchDialAttempt
+        maximumConcurrentDials: Int = ZeroTouchDialRace.maximumConcurrentDials,
+        dial: @escaping Dial
     ) {
         let (arrivals, continuation) = AsyncStream.makeStream(of: Arrival.self)
         self.arrivals = arrivals
         self.continuation = continuation
-        pendingDialCount = candidates.count
-        guard !candidates.isEmpty else {
-            continuation.finish()
-            return
-        }
-        dials = candidates.map { mac in
-            Task { @MainActor [weak self] in
-                let attempt = await dial(mac)
-                guard let self else {
-                    if case let .reachable(client) = attempt {
-                        await client.disconnect()
-                    }
-                    return
-                }
-                self.finishDial(of: mac, attempt: attempt)
-            }
-        }
+        self.dial = dial
+        self.maximumConcurrentDials = max(1, maximumConcurrentDials)
+        queued = candidates[...]
+        startQueuedDials()
     }
 
     /// Takes ownership of a yielded client so ``close()`` leaves it alone.
@@ -65,13 +76,19 @@ final class ZeroTouchDialRace {
         return arrival.client
     }
 
-    /// Cancels in-flight dials and releases every unclaimed client.
+    /// Tears down in-flight dials, drops queued ones, and releases every
+    /// unclaimed client.
     func close() {
         guard !isClosed else { return }
         isClosed = true
-        for dial in dials {
+        queued = []
+        for dial in dials.values {
             dial.cancel()
         }
+        for client in inFlightClients.values {
+            Self.release(client)
+        }
+        inFlightClients.removeAll()
         for client in unclaimedClients.values {
             Self.release(client)
         }
@@ -79,8 +96,44 @@ final class ZeroTouchDialRace {
         continuation.finish()
     }
 
-    private func finishDial(of mac: MobilePairedMac, attempt: ZeroTouchDialAttempt) {
-        pendingDialCount -= 1
+    private func startQueuedDials() {
+        while !isClosed,
+              dials.count < maximumConcurrentDials,
+              let mac = queued.popFirst() {
+            let token = UUID()
+            dials[token] = Task { @MainActor [weak self, dial] in
+                let attempt = await dial(mac) { [weak self] client in
+                    self?.track(client, token: token) ?? false
+                }
+                guard let self else {
+                    if case let .reachable(client) = attempt {
+                        await client.disconnect()
+                    }
+                    return
+                }
+                self.finishDial(of: mac, token: token, attempt: attempt)
+            }
+        }
+        if dials.isEmpty, queued.isEmpty {
+            continuation.finish()
+        }
+    }
+
+    /// Records a dial's client so ``close()`` can tear it down mid-dial.
+    /// Returns `false` once the race has closed; the dial must not proceed.
+    private func track(_ client: MobileCoreRPCClient, token: UUID) -> Bool {
+        guard !isClosed else { return false }
+        inFlightClients[token] = client
+        return true
+    }
+
+    private func finishDial(
+        of mac: MobilePairedMac,
+        token: UUID,
+        attempt: ZeroTouchDialAttempt
+    ) {
+        dials[token] = nil
+        inFlightClients[token] = nil
         switch attempt {
         case let .reachable(client):
             if isClosed {
@@ -94,9 +147,7 @@ final class ZeroTouchDialRace {
         case .skipped:
             break
         }
-        if pendingDialCount == 0 {
-            continuation.finish()
-        }
+        startQueuedDials()
     }
 
     private static func release(_ client: MobileCoreRPCClient) {

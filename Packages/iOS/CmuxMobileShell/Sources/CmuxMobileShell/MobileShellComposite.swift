@@ -1133,6 +1133,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Owns asynchronous transport cleanup until each retired client confirms
     /// it transferred its route lease to the bounded registry cleanup path.
     private var clientDisconnectTasks: [UUID: Task<Void, Never>] = [:]
+    /// Discovered-Mac dials of the reconnect pass in flight, closed when a
+    /// newer reconnect generation or sign-out supersedes that pass.
+    @ObservationIgnored var zeroTouchDialRace: ZeroTouchDialRace?
     let stackTokenGate = RPCStackTokenGate()
     let stackTokenForceRefreshGate = RPCStackTokenGate()
     /// Collapses connection-state edges into one-per-outage lost/recovered events.
@@ -2199,6 +2202,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingInactiveRecoveryTrigger = nil
         connectionRecoveryOwner.cancel()
         applyConnectionRecoveryOwnerState()
+        zeroTouchDialRace?.close()
+        zeroTouchDialRace = nil
         invalidatePairingAttempt()
         clearMacSwitchAttemptState()
         connectionGeneration = UUID()
@@ -3155,6 +3160,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // gate (or clobber the hint) while a newer reconnect is still running.
         storedMacReconnectGeneration &+= 1
         let generation = storedMacReconnectGeneration
+        zeroTouchDialRace?.close()
+        zeroTouchDialRace = nil
         isReconnectingStoredMac = true
         let restoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         // Bound the complete visible retry window, including scope resolution,
@@ -3544,13 +3551,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             let dialRace = ZeroTouchDialRace(
                 candidates: zeroTouchCandidates
-            ) { [weak self] mac in
+            ) { [weak self] mac, track in
                 await self?.dialZeroTouchCandidate(
                     mac,
-                    automaticReconnectAccountID: scope.userID
+                    automaticReconnectAccountID: scope.userID,
+                    track: track
                 ) ?? .skipped
             }
-            defer { dialRace.close() }
+            zeroTouchDialRace?.close()
+            zeroTouchDialRace = dialRace
+            defer {
+                dialRace.close()
+                if zeroTouchDialRace === dialRace { zeroTouchDialRace = nil }
+            }
             var attemptedForegroundConnect = false
             for await arrival in dialRace.arrivals {
                 let client = dialRace.claim(arrival)
@@ -8579,6 +8592,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     func invalidateStoredMacReconnectAttempt() {
         storedMacReconnectGeneration &+= 1
+        zeroTouchDialRace?.close()
+        zeroTouchDialRace = nil
         isReconnectingStoredMac = false
         pendingForcedStoredMacReconnect = false
     }

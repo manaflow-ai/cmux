@@ -38,7 +38,8 @@ extension MobileShellComposite {
     /// records the automatic-reconnect backoff its error requests.
     func dialZeroTouchCandidate(
         _ mac: MobilePairedMac,
-        automaticReconnectAccountID: String
+        automaticReconnectAccountID: String,
+        track: @MainActor (MobileCoreRPCClient) -> Bool
     ) async -> ZeroTouchDialAttempt {
         guard let runtime else { return .skipped }
         let plan = storedMacDialPlan(
@@ -76,6 +77,12 @@ extension MobileShellComposite {
                 peerID: ticket.macDeviceID
             )
         )
+        // The race owns the client from here so a newer reconnect or sign-out
+        // can tear the dial down and free its endpoint lease.
+        guard track(client) else {
+            client.retire()
+            return .skipped
+        }
         do {
             _ = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
@@ -88,10 +95,14 @@ extension MobileShellComposite {
             return .reachable(client)
         } catch {
             await client.disconnect()
-            recordAutomaticReconnectBackoff(
-                error: error,
-                accountID: automaticReconnectAccountID
-            )
+            // A dial torn down by a newer pass must not write Retry-After
+            // pacing over the backoff that pass just cleared.
+            if !Task.isCancelled {
+                recordAutomaticReconnectBackoff(
+                    error: error,
+                    accountID: automaticReconnectAccountID
+                )
+            }
             return .failed(error)
         }
     }

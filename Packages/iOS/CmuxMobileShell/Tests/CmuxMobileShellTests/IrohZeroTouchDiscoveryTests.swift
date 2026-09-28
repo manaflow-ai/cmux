@@ -734,6 +734,99 @@ struct IrohZeroTouchDiscoveryTests {
         #expect(factory.attemptedRouteIDs().filter { $0 == live.routes[0].id }.count == 1)
     }
 
+    /// More stalled directory entries than the dial window: the live Mac
+    /// behind them must queue rather than be refused by the shell's connect
+    /// budget, and dial as soon as a stalled dial frees its slot.
+    @Test
+    func discoveredMacsBeyondDialWindowQueueUntilASlotFrees() async throws {
+        let window = ZeroTouchDialRace.maximumConcurrentDials
+        let stalled = try (0..<window).map { index in
+            try candidate(
+                deviceID: "mac-stalled-\(index)",
+                endpointByte: Array("123456789")[index],
+                routeID: "iroh-stalled-\(index)"
+            )
+        }
+        let live = try candidate(deviceID: "mac-live", endpointByte: "f")
+        let candidates = stalled + [live]
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let store = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        var routers: [String: LivenessHostRouter] = [:]
+        for candidate in candidates {
+            let router = LivenessHostRouter()
+            await router.setHostIdentity(
+                deviceID: candidate.deviceID,
+                instanceTag: candidate.instanceTag,
+                displayName: candidate.displayName
+            )
+            routers[candidate.routes[0].id] = router
+        }
+        let stalledRouters = try stalled.map {
+            try #require(routers[$0.routes[0].id])
+        }
+        for router in stalledRouters {
+            await router.delayHostStatusRequest(number: 1)
+        }
+        let factory = RoutedZeroTouchFactory(routers: routers)
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { Self.fixedNow },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: store,
+            personalIrohDiscovery: ScriptedIrohDiscovery(
+                snapshots: [candidates]
+            ),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "iroh-dial-window-\(UUID().uuidString)"
+            )!
+        )
+        defer {
+            for (_, subscription) in shell.secondaryMacSubscriptions {
+                subscription.cancel()
+            }
+            Task { await shell.remoteClient?.disconnect() }
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let reconnect = Task { @MainActor in
+            await shell.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        let windowFilled = try await pollUntil {
+            for router in stalledRouters where await router.heldRequestCount() != 1 {
+                return false
+            }
+            return true
+        }
+        let liveDialedWhileWindowFull = factory.attemptedRouteIDs()
+            .contains(live.routes[0].id)
+        // Freeing one slot starts the queued live dial. (The released Mac
+        // also answers, so either may become the foreground; this test only
+        // pins the queueing.)
+        await stalledRouters[0].releaseAllHeld()
+        let liveDialedAfterSlotFreed = try await pollUntil {
+            factory.attemptedRouteIDs().contains(live.routes[0].id)
+        }
+        for router in stalledRouters {
+            await router.releaseAllHeld()
+        }
+        #expect(windowFilled)
+        #expect(!liveDialedWhileWindowFull)
+        #expect(liveDialedAfterSlotFreed)
+        #expect(await reconnect.value)
+    }
+
     @Test
     func signOutWhileDiscoveryIsSuspendedPreventsDialAndPersistence() async throws {
         let live = try candidate(deviceID: "mac-a", endpointByte: "a")
