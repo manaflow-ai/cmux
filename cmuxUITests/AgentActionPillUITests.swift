@@ -127,10 +127,15 @@ final class AgentActionPillUITests: XCTestCase {
     /// Opens a focused terminal workspace and returns its ids. Retries while
     /// the app's main thread settles after a cold launch.
     private func openTerminal() throws -> Terminal {
+        let operationID = UUID().uuidString
         let request: [String: Any] = [
-            "id": UUID().uuidString,
+            "id": operationID,
             "method": "workspace.create",
-            "params": ["title": "Agent Stop pill", "focus": true],
+            "params": [
+                "operation_id": operationID,
+                "title": "Agent Stop pill",
+                "focus": true,
+            ],
         ]
         var last: [String: Any]?
         let deadline = Date().addingTimeInterval(60.0)
