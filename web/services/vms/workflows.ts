@@ -9,6 +9,7 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Either from "effect/Either";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Option from "effect/Option";
 import { eq } from "drizzle-orm";
@@ -93,11 +94,15 @@ import {
 } from "./entitlements";
 import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
 import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
-import { networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
-import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
+import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
+import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
+import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
+import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import { withVmProductAnalytics } from "./productAnalytics";
 import {
+  CREATE_CLEANUP_PROVIDER_VM_ID_KEY,
+  PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE,
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
   VmRepository,
   vmRepositoryLiveShape,
@@ -112,6 +117,7 @@ import {
   type CloudVmRow,
   type VmRepositoryShape,
   type VmResizeReservation,
+  type VmUsageEventInput,
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
 import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
@@ -128,6 +134,7 @@ export {
   listVmTunnels,
   listVmAccessGrants,
   networkSlugForUser,
+  networkSlugForTeam,
   readVmTunnel,
   renameVmAccessGrant,
   resolveOwnerNetwork,
@@ -159,6 +166,13 @@ export type VmEntry = {
   /** The machine's address on its owner's private network, when it has one. */
   readonly addressIpv4: string | null;
   readonly addressIpv6: string | null;
+  /**
+   * The image's cmux-tui attach contract (`"snapshot-v2"`: baked daemon with
+   * the trusted private-network listener). With a private address, it is
+   * everything a client needs to dial the daemon, so the create response can
+   * carry it and New Machine skips the separate attach request.
+   */
+  readonly cmuxTuiContract: string | null;
 };
 
 export type BaseVmEntry = VmEntry & {
@@ -209,6 +223,12 @@ const IDENTITY_REVOKE_PROVIDER_TIMEOUT = "5 seconds";
 const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
 const ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
+const CREATE_CLEANUP_CONCURRENCY = 4;
+const CREATE_CLEANUP_PROVIDER_TIMEOUT = "15 seconds";
+const CREATE_CLEANUP_LEASE_MS = 60 * 1000;
+const CREATE_CLEANUP_BACKOFF_BASE_MS = 5 * 1000;
+const CREATE_CLEANUP_BACKOFF_MAX_MS = 15 * 60 * 1000;
+const CREATE_CLEANUP_BATCH_LIMIT = 20;
 const LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT = 50;
 const LEGACY_RESOURCE_RECONCILE_CONCURRENCY = 5;
 const LEGACY_RESOURCE_RECONCILE_RETRY_AFTER_MS = 5 * 60 * 1000;
@@ -370,8 +390,75 @@ export function renameVm(input: {
   });
 }
 
+/**
+ * Detach tunnels from team networks their owner no longer belongs to. Freestyle
+ * is the record of both the team networks (found by slug) and their attached
+ * tunnels; candidate teams come from the live machines billed to them.
+ */
+function reconcileTeamTunnelAttachments(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  directory: VmTeamDirectory,
+  timeoutMs = 3000,
+  pageSize = 50,
+  budgetMs = 60_000,
+  now: () => number = Date.now,
+): Effect.Effect<void, never> {
+  const reconcileTeam = (owner: { readonly teamId: string; readonly provider: ProviderId }) =>
+    Effect.gen(function* () {
+      const network = yield* providers.getNetwork!(owner.provider, networkSlugForTeam(owner.teamId));
+      if (!network) return;
+      const membersResult = yield* listTeamMemberIdsWithTimeout(directory, owner.teamId, timeoutMs);
+      if ("error" in membersResult) return;
+      const members = membersResult.memberIds ? new Set(membersResult.memberIds) : null;
+      const tunnelIds = yield* providers.listNetworkTunnelIds!(owner.provider, network.id);
+      const rows = yield* repo.findTunnelsByProviderTunnelIds!(owner.provider, tunnelIds);
+      for (const row of rows) {
+        // Tunnels with no row are skipped: the provider account can hold
+        // tunnels another environment issued.
+        const remove = members === null || row.revokedAt !== null || !members.has(row.userId);
+        if (!remove) continue;
+        yield* providers.detachTunnelNetwork!(owner.provider, row.providerTunnelId, network.id).pipe(Effect.catchAll(() => Effect.void));
+      }
+    }).pipe(Effect.catchAll(() => Effect.void));
+  return Effect.gen(function* () {
+    const startedAt = now();
+    let after: { teamId: string; provider: ProviderId } | undefined;
+    for (let pageNumber = 0; pageNumber < 100; pageNumber += 1) {
+      if (now() - startedAt >= budgetMs) {
+        yield* Effect.logInfo("Cloud team tunnel reconciliation budget exhausted", {
+          skippedTeamsInPage: 0,
+          remainingPagesUnread: true,
+        });
+        break;
+      }
+      const page = yield* repo.listActiveTeamVmOwners!({ limit: pageSize, after }).pipe(Effect.catchAll(() => Effect.succeed([])));
+      if (page.length === 0) break;
+      for (const [index, owner] of page.entries()) {
+        if (now() - startedAt >= budgetMs) {
+          // Count only fetched teams; further pages remain unread for the next run.
+          yield* Effect.logInfo("Cloud team tunnel reconciliation budget exhausted", {
+            skippedTeamsInPage: page.length - index,
+            remainingPagesUnread: page.length === pageSize,
+          });
+          return;
+        }
+        yield* reconcileTeam(owner);
+      }
+      if (page.length < pageSize) break;
+      after = page[page.length - 1];
+      if (!after) break;
+    }
+  }).pipe(Effect.catchAllCause(() => Effect.void));
+}
+
 export function reconcileVmProviderStatuses(input: {
   readonly limit?: number;
+  readonly teamDirectory?: VmTeamDirectory;
+  readonly directoryTimeoutMs?: number;
+  readonly teamNetworkPageSize?: number;
+  readonly teamReconcileBudgetMs?: number;
+  readonly now?: () => number;
   /** Revokes coderouter tokens for machines the provider reports gone. */
   readonly modelPlane?: VmModelPlaneRevoker;
 } = {}): Effect.Effect<VmProviderStatusReconcileResult, VmWorkflowError, VmRepository | VmProviderGateway> {
@@ -382,6 +469,11 @@ export function reconcileVmProviderStatuses(input: {
     // provider fanout here removes migration work from user-facing creates.
     yield* reconcileLegacyResourceReservations(repo, providers, {
       limit: LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT,
+    });
+    yield* reconcilePendingCreateCleanups(repo, providers, {
+      // At four concurrent 15-second provider calls, twenty rows fit inside
+      // the five-minute cron budget while leaving time for status probes.
+      limit: Math.min(boundedVmStatusReconcileLimit(input.limit), CREATE_CLEANUP_BATCH_LIMIT),
     });
     const getStatus = providers.getStatus;
     if (!getStatus) {
@@ -430,6 +522,15 @@ export function reconcileVmProviderStatuses(input: {
       else if (outcome === "destroyed") destroyed += 1;
       else if (outcome === "skipped") skipped += 1;
     }
+    if (
+      input.teamDirectory && repo.listActiveTeamVmOwners && repo.findTunnelsByProviderTunnelIds &&
+      providers.getNetwork && providers.listNetworkTunnelIds && providers.detachTunnelNetwork
+    ) {
+      yield* reconcileTeamTunnelAttachments(
+        repo, providers, input.teamDirectory, input.directoryTimeoutMs,
+        input.teamNetworkPageSize, input.teamReconcileBudgetMs, input.now,
+      );
+    }
     return {
       checked: candidates.length,
       updated,
@@ -437,6 +538,84 @@ export function reconcileVmProviderStatuses(input: {
       skipped,
       skippedNoGetStatus: false,
     };
+  });
+}
+
+/**
+ * A provider allocation retained after a failed create is not a normal VM row:
+ * its public provider id is intentionally absent until deletion is confirmed.
+ * Reconcile those ids before ordinary status probing so a failed provider
+ * cleanup cannot remain reserved forever or block the next Base generation.
+ */
+function reconcilePendingCreateCleanups(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  input: { readonly limit: number },
+): Effect.Effect<void, never> {
+  const listCandidates = repo.pendingCreateCleanupCandidates;
+  const claimCleanup = repo.claimCreateCleanup;
+  const deferCleanup = repo.deferCreateCleanup;
+  const resolveCleanup = repo.resolveCreateCleanup;
+  if (!listCandidates || !claimCleanup || !deferCleanup || !resolveCleanup) return Effect.void;
+  return Effect.gen(function* () {
+    const candidates = yield* listCandidates({ limit: input.limit }).pipe(
+      Effect.catchAll(() => Effect.succeed([] as CloudVmRow[])),
+    );
+    yield* Effect.forEach(
+      candidates,
+      (vm) => {
+        // The row can outlive its provider driver. Never pass a retired
+        // provider or a coderouter/model-plane failure to the cleanup worker.
+        if (isRetiredProviderRow(vm) || vm.failureCode !== PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE) {
+          return Effect.void;
+        }
+        const rawProviderVmId = vm.providerMetadata?.[CREATE_CLEANUP_PROVIDER_VM_ID_KEY];
+        if (typeof rawProviderVmId !== "string" || rawProviderVmId.trim().length === 0) return Effect.void;
+        const providerVmId = rawProviderVmId.trim();
+        const leaseId = randomUUID();
+        const now = new Date();
+        const leaseExpiresAt = new Date(now.getTime() + CREATE_CLEANUP_LEASE_MS);
+        return claimCleanup({
+          id: vm.id,
+          providerVmId,
+          leaseId,
+          now,
+          leaseExpiresAt,
+        }).pipe(
+          Effect.flatMap((claim) => {
+            if (!claim) return Effect.void;
+            const destroy = providers.destroy(vm.provider, providerVmId).pipe(
+              Effect.timeoutFail({
+                duration: CREATE_CLEANUP_PROVIDER_TIMEOUT,
+                onTimeout: () => new Error("provider cleanup deadline"),
+              }),
+              Effect.catchAll((error) => isProviderDeletionConfirmed(error)
+                ? Effect.succeed("confirmed" as const)
+                : Effect.fail(error)),
+            );
+            return destroy.pipe(
+              Effect.flatMap(() => resolveCleanup({ id: vm.id, providerVmId, leaseId })),
+              Effect.asVoid,
+              Effect.catchAll(() => {
+                const backoff = Math.min(
+                  CREATE_CLEANUP_BACKOFF_MAX_MS,
+                  CREATE_CLEANUP_BACKOFF_BASE_MS * 2 ** Math.min(20, Math.max(0, claim.attempt - 1)),
+                );
+                return deferCleanup({
+                  id: vm.id,
+                  providerVmId,
+                  leaseId,
+                  nextAttemptAt: new Date(Date.now() + backoff),
+                  now: new Date(),
+                }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
+              }),
+            );
+          }),
+          Effect.catchAll(() => Effect.void),
+        );
+      },
+      { concurrency: CREATE_CLEANUP_CONCURRENCY, discard: true },
+    );
   });
 }
 
@@ -495,6 +674,10 @@ function rollbackProviderCreate(
       );
     }
   });
+}
+
+function isFailedVmCreate(vm: Pick<CloudVmRow, "status" | "failureCode">): boolean {
+  return vm.status === "failed" || vm.failureCode === PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE;
 }
 
 /** Check the copied or requested shape before provisioning side effects. */
@@ -578,7 +761,16 @@ type CreateVmInput = {
    * unwired machine.
    */
   readonly modelPlane?: VmModelPlaneProvisioner;
+  /** Set only when the requesting client routes team networks. */
+  readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
+  /**
+   * Runs best-effort work after the response has been sent (the route passes
+   * `runAfterResponse`). createVm uses it only for the `vm.created` ledger
+   * row, which is written after the machine is already usable and whose
+   * failure is already ignored. Without it the row is written inline.
+   */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
 };
 
 function createVmBeginInput(input: CreateVmInput): CreateVmInput {
@@ -616,7 +808,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
           measureVmEffect(
             input.timing,
             "resolve_network",
-            resolveOwnerNetwork({ userId: input.userId, provider: input.provider }),
+            resolveOwnerNetwork({ userId: input.userId, provider: input.provider, billingTeamId: input.billingTeamId, teamDirectory: input.teamDirectory }),
           ),
         ),
         beginCreateWithLazyProviderRefresh(repo, providers, beginInput),
@@ -637,7 +829,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
 
     if (!create.inserted) {
       const existing = create.vm;
-      if (existing.status === "failed") {
+      if (isFailedVmCreate(existing)) {
         return yield* Effect.fail(
           new VmCreateFailedError({
             idempotencyKey: input.idempotencyKey ?? "",
@@ -655,7 +847,15 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     }
 
     const creditReservation = yield* reserveCreateCredit(billing, repo, input, create.vm);
-    yield* recordCreateRequestedEvents(repo, input, create.vm, creditReservation);
+    // The requested-events write depends on nothing below, so it runs beside
+    // model-plane provisioning and the provider call instead of in front of
+    // them (~20 ms off every create). It is joined before any failure event
+    // and before success, so the ledger keeps requested -> failed/created
+    // order and the row is written before the response leaves.
+    const requestedEvents = yield* Effect.fork(
+      recordCreateRequestedEvents(repo, input, create.vm, creditReservation),
+    );
+    const awaitRequestedEvents = Fiber.join(requestedEvents);
 
     const materials = yield* measureVmEffect(
       input.timing,
@@ -663,7 +863,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       provisionModelPlane(input.modelPlane, create.vm.id),
     ).pipe(
       Effect.tapError((err) =>
-        Effect.all([
+        awaitRequestedEvents.pipe(Effect.andThen(Effect.all([
           refundCredit(billing, repo, create.vm, creditReservation),
           repo.markCreateFailed({
             id: create.vm.id,
@@ -684,7 +884,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
               message: errorMessage(err.cause),
             },
           }),
-        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+        ], { discard: true })), Effect.catchAll(() => Effect.void))
       ),
     );
 
@@ -708,21 +908,24 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         memoryMb: input.memoryMb,
         imageSize: input.imageSize ?? (input.billingPlanId === "go" ? { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 } : undefined),
         edgeRules: materials?.edgeRules,
-        network: { id: network.providerNetworkId },
+        network: { id: network.providerNetworkId, memberIngress: network.memberIngress },
       }),
     ).pipe(
       Effect.tapError((err) =>
-        Effect.all([
+        awaitRequestedEvents.pipe(Effect.andThen(Effect.all([
           revokeModelPlane(input.modelPlane, create.vm.id),
           refundCredit(billing, repo, create.vm, creditReservation),
           repo.markCreateFailed({
             id: create.vm.id,
-            // providers.create fails only with VmProviderOperationError, and
-            // the caller is told it is retryable (vm_cloud_service_unavailable,
-            // retryAfterSeconds ~5), so store the code that lets a same-key
-            // retry reach the provider again immediately.
-            code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
-            message: errorMessage(err.cause),
+            // An unconfirmed rollback remains owned by this failed row. Keep
+            // its provider id and make same-key retries wait for reconciliation
+            // instead of allocating a duplicate machine.
+            ...(isProviderCreateCleanupError(err.cause)
+              ? { code: PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE, cleanupProviderVmId: err.cause.providerVmId }
+              : { code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE }),
+            message: isProviderCreateCleanupError(err.cause)
+              ? `${errorMessage(err.cause.cause)}; cleanup: ${errorMessage(err.cause.cleanupCause)}`
+              : errorMessage(err.cause),
           }),
           repo.recordUsageEvent({
             userId: input.userId,
@@ -734,7 +937,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
             imageId: input.image,
             metadata: { operation: err.operation, message: errorMessage(err.cause) },
           }),
-        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+        ], { discard: true })), Effect.catchAll(() => Effect.void))
       ),
     );
 
@@ -751,6 +954,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     ).pipe(
       Effect.catchAll((err) =>
         Effect.gen(function* () {
+          yield* awaitRequestedEvents;
           yield* rollbackProviderCreate(providers, input.provider, handle);
           yield* revokeModelPlane(input.modelPlane, create.vm.id);
           yield* refundCredit(billing, repo, create.vm, creditReservation);
@@ -771,10 +975,57 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       ),
     );
 
-    yield* recordCreateSuccessEvents(repo, input, running);
+    yield* awaitRequestedEvents;
+    if (input.deferAfterResponse) {
+      // The machine is usable once mark_running commits; the `vm.created`
+      // ledger row is analytics and its failure was already ignored. Writing
+      // it after the response keeps it off New Machine's critical path.
+      input.deferAfterResponse(
+        repo.recordUsageEvents(createSuccessUsageEvents(input, running)).pipe(Effect.catchAll(() => Effect.void)),
+      );
+    } else {
+      yield* recordCreateSuccessEvents(repo, input, running);
+    }
+    yield* schedulePromptIdentityPush(providers, running, input.deferAfterResponse);
 
     return vmEntryFromRow(running);
   });
+}
+
+/**
+ * Publishes a new machine's prompt name (`cmux@<slug>`) into the guest once,
+ * after the create response, with the same command a rename uses.
+ *
+ * The guest also pulls its name from https://reflection.cmux.internal/name
+ * through the Freestyle edge, but the edge can only reach a public origin: a
+ * private backend (every tailnet dev stack) never answers it, so dev machines
+ * kept the baked `cmux@cmux`. This push is the path that works everywhere.
+ * It is never on New Machine's critical path (NO-WORK INVARIANT in
+ * drivers/freestyle.ts): it runs after the response when the route provides
+ * the hook, detached otherwise, and a failure leaves reflection to publish
+ * the name. cmux-prompt-sync redraws the prompt when the name file changes.
+ */
+function schedulePromptIdentityPush(
+  providers: VmProviderGatewayShape,
+  row: CloudVmRow,
+  defer: ((work: Effect.Effect<void>) => void) | undefined,
+): Effect.Effect<void> {
+  const providerVmId = row.providerVmId;
+  if (!providerVmId || row.status !== "running") return Effect.void;
+  const push = Effect.suspend(() =>
+    providers.exec(row.provider, providerVmId, guestPromptInstallCommand(vmPromptIdentity(row)), {
+      timeoutMs: 10_000,
+      providerMetadata: row.providerMetadata,
+    })
+  ).pipe(
+    Effect.flatMap((result) => result.exitCode === 0 ? Effect.void : Effect.fail(new Error(`prompt push exited ${result.exitCode}`))),
+    Effect.catchAllCause((cause) => Effect.logWarning("Cloud prompt push deferred to reflection", { vmId: row.id, cause })),
+  );
+  if (defer) {
+    defer(push);
+    return Effect.void;
+  }
+  return Effect.asVoid(Effect.forkDaemon(push));
 }
 
 /**
@@ -824,6 +1075,8 @@ export function openBaseVm(input: {
   readonly imageSize?: CreateOptions["imageSize"];
   readonly baseName?: string;
   readonly modelPlane?: VmModelPlaneProvisioner;
+  /** Set only when the requesting client routes team networks. */
+  readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -904,6 +1157,7 @@ function finishBaseCreate(
     readonly runtimeBudgetSeconds?: number;
     readonly baseName?: string;
     readonly modelPlane?: VmModelPlaneProvisioner;
+    readonly teamDirectory?: VmTeamDirectory;
     readonly timing?: VmTimingSink;
   },
   create: BeginBaseCreateResult,
@@ -911,7 +1165,7 @@ function finishBaseCreate(
   return Effect.gen(function* () {
     if (create.kind === "existing") {
       const existing = create.vm;
-      if (existing.status === "failed") {
+      if (isFailedVmCreate(existing)) {
         return yield* Effect.fail(
           new VmCreateFailedError({
             idempotencyKey: existing.idempotencyKey ?? "",
@@ -958,7 +1212,7 @@ function finishBaseCreate(
     const network = yield* measureVmEffect(
       input.timing,
       "resolve_network",
-      resolveOwnerNetwork({ userId: input.userId, provider: input.provider }).pipe(
+      resolveOwnerNetwork({ userId: input.userId, provider: input.provider, billingTeamId: input.billingTeamId, teamDirectory: input.teamDirectory }).pipe(
         Effect.provideService(VmRepository, repo),
         Effect.provideService(VmProviderGateway, providers),
       ),
@@ -996,7 +1250,7 @@ function finishBaseCreate(
         promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: create.vm.providerMetadata,
         edgeRules: materials?.edgeRules,
-        network: { id: network.providerNetworkId },
+        network: { id: network.providerNetworkId, memberIngress: network.memberIngress },
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -1008,7 +1262,9 @@ function finishBaseCreate(
             generation: create.generation.generation,
             vmId: create.vm.id,
             userId: input.userId,
-            code: err.operation,
+            ...(isProviderCreateCleanupError(err.cause)
+              ? { code: PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE, cleanupProviderVmId: err.cause.providerVmId }
+              : { code: err.operation }),
             message: errorMessage(err.cause),
           }),
           repo.recordUsageEvent({
@@ -1071,6 +1327,7 @@ function finishBaseCreate(
     );
 
     yield* recordCreateSuccessEvents(repo, { ...input, idempotencyKey, origin: "base" }, running);
+    yield* schedulePromptIdentityPush(providers, running, undefined);
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: input.billingTeamId,
@@ -1458,6 +1715,8 @@ export function restoreVm(input: {
   readonly idempotencyKey?: string;
   /** Same contract as createVm: the restored machine gets its own token and edge rule. */
   readonly modelPlane?: VmModelPlaneProvisioner;
+  /** Set only when the requesting client routes team networks. */
+  readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
 }) {
   return Effect.gen(function* () {
@@ -1504,6 +1763,7 @@ export function restoreVm(input: {
       origin: "restore",
       ...(resourceReservation ? { resourceReservation } : {}),
       modelPlane: input.modelPlane,
+      teamDirectory: input.teamDirectory,
       timing: input.timing,
     });
   });
@@ -1643,6 +1903,8 @@ export function forkVm(input: {
   readonly name?: string;
   readonly idempotencyKey?: string;
   readonly modelPlane?: VmModelPlaneProvisioner;
+  /** Set only when the requesting client routes team networks. */
+  readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
 }) {
   return Effect.gen(function* () {
@@ -1876,6 +2138,7 @@ export function forkVm(input: {
       idempotencyKey: input.idempotencyKey,
       origin: "fork",
       modelPlane: input.modelPlane,
+      teamDirectory: input.teamDirectory,
       timing: input.timing,
     });
     yield* repo.recordUsageEvent({
@@ -3455,19 +3718,6 @@ export function openVmCmuxRemote(input: {
       imageId: vm.imageId,
       metadata: { transport: "cmux-remote", invited: false, trustedCarrier: endpoint.trustedCarrier },
     }).pipe(Effect.catchAll(() => Effect.void));
-    // Backfill: machines created before address recording learn their private
-    // address on first attach, so "Copy IP Address" appears for them too.
-    const learned = endpoint.networkAddresses;
-    if (learned && repo.mergeProviderMetadata) {
-      const metadata = vm.providerMetadata ?? {};
-      const patch = {
-        ...(learned.ipv4 && metadata["networkIpv4"] !== learned.ipv4 ? { networkIpv4: learned.ipv4 } : {}),
-        ...(learned.ipv6 && metadata["networkIpv6"] !== learned.ipv6 ? { networkIpv6: learned.ipv6 } : {}),
-      };
-      if (Object.keys(patch).length) {
-        yield* repo.mergeProviderMetadata({ id: vm.id, patch }).pipe(Effect.catchAll(() => Effect.void));
-      }
-    }
     return endpoint;
   });
 }
@@ -4058,44 +4308,50 @@ function recordCreateRequestedEvents(
 
 export type VmCreateOrigin = "create" | "restore" | "fork" | "base";
 
+type CreateSuccessEventInput = {
+  readonly idempotencyKey?: string;
+  readonly timing?: VmTimingSink;
+  readonly origin?: VmCreateOrigin;
+  readonly memoryMb?: number;
+  readonly persistentHome?: boolean;
+  readonly perMachineHome?: boolean;
+  readonly imageSize?: CreateOptions["imageSize"];
+};
+
+function createSuccessUsageEvents(input: CreateSuccessEventInput, running: CloudVmRow): VmUsageEventInput[] {
+  return [
+    {
+      userId: running.userId,
+      billingTeamId: running.billingTeamId,
+      billingPlanId: running.billingPlanId,
+      vmId: running.id,
+      eventType: "vm.created",
+      provider: running.provider,
+      imageId: running.imageId,
+      metadata: {
+        idempotencyKeySet: !!input.idempotencyKey,
+        imageVersion: running.imageVersion,
+        // Machine shape and origin, so analytics can size the fleet by plan
+        // and tell a fresh create from a restore, fork or base open.
+        origin: input.origin ?? "create",
+        ...(input.memoryMb !== undefined ? { memoryMb: input.memoryMb } : {}),
+        ...(input.imageSize ? { imageSize: input.imageSize.name } : {}),
+        ...(input.persistentHome !== undefined ? { persistentHome: input.persistentHome } : {}),
+        ...(input.perMachineHome !== undefined ? { perMachineHome: input.perMachineHome } : {}),
+      },
+    },
+  ];
+}
+
 function recordCreateSuccessEvents(
   repo: VmRepositoryShape,
-  input: {
-    readonly idempotencyKey?: string;
-    readonly timing?: VmTimingSink;
-    readonly origin?: VmCreateOrigin;
-    readonly memoryMb?: number;
-    readonly persistentHome?: boolean;
-    readonly perMachineHome?: boolean;
-    readonly imageSize?: CreateOptions["imageSize"];
-  },
+  input: CreateSuccessEventInput,
   running: CloudVmRow,
 ) {
   return measureVmEffect(
     input.timing,
     "usage_events",
-    repo.recordUsageEvents([
-      {
-        userId: running.userId,
-        billingTeamId: running.billingTeamId,
-        billingPlanId: running.billingPlanId,
-        vmId: running.id,
-        eventType: "vm.created",
-        provider: running.provider,
-        imageId: running.imageId,
-        metadata: {
-          idempotencyKeySet: !!input.idempotencyKey,
-          imageVersion: running.imageVersion,
-          // Machine shape and origin, so analytics can size the fleet by plan
-          // and tell a fresh create from a restore, fork or base open.
-          origin: input.origin ?? "create",
-          ...(input.memoryMb !== undefined ? { memoryMb: input.memoryMb } : {}),
-          ...(input.imageSize ? { imageSize: input.imageSize.name } : {}),
-          ...(input.persistentHome !== undefined ? { persistentHome: input.persistentHome } : {}),
-          ...(input.perMachineHome !== undefined ? { perMachineHome: input.perMachineHome } : {}),
-        },
-      },
-    ]).pipe(Effect.catchAll(() => Effect.void)),
+    repo.recordUsageEvents(createSuccessUsageEvents(input, running)).pipe(Effect.catchAll(() => Effect.void)),
   );
 }
 
@@ -4277,6 +4533,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     slug: row.slug ?? null,
     addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
+    cmuxTuiContract: typeof metadata["cmuxTuiContract"] === "string" ? metadata["cmuxTuiContract"] : null,
   };
 }
 

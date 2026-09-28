@@ -17,6 +17,9 @@ public enum CommandPaletteRequestKind: String, Sendable, CaseIterable {
     case renameWorkspace
     /// Opens the edit-workspace-description prompt.
     case editWorkspaceDescription
+    /// Opens the rename prompt for an explicit target carried in the
+    /// notification's `userInfo` (see `CommandPaletteRenameTarget.userInfo`).
+    case rename
 
     /// The raw notification name posted for this request.
     ///
@@ -35,6 +38,8 @@ public enum CommandPaletteRequestKind: String, Sendable, CaseIterable {
             return "cmux.commandPaletteRenameWorkspaceRequested"
         case .editWorkspaceDescription:
             return "cmux.commandPaletteEditWorkspaceDescriptionRequested"
+        case .rename:
+            return "cmux.commandPaletteRenameRequested"
         }
     }
 
@@ -45,7 +50,7 @@ public enum CommandPaletteRequestKind: String, Sendable, CaseIterable {
     /// change rather than a call-site edit.
     public var marksPending: Bool {
         switch self {
-        case .commands, .switcher, .renameTab, .renameWorkspace, .editWorkspaceDescription:
+        case .commands, .switcher, .renameTab, .renameWorkspace, .editWorkspaceDescription, .rename:
             return true
         }
     }

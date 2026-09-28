@@ -1,4 +1,6 @@
+import CmuxCloud
 import CmuxCommandPalette
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -59,10 +61,40 @@ struct CurrentWorkCommandPaletteTests {
     }
 
     @Test
+    func testPlacementSubtitlePreservesEveryRemoteMachineIdentity() {
+        let placements = [
+            (kind: "local", machine: "local", showsMachine: false),
+            (kind: "cloud", machine: "cloud-host", showsMachine: true),
+            (kind: "ssh", machine: "ssh:build-host", showsMachine: true),
+            (kind: "device", machine: "device:other-mac@test", showsMachine: true),
+        ]
+        for placement in placements {
+            var item = fixture()
+            item.placement = .init(kind: placement.kind, machine: placement.machine)
+            let subtitle = CurrentWorkPalettePresentation(item: item).subtitle(canFocus: true)
+            #expect(subtitle.contains(placement.machine) == placement.showsMachine)
+        }
+    }
+
+    @Test
     func testCurrentProjectedWorkDoesNotClaimUnavailableOrStale() {
         let subtitle = CurrentWorkPalettePresentation(item: fixture()).subtitle(canFocus: true)
         #expect(!(subtitle.contains(String(localized: "commandPalette.currentWork.notOpen", defaultValue: "No open local view · read only"))))
         #expect(!(subtitle.contains(String(localized: "commandPalette.currentWork.notCurrent", defaultValue: "May be out of date"))))
+    }
+
+    @Test
+    func testPullRequestSubtitleUsesTheLocalizedLabelFormat() {
+        var item = fixture()
+        item.pullRequests = [pullRequest(number: 123), pullRequest(number: 456)]
+
+        let subtitle = CurrentWorkPalettePresentation(item: item).subtitle(canFocus: true)
+        let format = String(localized: "cli.current.pullRequest", defaultValue: "PR: %@")
+        let expected = [123, 456].map { format.replacingOccurrences(of: "%@", with: "#\($0)") }
+
+        for label in expected {
+            #expect(subtitle.contains(label))
+        }
     }
 
     private func fixture() -> CurrentWorkSnapshot.Item {
@@ -75,6 +107,15 @@ struct CurrentWorkCommandPaletteTests {
             cwd: "/project", projectHints: [], repositoryHints: [], agents: [], attention: [], pullRequests: [],
             freshness: .init(state: "current", reason: nil, observedAt: "2026-09-20T00:00:00Z"),
             cursor: nil, receiptRefs: [], possibleHumanObligations: [], evidence: [], omitted: [:]
+        )
+    }
+
+    private func pullRequest(number: Int) -> CurrentWorkSnapshot.PullRequest {
+        let freshness = CurrentWorkSnapshot.Freshness(state: "current", reason: nil, observedAt: "2026-09-20T00:00:00Z")
+        let evidence = CurrentWorkSnapshot.Evidence(owner: "test", reference: "fixture", observedAt: freshness.observedAt)
+        return .init(
+            number: number, url: "https://github.com/manaflow-ai/cmux/pull/\(number)", label: "#\(number)",
+            status: "open", workspaceID: UUID(), freshness: freshness, evidence: evidence
         )
     }
 }

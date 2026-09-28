@@ -1,5 +1,8 @@
+import CmuxCloud
 import AppKit
+import SwiftUI
 import CmuxCloudMachines
+import CmuxSurfaceCatalogModel
 import Testing
 import Observation
 
@@ -407,6 +410,29 @@ struct CloudTreeMachineMenuTests {
         #expect(store.isPinned("old-machine"))
     }
 
+    @Test("A Cloud refresh does not hide independently discovered Macs")
+    func failedCloudScopeRefreshKeepsDeviceRows() async {
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: "other-mac", tag: "default"))
+        let info = SurfaceMachineInfo(
+            id: machine, name: "Other Mac", status: "running", image: nil, hasDesktop: false,
+            memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
+            cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+        )
+        var snapshot = Self.catalog(["retired-cloud-machine"])
+        snapshot.machines.append(info)
+        let model = MachinesPanelViewModel(
+            createCoordinator: MachineCreateCoordinator(notifier: { _ in }),
+            catalogProvider: { snapshot }
+        )
+        model.localWorkspacesProvider = { [] }
+        await model.refreshAccountScope(refreshCatalog: { false }).value
+        #expect(model.catalog.machines.map(\.id) == [machine])
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: model.catalog, localWorkspaces: [], source: .cloudWithDevicesSection
+        )
+        #expect(nodes.last?.children.contains { $0.id == CloudTreeNodeBuilder.nodeID(machine: machine) } == true)
+    }
+
     private static func catalog(_ ids: [String]) -> SurfaceCatalogSnapshot {
         SurfaceCatalogSnapshot(machines: ids.map { id in
             SurfaceMachineInfo(
@@ -437,6 +463,44 @@ struct CloudTreeMachineMenuTests {
         #expect(recorder.pinChanges.count == 1)
         #expect(recorder.pinChanges.first?.0 == Self.machineID)
         #expect(recorder.pinChanges.first?.1 == true)
+    }
+
+    /// The machine row's hover trash is SwiftUI inside an NSTableView row.
+    /// NSTableView forwards a click only to subviews it validates, so a click
+    /// on the trash used to run the row's click action (toggle) and never
+    /// reached `confirmDelete`. Synthetic events do not drive SwiftUI buttons
+    /// in an offscreen test window, so this checks AppKit's routing decision.
+    @Test("The outline hands a click on the machine row's hover trash to the button")
+    func hoverTrashClickRoutesToButton() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-hover-trash-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.contentView = nil; withExtendedLifetime(window) {} }
+        coordinator.apply(nodes: [Self.machineNode()])
+        container.layoutSubtreeIfNeeded()
+
+        let outline = try #require(coordinator.outlineView)
+        let cell = try #require(outline.view(atColumn: 0, row: 0, makeIfNecessary: true) as? CloudTreeCellView)
+        cell.setHovered(true)
+        cell.layoutSubtreeIfNeeded()
+        let buttons = try #require(cell.subviews.first {
+            $0 is NSHostingView<AnyView> && !($0 is CloudTreePassthroughHostingView)
+        })
+        let center = buttons.convert(NSPoint(x: buttons.bounds.midX, y: buttons.bounds.midY), to: nil)
+
+        // AppKit's own routing question: may the table hand this click to the view under it?
+        let hit = try #require(outline.hitTest(outline.superview!.convert(center, from: nil)))
+        #expect(hit.isDescendant(of: buttons))
+        #expect(outline.validateProposedFirstResponder(hit, for: nil))
     }
 
     private static func machineNode(expired: Bool = false) -> CloudTreeNode {

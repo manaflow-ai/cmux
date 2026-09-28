@@ -73,6 +73,9 @@ extension CMUXCLI {
             "-F", "/dev/null",
             "-o", "StrictHostKeyChecking=yes",
             "-o", "HostKeyAlgorithms=ssh-ed25519", "-o", "HostKeyAlias=cmux-scp",
+            // Keep host-key failures actionable while avoiding OpenSSH's
+            // multi-page warning banner filling a PTY-backed stderr pipe.
+            "-o", "LogLevel=ERROR",
             "-o", "UserKnownHostsFile=" + directory.appendingPathComponent("known_hosts").path.replacingOccurrences(of: "%", with: "%%"),
             "-o", "GlobalKnownHostsFile=/dev/null",
             "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3",

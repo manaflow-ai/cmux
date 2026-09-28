@@ -7,16 +7,27 @@ extension V2ControlService {
         directorySyncTaskID = taskID
         directorySyncTask = Task { [weak self] in
             guard let self else { return }
-            do { _ = try await self.refreshDirectory() }
+            var didRefresh = false
+            do {
+                _ = try await self.refreshDirectory()
+                didRefresh = true
+            }
             catch { await self.maintenanceFailed(error, schema: "directory.request.v1", run: run) }
-            await self.directorySyncFinished(run: run, taskID: taskID)
+            await self.directorySyncFinished(run: run, taskID: taskID, didRefresh: didRefresh)
         }
     }
 
-    private func directorySyncFinished(run: UUID, taskID: UUID) {
+    private func directorySyncFinished(run: UUID, taskID: UUID, didRefresh: Bool) {
         guard runID == run, directorySyncTaskID == taskID else { return }
         directorySyncTask = nil
         directorySyncTaskID = nil
+        // A directory.changed event can arrive while the current refresh is
+        // blocked persisting its snapshot. Keep the newest requested revision
+        // and immediately drain it after the in-flight operation completes.
+        // Failed refreshes retain their normal maintenance cooldown.
+        if didRefresh, wantedDirectoryRevision > (cache.directory?.revision ?? 0) {
+            requestDirectoryRefresh(run: run)
+        }
     }
 
     func scheduleMaintenance(run: UUID) {

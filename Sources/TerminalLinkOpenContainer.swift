@@ -9,6 +9,9 @@ protocol TerminalLinkOpenContainer: AnyObject {
 
     func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String?
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool
+
+    func deferRemoteTerminalFileLinkOpen(sourcePanelId: UUID, rawValue: String) -> Bool
+
     func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget?
 
     @discardableResult
@@ -28,6 +31,8 @@ protocol TerminalLinkOpenContainer: AnyObject {
 }
 
 extension TerminalLinkOpenContainer {
+    func deferRemoteTerminalFileLinkOpen(sourcePanelId: UUID, rawValue: String) -> Bool { false }
+
     func openTerminalBrowserLink(
         url: URL,
         sourcePanelId: UUID,

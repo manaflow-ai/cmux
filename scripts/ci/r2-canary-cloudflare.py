@@ -73,6 +73,11 @@ def main():
         for name in ("GITHUB_ARTIFACT_TOKEN", "CANARY_ACCESS_TOKEN"):
             try:
                 api(f"workers/scripts/{worker}/secrets/{name}", "DELETE")
+            except CloudflareError as error:
+                # A failed deployment may never have uploaded the secret.
+                # Treat that already-absent state as an idempotent cleanup.
+                if error.status != 404:
+                    errors.append(str(error))
             except RuntimeError as error:
                 errors.append(str(error))
         if errors:

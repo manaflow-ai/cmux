@@ -26,6 +26,13 @@ permissions:
   contents: read
   pull-requests: read
 
+# Scheduled and manually dispatched janitors share the same Actions control
+# plane.  Serialize them so a second inventory cannot race the first run's
+# final cancellation/deletion request.
+concurrency:
+  group: ci-stale-run-janitor
+  cancel-in-progress: false
+
 jobs:
   janitor:
     runs-on: ubuntu-24.04 # github-hosted-required: trusted Actions control-plane token

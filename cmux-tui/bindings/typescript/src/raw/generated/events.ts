@@ -1,11 +1,13 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0. */
+/* cmux-tui mux protocol 12, IR 133bac0154f8f94aa30e40c11ff7ed38b10dd4d82974aec87c02d404fcd12619. */
 
 
 import type * as T from "./types.js";
 
 /** Protocol v11; emission: emitted; streams: subscribe. */
 export type AgentChangedEvent = { event: "agent-changed" } & {
+  /** Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified. */
+  "agent"?: (string) | null;
   "session": (string) | null;
   "source": T.AgentSource;
   "state": T.AgentState;

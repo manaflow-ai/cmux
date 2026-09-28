@@ -198,4 +198,14 @@ install -m 755 "$CLIENT" "$DEST"
 # with "requires exactly one input file".
 for arch in "${VERIFY_ARCHS[@]}"; do lipo "$DEST" -verify_arch "$arch"; done
 verify_probe
+# Bootstrap payloads share the signed client's exact build. End-user SSH hosts
+# need neither Node/npm nor access to an artifact server, and the client verifies
+# these hashes again before uploading the selected platform executable.
+SSH_ARTIFACT_DIR="$DEST_DIR/cmux-tui-ssh"
+mkdir -p "$SSH_ARTIFACT_DIR"
+for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl aarch64-apple-darwin x86_64-apple-darwin; do
+  artifact="$(fetch_slice "cmux-tui-$target")"
+  install -m 644 "$artifact" "$SSH_ARTIFACT_DIR/cmux-tui-$target"
+done
+install -m 644 "$MANIFEST" "$SSH_ARTIFACT_DIR/manifest.json"
 echo "Installed $ARCH cmux-tui client (commit ${COMMIT:0:10}) at $DEST"

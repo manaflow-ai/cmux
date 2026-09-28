@@ -4,6 +4,18 @@ import GhosttyKit
 import Testing
 @testable import CmuxTerminal
 
+private actor AgentCommandShimSelectionProbe {
+    private var selection: Set<TerminalSurfaceAgentCommand>?
+
+    func record(_ selection: Set<TerminalSurfaceAgentCommand>) {
+        self.selection = selection
+    }
+
+    func value() -> Set<TerminalSurfaceAgentCommand>? {
+        selection
+    }
+}
+
 @MainActor
 @Suite
 struct TerminalSurfaceAgentCommandShimLifecycleTests {
@@ -60,6 +72,70 @@ struct TerminalSurfaceAgentCommandShimLifecycleTests {
         _ = await firstInstallTask?.value
         _ = await activeInstallTask?.value
         _ = await surface.agentCommandShimCompletionTask?.value
+    }
+
+    @Test
+    func claudeShimSelectionUsesTheCapturedSpawnPolicy() async {
+        let nativeView = FakeTerminalSurfaceNativeView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let probe = AgentCommandShimSelectionProbe()
+        let runtimeFilesystem = TerminalSurfaceRuntimeFilesystem(
+            agentCommandShimTemporaryDirectory: URL(
+                fileURLWithPath: "/tmp/cmux-agent-shim-policy-tests",
+                isDirectory: true
+            ),
+            installAgentCommandShims: { _, _, _, enabledCommands in
+                await probe.record(enabledCommands)
+                return nil
+            },
+            isExecutableFile: { _ in false }
+        )
+        let surface = makeSurface(
+            nativeView: nativeView,
+            paneHost: paneHost,
+            runtimeFilesystem: runtimeFilesystem
+        )
+        let disabledPolicy = TerminalSurfaceSpawnPolicy(
+            claudeHooksEnabled: false,
+            customClaudePath: nil,
+            subagentNotificationEnvironmentKey: "CMUX_TEST_SUPPRESS_SUBAGENT_NOTIFICATIONS",
+            suppressSubagentNotifications: false,
+            cursorHooksEnabled: true,
+            geminiHooksEnabled: true,
+            kiroHooksEnabled: true,
+            kiroNotificationLevel: "all",
+            ampHooksEnabled: true,
+            shellIntegrationEnabled: false,
+            watchGitStatusEnabled: false,
+            showPullRequestsEnabled: false
+        )
+
+        let initial = surface.agentCommandShimStateForSurface(
+            view: nativeView,
+            source: .inputDemand,
+            spawnPolicy: disabledPolicy
+        )
+        #expect(!initial.isReady)
+
+        _ = await surface.agentCommandShimInstallTask?.value
+        _ = await surface.agentCommandShimCompletionTask?.value
+
+        let selection = await probe.value()
+        #expect(selection == disabledPolicy.enabledAgentCommandShims)
+        #expect(selection?.contains(.claude) == false)
+        #expect(selection?.contains(.codex) == true)
+        #expect(surface.agentCommandShimSpawnPolicy?.claudeHooksEnabled == false)
+
+        // The fixture provider returns Claude enabled. A later readiness read
+        // must retain the policy paired with the completed shim generation.
+        let resumed = surface.agentCommandShimStateForSurface(
+            view: nativeView,
+            source: .inputDemand
+        )
+        #expect(resumed.isReady)
+        #expect(surface.agentCommandShimSpawnPolicy?.claudeHooksEnabled == false)
     }
 
     @Test(arguments: [TerminalSurfaceIOMode.manual, .manualMirror])

@@ -52,7 +52,7 @@ final class MobileIrohReleaseGateRunner {
             guard scenario == .standard || mode == .relayOnly else { return nil }
             if let rawProfile = environment["CMUX_IROH_SOAK_PROFILE"], !rawProfile.isEmpty {
                 guard let profile = MobileIrohSoakRunner.Profile(rawValue: rawProfile),
-                      scenario == .standard else { return nil }
+                      scenario == .standard || scenario == .relayRollover else { return nil }
                 self.soakProfile = profile
             } else {
                 self.soakProfile = nil
@@ -206,9 +206,6 @@ final class MobileIrohReleaseGateRunner {
         self.soakRunner = soakRunner
         self.dependencies = Dependencies(
             readinessUpdates: nil,
-            settleReadiness: {
-                try await ContinuousClock().sleep(for: .milliseconds(500))
-            },
             runProbe: { store, marker in
                 if let soakRunner {
                     guard let identity = store.irohSoakUIIdentity() else {
@@ -221,18 +218,37 @@ final class MobileIrohReleaseGateRunner {
                     // prove teardown. Restore the exact measured target before
                     // transport work, rather than relying on a stale selection
                     // or a compact-navigation side effect.
-                    store.selectedWorkspaceID = identity.workspace
-                    store.selectedTerminalID = identity.surface
+                    store.selectedWorkspaceID = .init(rawValue: identity.workspace)
+                    store.selectedTerminalID = .init(rawValue: identity.surface)
                     await Task.yield()
                     let terminalSession = MobileIrohReleaseGateTerminalSession(client: store)
                     defer { terminalSession.reset() }
-                    return try await soakRunner.run(
+                    let soakProbe = try await soakRunner.run(
                         marker: marker,
                         connection: { await store.irohSoakConnection() },
                         probe: { marker in try await store.runIrohReleaseGateProbe(marker: marker, terminalSession: terminalSession) },
                         stress: { cycle, marker in
-                            try await store.runIrohSoakUsageStep(cycle: cycle, marker: marker, terminalSession: terminalSession)
+                            try await store.runIrohSoakUsageStep(
+                                cycle: cycle,
+                                marker: marker,
+                                terminalSession: terminalSession,
+                                includeForcedReconnect: false
+                            )
                         }
+                    )
+                    guard configuration.scenario == .relayRollover else {
+                        return soakProbe
+                    }
+                    // The stress workload proves sustained use. Run the
+                    // explicit rollover probe afterward so the report also
+                    // proves credential replacement and continuity.
+                    return try await store.runIrohReleaseGateProbe(
+                        marker: "\(marker)_ROLLOVER",
+                        terminalSession: terminalSession,
+                        scenario: .relayRollover,
+                        soakDurationSeconds: Self.relayRolloverSoakDurationSeconds,
+                        endpointIdentity: endpointIdentity,
+                        relayCredentialExpiry: relayCredentialExpiry
                     )
                 }
                 return try await store.runIrohReleaseGateProbe(
@@ -257,7 +273,18 @@ final class MobileIrohReleaseGateRunner {
             postReportReady: {
                 Self.postReportReadyNotification()
             },
-            timeout: configuration.soakProfile.map { .seconds($0.seconds + 180) }
+            settleReadiness: {
+                try await ContinuousClock().sleep(for: .milliseconds(500))
+            },
+            timeout: configuration.soakProfile.map {
+                .seconds(
+                    $0.seconds
+                        + (configuration.scenario == .relayRollover
+                            ? Self.relayRolloverSoakDurationSeconds
+                            : 0)
+                        + 180
+                )
+            }
                 ?? (configuration.scenario == .standard ? Self.standardTimeout : Self.extendedTimeout)
         )
     }

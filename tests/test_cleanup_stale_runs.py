@@ -6,6 +6,7 @@ from unittest import mock
 
 
 SCRIPT = pathlib.Path(__file__).parents[1] / "scripts/ci/cleanup-stale-runs.py"
+WORKFLOW = pathlib.Path(__file__).parents[1] / ".github/workflows/ci-stale-run-janitor.yml"
 SPEC = importlib.util.spec_from_file_location("cleanup_stale_runs", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -88,6 +89,12 @@ class CleanupRevalidationTests(unittest.TestCase):
                 with mock.patch.dict(MODULE.os.environ, environment, clear=True), mock.patch.object(MODULE, "GitHub", return_value=api):
                     self.assertEqual(MODULE.main(), 0)
                 api.request.assert_called_once_with("GET", "/repos/test/repo/actions/runs/123")
+
+
+class WorkflowSafetyTests(unittest.TestCase):
+    def test_scheduled_and_manual_janitors_are_serialized(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("concurrency:\n  group: ci-stale-run-janitor\n  cancel-in-progress: false", workflow)
 
 
 if __name__ == "__main__":

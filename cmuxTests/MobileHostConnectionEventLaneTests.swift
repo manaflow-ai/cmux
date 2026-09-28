@@ -461,6 +461,21 @@ extension MobileHostAuthorizationTests {
 
     // MARK: - Bounded event queue admission policy
 
+    @Test func deviceLayoutSnapshotsSurviveQueueCongestion() {
+        let topic = DeviceWorkspaceLayoutHost.eventTopic
+        let queue = MobileHostConnectionEventQueue(maximumEventCount: 1, maximumByteCount: 16)
+        queue.updateSubscribedTopics([topic, "workspace.updated"])
+        let frame = Data(repeating: 1, count: 16)
+        #expect(queue.enqueue(topic: topic, coalesceKey: "workspace-a",
+            isFullRenderGridFrame: false, stateSeq: 1, frame: frame).admitted)
+        _ = queue.enqueue(topic: "workspace.updated", coalesceKey: nil,
+            isFullRenderGridFrame: false, frame: frame)
+        #expect(queue.enqueue(topic: topic, coalesceKey: "workspace-b",
+            isFullRenderGridFrame: false, stateSeq: 2, frame: frame).admitted)
+        #expect(queue.dequeue()?.coalesceKey == "workspace-a")
+        #expect(queue.dequeue()?.coalesceKey == "workspace-b")
+    }
+
     @Test func testEventQueueShedsRenderGridDeltasAndPoisonsUntilFullFrame() {
         let queue = MobileHostConnectionEventQueue(
             maximumEventCount: 2,
@@ -602,8 +617,8 @@ extension MobileHostAuthorizationTests {
 
         session = nil
         transport = nil
-        for _ in 0..<2_000 {
-            if weakSession == nil, weakTransport == nil { break }
+        let releaseDeadline = ContinuousClock.now + .seconds(10)
+        while (weakSession != nil || weakTransport != nil), ContinuousClock.now < releaseDeadline {
             await Task.yield()
         }
         #expect(weakSession == nil)
@@ -654,7 +669,8 @@ extension MobileHostAuthorizationTests {
                 == "iroh_server_events_v1"
         )
         await independent.failBlockedSend()
-        for _ in 0..<1_000 {
+        let transportDeadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < transportDeadline {
             if await session.debugEventTransportForTesting(streamID: "events") == .control {
                 break
             }

@@ -3,6 +3,7 @@ import Darwin
 import Foundation
 import os
 import Testing
+@testable import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -546,20 +547,24 @@ struct AgentHibernationProcessTerminationTests {
             processIdentities: identities
         )
 
-        let terminations = try #require(
-            AgentHibernationController.validatedScopedProcessTerminations(
-                for: scope,
-                processIdentityProvider: { identities[$0] },
-                processGroupProvider: { pid_t($0 + 1_000) }
-            )
-        )
+        guard let terminations = AgentHibernationController.validatedScopedProcessTerminations(
+            for: scope,
+            processIdentityProvider: { identities[$0] },
+            processGroupProvider: { pid_t($0 + 1_000) },
+            // Fixture PIDs must not read an unrelated runner process's TTY.
+            processTTYDeviceProvider: { $0 == 202 ? 123 : nil }
+        ) else {
+            Issue.record("The exact process-generation fixture must validate")
+            return
+        }
 
         #expect(
             terminations == [
                 .init(
                     processID: 202,
                     processIdentity: secondIdentity,
-                    processGroupID: 1_202
+                    processGroupID: 1_202,
+                    ttyDevice: 123
                 ),
                 .init(
                     processID: 101,
@@ -793,7 +798,8 @@ struct AgentHibernationProcessTerminationTests {
         panel.completeAgentHibernationTermination()
 
         #expect(!panel.isAgentHibernationTerminating)
-        #expect(panel.prepareAgentHibernationResume() == .resumed(queuedStartupInput: false))
+        #expect(panel.prepareAgentHibernationResume() == .resumed(queuedStartupInput: true))
+        #expect(panel.surface.nextRuntimeInitialInput == agent.resumeStartupInput())
         #expect(!panel.isAgentHibernated)
     }
 

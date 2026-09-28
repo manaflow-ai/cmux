@@ -59,7 +59,9 @@ struct SSHPTYAdmissionAndModeTests {
         #expect(owner.restore(flushInput: true))
         _ = fcntl(slave, F_SETFL, O_NONBLOCK)
         var byte: UInt8 = 0
-        #expect(Darwin.read(slave, &byte, 1) == -1)
-        #expect(errno == EAGAIN)
+        let readResult = Darwin.read(slave, &byte, 1)
+        let readErrno = errno
+        #expect(readResult == -1)
+        #expect(readErrno == EAGAIN)
     }
 }

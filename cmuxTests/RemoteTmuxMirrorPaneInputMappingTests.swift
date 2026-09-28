@@ -165,17 +165,28 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         )
         manager.selectWorkspace(harness.workspace)
         let panel = try #require(try harness.mirror().panel(forPane: 4))
+        // A manual-I/O mirror pane spawns eagerly inside its hidden bootstrap
+        // window, which `TerminalSurface.uiWindow` deliberately excludes. The
+        // main window's portal adopts the pane host only once AppKit and
+        // SwiftUI get run-loop time, so physical key delivery has to wait for
+        // that adoption instead of assuming the runtime-ready wait spun the loop.
+        let window = try #require(AppDelegate.shared?.windowForMainWindowId(harness.windowId))
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         panel.hostedView.setVisibleInUI(true)
         panel.hostedView.setActive(true)
         panel.hostedView.layoutSubtreeIfNeeded()
         await waitForLiveSurface(panel.surface)
+        _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(10)) {
+            panel.surface.uiWindow === window && panel.hostedView.surfaceView.window === window
+        }
         try #require(
             panel.surface.hasLiveSurface,
             "Remote manual-I/O key coverage requires a live Ghostty surface"
         )
         try #require(
-            panel.surface.uiWindow != nil,
-            "Physical key coverage requires a usable window; hosted=\(String(describing: panel.hostedView.window)), live=\(panel.surface.hasLiveSurface)"
+            panel.surface.uiWindow === window,
+            "Physical key coverage requires the mirror pane in the main window; hosted=\(String(describing: panel.hostedView.window)), bootstrap=\(panel.surface.isHeadlessStartupWindow(panel.hostedView.window)), live=\(panel.surface.hasLiveSurface)"
         )
         return panel.surface
     }
@@ -586,6 +597,14 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         defer { harness.tearDown() }
         let tabManager = try #require(AppDelegate.shared?.tabManagerFor(windowId: harness.windowId))
         tabManager.selectWorkspace(harness.workspace)
+        // The mirror joined the window unselected (`select: false`), so the
+        // window's mount reconcile turned its portal rendering off. Selecting it
+        // turns rendering back on only when SwiftUI delivers the selection
+        // change, and this synchronous test never yields for that. Establish the
+        // authority here, as RemoteTmuxProjectedFocusInteractionTests does, so
+        // the portal-activation checks below do not depend on some unrelated
+        // synchronous tabs publish, such as a notification reordering the sidebar.
+        harness.workspace.setPortalRenderingEnabled(true, reason: "pane-input-mapping-test")
 
         harness.publishListWindows([
             "@2 f92f,80x24,0,0,4 f92f,80x24,0,0,4 [] zsh",

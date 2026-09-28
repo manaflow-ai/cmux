@@ -14,10 +14,10 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/classify-app-host-test-output.py"
-TEST_DEPOT_WORKFLOW = ROOT / ".github/workflows/test-depot.yml"
-TEST_DEPOT_RUN_UNIT_TESTS = next(
+SUITE_WORKFLOW = ROOT / ".github/workflows/test-macos-suite.yml"
+SUITE_RUN_UNIT_TESTS = next(
     step["run"]
-    for step in yaml.safe_load(TEST_DEPOT_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["tests"]["steps"]
+    for step in yaml.safe_load(SUITE_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["tests"]["steps"]
     if step.get("name") == "Run unit tests"
 )
 SPEC = importlib.util.spec_from_file_location("classify_app_host_test_output", SCRIPT)
@@ -27,14 +27,50 @@ SPEC.loader.exec_module(MODULE)
 
 
 class AppHostTestOutputTests(unittest.TestCase):
-    def test_all_expected_failures_are_tolerated(self) -> None:
+    def test_ordinary_assertion_failures_are_not_tolerated(self) -> None:
         passed, message = MODULE.classify(
             "Executed 4 tests, with 1 failure (0 unexpected)\n"
             "Executed 8 tests, with 2 failures (0 unexpected)\n"
         )
 
+        self.assertFalse(passed)
+        self.assertIn("XCTest failure", message)
+
+    def test_earlier_assertion_failure_is_not_hidden_by_a_later_clean_summary(self) -> None:
+        passed, _ = MODULE.classify(
+            "Executed 4 tests, with 1 failure (0 unexpected)\n"
+            "Executed 8 tests, with 0 failures (0 unexpected)\n"
+        )
+
+        self.assertFalse(passed)
+
+    def test_swift_testing_failure_is_not_hidden_by_zero_xctest_failures(self) -> None:
+        passed, message = MODULE.classify(
+            "Executed 0 tests, with 0 failures (0 unexpected)\n"
+            "◇ Test run started.\n"
+            "✘ Test run with 5 tests in 1 suite failed after 0.2 seconds with 2 issues.\n"
+        )
+
+        self.assertFalse(passed)
+        self.assertIn("Swift Testing", message)
+
+    def test_passing_swift_testing_run_is_supported(self) -> None:
+        passed, _ = MODULE.classify(
+            "Executed 0 tests, with 0 failures (0 unexpected)\n"
+            "◇ Test run started.\n"
+            "✔ Test run with 5 tests in 1 suite passed after 0.2 seconds.\n"
+        )
+
         self.assertTrue(passed)
-        self.assertIn("2 XCTest summary", message)
+
+    def test_an_unfinished_swift_testing_run_is_not_tolerated(self) -> None:
+        passed, _ = MODULE.classify(
+            "Executed 8 tests, with 0 failures (0 unexpected)\n"
+            "◇ Test run started.\n"
+            "◇ Test waitingForCallback() started.\n"
+        )
+
+        self.assertFalse(passed)
 
     def test_unexpected_failure_in_earlier_summary_is_not_masked(self) -> None:
         passed, message = MODULE.classify(
@@ -71,6 +107,45 @@ class AppHostTestOutputTests(unittest.TestCase):
                 passed, message = MODULE.classify(output)
                 self.assertFalse(passed)
                 self.assertIn("incomplete app-host test run", message)
+
+    def test_wrapper_retry_is_safe_before_test_execution(self) -> None:
+        safe, message = MODULE.retry_safe(
+            "The test runner timed out while preparing to run tests.\n"
+            "Failed to establish communication with the test runner.\n"
+        )
+
+        self.assertTrue(safe)
+        self.assertIn("pre-test", message)
+
+    def test_wrapper_retry_is_blocked_after_xctest_started(self) -> None:
+        safe, message = MODULE.retry_safe(
+            "Test Suite 'Selected tests' started at 2026-09-21 00:00:00.\n"
+            "Test Case '-[cmuxTests.ExampleTests testExample]' started.\n"
+            "XCTAssertTrue failed\n"
+            "Failed to establish communication with the test runner.\n"
+        )
+
+        self.assertFalse(safe)
+        self.assertIn("test execution evidence", message)
+
+    def test_wrapper_retry_is_blocked_after_zero_test_summary(self) -> None:
+        safe, _ = MODULE.retry_safe(
+            "Executed 0 tests, with 0 failures (0 unexpected)\n"
+            "Failed to establish communication with the test runner.\n"
+        )
+
+        self.assertFalse(safe)
+
+    def test_wrapper_retry_is_blocked_after_swift_testing_started(self) -> None:
+        for marker in ("◇", "▶"):
+            with self.subTest(marker=marker):
+                safe, _ = MODULE.retry_safe(
+                    f"{marker} Test run started.\n"
+                    f"{marker} Test waitingForCallback() started.\n"
+                    "Failed to establish communication with the test runner.\n"
+                )
+
+                self.assertFalse(safe)
 
     def test_timeout_words_in_successful_test_names_or_app_logs_are_not_failures(self) -> None:
         passed, _ = MODULE.classify(
@@ -259,7 +334,7 @@ class AppHostTestOutputTests(unittest.TestCase):
                 "TEST_RESULTS_ROOT": str(root / "results"),
             }
             completed = subprocess.run(
-                ["bash", "-c", TEST_DEPOT_RUN_UNIT_TESTS],
+                ["bash", "-c", SUITE_RUN_UNIT_TESTS],
                 cwd=root,
                 env=environment,
                 capture_output=True,
@@ -296,7 +371,7 @@ class AppHostTestOutputTests(unittest.TestCase):
                     "FAKE_TEST_MODE": mode,
                 }
                 completed = subprocess.run(
-                    ["bash", "-c", TEST_DEPOT_RUN_UNIT_TESTS],
+                    ["bash", "-c", SUITE_RUN_UNIT_TESTS],
                     cwd=root,
                     env=environment,
                     capture_output=True,
@@ -310,6 +385,84 @@ class AppHostTestOutputTests(unittest.TestCase):
                     self.assertIn("category=tests passed", completed.stdout)
                 else:
                     self.assertIn("category=pre-test build/setup failure", completed.stdout)
+
+    def test_selected_single_test_passes_its_selector_and_names_its_log(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = pathlib.Path(temporary_directory)
+            fake_ci = root / "scripts/ci"
+            fake_ci.mkdir(parents=True)
+            shutil.copy2(SCRIPT, fake_ci / SCRIPT.name)
+            argv_log = root / "argv.log"
+            fake_runner = fake_ci / "xcodebuild_noninteractive.py"
+            fake_runner.write_text(
+                "#!/usr/bin/env python3\n"
+                "import os, sys\n"
+                "with open(os.environ['ARGV_LOG'], 'a') as log:\n"
+                "    log.write(' '.join(a for a in sys.argv if a.startswith('-only-testing:')) + '\\n')\n"
+                "print('Test run with 1 test in 1 suite passed after 0.01 seconds.')\n",
+                encoding="utf-8",
+            )
+            fake_runner.chmod(0o755)
+            results = root / "results"
+            completed = subprocess.run(
+                ["bash", "-c", SUITE_RUN_UNIT_TESTS],
+                cwd=root,
+                env={
+                    **os.environ,
+                    "UNIT_TEST_SUITES": "Foo/testSwift(),Bar/testXC,Baz",
+                    "TEST_RESULTS_ROOT": str(results),
+                    "ARGV_LOG": str(argv_log),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(
+                argv_log.read_text(encoding="utf-8").splitlines(),
+                [
+                    "-only-testing:cmuxTests/Foo/testSwift()",
+                    "-only-testing:cmuxTests/Bar/testXC",
+                    "-only-testing:cmuxTests/Baz",
+                ],
+            )
+            self.assertTrue((results / "Foo.testSwift.log").is_file())
+            self.assertTrue((results / "Bar.testXC.log").is_file())
+            self.assertTrue((results / "Baz.log").is_file())
+
+    def test_selector_rejects_anything_but_suite_or_suite_slash_test(self) -> None:
+        for value in ("Foo/../Bar", "Foo/bar/baz", "Foo;true", "Foo/bar(x)", "/Foo", "Foo/"):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as temporary_directory:
+                root = pathlib.Path(temporary_directory)
+                fake_ci = root / "scripts/ci"
+                fake_ci.mkdir(parents=True)
+                shutil.copy2(SCRIPT, fake_ci / SCRIPT.name)
+                marker = root / "ran"
+                fake_runner = fake_ci / "xcodebuild_noninteractive.py"
+                fake_runner.write_text(
+                    "#!/usr/bin/env python3\n"
+                    f"open({str(marker)!r}, 'w').close()\n"
+                    "print('Test run with 1 test in 1 suite passed after 0.01 seconds.')\n",
+                    encoding="utf-8",
+                )
+                fake_runner.chmod(0o755)
+                completed = subprocess.run(
+                    ["bash", "-c", SUITE_RUN_UNIT_TESTS],
+                    cwd=root,
+                    env={
+                        **os.environ,
+                        "UNIT_TEST_SUITES": value,
+                        "TEST_RESULTS_ROOT": str(root / "results"),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+                self.assertNotEqual(completed.returncode, 0)
+                self.assertIn("Invalid unit suite identifier", completed.stdout + completed.stderr)
+                self.assertFalse(marker.exists())
 
     def test_singular_summary_is_supported(self) -> None:
         passed, _ = MODULE.classify("Executed 1 test, with 0 failures (0 unexpected)\n")

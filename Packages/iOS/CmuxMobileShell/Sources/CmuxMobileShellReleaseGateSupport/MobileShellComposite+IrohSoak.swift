@@ -27,7 +27,12 @@ extension MobileShellComposite {
     ///   - marker: Unique terminal output marker for this cycle.
     /// - Returns: Operation names and elapsed durations whose postconditions passed.
     /// - Throws: A gate failure when navigation, terminal output or reconnection fails.
-    public func runIrohSoakUsageStep(cycle: Int, marker: String, terminalSession: MobileIrohReleaseGateTerminalSession? = nil) async throws -> [String: Double] {
+    public func runIrohSoakUsageStep(
+        cycle: Int,
+        marker: String,
+        terminalSession: MobileIrohReleaseGateTerminalSession? = nil,
+        includeForcedReconnect: Bool = true
+    ) async throws -> [String: Double] {
         guard let target = irohReleaseGateForegroundTarget() else {
             throw MobileIrohReleaseGateProbeFailure.workspaceMutationUnavailable
         }
@@ -110,7 +115,7 @@ extension MobileShellComposite {
                 "terminal_after_restore": soakSeconds(terminalStarted),
             ]
         default:
-            guard cycle % 120 == 119 else {
+            guard includeForcedReconnect, cycle % 120 == 119 else {
                 let started = ContinuousClock.now
                 await refreshWorkspaces()
                 try await verifyTerminalRoundTrip(surfaceID: target.terminalID.rawValue, marker: marker + "_REFRESH", session: terminalSession)

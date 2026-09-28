@@ -142,12 +142,20 @@ struct CloudWorkspaceTargetingTests {
         let manager = fixture.manager
         let local = try #require(manager.selectedWorkspace)
         let other = try #require(manager.addWorkspaceIfActive(initialSurface: .cloudVMLoading, select: false))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480), styleMask: [.titled], backing: .buffered, defer: false)
+        // The creation-completion focus rule only applies while the window that
+        // started the creation is key. The app-host test process runs headless
+        // and is usually not the active app, so `makeKeyAndOrderFront` does not
+        // make a programmatic window key; pin key status the way the other
+        // focus suites do so this exercises the rule instead of the host.
+        let window = KeyStatusTestWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480), styleMask: [.titled], backing: .buffered, defer: false)
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(fixture.windowID.uuidString)")
         fixture.app.mainWindowContexts.values.first { $0.windowId == fixture.windowID }?.window = window
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil); withExtendedLifetime(window) {} }
-        #expect(NSApp.keyWindow === window)
+        // Assert the app's own answer for "which window may a finished creation
+        // navigate", which is the precondition the selection expectation below
+        // depends on.
+        #expect(fixture.app.cloudWorkspaceCreationFocusWindow(windowID: fixture.windowID) === window)
         let entered = AsyncStream<Void>.makeStream()
         let release = AsyncStream<Void>.makeStream()
         var createdID: UUID?
