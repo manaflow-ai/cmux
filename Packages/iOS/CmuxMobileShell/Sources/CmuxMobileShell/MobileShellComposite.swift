@@ -3539,6 +3539,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 finishStoredMacReconnectAttempt(generation: generation)
                 return .superseded
             }
+            // The scope check suspends. Re-check the generation with no await
+            // before registering the race, so a pass superseded meanwhile never
+            // starts dials (or closes a newer pass's race).
+            guard generation == storedMacReconnectGeneration else {
+                return .superseded
+            }
             // Dial every discovered Mac at once. The directory carries no
             // liveness, so its order says nothing about reachability; dialing
             // in order let each stalled entry spend its whole connect timeout

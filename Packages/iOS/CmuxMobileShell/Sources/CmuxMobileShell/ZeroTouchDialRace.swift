@@ -73,6 +73,7 @@ final class ZeroTouchDialRace {
     /// Takes ownership of a yielded client so ``close()`` leaves it alone.
     func claim(_ arrival: Arrival) -> MobileCoreRPCClient {
         unclaimedClients[ObjectIdentifier(arrival.client)] = nil
+        startQueuedDials()
         return arrival.client
     }
 
@@ -97,8 +98,10 @@ final class ZeroTouchDialRace {
     }
 
     private func startQueuedDials() {
+        // An answered Mac keeps its slot until claimed or released: its live
+        // transport still holds a connect-budget lease.
         while !isClosed,
-              dials.count < maximumConcurrentDials,
+              dials.count + unclaimedClients.count < maximumConcurrentDials,
               let mac = queued.popFirst() {
             let token = UUID()
             dials[token] = Task { @MainActor [weak self, dial] in

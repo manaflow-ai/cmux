@@ -743,11 +743,11 @@ struct IrohZeroTouchDiscoveryTests {
         let stalled = try (0..<window).map { index in
             try candidate(
                 deviceID: "mac-stalled-\(index)",
-                endpointByte: Array("123456789")[index],
+                endpointByte: Character(String(index + 1, radix: 16)),
                 routeID: "iroh-stalled-\(index)"
             )
         }
-        let live = try candidate(deviceID: "mac-live", endpointByte: "f")
+        let live = try candidate(deviceID: "mac-live", endpointByte: "0")
         let candidates = stalled + [live]
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
