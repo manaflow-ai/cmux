@@ -352,9 +352,15 @@ extension CMUXCLI {
             "source": "agent-hook",
             "agent_session_ended": true,
         ]
-        let didClearParent = (try? client.sendV2(method: "surface.resume.clear", params: clearParams))?["cleared"] as? Bool == true
-        if !didClearParent {
-            _ = try? client.sendV2(method: "surface.resume.clear", params: clearParams)
+        var clearStatus = "not-cleared"
+        do {
+            let result = try client.sendV2(method: "surface.resume.clear", params: clearParams)
+            if result["cleared"] as? Bool == true { clearStatus = "cleared" }
+        } catch {
+            if let result = try? client.sendV2(method: "surface.resume.clear", params: clearParams),
+               result["cleared"] as? Bool == true {
+                clearStatus = "cleared"
+            }
         }
         let title = String(localized: "agent.codex.fork.notice.title", defaultValue: "Agent fork")
         let body = String(
@@ -367,6 +373,7 @@ extension CMUXCLI {
             "title": title,
             "subtitle": String(localized: "agent.codex.fork.notice.subtitle", defaultValue: "Fork unavailable"),
             "body": body,
+            "clear_status": clearStatus,
         ])
     }
 

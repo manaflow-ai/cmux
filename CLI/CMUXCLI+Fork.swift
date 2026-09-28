@@ -144,9 +144,35 @@ extension CMUXCLI {
             environment.merge(capturedEnvironment) { _, captured in captured }
         }
         environment.merge(record.environment) { _, restored in restored }
+        func clearCodexForkParentBinding() throws {
+            guard record.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex",
+                  let checkpointID = normalizedHookValue(record.checkpointID) else {
+                return
+            }
+            let clearOutcome = clearAgentSurfaceResumeBindingOutcome(
+                client: client,
+                workspaceId: payload["workspace_id"] as? String
+                    ?? processEnvironment["CMUX_WORKSPACE_ID"]
+                    ?? "",
+                surfaceId: surfaceID,
+                sessionId: checkpointID,
+                sessionDidEnd: true
+            )
+            guard clearOutcome == .cleared else {
+                let errorKind: ForkErrorKind = clearOutcome == .checkpointDidNotOwnBinding
+                    ? .checkpointMismatch
+                    : .codexCheckpointUnavailable
+                throw loggedForkError(
+                    errorKind,
+                    stage: "binding.clear",
+                    detail: String(describing: clearOutcome)
+                )
+            }
+        }
         if record.forkArguments == nil,
            record.launchCommand == nil,
            let legacyCommand {
+            try clearCodexForkParentBinding()
             try execLegacyForkRecord(
                 legacyCommand,
                 record: record,
@@ -184,6 +210,7 @@ extension CMUXCLI {
             ambientEnvironment: processEnvironment
         ) else {
             if let legacyCommand {
+                try clearCodexForkParentBinding()
                 try execLegacyForkRecord(
                     legacyCommand,
                     record: record,
@@ -254,28 +281,7 @@ extension CMUXCLI {
             )
             return
         }
-        if record.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex",
-           let checkpointID = normalizedHookValue(record.checkpointID) {
-            let clearOutcome = clearAgentSurfaceResumeBindingOutcome(
-                client: client,
-                workspaceId: payload["workspace_id"] as? String
-                    ?? processEnvironment["CMUX_WORKSPACE_ID"]
-                    ?? "",
-                surfaceId: surfaceID,
-                sessionId: checkpointID,
-                sessionDidEnd: true
-            )
-            guard clearOutcome == .cleared else {
-                let errorKind: ForkErrorKind = clearOutcome == .checkpointDidNotOwnBinding
-                    ? .checkpointMismatch
-                    : .codexCheckpointUnavailable
-                throw loggedForkError(
-                    errorKind,
-                    stage: "binding.clear",
-                    detail: String(describing: clearOutcome)
-                )
-            }
-        }
+        try clearCodexForkParentBinding()
         client.close()
         try execForkInvocation(
             invocation,
