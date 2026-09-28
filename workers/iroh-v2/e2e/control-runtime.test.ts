@@ -210,7 +210,7 @@ test("the web controller loads the directory over a real dashboard socket", asyn
   let sessionRequests = 0;
   globalThis.fetch = (async (input, init) => {
     const request = new Request(input, init);
-    expect(request.url).toBe("https://cmux-iroh-v2.debussy.workers.dev/v2/dashboard/session");
+    expect(request.url).toBe("https://cmux-v2.debussy.workers.dev/v2/dashboard/session");
     expect(request.headers.get("authorization")).toBe("Bearer fixture-access");
     const setup = await request.json() as any;
     const ticket = await issueDashboardTicket({
@@ -222,7 +222,7 @@ test("the web controller loads the directory over a real dashboard socket", asyn
   }) as typeof fetch;
   globalThis.WebSocket = class extends NodeWebSocket {
     constructor(url: string, protocols: string[]) {
-      expect(url).toBe("wss://cmux-iroh-v2.debussy.workers.dev/v2/dashboard/socket");
+      expect(url).toBe("wss://cmux-v2.debussy.workers.dev/v2/dashboard/socket");
       super(fixtureURL.href, protocols, { headers: { origin: "https://cmux.com" } });
     }
   } as unknown as typeof WebSocket;
@@ -230,7 +230,7 @@ test("the web controller loads the directory over a real dashboard socket", asyn
   let rejectDirectory!: (reason: Error) => void;
   const result = new Promise<any>((resolve, reject) => { resolveDirectory = resolve; rejectDirectory = reject; });
   const controller = new V2DashboardController({
-    origin: "https://cmux-iroh-v2.debussy.workers.dev", environment, projectId, teamId, userId,
+    origin: "https://cmux-v2.debussy.workers.dev", environment, projectId, teamId, userId,
     getStackToken: async () => "fixture-access", onDirectory: resolveDirectory,
     onError: message => rejectDirectory(new Error(message)),
   });
@@ -427,4 +427,54 @@ test("Mac control accepts either discovery or hosting without enabling iOS pairi
     });
     expect(result.response.status).toBe(capabilities.length > 0 ? 200 : 403);
   }
+});
+
+test("a forgotten Mac receives its revocation and can reopen a real recovery socket", async () => {
+  const nextFrame = (socket: NodeWebSocket, schema: string) => new Promise<any>((resolve, reject) => {
+    const cleanup = () => { clearTimeout(timer); socket.off("message", listener); socket.off("error", failed); };
+    const failed = (error: Error) => { cleanup(); reject(error); };
+    const timer = setTimeout(() => failed(new Error(`No ${schema}`)), 2000);
+    const listener = (data: NodeWebSocket.RawData) => {
+      const frame = JSON.parse(data.toString());
+      if (frame.schemaId !== schema) return;
+      cleanup();
+      resolve(frame);
+    };
+    socket.on("message", listener);
+    socket.on("error", failed);
+  });
+  const open = async (requestId: string, fresh: boolean) => {
+    const url = new URL(fresh ? "/fixture/stack/socket" : "/v2/control/socket", await mf.ready);
+    url.protocol = "ws:";
+    const setup = await setupFor(requestId, undefined);
+    const socket = new NodeWebSocket(url.href, {
+      headers: { "x-cmux-v2-setup": setupHeader(setup), authorization: `IrohTicket ${ticket}` },
+    });
+    return { socket, ready: nextFrame(socket, "session.ready.v1") };
+  };
+  const { socket, ready: initialReady } = await open("before-forget", false);
+  try {
+    const device = (await initialReady).device;
+    const revoked = nextFrame(socket, "device.revoked.v1");
+    const request = { schemaId: "device.revoke.v1", requestId: "forget", deviceRecordId: device.deviceRecordId };
+    const response = await mf.dispatchFetch("https://iroh.test/v2/requests", {
+      method: "POST", headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}`,
+        "x-cmux-v2-setup": setupHeader(await setupFor(request.requestId, request)) },
+      body: JSON.stringify(request),
+    });
+    expect(response.status).toBe(200);
+    expect(await revoked).toMatchObject({ deviceRecordId: device.deviceRecordId, recoverable: true });
+    const oldTicket = await mf.dispatchFetch("https://iroh.test/v2/control/session", {
+      method: "POST", headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}` },
+      body: JSON.stringify(await setupFor("old-ticket", undefined)),
+    });
+    expect(oldTicket.status).toBe(403);
+    const recovery = await open("fresh-stack", true);
+    const recoveredSocket = recovery.socket;
+    try {
+      const frame = await recovery.ready;
+      expect(frame.challenge).toBeDefined();
+      expect(frame.device).toBeUndefined();
+    } finally { recoveredSocket.close(); }
+  } finally { socket.close(); }
 });

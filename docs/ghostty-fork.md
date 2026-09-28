@@ -12,6 +12,80 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Startup input keeps its bytes
+
+- Branch: `issue-12915-hex-escape-bytes` ([manaflow-ai/ghostty#239](https://github.com/manaflow-ai/ghostty/pull/239))
+- Commits: `a78e21739` (cherry-pick of upstream `29b82dd80c46`,
+  ghostty-org/ghostty#13855), `e168fd31c` (round-trip test)
+- Summary: the embedded apprt escapes `initial_input` with
+  `std.zig.stringEscape`, which writes each non-ASCII byte as `\xNN`, and
+  `config/string.zig` then encoded each `\xNN` as a UTF-8 codepoint. Text cmux
+  typed as startup input, such as a `cmux workspace create --command` that
+  prints a Korean OSC title, reached the shell as mojibake
+  ([#12915](https://github.com/manaflow-ai/cmux/issues/12915)). `\xNN` is now
+  one byte, as in Zig. A `text:` keybind with `\xNN` at or above `0x80` now
+  sends that byte too; `\u{...}` still sends a codepoint.
+- Coverage: the Ghostty tests `parse: hex escapes are bytes` and
+  `cloneParsed restores Zig-escaped bytes`, run by `build-ghosttykit.yml`
+  before packaging, and the cmux test `GhosttyStartupInputUTF8Tests`. Hosted
+  [run 36360076795](https://github.com/manaflow-ai/cmux/actions/runs/36360076795)
+  passed 75 tests with both filters at `e168fd31c` (one more than a single-test
+  filter) and published GhosttyKit.
+- Artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e168fd31c0fc5893cdac933dc665307b3a760554-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `66d0089dcb7ea8873d86553e684e9b746d39c33318fa5c663a84e7fec68b098f`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: upstream carries the same `string.zig` change, so a future
+  upstream merge resolves it by taking either side. Keep the round-trip test
+  in `config/io.zig`; it covers the embedded escape and parse pair together.
+
+### Unfocused surface frame pacing
+
+- Branch: `perf/unfocused-draw-cap` ([manaflow-ai/ghostty#234](https://github.com/manaflow-ai/ghostty/pull/234))
+- Commit: `edefce778`
+- Summary: unfocusing a surface stops its display link, so an unfocused
+  surface used to render on every renderer wakeup. Its change-driven renders
+  are now spaced at least 33 ms apart (about 30 FPS). A wake inside the
+  interval keeps the terminal dirty and arms a one-shot timer whose render
+  picks up every change made meanwhile. The focused surface and the vsync path
+  are unaffected. This cuts WindowServer recompositing when several agents
+  stream into background panes, which is most expensive on high refresh
+  displays and behind glass or translucent windows.
+- Coverage: the Ghostty `Thread` unit test
+  `unfocused render pacer spaces unfocused frames`, run by
+  `build-ghosttykit.yml` before packaging. Hosted
+  [run 36248746801](https://github.com/manaflow-ai/cmux/actions/runs/36248746801)
+  passed 74 tests with this filter at `edefce778` (the same count as the
+  single-test CJK filter) and published GhosttyKit.
+- Artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-edefce7785c9f439966c68588db1edbd6b435203-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `d77a7bdf50c78787c2649b314cd9ca8990af823510531ad547e26f3a978f472d`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: the pacing check sits in `renderCallback` after the
+  hidden/unrealized early return. The paced timer uses
+  `unfocusedRenderTimerCallback`, which releases the pacer first so its own
+  render is never deferred again; keep that ordering or a deferred frame can
+  be lost until the next wakeup.
+
+### CJK fallback ideograph sizing
+
+- Branch: `issue-4978-cjk-spacing`
+- Commits: `7dd7a420a` (regression test), `0068ece73` (fix)
+- Summary: keep the existing measured ideograph width for fallback faces, but
+  size a primary face without an ideograph metric against its full two-cell
+  terminal span. This prevents Hangul glyphs selected through CoreText fallback
+  from leaving a gap before the next terminal cell.
+- Coverage: the Ghostty `Collection` regression test
+  `ideograph fallback sizing fills two primary cells` asserts that an
+  8-pixel fallback ideograph fills two 7-pixel primary cells. Hosted
+  [run 36178061916](https://github.com/manaflow-ai/cmux/actions/runs/36178061916)
+  passed 74 tests with this filter at `0068ece73` and rebuilt GhosttyKit.
+  The test-only commit has not been executed in the hosted lane, and tagged
+  cmux rendering verification remains pending.
+- Conflict note: preserve the distinction between `icWidth()` for a face's
+  measured or conservative fallback metric and `fallbackIcWidth()` for the
+  primary terminal grid's missing-ideograph target.
+
 ### Cloud restore replay trailing rows
 
 - Commit: `a3e9304c5d19c8667f58a342830f774579c74472`
@@ -25,16 +99,22 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `a3e9304c5d`, a cmux-only replay fix on
-top of `c5c31ce819`, the upstream Ghostty merge commit for PR #218 after the
-embedded-environment lifetime fix from PR #227 was merged. The replay fix
-preserves physical blank rows until cursor/state restoration completes, so a
-restored Cloud grid cannot regain stale history rows. The base SHA preserves
-cmux's Cloud loopback link-detection changes while adding the localhost-port
-punctuation fix and owned POSIX environment snapshots for embedded hosts.
+The submodule pinned by this branch is `edefce7785`, the unfocused surface
+frame pacing change on top of `0068ece733`. The previous pin was
+`0068ece733`, the CJK fallback sizing fix
+on top of `a3e9304c5d`. It keeps a primary face without an ideograph metric at
+the full two-cell terminal span, so Hangul glyphs selected through CoreText
+fallback do not leave a gap before the next terminal cell. The previous pin
+`a3e9304c5d` is a cmux-only replay fix on top of `c5c31ce819`, the upstream
+Ghostty merge commit for PR #218 after the embedded-environment lifetime fix
+from PR #227 was merged. That replay fix preserves physical blank rows until
+cursor/state restoration completes, so a restored Cloud grid cannot regain
+stale history rows. The base SHA preserves cmux's Cloud loopback link-detection
+changes while adding the localhost-port punctuation fix and owned POSIX
+environment snapshots for embedded hosts.
 
-The previous pin `35ae29b7c2` is the merge of fork `main` at `3869e81a0` into the
-Cloud loopback link-detection branch (`46428d790`, bare localhost port links,
+The pin before `a3e9304c5d` was `35ae29b7c2`, the merge of fork `main` at
+`3869e81a0` into the Cloud loopback link-detection branch (`46428d790`, bare localhost port links,
 `59112c1aa` its test). Fork `main` at that point carried, on top of cmux's
 previous pin `4a0e9e185` (cmux #12842): the NFD Hangul shaping fix (fork PR
 #221, merged as `3869e81a0`; its branch tip `370f08cf1` is `4a0e9e185` merged

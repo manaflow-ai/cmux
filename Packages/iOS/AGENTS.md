@@ -1,6 +1,6 @@
 # iOS agent instructions
 
-The iPhone install and authentication gates, iOS and verification capacity,
+The iPhone install and authentication gates, local simulators,
 cross-tag Mac access, and dev auth profiles live in `ios/AGENTS.md` at the
 repository root. They apply to work under `Packages/iOS/` as well, so read that
 file too.
