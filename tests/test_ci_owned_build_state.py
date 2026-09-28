@@ -862,6 +862,20 @@ class Prefer(Fixture):
         self.assertEqual((result["prefer"], result["seed_rebuilds_app"], result["kept_rebuilds_app"]),
                          ("false", "true", "false"))
 
+    def test_a_kept_build_that_recompiles_the_app_stays_when_the_seed_would_too(self):
+        """Both starts recompile the app, so the seed's fewer changed inputs save nothing: on 2026-09-28, 269
+        such local-seed starts compiled in 515 s at the median against 408 to 430 s from a kept build."""
+        self.kept(changed=6)
+        (self.store / "derived-data" / state.RECORD).write_text(
+            json.dumps(self.recorded_with_package_change(changed=6)))
+        (self.cache / "p-j14-base").mkdir(parents=True)
+        (self.cache / "p-j14-base" / state.seed.MANIFEST).write_text(
+            json.dumps(self.recorded_with_package_change(changed=1)))
+        result = self.prefer()
+        self.assertEqual((result["prefer"], result["seed_rebuilds_app"], result["kept_rebuilds_app"]),
+                         ("false", "true", "true"))
+        self.assertIn("both recompile the app", result["reason"])
+
     def test_a_nearer_bucket_seed_replaces_a_kept_seed_that_recompiles_the_app(self):
         self.kept(changed=6)
         (self.store / "derived-data" / state.RECORD).write_text(
