@@ -59,8 +59,12 @@ extension BrowserDiscardPageStateRestoreTests {
         host(panel.webView)
         waitForPage(panel, url: page)
 
+        // The workspace may already have recorded the pane hidden, which would
+        // keep that hide time; show it first so the backdated hide is recorded.
         let hiddenDelay = BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: .standard)
-        panel.noteWebViewVisibility(false, reason: "test.hidden", now: Date().addingTimeInterval(-hiddenDelay - 60))
+        let hiddenAt = Date().addingTimeInterval(-hiddenDelay - 60)
+        panel.noteWebViewVisibility(true, reason: "test.visible", now: hiddenAt.addingTimeInterval(-1))
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: hiddenAt)
         XCTAssertTrue(
             panel.hiddenWebViewDiscardManager.isEligibleForMemoryBudgetDiscard(),
             "Discard refused; blockers: \(panel.webViewLifecycleTopPayload()["discard_blockers"] ?? "unknown")"
