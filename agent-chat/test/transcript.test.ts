@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { attachTranscript, focusTranscriptTerminal, parseTranscriptText, setTranscriptRpcForTest, transcriptAdapter, TranscriptTail, transcriptLooksRunning, toolDetail } from "../adapters/transcript";
+import { attachTranscript, focusTranscriptTerminal, parseTranscriptText, queuedTranscriptMessages, setTranscriptRpcForTest, transcriptAdapter, TranscriptTail, transcriptLooksRunning, toolDetail } from "../adapters/transcript";
 import { utimesSync } from "node:fs";
 import type { SessionCtx, SessionStatus } from "../types";
 import { claudeProjectSlug, resolveSessionTranscript, resolveSurfaceTranscript, transcriptAttention } from "../transcript-sources";
@@ -201,6 +201,34 @@ describe("cmux agent messages", () => {
       { kind: "agent-message", id: "m-1", from: "coordinator", body: "Hold the tag until #15302 merges." },
       { kind: "done" },
     ] satisfies AgentEvent[]);
+  });
+});
+
+describe("queued cmux agent messages", () => {
+  afterEach(() => setTranscriptRpcForTest(null));
+  const ctx = (surfaceId?: string) => ({ internal: { transcriptTarget: { agentSessionId: "s", surfaceId } } }) as unknown as SessionCtx;
+
+  test("lists the terminal's queued messages, oldest first", async () => {
+    const calls: unknown[] = [];
+    setTranscriptRpcForTest(async (method, params) => {
+      calls.push({ method, params });
+      return { ok: true, result: { messages: [
+        { id: "m-2", sender_name: "reviewer", body: "Second", state: "queued", created_at: 20, recipient_surface_id: "S1" },
+        { id: "m-1", sender_name: "coordinator", body: "First", state: "queued", created_at: 10, recipient_surface_id: "S1" },
+        { id: "m-3", sender_name: "other", body: "Another pane", state: "queued", created_at: 5, recipient_surface_id: "S2" },
+      ] } };
+    });
+    expect(await queuedTranscriptMessages(ctx("S1"))).toEqual([
+      { id: "m-1", from: "coordinator", body: "First" },
+      { id: "m-2", from: "reviewer", body: "Second" },
+    ]);
+    expect(calls).toEqual([{ method: "agent.message.list", params: { surface: "S1", state: "queued", limit: 20 } }]);
+  });
+
+  test("an unknown terminal or an app without messages has none", async () => {
+    setTranscriptRpcForTest(async () => ({ ok: false, error: "Unknown method" }));
+    expect(await queuedTranscriptMessages(ctx("S1"))).toEqual([]);
+    expect(await queuedTranscriptMessages(ctx(undefined))).toEqual([]);
   });
 });
 
