@@ -9,6 +9,8 @@ final class CloudTeamPickerPresentation {
     /// The last failed switch, shown under the header until dismissed or the
     /// menu opens again.
     var switchError: String?
+    /// The Create Team sheet opened from this surface's menu.
+    let createTeamSheet = CloudCreateTeamSheetPresenter()
 
     /// Switches the active team. A pending switch blocks it, so two switches
     /// cannot race for the confirmed scope; the account flow refuses a switch

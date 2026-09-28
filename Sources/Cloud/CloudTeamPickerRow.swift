@@ -82,10 +82,10 @@ struct CloudTeamPickerRow: View {
             onSelect: { [presentation, accountFlow] team in
                 presentation.selectTeam(team.id, accountFlow: accountFlow)
             },
-            onCreate: { [weak anchor, accountFlow] in
+            onCreate: { [weak anchor, presentation, accountFlow] in
                 // The sheet waits for the menu's tracking loop to return.
                 let present: @MainActor () -> Void = {
-                    CloudCreateTeamSheetPresenter.shared.present(
+                    presentation.createTeamSheet.present(
                         accountFlow: accountFlow,
                         preferredWindow: window
                     )

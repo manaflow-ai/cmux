@@ -1,19 +1,16 @@
 import AppKit
 import SwiftUI
 
-/// Shows one ``CloudCreateTeamSheet`` at a time as a sheet on the main cmux
-/// window, or as a floating window when no main window can host it.
+/// Shows one ``CloudCreateTeamSheet`` at a time for the Cloud surface that owns
+/// it, as a sheet on the main cmux window, or as a floating window when no main
+/// window can host it.
 @MainActor
 final class CloudCreateTeamSheetPresenter {
-    static let shared = CloudCreateTeamSheetPresenter()
-
     private var sheetWindow: NSWindow?
     private weak var hostWindow: NSWindow?
     /// Identifies the current sheet, so a late finish from an earlier sheet
     /// cannot close this one.
     private var sessionID: UUID?
-
-    private init() {}
 
     /// A second request while the sheet is up re-raises it instead of stacking.
     func present(accountFlow: HostAccountFlow, preferredWindow: NSWindow? = nil) {
