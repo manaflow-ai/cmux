@@ -11,6 +11,7 @@ on:
     paths:
       - .github/labels.json
       - scripts/ci/sync_labels.py
+      - .github/workflows/labels-sync.yml
   workflow_dispatch:
 
 permissions:
