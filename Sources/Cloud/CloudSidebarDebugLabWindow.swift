@@ -321,6 +321,19 @@ private enum CloudSidebarDebugFixture {
                     diskTotalMb: 102_400,
                     diskUsedMb: 77_824
                 )
+            ),
+            // The same short-id machine the author branch adds, without an
+            // author, so the before and after frames differ only by the change
+            // under discussion.
+            MachineSnapshot(
+                id: "vm-4f2a",
+                provider: "freestyle",
+                image: "cmux-debug-base-image",
+                isDesktop: false,
+                activity: .ready,
+                createdAt: Date(timeIntervalSinceNow: -7_200),
+                label: "api-smoke-test",
+                slug: "brave-otter"
             )
         ]
     }
