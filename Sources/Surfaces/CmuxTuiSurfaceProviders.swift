@@ -1396,6 +1396,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // summary polls bump the generation mid-scan, while a newer scan, route
         // change, or link failure supersedes the request.
         let request = portDiscovery.beginScan()
+        defer { portDiscovery.endScan(request) }
         guard let arguments = CloudTuiRequests.listeningPortsArguments(socketPath: socketPath),
               let data = try? await link.run(arguments: arguments),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

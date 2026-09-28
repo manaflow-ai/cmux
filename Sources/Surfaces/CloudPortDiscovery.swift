@@ -10,6 +10,7 @@ struct CloudPortDiscovery: Sendable {
     private var socketPath: String?
     private var privateAddress: String?
     private var requestID: UInt64 = 0
+    private var activeScan: UInt64?
     private var blocker: CloudPortDiscoveryState?
     private let cacheLifetime: TimeInterval = 30
 
@@ -35,7 +36,7 @@ struct CloudPortDiscovery: Sendable {
         }
     }
 
-    /// Returns the token `abandonRequest` uses to tell whether a scan started since.
+    /// Returns the token `abandonRequest` uses to tell whether a scan started since or is still running.
     @discardableResult
     mutating func request() -> UInt64 {
         wasRequested = true
@@ -43,9 +44,9 @@ struct CloudPortDiscovery: Sendable {
         return requestID
     }
 
-    /// A request cancelled before any scan started stops showing loading. Demand stays, so the next refresh scans.
+    /// A request cancelled before any scan picked it up stops showing loading. Demand stays, so the next refresh scans.
     mutating func abandonRequest(_ request: UInt64) {
-        guard request == requestID, state == .loading else { return }
+        guard request == requestID, activeScan != requestID, state == .loading else { return }
         if let scan {
             state = scannedAt == nil ? .stale : scan.state
         } else {
@@ -65,12 +66,18 @@ struct CloudPortDiscovery: Sendable {
     /// A rescan keeps the settled result visible; only a machine with no inventory shows loading.
     mutating func beginScan() -> UInt64 {
         requestID &+= 1
+        activeScan = requestID
         if let blocker {
             state = blocker
         } else if scan == nil {
             state = .loading
         }
         return requestID
+    }
+
+    /// Every scan ends here, including one cancelled before it could complete.
+    mutating func endScan(_ request: UInt64) {
+        if activeScan == request { activeScan = nil }
     }
 
     /// Late requests from an earlier address, lifecycle, or retry cannot replace the current result.

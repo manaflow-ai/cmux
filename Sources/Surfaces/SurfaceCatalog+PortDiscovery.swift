@@ -15,7 +15,7 @@ extension SurfaceCatalog {
         do {
             try await provider.refreshPortMetadata()
         } catch {
-            // The machines panel cancels its refreshes when it closes; a request no scan picked up must not stay loading.
+            // Pausing the machines panel's polling cancels its refreshes; a request no scan picked up must not stay loading.
             guard provider.isRegisteredInCatalog(), !Task.isCancelled else {
                 provider.abandonPortDiscoveryRequest(request)
                 return
@@ -35,5 +35,7 @@ extension SurfaceCatalog {
             return
         }
         await provider.refresh(force: true)
+        // The cancel can land during display discovery, after which the graph refresh runs no pass.
+        if Task.isCancelled { provider.abandonPortDiscoveryRequest(request) }
     }
 }
