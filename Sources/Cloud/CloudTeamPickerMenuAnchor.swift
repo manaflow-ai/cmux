@@ -55,6 +55,14 @@ final class CloudTeamPickerMenuAnchorView: NSView {
         _ = menu.popUp(positioning: nil, at: location, in: view)
     }
 
+    /// How far above the requested point macOS 26 places a menu's frame
+    /// (measured 5pt, the top padding of its rounded frame). Without it the
+    /// menu covers the trigger's bottom edge.
+    private static var menuFrameLift: CGFloat {
+        if #available(macOS 26, *) { return 5 }
+        return 0
+    }
+
     private(set) var trackingMenu: NSMenu?
     private var isPresentationRequested = false
     private var isPresentationScheduled = false
@@ -136,7 +144,10 @@ final class CloudTeamPickerMenuAnchorView: NSView {
         onWillPresent?()
         // Flipped coordinates: the menu's top-leading corner sits just below the
         // trigger, aligned with its leading edge in either layout direction.
-        let origin = NSPoint(x: isRightToLeft ? bounds.width : 0, y: bounds.height + 2)
+        let origin = NSPoint(
+            x: isRightToLeft ? bounds.width : 0,
+            y: bounds.height + 2 + Self.menuFrameLift
+        )
         trackMenu(menu, origin, self)
         trackingMenu = nil
         isPresentationRequested = false
