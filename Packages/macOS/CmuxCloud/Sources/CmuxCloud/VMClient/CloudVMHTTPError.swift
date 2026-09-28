@@ -282,8 +282,18 @@ func cloudVMString(_ value: Any?) -> String? {
 
 func cloudVMInt(_ value: Any?) -> Int? {
     if let int = value as? Int { return int }
-    if let double = value as? Double, double.isFinite { return Int(double) }
-    if let number = value as? NSNumber { return number.intValue }
+    if let double = value as? Double, double.isFinite {
+        let truncated = double.rounded(.towardZero)
+        guard truncated >= Double(Int.min), truncated <= Double(Int.max) else { return nil }
+        return Int(truncated)
+    }
+    if let number = value as? NSNumber {
+        let double = number.doubleValue
+        guard double.isFinite else { return nil }
+        let truncated = double.rounded(.towardZero)
+        guard truncated >= Double(Int.min), truncated <= Double(Int.max) else { return nil }
+        return Int(truncated)
+    }
     if let string = value as? String { return Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) }
     return nil
 }

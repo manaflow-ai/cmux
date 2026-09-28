@@ -61,6 +61,12 @@ struct CloudVMErrorContractTests {
         #expect(!text.contains("private"))
     }
 
+    @Test("out-of-range retry delays are rejected without trapping")
+    func retryAfterRangeCheck() {
+        let error = CloudVMHTTPError(status: 502, body: #"{"retryable":true,"retryAfterSeconds":1e100}"#)
+        #expect(error.retryAfterSeconds == nil)
+    }
+
     @Test("attachment scheduler stops after a terminal refusal")
     @MainActor
     func attachmentSchedulerStops() {
