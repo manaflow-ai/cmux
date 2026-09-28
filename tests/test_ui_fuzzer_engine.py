@@ -148,6 +148,11 @@ class SignatureTest(unittest.TestCase):
 
 
 class LaunchFailureTest(unittest.TestCase):
+    def setUp(self) -> None:
+        import signal
+        for signum in (signal.SIGTERM, signal.SIGINT):  # the Fuzzer installs its own
+            self.addCleanup(signal.signal, signum, signal.getsignal(signum))
+
     def test_a_build_that_cannot_start_ends_the_run(self) -> None:
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -165,6 +170,27 @@ class LaunchFailureTest(unittest.TestCase):
         self.assertEqual(len(calls), runner.MAX_LAUNCH_FAILURES)
         self.assertEqual(summary["findings"], [])
         self.assertIn("Symbol not found", summary["launch_failed"])
+
+    def test_a_session_that_starts_resets_the_count(self) -> None:
+        import tempfile
+        from cmuxfuzz.oracles import Failure
+        launch = Failure(Signature("launch", "launch-failed", "The app did not start"), "timeout")
+        plan = [launch, None, launch, launch, launch]
+        with tempfile.TemporaryDirectory() as tmp:
+            fuzzer = runner.Fuzzer(app=Path(tmp) / "x.app", out=Path(tmp) / "out", seed=1,
+                                   area_weights={}, use_pointer=False, log=lambda _: None)
+
+            def session(workdir, steps, deadline):
+                result = runner.SessionResult()
+                result.failure = plan.pop(0) if plan else None
+                return result
+
+            fuzzer._run_session = session
+            fuzzer._cleanup = lambda: None
+            summary = fuzzer.fuzz(1.0)
+        self.assertEqual(plan, [])
+        self.assertEqual(summary["sessions"], 5)
+        self.assertIn("launch_failed", summary)
 
 
 class IssueTextTest(unittest.TestCase):

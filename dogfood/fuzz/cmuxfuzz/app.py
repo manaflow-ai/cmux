@@ -105,6 +105,13 @@ class AppSession:
             output.close()
         self.pid = self._proc.pid
         self.started_at = time.time()
+        try:
+            self._await_ready(timeout)
+        except BaseException:
+            self.stop()  # an app that never came up must not outlive the attempt (a run can end right after)
+            raise
+
+    def _await_ready(self, timeout: float) -> None:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if self._proc.poll() is not None:

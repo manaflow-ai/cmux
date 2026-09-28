@@ -62,7 +62,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     summary = fz.fuzz(args.minutes, steps_per_session=args.steps, max_findings=args.max_findings,
                       minimize_minutes=args.minimize_minutes)
     print(json.dumps({"fuzz": "done", **{k: v for k, v in summary.items()}}), flush=True)
-    return 0
+    return 2 if "launch_failed" in summary else 0  # the build never started: not a clean run
 
 
 def cmd_replay(args: argparse.Namespace) -> int:
