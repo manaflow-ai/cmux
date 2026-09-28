@@ -25,6 +25,15 @@ import CMUXMobileCore
 import IOSurface
 import UniformTypeIdentifiers
 
+/// ABI mirror for Ghostty's three-UInt16 ExternalHover cell range. The bridge
+/// takes this buffer as an opaque pointer so the app does not depend on the
+/// fork-only typedef being exported by every GhosttyKit module cache.
+private struct GhosttyExternalHoverCellRangeBridge {
+    let row: UInt16
+    let startColumn: UInt16
+    let endColumn: UInt16
+}
+
 enum GhosttyStartupAppearancePreviewState {
     #if DEBUG
     // The selected debug preview profile. Backed by the CmuxTerminalCore seam
@@ -372,7 +381,11 @@ class GhosttyApp {
         },
         callSetter: { lease, topRow, rowCount, text, ranges, hostEventID in
             let cRanges = ranges.map {
-                ghostty_external_hover_cell_range_s(row: $0.row, start_column: $0.startColumn, end_column: $0.endColumn)
+                GhosttyExternalHoverCellRangeBridge(
+                    row: $0.row,
+                    startColumn: $0.startColumn,
+                    endColumn: $0.endColumn
+                )
             }
             let byteCount = text.utf8.count
             var outTokenBits = [UInt64](repeating: 0, count: 4)
