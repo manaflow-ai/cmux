@@ -185,8 +185,11 @@ public struct TerminalPredictionEngine: Sendable {
     private static let maximumLineMemory = 512
     /// Set when output removed blanks from the overlay. The frame on screen
     /// was built before that output, so the host keeps the overlay where it
-    /// is until the next presented frame instead of re-anchoring it now.
-    public private(set) var holdsLayoutUntilFrame = false
+    /// is until the next presented frame instead of re-anchoring it now. A
+    /// host that stops reporting frames gets the overlay back after
+    /// `confirmationHold`, as with a held confirmation.
+    public var holdsLayoutUntilFrame: Bool { layoutHeldSince != nil }
+    private var layoutHeldSince: PredictionInstant?
     private var smoothedEchoLatency: Duration?
     private var recentMispredictions: [PredictionInstant] = []
     private var suspendedUntil: PredictionInstant?
@@ -260,14 +263,16 @@ public struct TerminalPredictionEngine: Sendable {
     /// ones count too: an erase that never arrives expires on its own
     /// keystroke's clock, not on that of a glyph typed after it.
     public var nextExpiry: PredictionInstant? {
-        guard entries.contains(where: \.isOnScreen) else { return nil }
-        return entries.compactMap { entry -> PredictionInstant? in
+        let holdEnds = layoutHeldSince.map { $0 + configuration.confirmationHold }
+        guard entries.contains(where: \.isOnScreen) else { return holdEnds }
+        let entryExpiry = entries.compactMap { entry -> PredictionInstant? in
             if entry.standing == .speculative {
                 return entry.typedAt + speculativeLifetime
             }
             guard entry.isDrawn, let confirmedAt = entry.confirmedAt else { return nil }
             return confirmedAt + configuration.confirmationHold
         }.min()
+        return [entryExpiry, holdEnds].compactMap { $0 }.min()
     }
 
     public func status(at now: PredictionInstant) -> Status {
@@ -436,8 +441,8 @@ public struct TerminalPredictionEngine: Sendable {
             }
             index += 1
         }
-        if entries.lazy.filter(\.isBlanked).count < blanksBefore {
-            holdsLayoutUntilFrame = true
+        if entries.lazy.filter(\.isBlanked).count < blanksBefore, layoutHeldSince == nil {
+            layoutHeldSince = now
         }
         return changed || (movedCursor && entries.contains { $0.isOnScreen })
     }
@@ -574,7 +579,7 @@ public struct TerminalPredictionEngine: Sendable {
         let before = entries.count
         entries.removeAll { $0.isHeldConfirmation }
         let released = holdsLayoutUntilFrame
-        holdsLayoutUntilFrame = false
+        layoutHeldSince = nil
         return entries.count != before || released
     }
 
@@ -856,9 +861,14 @@ public struct TerminalPredictionEngine: Sendable {
     private mutating func expire(at now: PredictionInstant) -> Bool {
         if let until = suspendedUntil, now >= until { suspendedUntil = nil }
 
-        let staleConfirmation = entries.contains {
+        var staleConfirmation = entries.contains {
             guard let confirmedAt = $0.confirmedAt else { return false }
             return now - confirmedAt > configuration.confirmationHold
+        }
+        if let since = layoutHeldSince, now - since > configuration.confirmationHold {
+            // No frame came to release the layout: re-anchor now.
+            layoutHeldSince = nil
+            staleConfirmation = true
         }
         if staleConfirmation {
             // The host stopped reporting frames. Drop the hold rather than leave
