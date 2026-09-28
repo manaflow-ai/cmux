@@ -28,6 +28,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.hasLatestNotifications == rhs.hasLatestNotifications &&
             lhs.canMarkAllRead == rhs.canMarkAllRead &&
             lhs.canMarkAllUnread == rhs.canMarkAllUnread &&
+            lhs.statusGlyph == rhs.statusGlyph &&
+            lhs.compactsAgentStatus == rhs.compactsAgentStatus &&
             lhs.shortcutDigit == rhs.shortcutDigit &&
             lhs.shortcutModifierSymbol == rhs.shortcutModifierSymbol &&
             lhs.showsShortcutHint == rhs.showsShortcutHint &&
@@ -62,6 +64,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let hasLatestNotifications: Bool
     let canMarkAllRead: Bool
     let canMarkAllUnread: Bool
+    let statusGlyph: SidebarCompactStatusGlyph?
+    /// Whether `sidebar.compactAgentStatus` is on; see the AppKit row model.
+    var compactsAgentStatus = false
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
@@ -87,6 +92,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     @State private var contextMenuVisible = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.cmuxAccentColor) private var accentColor
+
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
 
 #if DEBUG
     // Plain-value environment probe set only by SidebarLazyLayoutScaleTests;
@@ -175,7 +182,14 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                if anchorUnreadCount > 0 {
+                // Compact status mode: unread folds into the glyph (blue).
+                if let statusGlyph {
+                    SidebarCompactStatusGlyphView(
+                        glyph: statusGlyph,
+                        pointSize: GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: globalFontMagnificationPercent),
+                        color: statusGlyph.color(isActive: false, selected: .labelColor, secondary: .secondaryLabelColor)
+                    )
+                } else if anchorUnreadCount > 0, !compactsAgentStatus {
                     Text("\(anchorUnreadCount)")
                         .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)
                         .foregroundStyle(.white)
