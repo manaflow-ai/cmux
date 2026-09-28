@@ -102,6 +102,11 @@ final class TerminalCodeBlockController {
         let windowPoint = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         let hostPoint = host.convert(windowPoint, from: nil)
         if let pillView, pillView.frame.contains(hostPoint) { return }
+        // The offered cards sit over the text; a block under them has no pill.
+        if let trayView, !trayView.isHidden, trayView.frame.contains(hostPoint) {
+            hidePill()
+            return
+        }
         let surfacePoint = surfaceView.convert(windowPoint, from: nil)
         guard surfaceView.bounds.contains(surfacePoint) else {
             hidePill()
@@ -120,6 +125,11 @@ final class TerminalCodeBlockController {
         }
         let hostPoint = surfaceView.convert(point, to: host)
         if let pillView, pillView.frame.contains(hostPoint) { return }
+        // The offered cards sit over the text; a block under them has no pill.
+        if let trayView, !trayView.isHidden, trayView.frame.contains(hostPoint) {
+            hidePill()
+            return
+        }
         let row = geometry.row(atTopY: surfaceView.bounds.height - point.y)
         let resolver = TerminalCodeBlockAnchorResolver()
         let hovered = anchors.first { anchor in
