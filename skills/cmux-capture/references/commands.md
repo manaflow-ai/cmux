@@ -86,10 +86,15 @@ stretches.
 
 ## Error codes
 
+These are socket response codes. An unknown `cmux record` subcommand is
+rejected locally with `CLIError` before the CLI sends a socket request, so it
+has no socket error code.
+
 | Code | When |
 | --- | --- |
-| `invalid_params` | A value out of range, a malformed region, `--out` on a path that is not a file, or an unknown record subcommand |
+| `invalid_params` | A value out of range, a malformed region, or `--out` on a path that is not a file |
 | `not_found` | The named window does not exist, or it closed during the capture |
+| `conflict` | A recording is already active when another recording is started |
 | `unsupported` | The system cannot capture windows at all |
 | `timeout` | The capture did not finish in time (20 seconds for a screenshot) |
 | `internal_error` | The capture or the encode failed for another reason |

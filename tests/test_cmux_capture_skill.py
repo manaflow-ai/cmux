@@ -17,10 +17,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 REFERENCE = ROOT / "skills" / "cmux-capture" / "references" / "commands.md"
 SKILL = ROOT / "skills" / "cmux-capture" / "SKILL.md"
+CLAUDE_SKILL = ROOT / ".claude" / "skills" / "cmux-capture"
 RECORD_CLI = ROOT / "CLI" / "CMUXCLI+Record.swift"
 SHOT_CLI = ROOT / "CLI" / "CMUXCLI+Screenshot.swift"
+TASK_HELP = ROOT / "CLI" / "CMUXCLI+TaskHelp.swift"
 SESSION = ROOT / "Sources" / "WindowRecordingSession.swift"
 SHOT_METHOD = ROOT / "Sources" / "TerminalController+WindowScreenshotMethod.swift"
+RECORD_METHOD = ROOT / "Sources" / "TerminalController+WindowRecording.swift"
 
 FLAG = re.compile(r"--[a-z][a-z-]*")
 SECTION = re.compile(r"^## (.+)$", re.MULTILINE)
@@ -117,20 +120,44 @@ class CaptureSkillTests(unittest.TestCase):
 
     def test_documented_error_codes_are_returned(self) -> None:
         returned = set()
-        for source in (SHOT_METHOD, ROOT / "Sources" / "TerminalController+WindowRecording.swift"):
+        for source, mapper in (
+            (SHOT_METHOD, "nonisolated static func screenshotErrorCode"),
+            (RECORD_METHOD, "nonisolated static func recordingErrorCode"),
+        ):
             body = source.read_text(encoding="utf-8")
-            returned |= set(re.findall(r'return "([a-z_]+)"', body))
-            returned |= set(re.findall(r'code: "([a-z_]+)"', body))
+            returned |= set(re.findall(r'return "([a-z_]+)"', body[body.index(mapper):]))
+            if 'code: "timeout"' in body:
+                returned.add("timeout")
         rows = [
             line for line in section("Error codes", reference_text()).splitlines()
             if line.startswith("| `")
         ]
         documented = {row.split("|")[1].strip().strip("`") for row in rows}
-        missing = sorted(code for code in documented if code not in returned)
-        self.assertEqual([], missing, "error codes documented but never returned")
+        self.assertEqual(returned, documented, "documented socket error codes differ from implementation")
+
+    def test_unknown_record_subcommand_is_documented_as_a_local_cli_error(self) -> None:
+        reference = section("Error codes", reference_text())
+        self.assertIn("unknown `cmux record` subcommand", reference)
+        self.assertIn("`CLIError`", reference)
+
+        source = RECORD_CLI.read_text(encoding="utf-8")
+        unknown_case = source[source.index("default:", source.index("func runRecord")):]
+        self.assertIn("throw CLIError", unknown_case)
+        self.assertIn("record: unknown subcommand", unknown_case)
+
+    def test_top_level_help_advertises_capture_commands(self) -> None:
+        source = TASK_HELP.read_text(encoding="utf-8")
+        inspect_help = source[source.index("private var inspectCommandsHelp"):]
+        inspect_help = inspect_help[:inspect_help.index("private var customizeCommandsHelp")]
+        self.assertIn("Self.recordUsageLine", inspect_help)
+        self.assertIn("Self.shotUsageLine", inspect_help)
 
     def test_skill_points_at_its_reference(self) -> None:
         self.assertIn("references/commands.md", SKILL.read_text(encoding="utf-8"))
+
+    def test_claude_discovers_the_canonical_capture_skill(self) -> None:
+        self.assertTrue(CLAUDE_SKILL.is_symlink())
+        self.assertEqual(SKILL.parent.resolve(), CLAUDE_SKILL.resolve())
 
 
 if __name__ == "__main__":
