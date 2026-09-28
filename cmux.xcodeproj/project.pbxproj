@@ -1113,6 +1113,7 @@
 		E7E34A1F76D7A90C5A174B19 /* CMUXCLI+RestoreAdmissionTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1806D03F61C6E8789D112C5 /* CMUXCLI+RestoreAdmissionTarget.swift */; };
 		92580000000000000000000B /* CMUXCLI+RestoreExecution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92580000000000000000000C /* CMUXCLI+RestoreExecution.swift */; };
 		925800000000000000000009 /* CMUXCLI+RestoreFailureReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92580000000000000000000A /* CMUXCLI+RestoreFailureReporting.swift */; };
+		D0899F58620DC7E631629FA9 /* CMUXCLI+RestoreLaunchConflict.swift in Sources */ = {isa = PBXBuildFile; fileRef = C532996D674A93214E4AB1FC /* CMUXCLI+RestoreLaunchConflict.swift */; };
 		1BE9FEE6580BAB8B0EC90FC5 /* CMUXCLI+RestoreLaunchLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC6116026F3AAE9F0065C15D /* CMUXCLI+RestoreLaunchLease.swift */; };
 		F37D9D30E9A746D54D4675AD /* CMUXCLI+RestoreLaunchPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2DBFB8A037113BFB961F9A /* CMUXCLI+RestoreLaunchPayload.swift */; };
 		925800000000000000000003 /* CMUXCLI+RestorePreflight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925800000000000000000004 /* CMUXCLI+RestorePreflight.swift */; };
@@ -5260,6 +5261,7 @@
 		E1806D03F61C6E8789D112C5 /* CMUXCLI+RestoreAdmissionTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreAdmissionTarget.swift"; sourceTree = "<group>"; };
 		92580000000000000000000C /* CMUXCLI+RestoreExecution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreExecution.swift"; sourceTree = "<group>"; };
 		92580000000000000000000A /* CMUXCLI+RestoreFailureReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreFailureReporting.swift"; sourceTree = "<group>"; };
+		C532996D674A93214E4AB1FC /* CMUXCLI+RestoreLaunchConflict.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreLaunchConflict.swift"; sourceTree = "<group>"; };
 		BC6116026F3AAE9F0065C15D /* CMUXCLI+RestoreLaunchLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreLaunchLease.swift"; sourceTree = "<group>"; };
 		7C2DBFB8A037113BFB961F9A /* CMUXCLI+RestoreLaunchPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreLaunchPayload.swift"; sourceTree = "<group>"; };
 		925800000000000000000004 /* CMUXCLI+RestorePreflight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestorePreflight.swift"; sourceTree = "<group>"; };
@@ -11166,6 +11168,7 @@
 					C12984000000000000000001 /* CMUXCLI+SIGPIPEProbes.swift */,
 				C12985000000000000000001 /* CLISocketSentryTelemetry.swift */,
 				C79470010000000000000002 /* CMUXCLI+SocketClientCapability.swift */,
+				C532996D674A93214E4AB1FC /* CMUXCLI+RestoreLaunchConflict.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -15612,6 +15615,7 @@
 				E7E34A1F76D7A90C5A174B19 /* CMUXCLI+RestoreAdmissionTarget.swift in Sources */,
 				92580000000000000000000B /* CMUXCLI+RestoreExecution.swift in Sources */,
 				925800000000000000000009 /* CMUXCLI+RestoreFailureReporting.swift in Sources */,
+				D0899F58620DC7E631629FA9 /* CMUXCLI+RestoreLaunchConflict.swift in Sources */,
 				1BE9FEE6580BAB8B0EC90FC5 /* CMUXCLI+RestoreLaunchLease.swift in Sources */,
 				F37D9D30E9A746D54D4675AD /* CMUXCLI+RestoreLaunchPayload.swift in Sources */,
 				925800000000000000000003 /* CMUXCLI+RestorePreflight.swift in Sources */,
