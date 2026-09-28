@@ -257,11 +257,25 @@ actor WindowRecordingSession {
     }
 
     private func run() async {
+        let interval = request.frameInterval
+        let endUptime = startUptime + request.maximumSeconds
+        var nextTargetUptime = startUptime + interval
         while !Task.isCancelled, state == .recording {
-            let target = startUptime + (Double(frames) * request.frameInterval)
             let now = ProcessInfo.processInfo.systemUptime
-            if target > now {
-                try? await Task.sleep(nanoseconds: UInt64((target - now) * 1_000_000_000))
+            guard now < endUptime else {
+                await finalize()
+                return
+            }
+            nextTargetUptime = WindowRecordingSampleSchedule.nextTargetUptime(
+                previousTargetUptime: nextTargetUptime,
+                interval: interval,
+                now: now
+            )
+            let wakeUptime = min(nextTargetUptime, endUptime)
+            if wakeUptime > now {
+                try? await Task.sleep(
+                    nanoseconds: UInt64((wakeUptime - now) * 1_000_000_000)
+                )
             }
             guard !Task.isCancelled, state == .recording else { return }
             let offset = ProcessInfo.processInfo.systemUptime - startUptime
@@ -269,6 +283,11 @@ actor WindowRecordingSession {
                 await finalize()
                 return
             }
+            // Advance by the wall-clock slot before sampling. If capture or
+            // encoding runs long, the next loop skips every elapsed slot and
+            // waits for a future one instead of spinning to catch up based on
+            // the number of frames that happened to succeed.
+            nextTargetUptime += interval
             do {
                 try await write(sample: try await sample(), offsetSeconds: offset)
             } catch {

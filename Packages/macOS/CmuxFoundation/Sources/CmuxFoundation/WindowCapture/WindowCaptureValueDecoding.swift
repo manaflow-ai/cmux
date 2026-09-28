@@ -92,9 +92,16 @@ enum WindowCaptureValueDecoding {
             }
             region = parsed
         } else if let numbers = value as? [Any] {
-            let doubles = numbers.compactMap { numericValue($0) }
-            guard doubles.count == 4 else {
+            guard numbers.count == 4 else {
                 throw WindowCaptureValueFailure.malformedRegion(String(describing: value))
+            }
+            var doubles: [Double] = []
+            doubles.reserveCapacity(4)
+            for value in numbers {
+                guard let number = numericValue(value) else {
+                    throw WindowCaptureValueFailure.malformedRegion(String(describing: numbers))
+                }
+                doubles.append(number)
             }
             region = WindowRecordingRegion(
                 x: doubles[0],
@@ -139,6 +146,13 @@ enum WindowCaptureValueDecoding {
     }
 
     static func numericValue(_ value: Any) -> Double? {
+        // Bool bridges to NSNumber, but `true` is not a numeric capture value.
+        // Use the Core Foundation identity so an NSNumber containing numeric 1
+        // remains valid while the JSON boolean singleton does not.
+        if let number = value as? NSNumber,
+           CFGetTypeID(number) == CFBooleanGetTypeID() {
+            return nil
+        }
         if let number = value as? Double { return number }
         if let number = value as? Int { return Double(number) }
         if let number = value as? NSNumber { return number.doubleValue }

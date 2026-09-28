@@ -70,6 +70,27 @@ import Testing
         #expect(fromArray.target == .region(expected))
     }
 
+    @Test func regionArraysRequireExactlyFourNumericElements() {
+        #expect(throws: Never.self) {
+            _ = try WindowRecordingRequest.make(params: [
+                "region": [
+                    NSNumber(value: 0),
+                    NSNumber(value: 0),
+                    NSNumber(value: 100),
+                    NSNumber(value: 100),
+                ],
+            ])
+        }
+        #expect(throws: WindowRecordingRequest.Failure.self) {
+            try WindowRecordingRequest.make(params: ["region": [0, 0, 100, 100, "ignored"]])
+        }
+        #expect(throws: WindowRecordingRequest.Failure.self) {
+            try WindowRecordingRequest.make(params: [
+                "region": [0, NSNumber(value: true), 100, 100],
+            ])
+        }
+    }
+
     @Test(arguments: [
         "10,20,300",
         "10,20,300,200,5",
@@ -200,5 +221,52 @@ import Testing
         let request = try WindowRecordingRequest.make(params: ["fps": 10])
 
         #expect(request.frameInterval == 0.1)
+    }
+
+    @Test func publicInitializerEnforcesNumericInvariants() {
+        #expect(throws: WindowRecordingRequest.Failure.self) {
+            try WindowRecordingRequest(framesPerSecond: 0)
+        }
+        #expect(throws: WindowRecordingRequest.Failure.self) {
+            try WindowRecordingRequest(maximumSeconds: .nan)
+        }
+        #expect(throws: WindowRecordingRequest.Failure.self) {
+            try WindowRecordingRequest(maximumSeconds: .infinity)
+        }
+        #expect(throws: WindowRecordingRequest.Failure.self) {
+            try WindowRecordingRequest(scale: 0)
+        }
+        #expect(throws: WindowRecordingRequest.Failure.self) {
+            try WindowRecordingRequest(maximumWidth: .some(8))
+        }
+    }
+
+    @Test func publicInitializerKeepsGIFBudgetsBounded() {
+        #expect(throws: WindowRecordingRequest.Failure.self) {
+            try WindowRecordingRequest(
+                format: .gif,
+                framesPerSecond: 30,
+                maximumSeconds: 120
+            )
+        }
+        #expect(throws: WindowRecordingRequest.Failure.self) {
+            try WindowRecordingRequest(format: .gif, maximumWidth: .some(nil))
+        }
+        #expect(throws: WindowRecordingRequest.Failure.self) {
+            try WindowRecordingRequest(
+                format: .gif,
+                maximumWidth: .some(WindowRecordingRequest.gifMaximumWidth + 1)
+            )
+        }
+    }
+
+    @Test func publicInitializerNormalizesFilesystemAndWindowFields() throws {
+        let request = try WindowRecordingRequest(
+            windowHandle: "  window:2  ",
+            label: " feature/settings! "
+        )
+
+        #expect(request.windowHandle == "window:2")
+        #expect(request.label == "feature-settings")
     }
 }

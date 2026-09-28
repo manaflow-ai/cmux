@@ -18,6 +18,7 @@ public struct WindowRecordingFrameGeometry: Equatable, Sendable {
     public enum Failure: Error, Equatable, Sendable {
         case emptyWindow
         case regionOutsideWindow
+        case gifFrameTooLarge
 
         public var message: String {
             switch self {
@@ -25,6 +26,8 @@ public struct WindowRecordingFrameGeometry: Equatable, Sendable {
                 "the window has no capturable content"
             case .regionOutsideWindow:
                 "region lies outside the window"
+            case .gifFrameTooLarge:
+                "gif frame exceeds the pixel limit"
             }
         }
     }
@@ -78,7 +81,10 @@ public struct WindowRecordingFrameGeometry: Equatable, Sendable {
             }(),
             scale: request.scale,
             maximumWidth: request.maximumWidth,
-            widthQuantum: request.format == .mp4 ? 2 : 1
+            widthQuantum: request.format == .mp4 ? 2 : 1,
+            maximumPixels: request.format == .gif
+                ? WindowRecordingRequest.gifMaximumPixelsPerFrame
+                : nil
         )
     }
 
@@ -98,6 +104,7 @@ public struct WindowRecordingFrameGeometry: Equatable, Sendable {
     ///   - maximumWidth: cap on the output width in pixels, applied after `scale`.
     ///   - widthQuantum: the multiple both output dimensions are rounded down to.
     ///     H.264 wants 2; a still or a gif wants 1.
+    ///   - maximumPixels: optional encoded-pixel limit, used to keep GIF staging bounded.
     public static func plan(
         windowPixelWidth: Int,
         windowPixelHeight: Int,
@@ -105,7 +112,8 @@ public struct WindowRecordingFrameGeometry: Equatable, Sendable {
         region: WindowRecordingRegion?,
         scale: Double,
         maximumWidth: Int?,
-        widthQuantum: Int
+        widthQuantum: Int,
+        maximumPixels: Int? = nil
     ) throws -> WindowRecordingFrameGeometry {
         guard windowPixelWidth > 0, windowPixelHeight > 0 else {
             throw Failure.emptyWindow
@@ -151,13 +159,19 @@ public struct WindowRecordingFrameGeometry: Equatable, Sendable {
         }
 
         let quantum = max(1, widthQuantum)
+        let quantizedWidth = quantize(outputWidth, to: quantum)
+        let quantizedHeight = quantize(outputHeight, to: quantum)
+        if let maximumPixels,
+           quantizedWidth > maximumPixels / quantizedHeight {
+            throw Failure.gifFrameTooLarge
+        }
         return WindowRecordingFrameGeometry(
             cropX: cropX,
             cropY: cropY,
             cropWidth: cropWidth,
             cropHeight: cropHeight,
-            outputWidth: quantize(outputWidth, to: quantum),
-            outputHeight: quantize(outputHeight, to: quantum)
+            outputWidth: quantizedWidth,
+            outputHeight: quantizedHeight
         )
     }
 

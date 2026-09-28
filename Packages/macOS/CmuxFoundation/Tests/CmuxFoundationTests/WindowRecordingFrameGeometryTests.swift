@@ -112,45 +112,32 @@ import Testing
         }
     }
 
-    @Test func finiteValuesThatOverflowPixelArithmeticDoNotTrap() throws {
-        let oversized = WindowRecordingRequest(
-            target: .region(WindowRecordingRegion(x: 0, y: 0, width: 1e300, height: 1e300))
-        )
-        let geometry = try WindowRecordingFrameGeometry.plan(
-            windowPixelWidth: 1600,
-            windowPixelHeight: 1000,
-            pointPixelScale: 2,
-            request: oversized
-        )
-        #expect(geometry.cropWidth == 1600)
-        #expect(geometry.cropHeight == 1000)
-
-        let overflowingEdge = WindowRecordingRequest(
-            target: .region(WindowRecordingRegion(x: 1e300, y: 0, width: 1e300, height: 100))
-        )
-        #expect(throws: WindowRecordingFrameGeometry.Failure.regionOutsideWindow) {
-            try WindowRecordingFrameGeometry.plan(
-                windowPixelWidth: 1600,
-                windowPixelHeight: 1000,
-                pointPixelScale: 2,
-                request: overflowingEdge
+    @Test func publicRequestsRejectRegionsThatCouldOverflowPixelArithmetic() {
+        #expect(throws: WindowRecordingRequest.Failure.regionTooLarge) {
+            try WindowRecordingRequest(
+                target: .region(WindowRecordingRegion(x: 0, y: 0, width: 1e300, height: 1e300))
             )
         }
+        #expect(throws: WindowRecordingRequest.Failure.regionTooLarge) {
+            try WindowRecordingRequest(
+                target: .region(WindowRecordingRegion(x: 1e300, y: 0, width: 100, height: 100))
+            )
+        }
+    }
 
-        let overflowingSum = WindowRecordingRequest(
-            target: .region(WindowRecordingRegion(
-                x: Double.greatestFiniteMagnitude,
-                y: 0,
-                width: Double.greatestFiniteMagnitude,
-                height: 100
-            ))
+    @Test func gifFramesHaveAPixelQuotaIndependentOfWidth() throws {
+        let request = try WindowRecordingRequest(
+            format: .gif,
+            scale: 1,
+            maximumWidth: .some(WindowRecordingRequest.gifMaximumWidth)
         )
-        #expect(throws: WindowRecordingFrameGeometry.Failure.regionOutsideWindow) {
+
+        #expect(throws: WindowRecordingFrameGeometry.Failure.gifFrameTooLarge) {
             try WindowRecordingFrameGeometry.plan(
-                windowPixelWidth: 1600,
-                windowPixelHeight: 1000,
-                pointPixelScale: 2,
-                request: overflowingSum
+                windowPixelWidth: 1280,
+                windowPixelHeight: 4000,
+                pointPixelScale: 1,
+                request: request
             )
         }
     }

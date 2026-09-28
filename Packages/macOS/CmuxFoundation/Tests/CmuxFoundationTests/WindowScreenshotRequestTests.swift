@@ -133,6 +133,15 @@ import Testing
         #expect(fromText.target == fromArray.target)
     }
 
+    @Test func regionArraysRequireExactlyFourNumericElements() {
+        #expect(throws: WindowScreenshotRequest.Failure.self) {
+            try WindowScreenshotRequest.make(params: ["region": [0, 0, 100, 100, "ignored"]])
+        }
+        #expect(throws: WindowScreenshotRequest.Failure.self) {
+            try WindowScreenshotRequest.make(params: ["region": [0, false, 100, 100]])
+        }
+    }
+
     @Test func aRegionTooSmallToSeeIsRefused() throws {
         let failure = #expect(throws: WindowScreenshotRequest.Failure.self) {
             try WindowScreenshotRequest.make(params: ["region": "0,0,4,4"])

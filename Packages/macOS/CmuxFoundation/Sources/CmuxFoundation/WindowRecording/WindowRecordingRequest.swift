@@ -105,15 +105,82 @@ public struct WindowRecordingRequest: Equatable, Sendable {
         label: String = "",
         outputPath: String? = nil,
         drawsCaptions: Bool = true
-    ) {
+    ) throws {
+        let resolvedFramesPerSecond = framesPerSecond ?? format.defaultFramesPerSecond
+        let resolvedScale = scale ?? format.defaultScale
+        let resolvedMaximumWidth = maximumWidth ?? format.defaultMaximumWidth
+
+        guard Self.allowedFramesPerSecond.contains(resolvedFramesPerSecond) else {
+            throw Failure.outOfRange(
+                field: "fps",
+                message: "must be between \(Self.allowedFramesPerSecond.lowerBound) and \(Self.allowedFramesPerSecond.upperBound)"
+            )
+        }
+        guard maximumSeconds.isFinite, Self.allowedSeconds.contains(maximumSeconds) else {
+            throw Failure.outOfRange(
+                field: "max_seconds",
+                message: "must be between \(WindowCaptureValueDecoding.trim(Self.allowedSeconds.lowerBound)) and \(WindowCaptureValueDecoding.trim(Self.allowedSeconds.upperBound))"
+            )
+        }
+        guard resolvedScale.isFinite, Self.allowedScale.contains(resolvedScale) else {
+            throw Failure.outOfRange(field: "scale", message: "must be between 0.1 and 1")
+        }
+        if let resolvedMaximumWidth,
+           !Self.allowedMaximumWidth.contains(resolvedMaximumWidth) {
+            throw Failure.outOfRange(
+                field: "max_width",
+                message: "must be between \(Self.allowedMaximumWidth.lowerBound) and \(Self.allowedMaximumWidth.upperBound)"
+            )
+        }
+        if case let .region(region) = target {
+            guard region.isFinite else {
+                throw Failure.malformedRegion(String(describing: region))
+            }
+            guard region.width >= Self.minimumRegionExtent,
+                  region.height >= Self.minimumRegionExtent else {
+                throw Failure.regionTooSmall
+            }
+            guard abs(region.x) <= Self.maximumRegionExtent,
+                  abs(region.y) <= Self.maximumRegionExtent,
+                  region.width <= Self.maximumRegionExtent,
+                  region.height <= Self.maximumRegionExtent else {
+                throw Failure.regionTooLarge
+            }
+        }
+        if let outputPath {
+            guard outputPath.hasPrefix("/") else {
+                throw Failure.outputPathNotAbsolute(outputPath)
+            }
+            guard outputPath.lowercased().hasSuffix(".\(format.rawValue)") else {
+                throw Failure.outputExtensionMismatch(path: outputPath, format: format)
+            }
+        }
+        if format == .gif {
+            guard let resolvedMaximumWidth,
+                  resolvedMaximumWidth <= Self.gifMaximumWidth else {
+                throw Failure.outOfRange(
+                    field: "max_width",
+                    message: "must be at most \(Self.gifMaximumWidth) for gif"
+                )
+            }
+            let requestedFrames = maximumSeconds * Double(resolvedFramesPerSecond)
+            guard requestedFrames.isFinite,
+                  requestedFrames <= Double(Self.gifMaximumFrames) else {
+                throw Failure.outOfRange(
+                    field: "max_seconds",
+                    message: "and fps may produce at most \(Self.gifMaximumFrames) gif frames"
+                )
+            }
+        }
+
         self.target = target
-        self.windowHandle = windowHandle
+        self.windowHandle = WindowCaptureValueDecoding.trimmedNonEmpty(windowHandle)
         self.format = format
-        self.framesPerSecond = framesPerSecond ?? format.defaultFramesPerSecond
+        self.framesPerSecond = resolvedFramesPerSecond
         self.maximumSeconds = maximumSeconds
-        self.scale = scale ?? format.defaultScale
-        self.maximumWidth = maximumWidth ?? format.defaultMaximumWidth
-        self.label = label
+        self.scale = resolvedScale
+        self.maximumWidth = resolvedMaximumWidth
+        self.label = WindowRecordingLabel(label).value
         self.outputPath = outputPath
         self.drawsCaptions = drawsCaptions
     }
@@ -178,7 +245,7 @@ public struct WindowRecordingRequest: Equatable, Sendable {
             extensions: [format.rawValue]
         )
 
-        return WindowRecordingRequest(
+        return try WindowRecordingRequest(
             target: region.map { Target.region($0) } ?? .window,
             windowHandle: WindowCaptureValueDecoding.trimmedNonEmpty(params["window"]),
             format: format,
@@ -236,6 +303,9 @@ extension WindowRecordingRequest {
     public static let allowedSeconds = 0.5...120.0
     public static let allowedScale = 0.1...1.0
     public static let allowedMaximumWidth = 64...4096
+    public static let gifMaximumWidth = 1280
+    public static let gifMaximumFrames = 960
+    public static let gifMaximumPixelsPerFrame = 4_000_000
     public static let minimumRegionExtent: Double = 8
     public static let maximumRegionExtent: Double = 100_000
 }

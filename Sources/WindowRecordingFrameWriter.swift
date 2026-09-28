@@ -227,15 +227,25 @@ final class WindowRecordingGIFWriter: WindowRecordingFrameWriter {
     private let url: URL
     private let frameDirectory: URL
     private let nominalDelaySeconds: Double
+    private let stagedByteLimit: Int64
     private var pending: (image: CGImage, offsetSeconds: Double)?
     private var frames: [(url: URL, delaySeconds: Double)] = []
+    private var stagedBytes: Int64 = 0
 
     /// Browsers clamp very short gif delays to a tenth of a second; staying at
     /// or above two hundredths keeps playback predictable.
     private static let delayRange = 0.02...10.0
+    /// A GIF stages compressed PNG frames before finalization. Bound that
+    /// temporary disk footprint independently of the recording duration.
+    static let maximumStagedBytes: Int64 = 256 * 1024 * 1024
 
-    init(url: URL, framesPerSecond: Int) throws {
+    init(
+        url: URL,
+        framesPerSecond: Int,
+        stagedByteLimit: Int64 = WindowRecordingGIFWriter.maximumStagedBytes
+    ) throws {
         self.url = url
+        self.stagedByteLimit = max(1, stagedByteLimit)
         frameDirectory = url.deletingLastPathComponent().appendingPathComponent(
             ".\(url.lastPathComponent).frames-\(UUID().uuidString.lowercased())"
         )
@@ -264,6 +274,11 @@ final class WindowRecordingGIFWriter: WindowRecordingFrameWriter {
     }
 
     private func add(_ image: CGImage, delaySeconds: Double) throws {
+        guard stagedBytes < stagedByteLimit else {
+            throw WindowRecordingWriterError.frame(
+                "gif staging exceeded \(stagedByteLimit) bytes"
+            )
+        }
         let delay = min(
             max(delaySeconds.isFinite ? delaySeconds : nominalDelaySeconds, Self.delayRange.lowerBound),
             Self.delayRange.upperBound
@@ -282,6 +297,19 @@ final class WindowRecordingGIFWriter: WindowRecordingFrameWriter {
             try? FileManager.default.removeItem(at: frameURL)
             throw WindowRecordingWriterError.frame("could not stage a gif frame")
         }
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: frameURL.path)[.size])
+            as? NSNumber else {
+            try? FileManager.default.removeItem(at: frameURL)
+            throw WindowRecordingWriterError.frame("could not measure a staged gif frame")
+        }
+        let frameBytes = size.int64Value
+        guard frameBytes >= 0, frameBytes <= stagedByteLimit - stagedBytes else {
+            try? FileManager.default.removeItem(at: frameURL)
+            throw WindowRecordingWriterError.frame(
+                "gif staging exceeded \(stagedByteLimit) bytes"
+            )
+        }
+        stagedBytes += frameBytes
         frames.append((frameURL, delay))
     }
 
@@ -329,6 +357,7 @@ final class WindowRecordingGIFWriter: WindowRecordingFrameWriter {
             throw WindowRecordingWriterError.finish("the gif could not be finalized")
         }
         frames = []
+        stagedBytes = 0
         try? FileManager.default.removeItem(at: frameDirectory)
     }
 }

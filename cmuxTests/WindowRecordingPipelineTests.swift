@@ -372,6 +372,31 @@ import Testing
         }
     }
 
+    @Test func gifStagingStopsAtItsCumulativeByteLimit() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-gif-byte-limit-test-\(UUID().uuidString)"
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("clip.gif")
+
+        var writer: WindowRecordingGIFWriter? = try WindowRecordingGIFWriter(
+            url: url,
+            framesPerSecond: 8,
+            stagedByteLimit: 1
+        )
+        try await writer?.append(Self.image(width: 40, height: 40), atOffsetSeconds: 0)
+        await #expect(throws: WindowRecordingWriterError.self) {
+            try await writer?.append(
+                Self.image(width: 40, height: 40, gray: 0),
+                atOffsetSeconds: 0.125
+            )
+        }
+        writer = nil
+
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
+    }
+
     private static func gifDelay(_ source: CGImageSource, at index: Int) -> Double? {
         guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil)
             as NSDictionary?,
