@@ -1621,6 +1621,38 @@ describe("VM REST auth", () => {
     }
   });
 
+  test("rejects a body team id the caller does not belong to on the Base routes", async () => {
+    // The re-verify widens the team list; it does not decide membership. That
+    // decision stays in resolveBillingContext, which searches the refreshed
+    // user's teams. So the body path has to refuse a non-member exactly like
+    // the header path does on POST /api/vm, and has to refuse it before the
+    // workflow runs.
+    getUser.mockResolvedValue(authedStackUser());
+
+    for (const [operation, route, workflow] of [
+      ["open", baseOpenRoute, openBaseVm],
+      ["reset", baseResetRoute, resetBaseVm],
+    ] as const) {
+      const response = await route.POST(
+        new Request(`https://cmux.test/api/vm/base/${operation}`, {
+          method: "POST",
+          headers: {
+            authorization: "Bearer access-token",
+            "x-stack-refresh-token": "refresh-token",
+          },
+          body: JSON.stringify({ kind: "base", teamId: "team-other" }),
+        }),
+      );
+
+      expect(response.status).toBe(403);
+      const payload = await response.json();
+      expect(payload).toMatchObject({ error: "vm_billing_team_not_found" });
+      expectNoCloudVmImplementationLeaks(payload);
+      expect(workflow).not.toHaveBeenCalled();
+    }
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
   test("rejects blank team ids before reaching workflows", async () => {
     getUser.mockResolvedValue(authedStackUser());
     const requests = [

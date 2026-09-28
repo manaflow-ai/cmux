@@ -29,7 +29,7 @@ import {
 } from "../../../../services/vms/routeHelpers";
 import { runVmRoute } from "../../../../services/vms/routeWorkflow";
 import { vmModelPlaneGatewayFor } from "../../../../services/vms/modelPlaneGateway";
-import type { VmTimingRecorder } from "../../../../services/vms/timings";
+import { measureVmAsync, type VmTimingRecorder } from "../../../../services/vms/timings";
 import {
   openBaseVm,
   resetBaseVm,
@@ -52,6 +52,10 @@ export async function runBaseRoute(input: {
     user: input.user,
     requestedBillingTeamId,
     authErrorLabel: `/api/vm.base-${input.operation}.team-auth`,
+    // Keep the second Stack round trip inside the "auth" stage the way POST
+    // /api/vm does, so a cross-team Base open does not show up as unattributed
+    // time in the span.
+    measure: (run) => measureVmAsync(input.timing, "auth", run),
   });
   if (!reverified.ok) return reverified.response;
   const user = reverified.user;

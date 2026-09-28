@@ -425,9 +425,16 @@ export type VmTeamReverification =
  * entitlements would refuse a genuine member with `vm_billing_team_not_found`.
  *
  * Every route that accepts a body-supplied billing team must call this before
- * resolving entitlements. The membership guard keeps the exact-ID search that
- * `verifyRequest` documents: only a team outside the cached membership costs a
- * second verify, so no route inherits the team picker's full pagination.
+ * resolving entitlements, and must pass the same team on to the scope resolver:
+ * this helper only widens the team list, it decides nothing. Membership is
+ * decided downstream in `resolveBillingContext`, which searches the refreshed
+ * user's teams and refuses a non-member with `vm_billing_team_not_found`.
+ *
+ * The guard is a cost guard, not a security guard. A team already in the cached
+ * membership needs no second verify; only a team outside it pays for one. That
+ * second verify takes the same `completeTeamList` path as the first (one
+ * `listTeams` call for these callers), so no route here inherits the team
+ * picker's full pagination over every Stack team.
  *
  * `measure` exists for callers that record this second verify in their own
  * timing breakdown.
