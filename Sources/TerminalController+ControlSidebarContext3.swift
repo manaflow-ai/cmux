@@ -212,7 +212,6 @@ extension TerminalController {
             )?.id else {
                 return .failed
             }
-            tab.finishSplitSpaceBorrow(newPanelId: id, orientation: orientation)
             return .created(id)
         }
         if tab.isRemoteTmuxMirror, insertFirst {
