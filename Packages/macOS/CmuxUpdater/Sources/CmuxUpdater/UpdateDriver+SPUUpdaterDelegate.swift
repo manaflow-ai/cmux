@@ -14,6 +14,10 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
             recordFeedURLString(override, usedFallback: false)
             return override
         }
+        if let dogfood = UpdateController.dogfoodFeedURL() {
+            recordFeedURLString(dogfood, usedFallback: false)
+            return dogfood
+        }
 #endif
         // The feed URL is baked into Info.plist at build time:
         // - Stable releases use the stable appcast URL
