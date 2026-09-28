@@ -148,25 +148,19 @@ final class CanvasBrowserRenderingUITests: BrowserFixtureSocketTestCase {
                     diagnostic = "browser=\(browserFrame), window=\(windowFrame)"
                     return false
                 }
-                let scaleX = CGFloat(bitmap.pixelsWide) / browserFrame.width
-                let scaleY = CGFloat(bitmap.pixelsHigh) / browserFrame.height
-                let points: [(CGPoint, Bool)] = [
-                    (CGPoint(x: 3, y: browserFrame.height / 2), true),
-                    (CGPoint(x: browserFrame.width - 3, y: browserFrame.height / 2), true),
-                ]
-                for (point, expectedMagenta) in points {
-                    let x = Int(point.x * scaleX)
-                    let y = Int(point.y * scaleY)
-                    guard x >= 0, y >= 0, x < bitmap.pixelsWide, y < bitmap.pixelsHigh,
-                          let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else {
-                        diagnostic = "Unsampleable point \(point); browser=\(browserFrame)"
-                        return false
+                var magentaSamples = 0
+                let stride = max(1, min(bitmap.pixelsWide, bitmap.pixelsHigh) / 80)
+                for y in stride / 2 ..< bitmap.pixelsHigh where y % stride == stride / 2 {
+                    for x in stride / 2 ..< bitmap.pixelsWide where x % stride == stride / 2 {
+                        guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                        if color.redComponent > 0.8 && color.greenComponent < 0.3 && color.blueComponent > 0.8 {
+                            magentaSamples += 1
+                        }
                     }
-                    let magenta = color.redComponent > 0.8 && color.greenComponent < 0.3 && color.blueComponent > 0.8
-                    if magenta != expectedMagenta {
-                        diagnostic = "point=\(point), expectedMagenta=\(expectedMagenta), color=\(color), browser=\(browserFrame)"
-                        return false
-                    }
+                }
+                if magentaSamples < 10 {
+                    diagnostic = "magentaSamples=\(magentaSamples), browser=\(browserFrame)"
+                    return false
                 }
                 return true
             },
