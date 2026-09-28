@@ -17,16 +17,35 @@ extension TextBoxInputContainer {
             .map(\.standardizedFileURL)
         guard !standardizedURLs.isEmpty else { return false }
 
+        Task { @MainActor [weak self, weak textView] in
+            guard let self, let textView else { return }
+            let target = await self.surface.resolvedImageTransferTargetAsync()
+            self.attachFileURLs(
+                standardizedURLs,
+                into: textView,
+                target: target
+            )
+        }
+        return true
+    }
+
+    @MainActor
+    private func attachFileURLs(
+        _ fileURLs: [URL],
+        into textView: TextBoxInputTextView,
+        target: TerminalImageTransferTarget
+    ) {
+
         let plan = TerminalImageTransferPlanner.plan(
-            fileURLs: standardizedURLs,
-            target: surface.resolvedImageTransferTarget(),
+            fileURLs: fileURLs,
+            target: target,
             mode: .paste
         )
 
         switch plan {
         case .insertText, .insertTextSegments:
             textView.insertAttachments(
-                standardizedURLs.map {
+                fileURLs.map {
                         TextBoxAttachment(
                             localURL: $0,
                             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: $0),
@@ -42,10 +61,9 @@ extension TextBoxInputContainer {
             return true
         case .pasteCloudImages:
             refuseCloudComposerImage()
-            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(standardizedURLs)
-            return true
+            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
         case .reject:
-            return false
+            break
         }
     }
 
