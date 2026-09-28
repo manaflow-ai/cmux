@@ -73,9 +73,13 @@ enum WindowRecordingFrameComposer {
 
     /// Centers the captured content without distorting it. The two sizes match
     /// for the whole clip unless the window was resized while recording.
+    ///
+    /// A window that shrank keeps its own pixel size inside the frame instead of
+    /// being magnified: blurry text in the middle of a clip reads as a rendering
+    /// bug, while a black border reads as the window having been resized.
     static func fit(_ content: CGSize, in bounds: CGRect) -> CGRect {
         guard content.width > 0, content.height > 0 else { return bounds }
-        let scale = min(bounds.width / content.width, bounds.height / content.height)
+        let scale = min(1, min(bounds.width / content.width, bounds.height / content.height))
         let size = CGSize(width: content.width * scale, height: content.height * scale)
         return CGRect(
             x: bounds.minX + ((bounds.width - size.width) / 2).rounded(),

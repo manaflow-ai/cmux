@@ -9,6 +9,7 @@ enum WindowRecordingSessionError: Error, LocalizedError {
     case captureFailed(String)
     case composeFailed
     case alreadyFinished
+    case outputNotAFile(String)
 
     var errorDescription: String? {
         switch self {
@@ -22,6 +23,8 @@ enum WindowRecordingSessionError: Error, LocalizedError {
             "a frame could not be composed"
         case .alreadyFinished:
             "the recording has already finished"
+        case let .outputNotAFile(path):
+            "\(path) is not a file the recording may replace"
         }
     }
 }
@@ -91,6 +94,11 @@ actor WindowRecordingSession {
     let windowHandle: String?
 
     private let windowID: CGWindowID
+    /// Frames go here while the clip runs; `outputURL` only appears once the
+    /// clip closes cleanly. A failed, interrupted or killed recording therefore
+    /// never leaves a broken file where the caller asked for the clip, and an
+    /// existing file there survives until there is something to replace it with.
+    private let workingURL: URL
     private var filter: SCContentFilter?
     private var writer: WindowRecordingFrameWriter?
     private var geometry: WindowRecordingFrameGeometry?
@@ -101,6 +109,12 @@ actor WindowRecordingSession {
     private var startUptime = ProcessInfo.processInfo.systemUptime
     private var lastOffsetSeconds: Double = 0
     private var loop: Task<Void, Never>?
+    // Appends and the final close must not interleave: this actor suspends
+    // inside every append, so a `stop` arriving mid-append would otherwise
+    // close the file underneath it, and AVFoundation answers a frame appended
+    // after that with an exception no caller can catch.
+    private var writerBusy = false
+    private var writerWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(
         id: String,
@@ -114,7 +128,16 @@ actor WindowRecordingSession {
         self.outputURL = outputURL
         self.windowID = windowID
         self.windowHandle = windowHandle
+        workingURL = Self.workingURL(for: outputURL, id: id)
         captions = WindowRecordingCaptionTrack()
+    }
+
+    /// A hidden sibling of the clip, named after the recording so two sessions
+    /// and a stale leftover cannot be confused for each other.
+    private static func workingURL(for outputURL: URL, id: String) -> URL {
+        outputURL.deletingLastPathComponent().appendingPathComponent(
+            ".\(outputURL.lastPathComponent).recording-\(id).partial"
+        )
     }
 
     var isRecording: Bool {
@@ -154,7 +177,14 @@ actor WindowRecordingSession {
         geometry = planned
         writer = try makeWriter(geometry: planned)
         startUptime = ProcessInfo.processInfo.systemUptime
-        try await write(sample: sample, offsetSeconds: 0)
+        do {
+            try await write(sample: sample, offsetSeconds: 0)
+        } catch {
+            // A first frame that cannot be written leaves an open writer and a
+            // partial file behind; close and discard both before giving up.
+            await fail(error)
+            throw error
+        }
         loop = Task { [weak self] in
             await self?.run()
         }
@@ -207,7 +237,11 @@ actor WindowRecordingSession {
     }
 
     private func write(sample: Sample, offsetSeconds: Double) async throws {
-        guard let writer, let geometry else { throw WindowRecordingSessionError.alreadyFinished }
+        await acquireWriter()
+        defer { releaseWriter() }
+        guard state == .recording, let writer, let geometry else {
+            throw WindowRecordingSessionError.alreadyFinished
+        }
         // A window resized mid-clip is re-cropped into the frame size the clip
         // opened with, rather than ending the recording.
         let planned = try WindowRecordingFrameGeometry.plan(
@@ -228,6 +262,8 @@ actor WindowRecordingSession {
     }
 
     private func finalize() async {
+        await acquireWriter()
+        defer { releaseWriter() }
         guard state == .recording else { return }
         guard let writer else {
             state = .failed
@@ -237,25 +273,64 @@ actor WindowRecordingSession {
         self.writer = nil
         do {
             try await writer.finish()
+            try promote()
             state = .finished
         } catch {
             state = .failed
             failure = error.localizedDescription
-            try? FileManager.default.removeItem(at: outputURL)
+            try? FileManager.default.removeItem(at: workingURL)
         }
     }
 
     private func fail(_ error: Error) async {
+        await acquireWriter()
+        defer { releaseWriter() }
+        // A clip that already closed keeps its own verdict: a stop racing a
+        // capture failure must not turn a finished clip into a failed one.
+        guard state == .recording else { return }
         // Keep whatever was captured before the failure: a clip that ends when
         // the window closes is still evidence of what happened before that.
         if let writer {
             self.writer = nil
-            if frames > 0 {
-                try? await writer.finish()
+            do {
+                if frames > 0 {
+                    try await writer.finish()
+                    try promote()
+                }
+            } catch {
+                // Nothing usable was written; the partial file goes away below.
             }
         }
+        try? FileManager.default.removeItem(at: workingURL)
         state = .failed
         failure = error.localizedDescription
+    }
+
+    /// Moves the finished clip to the path the caller asked for.
+    private func promote() throws {
+        let manager = FileManager.default
+        if manager.fileExists(atPath: outputURL.path) {
+            _ = try manager.replaceItemAt(outputURL, withItemAt: workingURL)
+        } else {
+            try manager.moveItem(at: workingURL, to: outputURL)
+        }
+    }
+
+    /// Only one operation touches the writer at a time. An actor alone is not
+    /// enough: every append suspends this actor, which lets `stop` in.
+    private func acquireWriter() async {
+        while writerBusy {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                writerWaiters.append(continuation)
+            }
+        }
+        writerBusy = true
+    }
+
+    private func releaseWriter() {
+        writerBusy = false
+        guard !writerWaiters.isEmpty else { return }
+        writerWaiters.removeFirst().resume()
     }
 
     private func makeWriter(
@@ -265,19 +340,25 @@ actor WindowRecordingSession {
             at: outputURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try? FileManager.default.removeItem(at: outputURL)
+        // A directory, socket or device at the output path is not something a
+        // recording gets to delete on the caller's behalf.
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: outputURL.path),
+           let type = attributes[.type] as? FileAttributeType,
+           type != .typeRegular, type != .typeSymbolicLink {
+            throw WindowRecordingSessionError.outputNotAFile(outputURL.path)
+        }
+        try? FileManager.default.removeItem(at: workingURL)
         switch request.format {
         case .mp4:
             return try WindowRecordingMP4Writer(
-                url: outputURL,
+                url: workingURL,
                 width: geometry.outputWidth,
                 height: geometry.outputHeight,
                 framesPerSecond: request.framesPerSecond
             )
         case .gif:
             return try WindowRecordingGIFWriter(
-                url: outputURL,
-                frameBudget: request.frameBudget,
+                url: workingURL,
                 framesPerSecond: request.framesPerSecond
             )
         }
@@ -310,6 +391,12 @@ actor WindowRecordingSession {
     private func sample() async throws -> Sample {
         guard let filter else { throw WindowRecordingSessionError.windowGone }
         let info = SCShareableContent.info(for: filter)
+        // A window closed mid-clip reports an empty rectangle rather than an
+        // error, and capturing that gives a one-pixel frame stretched over the
+        // whole clip. End the recording instead and keep what came before.
+        guard info.contentRect.width > 1, info.contentRect.height > 1 else {
+            throw WindowRecordingSessionError.windowGone
+        }
         let pixelScale = Double(info.pointPixelScale) > 0 ? Double(info.pointPixelScale) : 1
         let configuration = SCStreamConfiguration()
         configuration.width = max(1, Int((Double(info.contentRect.width) * pixelScale).rounded(.up)))

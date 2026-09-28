@@ -53,8 +53,18 @@ actor WindowRecordingRegistry {
             windowID: windowID,
             windowHandle: windowHandle
         )
-        try await session.start()
+        // Claim the slot before the first await: opening a recording takes a
+        // capture round trip, and a second `record start` arriving during it
+        // would otherwise pass the check above and replace this session.
         active = session
+        do {
+            try await session.start()
+        } catch {
+            if active === session {
+                active = nil
+            }
+            throw error
+        }
         return await session.status
     }
 
@@ -66,7 +76,12 @@ actor WindowRecordingRegistry {
             remember(status)
             return status
         }
-        guard let id else { throw Failure.noRecording }
+        guard let id else {
+            // A clip that reached its own `--max-seconds` limit has already
+            // closed its file, so report it rather than claiming nothing ran.
+            guard let latest = history.last else { throw Failure.noRecording }
+            return latest
+        }
         guard let remembered = history.last(where: { $0.id == id }) else {
             throw Failure.unknownRecording(id)
         }

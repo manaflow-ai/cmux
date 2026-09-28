@@ -238,11 +238,12 @@ public struct WindowRecordingRequest: Equatable, Sendable {
         range: ClosedRange<Int>
     ) throws -> Int? {
         guard let value else { return nil }
-        guard let number = numericValue(value) else {
+        guard let number = numericValue(value), number.isFinite else {
             throw Failure.notANumber(field: field)
         }
-        let rounded = Int(number.rounded())
-        guard range.contains(rounded) else {
+        // `Int(exactly:)` rather than `Int(_:)`: converting a value past Int's
+        // range traps, and "--fps 1e30" is something a caller can type.
+        guard let rounded = Int(exactly: number.rounded()), range.contains(rounded) else {
             throw Failure.outOfRange(
                 field: field,
                 message: "must be between \(range.lowerBound) and \(range.upperBound)"

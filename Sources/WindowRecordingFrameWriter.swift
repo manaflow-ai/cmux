@@ -192,7 +192,11 @@ final class WindowRecordingMP4Writer: WindowRecordingFrameWriter {
 
     func finish() async throws {
         guard didStart, frameCount > 0 else {
-            writer.cancelWriting()
+            // Cancelling a writer that never started raises an exception rather
+            // than returning an error, so only cancel one that is writing.
+            if writer.status == .writing {
+                writer.cancelWriting()
+            }
             throw WindowRecordingWriterError.noFrames
         }
         input.markAsFinished()
@@ -224,11 +228,16 @@ final class WindowRecordingGIFWriter: WindowRecordingFrameWriter {
     /// or above two hundredths keeps playback predictable.
     private static let delayRange = 0.02...10.0
 
-    init(url: URL, frameBudget: Int, framesPerSecond: Int) throws {
+    init(url: URL, framesPerSecond: Int) throws {
+        // The declared image count is the number `CGImageDestinationFinalize`
+        // insists on having received, not a cap on what may be added, and how
+        // many frames a recording ends up with is only known when it stops.
+        // Declaring the frame budget here would fail every clip an agent stops
+        // early, which is every clip an agent stops.
         guard let destination = CGImageDestinationCreateWithURL(
             url as CFURL,
             UTType.gif.identifier as CFString,
-            frameBudget,
+            1,
             nil
         ) else {
             throw WindowRecordingWriterError.setup("could not create the gif at \(url.path)")

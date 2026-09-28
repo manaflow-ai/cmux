@@ -278,7 +278,7 @@ import Testing
     @Test func aGIFHoldsEveryFrameAndItsMeasuredDelay() async throws {
         let url = Self.temporaryURL(extension: "gif")
         defer { try? FileManager.default.removeItem(at: url) }
-        let writer = try WindowRecordingGIFWriter(url: url, frameBudget: 3, framesPerSecond: 4)
+        let writer = try WindowRecordingGIFWriter(url: url, framesPerSecond: 4)
 
         try await writer.append(Self.image(width: 80, height: 60, gray: 1), atOffsetSeconds: 0)
         try await writer.append(Self.image(width: 80, height: 60, gray: 0.5), atOffsetSeconds: 0.5)
@@ -296,7 +296,7 @@ import Testing
     @Test func aGIFDelayStaysInThePlayableRange() async throws {
         let url = Self.temporaryURL(extension: "gif")
         defer { try? FileManager.default.removeItem(at: url) }
-        let writer = try WindowRecordingGIFWriter(url: url, frameBudget: 3, framesPerSecond: 8)
+        let writer = try WindowRecordingGIFWriter(url: url, framesPerSecond: 8)
 
         try await writer.append(Self.image(width: 40, height: 40), atOffsetSeconds: 0)
         // A 40 second gap would stall a viewer; a zero gap would be dropped.
@@ -314,7 +314,7 @@ import Testing
     @Test func aGIFStoppedLongBeforeItsBudgetStillFinalizes() async throws {
         let url = Self.temporaryURL(extension: "gif")
         defer { try? FileManager.default.removeItem(at: url) }
-        let writer = try WindowRecordingGIFWriter(url: url, frameBudget: 240, framesPerSecond: 8)
+        let writer = try WindowRecordingGIFWriter(url: url, framesPerSecond: 8)
 
         for step in 0..<3 {
             try await writer.append(
@@ -332,7 +332,7 @@ import Testing
     @Test func aGIFWithNoFramesFails() async throws {
         let url = Self.temporaryURL(extension: "gif")
         defer { try? FileManager.default.removeItem(at: url) }
-        let writer = try WindowRecordingGIFWriter(url: url, frameBudget: 1, framesPerSecond: 8)
+        let writer = try WindowRecordingGIFWriter(url: url, framesPerSecond: 8)
 
         await #expect(throws: WindowRecordingWriterError.noFrames) {
             try await writer.finish()
