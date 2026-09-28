@@ -130,6 +130,21 @@ struct LocalTmuxSessionRegistry {
         }
     }
 
+    /// Replaces a record only if it is still registered. Returns `false`
+    /// without writing when it was removed meanwhile, for example by a close
+    /// that ran while an attach was waiting on the app.
+    @discardableResult
+    func updateIfPresent(_ record: LocalTmuxSessionRecord) throws -> Bool {
+        try ensureSecureStorage()
+        return try withLockedState { state in
+            guard let index = state.sessions.firstIndex(where: { $0.id == record.id }) else {
+                return false
+            }
+            state.sessions[index] = record
+            return true
+        }
+    }
+
     @discardableResult
     func remove(id: UUID? = nil, name: String? = nil) throws -> [LocalTmuxSessionRecord] {
         try ensureSecureStorage()
