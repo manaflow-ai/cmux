@@ -691,34 +691,30 @@ struct ChatUsageAccumulatorTests {
         #expect(totals.usageByModel.count == 1)
     }
 
-    @Test("structured compaction boundaries bank each cumulative run")
-    func codexCumulativeResetBanksTheRun() {
+    @Test("compaction does not bank a lifetime cumulative counter")
+    func codexCompactionDoesNotBankCumulativeUsage() {
         var accumulator = ChatUsageAccumulator()
-        // One rollout, three threads. A compaction, a `/new` or a subagent
-        // turn restarts `total_token_usage`; explicit boundaries let the
-        // accumulator bank a run even when the next value is larger.
-        let runs = [[10_000, 40_000, 90_000], [5_000, 30_000], [1_000]]
-        accumulator.ingest(codexLines: runs.enumerated().flatMap { index, run in
-            let boundary = index == 0 ? [] : [codexCompactedLine()]
-            return boundary + run.map { total in
-                codexTokenCountLine(
-                    cumulativeInput: total - 100, cumulativeOutput: 100,
-                    lastInput: 4_000, lastOutput: 100
-                )
-            }
-        })
+        accumulator.ingest(codexLines: [
+            codexTokenCountLine(
+                cumulativeInput: 100, cumulativeOutput: 0,
+                lastInput: 100, lastOutput: 0
+            ),
+            codexCompactedLine(),
+            codexTokenCountLine(
+                cumulativeInput: 150, cumulativeOutput: 0,
+                lastInput: 50, lastOutput: 0
+            ),
+        ])
 
         let totals = accumulator.totals
         #expect(accumulator.codexSource == .cumulativeEvents)
-        // Every run's final value, summed. Reporting the maximum would say
-        // 90,000 and reporting the last value would say 1,000.
-        #expect(totals.usage.totalTokens == 121_000)
+        #expect(totals.usage.totalTokens == 150)
         #expect(totals.duplicateReports == 0)
         #expect(!totals.cumulativeUsageIsAmbiguous)
     }
 
-    @Test("multiple cumulative runs become the baseline when records begin")
-    func codexMultiRunCumulativePrefixBecomesRecordBaseline() {
+    @Test("compacted cumulative usage is discarded when records begin")
+    func codexCompactedCumulativePrefixIsDiscardedForRecords() {
         var accumulator = ChatUsageAccumulator()
         accumulator.ingest(codexLines: [
             codexTokenCountLine(
@@ -738,15 +734,15 @@ struct ChatUsageAccumulatorTests {
         ])
 
         let totals = accumulator.totals
-        // Records become authoritative at this point, while the 130-token
-        // pre-record prefix remains as unattributed usage.
+        // Compaction did not reset the provider's lifetime counter, and the
+        // precise record replaces that inherited cumulative fallback.
         #expect(accumulator.codexSource == .usageRecords)
         #expect(totals.responses == 1)
-        #expect(totals.usage.totalTokens == 150)
+        #expect(totals.usage.totalTokens == 20)
     }
 
-    @Test("a pre-record thread total remains as an unattributed baseline")
-    func codexPreRecordThreadTotalBecomesBaseline() {
+    @Test("an inherited pre-record thread total is not charged to the child transcript")
+    func codexInheritedPreRecordThreadTotalIsDiscarded() {
         var accumulator = ChatUsageAccumulator()
         accumulator.ingest(codexLines: [
             codexTokenCountLine(
@@ -759,7 +755,7 @@ struct ChatUsageAccumulatorTests {
         let totals = accumulator.totals
         #expect(accumulator.codexSource == .usageRecords)
         #expect(totals.responses == 1)
-        #expect(totals.usage.totalTokens == 1_086_500_386 + 3_819_683 + 25_640)
+        #expect(totals.usage.totalTokens == 25_640)
         #expect(totals.usageByModel.isEmpty)
     }
 
@@ -793,19 +789,19 @@ struct ChatUsageAccumulatorTests {
         let totals = accumulator.totals
         #expect(accumulator.codexSource == .usageRecords)
         #expect(totals.responses == 3)
-        #expect(totals.usage.totalTokens == 190)
+        #expect(totals.usage.totalTokens == 90)
 
         // Re-reading remains idempotent: post-transition cumulative events
         // are ignored and duplicate records do not change either component.
         var replayed = ChatUsageAccumulator()
         replayed.ingest(codexLines: lines)
         replayed.ingest(codexLines: lines)
-        #expect(replayed.totals.usage.totalTokens == 190)
+        #expect(replayed.totals.usage.totalTokens == 90)
         #expect(replayed.totals.responses == 3)
     }
 
-    @Test("an event before the first record freezes as the cumulative prefix")
-    func codexEventBeforeFirstRecordBecomesBaseline() {
+    @Test("an event before the first record is replaced by precise records")
+    func codexEventBeforeFirstRecordIsDiscarded() {
         var accumulator = ChatUsageAccumulator()
         accumulator.ingest(codexLines: [
             codexTokenCountLine(
@@ -815,7 +811,7 @@ struct ChatUsageAccumulatorTests {
             codexRecordLine(responseID: "resp-1", input: 100, cached: 0, output: 0),
         ])
 
-        #expect(accumulator.totals.usage.totalTokens == 200)
+        #expect(accumulator.totals.usage.totalTokens == 100)
 
         accumulator.ingest(codexLines: [
             codexTokenCountLine(
@@ -825,7 +821,7 @@ struct ChatUsageAccumulatorTests {
             codexRecordLine(responseID: "resp-2", input: 100, cached: 0, output: 0),
         ])
 
-        #expect(accumulator.totals.usage.totalTokens == 300)
+        #expect(accumulator.totals.usage.totalTokens == 200)
         #expect(accumulator.totals.responses == 2)
     }
 
@@ -854,7 +850,7 @@ struct ChatUsageAccumulatorTests {
         let totals = accumulator.totals
         #expect(accumulator.codexSource == .usageRecords)
         #expect(totals.responses == 2)
-        #expect(totals.usage.totalTokens == 150)
+        #expect(totals.usage.totalTokens == 50)
     }
 
     @Test("an explicit cumulative zero banks the current run without activating an empty stream")

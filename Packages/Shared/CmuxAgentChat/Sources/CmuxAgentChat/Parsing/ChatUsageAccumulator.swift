@@ -37,11 +37,13 @@ import Foundation
 /// total, beside `last_token_usage`, which is the most recent call.
 /// Summing every cumulative report grows quadratically and sails past the
 /// context window. So the accumulator uses per-response records once they
-/// appear and cumulative events as the fallback before that. A cumulative-
-/// only prefix remains as an unattributed baseline when records begin.
+/// appear and cumulative events only as the fallback before that. A preceding
+/// cumulative snapshot can be inherited from a parent thread, so it is
+/// discarded rather than added to precise records.
 ///
-/// The cumulative fallback is split only at structured boundaries such as a
-/// `compacted` event or an explicit thread/session identity change. A numeric
+/// The cumulative fallback is split only at an explicit thread/session
+/// identity change or provider zero-reset. A `compacted` event changes visible
+/// context but does not reset Codex's lifetime usage counter. A numeric
 /// drop alone cannot prove a new thread, while a new thread can start above
 /// the old total. An unmarked drop therefore remains a latest-value fallback
 /// and sets ``ChatUsageTotals/cumulativeUsageIsAmbiguous`` instead of silently
@@ -107,11 +109,9 @@ public struct ChatUsageAccumulator: Sendable {
     private var codexRecordUsageByModel: [String: ChatTokenUsage] = [:]
 
     // `banked` holds finished monotone cumulative runs and `current` the run
-    // still climbing. Once response records appear, their cumulative prefix
-    // freezes as the unattributed baseline and records own all later usage.
+    // still climbing. Once response records appear, records own all usage.
     private var codexCumulativeBanked = ChatTokenUsage()
     private var codexCumulativeCurrent: ChatTokenUsage?
-    private var codexCumulativeBaseline = ChatTokenUsage()
     private var cumulativeUsageIsAmbiguous = false
 
     private var duplicateReports = 0
@@ -144,7 +144,6 @@ public struct ChatUsageAccumulator: Sendable {
         case .none:
             break
         case .usageRecords:
-            usage += codexCumulativeBaseline
             usage += codexRecordUsage
             responses = ChatTokenUsage.saturatedSum(responses, codexResponseCount)
             for (model, modelUsage) in codexRecordUsageByModel {
@@ -303,8 +302,6 @@ public struct ChatUsageAccumulator: Sendable {
             ingestCodexTurnContext(payload)
         case "session_meta":
             ingestCodexSessionMetadata(payload)
-        case "compacted":
-            beginCodexCumulativeRun()
         case "token_usage_record":
             ingestCodexUsageRecord(payload)
         case "event_msg" where payload["type"]?.string == "token_count":
@@ -352,13 +349,11 @@ public struct ChatUsageAccumulator: Sendable {
             Self.incrementSaturating(&duplicateReports)
             return
         }
-        if codexSource != .usageRecords {
-            codexCumulativeBaseline = codexCumulativeTotal
-        }
-        // Records are precise from this point forward. Freeze any cumulative
-        // prefix as an unattributed baseline; later cumulative snapshots can
-        // repeat or reset independently and cannot identify which records
-        // they already include.
+        // Records are precise from this point forward. Discard the cumulative
+        // prefix: delegated/forked rollouts can open with a parent thread's
+        // lifetime total, so adding it to this transcript's records would
+        // charge the parent again in every child. Later cumulative snapshots
+        // cannot identify which records they include and are ignored too.
         codexSource = .usageRecords
         Self.incrementSaturating(&codexResponseCount)
         let usage = codexUsage(from: usageValue)

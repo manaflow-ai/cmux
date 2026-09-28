@@ -14,9 +14,9 @@ public struct ChatUsageTotals: Sendable, Equatable {
     /// Usage split by the model that produced it.
     ///
     /// Keyed by the provider's own model identifier. A session that switched
-    /// models mid-run has an entry per model. A cumulative Codex fallback or
-    /// pre-record baseline has no response-level model identity, so the split
-    /// can sum to less than ``usage``.
+    /// models mid-run has an entry per model. A cumulative Codex fallback has
+    /// no response-level model identity, so the split can sum to less than
+    /// ``usage``.
     public var usageByModel: [String: ChatTokenUsage]
 
     /// Distinct API responses counted.
