@@ -34,7 +34,7 @@ extension TextBoxInputContainer {
         _ fileURLs: [URL],
         into textView: TextBoxInputTextView,
         target: TerminalImageTransferTarget
-    ) {
+    ) -> Bool {
 
         let plan = TerminalImageTransferPlanner.plan(
             fileURLs: fileURLs,
@@ -62,8 +62,9 @@ extension TextBoxInputContainer {
         case .pasteCloudImages:
             refuseCloudComposerImage()
             GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+            return true
         case .reject:
-            break
+            return false
         }
     }
 
