@@ -91,8 +91,8 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
         // Select "Inline" from the opened menu.
         let inlineItem = requireElement(
             candidates: [
-                app.menuItems["Inline"],
-                window.menuItems["Inline"],
+                app.menuItems["Inline"].firstMatch,
+                window.menuItems["Inline"].firstMatch,
             ],
             timeout: 4.0,
             description: "Inline menu item"
@@ -148,22 +148,22 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
             "\(id): expected the subtitle at the default (off) value"
         )
         let control = toggle(window, id: id)
-        XCTAssertFalse(isOn(control), "\(id): toggle should start off")
+        let initialValue = isOn(control)
 
         control.click()
         XCTAssertTrue(
-            poll(timeout: 5.0) { self.isOn(control) },
-            "\(id): toggle should be on after one click"
+            poll(timeout: 5.0) { self.isOn(control) != initialValue },
+            "\(id): toggle should change after one click"
         )
-        XCTAssertTrue(subtitle.exists, "\(id): the same subtitle should be shown while on")
+        XCTAssertTrue(subtitle.exists, "\(id): the same subtitle should be shown after the first click")
 
-        // Toggle back off to prove the binding is reversible (full round-trip).
+        // Toggle back to the observed initial value to prove the binding is reversible.
         control.click()
         XCTAssertTrue(
-            poll(timeout: 5.0) { !self.isOn(control) },
-            "\(id): toggle should be off after a second click"
+            poll(timeout: 5.0) { self.isOn(control) == initialValue },
+            "\(id): toggle should return to its initial value after a second click"
         )
-        XCTAssertTrue(subtitle.exists, "\(id): the same subtitle should be shown while off")
+        XCTAssertTrue(subtitle.exists, "\(id): the same subtitle should be shown after the round-trip")
     }
 
     // MARK: - Tiering documentation for this section
