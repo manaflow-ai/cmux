@@ -78,7 +78,7 @@ public final class CloudMachineDeletionCoordinator {
 
     /// Forgets every deletion when the account or team changes. Outcomes that
     /// arrive later are ignored, so a departed account never rolls back a row.
-    /// - Returns: Whether the hidden set changed.
+    /// - Returns: Whether any deletion was forgotten.
     @discardableResult
     public func endAccount() -> Bool {
         guard !entries.isEmpty else { return false }

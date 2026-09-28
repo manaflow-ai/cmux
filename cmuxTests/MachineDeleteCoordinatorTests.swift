@@ -9,6 +9,7 @@ import Testing
 #endif
 
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct MachineDeleteCoordinatorTests {
     @Test func repeatedDestroyJoinsTheRequestInFlightThenAnswersAlreadyGone() async throws {
         let fixture = MachineDeleteFixture()
@@ -19,7 +20,15 @@ struct MachineDeleteCoordinatorTests {
         #expect(fixture.detached == ["m1"], "The machine is detached before the request answers")
         #expect(!coordinator.canBegin("m1"))
 
-        let repeated = Task { try await coordinator.destroy(id: "m1") }
+        // The repeat runs on the main actor without suspending until it awaits the
+        // request in flight, so the test resumes only after the repeat has joined it.
+        let repeatStarted = AsyncStream<Void>.makeStream()
+        let repeated = Task {
+            repeatStarted.continuation.yield(())
+            return try await coordinator.destroy(id: "m1")
+        }
+        var started = repeatStarted.stream.makeAsyncIterator()
+        _ = try #require(await started.next(), "Expected the repeat to start")
         fixture.answer()
         let firstWasGone = try await first.value
         let repeatedWasGone = try await repeated.value
@@ -137,6 +146,10 @@ private final class MachineDeleteFixture {
     /// Answers the oldest open destroy request.
     /// - Parameter error: The provider error, or nil for success.
     func answer(throwing error: Error? = nil) {
+        guard !openRequests.isEmpty else {
+            Issue.record("Expected an open destroy request")
+            return
+        }
         let request = openRequests.removeFirst()
         if let error {
             request.resume(throwing: error)
