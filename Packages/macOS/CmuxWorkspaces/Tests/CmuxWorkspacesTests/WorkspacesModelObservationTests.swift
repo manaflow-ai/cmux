@@ -41,6 +41,29 @@ private final class EventLogHost: WorkspacesHosting {
     }
 }
 
+/// Records, from inside the host's tabs hook, whether the model's id index
+/// already matches the incoming list.
+@MainActor
+private final class IndexProbeHost: WorkspacesHosting {
+    typealias Tab = ObservedStubTab
+
+    weak var model: WorkspacesModel<ObservedStubTab>?
+    private(set) var indexMatchedIncomingTabs: [Bool] = []
+
+    func workspaceTabsWillChange(to newValue: [ObservedStubTab]) {
+        guard let model else { return }
+        let incoming = Set(newValue.map(\.id))
+        indexMatchedIncomingTabs.append(
+            Set(model.tabsById.keys) == incoming
+                && newValue.allSatisfy { model.tabsById[$0.id] === $0 }
+        )
+    }
+
+    func workspaceGroupsWillChange(to newValue: [WorkspaceGroup]) {}
+    func selectedWorkspaceIdWillChange(to newValue: UUID?) {}
+    func selectedWorkspaceIdDidChange(from oldValue: UUID?) {}
+}
+
 /// The observation contract sidebar, right sidebar and command palette views
 /// rely on when their bodies read `WorkspacesModel` through `TabManager`:
 /// each stored member invalidates only its own tracked reads, before the host
@@ -174,6 +197,47 @@ private final class EventLogHost: WorkspacesHosting {
         // Hooks keep legacy @Published parity; the tracked views don't rebuild.
         #expect(drainLog() == ["groups.willSet", "selection.willSet", "selection.didSet"])
         withExtendedLifetime(host) {}
+    }
+
+    @Test
+    func tabLookupIsTrackedAsATabsRead() {
+        let (model, host) = makeModel()
+        let tab = ObservedStubTab()
+        model.tabs = [tab]
+        _ = drainLog()
+        track("tab(id:)") { _ = model.tab(id: tab.id) }
+
+        // selectedWorkspace reads through tab(id:): selection and group
+        // changes don't invalidate it, a tabs change does.
+        model.selectedTabId = tab.id
+        model.workspaceGroups = [Member.group(named: "group")]
+        model.tabs.removeAll()
+
+        #expect(drainLog() == [
+            "selection.willSet", "selection.didSet", "groups.willSet",
+            "onChange(tab(id:))", "tabs.willSet",
+        ])
+        #expect(model.tab(id: tab.id) == nil)
+        withExtendedLifetime(host) {}
+    }
+
+    @Test
+    func tabIndexMatchesTheIncomingTabsWhenTheHostHookRuns() {
+        let model = WorkspacesModel<ObservedStubTab>()
+        let host = IndexProbeHost()
+        host.model = model
+        model.attach(host: host)
+        let first = ObservedStubTab()
+        let second = ObservedStubTab()
+
+        model.tabs = [first]
+        model.tabs.append(second)
+        model.tabs.removeFirst()
+
+        #expect(host.indexMatchedIncomingTabs == [true, true, true])
+        #expect(model.tabsById.count == 1)
+        #expect(model.tab(id: second.id) === second)
+        #expect(model.tab(id: first.id) == nil)
     }
 
     @Test
