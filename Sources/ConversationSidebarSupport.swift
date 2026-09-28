@@ -1,3 +1,4 @@
+import CmuxMobileHost
 import Foundation
 import Observation
 import SwiftUI
