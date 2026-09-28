@@ -66,3 +66,6 @@ fi
 git config merge.xcstrings.name "Xcode string catalog (key-wise three-way merge)"
 git config merge.xcstrings.driver "python3 scripts/merge-xcstrings.py %O %A %B %P"
 echo "==> .xcstrings merge driver installed (merge.xcstrings.driver)."
+git config merge.pbxproj.name "Xcode project file (three-way union of added entries)"
+git config merge.pbxproj.driver "python3 scripts/merge-pbxproj.py %O %A %B %P"
+echo "==> project.pbxproj merge driver installed (merge.pbxproj.driver)."
