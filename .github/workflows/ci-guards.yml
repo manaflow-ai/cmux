@@ -512,6 +512,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_triage_radar.py
 
+      - name: Validate triage severity and area rules
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_triage_rules.py
+
       - name: Validate cmux-tui focused filter routing
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_tui_focused_filter_guard.py
