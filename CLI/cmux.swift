@@ -11826,7 +11826,7 @@ struct CMUXCLI {
                 }
                 workspaceName = commandArgs[index + 1]
                 index += 2
-            case "--no-focus", "--focus", _ where arg.hasPrefix("--focus="):
+            case _ where arg == "--no-focus" || arg == "--focus" || arg.hasPrefix("--focus="):
                 let flag = try Self.openFocusFlag(in: commandArgs, at: index, command: "ssh-tmux")
                 focus = flag?.focus
                 index += flag?.consumed ?? 1
@@ -12547,7 +12547,7 @@ struct CMUXCLI {
                 }
                 windowRaw = commandArgs[index + 1]
                 index += 2
-            case "--no-focus", "--focus", _ where arg.hasPrefix("--focus="):
+            case _ where arg == "--no-focus" || arg == "--focus" || arg.hasPrefix("--focus="):
                 let flag = try Self.openFocusFlag(in: commandArgs, at: index, command: "ssh")
                 focus = flag?.focus
                 index += flag?.consumed ?? 1
