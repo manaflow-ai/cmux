@@ -324,7 +324,11 @@ extension TerminalController: ControlPaneContext {
         // Terminal splits check the minimum pane size in
         // `newTerminalSplitOutcome`; other panel types check it here (#15371).
         if panelType != .terminal, !ws.isRemoteTmuxMirror,
-           ws.splitSpaceVerdict(splittingPanel: sourcePanelId, orientation: orientation) == .noSpace {
+           ws.splitSpaceVerdict(
+               splittingPanel: sourcePanelId,
+               orientation: orientation,
+               dividerPosition: initialDividerPosition.map { CGFloat($0) }
+           ) == .noSpace {
             return .noSpace
         }
         let newPanelId: UUID?
@@ -380,11 +384,6 @@ extension TerminalController: ControlPaneContext {
         guard let newPanelId else {
             return .createFailed
         }
-        ws.finishSplitSpaceBorrow(
-            newPanelId: newPanelId,
-            orientation: orientation,
-            explicitDividerPosition: initialDividerPosition.map { CGFloat($0) }
-        )
         // An explicit divider position wins over equalize-on-create.
         if initialDividerPosition == nil {
             ws.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: newPanelId)
