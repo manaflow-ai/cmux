@@ -1227,7 +1227,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
     }
 
-    func testInheritedBackgroundWorkspaceFetchesGitBranchWithoutSelection() throws {
+    func testInheritedBackgroundWorkspaceFetchesGitBranchWithoutSelection() async throws {
         let fileManager = FileManager.default
         let repoURL = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-git-inherited-background-\(UUID().uuidString)",
@@ -1248,6 +1248,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         try runGit(["commit", "-m", "Initial commit"], in: repoURL)
 
         let manager = TabManager()
+        defer { manager.finalizeAllWorkspacesForWindowClose() }
         guard let workspace = manager.selectedWorkspace else {
             XCTFail("Expected selected workspace")
             return
@@ -1261,11 +1262,16 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         }
 
         XCTAssertNotEqual(manager.selectedTabId, backgroundWorkspace.id)
-        XCTAssertTrue(
-            waitForCondition {
-                backgroundWorkspace.panelGitBranches[backgroundPanelId]?.branch == "main"
-            }
+        XCTAssertEqual(
+            URL(fileURLWithPath: backgroundWorkspace.currentDirectory).resolvingSymlinksInPath().path,
+            repoURL.resolvingSymlinksInPath().path
         )
+        // The initial probe applies its result on the main actor. Suspend while
+        // waiting so it can finish independently of XCTest's nested run loop.
+        let didFetchBranch = await waitForConditionSuspending {
+            backgroundWorkspace.panelGitBranches[backgroundPanelId]?.branch == "main"
+        }
+        XCTAssertTrue(didFetchBranch)
         XCTAssertEqual(backgroundWorkspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["main"])
     }
 
