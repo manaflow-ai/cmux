@@ -56,8 +56,16 @@ struct CloudTreeMachineRowContent: View {
     }
 
     /// Combines this machine's identity, activity, and resource readings for assistive technology.
+    ///
+    /// `subtitle` in the same position the tooltip puts it: the default preset
+    /// is single-line, so the id and the created-at are not rendered anywhere
+    /// and the pointer only reaches them by hovering. Assistive technology has
+    /// no pointer, so without this the row says less to the people who have the
+    /// least other way to get it. `subtitle` always has at least the kind, so
+    /// there is no empty component to filter.
     var accessibilityLabel: String {
         var parts = [machine.displayName, machine.activityLabel, metrics.summary]
+        parts.append(subtitle)
         parts.append(usageSummary)
         return parts.joined(separator: ", ")
     }
