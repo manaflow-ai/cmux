@@ -9006,26 +9006,33 @@ impl Mux {
     /// [`Self::claim_terminal_geometry`] it never adds a participant, so a
     /// one-shot `send` from an unattached connection cannot take the grid.
     pub(crate) fn note_terminal_input(&self, surface: SurfaceId, client: u64) {
-        let Some(runtime) = self.surface(surface).and_then(|surface| surface.terminal_runtime_id())
-        else {
-            return;
+        let _ = self.note_terminal_activity(surface, client, None);
+    }
+
+    /// Activity of the caller's own view (`view:None`) or of one of its relay
+    /// sub-views, for example a phone whose input a Mac mirror forwards.
+    /// `None` means the terminal or participant does not exist; otherwise
+    /// whether the published size state changed.
+    pub(crate) fn note_terminal_activity(
+        &self,
+        surface: SurfaceId,
+        client: u64,
+        view: Option<&str>,
+    ) -> Option<bool> {
+        let runtime = self.surface(surface)?.terminal_runtime_id()?;
+        let id = match view {
+            Some(view) => sub_view_participant_id(client, view),
+            None => view_participant_id(runtime, surface, client),
         };
-        let id = view_participant_id(runtime, surface, client);
-        if !self
-            .client_sizing
-            .lock()
-            .unwrap()
-            .terminal_sizing
-            .get(&runtime)
-            .is_some_and(|entry| entry.engine.contains(&id))
-        {
-            return;
-        }
         self.mutate_terminal_sizing(runtime, |_, sizing| {
-            let Some(entry) = sizing.terminal_sizing.get_mut(&runtime) else { return };
+            let entry = sizing.terminal_sizing.get_mut(&runtime)?;
+            if entry.members.get(&id).is_none_or(|member| member.client != client) {
+                return None;
+            }
             let changed = entry.engine.note_activity(&id);
             sizing.note_size_state(runtime, changed);
-        });
+            Some(changed)
+        })
     }
 
     /// Restore the automatic counts rule for every view of this terminal.

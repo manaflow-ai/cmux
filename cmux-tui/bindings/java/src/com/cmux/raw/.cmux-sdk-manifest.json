@@ -317,8 +317,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "04d2e04b3d2df3f33a728d595573063ab5533b15fbbd3de9cd262cd2b8d5e910",
-      "size": 28551
+      "sha256": "43172574485439d198f4cefb731a8b324f0b94e0ba0bf87b62a333313fe82218",
+      "size": 28797
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -512,8 +512,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "8a879d76a65ecab91a123c9a81ed4c2035a05646a70a51c1e4af0904ec1ee5e2",
-      "size": 26900
+      "sha256": "342f05357ba09519347838066cf63bf72e9274a2f48d47b0342b12119dc19ed9",
+      "size": 27156
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -811,6 +811,16 @@
       "size": 3129
     },
     {
+      "path": "NoteSizeActivityRequest.java",
+      "sha256": "2088ea8ae0fb61a81a28f92f7636fca7788f9bc62f1e0e3931b943b8e120f1e3",
+      "size": 2683
+    },
+    {
+      "path": "NoteSizeActivityResult.java",
+      "sha256": "f30fd1779f79e51814330af502a9735b7009bba5311d61e7baa8d1044367778f",
+      "size": 2770
+    },
+    {
       "path": "NotificationEvent.java",
       "sha256": "55d14727fe45c9523c8556147bd4acf154a6ae7762795b2964b869e7b6ee1942",
       "size": 5129
@@ -922,7 +932,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "2892f83082cddbddfa80ff2b1cd266550dd317d2f3078290a9cb63c01b4becb3",
+      "sha256": "7d2f2437046f53a6719fca06b3bd8024f28f7b12c0129314b6fdc29678d34253",
       "size": 4325
     },
     {
@@ -1702,7 +1712,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "78ec1ac20b329fa9fbb554797143ba398d540a2c740f86ca51541a94d1179b9e",
+  "ir_sha256": "3c6f98d7eacaa1a69e77a9f845eec335ffc4f3422755e0e7edc0162284de1c6b",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -182,8 +182,10 @@ same capability in `set-client-info`, together with its identity:
 
 It then receives `size-state` events, `participant` and `size_state` in terminal
 `attach-surface` responses, and can use `set-size-policy`, `set-size-counts`,
-`get-size-state`, relay sub-views (`resize-attached-view` with `view` and
-`identity`), and `detach-client` with a participant id and `by`. `user_id` is
+`get-size-state`, `note-size-activity` (with `view`, a relay credits
+forwarded input to that sub-view), relay sub-views (`resize-attached-view`
+with `view` and `identity`), and `detach-client` with a participant id and
+`by`. `user_id` is
 asserted by the client; the daemon does not verify it. See
 [`spec/commands.md`](../spec/commands.md#sizing).
 

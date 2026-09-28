@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "78ec1ac20b329fa9fbb554797143ba398d540a2c740f86ca51541a94d1179b9e";
+pub const ir_sha256 = "3c6f98d7eacaa1a69e77a9f845eec335ffc4f3422755e0e7edc0162284de1c6b";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -740,6 +740,11 @@ pub const MoveTerminalResult = struct {
     terminal_revision: u64,
     workspace: wire.Nullable(Id),
     workspace_key: []const u8,
+};
+
+pub const NoteSizeActivityResult = struct {
+    changed: bool,
+    participant: []const u8,
 };
 
 pub const NotificationLevel = enum {
@@ -3444,6 +3449,24 @@ pub fn newWorkspace(client: anytype, request: NewWorkspaceRequest) !wire.Decoded
     );
 }
 
+pub const NoteSizeActivityRequest = struct {
+    surface: Id,
+    view: wire.Field([]const u8) = .absent,
+};
+
+pub fn noteSizeActivity(client: anytype, request: NoteSizeActivityRequest) !wire.Decoded(NoteSizeActivityResult) {
+    return client.callTyped(
+        NoteSizeActivityResult,
+        .{
+            .name = "note-size-activity",
+            .authority = "control",
+            .since = 12,
+            .capability = "shared-sizing-v1",
+        },
+        request,
+    );
+}
+
 pub const NotifyRequest = struct {
     body: []const u8,
     level: wire.Field(NotificationLevel) = .absent,
@@ -5616,7 +5639,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 115;
+pub const command_count: usize = 116;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -5677,6 +5700,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "new-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "note-size-activity", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "notify", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "pairing-response", .authority = "local-admin", .since = 7, .capability = null, .stream = null },
     .{ .name = "pane-neighbor", .authority = "control", .since = 6, .capability = null, .stream = null },

@@ -930,6 +930,13 @@ enum Command {
     GetSizeState {
         surface: SurfaceId,
     },
+    /// Record explicit input or focus activity for the caller's own view, or
+    /// with `view` for one of its relay sub-views (input a relay forwards).
+    NoteSizeActivity {
+        surface: SurfaceId,
+        #[serde(default)]
+        view: Option<String>,
+    },
     ReloadConfig,
     SetWindowTitle {
         title: String,
@@ -1614,6 +1621,7 @@ impl Command {
             | Self::DetachAttachedView { surface, .. }
             | Self::SetSizeCounts { surface, .. }
             | Self::GetSizeState { surface }
+            | Self::NoteSizeActivity { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
             Self::AttachSurface { surface, .. }
             | Self::Notify { surface, .. }
@@ -11956,6 +11964,23 @@ fn handle_command_with_cancellation(
                 .ok_or_else(|| anyhow::anyhow!("unknown participant {participant}"))?;
             Ok(json!({"outcome": "applied", "changed": changed, "participant": participant}))
         }
+        Command::NoteSizeActivity { surface, view } => {
+            anyhow::ensure!(
+                mux.control_clients.supports_capability(client, SHARED_SIZING_CAPABILITY),
+                "note-size-activity requires client capability {SHARED_SIZING_CAPABILITY}"
+            );
+            get_surface(mux, surface)?;
+            let participant = match view.as_deref() {
+                Some(view) => crate::mux::sub_view_participant_id(client, view),
+                None => mux
+                    .terminal_view_participant_id(surface, client)
+                    .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?,
+            };
+            let changed = mux
+                .note_terminal_activity(surface, client, view.as_deref())
+                .ok_or_else(|| anyhow::anyhow!("unknown participant {participant}"))?;
+            Ok(json!({"participant": participant, "changed": changed}))
+        }
         Command::GetSizeState { surface } => {
             get_surface(mux, surface)?;
             let state = mux
@@ -20060,6 +20085,63 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("unknown participant"));
+    }
+
+    #[test]
+    fn relay_forwarded_input_counts_as_the_phone_sub_view_activity() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let writer = test_writer();
+        let relay = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let activity = |view: Option<&str>| {
+            let mut request = json!({"cmd": "note-size-activity", "surface": surface.id});
+            if let Some(view) = view {
+                request["view"] = json!(view);
+            }
+            handle_command(&mux, relay, json_command(request), &writer)
+        };
+        // The command is gated on the client capability.
+        assert!(activity(None).unwrap_err().to_string().contains(SHARED_SIZING_CAPABILITY));
+        handle_command(
+            &mux,
+            relay,
+            json_command(json!({
+                "cmd": "set-client-info", "capabilities": [SHARED_SIZING_CAPABILITY],
+                "user_id": "u1", "device_kind": "mac",
+            })),
+            &writer,
+        )
+        .unwrap();
+        attach_test_view(&mux, relay, surface.id, &writer);
+        mux.resize_surface_for_client(surface.id, relay, 150, 42).unwrap();
+        handle_command(
+            &mux,
+            relay,
+            json_command(json!({
+                "cmd": "resize-attached-view", "surface": surface.id, "view": "mobile:p1",
+                "identity": {"user_id": "u1", "device_kind": "iphone"}, "cols": 54, "rows": 26,
+            })),
+            &writer,
+        )
+        .unwrap();
+        let phone = format!("c{relay}/mobile:p1");
+        assert_eq!(mux.set_terminal_size_counts(surface.id, &phone, Some(true)), Some(true));
+
+        // The Mac's own activity keeps the grid on the Mac.
+        assert_eq!(activity(None).unwrap()["participant"], format!("c{relay}"));
+        assert_eq!(surface.size(), (150, 42));
+        assert_eq!(mux.terminal_size_state(surface.id).unwrap().owners, [format!("c{relay}")]);
+
+        // Forwarded phone input marks the phone, which then owns the grid.
+        let response = activity(Some("mobile:p1")).unwrap();
+        assert_eq!(response["participant"], phone);
+        assert_eq!(response["changed"], true);
+        assert_eq!(surface.size(), (54, 26));
+        assert_eq!(mux.terminal_size_state(surface.id).unwrap().owners, [phone]);
+
+        assert!(
+            activity(Some("mobile:gone")).unwrap_err().to_string().contains("unknown participant")
+        );
     }
 
     #[test]

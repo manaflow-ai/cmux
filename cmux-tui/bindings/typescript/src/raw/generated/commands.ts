@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 78ec1ac20b329fa9fbb554797143ba398d540a2c740f86ca51541a94d1179b9e. */
+/* cmux-tui mux protocol 12, IR 3c6f98d7eacaa1a69e77a9f845eec335ffc4f3422755e0e7edc0162284de1c6b. */
 
 
 import type * as T from "./types.js";
@@ -542,6 +542,13 @@ export interface NewWorkspaceRequest extends CmuxRequestBase {
   "rows"?: (number) | null;
 }
 export type NewWorkspaceResult = T.SurfaceResult;
+
+/** Protocol v12; authority: control. */
+export interface NoteSizeActivityRequest extends CmuxRequestBase {
+  cmd: "note-size-activity";
+  "surface": T.Id;
+  "view"?: (string) | null;
+}
 
 /** Protocol v6; authority: control. */
 export interface NotifyRequest extends CmuxRequestBase {
@@ -1099,6 +1106,7 @@ export type CmuxRequest =
   | NewScreenRequest
   | NewTabRequest
   | NewWorkspaceRequest
+  | NoteSizeActivityRequest
   | NotifyRequest
   | PairingResponseRequest
   | PaneNeighborRequest
@@ -1628,6 +1636,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "note-size-activity": {
+    request: NoteSizeActivityRequest;
+    result: T.NoteSizeActivityResult;
+    authority: "control";
+    since: 12;
+    capability: "shared-sizing-v1";
     stream: null;
   };
   "notify": {

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "78ec1ac20b329fa9fbb554797143ba398d540a2c740f86ca51541a94d1179b9e";
+inline constexpr std::string_view kProtocolIrSha256 = "3c6f98d7eacaa1a69e77a9f845eec335ffc4f3422755e0e7edc0162284de1c6b";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -76,6 +76,7 @@ struct MachineUsage;
 struct MachineUsageResult;
 struct MintTerminalRendererResult;
 struct MoveTerminalResult;
+struct NoteSizeActivityResult;
 enum class NotificationLevel;
 struct NotificationMarker;
 struct NotifyResult;
@@ -210,6 +211,7 @@ struct NewPaneRightRequest;
 struct NewScreenRequest;
 struct NewTabRequest;
 struct NewWorkspaceRequest;
+struct NoteSizeActivityRequest;
 struct NotifyRequest;
 struct PairingResponseRequest;
 struct PaneNeighborRequest;
@@ -1823,6 +1825,18 @@ struct NewWorkspaceRequest {
     friend bool operator==(const NewWorkspaceRequest&, const NewWorkspaceRequest&) = default;
 };
 
+struct NoteSizeActivityRequest {
+    Id surface{};
+    Field<std::string> view{};
+    friend bool operator==(const NoteSizeActivityRequest&, const NoteSizeActivityRequest&) = default;
+};
+
+struct NoteSizeActivityResult {
+    bool changed{};
+    std::string participant{};
+    friend bool operator==(const NoteSizeActivityResult&, const NoteSizeActivityResult&) = default;
+};
+
 struct NotificationEvent {
     std::string body{};
     NotificationLevel level{};
@@ -3309,6 +3323,12 @@ struct Codec<MoveTerminalResult> {
 };
 
 template <>
+struct Codec<NoteSizeActivityResult> {
+    static Result<Json> encode(const NoteSizeActivityResult& value);
+    static Result<NoteSizeActivityResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<NotificationLevel> {
     static Result<Json> encode(const NotificationLevel& value);
     static Result<NotificationLevel> decode(const Json& value);
@@ -4110,6 +4130,12 @@ template <>
 struct Codec<NewWorkspaceRequest> {
     static Result<Json> encode(const NewWorkspaceRequest& value);
     static Result<NewWorkspaceRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<NoteSizeActivityRequest> {
+    static Result<Json> encode(const NoteSizeActivityRequest& value);
+    static Result<NoteSizeActivityRequest> decode(const Json& value);
 };
 
 template <>

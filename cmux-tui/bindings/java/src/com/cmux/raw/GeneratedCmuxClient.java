@@ -308,6 +308,11 @@ public abstract class GeneratedCmuxClient {
         return SurfaceResult.fromWire(result);
     }
 
+    public final NoteSizeActivityResult noteSizeActivity(NoteSizeActivityRequest request) throws CmuxException {
+        Object result = execute(Commands.NOTE_SIZE_ACTIVITY, request.toWire());
+        return NoteSizeActivityResult.fromWire(result);
+    }
+
     public final NotifyResult notify(NotifyRequest request) throws CmuxException {
         Object result = execute(Commands.NOTIFY, request.toWire());
         return NotifyResult.fromWire(result);

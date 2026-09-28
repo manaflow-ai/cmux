@@ -5727,6 +5727,28 @@
     }
    },
    "additional_properties": false
+  },
+  "NoteSizeActivityResult": {
+   "kind": "object",
+   "fields": {
+    "participant": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "changed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -11400,6 +11422,46 @@
    },
    "stream": null,
    "constraints": []
+  },
+  "note-size-activity": {
+   "authority": "control",
+   "since": 12,
+   "capability": "shared-sizing-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "view": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       "Relay sub-view of this connection; omitted marks the caller's own view."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "NoteSizeActivityResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Requires client capability shared-sizing-v1.",
+    "Only explicit input or focus is activity, never hover or visibility."
+   ]
   }
  },
  "events": {

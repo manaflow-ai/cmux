@@ -189,7 +189,9 @@ paired phones) reports each leaf as a relay sub-view with
 `resize-attached-view {surface, view, identity, cols, rows}`. The relay's own
 view stays its `attach-surface` lease. Sub-views have no byte stream: the
 relay renders for them and forwards `size-state` and `detached` (with `view`)
-back down.
+back down. A relay that forwards a leaf's input sends it with `send`/`send-key`
+and then `note-size-activity {surface, view}`, so the activity belongs to the
+leaf and not to the relay.
 
 Identity trust: `user_id` in `set-client-info` and in a sub-view `identity` is
 asserted by the connection. This daemon has no Stack session and cannot verify
@@ -2805,6 +2807,33 @@ selector.
 
 Result: `object{outcome:"applied"|"superseded",changed?:bool,participant?:string}`.
 Errors: `unknown participant <id>`.
+
+### note-size-activity
+
+| Field | Value |
+| --- | --- |
+| name | `note-size-activity` |
+| status | implemented |
+| since | protocol 12 with `shared-sizing-v1` |
+
+Records explicit activity (keyboard, paste or mouse input, or a focus click)
+for shared sizing. Without `view` it marks the caller's own view of the
+terminal. With `view` it marks that relay sub-view of this connection, so a
+relay forwarding a phone's input credits the phone instead of itself. Under
+`latest` the marked participant takes the grid when it counts. The command
+requires the client capability `shared-sizing-v1`. Plain `send`/`send-key`
+already mark the caller's own view.
+
+Params: required `surface:Id`, optional `view:string`.
+
+Result: `object{participant:string,changed:bool}`. Errors: `unknown
+participant <id>`, and a capability error for a client without
+`shared-sizing-v1`.
+
+```json
+{"id":9,"cmd":"note-size-activity","surface":4,"view":"mobile:p1"}
+{"id":9,"ok":true,"data":{"participant":"c3/mobile:p1","changed":true}}
+```
 
 ### get-size-state
 

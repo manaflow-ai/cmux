@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 78ec1ac20b329fa9fbb554797143ba398d540a2c740f86ca51541a94d1179b9e. */
+/* cmux-tui mux protocol 12, IR 3c6f98d7eacaa1a69e77a9f845eec335ffc4f3422755e0e7edc0162284de1c6b. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "78ec1ac20b329fa9fbb554797143ba398d540a2c740f86ca51541a94d1179b9e" as const;
+export const SDK_IR_SHA256 = "3c6f98d7eacaa1a69e77a9f845eec335ffc4f3422755e0e7edc0162284de1c6b" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -720,6 +720,17 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "note-size-activity": {
+    "authority": "control",
+    "since": 12,
+    "capability": "shared-sizing-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Requires client capability shared-sizing-v1.",
+      "Only explicit input or focus is activity, never hover or visibility."
+    ]
   },
   "notify": {
     "authority": "control",
@@ -4064,6 +4075,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "workspace_key": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "NoteSizeActivityResult": {
+    "additional_properties": false,
+    "fields": {
+      "changed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "participant": {
         "nullable": false,
         "presence": "required",
         "type": {
@@ -9976,6 +10009,38 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "SurfaceResult"
+    }
+  },
+  "note-size-activity": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "view": {
+          "constraints": [
+            "Relay sub-view of this connection; omitted marks the caller's own view."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "NoteSizeActivityResult"
     }
   },
   "notify": {

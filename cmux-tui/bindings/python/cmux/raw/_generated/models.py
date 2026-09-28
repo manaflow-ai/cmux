@@ -737,6 +737,13 @@ class MoveTerminalResult:
 
 
 @dataclass(frozen=True)
+class NoteSizeActivityResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/NoteSizeActivityResult'
+    changed: bool
+    participant: str
+
+
+@dataclass(frozen=True)
 class NotificationMarker:
     __cmux_schema_path__: ClassVar[str] = 'types/NotificationMarker'
     level: NotificationLevel
@@ -1853,6 +1860,13 @@ class NewWorkspaceRequest:
     name: Union[str, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class NoteSizeActivityRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/note-size-activity/request'
+    surface: Id
+    view: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2976,6 +2990,7 @@ __all__ = [
     'MachineUsageResult',
     'MintTerminalRendererResult',
     'MoveTerminalResult',
+    'NoteSizeActivityResult',
     'NotificationMarker',
     'NotifyResult',
     'PaneNeighborResult',
@@ -3097,6 +3112,7 @@ __all__ = [
     'NewScreenRequest',
     'NewTabRequest',
     'NewWorkspaceRequest',
+    'NoteSizeActivityRequest',
     'NotifyRequest',
     'PairingResponseRequest',
     'PaneNeighborRequest',

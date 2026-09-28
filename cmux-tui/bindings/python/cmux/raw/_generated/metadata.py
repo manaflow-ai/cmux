@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '78ec1ac20b329fa9fbb554797143ba398d540a2c740f86ca51541a94d1179b9e'
+IR_SHA256 = '3c6f98d7eacaa1a69e77a9f845eec335ffc4f3422755e0e7edc0162284de1c6b'
 
 
 @dataclass(frozen=True)
@@ -802,6 +802,18 @@ COMMANDS = {
             'cols': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+        },
+    ),
+    'note-size-activity': CommandMetadata(
+        'note-size-activity',
+        'control',
+        12,
+        'shared-sizing-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+            'view': CommandFieldMetadata(None, None),
         },
     ),
     'notify': CommandMetadata(

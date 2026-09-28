@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 78ec1ac20b329fa9fbb554797143ba398d540a2c740f86ca51541a94d1179b9e.
+// cmux-tui mux protocol 12, IR 3c6f98d7eacaa1a69e77a9f845eec335ffc4f3422755e0e7edc0162284de1c6b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -623,6 +623,13 @@ pub struct MoveTerminalResult {
     pub terminal_revision: u64,
     pub workspace: Nullable<Id>,
     pub workspace_key: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NoteSizeActivityResult {
+    pub changed: bool,
+    pub participant: String,
 }
 
 #[rustfmt::skip]

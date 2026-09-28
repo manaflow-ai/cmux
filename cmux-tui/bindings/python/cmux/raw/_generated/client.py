@@ -189,6 +189,9 @@ class GeneratedClientMixin:
     def new_workspace(self, *, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-workspace', NewWorkspaceRequest(name=name, cols=cols, rows=rows))
 
+    def note_size_activity(self, surface: Id, *, view: Union[str, None, MissingType] = MISSING) -> NoteSizeActivityResult:
+        return self._invoke_command('note-size-activity', NoteSizeActivityRequest(surface=surface, view=view))
+
     def notify(self, title: str, body: str, *, level: Union[NotificationLevel, None, MissingType] = MISSING, surface: Union[Id, None, MissingType] = MISSING) -> NotifyResult:
         return self._invoke_command('notify', NotifyRequest(title=title, body=body, level=level, surface=surface))
 
@@ -417,6 +420,7 @@ GeneratedClientMixin.new_pane_right.__cmux_command__ = COMMANDS['new-pane-right'
 GeneratedClientMixin.new_screen.__cmux_command__ = COMMANDS['new-screen']
 GeneratedClientMixin.new_tab.__cmux_command__ = COMMANDS['new-tab']
 GeneratedClientMixin.new_workspace.__cmux_command__ = COMMANDS['new-workspace']
+GeneratedClientMixin.note_size_activity.__cmux_command__ = COMMANDS['note-size-activity']
 GeneratedClientMixin.notify.__cmux_command__ = COMMANDS['notify']
 GeneratedClientMixin.pairing_response.__cmux_command__ = COMMANDS['pairing-response']
 GeneratedClientMixin.pane_neighbor.__cmux_command__ = COMMANDS['pane-neighbor']
