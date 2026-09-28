@@ -181,9 +181,9 @@ struct AgentPermissionGrantHardeningTests {
 
     @Test func webFetchMatchesHostAndSubdomainsOnly() {
         func fetch(_ url: String) -> AgentPermissionRequest { AgentPermissionRequest(toolName: "WebFetch", url: url) }
-        #expect(Matcher().allows(rule: "WebFetch(domain:example.com)", request: fetch("https://Docs.Example.com:443/a?b")))
-        #expect(Matcher().allows(rule: "WebFetch(domain:example.com)", request: fetch("http://example.com")))
-        #expect(!Matcher().allows(rule: "WebFetch(domain:example.com)", request: fetch("https://badexample.com/")))
+        #expect(Matcher().allows(rule: "WebFetch(domain:grants.test)", request: fetch("https://Docs.Grants.test:443/a?b")))
+        #expect(Matcher().allows(rule: "WebFetch(domain:grants.test)", request: fetch("http://grants.test")))
+        #expect(!Matcher().allows(rule: "WebFetch(domain:grants.test)", request: fetch("https://badgrants.test/")))
         #expect(Matcher().isBroad("WebFetch(domain:com)"))
         #expect(Matcher().isBroad("WebFetch"))
         #expect(!Matcher().isBroad("WebFetch(domain:example.com)"))
