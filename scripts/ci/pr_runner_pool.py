@@ -1457,10 +1457,12 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
             # 79 first-attempt admissions took Blacksmith (one at an expected 58 minutes); they waited
             # 16 minutes on average there, while the root runners' queue drained with a p90 of 11.
             # Admission queues for a root runner
-            # instead when its expected wait there is the shorter and within the rescue's budget for
-            # the rounds (QUEUE_ROUND_MINUTES each), which would otherwise move it to Blacksmith's tail.
+            # instead when its expected wait there is the shorter and ends half a job before the rescue's
+            # budget for the rounds (QUEUE_ROUND_MINUTES each), which would move it to Blacksmith's tail:
+            # a mini's admission runs past the 10 minutes a round is priced at (median 638 s), and runs
+            # 3 to 10 minutes old are missing from the live root count.
             root_wait = expected_wait(label, roots[label], added[label] + root_taken_now.get(label, 0) + 1)
-            if root_wait < waits[best] and root_wait <= queue_rounds * QUEUE_ROUND_MINUTES:
+            if root_wait < waits[best] and root_wait + job_minutes(label) / 2 <= queue_rounds * QUEUE_ROUND_MINUTES:
                 rooms[label] = dataclasses.replace(room, root_room=1, root_wait=root_wait,
                                                    admission_blacksmith_wait=waits[best])
     for label in usable:
