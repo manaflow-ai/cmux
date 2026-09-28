@@ -154,6 +154,78 @@ struct MobileStateSyncFrameCodingTests {
         #expect(!decoded.customDescriptionIsTruncated)
     }
 
+    @Test func cloudReferralFieldsRideTheWireAndRoundTrip() throws {
+        let record = WorkspaceSyncRecord(
+            id: "ws-cloud",
+            windowID: nil,
+            title: "cloud",
+            currentDirectory: nil,
+            isSelected: false,
+            isPinned: false,
+            groupID: nil,
+            preview: nil,
+            previewAt: nil,
+            lastActivityAt: 1,
+            hasUnread: false,
+            cloudVMID: "vivid-newt",
+            cloudWorkspaceID: "ws_01hreferral",
+            sortIndex: 0,
+            terminals: [
+                WorkspaceSyncRecord.Terminal(
+                    id: "t-cloud",
+                    title: "zsh",
+                    currentDirectory: nil,
+                    isReady: true,
+                    isFocused: false,
+                    cloudVMID: "vivid-newt",
+                    cloudTerminalID: "term_01hreferral"
+                )
+            ]
+        )
+        let object = try MobileSyncFrameCoder().jsonObject(from: record)
+        #expect(object["cloud_vm_id"] as? String == "vivid-newt")
+        #expect(object["cloud_workspace_id"] as? String == "ws_01hreferral")
+        let terminals = object["terminals"] as? [[String: Any]]
+        #expect(terminals?.first?["cloud_vm_id"] as? String == "vivid-newt")
+        #expect(terminals?.first?["cloud_terminal_id"] as? String == "term_01hreferral")
+
+        let decoded = try JSONDecoder().decode(
+            WorkspaceSyncRecord.self,
+            from: JSONEncoder().encode(record)
+        )
+        #expect(decoded == record)
+        #expect(decoded.cloudVMID == "vivid-newt")
+        #expect(decoded.cloudWorkspaceID == "ws_01hreferral")
+        #expect(decoded.terminals.first?.cloudVMID == "vivid-newt")
+        #expect(decoded.terminals.first?.cloudTerminalID == "term_01hreferral")
+    }
+
+    @Test func nonCloudRecordsOmitReferralKeysAndOldFramesDecodeWithoutThem() throws {
+        // A non-Cloud workspace/terminal must not put referral keys on the wire.
+        let object = try MobileSyncFrameCoder().jsonObject(from: workspace)
+        #expect(object["cloud_vm_id"] == nil)
+        #expect(object["cloud_workspace_id"] == nil)
+        let terminals = object["terminals"] as? [[String: Any]]
+        #expect(terminals?.first?["cloud_vm_id"] == nil)
+        #expect(terminals?.first?["cloud_terminal_id"] == nil)
+
+        // A frame from a Mac that predates the referral fields decodes to nil.
+        let json = #"""
+        {"id":"ws-old","title":"old","is_selected":false,"is_pinned":false,
+         "last_activity_at":1,"has_unread":false,"sort_index":0,
+         "terminals":[{"id":"t1","title":"zsh","current_directory":null,
+                       "is_ready":true,"is_focused":false}]}
+        """#
+        let decoded = try MobileSyncFrameCoder().decode(
+            WorkspaceSyncRecord.self,
+            fromJSONString: json
+        )
+        #expect(decoded.cloudVMID == nil)
+        #expect(decoded.cloudWorkspaceID == nil)
+        #expect(decoded.terminals.first?.cloudVMID == nil)
+        #expect(decoded.terminals.first?.cloudTerminalID == nil)
+    }
+
     @Test func groupRecordCarriesIconAndDecodesOlderFrames() throws {
         let group = GroupSyncRecord(
             id: "group-1",
