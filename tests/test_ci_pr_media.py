@@ -331,6 +331,14 @@ class PlanTests(StubbedTest):
         self.assertEqual(outputs["compile_tour"], "sidebar-and-chrome-tour")
         self.assertEqual(json.loads(outputs["run"]), ["sidebar-and-chrome-tour"])
 
+    def test_app_changes_follow_cis_build_inputs(self) -> None:
+        self.assertTrue(media.reaches_app("config/IrohRelayPolicyProduction.xcconfig"))
+        self.assertTrue(media.reaches_app("Sources/ContentView.swift"))
+        self.assertTrue(media.reaches_app("Packages/Shared/CmuxAuthRuntime/Sources/A.swift"))
+        for path in ("CLI/cmux.swift", "cmuxTests/AppTests.swift", "docs/a.md", "web/app/page.tsx", "tests/test_x.py", "scripts/ci/pr_media.py"):
+            with self.subTest(path=path):
+                self.assertFalse(media.reaches_app(path))
+
     def test_only_app_changes_may_compile(self) -> None:
         outputs = self.plan({"repos/o/r/actions/workflows/ci.yml/runs": {"workflow_runs": []},
                              "repos/o/r/pulls/42/files": [[{"filename": "CLI/cmux.swift"}]]}, {})
@@ -494,6 +502,37 @@ class TourCacheTests(StubbedTest):
         manifest = self.run_tour("success", {}, "fallback", media.UNLOADABLE_PRODUCT_EXIT, compile_tour="other")
         self.assertEqual(len(self.commands), 1)
         self.assertIn("only other compiles", manifest["note"])
+
+    def test_a_reuse_error_is_not_a_refusal(self) -> None:
+        original = media.failed_steps
+        media.failed_steps = lambda *_: {media.REUSE_ERROR_STEP}
+        self.addCleanup(setattr, media, "failed_steps", original)
+        manifest = self.run_tour("failure", {"gif": "tour.gif", "shots": []}, "fallback")
+        self.assertEqual(len(self.commands), 1)
+        self.assertEqual(manifest["result"], "not run")
+        self.assertIn("reuse error", manifest["note"])
+
+    def test_the_reuse_error_step_tells_errors_from_misses(self) -> None:
+        import subprocess
+        workflow = yaml.safe_load((ROOT / ".github/workflows/test-e2e.yml").read_text())
+        step = next(step for job in workflow["jobs"].values() for step in job.get("steps", [])
+                    if step.get("name") == media.REUSE_ERROR_STEP)
+        cases = [("success", "miss", "no_matching_contract_artifact,artifact_expired", 0),
+                 ("success", "miss", "", 0),
+                 ("success", "miss", "artifact_expired,artifact_listing_unavailable", 1),
+                 ("success", "miss", "fingerprint_unavailable", 1),
+                 ("success", "fallback", "reuse_api_or_validation_error", 1),
+                 ("failure", "", "", 1)]
+        for outcome, reason, misses, expected in cases:
+            with self.subTest(outcome=outcome, reason=reason, misses=misses):
+                done = subprocess.run(["bash", "-eo", "pipefail", "-c", step["run"]], capture_output=True, text=True,
+                                      env={"PATH": os.environ["PATH"], "OUTCOME": outcome, "REASON": reason,
+                                           "MISSES": misses})
+                self.assertEqual(done.returncode, expected, done.stdout + done.stderr)
+
+    def test_the_reuse_error_step_is_named_as_in_test_e2e(self) -> None:
+        workflow = (ROOT / ".github/workflows/test-e2e.yml").read_text()
+        self.assertIn(f"- name: {media.REUSE_ERROR_STEP}", workflow)
 
     def test_a_moved_head_does_not_compile(self) -> None:
         original = media.head_moved
@@ -664,6 +703,17 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(set(pins[0] + pins[1])), 1, pins)
         self.assertTrue(pins[0] and pins[1])
 
+    def test_each_tours_folder_survives_the_artifact_hand_off(self) -> None:
+        # A download of one artifact lands without a per-artifact folder, so the
+        # archive itself must hold <tour>/ (seen on a single-tour run).
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        keep = next(step for step in workflow["jobs"]["tour"]["steps"] if "upload-artifact" in str(step.get("uses")))
+        fetch = next(step for step in workflow["jobs"]["publish"]["steps"]
+                     if "download-artifact" in str(step.get("uses")))
+        self.assertEqual(keep["with"]["path"], "${{ runner.temp }}/media")
+        self.assertIs(fetch["with"]["merge-multiple"], True)
+        self.assertEqual(fetch["with"]["path"], "${{ runner.temp }}/media")
+
     def test_media_is_never_part_of_the_ci_verdict(self) -> None:
         self.assertNotIn("pr-media", CI.read_text())
 
@@ -683,4 +733,4 @@ class AdoptOnlyTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(buffer=True)

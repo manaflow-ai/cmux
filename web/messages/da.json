@@ -1396,6 +1396,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Vis hvert workspace på én linje: ét farvet ikon før titlen viser agent-, ulæst- og pull request-status og erstatter agentstatuslinjerne (for eksempel Kører eller Kræver input), gren- og mappelinjen og pull request-linjerne, hvis detaljer flytter til ikonets værktøjstip. Andre statusposter beholder deres egne linjer.",
+          "compactStatusIcons": "SF Symbol-navne, der erstatter compactAgentStatus-glyffen for hver tilstand, for eksempel {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Tilstande uden værdi beholder det indbyggede symbol, og et navn, der ikke kan vises, falder tilbage til det.",
           "notificationMessageLineLimit": "Det maksimale antal linjer, der vises for den seneste notifikation under hver arbejdsområdetitel.",
           "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse."
         },
