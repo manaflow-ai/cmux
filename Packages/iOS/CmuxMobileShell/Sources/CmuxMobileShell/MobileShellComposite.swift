@@ -3322,6 +3322,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                           stackUserID: scope.userID,
                           teamID: scope.teamID
                       ),
+                      let cached,
                       self.storedMacReconnectGeneration == generation,
                       await self.isScopeCurrent(scope),
                       await !self.isHiddenMacDeviceID(
