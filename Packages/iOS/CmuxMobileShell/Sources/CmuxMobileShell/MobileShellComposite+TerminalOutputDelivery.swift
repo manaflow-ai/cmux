@@ -582,6 +582,7 @@ extension MobileShellComposite {
             }
             continuation.yield(
                 MobileTerminalOutputChunk(
+                    surfaceID: surfaceID,
                     data: immediateBytes,
                     streamToken: streamToken,
                     viewportPolicy: immediate.viewportPolicy,
@@ -738,6 +739,7 @@ extension MobileShellComposite {
             )
         }
         continuation.yield(MobileTerminalOutputChunk(
+            surfaceID: surfaceID,
             data: nextBytes,
             streamToken: streamToken,
             viewportPolicy: next.viewportPolicy,

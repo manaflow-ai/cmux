@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 public import Foundation
 
 /// Client-side owner of every server->client event lane on one irx
@@ -8,6 +9,8 @@ public import Foundation
 /// only whole mobile-sync frames into the single subscriber stream, which lets
 /// the RPC session decode the merged output exactly like one ordered lane:
 /// ordering holds per lane, and every surface's frames stay on one lane.
+/// A surface lane's frames are forwarded inside a ``MobileEventLaneScope`` so
+/// the decoder can refuse a frame that names another terminal.
 ///
 /// The hub accepts lanes for the connection lifetime. Keeping one acceptor
 /// per connection means a replaced subscriber can never leave a stale accept
@@ -146,7 +149,7 @@ public actor IrxServerEventLaneHub {
                 while !Task.isCancelled, let chunk = try await reader.readRaw() {
                     guard !chunk.isEmpty else { continue }
                     guard let frames = try aligner.append(chunk) else { continue }
-                    await self?.deliver(frames)
+                    await self?.deliver(frames, laneSurfaceID: surfaceID)
                 }
             } catch is IrxEventFrameAligner.Failure {
                 stopCode = Self.malformedFrameStopCode
@@ -158,8 +161,12 @@ public actor IrxServerEventLaneHub {
         }
     }
 
-    private func deliver(_ frames: Data) {
-        subscriber?.yield(frames)
+    private func deliver(_ frames: Data, laneSurfaceID: String?) {
+        guard let laneSurfaceID else {
+            subscriber?.yield(frames)
+            return
+        }
+        subscriber?.yield(MobileEventLaneScope.scoped(frames, surfaceID: laneSurfaceID))
     }
 
     private func laneEnded(laneID: UInt64) {

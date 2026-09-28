@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import Testing
 @testable import CmuxIrxTransport
@@ -189,7 +190,21 @@ private func waitUntil(
 
 private actor FrameCollector {
     private(set) var frames: [String] = []
-    func append(_ data: Data) { frames.append(contentsOf: decodeFrames(data)) }
+    /// Each event frame with the lane scope it arrived in.
+    private(set) var scopedFrames: [(scope: String?, frame: String)] = []
+    private var scope: String?
+
+    func append(_ data: Data) {
+        for text in decodeFrames(data) {
+            if let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
+               let change = MobileEventLaneScope.scopeChange(in: object) {
+                scope = change
+                continue
+            }
+            frames.append(text)
+            scopedFrames.append((scope, text))
+        }
+    }
 }
 
 private func collect(_ stream: IrxServerEventLaneHub.Output, into collector: FrameCollector) -> Task<Void, Never> {
@@ -227,6 +242,28 @@ struct IrxServerEventLaneHubTests {
 
         await busy.push(replay.dropFirst(10_000))
         #expect(try await waitUntil { await collector.frames.count == 3 })
+        await hub.stop()
+    }
+
+    @Test func eachSurfaceLanesFramesArriveInsideThatSurfacesScope() async throws {
+        let acceptor = FakeLaneAcceptor()
+        let hub = IrxServerEventLaneHub(acceptLane: acceptor.accept)
+        let collector = FrameCollector()
+        let consumer = collect(await hub.subscribe(), into: collector)
+        defer { consumer.cancel() }
+
+        let shared = acceptor.open(IrxLaneDescriptor(lane: .events))
+        let laneA = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "A"))
+        let laneB = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "B"))
+        await laneA.push(frame("grid-a1") + frame("grid-a2"))
+        await shared.push(frame("workspace.updated"))
+        await laneB.push(frame("grid-b"))
+
+        #expect(try await waitUntil { await collector.frames.count == 4 })
+        let scoped = await collector.scopedFrames
+        #expect(scoped.filter { $0.frame.hasPrefix("grid-a") }.allSatisfy { $0.scope == "a" })
+        #expect(scoped.first { $0.frame == "grid-b" }?.scope == "b")
+        #expect(scoped.first { $0.frame == "workspace.updated" }.map { $0.scope == nil } == true)
         await hub.stop()
     }
 
