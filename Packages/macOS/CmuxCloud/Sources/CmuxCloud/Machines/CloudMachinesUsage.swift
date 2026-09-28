@@ -58,10 +58,12 @@ public struct CloudMachinesUsage: Equatable, Sendable {
                     defaultValue: "Your plan includes 1 machine. Upgrade to create more."
                 )
             }
-            return String(
+            // A plural catalog entry: only String(format:) resolves its variant.
+            let format = String(
                 localized: "machines.meter.help.atLimit",
                 defaultValue: "Your plan includes %d machines. Upgrade to create more."
-            ).replacingOccurrences(of: "%d", with: String(maxActiveVms))
+            )
+            return String(format: format, maxActiveVms)
         }
         return String(
             localized: "machines.meter.help",
