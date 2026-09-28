@@ -176,6 +176,7 @@ struct MachinesListStatusToolbarRow: View {
     let status: MachineListStatus
     let error: String?
     let onDismiss: (String) -> Void
+    let perform: (MachineListStatusPresentation.Action) -> Void
 
     var body: some View {
         switch status {
