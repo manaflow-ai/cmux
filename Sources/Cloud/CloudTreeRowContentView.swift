@@ -321,6 +321,11 @@ struct CloudTreeTerminalRowContent: View {
     var style: CloudTreeStyle = CloudTreeStyleStore.current
 
     private var terminal: SurfaceResource { row.resource }
+    private var resolvedTitle: String {
+        row.displayTitle.isEmpty
+            ? String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal")
+            : row.displayTitle
+    }
 
     /// Detached styling is reserved for a live terminal whose resolved daemon
     /// view list is empty. A stale exited record can have the same empty list,
@@ -341,12 +346,16 @@ struct CloudTreeTerminalRowContent: View {
             icon: glyph,
             tint: CloudTreeIconPalette.terminal,
             iconAsset: terminal.terminalAgentIconAssetName,
-            title: row.displayTitle.isEmpty ? String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal") : row.displayTitle,
+            title: resolvedTitle,
             titleDimmed: terminal.lifecycle == .exited || showsDetachedState
         )
         .help(toolTip)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(toolTip)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    var accessibilityLabel: String {
+        toolTip.isEmpty ? resolvedTitle : toolTip
     }
 
     /// Keep secondary information on hover so the narrow row gives its width to the title.
@@ -467,8 +476,11 @@ enum CloudTreeRowToolTip {
                 accessibilityLabel: node.searchableTitle
             )
         case .terminal(let row):
-            let text = CloudTreeTerminalRowContent(row: row, style: style).toolTip
-            return .init(toolTip: text.isEmpty ? nil : text, accessibilityLabel: text)
+            let content = CloudTreeTerminalRowContent(row: row, style: style)
+            return .init(
+                toolTip: content.toolTip.isEmpty ? nil : content.toolTip,
+                accessibilityLabel: content.accessibilityLabel
+            )
         case .display(let resource, _, _):
             // `searchableTitle` already resolves the remote view name, the
             // resource title and the "Desktop" fallback in that order.
