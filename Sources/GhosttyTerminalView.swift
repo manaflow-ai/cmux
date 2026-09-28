@@ -6,6 +6,7 @@ import CmuxTerminal
 import CmuxFoundation
 import CmuxPanes
 import CmuxTerminalCore
+import CmuxGit
 import CmuxSettings
 import CmuxWorkspaces
 import CmuxTestSupport
@@ -8796,6 +8797,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
             return nil
         case .none:
+            attemptGitHubReferenceOpen(at: resolvedPoint, runtimeOutcome: runtimeOutcome)
 #if DEBUG
             if let resolution = resolvedPath {
                 var payload: [String: Any] = [
@@ -8885,6 +8887,81 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
         return resolution
+    }
+
+    /// Opens the GitHub issue, pull request, or commit named under the pointer
+    /// when no local path resolved there.
+    ///
+    /// Only a release the terminal runtime left alone is ours to interpret, so a
+    /// click ghostty already handled never reaches GitHub.
+    ///
+    /// Resolving the pane's repository reads git, so this reports nothing back
+    /// to the release router: the release is over well before a slug is known.
+    /// The click is still the user's, so opening a moment later is what they
+    /// asked for. `owner/repo#123` names its own repository and skips the lookup
+    /// entirely.
+    private func attemptGitHubReferenceOpen(
+        at point: NSPoint?,
+        runtimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome
+    ) {
+        guard runtimeOutcome == .unhandled, let point else { return }
+        guard let termSurface = terminalSurface,
+              let workspace = termSurface.owningWorkspace(),
+              let panel = wordPathSnapshotTerminalPanel(
+                  workspace: workspace,
+                  terminalSurface: termSurface
+              ),
+              let snapshot = visibleWordPathSnapshot(at: point, panel: panel) else { return }
+
+        let line = snapshot.line
+        let column = snapshot.column
+        let detector = TerminalGitHubReferenceDetector()
+
+        if let reference = detector.reference(
+            inVisibleLine: line,
+            column: column,
+            repositorySlug: nil
+        ) {
+            openGitHubReference(reference)
+            return
+        }
+
+        guard detector.needsRepositorySlug(inVisibleLine: line, column: column),
+              let cwd = resolvedWordPathWorkingDirectory(
+                  workspace: workspace,
+                  terminalSurface: termSurface
+              ) else { return }
+
+        Task { @MainActor [weak self] in
+            guard let slug = await GitHubRepositorySlugCache.shared.slug(forDirectory: cwd),
+                  let self,
+                  let reference = TerminalGitHubReferenceDetector().reference(
+                      inVisibleLine: line,
+                      column: column,
+                      repositorySlug: slug
+                  ) else { return }
+            self.openGitHubReference(reference)
+        }
+    }
+
+    /// Routes a resolved GitHub reference through the shared terminal-link
+    /// policy, so it honors the same embedded-browser and host settings as any
+    /// other link in the pane.
+    private func openGitHubReference(_ reference: TerminalGitHubReference) {
+        guard let termSurface = terminalSurface else { return }
+#if DEBUG
+        cmuxDebugLog(
+            "link.githubReference token=\(reference.rawToken) url=\(reference.url.absoluteString)"
+        )
+#endif
+        _ = TerminalLinkOpenCoordinator().open(
+            TerminalLinkOpenRequest(
+                rawValue: reference.url.absoluteString,
+                sourceWorkspaceId: tabId,
+                sourcePanelId: termSurface.id,
+                workingDirectory: nil
+            )
+        )
     }
 
     private func clampedDebugPoint(_ point: NSPoint) -> NSPoint {
