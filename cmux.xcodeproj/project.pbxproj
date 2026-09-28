@@ -2316,6 +2316,7 @@
 		C0DEFEF90000000000000001 /* MobileNotificationFeedWireItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEF90000000000000002 /* MobileNotificationFeedWireItem.swift */; };
 		9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */; };
 		0099C2865D9D468747D14593 /* MobilePairingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */; };
+		D01E6038C8D90A5255BFEB93 /* MobilePairingRecoveryAuthClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 717D6C2754ED644C0D88211E /* MobilePairingRecoveryAuthClient.swift */; };
 		C1A070000000000000000006 /* MobilePairingView+Connected.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000016 /* MobilePairingView+Connected.swift */; };
 		A2538FE83AE79539E3BF9248 /* MobilePairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9BC53FA4991A6EBFB930EDF /* MobilePairingView.swift */; };
 		18A8E29E9BD87E184983527C /* MobilePairingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */; };
@@ -6350,6 +6351,7 @@
 		C0DEFEF90000000000000002 /* MobileNotificationFeedWireItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileNotificationFeedWireItem.swift; sourceTree = "<group>"; };
 		A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobilePairingConnectionTransitionTests.swift; sourceTree = "<group>"; };
 		04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingModel.swift"; sourceTree = "<group>"; };
+		717D6C2754ED644C0D88211E /* MobilePairingRecoveryAuthClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MobilePairingRecoveryAuthClient.swift"; sourceTree = "<group>"; };
 		C1A070000000000000000016 /* MobilePairingView+Connected.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingView+Connected.swift"; sourceTree = "<group>"; };
 		F9BC53FA4991A6EBFB930EDF /* MobilePairingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingView.swift"; sourceTree = "<group>"; };
 		5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingWindowController.swift"; sourceTree = "<group>"; };
@@ -12302,6 +12304,7 @@
 				8E924EBE2A4B7D8798B993C1 /* SidebarSelectedRowScrollTests.swift */,
 				A742BB7924EB331A78B26CD2 /* GhosttyStartupInputUTF8Tests.swift */,
 				E1440E4C8B82D1DACD9AE13A /* CloudTreeHeaderActionsTests.swift */,
+				717D6C2754ED644C0D88211E /* MobilePairingRecoveryAuthClient.swift */,
 				ECB3986077DA3F362CD5E046 /* MobileTerminalReplayHibernationTests.swift */,
 				9CB582F11A6930F9835FEFB0 /* CloudTreeExpansionPreferencesTests.swift */,
 				B8DC7A936F722318390CA078 /* CloudTreeHostedUpdateTests.swift */,
@@ -16514,6 +16517,7 @@
 				7A1B2C3D4E5F60718293A4B6 /* MobileHostTerminalThemeTests.swift in Sources */,
 				C0DE73840000000000000001 /* MobileHostWorkspaceTicketAuthorizationTests.swift in Sources */,
 				9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */,
+				D01E6038C8D90A5255BFEB93 /* MobilePairingRecoveryAuthClient.swift in Sources */,
 				ABMDPARTRES0000000000001 /* MobilePanelArtifactResolutionTests.swift in Sources */,
 				F33200000000000000000002 /* MobileSimulatorReaderAttachmentTests.swift in Sources */,
 				1055FA010000000000000001 /* MobileSurfaceKindMappingTests.swift in Sources */,
