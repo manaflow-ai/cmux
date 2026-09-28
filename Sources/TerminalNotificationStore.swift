@@ -1552,9 +1552,7 @@ final class TerminalNotificationStore: ObservableObject {
             "notification.store.effectsOnly workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
         )
 #endif
-        effects.applySidebarOrdering(defaults: .standard) {
-            reorderSidebars(for: notification)
-        }
+        applySidebarOrdering(for: notification, effects: effects)
         if hasAnyNotificationEffect(effects) {
             commitCooldownReservation(cooldownReservation, at: now)
         } else {
@@ -1598,9 +1596,7 @@ final class TerminalNotificationStore: ObservableObject {
             setFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
         }
 
-        effects.applySidebarOrdering(defaults: .standard) {
-            reorderSidebars(for: notification)
-        }
+        applySidebarOrdering(for: notification, effects: effects)
 
         updated.insert(notification, at: 0)
         mutateWorkspaceManualUnread(false, forTabId: notification.tabId)
@@ -1665,7 +1661,13 @@ final class TerminalNotificationStore: ObservableObject {
 #endif
         if effects.desktop || effects.sound || effects.command {
             if shouldSuppressExternalDelivery {
-                suppressedNotificationFeedbackHandler(self, notification, effects)
+                suppressedNotificationFeedbackHandler(
+                    self,
+                    notification,
+                    effects.keepingFocusedPaneQuiet(
+                        soundWhenFocused: NotificationSoundSettings.soundWhenFocused()
+                    )
+                )
             } else {
                 notificationDeliveryHandler(self, notification, effects)
             }
