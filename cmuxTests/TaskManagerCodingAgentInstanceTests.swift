@@ -121,6 +121,11 @@ struct TaskManagerCodingAgentInstanceTests {
         #expect(detail.contains("61879"))
         #expect(detail.contains("2.1.283"))
 
+        let unnamed = try #require(CmuxTaskManagerSnapshot.processIdentityDetail([
+            ["pid": 61879, "name": "pid-61879"],
+        ]))
+        #expect(!unnamed.contains("pid-"))
+
         let crowded = (1...4).map { ["pid": $0 + 100, "name": "claude"] as [String: Any] }
         #expect(CmuxTaskManagerSnapshot.processIdentityDetail(crowded) == nil)
         #expect(CmuxTaskManagerSnapshot.processIdentityDetail([]) == nil)

@@ -115,7 +115,8 @@ extension CmuxTaskManagerSnapshot {
         let identities = processes.compactMap { process -> String? in
             guard let pid = process["pid"] as? Int else { return nil }
             let pidText = String(localized: "taskManager.row.pid", defaultValue: "PID \(pid)")
-            guard let name = nonEmptyString(process["name"]) else { return pidText }
+            // The sampler writes "pid-<n>" when it can't read a name.
+            guard let name = nonEmptyString(process["name"]), !name.hasPrefix("pid-") else { return pidText }
             return "\(pidText) (\(name))"
         }
         guard !identities.isEmpty, identities.count <= 3 else { return nil }
