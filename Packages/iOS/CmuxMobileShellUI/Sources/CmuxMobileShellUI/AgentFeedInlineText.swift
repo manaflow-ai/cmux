@@ -105,9 +105,10 @@ final class AgentFeedInlineTextView: UIView {
             // Markdown delimiters and link destinations are absent from the
             // rendered string. Truncate that string, preserving its attributes
             // and composed characters, then append an unformatted control.
-            let characters = Array(complete.string)
-            func preview(_ count: Int) -> NSMutableAttributedString {
-                var prefix = String(characters.prefix(count))
+            func preview(utf16Length: Int) -> NSMutableAttributedString {
+                var prefix = (complete.string as NSString).substring(
+                    to: max(0, min(utf16Length, complete.length))
+                )
                 while prefix.last?.isWhitespace == true { prefix.removeLast() }
                 let result = NSMutableAttributedString(attributedString: complete.attributedSubstring(
                     from: NSRange(location: 0, length: prefix.utf16.count)
@@ -116,17 +117,21 @@ final class AgentFeedInlineTextView: UIView {
                     attributes: [.font: font, .foregroundColor: textColor]))
                 return result
             }
-            var low = 0
-            var high = characters.count
-            while low < high {
-                let middle = (low + high + 1) / 2
-                if lineCount(preview(middle), width: width) <= lineLimit {
-                    low = middle
-                } else {
-                    high = middle - 1
-                }
+            // One layout pass finds where the visible lines end; scrolling
+            // re-measures rows constantly, so this path cannot afford the
+            // full relayout per probe a binary search costs.
+            var cut = truncationCharacterIndex(complete, width: width)
+            // Reserve room on the last line for the ellipsis and control,
+            // stepping back through composed characters until it fits.
+            var attempts = 0
+            while cut > 0, attempts < 24,
+                  lineCount(preview(utf16Length: cut), width: width) > lineLimit {
+                let range = (complete.string as NSString)
+                    .rangeOfComposedCharacterSequence(at: max(0, cut - 8))
+                cut = range.location
+                attempts += 1
             }
-            let displayed = preview(low)
+            let displayed = preview(utf16Length: cut)
             let range = NSRange(location: displayed.length - moreTitle.utf16.count, length: moreTitle.utf16.count)
             displayed.addAttribute(.foregroundColor, value: tintColor ?? UIColor.systemBlue, range: range)
             textView.attributedText = displayed
@@ -273,6 +278,28 @@ final class AgentFeedInlineTextView: UIView {
         }
         if layout.extraLineFragmentTextContainer != nil { count += 1 }
         return count
+    }
+
+    /// The UTF-16 index where the first `lineLimit` laid-out lines end, from
+    /// a single layout pass.
+    private func truncationCharacterIndex(_ value: NSAttributedString, width: CGFloat) -> Int {
+        let storage = NSTextStorage(attributedString: value)
+        let layout = NSLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        storage.addLayoutManager(layout)
+        layout.addTextContainer(container)
+        layout.ensureLayout(for: container)
+        var count = 0
+        var end = value.length
+        layout.enumerateLineFragments(forGlyphRange: layout.glyphRange(for: container)) { _, _, _, glyphRange, stop in
+            count += 1
+            if count == self.lineLimit {
+                end = layout.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil).upperBound
+                stop.pointee = true
+            }
+        }
+        return end
     }
 
     @objc private func expand() { open?() }
