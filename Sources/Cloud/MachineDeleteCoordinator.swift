@@ -77,13 +77,17 @@ final class MachineDeleteCoordinator {
         return true
     }
 
-    /// Closes the machine's local workspaces and URL-backed panes, and stops a
-    /// create still reconciling it.
+    /// Stops the machine's creates, then closes its local workspaces and
+    /// URL-backed panes.
+    ///
+    /// Creates stop first: closing a workspace cancels its create, and a create
+    /// cancelled that way destroys the machine it names, even after this delete fails.
     /// - Parameter machineID: The exact provider machine identifier.
     static func detachLocalPresentations(of machineID: String) {
+        let workspaceIDs = AppDelegate.shared?.localWorkspaceIDs(forCloudVMID: machineID) ?? []
+        MachineCreateCoordinator.shared.machineDeletionBegan(machineID, presentedIn: workspaceIDs)
         AppDelegate.shared?.closeLocalWorkspaces(forCloudVMID: machineID)
         SurfaceCatalog.shared.closeURLBackedPanes(on: .cloud(machineID))
-        MachineCreateCoordinator.shared.machineDeletionBegan(machineID)
     }
 
     /// Destroys the machine for the `vm.destroy` socket method, which every

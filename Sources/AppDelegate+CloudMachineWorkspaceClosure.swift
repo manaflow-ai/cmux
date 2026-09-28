@@ -6,16 +6,7 @@ extension AppDelegate {
     /// terminals are unaffected, so the machine can be opened again if a
     /// delete that closed these workspaces fails.
     func closeLocalWorkspaces(forCloudVMID vmID: String) {
-        let target = vmID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !target.isEmpty else { return }
-        var managers = mainWindowContexts.values.map(\.tabManager)
-        if let tabManager, !managers.contains(where: { $0 === tabManager }) {
-            managers.append(tabManager)
-        }
-        for manager in managers {
-            let doomed = manager.tabs.filter { workspace in
-                workspace.cloudVMID?.lowercased() == target
-            }
+        for (manager, doomed) in localWorkspaces(forCloudVMID: vmID) {
             for workspace in doomed {
                 if manager.tabs.count > 1 {
                     manager.closeWorkspace(workspace, recordHistory: false)
@@ -31,6 +22,24 @@ extension AppDelegate {
                     }
                 }
             }
+        }
+    }
+
+    /// The IDs of every local workspace attached to a Cloud machine.
+    /// - Parameter vmID: The provider machine identifier, in any case.
+    func localWorkspaceIDs(forCloudVMID vmID: String) -> Set<UUID> {
+        Set(localWorkspaces(forCloudVMID: vmID).flatMap { $0.workspaces.map(\.id) })
+    }
+
+    private func localWorkspaces(forCloudVMID vmID: String) -> [(manager: TabManager, workspaces: [Workspace])] {
+        let target = vmID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !target.isEmpty else { return [] }
+        var managers = mainWindowContexts.values.map(\.tabManager)
+        if let tabManager, !managers.contains(where: { $0 === tabManager }) {
+            managers.append(tabManager)
+        }
+        return managers.map { manager in
+            (manager, manager.tabs.filter { $0.cloudVMID?.lowercased() == target })
         }
     }
 }

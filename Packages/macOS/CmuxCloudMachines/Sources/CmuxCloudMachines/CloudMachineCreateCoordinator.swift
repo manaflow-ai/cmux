@@ -21,7 +21,9 @@ public final class CloudMachineCreateCoordinator {
 
     @ObservationIgnored private var attempts: [UUID: CloudMachineCreateAttempt] = [:]
     @ObservationIgnored private var carries: [UUID: String] = [:]
-    @ObservationIgnored private var tombstones: [CloudMachineCreateAttempt: String] = [:]
+    @ObservationIgnored private var tombstones: [CloudMachineCreateAttempt: CloudMachineCreateTombstone] = [:]
+    /// Machines already destroyed or deliberately kept. It lasts the whole session,
+    /// because provider machine IDs are never reused.
     @ObservationIgnored private var cleanupIssued: Set<String> = []
     /// Machines whose deletion began in this account and wasn't restored. A create
     /// never keeps one, and cleanup never duplicates the deletion's destroy request.
@@ -95,10 +97,10 @@ public final class CloudMachineCreateCoordinator {
     /// - Returns: Deduplicated cleanup or presentation effects.
     public func receive(_ chunk: String, from attempt: CloudMachineCreateAttempt) -> CloudMachineCreateTransition {
         var transition = CloudMachineCreateTransition()
-        if var carry = tombstones[attempt] {
-            let id = output.consume(chunk, carry: &carry)
-            tombstones[attempt] = carry
-            if let id { appendCleanup(id, to: &transition) }
+        if var tombstone = tombstones[attempt] {
+            let id = output.consume(chunk, carry: &tombstone.carry)
+            tombstones[attempt] = tombstone
+            if let id, tombstone.cleansUp(id) { appendCleanup(id, to: &transition) }
             return transition
         }
         guard isActive(attempt), let index = projection.operations.firstIndex(where: { $0.id == attempt.operationID }) else { return transition }
@@ -122,8 +124,9 @@ public final class CloudMachineCreateCoordinator {
     /// - Returns: Effects to execute after the authoritative state has changed.
     public func finish(_ completion: CloudMachineCreateCompletion, from attempt: CloudMachineCreateAttempt) -> CloudMachineCreateTransition {
         var transition = CloudMachineCreateTransition()
-        if let carry = tombstones.removeValue(forKey: attempt) {
-            if let id = completion.machineID ?? output.machineID(in: carry + completion.output) {
+        if let tombstone = tombstones.removeValue(forKey: attempt) {
+            if let id = completion.machineID ?? output.machineID(in: tombstone.carry + completion.output),
+               tombstone.cleansUp(id) {
                 appendCleanup(id, to: &transition)
             }
             return transition
@@ -209,18 +212,30 @@ public final class CloudMachineCreateCoordinator {
         remove(where: { $0.request.presentationWorkspaceID.map(workspaceIDs.contains) ?? false }, closePresentations: false)
     }
 
-    /// Retires every create that produced a machine whose deletion just began.
+    /// Retires every create of a machine whose deletion just began: those that
+    /// produced it, and those presenting in one of its workspaces, whose receipt
+    /// may not have named it yet.
     ///
     /// Running creates stop, and their presentations close. Deletion owns the
-    /// destroy request, so these creates keep no receipt tombstone, and none of
-    /// their receipts, including one after a failed deletion, requests another.
+    /// machine's destroy request, so no receipt from these creates, including one
+    /// after a failed deletion, requests another. A receipt naming a different
+    /// machine still cleans that one up, as closing its workspace always has.
+    /// Call this before closing the machine's workspaces, so the close finds no
+    /// create left to cancel.
     /// - Parameters:
     ///   - machineID: The provider machine being deleted.
     ///   - workspaceIDs: Local workspaces bound to the machine.
-    /// - Returns: Process and presentation effects, never a cleanup request.
+    /// - Returns: Process and presentation effects, with cleanup only for another machine.
     public func retireCreates(producing machineID: String, presentedIn workspaceIDs: Set<UUID> = []) -> CloudMachineCreateTransition {
         deletedMachineIDs.insert(machineID)
-        return remove(where: { $0.createdMachineID == machineID }, closePresentations: true, cleanup: false)
+        return remove(
+            where: { operation in
+                operation.createdMachineID == machineID
+                    || operation.request.presentationWorkspaceID.map(workspaceIDs.contains) ?? false
+            },
+            closePresentations: true,
+            sparing: machineID
+        )
     }
 
     /// Lets creates keep a machine whose deletion failed and that is listed again.
@@ -239,8 +254,8 @@ public final class CloudMachineCreateCoordinator {
     /// - Returns: Teardown effects; old callbacks may only produce cleanup, never UI state.
     public func endAccount(cleanupCreatedMachines: Bool = true) -> CloudMachineCreateTransition {
         // Deletions end with the account, without an outcome. Their machines count
-        // as cleaned up, so no departed create destroys one again, but a later create
-        // may keep one whose delete failed on the server.
+        // as cleaned up for the rest of the session, so no departed create destroys
+        // one again, but a later create may keep one whose delete failed on the server.
         cleanupIssued.formUnion(deletedMachineIDs)
         deletedMachineIDs.removeAll()
         let hadAliases = !projection.adoptedOperationIDs.isEmpty
@@ -257,10 +272,12 @@ public final class CloudMachineCreateCoordinator {
     }
 
     /// Partitions once, then installs all tombstones before any adapter can reenter.
+    /// A receipt naming `sparedMachineID` never requests cleanup.
     private func remove(
         where matches: (CloudMachineCreateOperation) -> Bool,
         closePresentations: Bool,
-        cleanup: Bool = true
+        cleanup: Bool = true,
+        sparing sparedMachineID: String? = nil
     ) -> CloudMachineCreateTransition {
         var removed: [CloudMachineCreateOperation] = []
         projection.operations.removeAll { operation in
@@ -276,8 +293,9 @@ public final class CloudMachineCreateCoordinator {
                 transition.cancelOperationIDs.append(operation.id)
                 if cleanup && attempt.canAllocateMachine {
                     // Retain until termination, rather than evicting still-live cancellation receipts.
-                    tombstones[attempt] = carry
-                    if let id = operation.createdMachineID { appendCleanup(id, to: &transition) }
+                    let tombstone = CloudMachineCreateTombstone(carry: carry, sparedMachineID: sparedMachineID)
+                    tombstones[attempt] = tombstone
+                    if let id = operation.createdMachineID, tombstone.cleansUp(id) { appendCleanup(id, to: &transition) }
                 }
             }
             if closePresentations { transition.closedOperations.append(operation) }
@@ -286,9 +304,9 @@ public final class CloudMachineCreateCoordinator {
     }
 
     /// Issues one destruction request even when progress and completion repeat a
-    /// receipt, and none for a machine the user is already deleting. A receipt seen
-    /// during the deletion counts as its cleanup, so a failed delete never leads
-    /// to a later destroy that depends on when the receipt arrived.
+    /// receipt, and none for a machine the user is already deleting. The first
+    /// receipt decides: during the deletion it is the deletion's destroy, and
+    /// after a failed deletion it carries out the person's cancel.
     private func appendCleanup(_ id: String, to transition: inout CloudMachineCreateTransition) {
         guard cleanupIssued.insert(id).inserted, !deletedMachineIDs.contains(id) else { return }
         transition.cleanupMachineIDs.append(id)
