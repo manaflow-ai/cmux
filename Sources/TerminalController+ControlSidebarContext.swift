@@ -95,6 +95,17 @@ extension TerminalController: ControlSidebarContext {
         }
     }
 
+    nonisolated func controlSidebarScheduleAgentReply(
+        target: ControlSidebarTabTarget,
+        key: String,
+        repliedAt: Date?,
+        panelID: UUID?
+    ) {
+        controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
+            owner.recordAgentReply(key: key, at: repliedAt, panelId: panelID)
+        }
+    }
+
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? {
         AgentHibernationLifecycleState.parseCLIValue(raw)?.rawValue
     }
@@ -258,7 +269,8 @@ extension TerminalController: ControlSidebarContext {
             color: entry.color,
             urlAbsoluteString: entry.url?.absoluteString,
             priority: entry.priority,
-            format: ControlSidebarMetadataFormat(rawValue: entry.format.rawValue) ?? .plain
+            format: ControlSidebarMetadataFormat(rawValue: entry.format.rawValue) ?? .plain,
+            lastReplyAtMs: entry.lastReplyAt.map { Int64(($0.timeIntervalSince1970 * 1000).rounded()) }
         )
     }
 

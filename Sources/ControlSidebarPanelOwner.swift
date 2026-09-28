@@ -56,6 +56,15 @@ enum ControlSidebarPanelOwner {
         }
     }
 
+    func recordAgentReply(key: String, at date: Date?, panelId: UUID?) {
+        switch self {
+        case .workspace(let workspace): workspace.recordAgentReply(key: key, at: date, panelId: panelId)
+        case .dock(let dock):
+            guard let panelId else { return }
+            dock.recordAgentReply(key: key, at: date, panelId: panelId)
+        }
+    }
+
     func clearStatusEntry(key: String, panelId: UUID?) {
         switch self {
         case .workspace(let workspace):

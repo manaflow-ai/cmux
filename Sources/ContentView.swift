@@ -17120,7 +17120,7 @@ private struct SidebarMetadataRows: View {
     }
 
     private var helpText: String {
-        entries.map(\.sidebarDisplayText)
+        entries.map(\.sidebarRowText)
         .joined(separator: "\n")
     }
 
@@ -17218,7 +17218,7 @@ private struct SidebarMetadataEntryRow: View {
 
     @ViewBuilder
     private func metadataText(underlined: Bool) -> some View {
-        let display = entry.sidebarDisplayText
+        let display = entry.sidebarRowText
         if entry.format == .markdown,
            let parsed = try? AttributedString(
                 markdown: display,

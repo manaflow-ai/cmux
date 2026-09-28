@@ -99,6 +99,7 @@ extension ControlCommandCoordinator {
         case "list_meta_blocks": return sidebarListMetaBlocks(args, context: context)
         case "set_agent_pid": return sidebarSetAgentPID(args, context: context)
         case "set_agent_lifecycle": return sidebarSetAgentLifecycle(args, context: context)
+        case "set_agent_reply": return sidebarSetAgentReply(args, context: context)
         case "workspace_loading": return sidebarWorkspaceLoading(args, context: context)
         case "agent_hibernation": return sidebarAgentHibernation(args, context: context)
         case "clear_agent_pid": return sidebarClearAgentPID(args, context: context)
@@ -403,6 +404,7 @@ extension ControlCommandCoordinator {
         if let url = entry.urlAbsoluteString { line += " url=\(url)" }
         if entry.priority != 0 { line += " priority=\(entry.priority)" }
         if entry.format != .plain { line += " format=\(entry.format.rawValue)" }
+        if let lastReplyAtMs = entry.lastReplyAtMs { line += " last_reply_ms=\(lastReplyAtMs)" }
         return line
     }
 

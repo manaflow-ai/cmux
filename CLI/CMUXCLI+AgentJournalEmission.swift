@@ -248,4 +248,53 @@ extension CMUXCLI {
             // stderr warning above already made the failure visible.
         }
     }
+
+    /// Bytes of transcript tail scanned for the newest reply. Tool output
+    /// dominates a transcript, so a reply older than this window keeps the
+    /// time already shown rather than paying for a larger read per hook.
+    static let agentLastReplyTranscriptTailBytes: UInt64 = 256 * 1024
+
+    /// Publishes when the agent last replied with visible text, shown in the
+    /// sidebar beside its status ("Running · replied 7:41 AM").
+    ///
+    /// The local transcript tail gives the newest text reply's own
+    /// timestamp; tool calls, tool results, subagent and synthetic messages
+    /// never count. `payloadCarriesReply` (a Stop payload holding the final
+    /// assistant message) is only the fallback when no transcript is
+    /// readable: hooks can be replayed late and a repeated Stop repeats the
+    /// same text, so "now" is less exact than the transcript. Best effort:
+    /// no reply found, or a relay-backed socket, leaves the time already
+    /// shown in place.
+    func publishAgentLastReply(
+        client: SocketClient,
+        agentKey: String,
+        workspaceId: String,
+        surfaceId: String?,
+        transcriptPath: String?,
+        payloadCarriesReply: Bool = false
+    ) {
+        guard !client.isRelayBacked else { return }
+        var repliedAt: Date?
+        if let path = normalizedHookValue(transcriptPath),
+           let lines = readRecentTextFileLines(path: path, maxBytes: Self.agentLastReplyTranscriptTailBytes) {
+            repliedAt = AgentTranscriptLastReply().lastReplyDate(inJSONLLines: lines)
+        } else if payloadCarriesReply {
+            repliedAt = Date()
+        }
+        guard let repliedAt else { return }
+        let milliseconds = Int64((repliedAt.timeIntervalSince1970 * 1000).rounded())
+        _ = try? sendV1Command(
+            "set_agent_reply \(agentKey) \(milliseconds) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            client: client
+        )
+    }
+
+    /// Forgets the pane's reply time when a fresh session starts in it.
+    func clearAgentLastReply(client: SocketClient, agentKey: String, workspaceId: String, surfaceId: String?) {
+        guard !client.isRelayBacked else { return }
+        _ = try? sendV1Command(
+            "set_agent_reply \(agentKey) clear --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            client: client
+        )
+    }
 }

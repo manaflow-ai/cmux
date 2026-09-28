@@ -74,6 +74,13 @@ extension ControlSidebarContext {
         panelID: UUID?
     ) {}
 
+    nonisolated func controlSidebarScheduleAgentReply(
+        target: ControlSidebarTabTarget,
+        key: String,
+        repliedAt: Date?,
+        panelID: UUID?
+    ) {}
+
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? { nil }
 
     nonisolated func controlSidebarIsAllowedAgentLifecycleKey(

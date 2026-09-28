@@ -439,7 +439,8 @@ extension TerminalController {
                     color: $0.color,
                     urlAbsoluteString: $0.url?.absoluteString,
                     priority: $0.priority,
-                    format: ControlSidebarMetadataFormat(rawValue: $0.format.rawValue) ?? .plain
+                    format: ControlSidebarMetadataFormat(rawValue: $0.format.rawValue) ?? .plain,
+                    lastReplyAtMs: $0.lastReplyAt.map { Int64(($0.timeIntervalSince1970 * 1000).rounded()) }
                 )
             },
             metadataBlocks: tab.sidebarMetadataBlocksInDisplayOrder().map {
