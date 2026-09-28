@@ -570369,6 +570369,131 @@
           }
         }
       }
+    },
+    "cli.sshPtyAttach.launchAcknowledgementTimeoutRetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux did not acknowledge the SSH launch; retrying %s in %ss."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux hat den SSH-Start nicht bestätigt; neuer Versuch %s in %ss."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux n’a pas confirmé le démarrage SSH ; nouvelle tentative %s dans %ss."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] لم يؤكد cmux بدء SSH؛ ستتم إعادة المحاولة %s خلال %s ث."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux no confirmó el inicio de SSH; reintentando %s en %ss."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux 未確認 SSH 啟動；將在第 %s 次於 %s 秒後重試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux 未确认 SSH 启动；将在第 %s 次于 %s 秒后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux가 SSH 시작을 확인하지 못했습니다. %s번째로 %s초 후 다시 시도합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux が SSH の起動を確認できないため、%s 回目を %s 秒後に再試行します。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux nije potvrdio SSH pokretanje; ponovni pokušaj %s za %ss."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux bekræftede ikke SSH-starten; prøver igen %s om %ss."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux non ha confermato l’avvio SSH; nuovo tentativo %s tra %ss."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux មិនបានបញ្ជាក់ការចាប់ផ្តើម SSH ទេ; កំពុងព្យាយាមម្តងទៀត %s ក្នុងរយៈពេល %ss។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux bekreftet ikke SSH-oppstarten; prøver på nytt %s om %ss."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux nie potwierdził uruchomienia SSH; ponawianie próby %s za %ss."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] o cmux não confirmou o início do SSH; tentando novamente %s em %ss."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux не подтвердил запуск SSH; повторная попытка %s через %ss."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux ไม่ยืนยันการเริ่มต้น SSH; กำลังลองใหม่ครั้งที่ %s ในอีก %s วินาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux SSH başlatmasını onaylamadı; %s saniye içinde %s. deneme yapılıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux не підтвердив запуск SSH; повторна спроба %s через %s с."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
