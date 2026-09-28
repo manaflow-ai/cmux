@@ -1,5 +1,8 @@
+import CMUXMobileCore
 internal import CmuxMobileDiagnostics
 import CmuxMobilePairedMac
+import CmuxMobileRPC
+import CmuxMobileShellModel
 import Foundation
 
 @MainActor
@@ -24,6 +27,84 @@ extension MobileShellComposite {
             scope: scope,
             excluding: pairingIDs
         )
+    }
+
+    /// Dials one discovered Mac with the exact client the foreground connect
+    /// would build for its first route, and waits for its first response.
+    ///
+    /// The returned client is handed to ``connectStoredMacOutcome`` which
+    /// authenticates on it, so racing every candidate still opens only one
+    /// transport per Mac. No shell state changes here; a dial failure only
+    /// records the automatic-reconnect backoff its error requests.
+    func dialZeroTouchCandidate(
+        _ mac: MobilePairedMac,
+        automaticReconnectAccountID: String,
+        track: @MainActor (MobileCoreRPCClient) -> Bool
+    ) async -> ZeroTouchDialAttempt {
+        guard let runtime else { return .skipped }
+        let plan = storedMacDialPlan(
+            routes: orderedReconnectRoutes(
+                for: mac,
+                supportedKinds: runtime.supportedRouteKinds
+            ),
+            pairedMacDeviceID: mac.macDeviceID,
+            expectedInstanceTag: macInstanceTagAuthority.expectation(
+                storedInstanceTag: mac.instanceTag
+            ).expectedTag,
+            legacyTailscaleRoutes: mac.legacyTailscaleRoutes ?? [],
+            knownPairing: mac
+        )
+        guard plan.methodPinnedCandidates?.isEmpty != true,
+              let route = plan.routes.first,
+              route.kind == .iroh,
+              let ticket = try? Self.storedMacTicket(
+                  name: mac.displayName ?? mac.macDeviceID,
+                  routes: plan.routes,
+                  pairedMacDeviceID: mac.macDeviceID
+              ) else {
+            return .skipped
+        }
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+            irohDirectOnlyDialCandidates: plan.methodPinnedCandidates,
+            connectAttemptRegistry: connectAttemptRegistry,
+            stackTokenGate: stackTokenGate,
+            stackTokenForceRefreshGate: stackTokenForceRefreshGate,
+            transportConnectObserver: transportConnectDiagnosticObserver(
+                peerID: ticket.macDeviceID
+            )
+        )
+        // The race owns the client from here so a newer reconnect or sign-out
+        // can tear the dial down and free its endpoint lease.
+        guard track(client) else {
+            client.retire()
+            return .skipped
+        }
+        do {
+            _ = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "mobile.host.status",
+                    params: [:]
+                ),
+                timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
+            )
+            try Task.checkCancellation()
+            return .reachable(client)
+        } catch {
+            await client.disconnect()
+            // A dial torn down by a newer pass must not write Retry-After
+            // pacing over the backoff that pass just cleared.
+            if !Task.isCancelled {
+                recordAutomaticReconnectBackoff(
+                    error: error,
+                    accountID: automaticReconnectAccountID
+                )
+            }
+            return .failed(error)
+        }
     }
 
     /// Loads fresh compatible peers after the foreground session is usable.
