@@ -1574,7 +1574,15 @@ jobs:
   #
   # The one job in this workflow with actions: write, which dispatching takes.
   # Only a same-repository pull request reaches the dispatch, and its author
-  # can already dispatch any workflow; a fork's token is read-only regardless.
+  # can already dispatch any workflow (and edit this job, which a pull_request
+  # run takes from the pull request); a fork's token is read-only regardless.
+  # The dispatcher it runs is main's, matching the test-e2e.yml definition it
+  # dispatches, so a change to scripts/run-e2e.sh or the helpers it imports
+  # never runs with the token before review. The pull request supplies only
+  # the selectors, which must be plain UI test class or method names, and the
+  # revision under test. The flags and CMUX_* variables below are this file's,
+  # read by main's dispatcher: a pull request that changes both takes effect
+  # here only once it merges, and its dispatcher change is not exercised here.
   ui-tests:
     needs:
       - changes
@@ -1596,10 +1604,22 @@ jobs:
           echo "::error::This fork pull request changes UI test classes ($SELECTORS), which only a same-repository dispatch can run. A maintainer runs scripts/run-e2e.sh on its head and adds the 'no-full-ci' label."
           exit 1
 
-      - name: Checkout
+      - name: Checkout the dispatcher from the default branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
+
+      # The dispatcher compares the product inputs of the head and the merge
+      # (git ls-tree / git show), so it needs their objects. Fetched, never
+      # checked out; without them it only finds fewer products to adopt.
+      - name: Fetch the revisions under test
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_SHA: ${{ github.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$HEAD_SHA" "$MERGE_SHA" \
+            || echo "::warning::could not fetch $HEAD_SHA and $MERGE_SHA; the dispatch may compile instead of adopting a product"
 
       - name: Run the changed UI test classes
         env:
@@ -1633,8 +1653,24 @@ jobs:
             exit 130
           }
           trap cancel_dispatch INT TERM
-          # shellcheck disable=SC2086
-          scripts/run-e2e.sh $SELECTORS --ref "$HEAD_SHA" --wait --no-video $FORCE > >(tee "$log") 2>&1 &
+          # The selectors come from the pull request's own `changes` job, so
+          # each must be a UI test class or method, never an option.
+          read -r -a selectors <<< "$SELECTORS"
+          if [ "${#selectors[@]}" -eq 0 ]; then
+            echo "::error::no UI test selectors to run"
+            exit 1
+          fi
+          for selector in "${selectors[@]}"; do
+            if [[ ! "$selector" =~ ^cmuxUITests/[A-Za-z_][A-Za-z0-9_]*(/[A-Za-z_][A-Za-z0-9_]*)?$ ]]; then
+              echo "::error::refusing UI test selector '$selector': not cmuxUITests/<Class>[/<method>]"
+              exit 1
+            fi
+          done
+          extra=(--wait --no-video)
+          if [ "$FORCE" = "--force" ]; then
+            extra+=(--force)
+          fi
+          scripts/run-e2e.sh "${selectors[@]}" --ref "$HEAD_SHA" "${extra[@]}" > >(tee "$log") 2>&1 &
           wait $!
 
   dogfood-build:
