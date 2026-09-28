@@ -95,6 +95,12 @@ extension Workspace {
                 statusEntriesForPanel[statusKey] = statusEntry
             }
         }
+        // A program's OSC 21337 status moves with its surface; the program
+        // only re-sends it when something changes.
+        let sessionStatusKey = Self.terminalSessionStatusKey(panelId: panelId)
+        if let statusEntry = statusEntries[sessionStatusKey] {
+            statusEntriesForPanel[sessionStatusKey] = statusEntry
+        }
         guard !statusEntriesForPanel.isEmpty
                 || !agentPIDsForPanel.isEmpty
                 || !pidKeys.isEmpty
@@ -576,6 +582,10 @@ extension Workspace {
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
         agentStatusEntriesByPanelId.removeValue(forKey: panelId)
+        let sessionStatusKey = Self.terminalSessionStatusKey(panelId: panelId)
+        if statusEntries[sessionStatusKey] != nil {
+            statusEntries.removeValue(forKey: sessionStatusKey)
+        }
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)

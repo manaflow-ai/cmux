@@ -136,7 +136,9 @@ extension Workspace {
         let layout = layoutCodec.pruned(rawLayout, keeping: persistedPanelIds) ?? .pane(
             SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
         )
+        // Session status belongs to a running program, so it is not restored.
         let statusSnapshots = statusEntries.values
+            .filter { !Self.isTerminalSessionStatusKey($0.key) }
             .sorted { lhs, rhs in lhs.key < rhs.key }
             .map { entry in
                 SessionStatusEntrySnapshot(
@@ -6590,6 +6592,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             validSurfaceIds.contains($0.key)
         }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
+        pruneTerminalSessionStatusEntries(validSurfaceIds: validSurfaceIds)
         let staleAgentPIDPanelIds = agentPIDKeysByPanelId.keys.filter { !validSurfaceIds.contains($0) }
         var didClearStaleAgentRuntime = false
         for panelId in staleAgentPIDPanelIds {

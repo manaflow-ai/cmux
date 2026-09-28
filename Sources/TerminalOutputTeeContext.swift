@@ -6,7 +6,8 @@ import os
 ///
 /// SAFETY: libghostty invokes a surface's tee callback serially on that
 /// surface's IO read thread. After initialization, only that callback mutates
-/// `detectors`; other threads receive copied value identifiers after a match.
+/// `detectors`, `sessionStatusScanner` and `sessionStatus`; other threads
+/// receive copied values after a match.
 final class TerminalOutputTeeContext: @unchecked Sendable {
     private struct DetectorBinding {
         let agentID: String
@@ -48,13 +49,42 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     private var detectors: [DetectorBinding]
     private let forwardQueue = OSAllocatedUnfairLock(initialState: ForwardQueue())
 
+    /// The latest session status waiting for the main actor, and whether a
+    /// publish is already scheduled.
+    private struct SessionStatusOutbox: Sendable {
+        var pending: TerminalSessionStatus?
+        var scheduled = false
+    }
+
+    /// OSC 21337 changes reach the sidebar at most this often per surface;
+    /// changes in between coalesce to the newest.
+    private static let sessionStatusPublishInterval: TimeInterval = 0.25
+
+    typealias SessionStatusSink = @MainActor @Sendable (TerminalSessionStatus) -> Void
+
+    private var sessionStatusScanner = TerminalSessionStatusOSCScanner()
+    private var sessionStatus = TerminalSessionStatus()
+    private let sessionStatusOutbox = OSAllocatedUnfairLock(initialState: SessionStatusOutbox())
+    private let sessionStatusSink: SessionStatusSink
+
     init(
         workspaceID: UUID,
         surfaceID: UUID,
-        agentDefinitions: [CmuxTaskManagerCodingAgentDefinition]
+        agentDefinitions: [CmuxTaskManagerCodingAgentDefinition],
+        sessionStatusSink: SessionStatusSink? = nil
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
+        if let sessionStatusSink {
+            self.sessionStatusSink = sessionStatusSink
+        } else {
+            self.sessionStatusSink = { status in
+                AppDelegate.shared?
+                    .workspaceContainingPanel(panelId: surfaceID, preferredWorkspaceId: workspaceID)?
+                    .workspace
+                    .applyTerminalSessionStatus(status, panelId: surfaceID)
+            }
+        }
         self.notificationHandler = PromptTurnNotificationHandler(
             workspaceID: workspaceID,
             surfaceID: surfaceID
@@ -70,6 +100,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     }
 
     func consume(_ bytes: UnsafeBufferPointer<UInt8>) {
+        consumeSessionStatus(bytes)
         let now = clock.now
         for index in detectors.indices {
             if let confirmation = detectors[index].detector.pendingConfirmation,
@@ -83,6 +114,40 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
 
             detectors[index].detector.consume(bytes)
             forwardDetectorChangeIfNeeded(at: index, now: now)
+        }
+    }
+
+    private func consumeSessionStatus(_ bytes: UnsafeBufferPointer<UInt8>) {
+        let updates = sessionStatusScanner.consume(bytes)
+        guard !updates.isEmpty else { return }
+        for update in updates {
+            sessionStatus.apply(update)
+        }
+        // Every sequence is published, even one that repeats the last status:
+        // the entry may have been moved or cleared since, and the workspace
+        // skips writes that change nothing.
+        let next = sessionStatus
+        let shouldSchedule = sessionStatusOutbox.withLock { outbox in
+            outbox.pending = next
+            guard !outbox.scheduled else { return false }
+            outbox.scheduled = true
+            return true
+        }
+        guard shouldSchedule else { return }
+        let outbox = sessionStatusOutbox
+        let sink = sessionStatusSink
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.sessionStatusPublishInterval) {
+            let status = outbox.withLock { outbox -> TerminalSessionStatus? in
+                defer {
+                    outbox.pending = nil
+                    outbox.scheduled = false
+                }
+                return outbox.pending
+            }
+            guard let status else { return }
+            MainActor.assumeIsolated {
+                sink(status)
+            }
         }
     }
 
