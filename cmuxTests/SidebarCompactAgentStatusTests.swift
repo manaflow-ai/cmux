@@ -668,4 +668,40 @@ struct SidebarCompactAgentStatusTests {
         #expect(plain.compactStatusGlyph == nil)
         #expect(!plain.pullRequestRows.isEmpty)
     }
+
+    /// The setting-to-snapshot path. `partition` is covered directly above and
+    /// the glyph resolution below it, but neither proves the factory calls them
+    /// with the setting's own value, which is the wiring the user toggles.
+    @Test
+    func factoryFoldsAgentRowsAndKeepsCustomOnesWhenCompact() {
+        let workspace = Workspace(
+            title: "Project",
+            workingDirectory: FileManager.default.currentDirectoryPath,
+            portOrdinal: 0
+        )
+        defer { workspace.teardownAllPanels() }
+        workspace.statusEntries["claude_code"] = Self.entry("claude_code", "Needs input")
+        workspace.statusEntries["deploy"] = Self.entry("deploy", "green")
+
+        func snapshot(compact: Bool) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+            let defaults = Self.makeDefaults()
+            defaults.set(compact, forKey: "sidebarCompactAgentStatus")
+            return SidebarWorkspaceSnapshotFactory(
+                workspace: workspace,
+                settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+                showsAgentActivity: false
+            ).makeSnapshot()
+        }
+
+        // On: the agent key leaves the rows and becomes the glyph; the key the
+        // user wrote themselves stays a row.
+        let on = snapshot(compact: true)
+        #expect(on.metadataEntries.map(\.key) == ["deploy"])
+        #expect(on.compactStatusGlyph != nil)
+
+        // Off: both keys are rows and no glyph is built at all.
+        let off = snapshot(compact: false)
+        #expect(Set(off.metadataEntries.map(\.key)) == ["claude_code", "deploy"])
+        #expect(off.compactStatusGlyph == nil)
+    }
 }
