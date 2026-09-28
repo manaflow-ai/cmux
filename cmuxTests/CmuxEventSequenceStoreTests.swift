@@ -6,6 +6,24 @@ import XCTest
 @testable import cmux
 #endif
 
+// Sendable safety: the lock guards the only mutable state shared by the two test queues.
+private final class SequenceValuesBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [Int64] = []
+
+    func append(_ value: Int64) {
+        lock.lock()
+        values.append(value)
+        lock.unlock()
+    }
+
+    var snapshot: [Int64] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
+    }
+}
+
 final class CmuxEventSequenceStoreTests: XCTestCase {
     func testDurablePublishDoesNotPersistSequenceForEveryEvent() async throws {
         let directory = FileManager.default.temporaryDirectory
@@ -36,8 +54,7 @@ final class CmuxEventSequenceStoreTests: XCTestCase {
 
         let firstStore = CmuxEventSequenceStore(eventLogURL: logURL, blockSize: 8)
         let secondStore = CmuxEventSequenceStore(eventLogURL: logURL, blockSize: 8)
-        let valuesLock = NSLock()
-        var values: [Int64] = []
+        let values = SequenceValuesBox()
         let group = DispatchGroup()
         let firstQueue = DispatchQueue(label: "cmux.event-sequence-test.first")
         let secondQueue = DispatchQueue(label: "cmux.event-sequence-test.second")
@@ -46,25 +63,22 @@ final class CmuxEventSequenceStoreTests: XCTestCase {
             group.enter()
             firstQueue.async {
                 if let sequence = firstStore.allocate() {
-                    valuesLock.lock()
                     values.append(sequence)
-                    valuesLock.unlock()
                 }
                 group.leave()
             }
             group.enter()
             secondQueue.async {
                 if let sequence = secondStore.allocate() {
-                    valuesLock.lock()
                     values.append(sequence)
-                    valuesLock.unlock()
                 }
                 group.leave()
             }
         }
 
         XCTAssertEqual(group.wait(timeout: .now() + 5), .success)
-        XCTAssertEqual(values.count, 128)
-        XCTAssertEqual(Set(values).count, values.count)
+        let allocated = values.snapshot
+        XCTAssertEqual(allocated.count, 128)
+        XCTAssertEqual(Set(allocated).count, allocated.count)
     }
 }
