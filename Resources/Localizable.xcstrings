@@ -98911,6 +98911,65 @@
         }
       }
     },
+    "cli.restore.notice.routedLauncherUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: this session was started through the routed launcher '%@', which is not on PATH. Resuming the agent directly instead."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: このセッションはルーティングされたランチャー「%@」経由で開始されましたが、PATH にありません。代わりにエージェントを直接再開します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：此会话是通过路由启动器“%@”启动的，但它不在 PATH 中。将改为直接恢复该代理。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: Diese Sitzung wurde über den weitergeleiteten Launcher „%@“ gestartet, der nicht im PATH liegt. Der Agent wird stattdessen direkt fortgesetzt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore : cette session a été lancée via le lanceur routé « %@ », qui est introuvable dans le PATH. Reprise directe de l'agent à la place."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: بدأت هذه الجلسة عبر المشغّل الموجَّه '%@'، وهو غير موجود في PATH. سيتم استئناف الوكيل مباشرةً بدلاً من ذلك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: esta sesión se inició mediante el lanzador enrutado '%@', que no está en el PATH. Se reanudará el agente directamente."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：此工作階段是透過路由啟動器「%@」啟動的，但它不在 PATH 中。將改為直接繼續該代理程式。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: 이 세션은 라우팅된 런처 '%@'를 통해 시작되었지만 PATH에 없습니다. 대신 에이전트를 직접 재개합니다."
+          }
+        }
+      }
+    },
     "cli.restore.usage.positional": {
       "extractionState": "manual",
       "localizations": {
