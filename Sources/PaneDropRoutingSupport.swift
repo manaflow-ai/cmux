@@ -219,8 +219,28 @@ enum PaneDropRouting {
 
 typealias TerminalPaneDropRouting = PaneDropRouting
 
+/// Shows, moves and hides a pane drop-zone highlight.
+///
+/// Moving between zones sets the model frame to the new zone at once, so layout
+/// and hit geometry never trail the pointer, and draws the change as a slide:
+/// additive offsets decay from the displayed frame to zero. Offsets stack, so a
+/// retarget during a slide continues from where the highlight is drawn.
 @MainActor
 final class PaneDropZoneOverlayAnimator {
+    enum Transition: Equatable {
+        case unchanged
+        case shown
+        case moved
+        case hidden
+    }
+
+    /// Short with a steep ease-out, so about half the distance is covered on
+    /// the first frame and the highlight keeps pace with the pointer.
+    private static let slideDuration: CFTimeInterval = 0.16
+
+    /// Pins Reduce Motion for tests; nil reads the system setting.
+    static var reduceMotionOverrideForTesting: Bool?
+
     private let overlayView: NSView
     private var displayedZone: DropZone?
     private var animationGeneration: UInt64 = 0
@@ -250,22 +270,27 @@ final class PaneDropZoneOverlayAnimator {
         overlayView.alphaValue = 1
     }
 
+    /// Shows the highlight for `zone`, or fades it out for `nil`.
+    ///
+    /// `bringToFront` runs before any animation is added, so reordering the
+    /// overlay never drops an in-flight slide.
+    @discardableResult
     func setZone(
         _ zone: DropZone?,
         frameForZone: (DropZone) -> CGRect,
         ensureAttached: () -> Void,
         bringToFront: () -> Void
-    ) {
+    ) -> Transition {
         let previousZone = displayedZone
         displayedZone = zone
 
         guard let zone else {
-            guard !overlayView.isHidden else { return }
+            bringToFront()
+            // A visible overlay with no zone is already fading out.
+            guard previousZone != nil, !overlayView.isHidden else { return .unchanged }
             animationGeneration &+= 1
             let generation = animationGeneration
-            overlayView.layer?.removeAllAnimations()
-            bringToFront()
-
+            // In-flight slides keep running so the highlight fades where it is drawn.
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.14
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -279,40 +304,50 @@ final class PaneDropZoneOverlayAnimator {
                     self.overlayView.alphaValue = 1
                 }
             }
-            return
+            return .hidden
         }
 
         ensureAttached()
         let targetFrame = frameForZone(zone)
-        let needsFrameUpdate = !Self.rectApproximatelyEqual(overlayView.frame, targetFrame)
+        bringToFront()
         let zoneChanged = previousZone != zone
-
-        if !overlayView.isHidden && !needsFrameUpdate && !zoneChanged {
-            bringToFront()
-            return
+        if !overlayView.isHidden && !zoneChanged && Self.rectApproximatelyEqual(overlayView.frame, targetFrame) {
+            return .unchanged
         }
 
         animationGeneration &+= 1
-        overlayView.layer?.removeAllAnimations()
 
         if overlayView.isHidden {
-            applyFrame(targetFrame)
+            overlayView.layer?.removeAllAnimations()
+            snapFrame(targetFrame)
             overlayView.alphaValue = 0
             overlayView.isHidden = false
-            bringToFront()
-
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.18
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                overlayView.animator().alphaValue = 1
-            }
-            return
+            fadeIn()
+            return .shown
         }
 
-        // Retargeting snaps to the new zone; sliding the frame lags the pointer.
-        applyFrame(targetFrame)
-        bringToFront()
-        guard overlayView.alphaValue < 1 else { return }
+        // A new zone slides; a reframe of the same zone follows layout at once.
+        if zoneChanged && overlayView.window != nil && !Self.reducesMotion {
+            slide(to: targetFrame)
+        } else {
+            snapFrame(targetFrame)
+        }
+        if overlayView.alphaValue < 1 {
+            fadeIn()
+        }
+        return .moved
+    }
+
+    /// Sets the frame without animation, leaving any in-flight slide running.
+    func snapFrame(_ frame: CGRect) {
+        guard !Self.rectApproximatelyEqual(overlayView.frame, frame) else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        overlayView.frame = frame
+        CATransaction.commit()
+    }
+
+    private func fadeIn() {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.18
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -320,12 +355,40 @@ final class PaneDropZoneOverlayAnimator {
         }
     }
 
-    private func applyFrame(_ frame: CGRect) {
-        guard !Self.rectApproximatelyEqual(overlayView.frame, frame) else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        overlayView.frame = frame
-        CATransaction.commit()
+    private func slide(to frame: CGRect) {
+        let displayedFrame = overlayView.frame
+        snapFrame(frame)
+        guard let layer = overlayView.layer else { return }
+        let sizeOffset = CGSize(
+            width: displayedFrame.width - frame.width,
+            height: displayedFrame.height - frame.height
+        )
+        // A layer's position is its frame origin plus anchorPoint × size.
+        let anchor = layer.anchorPoint
+        let positionOffset = CGPoint(
+            x: displayedFrame.minX - frame.minX + anchor.x * sizeOffset.width,
+            y: displayedFrame.minY - frame.minY + anchor.y * sizeOffset.height
+        )
+        if positionOffset != .zero {
+            addSlide(to: layer, keyPath: "position", from: NSValue(point: positionOffset), to: NSValue(point: .zero))
+        }
+        if sizeOffset != .zero {
+            addSlide(to: layer, keyPath: "bounds.size", from: NSValue(size: sizeOffset), to: NSValue(size: .zero))
+        }
+    }
+
+    private func addSlide(to layer: CALayer, keyPath: String, from offset: NSValue, to zero: NSValue) {
+        let animation = CABasicAnimation(keyPath: keyPath)
+        animation.fromValue = offset
+        animation.toValue = zero
+        animation.isAdditive = true
+        animation.duration = Self.slideDuration
+        animation.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
+        layer.add(animation, forKey: "paneDropZone.slide.\(keyPath).\(animationGeneration)")
+    }
+
+    private static var reducesMotion: Bool {
+        reduceMotionOverrideForTesting ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
     private static func rectApproximatelyEqual(_ lhs: CGRect, _ rhs: CGRect, epsilon: CGFloat = 0.5) -> Bool {

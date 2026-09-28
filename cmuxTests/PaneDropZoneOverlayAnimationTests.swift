@@ -79,13 +79,15 @@ enum DropZoneOverlaySlideProbe {
 }
 
 /// A borderless, never-ordered-in window whose content view hosts the overlay:
-/// the overlay only slides while it is in a window.
+/// the overlay only slides while it is in a window. Reduce Motion is pinned
+/// while the host is open, so results don't depend on the Mac running them.
 @MainActor
 private final class OverlayWindowHost {
     let window: NSWindow
     let container: NSView
 
-    init(size: CGSize) {
+    init(size: CGSize, reduceMotion: Bool = false) {
+        PaneDropZoneOverlayAnimator.reduceMotionOverrideForTesting = reduceMotion
         window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless],
@@ -101,32 +103,37 @@ private final class OverlayWindowHost {
     func close() {
         window.orderOut(nil)
         window.contentView = nil
+        PaneDropZoneOverlayAnimator.reduceMotionOverrideForTesting = nil
     }
 }
 
 @MainActor
 private final class OverlayAnimatorHost {
-    private let windowHost = OverlayWindowHost(size: CGSize(width: 200, height: 100))
+    private let windowHost: OverlayWindowHost?
+    let container: NSView
     let overlay = NSView(frame: .zero)
     let animator: PaneDropZoneOverlayAnimator
-    var container: NSView { windowHost.container }
 
-    init() {
+    init(reduceMotion: Bool = false, inWindow: Bool = true) {
+        let size = CGSize(width: 200, height: 100)
+        windowHost = inWindow ? OverlayWindowHost(size: size, reduceMotion: reduceMotion) : nil
+        container = windowHost?.container ?? NSView(frame: NSRect(origin: .zero, size: size))
         animator = PaneDropZoneOverlayAnimator(overlayView: overlay)
-        windowHost.container.addSubview(overlay)
+        container.addSubview(overlay)
     }
 
     func close() {
-        windowHost.close()
+        windowHost?.close()
     }
 
-    func frame(for zone: DropZone) -> CGRect {
-        PaneDropRouting.overlayFrame(for: zone, in: container.bounds)
+    func frame(for zone: DropZone, in bounds: CGRect? = nil) -> CGRect {
+        PaneDropRouting.overlayFrame(for: zone, in: bounds ?? container.bounds)
     }
 
-    func setZone(_ zone: DropZone?) {
-        let bounds = container.bounds
-        animator.setZone(
+    @discardableResult
+    func setZone(_ zone: DropZone?, in bounds: CGRect? = nil) -> PaneDropZoneOverlayAnimator.Transition {
+        let bounds = bounds ?? container.bounds
+        return animator.setZone(
             zone,
             frameForZone: { PaneDropRouting.overlayFrame(for: $0, in: bounds) },
             ensureAttached: {},
@@ -148,6 +155,12 @@ struct PaneDropZoneOverlayAnimationTests {
         #expect(Probe.approximatelyEqual(start, displayed), "slide starts at \(start), displayed \(displayed)")
     }
 
+    /// Checks that `overlay` jumped straight to `target` without a geometry animation.
+    private func expectSnap(of overlay: NSView, to target: CGRect) {
+        #expect(Probe.approximatelyEqual(overlay.frame, target))
+        #expect(Probe.geometryAnimations(on: overlay).isEmpty)
+    }
+
     @Test("Retargeting slides the overlay from the displayed zone to the new one")
     func retargetSlides() throws {
         let host = OverlayAnimatorHost()
@@ -167,6 +180,64 @@ struct PaneDropZoneOverlayAnimationTests {
         host.setZone(.center)
 
         try expectSlide(of: host.overlay, from: host.frame(for: .right), to: host.frame(for: .center))
+    }
+
+    @Test("Reduce Motion moves the overlay without sliding")
+    func reduceMotionSnaps() {
+        let host = OverlayAnimatorHost(reduceMotion: true)
+        defer { host.close() }
+        host.setZone(.right)
+        host.setZone(.left)
+
+        expectSnap(of: host.overlay, to: host.frame(for: .left))
+    }
+
+    @Test("An overlay outside a window moves without sliding")
+    func windowlessRetargetSnaps() {
+        let host = OverlayAnimatorHost(inWindow: false)
+        host.setZone(.right)
+        host.setZone(.left)
+
+        expectSnap(of: host.overlay, to: host.frame(for: .left))
+    }
+
+    @Test("Resizing the pane keeps the same zone pinned to the new layout")
+    func sameZoneReframeSnaps() {
+        let host = OverlayAnimatorHost()
+        defer { host.close() }
+        host.setZone(.right)
+        let resized = CGRect(x: 0, y: 0, width: 160, height: 80)
+        let transition = host.setZone(.right, in: resized)
+
+        #expect(transition == .moved)
+        expectSnap(of: host.overlay, to: host.frame(for: .right, in: resized))
+    }
+
+    @Test("Hiding during a slide fades the overlay where it is drawn")
+    func hideDuringSlideKeepsSlide() throws {
+        let host = OverlayAnimatorHost()
+        defer { host.close() }
+        host.setZone(.right)
+        host.setZone(.left)
+        let transition = host.setZone(nil)
+
+        #expect(transition == .hidden)
+        try expectSlide(of: host.overlay, from: host.frame(for: .right), to: host.frame(for: .left))
+    }
+
+    @Test("Zone changes report what the overlay did")
+    func transitions() {
+        let host = OverlayAnimatorHost()
+        defer { host.close() }
+
+        #expect(host.setZone(.right) == .shown)
+        #expect(!host.overlay.isHidden)
+        #expect(host.setZone(.right) == .unchanged)
+        #expect(host.setZone(.left) == .moved)
+        #expect(host.setZone(nil) == .hidden)
+        #expect(host.setZone(nil) == .unchanged)
+        #expect(host.setZone(.top) == .moved)
+        #expect(Probe.approximatelyEqual(host.overlay.frame, host.frame(for: .top)))
     }
 
     @Test("Browser drop overlay slides between zones")
