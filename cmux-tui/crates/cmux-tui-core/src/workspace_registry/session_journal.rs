@@ -437,14 +437,15 @@ impl ResourceEffectJournalState {
 }
 
 pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let subject_index_existed = transaction.query_row(
-        "SELECT EXISTS(
-           SELECT 1 FROM sqlite_master
-           WHERE type = 'table' AND name = 'journal_subject_index'
-         )",
-        [],
-        |row| row.get::<_, bool>(0),
-    )?;
+    let table_exists = |name: &str| {
+        transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+            [name],
+            |row| row.get::<_, bool>(0),
+        )
+    };
+    let subject_index_existed = table_exists("journal_subject_index")?;
+    let event_index_existed = table_exists("journal_event_index")?;
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS session_journal (
            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -505,8 +506,6 @@ pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
              )
            )
          );
-         INSERT OR IGNORE INTO journal_event_index(event_id, sequence, causation_depth)
-           SELECT event_id, sequence, causation_depth FROM session_journal;
          CREATE TRIGGER IF NOT EXISTS session_journal_reject_update
            BEFORE UPDATE ON session_journal
          BEGIN
@@ -527,6 +526,21 @@ pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
          BEGIN
            SELECT RAISE(ABORT, 'journal subject index is append-only');
          END;",
+    )?;
+    // Every append writes its event index row in the same transaction, so an
+    // existing index can only lack a tail left by a build that predates it.
+    // Repairing from its highest sequence keeps this open-time step a seek
+    // instead of a pass over the whole journal.
+    transaction.execute(
+        if event_index_existed {
+            "INSERT OR IGNORE INTO journal_event_index(event_id, sequence, causation_depth)
+               SELECT event_id, sequence, causation_depth FROM session_journal
+               WHERE sequence > (SELECT COALESCE(MAX(sequence), 0) FROM journal_event_index)"
+        } else {
+            "INSERT OR IGNORE INTO journal_event_index(event_id, sequence, causation_depth)
+               SELECT event_id, sequence, causation_depth FROM session_journal"
+        },
+        [],
     )?;
     if !subject_index_existed {
         transaction.execute_batch(
@@ -1132,6 +1146,22 @@ impl WorkspaceRegistry {
         query_session_journal_after(&self.connection, sequence, limit)
     }
 
+    /// Records in `(sequence, through]` other than `terminal.output`, oldest
+    /// first, at most `limit`, and the sequence the read covered through.
+    /// Terminal output is nearly the whole journal, and folding agent state
+    /// never reads it: its producer is the terminal runtime and its format is
+    /// fixed, so it can be neither an agent-hook nor an agent-plugin event.
+    /// Replaying such a reducer through this read costs the other records,
+    /// not the output history.
+    pub(crate) fn session_journal_without_output_after(
+        &self,
+        sequence: u64,
+        through: u64,
+        limit: usize,
+    ) -> anyhow::Result<(Vec<SessionJournalRecord>, u64)> {
+        query_session_journal_without_output_after(&self.connection, sequence, through, limit)
+    }
+
     /// Return the highest sequence in the active or archived journal without
     /// decoding any records. Reducer recovery uses this to reject a stale
     /// snapshot cursor while remaining valid when the journal has compacted
@@ -1346,6 +1376,72 @@ pub(super) fn query_session_journal_after(
         "session journal contains a gap after sequence {sequence}"
     );
     Ok(SessionJournalPage { head_sequence, records })
+}
+
+fn query_session_journal_without_output_after(
+    connection: &Connection,
+    sequence: u64,
+    through: u64,
+    limit: usize,
+) -> anyhow::Result<(Vec<SessionJournalRecord>, u64)> {
+    anyhow::ensure!(limit > 0, "journal page limit must be positive");
+    anyhow::ensure!(
+        limit <= MAX_JOURNAL_PAGE_SIZE,
+        "journal page limit exceeds {MAX_JOURNAL_PAGE_SIZE}"
+    );
+    if sequence >= through {
+        return Ok((Vec::new(), through));
+    }
+    // Sealed segments are decoded whole; filter them after decoding.
+    let archived = archived_records_after(connection, sequence, limit)?;
+    if archived.first().is_some_and(|record| record.sequence <= through) {
+        let covered = archived
+            .into_iter()
+            .take_while(|record| record.sequence <= through)
+            .collect::<Vec<_>>();
+        let reached = covered.last().map_or(through, |record| record.sequence);
+        let records =
+            covered.into_iter().filter(|record| record.kind != "terminal.output").collect();
+        return Ok((records, reached));
+    }
+    // Two ranges of the (kind, sequence) index around 'terminal.output'
+    // visit only the other kinds' entries, however much output there is.
+    let mut statement = connection.prepare(
+        "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
+                occurred_at_ms, committed_at_ms, producer_json, authority_json,
+                causation_id, correlation_id, causation_depth, subjects_json,
+                sensitivity, payload_json, content, resource_revision,
+                previous_resource_revision
+         FROM session_journal INDEXED BY session_journal_by_kind_sequence
+         WHERE kind < 'terminal.output' AND sequence > ?1 AND sequence <= ?2
+         UNION ALL
+         SELECT sequence, event_id, schema_version, kind, class, replay_policy,
+                occurred_at_ms, committed_at_ms, producer_json, authority_json,
+                causation_id, correlation_id, causation_depth, subjects_json,
+                sensitivity, payload_json, content, resource_revision,
+                previous_resource_revision
+         FROM session_journal INDEXED BY session_journal_by_kind_sequence
+         WHERE kind > 'terminal.output' AND sequence > ?1 AND sequence <= ?2
+         ORDER BY sequence ASC
+         LIMIT ?3",
+    )?;
+    let records = statement
+        .query_map(
+            params![
+                i64::try_from(sequence).context("journal sequence exceeds SQLite range")?,
+                i64::try_from(through).context("journal sequence exceeds SQLite range")?,
+                i64::try_from(limit).context("journal page limit exceeds SQLite range")?,
+            ],
+            stored_record_row,
+        )?
+        .map(|row| decode_record(row?))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let reached = if records.len() < limit {
+        through
+    } else {
+        records.last().map_or(through, |record| record.sequence)
+    };
+    Ok((records, reached))
 }
 
 fn query_journal_head(connection: &Connection) -> anyhow::Result<u64> {
