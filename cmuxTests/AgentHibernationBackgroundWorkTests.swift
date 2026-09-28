@@ -56,10 +56,9 @@ struct AgentHibernationBackgroundWorkTests {
             Self.backgroundBashLaunch(toolUseID: "toolu_bash", taskID: "bshell1"),
         ])
 
-        let outcome = fixture.snapshotBeforeTeardown()
-
-        if case .snapshot = outcome {
+        guard case .backgroundWorkPending = fixture.snapshotBeforeTeardown() else {
             Issue.record("A pane with an unfinished background shell must not be torn down")
+            return
         }
     }
 
@@ -89,9 +88,50 @@ struct AgentHibernationBackgroundWorkTests {
             Self.monitorEventNotification(taskID: "a1234567890abcdef"),
         ])
 
-        if case .snapshot = fixture.snapshotBeforeTeardown() {
+        guard case .backgroundWorkPending = fixture.snapshotBeforeTeardown() else {
             Issue.record("A pane with a running async subagent must not be torn down")
+            return
         }
+    }
+
+    @Test
+    func batchedNotificationWithOnlyTaskIDsFinishesEveryNamedTask() {
+        let lines = [
+            Self.asyncAgentLaunch(toolUseID: "toolu_a", agentID: "a1111111111111111"),
+            Self.asyncAgentLaunch(toolUseID: "toolu_b", agentID: "a2222222222222222"),
+            #"{"type":"user","timestamp":"2026-09-28T08:09:00.000Z","message":{"role":"user","content":"<task-notification>\n<task-id>a1111111111111111</task-id>\n<task-id>a2222222222222222</task-id>\n<status>stopped</status>\n<summary>2 background agents stopped</summary>\n</task-notification>"}}"#,
+        ]
+
+        #expect(Self.unfinished(lines).isEmpty)
+    }
+
+    @Test
+    func launchesBeforeTheAgentProcessStartedAreIgnored() {
+        let lines = [Self.backgroundBashLaunch(toolUseID: "toolu_old", taskID: "bold", timestamp: "2026-09-28T07:00:00.000Z")]
+        let agentStartedAt = ISO8601DateFormatter().date(from: "2026-09-28T07:30:00Z")
+
+        #expect(Self.unfinished(lines, notBefore: agentStartedAt).isEmpty)
+        #expect(Self.unfinished(lines) == ["toolu_old"])
+    }
+
+    @Test
+    func monitorEventsAndQuotedNotificationsDoNotFinishATask() {
+        let quotedNotification = #"{"type":"user","timestamp":"2026-09-28T08:02:00.000Z","message":{"role":"user","content":[{"tool_use_id":"toolu_cat","type":"tool_result","content":"<task-notification>\n<task-id>bmon1</task-id>\n<tool-use-id>toolu_monitor</tool-use-id>\n<status>completed</status>\n</task-notification>"}]},"toolUseResult":{"stdout":"","stderr":""}}"#
+        let lines = [
+            #"{"type":"user","timestamp":"2026-09-28T08:00:07.000Z","message":{"role":"user","content":[{"tool_use_id":"toolu_monitor","type":"tool_result","content":"Monitor started"}]},"toolUseResult":{"taskId":"bmon1","timeoutMs":900000,"persistent":false}}"#,
+            Self.monitorEventNotification(taskID: "bmon1"),
+            quotedNotification,
+        ]
+
+        #expect(Self.unfinished(lines) == ["toolu_monitor"])
+        #expect(Self.unfinished(lines + [Self.queuedNotification(toolUseID: "toolu_monitor", taskID: "bmon1", status: "completed")]).isEmpty)
+    }
+
+    private static func unfinished(_ lines: [String], notBefore: Date? = nil) -> Set<String> {
+        AgentHibernationTranscriptGuard.unfinishedBackgroundLaunchIDs(
+            inTranscriptTail: Data(lines.joined(separator: "\n").utf8),
+            notBefore: notBefore
+        )
     }
 
     // MARK: Fixtures

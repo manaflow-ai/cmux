@@ -12,6 +12,20 @@ extension AgentHibernationRecord {
             Set(processIdentities.keys) == processIDs
     }
 
+    /// When the oldest process in the agent's scope started. Background work
+    /// the transcript records before this belongs to an earlier agent process.
+    var agentProcessStartedAt: Date? {
+        guard let earliest = processIdentities.values.min(by: {
+            ($0.startSeconds, $0.startMicroseconds) < ($1.startSeconds, $1.startMicroseconds)
+        }) else {
+            return nil
+        }
+        return Date(
+            timeIntervalSince1970: TimeInterval(earliest.startSeconds) +
+                TimeInterval(earliest.startMicroseconds) / 1_000_000
+        )
+    }
+
     /// Reclaim may terminate a live process only with complete scope evidence.
     var processSafetyAllowsHibernation: Bool {
         switch processLiveness {
