@@ -324,7 +324,8 @@ fn run_response(
                 }
                 let result = response.result.expect("validated result");
                 if !plan.stream {
-                    return print_success(&result, global.output);
+                    let code = print_success(&result, global.output);
+                    return if code == 0 { success_exit_code(plan, &result) } else { code };
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
                     eprintln!("protocol error: stream response did not confirm the requested ID");
@@ -442,6 +443,17 @@ fn read_envelope(
             .map(Some)
             .map_err(|error| format!("protocol error: invalid JSON response: {error}"));
     }
+}
+
+/// `terminal <id> screen wait` reports a timeout as a normal result with
+/// `matched: false`. The result is still printed, but the exit status is 1
+/// (spec/commands.md), so a script can tell a timeout from a match.
+fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
+    let unmatched_wait = matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::TerminalWait)
+    ) && result.get("matched") == Some(&Value::Bool(false));
+    i32::from(unmatched_wait)
 }
 
 fn print_success(value: &Value, output: OutputMode) -> i32 {
