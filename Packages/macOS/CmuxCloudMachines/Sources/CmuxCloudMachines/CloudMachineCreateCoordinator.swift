@@ -104,6 +104,8 @@ public final class CloudMachineCreateCoordinator {
         carries[attempt.operationID] = carry
         if let id, projection.operations[index].createdMachineID == nil {
             projection.operations[index].createdMachineID = id
+            // The machine was deleted before its receipt arrived: stop this create.
+            if cleanupIssued.contains(id) { return retireCreates(producing: id) }
             adopt(projection.operations[index])
             transition.changed = true
         }
@@ -127,6 +129,12 @@ public final class CloudMachineCreateCoordinator {
         var operation = projection.operations[index]
         operation.createdMachineID = completion.machineID ?? operation.createdMachineID ?? output.machineID(in: completion.output)
         projection.operations[index] = operation
+        if let id = operation.createdMachineID, cleanupIssued.contains(id) {
+            // The process already ended, so retiring it installs no receipt tombstone.
+            attempts[operation.id] = nil
+            carries[operation.id] = nil
+            return retireCreates(producing: id)
+        }
         adopt(operation)
         attempts[operation.id] = nil
         carries[operation.id] = nil
@@ -199,10 +207,15 @@ public final class CloudMachineCreateCoordinator {
     }
 
     /// Retires every create that produced a machine whose deletion just began.
+    ///
+    /// Running creates stop, and their presentations close. Deletion owns the
+    /// destroy request, so no receipt from these creates, including one that
+    /// arrives later, requests another.
     /// - Parameter machineID: The provider machine being deleted.
     /// - Returns: Process and presentation effects, never a cleanup request.
     public func retireCreates(producing machineID: String) -> CloudMachineCreateTransition {
-        CloudMachineCreateTransition()
+        cleanupIssued.insert(machineID)
+        return remove(where: { $0.createdMachineID == machineID }, closePresentations: true)
     }
 
     /// Fences an account transition and clears account-specific projection aliases.
@@ -251,7 +264,8 @@ public final class CloudMachineCreateCoordinator {
         return transition
     }
 
-    /// Issues one destruction request even when progress and completion repeat a receipt.
+    /// Issues one destruction request even when progress and completion repeat a
+    /// receipt, and none for a machine the user is already deleting.
     private func appendCleanup(_ id: String, to transition: inout CloudMachineCreateTransition) {
         guard cleanupIssued.insert(id).inserted else { return }
         transition.cleanupMachineIDs.append(id)
