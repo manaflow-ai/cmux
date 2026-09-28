@@ -57,12 +57,30 @@ final class UpdateInstallRelaunchTests: XCTestCase {
         )
     }
 
+    /// Sparkle's ready-to-install prompt must be answered for the user, so the click that
+    /// started the download is the only one needed to install.
+    func testReadyToInstallIsAnsweredWithoutAnotherPromptWhileACommandRuns() throws {
+        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+        let workspace = try makeWorkspace(appDelegate)
+        for panelId in workspace.panels.keys {
+            workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        }
+        let controller = try makeController(appDelegate)
+        let reply = ReadyReplyBox()
+
+        controller.driver.showReady(toInstallAndRelaunch: { reply.choice = $0 })
+
+        XCTAssertEqual(
+            reply.choice,
+            .install,
+            "Install and Relaunch must not wait on another prompt while a command runs"
+        )
+    }
+
     /// Wires an updater to the app the way launch does, then asks the question Sparkle asks
     /// before relaunching. Like Sparkle, an unimplemented optional method means relaunch now.
     private func sparkleWouldPostponeRelaunch(_ appDelegate: AppDelegate) throws -> Bool {
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuiteName))
-        let controller = UpdateController(log: DiscardingUpdateLog(), defaults: defaults)
-        controller.actionDelegate = appDelegate
+        let controller = try makeController(appDelegate)
         let updater = try XCTUnwrap(controller.updater as? SPUUpdater)
         let delegate: any SPUUpdaterDelegate = controller.driver
         return delegate.updater?(
@@ -70,6 +88,13 @@ final class UpdateInstallRelaunchTests: XCTestCase {
             shouldPostponeRelaunchForUpdate: SUAppcastItem.empty(),
             untilInvokingBlock: {}
         ) ?? false
+    }
+
+    private func makeController(_ appDelegate: AppDelegate) throws -> UpdateController {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuiteName))
+        let controller = UpdateController(log: DiscardingUpdateLog(), defaults: defaults)
+        controller.actionDelegate = appDelegate
+        return controller
     }
 
     private func makeWorkspace(_ appDelegate: AppDelegate) throws -> Workspace {
@@ -86,6 +111,11 @@ final class UpdateInstallRelaunchTests: XCTestCase {
         let identifier = "cmux.main.\(windowId.uuidString)"
         return NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
     }
+}
+
+/// Captures the reply sent to Sparkle's ready-to-install prompt.
+private final class ReadyReplyBox: @unchecked Sendable {
+    var choice: SPUUserUpdateChoice?
 }
 
 private struct DiscardingUpdateLog: UpdateLogging {
