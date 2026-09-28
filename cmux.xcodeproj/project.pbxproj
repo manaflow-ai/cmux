@@ -904,6 +904,8 @@
 		E70630CCBD97DD2200F5D4B0 /* CloudTreePlaceholderContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB831845720B2F8256DC58DA /* CloudTreePlaceholderContent.swift */; };
 		EEF4BF6D13124E43BC712704 /* CloudTreeRemoteWorkspaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = 952C5F710BB34A9AA8652CEF /* CloudTreeRemoteWorkspaces.swift */; };
 		D12406000000000000000002 /* CloudTreeResizeMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12406000000000000000001 /* CloudTreeResizeMenu.swift */; };
+		EB9FC1181F634D85A3DC1D7D /* CloudTreeResourceName.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68E8A21507F440A09928EAFF /* CloudTreeResourceName.swift */; };
+		8A38E1D91F8CE305A4AA40C8 /* CloudTreeResourceNameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 815B34C51F041C75008E9F24 /* CloudTreeResourceNameTests.swift */; };
 		CF30E2713423E3919EAE5C73 /* CloudTreeRowContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53075CD5172053B8F994DA2B /* CloudTreeRowContentView.swift */; };
 		46B69D1B0F705975988FFF7F /* CloudTreeRowHeight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 333CFD2BE68E128395477836 /* CloudTreeRowHeight.swift */; };
 				E46FF9A1C016449BB38FF7BC /* CloudTreeRowHoverButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15190300163941E780877031 /* CloudTreeRowHoverButtons.swift */; };
@@ -5081,6 +5083,8 @@
 		FB831845720B2F8256DC58DA /* CloudTreePlaceholderContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreePlaceholderContent.swift"; sourceTree = "<group>"; };
 		952C5F710BB34A9AA8652CEF /* CloudTreeRemoteWorkspaces.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeRemoteWorkspaces.swift; sourceTree = "<group>"; };
 		D12406000000000000000001 /* CloudTreeResizeMenu.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeResizeMenu.swift; sourceTree = "<group>"; };
+		68E8A21507F440A09928EAFF /* CloudTreeResourceName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeResourceName.swift; sourceTree = "<group>"; };
+		815B34C51F041C75008E9F24 /* CloudTreeResourceNameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreeResourceNameTests.swift"; sourceTree = "<group>"; };
 		53075CD5172053B8F994DA2B /* CloudTreeRowContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeRowContentView.swift; sourceTree = "<group>"; };
 		333CFD2BE68E128395477836 /* CloudTreeRowHeight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreeRowHeight.swift"; sourceTree = "<group>"; };
 				15190300163941E780877031 /* CloudTreeRowHoverButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeRowHoverButtons.swift; sourceTree = "<group>"; };
@@ -8799,6 +8803,7 @@
 				81E53580E2DFD42DB9F7FEC5 /* CloudTreeDevicesEmptyView.swift */,
 				5F0E1505C0F4E87D29858B72 /* CloudTreeDevicesEmptyCell.swift */,
 				DEC1CE000000000000000035 /* CloudTreeDeviceRowContent.swift */,
+				68E8A21507F440A09928EAFF /* CloudTreeResourceName.swift */,
 				53075CD5172053B8F994DA2B /* CloudTreeRowContentView.swift */,
 				4EF7BCD47CC347BC8A5660AD /* CloudSidebarOrganizationStore.swift */,
 				EA34C8F7DABB44E193EF9294 /* CloudSidebarOrganizationTree.swift */,
@@ -12338,6 +12343,7 @@
 				23E35F95320CBED308AD98CF /* CloudTreeTogglePerformanceTests.swift */,
 				0C37EA14DE74095FB1BB23E1 /* CloudTreeDisclosureIntentTests.swift */,
 				6F27EA9972F21B98FB4A7312 /* SurfaceCatalogObservationTests.swift */,
+				815B34C51F041C75008E9F24 /* CloudTreeResourceNameTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -13582,6 +13588,7 @@
 				E70630CCBD97DD2200F5D4B0 /* CloudTreePlaceholderContent.swift in Sources */,
 				EEF4BF6D13124E43BC712704 /* CloudTreeRemoteWorkspaces.swift in Sources */,
 				D12406000000000000000002 /* CloudTreeResizeMenu.swift in Sources */,
+				EB9FC1181F634D85A3DC1D7D /* CloudTreeResourceName.swift in Sources */,
 				CF30E2713423E3919EAE5C73 /* CloudTreeRowContentView.swift in Sources */,
 				46B69D1B0F705975988FFF7F /* CloudTreeRowHeight.swift in Sources */,
 				E46FF9A1C016449BB38FF7BC /* CloudTreeRowHoverButtons.swift in Sources */,
@@ -16212,6 +16219,7 @@
 				C986A0030000000000000001 /* CloudTreeNativeDragOwnershipTests.swift in Sources */,
 				B3D054B84DA1EEBD9DD499A2 /* CloudTreeNodeCacheTests.swift in Sources */,
 				45F29E8BB64E4EE4BF204AC7 /* CloudTreeOneMachineManyWorkspacesTests.swift in Sources */,
+				8A38E1D91F8CE305A4AA40C8 /* CloudTreeResourceNameTests.swift in Sources */,
 				71DB787610BE94EC84EDA5F4 /* CloudTreeTogglePerformanceTests.swift in Sources */,
 				A12367000000000000000002 /* CloudTreeWorkspaceTitleLayoutTests.swift in Sources */,
 				A838AA211BDA47268C683501 /* CloudTuiManualIOConnectionTests.swift in Sources */,
