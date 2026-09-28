@@ -1,6 +1,65 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.cloud.emptyWorkspacesHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Mac? Create a Cloud machine in the Cloud tab and its workspaces appear here."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Mac? Erstelle im Tab „Cloud“ eine Cloud-Maschine, dann erscheinen ihre Arbeitsbereiche hier."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas de Mac ? Créez une machine Cloud dans l’onglet Cloud et ses espaces de travail apparaîtront ici."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد Mac؟ أنشئ جهاز Cloud في تبويب Cloud وستظهر مساحات عمله هنا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿No tienes Mac? Crea una máquina de Cloud en la pestaña Cloud y sus espacios de trabajo aparecerán aquí."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有 Mac？在「Cloud」分頁建立 Cloud 主機，其工作區就會顯示在這裡。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有 Mac？在“Cloud”标签页创建 Cloud 主机，其工作区就会显示在这里。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac이 없나요? Cloud 탭에서 Cloud 머신을 만들면 작업 공간이 여기에 표시됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macがない場合は、「Cloud」タブでCloudマシンを作成すると、そのワークスペースがここに表示されます。"
+          }
+        }
+      }
+    },
     "mobile.cloud.machine.connectFailed": {
       "extractionState": "manual",
       "localizations": {
