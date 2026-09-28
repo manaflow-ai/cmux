@@ -1589,9 +1589,13 @@ public actor VMClient {
             summary.capabilities = VMCapabilities(vmResponse: obj)
             summary.displayName = (obj["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            // The create receipt is appended straight to the list the panel is
-            // already showing. Without this the machine you just made is the
-            // one row with no author on it.
+            // `create` has one caller today, the `vm.create` socket method, so
+            // this is what `cmux vm new --json` prints. The sidebar does not
+            // read it: the panel only ever assigns a whole `listPage()` result,
+            // so a created machine shows its author on the next list refresh
+            // and not before. Decoded here anyway because the field is in the
+            // response and a client that did merge this into the row it already
+            // listed would otherwise blank the author out.
             summary.createdBy = VMCreator(vmResponse: obj)
             // The create receipt names the new machine's private address and
             // attach contract, so the app can register and dial it without a
@@ -1674,8 +1678,10 @@ public actor VMClient {
                 summary.displayName = label
             }
             summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            // A status read replaces the listed row, so skipping this would
-            // make a machine go anonymous the moment anything polled it.
+            // Same as the create site: `status(id:)`'s one caller is the
+            // `vm.status` socket method, so this feeds `cmux vm status --json`.
+            // The panel's per-machine refresh goes through `SurfaceCatalog`,
+            // not through here.
             summary.createdBy = VMCreator(vmResponse: obj)
             if let address = obj["address"] as? [String: Any] {
                 summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }

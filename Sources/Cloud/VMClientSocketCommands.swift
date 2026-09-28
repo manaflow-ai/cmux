@@ -829,9 +829,13 @@ extension TerminalController {
             payload["slug"] = slug
         }
         if let createdBy = vm.createdBy {
-            // Shaped like the HTTP response, explicit null and all, so a
-            // relayed client decodes one payload rather than two. No author
-            // means no key, which is what the backend omits.
+            // A known account with no recorded name sends an explicit null for
+            // the name, the same shape the HTTP response uses, so a consumer
+            // written against `/api/vm` decodes this without a second case.
+            // No author at all sends no key, where the backend sends
+            // `"createdBy": null`; both live readers treat absent and null the
+            // same, so this is narrower than the wire format rather than a
+            // second meaning.
             payload["createdBy"] = [
                 "userId": createdBy.userId,
                 "displayName": createdBy.displayName.map { $0 as Any } ?? NSNull(),
