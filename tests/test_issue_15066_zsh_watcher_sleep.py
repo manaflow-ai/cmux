@@ -15,10 +15,14 @@ no running cmux instance or network access is involved.
 from __future__ import annotations
 
 import os
+import pty
+import select
+import signal
 import shutil
 import socket
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -26,15 +30,71 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "Resources" / "shell-integration" / "cmux-zsh-integration.zsh"
 
 
-def run_zsh(command: str, *, env: dict[str, str], cwd: Path | None = None, timeout: float = 10.0) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["/bin/zsh", "-f", "-c", command, "cmux-test", str(SCRIPT)],
-        cwd=cwd,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
+def run_zsh(
+    command: str,
+    *,
+    env: dict[str, str],
+    cwd: Path | None = None,
+    timeout: float = 10.0,
+    job_control: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    argv = ["/bin/zsh", "-f", "-c", command, "cmux-test", str(SCRIPT)]
+    if not job_control:
+        return subprocess.run(
+            argv,
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+
+    pid, master_fd = pty.fork()
+    if pid == 0:
+        if cwd is not None:
+            os.chdir(cwd)
+        os.execve("/bin/zsh", ["/bin/zsh", "-f", "-i", "-c", command, "cmux-test", str(SCRIPT)], env)
+        os._exit(127)
+
+    os.set_blocking(master_fd, False)
+    output = bytearray()
+    status: int | None = None
+    deadline = time.monotonic() + timeout
+    try:
+        while status is None:
+            try:
+                chunk = os.read(master_fd, 4096)
+                if chunk:
+                    output.extend(chunk)
+            except BlockingIOError:
+                pass
+            except OSError:
+                break
+            waited_pid, status = os.waitpid(pid, os.WNOHANG)
+            if waited_pid == 0:
+                status = None
+            if status is not None:
+                break
+            if time.monotonic() >= deadline:
+                os.killpg(pid, signal.SIGKILL)
+                _, status = os.waitpid(pid, 0)
+                return subprocess.CompletedProcess(argv, 124, output.decode(errors="replace"), output.decode(errors="replace"))
+            select.select([master_fd], [], [], 0.05)
+
+        # Drain bytes already queued before the PTY reports EIO/EOF.
+        while True:
+            try:
+                chunk = os.read(master_fd, 4096)
+            except (BlockingIOError, OSError):
+                break
+            if not chunk:
+                break
+            output.extend(chunk)
+    finally:
+        os.close(master_fd)
+    returncode = os.waitstatus_to_exitcode(status) if status is not None else 1
+    text_output = output.decode(errors="replace")
+    return subprocess.CompletedProcess(argv, returncode, text_output, text_output)
 
 
 def assert_ok(result: subprocess.CompletedProcess[str], label: str) -> None:
@@ -166,6 +226,7 @@ _cmux_start_git_head_watch
 }
 kill -0 "$_CMUX_PR_POLL_PID" || { print -r -- "PR_WATCHER_NOT_ALIVE"; exit 4; }
 kill -0 "$_CMUX_GIT_HEAD_WATCH_PID" || { print -r -- "GIT_WATCHER_NOT_ALIVE"; exit 5; }
+kill -0 -- -"$_CMUX_PR_POLL_PID" 2>/dev/null || { print -r -- "PR_WATCHER_GROUP_MISSING"; exit 8; }
 print -r -- "WATCHERS:${_CMUX_PR_POLL_PID}:${_CMUX_GIT_HEAD_WATCH_PID}"
 pr_pid="$_CMUX_PR_POLL_PID"
 git_pid="$_CMUX_GIT_HEAD_WATCH_PID"
@@ -207,7 +268,7 @@ done
 }
 print -r -- "TEARDOWN:${_CMUX_PR_POLL_PID}:${_CMUX_GIT_HEAD_WATCH_PID}"
 '''
-        result = run_zsh(command, env=env, cwd=repo, timeout=8.0)
+        result = run_zsh(command, env=env, cwd=repo, timeout=8.0, job_control=True)
         assert_ok(result, "watcher loops")
         watcher_lines = [line for line in result.stdout.splitlines() if line.startswith("WATCHERS:")]
         if len(watcher_lines) != 1 or "TEARDOWN::" not in result.stdout:
