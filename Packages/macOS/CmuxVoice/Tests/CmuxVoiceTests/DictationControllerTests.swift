@@ -170,19 +170,9 @@ private final class FailureRecorder {
     func record(_ failure: DictationFailure) { failures.append(failure) }
 }
 
-/// Polls the main actor until a condition holds, yielding between checks.
-/// Deterministic: no wall-clock sleeps, just cooperative yields with a
-/// bounded iteration count.
 @MainActor
-private func waitUntil(
-    _ condition: @MainActor () -> Bool,
-    iterations: Int = 10_000
-) async -> Bool {
-    for _ in 0..<iterations {
-        if condition() { return true }
-        await Task.yield()
-    }
-    return condition()
+private func waitUntil(_ condition: @MainActor () -> Bool) async -> Bool {
+    await dictationWaitUntil(condition)
 }
 
 @MainActor

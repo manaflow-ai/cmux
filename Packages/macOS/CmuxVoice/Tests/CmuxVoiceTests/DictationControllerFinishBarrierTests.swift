@@ -61,15 +61,8 @@ private final class FinishBarrierTranscriber: SpeechTranscribing, @unchecked Sen
 }
 
 @MainActor
-private func finishBarrierWaitUntil(
-    _ condition: @MainActor () -> Bool,
-    iterations: Int = 10_000
-) async -> Bool {
-    for _ in 0..<iterations {
-        if condition() { return true }
-        await Task.yield()
-    }
-    return condition()
+private func finishBarrierWaitUntil(_ condition: @MainActor () -> Bool) async -> Bool {
+    await dictationWaitUntil(condition)
 }
 
 @MainActor

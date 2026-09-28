@@ -88,18 +88,12 @@ struct DictationControllerTimeoutTests {
         )
         controller.start()
 
-        for _ in 0..<10_000 {
-            if controller.phase == .listening { break }
-            await Task.yield()
-        }
+        _ = await dictationWaitUntil { controller.phase == .listening }
         #expect(controller.phase == .listening)
 
         controller.stop()
-        for _ in 0..<10_000 {
-            if controller.phase == .failed(.transcriptionFailed("dictation stop timed out")) {
-                break
-            }
-            await Task.yield()
+        _ = await dictationWaitUntil {
+            controller.phase == .failed(.transcriptionFailed("dictation stop timed out"))
         }
         #expect(controller.phase == .failed(.transcriptionFailed("dictation stop timed out")))
         #expect(inserter.endCount == 1)
