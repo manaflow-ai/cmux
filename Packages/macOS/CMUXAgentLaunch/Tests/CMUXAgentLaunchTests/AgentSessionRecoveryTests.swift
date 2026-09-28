@@ -184,22 +184,52 @@ struct AgentSessionRecoveryPlannerTests {
         candidate.launchCommand?.launcherPrefix = prefix + ["--resume", "old"]
         #expect(candidate.launcherResumeArguments(isReadableFile: { _ in true }) == nil)
 
-        // A proven Subrouter-routed launch resumes the way `cmux restore`
-        // does: through sr with only the account pin, never the private
-        // per-launch settings file.
+        // A proven routed launch is left to `cmux restore`, which checks the
+        // launcher on PATH, authorizes the wrapper and reapplies the mode.
         candidate.launchCommand = AgentLaunchCommand(
             arguments: ["claude", "--settings", "/tmp/subrouter-claude-settings-abc/settings.json", "--model", "opus"],
             environment: [
                 SubrouterClaudeResumeRouting.environmentKey: "sr claude proxy --resume",
                 SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: "sr claude proxy --resume",
             ],
-            launcherPrefix: prefix + ["--resume", "old", "prompt"]
+            launcherPrefix: prefix
         )
         #expect(candidate.routesThroughSubrouter)
-        #expect(
-            candidate.launcherResumeArguments(isReadableFile: { _ in true })
-                == ["sr", "claude", "proxy", "--account", "me@example.com", "--resume", "s1", "--model", "opus"]
+        #expect(candidate.launcherResumeArguments(isReadableFile: { _ in true }) == nil)
+    }
+
+    @Test("launcher resume reapplies the observed permission mode unless the launch pinned one")
+    func launcherResumeAppliesObservedPermissionMode() throws {
+        let prefix = ["caffeinate", "-i", "claude"]
+        var candidate = AgentRecoveryCandidate(
+            kind: "claude",
+            sessionId: "s1",
+            workspaceId: nil,
+            cwd: "/tmp",
+            launchCommand: AgentLaunchCommand(arguments: ["claude", "--model", "opus"], launcherPrefix: prefix),
+            permissionMode: "acceptEdits",
+            lastActivity: now
         )
+        let arguments = try #require(candidate.launcherResumeArguments(isReadableFile: { _ in true }))
+        #expect(Array(arguments.prefix(5)) == prefix + ["--resume", "s1"])
+        #expect(Array(arguments.suffix(2)) == ["--permission-mode", "acceptEdits"])
+
+        candidate.launchCommand?.arguments = ["claude", "--dangerously-skip-permissions"]
+        let pinned = try #require(candidate.launcherResumeArguments(isReadableFile: { _ in true }))
+        #expect(!pinned.contains("--permission-mode"))
+
+        // The planner carries the hook-observed mode onto the candidate.
+        let planned = AgentSessionRecoveryPlanner().candidates(
+            journal: [AgentRecoveryJournalSession(sessionId: "s1", source: "claude", lastOccurredAt: now, hasEnded: false)],
+            records: [AgentRecoveryLaunchRecord(
+                kind: "claude", sessionId: "s1", workspaceId: nil, cwd: "/tmp",
+                launchCommand: nil, pid: nil, permissionMode: "plan", updatedAt: now
+            )],
+            openSessionIds: [],
+            isProcessAlive: { _, _ in false },
+            now: now
+        )
+        #expect(planned.first?.permissionMode == "plan")
     }
 
     @Test("launch commands without a launcher prefix still decode")
