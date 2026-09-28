@@ -23,19 +23,19 @@ struct AgentPromptInputDetectorTests {
     @Test("An empty Claude prompt is empty")
     func claudeEmpty() {
         let screen = claudeScreen(input: [[span("\u{276F}\u{00A0}"), span(" ", at: 2)]])
-        #expect(AgentPromptInputDetector.detect(rows: screen) == .empty)
+        #expect(AgentPromptInputState(screenRows: screen) == .empty)
     }
 
     @Test("Text typed at the Claude prompt is a draft")
     func claudeDraft() {
         let screen = claudeScreen(input: [[span("\u{276F}\u{00A0}half typed"), span(" ", at: 12)]])
-        #expect(AgentPromptInputDetector.detect(rows: screen) == .draft("half typed"))
+        #expect(AgentPromptInputState(screenRows: screen) == .draft("half typed"))
     }
 
     @Test("Text after the cursor still counts as a draft")
     func claudeTextAfterCursor() {
         let screen = claudeScreen(input: [[span("\u{276F}\u{00A0}"), span("p", at: 2), span("ed", at: 3)]])
-        #expect(AgentPromptInputDetector.detect(rows: screen) == .draft("ped"))
+        #expect(AgentPromptInputState(screenRows: screen) == .draft("ped"))
     }
 
     @Test("Past prompts in the transcript are not the input row")
@@ -44,7 +44,7 @@ struct AgentPromptInputDetectorTests {
             input: [[span("\u{276F}\u{00A0}"), span(" ", at: 2)]],
             above: [[span("\u{276F} say hi in two words")], [span("\u{25CF} Hello there!")]]
         )
-        #expect(AgentPromptInputDetector.detect(rows: screen) == .empty)
+        #expect(AgentPromptInputState(screenRows: screen) == .empty)
     }
 
     @Test("A multi-line Claude draft is read up to the rule")
@@ -53,13 +53,13 @@ struct AgentPromptInputDetectorTests {
             [span("\u{276F}\u{00A0}first line")],
             [span("  second line")],
         ])
-        #expect(AgentPromptInputDetector.detect(rows: screen) == .draft("first line\n  second line"))
+        #expect(AgentPromptInputState(screenRows: screen) == .draft("first line\n  second line"))
     }
 
     @Test("Faint suggestion text in the Claude prompt is not a draft")
     func claudeFaintSuggestion() {
         let screen = claudeScreen(input: [[span("\u{276F}\u{00A0}"), span(" ", at: 2), span("Try \"fix lint errors\"", at: 3, faint: true)]])
-        #expect(AgentPromptInputDetector.detect(rows: screen) == .empty)
+        #expect(AgentPromptInputState(screenRows: screen) == .empty)
     }
 
     @Test("A boxed Claude prompt ignores its border")
@@ -69,7 +69,7 @@ struct AgentPromptInputDetectorTests {
             [span("\u{2502} \u{276F}\u{00A0}"), span(" ", at: 4), span("\u{2502}", at: 41)],
             [span("\u{2570}" + Self.rule + "\u{256F}")],
         ]
-        #expect(AgentPromptInputDetector.detect(rows: screen) == .empty)
+        #expect(AgentPromptInputState(screenRows: screen) == .empty)
     }
 
     @Test("The Codex placeholder is not a draft")
@@ -81,7 +81,7 @@ struct AgentPromptInputDetectorTests {
             [],
             [span("  gpt-6-astra high \u{00B7} /tmp/drafttest")],
         ]
-        #expect(AgentPromptInputDetector.detect(rows: screen) == .empty)
+        #expect(AgentPromptInputState(screenRows: screen) == .empty)
     }
 
     @Test("Text typed at the Codex prompt is a draft")
@@ -91,7 +91,7 @@ struct AgentPromptInputDetectorTests {
             [],
             [span("  gpt-6-astra high \u{00B7} /tmp/drafttest")],
         ]
-        #expect(AgentPromptInputDetector.detect(rows: screen) == .draft("half typed codex"))
+        #expect(AgentPromptInputState(screenRows: screen) == .draft("half typed codex"))
     }
 
     @Test("Menus and confirmation dialogs are dialogs")
@@ -107,8 +107,8 @@ struct AgentPromptInputDetectorTests {
             [span("  2. Trust all and continue")],
             [span("  Press enter to confirm or esc to go back")],
         ]
-        #expect(AgentPromptInputDetector.detect(rows: claudeTrust) == .dialog)
-        #expect(AgentPromptInputDetector.detect(rows: codexTrust) == .dialog)
+        #expect(AgentPromptInputState(screenRows: claudeTrust) == .dialog)
+        #expect(AgentPromptInputState(screenRows: codexTrust) == .dialog)
         #expect(AgentPromptInputState.dialog.blocksTyping)
     }
 
@@ -118,7 +118,7 @@ struct AgentPromptInputDetectorTests {
             input: [[span("\u{276F}\u{00A0}"), span(" ", at: 2)]],
             above: [[span("\u{25CF} Run the installer, then press enter to confirm the defaults.")]]
         )
-        #expect(AgentPromptInputDetector.detect(rows: screen) == .empty)
+        #expect(AgentPromptInputState(screenRows: screen) == .empty)
     }
 
     @Test("A hint below the input row is a dialog")
@@ -128,13 +128,13 @@ struct AgentPromptInputDetectorTests {
             [span("  2. Deny")],
             [span("  Press enter to confirm or esc to go back")],
         ]
-        #expect(AgentPromptInputDetector.detect(rows: screen) == .dialog)
+        #expect(AgentPromptInputState(screenRows: screen) == .dialog)
     }
 
     @Test("A shell prompt is not an agent prompt")
     func shellIsUnknown() {
         let screen = [[span("leo@big-red ~ % ls")], [span("a b c")], [span("leo@big-red ~ % ")]]
-        #expect(AgentPromptInputDetector.detect(rows: screen) == .unknown)
+        #expect(AgentPromptInputState(screenRows: screen) == .unknown)
         #expect(!AgentPromptInputState.unknown.blocksTyping)
         #expect(!AgentPromptInputState.empty.blocksTyping)
         #expect(AgentPromptInputState.draft("x").blocksTyping)
@@ -143,6 +143,6 @@ struct AgentPromptInputDetectorTests {
     @Test("Spans can arrive out of column order")
     func unorderedSpans() {
         let screen = claudeScreen(input: [[span(" ", at: 6), span("\u{276F}\u{00A0}", at: 0), span("abcd", at: 2)]])
-        #expect(AgentPromptInputDetector.detect(rows: screen) == .draft("abcd"))
+        #expect(AgentPromptInputState(screenRows: screen) == .draft("abcd"))
     }
 }

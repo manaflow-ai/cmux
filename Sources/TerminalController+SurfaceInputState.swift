@@ -101,6 +101,6 @@ extension TerminalController {
                 faint: faintStyles.contains(span.styleID)
             ))
         }
-        return AgentPromptInputDetector.detect(rows: rows)
+        return AgentPromptInputState(screenRows: rows)
     }
 }

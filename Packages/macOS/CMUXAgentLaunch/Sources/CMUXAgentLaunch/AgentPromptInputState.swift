@@ -55,10 +55,10 @@ public struct AgentPromptScreenSpan: Equatable, Sendable {
 ///
 /// Both glyphs can appear in other programs' output, so callers should only
 /// act on the result for a surface known to run an agent.
-public enum AgentPromptInputDetector {
-    static let claudePromptPrefix = "\u{276F}\u{00A0}"
-    static let codexPromptPrefix = "\u{203A} "
-    static let dialogHints = [
+extension AgentPromptInputState {
+    private static let claudePromptPrefix = "\u{276F}\u{00A0}"
+    private static let codexPromptPrefix = "\u{203A} "
+    private static let dialogHints = [
         "esc to cancel",
         "esc to go back",
         "press enter to",
@@ -66,11 +66,17 @@ public enum AgentPromptInputDetector {
         "enter to select",
     ]
     /// How many non-empty rows at the bottom are searched for dialog hints.
-    static let dialogHintRowWindow = 6
+    private static let dialogHintRowWindow = 6
 
+    /// Reads the input state from a screen.
+    ///
     /// - Parameter rows: The visible screen, top to bottom; each row's spans
     ///   in column order.
-    public static func detect(rows: [[AgentPromptScreenSpan]]) -> AgentPromptInputState {
+    public init(screenRows rows: [[AgentPromptScreenSpan]]) {
+        self = Self.detect(rows: rows)
+    }
+
+    private static func detect(rows: [[AgentPromptScreenSpan]]) -> AgentPromptInputState {
         let plainRows = rows.map(plainText)
         let promptRow = plainRows.lastIndex(where: { promptPrefix(in: $0) != nil })
 
