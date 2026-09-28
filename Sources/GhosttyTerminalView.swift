@@ -3355,13 +3355,15 @@ class GhosttyApp {
             // The model outlives its runtime (hibernation, stale-runtime
             // release), so also pin the runtime the action came from. An
             // action queued by a released runtime must not re-show the badge
-            // that terminalSurfaceRuntimeDidRelease() cleared.
-            let sourceRuntimeSurface = target.target.surface
-            DispatchQueue.main.async {
+            // that terminalSurfaceRuntimeDidRelease() cleared. The per-runtime
+            // callback context is compared instead of the native pointer,
+            // which an allocator may reuse for the replacement runtime.
+            DispatchQueue.main.async { [weak callbackContext] in
                 guard surfaceView.terminalSurface === terminalSurface,
-                      let sourceRuntimeSurface,
-                      terminalSurface?.surface == sourceRuntimeSurface else { return }
-                terminalSurface?.hostedView.setPasswordInputActive(echoDisabled)
+                      let callbackContext,
+                      let terminalSurface,
+                      terminalSurface.isActiveRuntimeCallbackContext(callbackContext) else { return }
+                terminalSurface.hostedView.setPasswordInputActive(echoDisabled)
             }
             return true
         case GHOSTTY_ACTION_SCROLLBAR:
