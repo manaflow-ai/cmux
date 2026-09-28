@@ -322,7 +322,12 @@ final class AgentJournalLifecycleCenter: Sendable {
                     cursor = max(cursor, min(page.scannedThroughSequence, upperBound))
                 }
                 noteReconciledScan(through: upperBound)
-                publishAllInterruptBoundaries(observedHeadSequence: upperBound)
+                let reconciledBoundaries = allInterruptBoundaries(
+                    observedHeadSequence: upperBound
+                )
+                await MainActor.run {
+                    interruptSnapshots.withLock { $0.boundaries = reconciledBoundaries }
+                }
                 return upperBound
             }
             for await operation in channel.stream {
