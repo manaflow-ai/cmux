@@ -1,0 +1,33 @@
+{
+  "steps": [
+    {"socket": "workspace.create", "params": {"title": "Links", "initial_input": "clear; echo https://example.com/cmux-dogfood-modifier-click-target-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n", "focus": true}, "save": "links"},
+    {"wait": 2},
+    {"key": "b", "modifiers": ["command"]},
+    {"wait": 1},
+    {"shot": "terminal-with-url"},
+    {"tree": "terminal-with-url"},
+    {"hoverAt": {"x": 0.4, "y": 0.1}},
+    {"wait": 0.5},
+    {"shot": "plain-hover-y010"},
+    {"hoverAt": {"x": 0.4, "y": 0.1}, "modifiers": ["command"]},
+    {"wait": 0.5},
+    {"shot": "cmd-hover-y010"},
+    {"hoverAt": {"x": 0.4, "y": 0.14}, "modifiers": ["command"]},
+    {"wait": 0.5},
+    {"shot": "cmd-hover-y014"},
+    {"hoverAt": {"x": 0.4, "y": 0.18}, "modifiers": ["command"]},
+    {"wait": 0.5},
+    {"shot": "cmd-hover-y018"},
+    {"clickAt": {"x": 0.4, "y": 0.1}, "modifiers": ["command"]},
+    {"wait": 2},
+    {"shot": "after-cmd-click-y010"},
+    {"clickAt": {"x": 0.4, "y": 0.14}, "modifiers": ["command"]},
+    {"wait": 2},
+    {"shot": "after-cmd-click-y014"},
+    {"clickAt": {"x": 0.4, "y": 0.18}, "modifiers": ["command"]},
+    {"wait": 2},
+    {"shot": "after-cmd-click-y018"},
+    {"tree": "after-cmd-clicks"},
+    {"shot": "end", "screen": true}
+  ]
+}
