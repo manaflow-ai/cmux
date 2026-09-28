@@ -25,6 +25,15 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "claudeCodeCustomClaudePath"
     )
 
+    /// Whether agents cmux launches run under a file named after the agent,
+    /// so Activity Monitor and `ps` show `claude` instead of a version
+    /// number. The claude wrapper reads `CMUX_AGENT_PROCESS_NAMES_DISABLED`.
+    public let agentProcessNames = DefaultsKey<Bool>(
+        id: "automation.agentProcessNames",
+        defaultValue: true,
+        userDefaultsKey: "agentProcessNamesEnabled"
+    )
+
     public let piIntegration = DefaultsKey<Bool>(
         id: "automation.piIntegration",
         defaultValue: true,

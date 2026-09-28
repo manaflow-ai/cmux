@@ -1577,6 +1577,7 @@ enum CmuxEmbeddedConfigSchema {
         },
         "codexIntegration": {"type": "boolean", "default": true, "description": "Enable cmux integration hooks for Codex. When disabled, cmux no longer wraps the codex command but still tracks live Codex sessions it can observe."},
         "piIntegration": {"type": "boolean", "default": true, "description": "Enable cmux integration hooks for Pi."},
+        "agentProcessNames": {"type": "boolean", "default": true, "description": "Run agents cmux launches under a file named after the agent, so Activity Monitor and ps show claude instead of a version number. Uses a hardlink in cmux's cache folder, which takes no extra disk space."},
         "claudeBinaryPath": {
           "type": "string",
           "default": "",

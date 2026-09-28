@@ -65,4 +65,8 @@ public struct AgentIntegrationSettingsStore: AgentIntegrationSettingsReading {
     public var suppressesSubagentNotifications: Bool {
         keys.suppressSubagentNotifications.value(in: defaults)
     }
+
+    public var agentProcessNamesEnabled: Bool {
+        AutomationCatalogSection().agentProcessNames.value(in: defaults)
+    }
 }

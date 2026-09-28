@@ -13,6 +13,7 @@ public struct AutomationSection: View {
     @State private var codexModel: DefaultsValueModel<Bool>
     @State private var piModel: DefaultsValueModel<Bool>
     @State private var claudePathModel: DefaultsValueModel<String>
+    @State private var agentProcessNamesModel: DefaultsValueModel<Bool>
     @State private var autoNamingModel: DefaultsValueModel<Bool>
     @State private var autoNamingAgentModel: DefaultsValueModel<String>
     @State private var autoNamingStatusModel: DefaultsValueModel<String>
@@ -62,6 +63,7 @@ public struct AutomationSection: View {
         _codexModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.codexHooksEnabled))
         _piModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.piHooksEnabled))
         _claudePathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeCustomClaudePath))
+        _agentProcessNamesModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.agentProcessNames))
         _autoNamingModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.workspaceAutoNaming))
         _autoNamingAgentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.autoNamingAgent))
         _autoNamingStatusModel = State(initialValue: DefaultsValueModel(
@@ -91,7 +93,8 @@ public struct AutomationSection: View {
             claudeCodeCard
             codexCard
             PiIntegrationCard(isEnabled: piModel.current, setEnabled: { piModel.set($0) })
-            claudePathCard
+            ClaudeBinaryPathCard(path: claudePathModel.current, setPath: { claudePathModel.set($0) })
+            AgentProcessNamesCard(isEnabled: agentProcessNamesModel.current, setEnabled: { agentProcessNamesModel.set($0) })
             autoNamingCard
             ripgrepPathCard
             suppressSubagentCard
@@ -132,7 +135,7 @@ public struct AutomationSection: View {
             ))
         }
         .task {
-            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
+            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, agentProcessNamesModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
         }
         .task(id: automationRulesRefreshID) {
             await refreshAutomationRulesStatus()
@@ -366,23 +369,6 @@ public struct AutomationSection: View {
             }
             SettingsCardDivider()
             SettingsCardNote(String(localized: "settings.automation.codex.note", defaultValue: "When enabled, cmux wraps the codex command to inject session tracking and notification hooks. Disable if you prefer to manage Codex hooks yourself. cmux still tracks live Codex sessions it can observe even when this is off. To also track Codex launched through a custom launcher that bypasses the wrapper (e.g. a subrouter), run `cmux hooks setup --agent codex`, which installs hooks into ~/.codex/hooks.json."))
-        }
-    }
-    @ViewBuilder
-    private var claudePathCard: some View {
-        SettingsCard {
-            SettingsCardRow(
-                configurationReview: .json("automation.claudeBinaryPath"),
-                String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"),
-                subtitle: String(localized: "settings.automation.claudeCode.customPath.subtitle", defaultValue: "Custom path to the claude binary. Leave empty to use PATH.")
-            ) {
-                TextField(
-                    String(localized: "settings.automation.claudeCode.customPath.placeholder", defaultValue: "e.g. /usr/local/bin/claude"),
-                    text: Binding(get: { claudePathModel.current }, set: { claudePathModel.set($0) })
-                )
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 200)
-            }
         }
     }
     @ViewBuilder

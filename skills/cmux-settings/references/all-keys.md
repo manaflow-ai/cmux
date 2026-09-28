@@ -164,6 +164,7 @@ Socket control and automation settings from Settings > Automation.
 | `automation.codexIntegration` | boolean | `true` | Enable cmux integration hooks for Codex. When disabled, cmux no longer wraps the codex command but still tracks live Codex sessions it can observe. |
 | `automation.piIntegration` | boolean | `true` | Enable cmux integration hooks for Pi. |
 | `automation.claudeBinaryPath` | string | `""` | Custom path to the claude binary. |
+| `automation.agentProcessNames` | boolean | `true` | Run agents cmux launches under a file named after the agent, so Activity Monitor and ps show claude instead of a version number. Uses a hardlink in cmux's cache folder, which takes no extra disk space. |
 | `automation.cursorIntegration` | boolean | `true` | Enable cmux integration hooks for Cursor. |
 | `automation.geminiIntegration` | boolean | `true` | Enable cmux integration hooks for Gemini. |
 | `automation.portBase` | integer | `9100` | Starting value for workspace CMUX_PORT assignments. |

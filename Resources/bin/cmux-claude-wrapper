@@ -354,6 +354,97 @@ cmux_claude_wrapper_exec_real_after_managed_reentry() {
     exec "$fallback" "$@"
 }
 
+# The kernel names a process after the file it executed, with symlinks
+# resolved. The native installer's `claude` points at
+# `~/.local/share/claude/versions/<version>`, so every Claude shows up in
+# Activity Monitor and `ps` as its version number ("2.1.283"). Print a path to
+# a hardlink of that executable named after the agent, so the process is named
+# `claude` instead. A hardlink shares the inode: no disk cost, same code
+# signature, and Claude's own install detection still sees a native install.
+# Prints nothing and fails when labeling is off, not needed, or not possible.
+cmux_agent_process_name_target() {
+    local agent="$1" target="$2"
+    [[ "${CMUX_AGENT_PROCESS_NAMES_DISABLED:-}" != "1" ]] || return 1
+    [[ "$agent" =~ ^[a-z][a-z0-9-]*$ && -f "$target" ]] || return 1
+
+    local source="$target" link hops=0
+    while [[ -L "$source" && $hops -lt 40 ]]; do
+        link="$(readlink "$source")" || return 1
+        case "$link" in
+            /*) source="$link" ;;
+            *) source="$(dirname "$source")/$link" ;;
+        esac
+        hops=$((hops + 1))
+    done
+    [[ "$source" == /* && -f "$source" && ! -L "$source" ]] || return 1
+    [[ "${source##*/}" != "$agent" ]] || return 1
+
+    local root="${CMUX_AGENT_PROCESS_NAME_DIR:-}"
+    if [[ -z "$root" ]]; then
+        [[ -n "${HOME:-}" ]] || return 1
+        if [[ "${OSTYPE:-}" == darwin* ]]; then
+            root="$HOME/Library/Caches/cmux/agent-process-names"
+        else
+            root="${XDG_CACHE_HOME:-$HOME/.cache}/cmux/agent-process-names"
+        fi
+    fi
+    # One directory per source path, so each version keeps its own link.
+    local key="${source//\//%}"
+    (( ${#key} <= 200 )) || return 1
+    local entry="$root/$agent/$key"
+    local labeled="$entry/$agent"
+
+    if [[ -f "$labeled" && "$labeled" -ef "$source" ]]; then
+        # Marks the entry as recently used for pruning below.
+        : >"$entry/used" 2>/dev/null
+        printf '%s' "$labeled"
+        return 0
+    fi
+
+    # Only native executables. A script's process is named after its
+    # interpreter, so a renamed script would change nothing.
+    local magic
+    magic="$(LC_ALL=C od -An -tx1 -N4 "$source" 2>/dev/null | tr -d ' \n')" || return 1
+    case "$magic" in
+        cffaedfe|cefaedfe|feedfacf|feedface|cafebabe|cafebabf|7f454c46) ;;
+        *) return 1 ;;
+    esac
+
+    (umask 077 && mkdir -p "$entry") 2>/dev/null || return 1
+    local staged="$entry/.$agent.$$"
+    rm -f "$staged" 2>/dev/null
+    # A hardlink needs the same volume; on another volume keep the original.
+    ln "$source" "$staged" 2>/dev/null || { rmdir "$entry" 2>/dev/null; return 1; }
+    mv -f "$staged" "$labeled" 2>/dev/null || { rm -f "$staged"; return 1; }
+    [[ "$labeled" -ef "$source" ]] || return 1
+    printf '%s\n' "$source" >"$entry/source" 2>/dev/null
+    : >"$entry/used" 2>/dev/null
+
+    # A new link means a new version. Drop links whose version is gone and
+    # that no launch has used for a week, so an updated-away version does not
+    # keep its disk space forever. A week leaves long-running sessions of the
+    # old version room to respawn themselves from their own executable path.
+    local stale stale_source
+    for stale in "$root/$agent"/*/; do
+        stale="${stale%/}"
+        [[ "$stale" != "$entry" && -d "$stale" ]] || continue
+        stale_source=""
+        [[ -r "$stale/source" ]] && IFS= read -r stale_source <"$stale/source"
+        if [[ -n "$stale_source" && -f "$stale_source" && "$stale/$agent" -ef "$stale_source" ]]; then
+            continue
+        fi
+        [[ -n "$(find "$stale" -maxdepth 1 -name used -mtime -7 2>/dev/null)" ]] && continue
+        rm -rf "$stale" 2>/dev/null
+    done
+    printf '%s' "$labeled"
+}
+
+# Prints the path to exec for an agent: the labeled hardlink when available,
+# otherwise the target unchanged.
+cmux_agent_process_name_exec_path() {
+    cmux_agent_process_name_target "$1" "$2" || printf '%s' "$2"
+}
+
 cmux_claude_wrapper_exec_resolved_claude() {
     local target="$1"
     shift
@@ -373,7 +464,7 @@ cmux_claude_wrapper_exec_resolved_claude() {
         # downstream `which`/execvp/command -v lookup would otherwise route back
         # into this wrapper after the guard was cleared.
         cmux_claude_wrapper_prepare_custom_path_environment "$target"
-        exec "$target" "$@"
+        exec "$(cmux_agent_process_name_exec_path claude "$target")" "$@"
     fi
     if cmux_claude_wrapper_reexec_target_seen "$target"; then
         if cmux_claude_wrapper_args_have_managed_settings "$@"; then

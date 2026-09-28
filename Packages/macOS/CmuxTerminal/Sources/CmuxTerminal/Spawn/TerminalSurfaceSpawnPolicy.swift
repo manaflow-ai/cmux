@@ -76,6 +76,10 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
     /// Whether supported agent sessions may attach the local computer-use MCP server.
     public var computerUseEnabled: Bool
 
+    /// Whether agent wrappers run agents under a file named after the agent
+    /// (`CMUX_AGENT_PROCESS_NAMES_DISABLED` when off).
+    public var agentProcessNamesEnabled: Bool
+
     /// Creates a spawn policy snapshot.
     public init(
         socketAuthenticationEnvironment: [String: String] = [:],
@@ -93,7 +97,8 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         watchGitStatusEnabled: Bool,
         showPullRequestsEnabled: Bool,
         computerUseEnabled: Bool = true,
-        piHooksEnabled: Bool = true
+        piHooksEnabled: Bool = true,
+        agentProcessNamesEnabled: Bool = true
     ) {
         self.socketAuthenticationEnvironment = socketAuthenticationEnvironment
         self.claudeHooksEnabled = claudeHooksEnabled
@@ -111,5 +116,6 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         self.watchGitStatusEnabled = watchGitStatusEnabled
         self.showPullRequestsEnabled = showPullRequestsEnabled
         self.computerUseEnabled = computerUseEnabled
+        self.agentProcessNamesEnabled = agentProcessNamesEnabled
     }
 }

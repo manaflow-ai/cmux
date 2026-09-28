@@ -73,7 +73,8 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
             // spawn, so a new agent launch never receives the tools.
             computerUseEnabled: computerUseConfigStore.snapshotValue(for: computerUseEnabledKey)
                 && !ManagedDevicePolicy().isEnforced(.disableComputerUse),
-            piHooksEnabled: integrations.piHooksEnabled
+            piHooksEnabled: integrations.piHooksEnabled,
+            agentProcessNamesEnabled: integrations.agentProcessNamesEnabled
         )
     }
 

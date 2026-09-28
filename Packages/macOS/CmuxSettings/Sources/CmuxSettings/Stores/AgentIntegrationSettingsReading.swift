@@ -37,4 +37,8 @@ public protocol AgentIntegrationSettingsReading: Sendable {
 
     /// Whether notifications from agent subagents are suppressed.
     var suppressesSubagentNotifications: Bool { get }
+
+    /// Whether agent processes are named after the agent rather than the
+    /// versioned file they run from.
+    var agentProcessNamesEnabled: Bool { get }
 }

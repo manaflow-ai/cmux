@@ -7101,6 +7101,242 @@
           }
         }
       }
+    },
+    "settings.automation.agentProcessNames": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name Agent Processes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسمية عمليات الوكلاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Prozesse benennen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombrar procesos de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nommer les processus d’agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのプロセスに名前を付ける"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 프로세스 이름 지정"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为代理进程命名"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為代理程式程序命名"
+          }
+        }
+      }
+    },
+    "settings.automation.agentProcessNames.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code installs each version as a file named after its version number, and macOS names a process after that file. cmux starts Claude from a hardlink named claude in its cache folder instead, which uses no extra disk space. Applies to agents started after the change."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يثبّت Claude Code كل إصدار كملف يحمل رقم إصداره، ويسمّي macOS العملية باسم ذلك الملف. بدلاً من ذلك، يشغّل cmux ‏Claude من رابط ثابت باسم claude في مجلد ذاكرة التخزين المؤقت الخاص به، ولا يستهلك مساحة إضافية على القرص. ينطبق على الوكلاء الذين يتم تشغيلهم بعد التغيير."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code installiert jede Version als Datei, die nach ihrer Versionsnummer benannt ist, und macOS benennt einen Prozess nach dieser Datei. cmux startet Claude stattdessen über einen Hardlink namens claude in seinem Cache-Ordner, der keinen zusätzlichen Speicherplatz belegt. Gilt für Agenten, die nach der Änderung gestartet werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code instala cada versión como un archivo con el nombre de su número de versión, y macOS nombra cada proceso según ese archivo. En su lugar, cmux inicia Claude desde un enlace físico llamado claude en su carpeta de caché, que no ocupa espacio adicional en disco. Se aplica a los agentes iniciados después del cambio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code installe chaque version dans un fichier nommé d’après son numéro de version, et macOS nomme un processus d’après ce fichier. cmux lance plutôt Claude depuis un lien physique nommé claude dans son dossier de cache, qui n’occupe aucun espace disque supplémentaire. S’applique aux agents lancés après la modification."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code は各バージョンをバージョン番号の名前のファイルとしてインストールし、macOS はそのファイル名をプロセス名にします。cmux は代わりにキャッシュフォルダ内の claude という名前のハードリンクから Claude を起動します。追加のディスク容量は使いません。変更後に起動したエージェントに適用されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code는 각 버전을 버전 번호로 된 파일로 설치하고, macOS는 프로세스 이름을 그 파일 이름으로 정합니다. cmux는 대신 캐시 폴더에 있는 claude라는 하드 링크로 Claude를 실행하며, 추가 디스크 공간을 사용하지 않습니다. 변경 후 시작한 에이전트에 적용됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 会将每个版本安装为以版本号命名的文件，而 macOS 会以该文件为进程命名。cmux 改为从其缓存文件夹中名为 claude 的硬链接启动 Claude，不会占用额外磁盘空间。适用于更改后启动的代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 會將每個版本安裝為以版本號碼命名的檔案，而 macOS 會以該檔案為程序命名。cmux 改為從其快取資料夾中名為 claude 的永久連結啟動 Claude，不會佔用額外磁碟空間。適用於變更後啟動的代理程式。"
+          }
+        }
+      }
+    },
+    "settings.automation.agentProcessNames.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activity Monitor shows Claude Code by its version number."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض مراقب النشاط Claude Code برقم إصداره."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Aktivitätsanzeige zeigt Claude Code mit seiner Versionsnummer."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El Monitor de Actividad muestra Claude Code con su número de versión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le Moniteur d’activité affiche Claude Code sous son numéro de version."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティビティモニタに Claude Code がバージョン番号で表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성 상태 보기에 Claude Code가 버전 번호로 표시됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“活动监视器”会以版本号显示 Claude Code。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「活動監視器」會以版本號碼顯示 Claude Code。"
+          }
+        }
+      }
+    },
+    "settings.automation.agentProcessNames.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activity Monitor shows Claude Code as claude."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض مراقب النشاط Claude Code باسم claude."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Aktivitätsanzeige zeigt Claude Code als claude."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El Monitor de Actividad muestra Claude Code como claude."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le Moniteur d’activité affiche Claude Code sous le nom claude."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティビティモニタに Claude Code が claude と表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성 상태 보기에 Claude Code가 claude로 표시됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“活动监视器”会将 Claude Code 显示为 claude。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「活動監視器」會將 Claude Code 顯示為 claude。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

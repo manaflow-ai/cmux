@@ -124,6 +124,7 @@ extension CmuxSettingsFileStore {
         "automation.claudeCodeIntegration",
         "automation.piIntegration",
         "automation.claudeBinaryPath",
+        "automation.agentProcessNames",
         "automation.codexIntegration",
         "automation.workspaceAutoNaming",
         "automation.autoNamingAgent",

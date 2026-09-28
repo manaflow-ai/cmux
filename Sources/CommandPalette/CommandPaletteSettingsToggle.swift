@@ -829,14 +829,13 @@ enum CommandPaletteSettingsToggleCommands {
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "claudeCodeIntegration",
                 settingsKey: "automation.claudeCodeIntegration",
-                title: {
-                    String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration")
-                },
+                title: { String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration") },
                 sectionTitle: automation,
                 keywords: ["automation.claudeCodeIntegration", "claude", "code", "hooks", "agent", "integration"],
                 defaultValue: IntegrationsCatalogSection().claudeCodeHooksEnabled.defaultValue,
                 defaultsKey: IntegrationsCatalogSection().claudeCodeHooksEnabled.userDefaultsKey
             ),
+            CommandPaletteSettingToggleDescriptor(commandId: commandIdPrefix + "agentProcessNames", settingsKey: "automation.agentProcessNames", title: { String(localized: "settings.automation.agentProcessNames", defaultValue: "Name Agent Processes") }, sectionTitle: automation, keywords: ["automation.agentProcessNames", "process", "name", "activity", "monitor", "claude", "agent"], defaultValue: AutomationCatalogSection().agentProcessNames.defaultValue, defaultsKey: AutomationCatalogSection().agentProcessNames.userDefaultsKey),
             CommandPaletteSettingToggleDescriptor(commandId: commandIdPrefix + "piIntegration", settingsKey: "automation.piIntegration", title: { String(localized: "settings.automation.pi", defaultValue: "Pi Integration") }, sectionTitle: automation, keywords: ["automation.piIntegration", "pi", "hooks", "agent", "integration"], defaultValue: IntegrationsCatalogSection().piHooksEnabled.defaultValue, defaultsKey: IntegrationsCatalogSection().piHooksEnabled.userDefaultsKey),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "suppressSubagentNotifications",

@@ -159,6 +159,7 @@ enum SettingsSearchIndex {
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
         setting(.automation, "pi", String(localized: "settings.automation.pi", defaultValue: "Pi Integration"), "pi agent hooks notifications"),
+        setting(.automation, "agent-process-names", String(localized: "settings.automation.agentProcessNames", defaultValue: "Name Agent Processes"), "process name activity monitor ps claude version"),
         setting(.automation, "claude-path", String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), "custom claude executable"),
         setting(
             .automation,
@@ -333,6 +334,7 @@ enum SettingsSearchIndex {
         "automation.claudeCodeIntegration": settingID(for: .automation, idSuffix: "claude-code"),
         "automation.piIntegration": settingID(for: .automation, idSuffix: "pi"),
         "automation.claudeBinaryPath": settingID(for: .automation, idSuffix: "claude-path"),
+        "automation.agentProcessNames": settingID(for: .automation, idSuffix: "agent-process-names"),
         "automation.workspaceAutoNaming": settingID(for: .automation, idSuffix: "workspace-auto-naming"),
         "automation.ripgrepBinaryPath": settingID(for: .automation, idSuffix: "ripgrep-path"),
         "automation.suppressSubagentNotifications": settingID(for: .automation, idSuffix: "subagent-notifications"),

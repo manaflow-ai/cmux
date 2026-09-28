@@ -567592,6 +567592,124 @@
           }
         }
       }
+    },
+    "settings.automation.agentProcessNames": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name Agent Processes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Prozesse benennen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nommer les processus d’agent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسمية عمليات الوكلاء"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombrar procesos de agentes"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為代理程式程序命名"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为代理进程命名"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 프로세스 이름 지정"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのプロセスに名前を付ける"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.automation.agent-process-names": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.agentProcessNames process name activity monitor ps top claude version number hardlink agent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.agentProcessNames process name activity monitor ps top claude version number hardlink agent Prozessname Aktivitätsanzeige Versionsnummer Agent"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.agentProcessNames process name activity monitor ps top claude version number hardlink agent nom du processus moniteur d’activité numéro de version agent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.agentProcessNames process name activity monitor ps top claude version number hardlink agent اسم العملية مراقب النشاط رقم الإصدار وكيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.agentProcessNames process name activity monitor ps top claude version number hardlink agent nombre de proceso monitor de actividad número de versión agente"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.agentProcessNames process name activity monitor ps top claude version number hardlink agent 程序名稱 活動監視器 版本號碼 代理程式"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.agentProcessNames process name activity monitor ps top claude version number hardlink agent 进程名称 活动监视器 版本号 代理"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.agentProcessNames process name activity monitor ps top claude version number hardlink agent 프로세스 이름 활성 상태 보기 버전 번호 에이전트"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.agentProcessNames process name activity monitor ps top claude version number hardlink agent プロセス名 アクティビティモニタ バージョン番号 エージェント"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
