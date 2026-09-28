@@ -234,31 +234,36 @@ final class MainWindowSelfSizingTests: XCTestCase {
     /// split pane laid out past its bottom edge ended at 0x0 (#15347).
     @MainActor
     func testAnimatingSetFrameRaisesUndersizedFrameToMinimumContentSize() {
-        let window = CmuxMainWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        defer {
-            window.orderOut(nil)
-            window.close()
+        for animate in [false, true] {
+            let window = CmuxMainWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            window.isReleasedWhenClosed = false
+            defer {
+                window.orderOut(nil)
+                window.close()
+            }
+
+            let minimum = CmuxMainWindow.minimumContentSize
+            let undersized = NSRect(x: 80, y: 500, width: 800, height: 200)
+            window.setFrame(undersized, display: false, animate: animate)
+
+            XCTAssertEqual(
+                window.frame.width, 800, accuracy: 0.5,
+                "animate=\(animate): a width above the floor must be kept"
+            )
+            XCTAssertGreaterThanOrEqual(
+                window.frame.height, minimum.height - 0.5,
+                "animate=\(animate): a setFrame below the minimum height must be raised to the floor"
+            )
+            XCTAssertEqual(
+                window.frame.maxY, undersized.maxY, accuracy: 0.5,
+                "animate=\(animate): raising an undersized frame must keep the top edge and extend downward"
+            )
         }
-
-        let minimum = CmuxMainWindow.minimumContentSize
-        let undersized = NSRect(x: 80, y: 500, width: 800, height: 200)
-        window.setFrame(undersized, display: false, animate: false)
-
-        XCTAssertEqual(window.frame.width, 800, accuracy: 0.5, "A width above the floor must be kept")
-        XCTAssertGreaterThanOrEqual(
-            window.frame.height, minimum.height - 0.5,
-            "An animating setFrame below the minimum height must be raised to the floor"
-        )
-        XCTAssertEqual(
-            window.frame.maxY, undersized.maxY, accuracy: 0.5,
-            "Raising an undersized frame must keep the top edge put and extend the window downward"
-        )
     }
 
     /// Ordinary frames must flow through the undersized raise untouched so
