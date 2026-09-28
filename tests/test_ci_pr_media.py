@@ -212,16 +212,17 @@ class AdmittedBuildTests(StubbedTest):
             "repos/o/r/actions/runs/8/artifacts?name=build-inputs-fp1-1": {"total_count": 1},
             "repos/o/r/actions/runs/8": {"id": 8, "head_sha": earlier},
         })
-        found = media.admitted_build_run("o/r", {"id": 9, "head_branch": "topic"})
+        found = media.admitted_build_run("o/r", {"id": 9, "head_branch": "topic"}, "1")
         self.assertEqual(found.get("head_sha"), earlier)
 
     def test_no_fingerprint_means_no_earlier_build(self) -> None:
         self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": []}})
-        self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "head_branch": "topic"}), {})
+        self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "head_branch": "topic"}, "1"), {})
 
     def test_only_this_attempts_fingerprint_counts(self) -> None:
-        self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": [{"name": "build-inputs-fp1-1"}]}})
-        self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "run_attempt": 2, "head_branch": "t"}), {})
+        stub = self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": [{"name": "build-inputs-fp1-1"}]}})
+        self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "head_branch": "t"}, "2"), {})
+        self.assertFalse([call for call in stub.calls if "workflows/ci.yml/runs" in call])
 
     def test_an_api_error_in_the_lookup_means_no_earlier_build(self) -> None:
         def refuse():
@@ -229,7 +230,7 @@ class AdmittedBuildTests(StubbedTest):
 
         self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": [{"name": "build-inputs-fp1-1"}]},
                    "repos/o/r/actions/workflows/ci.yml/runs": refuse})
-        self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "head_branch": "topic"}), {})
+        self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "head_branch": "topic"}, "1"), {})
 
     def test_the_section_names_the_build_the_tour_loaded(self) -> None:
         manifest = {"tour": "t", "result": "passed", "build_sha": "c" * 40, "run_url": "https://x"}
@@ -269,7 +270,7 @@ class PlanTests(StubbedTest):
                "path": media.CI_WORKFLOW_PATH, "head_repository": {"full_name": "o/r"},
                "pull_requests": [{"number": 42}], "status": "completed"}
         original = media.admitted_build_run
-        media.admitted_build_run = lambda _repo, _run: {"head_sha": self.EARLIER}
+        media.admitted_build_run = lambda _repo, _run, _attempt: {"head_sha": self.EARLIER}
         self.addCleanup(setattr, media, "admitted_build_run", original)
         outputs = self.plan({
             "repos/o/r/actions/runs/9/attempts/1/jobs": {"jobs": [

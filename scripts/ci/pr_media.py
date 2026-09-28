@@ -258,13 +258,12 @@ def built_merge(run: dict) -> str:
 FINGERPRINT_ARTIFACT = re.compile(r"build-inputs-(.+)-(\d+)")
 
 
-def admitted_build_run(repository: str, run: dict) -> dict:
+def admitted_build_run(repository: str, run: dict, attempt: str) -> dict:
     """The earlier CI run of this pull request that compiled the build inputs
     `run` skipped compiling, found as ci.yml found it (find_admitted_build.py):
     by the fingerprint artifact `run` published. {} when there is none, as when
     the pull request changes no app input at all and main's build stands in."""
     listing = gh_json([f"repos/{repository}/actions/runs/{run['id']}/artifacts?per_page=100"]) or {}
-    attempt = str(run.get("run_attempt") or 1)
     fingerprints = [match.group(1) for artifact in listing.get("artifacts") or []
                     if (match := FINGERPRINT_ARTIFACT.fullmatch(str(artifact.get("name", ""))))
                     and match.group(2) == attempt]
@@ -332,7 +331,7 @@ def plan(repository: str) -> int:
     mode = app_build_gate(repository, run_id, attempt, pr) if run_id else NO_BUILD
     # The run whose app a tour loads: this one, or the earlier run of the same
     # build inputs when this push changed no app input (only a tour, say).
-    build_run = run if mode == BUILT else admitted_build_run(repository, run) if mode == REUSED else {}
+    build_run = run if mode == BUILT else admitted_build_run(repository, run, attempt) if mode == REUSED else {}
     if not build_run and not os.environ.get("SOURCE_RUN_ID"):
         # A manual dispatch still runs: the tour reports that no product was
         # found, or compiles one with allow_compile.
@@ -553,7 +552,8 @@ def tour(repository: str, name: str, scenario: Path, head_sha: str, out: Path, a
         command.append("--adopt-only")
     status = dispatch.start(command)
     if status == NO_PRODUCT_EXIT:
-        manifest["note"] = "no CI build of this head that a UI run can load, so the tour was skipped rather than compiled"
+        manifest["note"] = (f"no CI build of `{build_sha[:8]}` that a UI run can load, "
+                            "so the tour was skipped rather than compiled")
     elif status != 0 or not dispatch.run_id:
         manifest["note"] = f"the dispatcher failed (exit {status})"
     else:
