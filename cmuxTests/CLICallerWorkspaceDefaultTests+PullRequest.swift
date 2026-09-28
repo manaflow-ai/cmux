@@ -7,7 +7,7 @@ extension CLICallerWorkspaceDefaultTests {
 
     /// Exercises the shipped executable, real Git worktree discovery, and
     /// line-framed socket writes. Only the GitHub network boundary is stubbed.
-    @Test(arguments: ["number", "url", "fork-upstream", "fork-number", "explicit", "tty", "window", "window-mismatch", "worktree", "linked-worktree", "sibling-worktree", "missing-directory", "nested-repository", "nested-valid", "nested-child", "nested-child-valid", "fake-git-directory", "ambiguous", "mismatch", "invalid", "gh-failure", "gh-malformed", "clear", "blank", "option"])
+    @Test(arguments: ["number", "url", "fork-upstream", "fork-number", "explicit", "tty", "window", "window-mismatch", "worktree", "linked-worktree", "sibling-worktree", "missing-directory", "nested-repository", "nested-valid", "nested-child", "nested-child-valid", "nested-bare-repository", "nested-bare-child", "fake-git-directory", "ambiguous", "mismatch", "invalid", "gh-failure", "gh-malformed", "clear", "blank", "option"])
     func pullRequestHandoff(scenario: String) throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pr-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -83,7 +83,7 @@ extension CLICallerWorkspaceDefaultTests {
             switch scenario {
             case "missing-directory":
                 return directory.appendingPathComponent("missing-workspace").path
-            case "nested-repository", "nested-valid", "nested-child", "nested-child-valid":
+            case "nested-repository", "nested-valid", "nested-child", "nested-child-valid", "nested-bare-repository", "nested-bare-child":
                 let nested = worktree.appendingPathComponent("nested-repository", isDirectory: true)
                 let result = Self.runProcess(
                     executablePath: "/usr/bin/git",
@@ -92,6 +92,22 @@ extension CLICallerWorkspaceDefaultTests {
                     timeout: 10
                 )
                 precondition(result.status == 0, result.stderr)
+                if ["nested-bare-repository", "nested-bare-child"].contains(scenario) {
+                    let bare = worktree.appendingPathComponent("nested-bare-repository", isDirectory: true)
+                    let bareResult = Self.runProcess(
+                        executablePath: "/usr/bin/git",
+                        arguments: ["init", "--bare", bare.path],
+                        environment: environment,
+                        timeout: 10
+                    )
+                    precondition(bareResult.status == 0, bareResult.stderr)
+                    if scenario == "nested-bare-child" {
+                        let child = bare.appendingPathComponent("objects/pack", isDirectory: true)
+                        try! FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+                        return child.path
+                    }
+                    return bare.path
+                }
                 if ["nested-child", "nested-child-valid"].contains(scenario) {
                     let child = nested.appendingPathComponent("src/feature", isDirectory: true)
                     try! FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
@@ -173,7 +189,7 @@ extension CLICallerWorkspaceDefaultTests {
         #expect(!result.timedOut)
         let lines = state.linesSnapshot()
         let mutations = lines.filter { $0.contains("workspace_pr") }
-        let shouldFail = ["window-mismatch", "missing-directory", "nested-repository", "nested-child", "ambiguous", "mismatch", "invalid", "gh-failure", "gh-malformed", "blank", "option"].contains(scenario)
+        let shouldFail = ["window-mismatch", "missing-directory", "nested-repository", "nested-child", "nested-bare-repository", "nested-bare-child", "ambiguous", "mismatch", "invalid", "gh-failure", "gh-malformed", "blank", "option"].contains(scenario)
         #expect((result.status != 0) == shouldFail, Comment(rawValue: result.stderr))
         #expect(!lines.contains { $0.contains("workspace.current") || $0.contains("window.focus") })
         if shouldFail {
