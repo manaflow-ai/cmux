@@ -123,13 +123,17 @@ struct MachinesListStatusToolbarRowTests {
                 onDismiss: { _ in },
                 perform: perform
             )
+            // Required, empirically: run 36401958401 dropped this line and every
+            // lookup in this suite went nil with no text at all, while the same
+            // assertions passed with it in run 36397834894. In-process there is
+            // no assistive client to switch SwiftUI's accessibility output on,
+            // so the hierarchy asks for it directly. The deprecation notice says
+            // to read this key, not to set it; there is no replacement that
+            // turns the output on, and without it there is nothing to test.
+            .environment(\.accessibilityEnabled, true)
         )
         view.frame = NSRect(x: 0, y: 0, width: 420, height: 28)
-        // A window, because an `NSHostingView` outside one does not publish its
-        // SwiftUI children to the accessibility tree. The earlier
-        // `.environment(\.accessibilityEnabled, true)` here did nothing: that
-        // key is a read-only signal for app code, it does not switch SwiftUI's
-        // accessibility output on, and it is deprecated.
+        // A window as well, so the view is not queried while detached.
         let window = NSWindow(contentRect: view.frame, styleMask: [], backing: .buffered, defer: false)
         window.contentView = view
         view.layoutSubtreeIfNeeded()
