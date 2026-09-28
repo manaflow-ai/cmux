@@ -68,8 +68,7 @@ struct MobileTerminalFramePacerTests {
             return
         }
         #expect(deadline >= t0 + MobileTerminalFramePacer.floorPeriod)
-        let flushed = pacer.flushFired(now: deadline)
-        #expect(flushed, "the flush must emit the held frame")
+        #expect(pacer.flushFired(now: deadline) == .emit, "the flush must emit the held frame")
     }
 
     @Test func flushAfterBypassEmitIsANoOp() {
@@ -78,8 +77,10 @@ struct MobileTerminalFramePacerTests {
         _ = pacer.updateArrived(now: t0 + .milliseconds(10), acceptedInputSequence: 1)
         // An echo emit services the surface before the timer fires.
         _ = pacer.updateArrived(now: t0 + .milliseconds(20), acceptedInputSequence: 2)
-        let flushed = pacer.flushFired(now: t0 + MobileTerminalFramePacer.floorPeriod)
-        #expect(!flushed, "flush re-emitted a frame the bypass already serviced")
+        #expect(
+            pacer.flushFired(now: t0 + MobileTerminalFramePacer.floorPeriod) == .idle,
+            "flush re-emitted a frame the bypass already serviced"
+        )
     }
 
     /// A flood update that lands just after the period elapses emits at once,
