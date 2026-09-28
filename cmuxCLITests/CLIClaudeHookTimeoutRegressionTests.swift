@@ -156,6 +156,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
             ("Stop", "stop"),
             ("Stop", "feed"),
             ("SubagentStop", "feed"),
+            ("PostCompact", "feed"),
             ("SessionEnd", "session-end"),
             ("Notification", "notification"),
             ("UserPromptSubmit", "prompt-submit"),
