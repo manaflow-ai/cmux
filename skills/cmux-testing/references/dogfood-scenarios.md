@@ -39,12 +39,14 @@ its verdict:
    overrides the pick on the next push: `Dogfood-tours: browser-notifications-tour, right-sidebar-and-menus-tour`,
    or `Dogfood-tours: none` to turn it off.
 2. Each tour first runs on the app and UI test bundle the PR's own CI
-   compiled (`run-e2e.sh --adopt-only`). When the tour's runner cannot load
-   that build (CI compiled on another runner pool, or reused main's build),
-   a PR that changes app code compiles the app once for the tour, after CI's
-   own compile and outside its verdict; the section says so. A PR that
-   changes no app code (CLI only, say) does not compile. Every picked tour
-   gets a line in the section: its media, or `skipped:` and why.
+   compiled (`run-e2e.sh --adopt-only`). When CI's build exists but the
+   tour's runner cannot load it (CI compiled on another runner pool), or CI
+   reused main's build, a PR that changes app code compiles its head once,
+   for its top tour, after CI's own compile and outside its verdict; the
+   section says so, and CI re-runs of that head do not compile again. A PR
+   that changes no app code (CLI only, say) does not compile, nor does one
+   whose CI build failed or has not finished. Every picked tour gets a line
+   in the section: its media, or `skipped:` and why.
    `gh workflow run pr-media.yml --repo manaflow-ai/cmux -f pr=<n> -f allow_compile=true`
    compiles straight away.
 3. The frames become a few key PNGs and a captioned GIF, uploaded to the

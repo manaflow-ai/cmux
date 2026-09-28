@@ -297,7 +297,7 @@ class FocusedLauncherTests(unittest.TestCase):
 
     def test_adopt_only_exits_when_the_product_is_on_a_pool_ui_runs_cannot_use(self):
         result = self.adopt_only(**{**self.ci_env(), "CMUX_CI_E2E_OWNED_UI": ""})
-        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertEqual(result.returncode, 4, result.stderr)
         self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
 
     def test_adopt_only_takes_ui_runs_on_the_default_runner(self):

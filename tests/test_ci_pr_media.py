@@ -135,6 +135,7 @@ class GitHubStub:
         self.answers = answers
         self.calls: list[str] = []
         self.writes: list[list[str]] = []
+        self.inputs: list[str | None] = []
 
     def __call__(self, args, **_):
         self.calls.append(args[0])
@@ -153,8 +154,9 @@ class StubbedTest(unittest.TestCase):
         class Done:
             returncode, stdout, stderr = 0, "", ""
 
-        def run(args, **_):
+        def run(args, **kwargs):
             stub.writes.append(args)
+            stub.inputs.append(kwargs.get("input"))
             return Done()
 
         media.subprocess.run = run
@@ -184,8 +186,15 @@ class GateTests(StubbedTest):
 
     def test_a_skipped_macos_caller_reuses_an_earlier_build(self) -> None:
         jobs = [{"name": "Dogfood build #42", "status": "completed", "conclusion": "success"},
-                {"name": "macos", "status": "completed", "conclusion": "skipped"}]
+                {"name": "macos", "status": "completed", "conclusion": "skipped"},
+                {"name": "Fast static checks", "status": "completed", "conclusion": "success"}]
         self.assertEqual(self.gate(jobs), media.REUSED)  # at once, though the run is still going
+
+    def test_failed_static_checks_are_no_build_to_reuse(self) -> None:
+        jobs = [{"name": "Dogfood build #42", "status": "completed", "conclusion": "success"},
+                {"name": "macos", "status": "completed", "conclusion": "skipped"},
+                {"name": "Fast static checks", "status": "completed", "conclusion": "failure"}]
+        self.assertEqual(self.gate(jobs), media.NO_BUILD)
 
     def test_a_skipped_dogfood_job_means_no_app_change(self) -> None:
         self.assertEqual(self.gate([{"name": "Dogfood build #42", "status": "completed", "conclusion": "skipped"}]),
@@ -279,7 +288,8 @@ class PlanTests(StubbedTest):
         outputs = self.plan({
             "repos/o/r/actions/runs/9/attempts/1/jobs": {"jobs": [
                 {"name": "Dogfood build #42", "status": "completed", "conclusion": "success"},
-                {"name": "macos", "status": "completed", "conclusion": "skipped"}]},
+                {"name": "macos", "status": "completed", "conclusion": "skipped"},
+                {"name": "Fast static checks", "status": "completed", "conclusion": "success"}]},
             "repos/o/r/actions/runs/9": run}, {"SOURCE_RUN_ID": "9", "SOURCE_RUN_ATTEMPT": "1"})
         self.assertEqual(outputs["build_sha"], self.EARLIER)
 
@@ -293,9 +303,11 @@ class PlanTests(StubbedTest):
         outputs = self.plan({
             "repos/o/r/actions/runs/9/attempts/1/jobs": {"jobs": [
                 {"name": "Dogfood build #42", "status": "completed", "conclusion": "success"},
-                {"name": "macos", "status": "completed", "conclusion": "skipped"}]},
+                {"name": "macos", "status": "completed", "conclusion": "skipped"},
+                {"name": "Fast static checks", "status": "completed", "conclusion": "success"}]},
             "repos/o/r/actions/runs/9": run}, {"SOURCE_RUN_ID": "9", "SOURCE_RUN_ATTEMPT": "1"})
-        self.assertEqual((outputs["build_sha"], outputs["compile"]), (HEAD, "fallback"))
+        self.assertEqual((outputs["build_sha"], outputs["compile"]), (HEAD, "now"))
+        self.assertEqual(outputs["compile_tour"], "sidebar-and-chrome-tour")
         self.assertEqual(json.loads(outputs["run"]), ["sidebar-and-chrome-tour"])
 
     def test_only_app_changes_may_compile(self) -> None:
@@ -353,6 +365,23 @@ class RefusedTests(StubbedTest):
         self.assertIn(f"- name: {media.REFUSE_STEP}", (ROOT / ".github/workflows/test-e2e.yml").read_text())
 
 
+class ReadTokenTests(unittest.TestCase):
+    def test_an_expired_read_token_falls_back_to_the_job_token(self) -> None:
+        from unittest import mock
+        seen = []
+
+        def run(args, env=None, **_):
+            seen.append((env or {}).get("GH_TOKEN"))
+            import subprocess
+            if env:
+                return subprocess.CompletedProcess(args, 1, "", "HTTP 401: Bad credentials")
+            return subprocess.CompletedProcess(args, 0, '{"ok": true}', "")
+
+        with mock.patch.dict(os.environ, {"READ_TOKEN": "app"}), mock.patch.object(media.subprocess, "run", run):
+            self.assertEqual(media.gh_json(["x"]), {"ok": True})
+        self.assertEqual(seen, ["app", None])
+
+
 class UploadRetryTests(unittest.TestCase):
     def test_a_lost_race_is_retried(self) -> None:
         calls = []
@@ -372,10 +401,12 @@ class UploadRetryTests(unittest.TestCase):
 
 class TourCacheTests(StubbedTest):
     def run_tour(self, conclusion: str, media_made: dict, compile_mode: str = "never",
-                 adopt_status: int = 0, refused: bool = False) -> dict:
+                 adopt_status: int = 0, refused: bool = False, compile_tour: str = "") -> dict:
         import tempfile
         self.stub({})
         commands = self.commands = []
+        self.stopped = 0
+        test = self
 
         class FakeDispatch:
             def __init__(self, repository):
@@ -389,6 +420,9 @@ class TourCacheTests(StubbedTest):
 
             def cancel(self, *_):
                 pass
+
+            def stop(self):
+                test.stopped += 1
 
             def wait(self):
                 return {"conclusion": "failure" if refused and self.adopting else conclusion}
@@ -404,7 +438,8 @@ class TourCacheTests(StubbedTest):
         for signum in (signal.SIGINT, signal.SIGTERM):
             self.addCleanup(signal.signal, signum, signal.getsignal(signum))
         with tempfile.TemporaryDirectory() as tmp:
-            media.tour("o/r", "t", Path(tmp) / "s.json", HEAD, Path(tmp) / "out", compile_mode)
+            media.tour("o/r", "t", Path(tmp) / "s.json", HEAD, Path(tmp) / "out", compile_mode,
+                       compile_tour=compile_tour)
             return json.loads((Path(tmp) / "out/manifest.json").read_text())
 
     def test_only_a_verdict_with_media_is_cached(self) -> None:
@@ -419,7 +454,7 @@ class TourCacheTests(StubbedTest):
 
     def test_an_app_pull_request_compiles_when_no_ci_build_loads(self) -> None:
         made = {"gif": "tour.gif", "shots": [], "failures": []}
-        for adopt_status, refused in ((media.NO_PRODUCT_EXIT, False), (0, True)):
+        for adopt_status, refused in ((media.UNLOADABLE_PRODUCT_EXIT, False), (0, True)):
             with self.subTest(adopt_status=adopt_status, refused=refused):
                 manifest = self.run_tour("success", made, "fallback", adopt_status, refused)
                 self.assertEqual(["--adopt-only" in command for command in self.commands], [True, False])
@@ -427,8 +462,35 @@ class TourCacheTests(StubbedTest):
                 self.assertEqual(manifest["result"], "passed")
                 self.assertIn("compiled for the tour", media.section("o/r", 1, HEAD, [manifest]))
 
+    def test_no_ci_build_yet_never_compiles(self) -> None:
+        manifest = self.run_tour("success", {}, "fallback", media.NO_PRODUCT_EXIT)
+        self.assertEqual(len(self.commands), 1)
+        self.assertNotIn("compiled", manifest)
+        self.assertTrue(manifest["note"].startswith("skipped: CI left no app build"))
+
+    def test_only_one_tour_per_head_compiles(self) -> None:
+        manifest = self.run_tour("success", {}, "fallback", media.UNLOADABLE_PRODUCT_EXIT, compile_tour="other")
+        self.assertEqual(len(self.commands), 1)
+        self.assertIn("only other compiles", manifest["note"])
+
+    def test_a_compiled_verdict_is_cached_even_without_media(self) -> None:
+        manifest = self.run_tour("failure", {"shots": [], "note": "no frames"}, "now")
+        self.assertIn("run_url", manifest)
+
+    def test_losing_track_of_the_adopt_run_stops_it_and_does_not_compile(self) -> None:
+        def boom(*_):
+            raise RuntimeError("HTTP 401")
+
+        original = media.refused_after
+        media.refused_after = boom
+        self.addCleanup(setattr, media, "refused_after", original)
+        manifest = self.run_tour("success", {}, "fallback")
+        self.assertEqual(len(self.commands), 1)
+        self.assertEqual(self.stopped, 1)
+        self.assertTrue(manifest["note"].startswith("skipped: could not follow"))
+
     def test_a_pull_request_without_app_changes_says_why_it_skipped(self) -> None:
-        manifest = self.run_tour("success", {}, "never", media.NO_PRODUCT_EXIT)
+        manifest = self.run_tour("success", {}, "never", media.UNLOADABLE_PRODUCT_EXIT)
         self.assertEqual(len(self.commands), 1)
         self.assertEqual(manifest["result"], "not run")
         self.assertTrue(manifest["note"].startswith("skipped:"))
@@ -475,29 +537,27 @@ class PublishTests(StubbedTest):
         self.assertEqual({branch for _, branch, _, _ in stub.uploads}, {"pr-media"})
         self.assertTrue(any(w[:4] == ["gh", "api", "-X", "PATCH"] for w in stub.writes))
 
-    def patched_body(self, stub: GitHubStub) -> str:
-        # The PATCH body goes in on stdin; the stub keeps only argv, so read it back from section().
-        return next(w for w in stub.writes if w[:4] == ["gh", "api", "-X", "PATCH"])
+    @staticmethod
+    def patched_body(stub: GitHubStub) -> str:
+        return next(body for args, body in zip(stub.writes, stub.inputs) if args[:4] == ["gh", "api", "-X", "PATCH"])
 
     def test_a_tour_that_never_dispatched_still_says_why(self) -> None:
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
-            stub = self.publish(Path(tmp), HEAD, self.comment(f"{media.DOGFOOD_MARKER}\nof `{HEAD}`"))
-        self.assertTrue(self.patched_body(stub))
+            stub = self.publish(Path(tmp), HEAD, self.comment(f"{media.DOGFOOD_MARKER}\nof `{HEAD}`"),
+                                note="skipped: because")
+        self.assertIn("<br>skipped: because", self.patched_body(stub))
 
     def test_a_tour_job_that_left_nothing_gets_a_skip_line(self) -> None:
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
-            self.stub({"repos/o/r/pulls/1": {"head": {"sha": HEAD}},
-                       "repos/o/r/issues/1/comments": self.comment(f"{media.DOGFOOD_MARKER}\nof `{HEAD}`")})
-            original, sections = media.section, []
-            media.section = lambda *args: sections.append(args[3]) or original(*args)
-            self.addCleanup(setattr, media, "section", original)
-            media.uploader = (lambda saved: (self.addCleanup(setattr, media, "uploader", saved), lambda: None)[1])(
-                media.uploader)
+            stub = self.stub({"repos/o/r/pulls/1": {"head": {"sha": HEAD}},
+                              "repos/o/r/issues/1/comments": self.comment(f"{media.DOGFOOD_MARKER}\nof `{HEAD}`")})
+            original = media.uploader
+            media.uploader = lambda: None
+            self.addCleanup(setattr, media, "uploader", original)
             media.publish("o/r", 1, HEAD, ["sidebar-and-chrome-tour"], Path(tmp))
-        self.assertEqual(sections[0][0]["tour"], "sidebar-and-chrome-tour")
-        self.assertTrue(sections[0][0]["note"].startswith("skipped:"))
+        self.assertIn("<br>skipped: the tour job left no result", self.patched_body(stub))
 
     def test_a_moved_head_or_a_comment_for_another_head_is_left_alone(self) -> None:
         import tempfile
