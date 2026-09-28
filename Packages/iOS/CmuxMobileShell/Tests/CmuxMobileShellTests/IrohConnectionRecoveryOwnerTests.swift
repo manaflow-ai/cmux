@@ -519,13 +519,15 @@ extension ReconnectRouteSelectionTests {
             probing: false
         ))
 
-        #expect(store.settleConnectionRecovery(
+        // Superseded is not a failure of the connection: the attempt retires
+        // without failing the owner, so the caller skips its teardown.
+        #expect(!store.settleConnectionRecovery(
             attempt,
             outcome: .superseded,
             connectionGeneration: generation
         ))
-        #expect(store.connectionRecoveryOwner.phase == .failed(attempt))
-        #expect(!store.connectionRecoveryOwner.isActive)
+        #expect(store.connectionRecoveryOwner.phase == .idle)
+        #expect(!store.connectionRecoveryFailed)
         #expect(store.connectionRecoveryOwner.begin(
             trigger: "replacement",
             sourceConnectionGeneration: generation,

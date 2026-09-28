@@ -587,8 +587,21 @@ extension MobileShellComposite {
         case .failed(let failure):
             return failConnectionRecovery(attempt, failure: failure)
         case .superseded:
-            return failConnectionRecovery(attempt, failure: .superseded)
+            // A newer reconnect claimed the shared generation and owns the
+            // connection that exists now. This attempt lost ownership, so it
+            // retires without failing: the caller's teardown and the failed
+            // recovery state would otherwise destroy the newer session.
+            retireSupersededConnectionRecovery(attempt)
+            return false
         }
+    }
+
+    private func retireSupersededConnectionRecovery(
+        _ attempt: MobileConnectionRecoveryOwner.Attempt
+    ) {
+        guard connectionRecoveryOwner.complete(attempt) else { return }
+        recordConnectionRecoveryFailed(attempt, failure: .superseded)
+        applyConnectionRecoveryOwnerState()
     }
 
     @discardableResult

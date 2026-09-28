@@ -3221,6 +3221,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         MobileDebugLog.anchormux(
             "storedMacReconnect deadline expired generation=\(generation)"
         )
+        // A newer reconnect owns the connection now. Reporting this expiry as
+        // a failure would let the caller tear down that newer session and arm
+        // backoff for a dial nobody is waiting on.
+        guard generation == storedMacReconnectGeneration else { return .superseded }
         finishStoredMacReconnectAttempt(generation: generation)
         if Self.shouldRecordReconnectBackoff(
             abandonedDialCount: abandonedReconnectDialCount
