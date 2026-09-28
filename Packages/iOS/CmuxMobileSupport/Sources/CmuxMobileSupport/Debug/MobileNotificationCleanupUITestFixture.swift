@@ -35,8 +35,9 @@ public final class MobileNotificationCleanupUITestFixture {
             withName: "cmux.notification-cleanup-ui-fixture"
         )
         defer {
-            guard backgroundTask != .invalid else { return }
-            UIApplication.shared.endBackgroundTask(backgroundTask)
+            if backgroundTask != .invalid {
+                UIApplication.shared.endBackgroundTask(backgroundTask)
+            }
         }
         await scheduleNotifications()
     }
