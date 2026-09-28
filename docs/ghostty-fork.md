@@ -12,6 +12,20 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Prompt teardown of SIGHUP-ignoring launchers
+
+- Pull request: https://github.com/manaflow-ai/ghostty/pull/232
+- Merged fork commit: `2decb9c145273b11d7d92c468c98405f73991f0f` (included in the current `edefce7785` pin).
+- File: `src/termio/Exec.zig`
+- Summary: macOS `/usr/bin/login` ignores SIGHUP while it hands a new PTY to
+  its shell. Teardown detects that disposition and escalates only that process
+  group to SIGTERM immediately, then SIGKILL after a short bound. The SIGTERM
+  grace starts after successful delivery, while ordinary foreground groups keep
+  the existing 12-second shutdown-hook grace.
+- Verification: hosted Ghostty run [36152536501](https://github.com/manaflow-ai/ghostty/actions/runs/36152536501) passed the targeted Darwin teardown test.
+- Conflict note: preserve separate launcher and foreground process-group phases;
+  collapsing them reintroduces the startup close stall or cuts off shell hooks.
+
 ### Unfocused surface frame pacing
 
 - Branch: `perf/unfocused-draw-cap` ([manaflow-ai/ghostty#234](https://github.com/manaflow-ai/ghostty/pull/234))

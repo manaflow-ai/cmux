@@ -237,6 +237,27 @@ class SwiftSyntaxTests(unittest.TestCase):
             self.assertIn("./" + source.name, result["evidence"]["executions"][0]["argv"])
             self.assertFalse(result["assessment"]["exact_verification"])
 
+    def test_toolchain_receipt_survives_slow_version_probe(self):
+        with repo_fixture() as repo:
+            source = repo / "Example.swift"
+            source.write_text("let value = 1\n")
+            execution = {"id": "swift-syntax", "phase": "parsing", "argv": ["swiftc"],
+                         "tests": None, "cancelled": False, "status": "passed", "executed": True,
+                         "elapsed_seconds": 0}
+            real_run = subprocess.run
+            def slow_swift_version(*args, **kwargs):
+                command = args[0] if args else kwargs.get("args", [])
+                if command and str(command[0]).endswith("swiftc"):
+                    raise subprocess.TimeoutExpired(command, kwargs.get("timeout"))
+                return real_run(*args, **kwargs)
+            with patch.object(verify.shutil, "which", return_value="/usr/bin/swiftc"), \
+                    patch.object(verify.subprocess, "run", side_effect=slow_swift_version), \
+                    patch.object(verify, "execute", return_value=(execution, "")):
+                result = verify.run(repo, ["swift-syntax"], 5, io.StringIO(),
+                                    swift_files=[source.name])
+            self.assertEqual(result["outcome"]["status"], "passed")
+            self.assertIn("Swift", result["environment"]["toolchain"])
+
 
 class SwiftSelectionTests(unittest.TestCase):
     def git(self, repo, *args):
