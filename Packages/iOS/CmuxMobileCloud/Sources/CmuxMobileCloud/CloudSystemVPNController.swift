@@ -63,6 +63,9 @@ public final class CloudSystemVPNController {
         hasLoadedScope = true
         let previousScope = scope
         scope = newScope
+        // A device that cannot run the VPN never saved one, so there is
+        // nothing to load or remove.
+        guard manager.isAvailable else { return }
         enqueue { [self] generation in
             do {
                 if previousScope != nil || newScope == nil {
@@ -82,7 +85,7 @@ public final class CloudSystemVPNController {
     /// Re-reads the live status, for example when the app returns to the
     /// foreground after the user changed the VPN in Settings.
     public func refresh() async {
-        guard let scope, operation == nil else { return }
+        guard manager.isAvailable, let scope, operation == nil else { return }
         enqueue { [self] generation in
             do {
                 try await manager.refresh(scope: scope)

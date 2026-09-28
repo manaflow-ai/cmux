@@ -215,6 +215,18 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         #expect(rig.controller.phase == .failed(.unavailable))
     }
 
+    @Test func anUnavailableDeviceNeverTouchesVPNStorage() async {
+        let rig = Rig()
+        rig.manager.isAvailable = false
+        rig.controller.setScope("user-1/team-1")
+        rig.controller.setScope(nil)
+        await rig.controller.refresh()
+        await rig.controller.waitForPendingOperation()
+        #expect(rig.manager.stops.isEmpty)
+        #expect(rig.manager.refreshedScopes.isEmpty)
+        #expect(rig.controller.phase == .off)
+    }
+
     @Test func routePolicyAdmitsOnlyPrivateRanges() {
         let policy = CloudVPNRoutePolicy()
         #expect(policy.permits("10.0.0.0/8"))
