@@ -29,6 +29,16 @@ public actor GitHubRepositorySlugCache {
     private var entries: [String: Entry] = [:]
     private var pendingLookups: [String: Task<String?, Never>] = [:]
 
+    /// Bumped by ``removeAll()``. A lookup that started in an older generation
+    /// must not write its answer back, because it describes a state the caller
+    /// has already been told to forget.
+    private var generation = 0
+
+    /// How many callers have been served by joining a lookup already in
+    /// flight. Tests assert on this to prove the shared-lookup path ran rather
+    /// than inferring it from a call count that a cache hit also satisfies.
+    private(set) var joinedPendingLookupCount = 0
+
     /// Creates a cache over a discovery function.
     ///
     /// - Parameters:
@@ -64,6 +74,7 @@ public actor GitHubRepositorySlugCache {
         }
 
         if let pending = pendingLookups[directory] {
+            joinedPendingLookupCount += 1
             return await pending.value
         }
 
@@ -72,15 +83,28 @@ public actor GitHubRepositorySlugCache {
             await discover(directory)
         }
         pendingLookups[directory] = task
+        let startedGeneration = generation
 
         let slug = await task.value
+
+        // `removeAll()` during the lookup means this answer is already stale.
+        // Hand it to the caller that asked for it, but do not cache it and do
+        // not disturb whatever lookup replaced this one.
+        guard startedGeneration == generation else { return slug }
+
         pendingLookups[directory] = nil
         entries[directory] = Entry(slug: slug, resolvedAt: now())
         return slug
     }
 
-    /// Drops every cached answer.
+    /// Drops every cached answer, including lookups still in flight.
+    ///
+    /// A caller already waiting on an in-flight lookup still receives that
+    /// lookup's answer, because it asked before the invalidation. Every caller
+    /// arriving afterwards resolves afresh.
     public func removeAll() {
         entries.removeAll()
+        pendingLookups.removeAll()
+        generation &+= 1
     }
 }
