@@ -98,6 +98,35 @@ struct CloudMachinesHeaderCountTests {
                 "The row already on screen reloads with the new count")
     }
 
+    @Test("The count stays on the header expanded and collapsed, light and dark",
+          arguments: [false, true], [1, 50])
+    func countShowsInBothExpansionStates(dark: Bool, activeCount: Int) throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        fixture.window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        fixture.coordinator.update(inputs: CloudTreeBuildInputs(
+            machines: [MachineSnapshot(id: "ordering-fixture", provider: "freestyle", image: "base",
+                                       isDesktop: false, activity: .ready)],
+            snapshot: fixture.snapshot(), source: .cloudWithDevicesSection, canCreateCloudMachine: true,
+            cloudMachinesUsage: CloudMachinesUsage(activeCount: activeCount, maxActiveVms: 50, isPaidPlan: false)
+        ))
+        fixture.container.layoutSubtreeIfNeeded()
+        let outline = try #require(fixture.coordinator.outlineView)
+        let header = try #require(outline.item(atRow: 0) as? CloudTreeNode)
+        for expanded in [true, false] {
+            if outline.isItemExpanded(header) != expanded { fixture.coordinator.open(header) }
+            fixture.container.layoutSubtreeIfNeeded()
+            #expect(outline.isItemExpanded(header) == expanded)
+            let cell = try #require(outline.view(atColumn: 0, row: 0, makeIfNecessary: false) as? CloudTreeCellView)
+            #expect(cell.accessibilityLabel() == "Cloud Machines, \(activeCount) of 50 machines")
+            // Hover the full plan so the capture shows the + beside the orange count.
+            cell.setHovered(activeCount == 50)
+            try fixture.attachScreenshot(
+                named: "cloud-machines-\(activeCount)of50-\(expanded ? "expanded" : "collapsed")-\(dark ? "dark" : "light")"
+            )
+        }
+    }
+
     @Test("The hover + never overlaps the header count")
     func hoverPlusLeavesRoomForTheCount() throws {
         let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 160, height: 24))
