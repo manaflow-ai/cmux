@@ -39,8 +39,8 @@ final class WorkspaceActivityReorderControllerTests: XCTestCase {
     ) -> Fixture {
         let manager = TabManager()
         let first = manager.tabs[0]
-        _ = manager.addWorkspace()
-        _ = manager.addWorkspace()
+        _ = manager.addWorkspaceIfActive()
+        _ = manager.addWorkspaceIfActive()
         let ordered = manager.tabs
         XCTAssertEqual(ordered.count, 3)
         manager.selectedTabId = first.id

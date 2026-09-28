@@ -11,7 +11,7 @@ extension TerminalNotificationPolicyEffects {
     func applySidebarOrdering(
         defaults: UserDefaults,
         workspaceId: UUID,
-        controller: @autoclosure () -> WorkspaceActivityReorderController = .shared,
+        controller: WorkspaceActivityReorderController? = nil,
         raiseCloudRow: () -> Void,
         moveLocalWorkspace: () -> Void
     ) {
@@ -24,7 +24,7 @@ extension TerminalNotificationPolicyEffects {
             raiseCloudRow()
         case .agentActivity:
             raiseCloudRow()
-            controller().notificationRequestsReorder(workspaceId: workspaceId)
+            (controller ?? .shared).notificationRequestsReorder(workspaceId: workspaceId)
         }
     }
 }
