@@ -11,8 +11,7 @@ import Speech
 /// a given language downloads the on-device model (surfaced to the user as
 /// the ``DictationPhase/preparing`` phase), later sessions start
 /// immediately. Volatile results stream as ``DictationTranscriptionEvent/partial(_:)``
-/// and finalized runs as ``DictationTranscriptionEvent/final(_:)``.
-/// Recognition never leaves the machine.
+/// and finalized runs as ``DictationTranscriptionEvent/final(_:)``; recognition stays on device.
 @available(macOS 26.0, *)
 public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     /// Raw audio-tap payload. `AVAudioNodeTapBlock` documents that callbacks
@@ -32,7 +31,6 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     }
 
     /// The bounded handoff from the audio-thread tap to the actor.
-    ///
     /// Lock carve-out: the AVAudioEngine tap is a synchronous audio-thread
     /// callback. It only snapshots the continuation and enqueues the tap's
     /// output copy; format conversion and AnalyzerInput allocation happen on
@@ -81,7 +79,6 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     }
 
     /// Hands one buffer to `AVAudioConverter`'s input block.
-    ///
     /// The block runs synchronously inside convert(to:error:) on the
     /// conversion worker, so the buffer never actually crosses threads
     /// despite the @Sendable annotation.
@@ -113,6 +110,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     private var ownedReservedLocale: Locale?
     private var analyzerStarted = false
     private var isFinishing = false
+    private let levelMeter: DictationAudioLevelMeter?
 
     /// Caps queued audio to roughly a third of a second at the 4096-frame
     /// tap size. Dropping the oldest buffer lets the analyzer catch up after
@@ -123,8 +121,8 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     /// A dropped event fails the session rather than silently losing a final.
     private static let eventBufferCapacity = 32
 
-    /// Creates an engine for one session.
-    public init() {}
+    /// Creates an engine for one session; `levelMeter` feeds the HUD meter.
+    public init(levelMeter: DictationAudioLevelMeter? = nil) { self.levelMeter = levelMeter }
 
     public func transcribe(
         locale: Locale
@@ -321,7 +319,9 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             throw DictationFailure.audioCaptureFailed("no audio input device")
         }
         let box = inputBox
+        let meter = levelMeter
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, time in
+            meter?.record(buffer)
             box.ingest(buffer, at: time)
         }
         engine.prepare()

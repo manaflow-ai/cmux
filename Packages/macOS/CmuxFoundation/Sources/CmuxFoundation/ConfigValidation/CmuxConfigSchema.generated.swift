@@ -1966,6 +1966,7 @@ enum CmuxEmbeddedConfigSchema {
               "closeWindow",
               "toggleFullScreen",
               "quit",
+              "toggleVoiceDictation",
               "toggleSidebar",
               "newTab",
               "newBrowserWorkspace",

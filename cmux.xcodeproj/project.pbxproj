@@ -345,6 +345,7 @@
 		7C592156DCB3419BB95383E5 /* AutoNamingEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7752D68A758642EFA282C208 /* AutoNamingEngineTests.swift */; };
 		A4ECF22C62724853A72D6BDE /* AutoNamingGrokAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07EC52007B2144C59C047774 /* AutoNamingGrokAdapterTests.swift */; };
 		74AB3F34FE3B4974A3A5D264 /* AutoNamingHookPayloadAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46792DAA478444ED87B17B31 /* AutoNamingHookPayloadAdapterTests.swift */; };
+		8A6121A1006A0203FB832402 /* AuxiliaryWindowCloseShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ECB30B6354BD287D52E0B43 /* AuxiliaryWindowCloseShortcut.swift */; };
 		B00FC393AB29CFA85FB6D9F5 /* BackgroundPrimeStartableSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0673572C53588696D70F32A9 /* BackgroundPrimeStartableSurfaceTests.swift */; };
 		C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */; };
 		A50012F1 /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F0 /* Backport.swift */; };
@@ -1743,6 +1744,7 @@
 		DCDC1000000000000000B00F /* DockTrustRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B010 /* DockTrustRequest.swift */; };
 		904090409040904090409041 /* DockUnreadPanelProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 904090409040904090409042 /* DockUnreadPanelProjection.swift */; };
 		904090409040904090409045 /* DockUnreadProjectionContextBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 904090409040904090409046 /* DockUnreadProjectionContextBridge.swift */; };
+		97E0284981F229EDC99322B1 /* DockVoiceDictationRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B31E038867100162CE932DC1 /* DockVoiceDictationRoutingTests.swift */; };
 		D86860000000000000000001 /* DockWorkingDirectoryInheritanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86860000000000000000002 /* DockWorkingDirectoryInheritanceTests.swift */; };
 		D0F00D01A1B2C3D4E5F60719 /* DogfoodScenarioUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F00D00A1B2C3D4E5F60719 /* DogfoodScenarioUITests.swift */; };
 		D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */; };
@@ -2428,6 +2430,7 @@
 		C01E00080000000000000001 /* NSTextView+FilePreviewTabWidth.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01E00080000000000000002 /* NSTextView+FilePreviewTabWidth.swift */; };
 		2A692BD3A1A8A856F0AC1263 /* NSView+WindowPointHitTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 719B6457B507938674F1E684 /* NSView+WindowPointHitTest.swift */; };
 		D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */; };
+		7C5EFCF09982F6D36DD6E23E /* NSWindow+UniqueBrowserWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5664344274E2FBF071B92E87 /* NSWindow+UniqueBrowserWebView.swift */; };
 		645645000000000000000002 /* NumberedShortcutSwapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645645000000000000000001 /* NumberedShortcutSwapTests.swift */; };
 		0A1107110000000000000001 /* OllamaAgentDetectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000002 /* OllamaAgentDetectionTests.swift */; };
 		C67540090000000000000001 /* OmnibarAddressButtonStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540090000000000000002 /* OmnibarAddressButtonStyle.swift */; };
@@ -3816,12 +3819,14 @@
 		249A593EF9615DF0C071986D /* VMSSHTransportFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C553AF2050E7E6D7CD62EC /* VMSSHTransportFallbackTests.swift */; };
 		ABE558B281D671A6DDDDD066 /* VMTunnelManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A47FAD328D6669A5B40CE3 /* VMTunnelManagerTests.swift */; };
 		F6AAAA235B7F431E8D1D2E94 /* VMTunnelStalenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E87BDCAB46A44D7596A4784D /* VMTunnelStalenessTests.swift */; };
+		FAC1BC80831611A076734C3B /* VoiceDictationAuthorizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21DAEB012CFA4D68E35D6749 /* VoiceDictationAuthorizer.swift */; };
 		C701CE0000000000000000B1 /* VoiceDictationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C701CE0000000000000000F1 /* VoiceDictationCoordinator.swift */; };
 		C701CE0100000000000000B1 /* VoiceDictationHUDController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C701CE0100000000000000F1 /* VoiceDictationHUDController.swift */; };
 		C701CE0800000000000000B1 /* VoiceDictationHUDSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C701CE0800000000000000F1 /* VoiceDictationHUDSnapshot.swift */; };
 		C701CE0200000000000000B1 /* VoiceDictationHUDView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C701CE0200000000000000F1 /* VoiceDictationHUDView.swift */; };
 		C701CE0300000000000000B1 /* VoiceDictationInsertionRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C701CE0300000000000000F1 /* VoiceDictationInsertionRouter.swift */; };
 		C701CE0700000000000000B1 /* VoiceDictationRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C701CE0700000000000000F1 /* VoiceDictationRuntime.swift */; };
+		E7C4F54362EEAA7467CD1AC1 /* VoiceDictationTerminalTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F16C1FA38A78EFE46758FA /* VoiceDictationTerminalTarget.swift */; };
 		A10020000000000000000019 /* WebSurfaceSelectionEvaluationOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1002000000000000000001A /* WebSurfaceSelectionEvaluationOwner.swift */; };
 		A10020000000000000000011 /* WebSurfaceSelectionReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10020000000000000000012 /* WebSurfaceSelectionReader.swift */; };
 		A500120C /* WindowAccessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001222 /* WindowAccessor.swift */; };
@@ -4545,6 +4550,7 @@
 		7752D68A758642EFA282C208 /* AutoNamingEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingEngineTests.swift; sourceTree = "<group>"; };
 		07EC52007B2144C59C047774 /* AutoNamingGrokAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingGrokAdapterTests.swift; sourceTree = "<group>"; };
 		46792DAA478444ED87B17B31 /* AutoNamingHookPayloadAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingHookPayloadAdapterTests.swift; sourceTree = "<group>"; };
+		1ECB30B6354BD287D52E0B43 /* AuxiliaryWindowCloseShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AuxiliaryWindowCloseShortcut.swift; sourceTree = "<group>"; };
 		0673572C53588696D70F32A9 /* BackgroundPrimeStartableSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundPrimeStartableSurfaceTests.swift; sourceTree = "<group>"; };
 		C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundWorkspacePrimeCoordinator.swift; sourceTree = "<group>"; };
 		A50012F0 /* Backport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backport.swift; sourceTree = "<group>"; };
@@ -5803,6 +5809,7 @@
 		DCDC1000000000000000B010 /* DockTrustRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockTrustRequest.swift; sourceTree = "<group>"; };
 		904090409040904090409042 /* DockUnreadPanelProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockUnreadPanelProjection.swift; sourceTree = "<group>"; };
 		904090409040904090409046 /* DockUnreadProjectionContextBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockUnreadProjectionContextBridge.swift; sourceTree = "<group>"; };
+		B31E038867100162CE932DC1 /* DockVoiceDictationRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockVoiceDictationRoutingTests.swift"; sourceTree = "<group>"; };
 		D86860000000000000000002 /* DockWorkingDirectoryInheritanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockWorkingDirectoryInheritanceTests.swift; sourceTree = "<group>"; };
 		D0F00D00A1B2C3D4E5F60719 /* DogfoodScenarioUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DogfoodScenarioUITests.swift; sourceTree = "<group>"; };
 		D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOverlayRoutingPolicy.swift; sourceTree = "<group>"; };
@@ -6479,6 +6486,7 @@
 		C01E00080000000000000002 /* NSTextView+FilePreviewTabWidth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/NSTextView+FilePreviewTabWidth.swift"; sourceTree = "<group>"; };
 		719B6457B507938674F1E684 /* NSView+WindowPointHitTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSView+WindowPointHitTest.swift"; sourceTree = "<group>"; };
 		D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/NSWindow+CmuxPeerWindow.swift"; sourceTree = "<group>"; };
+		5664344274E2FBF071B92E87 /* NSWindow+UniqueBrowserWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSWindow+UniqueBrowserWebView.swift"; sourceTree = "<group>"; };
 		645645000000000000000001 /* NumberedShortcutSwapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumberedShortcutSwapTests.swift; sourceTree = "<group>"; };
 		0A1107110000000000000002 /* OllamaAgentDetectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaAgentDetectionTests.swift; sourceTree = "<group>"; };
 		C67540090000000000000002 /* OmnibarAddressButtonStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/OmnibarAddressButtonStyle.swift; sourceTree = "<group>"; };
@@ -7849,12 +7857,14 @@
 		F5C553AF2050E7E6D7CD62EC /* VMSSHTransportFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMSSHTransportFallbackTests.swift"; sourceTree = "<group>"; };
 		74A47FAD328D6669A5B40CE3 /* VMTunnelManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMTunnelManagerTests.swift; sourceTree = "<group>"; };
 		E87BDCAB46A44D7596A4784D /* VMTunnelStalenessTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMTunnelStalenessTests.swift; sourceTree = "<group>"; };
+		21DAEB012CFA4D68E35D6749 /* VoiceDictationAuthorizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice/VoiceDictationAuthorizer.swift; sourceTree = "<group>"; };
 		C701CE0000000000000000F1 /* VoiceDictationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice/VoiceDictationCoordinator.swift; sourceTree = "<group>"; };
 		C701CE0100000000000000F1 /* VoiceDictationHUDController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice/VoiceDictationHUDController.swift; sourceTree = "<group>"; };
 		C701CE0800000000000000F1 /* VoiceDictationHUDSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice/VoiceDictationHUDSnapshot.swift; sourceTree = "<group>"; };
 		C701CE0200000000000000F1 /* VoiceDictationHUDView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice/VoiceDictationHUDView.swift; sourceTree = "<group>"; };
 		C701CE0300000000000000F1 /* VoiceDictationInsertionRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice/VoiceDictationInsertionRouter.swift; sourceTree = "<group>"; };
 		C701CE0700000000000000F1 /* VoiceDictationRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice/VoiceDictationRuntime.swift; sourceTree = "<group>"; };
+		B1F16C1FA38A78EFE46758FA /* VoiceDictationTerminalTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice/VoiceDictationTerminalTarget.swift; sourceTree = "<group>"; };
 		A1002000000000000000001A /* WebSurfaceSelectionEvaluationOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WebSurfaceSelectionEvaluationOwner.swift; sourceTree = "<group>"; };
 		A10020000000000000000012 /* WebSurfaceSelectionReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WebSurfaceSelectionReader.swift; sourceTree = "<group>"; };
 		A5001222 /* WindowAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAccessor.swift; sourceTree = "<group>"; };
@@ -9296,6 +9306,8 @@
 				C701CE0200000000000000F1 /* VoiceDictationHUDView.swift */,
 				C701CE0300000000000000F1 /* VoiceDictationInsertionRouter.swift */,
 				C701CE0700000000000000F1 /* VoiceDictationRuntime.swift */,
+				B1F16C1FA38A78EFE46758FA /* VoiceDictationTerminalTarget.swift */,
+				21DAEB012CFA4D68E35D6749 /* VoiceDictationAuthorizer.swift */,
 				C701CE0800000000000000F1 /* VoiceDictationHUDSnapshot.swift */,
 				C701CE0400000000000000F1 /* KeyboardShortcutSettingsVisibleActions.swift */,
 				C701CE0600000000000000F1 /* AppDelegateVoiceDictation.swift */,
@@ -9350,6 +9362,7 @@
 					C0A710A00000000000000001 /* ComputerUseCursorOverlayController.swift */,
 					C0A713010000000000000001 /* ComputerUseWatchTargetActivity.swift */,
 					D1F00A100000000000000001 /* ComputerUseWatchTargetController.swift */,
+					1ECB30B6354BD287D52E0B43 /* AuxiliaryWindowCloseShortcut.swift */,
 					C0A710040000000000000001 /* ComputerUseStateScan.swift */,
 					C0A710160000000000000001 /* ComputerUseTargetIdentity.swift */,
 					C0A710130000000000000001 /* ComputerUseUXCoordinator.swift */,
@@ -10572,6 +10585,7 @@
 				7738D0067738D0067738D006 /* RemoteTmuxWindowMirror+ControlMutations.swift */,
 				7738D0027738D0027738D002 /* RemoteTmuxWindowMirror+ControlTopology.swift */,
 				7738D0037738D0037738D003 /* Workspace+RemoteTmuxControlTopology.swift */,
+				5664344274E2FBF071B92E87 /* NSWindow+UniqueBrowserWebView.swift */,
 				7738D0077738D0077738D007 /* TerminalController+RemoteTmuxControlMutations.swift */,
 				7738D0047738D0047738D004 /* TerminalController+RemoteTmuxControlTopology.swift */,
 				7738D0087738D0087738D008 /* TerminalController+RemoteTmuxControlRefs.swift */,
@@ -12363,6 +12377,7 @@
 				23E35F95320CBED308AD98CF /* CloudTreeTogglePerformanceTests.swift */,
 				0C37EA14DE74095FB1BB23E1 /* CloudTreeDisclosureIntentTests.swift */,
 				6F27EA9972F21B98FB4A7312 /* SurfaceCatalogObservationTests.swift */,
+				B31E038867100162CE932DC1 /* DockVoiceDictationRoutingTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -13373,6 +13388,7 @@
 				A10649020000000000000001 /* AutomationRule.swift in Sources */,
 				A10649310000000000000001 /* AutomationWebhookPolicy.swift in Sources */,
 				A10649370000000000000001 /* AutomationWebhookRedirectDelegate.swift in Sources */,
+					8A6121A1006A0203FB832402 /* AuxiliaryWindowCloseShortcut.swift in Sources */,
 					C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */,
 					A50012F1 /* Backport.swift in Sources */,
 				74060000000000000000001B /* BonsplitConfiguration+RemoteTmuxEmbedded.swift in Sources */,
@@ -14398,6 +14414,7 @@
 				C01E00080000000000000001 /* NSTextView+FilePreviewTabWidth.swift in Sources */,
 				2A692BD3A1A8A856F0AC1263 /* NSView+WindowPointHitTest.swift in Sources */,
 				D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */,
+				7C5EFCF09982F6D36DD6E23E /* NSWindow+UniqueBrowserWebView.swift in Sources */,
 				C67540090000000000000001 /* OmnibarAddressButtonStyle.swift in Sources */,
 				A5001670 /* OneShotTerminalLauncherStore.swift in Sources */,
 				A9F200000000000000000017 /* OpenCodeEventStreamParser.swift in Sources */,
@@ -15345,13 +15362,15 @@
 				A28B087F0000000000000005 /* ViewerNavigationKeyRouter.swift in Sources */,
 				7A0CE1000000000000000044 /* VMClientSocketCommands+Tunnel.swift in Sources */,
 				ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */,
+				C10DC1000000000000000013 /* VMClientTelemetry+Live.swift in Sources */,
+				FAC1BC80831611A076734C3B /* VoiceDictationAuthorizer.swift in Sources */,
 				C701CE0000000000000000B1 /* VoiceDictationCoordinator.swift in Sources */,
 				C701CE0100000000000000B1 /* VoiceDictationHUDController.swift in Sources */,
 				C701CE0800000000000000B1 /* VoiceDictationHUDSnapshot.swift in Sources */,
 				C701CE0200000000000000B1 /* VoiceDictationHUDView.swift in Sources */,
 				C701CE0300000000000000B1 /* VoiceDictationInsertionRouter.swift in Sources */,
 				C701CE0700000000000000B1 /* VoiceDictationRuntime.swift in Sources */,
-				C10DC1000000000000000013 /* VMClientTelemetry+Live.swift in Sources */,
+				E7C4F54362EEAA7467CD1AC1 /* VoiceDictationTerminalTarget.swift in Sources */,
 				A10020000000000000000019 /* WebSurfaceSelectionEvaluationOwner.swift in Sources */,
 				A10020000000000000000011 /* WebSurfaceSelectionReader.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,
@@ -16423,6 +16442,7 @@
 				C2538003A1B2C3D4E5F60719 /* DockTerminalCreationTests.swift in Sources */,
 				A9042D0C0000000000000001 /* DockTerminalPointerFocusTests.swift in Sources */,
 				D7054D0C0000000000000001 /* DockTerminalReattachTests.swift in Sources */,
+				97E0284981F229EDC99322B1 /* DockVoiceDictationRoutingTests.swift in Sources */,
 				D86860000000000000000001 /* DockWorkingDirectoryInheritanceTests.swift in Sources */,
 				0BD2AA506F906B6A5382A280 /* DuplicateInstanceHandlerTests.swift in Sources */,
 				D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */,

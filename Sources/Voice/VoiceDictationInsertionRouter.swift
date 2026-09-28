@@ -3,23 +3,32 @@ import CmuxFoundation
 import CmuxVoice
 import WebKit
 
-/// Pins the focused input target when dictation starts and types finalized
+/// Pins the focused input target when dictation starts and inserts finalized
 /// segments into it for the rest of the session.
 ///
 /// Route priority (see `DictationInsertionRouteResolver`): a native text
 /// responder wins, then editable web content in the key `WKWebView` (agent
-/// composer, browser pane), then the focused terminal surface via the
-/// typed-input PTY path. The target is pinned per session on purpose:
-/// moving focus mid-dictation never scatters text across panes, and if the
-/// pinned target goes away the session ends.
+/// composer, browser pane), then the focused terminal surface. Terminals get
+/// text through the paste path (the same one as Cmd+V and `cmux paste`), so
+/// a program with bracketed paste on receives each segment as one paste and
+/// can never mistake dictated text for keystrokes or a submit. The target is
+/// pinned per session on purpose: moving focus mid-dictation never scatters
+/// text across panes, and if the pinned target goes away the session ends.
+///
+/// When the target is an agent prompt (a terminal running a coding agent, or
+/// web content such as the agent chat composer) and the setting is on,
+/// spoken fillers are removed first (`DictationTextCleanup`).
 @MainActor
 final class VoiceDictationInsertionRouter: DictationTextInserting {
     private static let javaScriptEvaluationTimeout: TimeInterval = 2
 
-    /// Resolves the focused terminal panel of the active workspace across
-    /// window contexts; injected from the composition root.
-    private let focusedTerminalPanel: () -> TerminalPanel?
+    /// Resolves the focused terminal of the active workspace across window
+    /// contexts; injected from the composition root.
+    private let focusedTerminalTarget: () -> VoiceDictationTerminalTarget?
+    /// Whether agent-prompt cleanup is on; read once per session.
+    private let cleanUpAgentPrompts: () -> Bool
     private let resolver = DictationInsertionRouteResolver()
+    private var cleansText = false
 
     private weak var pinnedTextView: NSTextView?
     private weak var pinnedTextField: NSTextField?
@@ -52,8 +61,12 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
     })()
     """
 
-    init(focusedTerminalPanel: @escaping () -> TerminalPanel?) {
-        self.focusedTerminalPanel = focusedTerminalPanel
+    init(
+        focusedTerminalTarget: @escaping () -> VoiceDictationTerminalTarget?,
+        cleanUpAgentPrompts: @escaping () -> Bool
+    ) {
+        self.focusedTerminalTarget = focusedTerminalTarget
+        self.cleanUpAgentPrompts = cleanUpAgentPrompts
     }
 
     func beginSession() async -> Bool {
@@ -66,7 +79,8 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
         let isSecureNativeInput = responder is NSSecureTextField
             || fieldEditorOwner is NSSecureTextField
         let webView = (responder as? NSView).flatMap(Self.enclosingWebView(of:))
-        let terminalPanel = focusedTerminalPanel()
+        let terminalTarget = focusedTerminalTarget()
+        let terminalPanel = terminalTarget?.panel
         let nativeTextView = textView ?? directTextField?.currentEditor() as? NSTextView
         let nativeTextInputIsEditable = webView == nil
             && !isUnverifiedFieldEditor
@@ -102,10 +116,20 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
         case .terminalSurface:
             pinnedTerminalPanel = terminalPanel
         }
+        // Native text fields are cmux UI (rename, palette, find), never an
+        // agent prompt. Web content is the agent chat composer or a page
+        // input; both read better without fillers.
+        let targetIsAgentPrompt = switch route {
+        case .nativeTextResponder: false
+        case .webViewEditable: true
+        case .terminalSurface: terminalTarget?.isAgentPrompt == true
+        }
+        cleansText = targetIsAgentPrompt && cleanUpAgentPrompts()
         return true
     }
 
-    func insertFinalizedText(_ text: String) async -> Bool {
+    func insertFinalizedText(_ delta: String) async -> Bool {
+        let text = cleansText ? Self.cleaned(delta) : delta
         guard !text.isEmpty else { return true }
         switch activeRoute {
         case .nativeTextResponder:
@@ -137,7 +161,7 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
             )
         case .terminalSurface:
             guard let panel = pinnedTerminalPanel else { return false }
-            return panel.sendInputResult(text).accepted
+            return panel.sendTextResult(text).accepted
         case nil:
             return false
         }
@@ -155,6 +179,16 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
         pinnedWebView = nil
         pinnedTerminalPanel = nil
         activeRoute = nil
+        cleansText = false
+    }
+
+    /// Cleans one delta while keeping its leading separator space, which
+    /// `DictationTranscript` adds between segments.
+    static func cleaned(_ delta: String) -> String {
+        let body = delta.drop { $0 == " " }
+        let cleanedBody = DictationTextCleanup.cleaned(String(body))
+        guard !cleanedBody.isEmpty else { return "" }
+        return String(delta.prefix(delta.count - body.count)) + cleanedBody
     }
 
     private static func pinWebViewEditableTarget(_ webView: WKWebView) async -> Bool {

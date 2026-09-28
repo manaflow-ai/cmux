@@ -56,21 +56,26 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     private var recognitionCycleGeneration = 0
     private let retryClock: any Clock<Duration>
     private let retryDelay: Duration
+    private let levelMeter: DictationAudioLevelMeter?
 
     /// Keeps recognizer callbacks bounded when the insertion target is slow.
     /// A dropped event fails the session rather than silently losing a final.
     private static let eventBufferCapacity = 32
 
     /// Creates an engine for one session.
-    public init() {
+    ///
+    /// - Parameter levelMeter: Receives input levels for the HUD meter.
+    public init(levelMeter: DictationAudioLevelMeter? = nil) {
         retryClock = ContinuousClock()
         retryDelay = .milliseconds(100)
+        self.levelMeter = levelMeter
     }
 
     /// Creates an engine with caller-supplied retry timing.
     init(retryClock: any Clock<Duration>, retryDelay: Duration) {
         self.retryClock = retryClock
         self.retryDelay = retryDelay
+        levelMeter = nil
     }
 
     public func transcribe(
@@ -127,7 +132,9 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
             throw DictationFailure.audioCaptureFailed("no audio input device")
         }
         let box = requestBox
+        let meter = levelMeter
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
+            meter?.record(buffer)
             box.append(buffer)
         }
         engine.prepare()

@@ -23,6 +23,13 @@ public enum DictationFailure: Error, Equatable, Sendable {
     /// The recognizer reported an unrecoverable error mid-session.
     case transcriptionFailed(String)
 
+    /// The cloud engine is selected but no API key is saved.
+    case cloudCredentialMissing
+
+    /// The cloud transcription request failed (network, auth, quota, or an
+    /// unreadable response). The detail is for logs, not for display.
+    case cloudTranscriptionFailed(String)
+
     /// No insertable target (terminal surface, text field, or editable
     /// web content) had focus when the session started, or the pinned
     /// target went away mid-session.

@@ -13,6 +13,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     case newSimulator = "cmux.newSimulator"
     case splitRight = "cmux.splitRight"
     case splitDown = "cmux.splitDown"
+    case voiceDictation = "cmux.voiceDictation"
 
     init?(configID: String) {
         switch configID {
@@ -41,6 +42,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             self = .splitRight
         case "cmux.splitDown", "splitDown":
             self = .splitDown
+        case "cmux.voiceDictation", "voiceDictation", "dictation", "cmux.dictation":
+            self = .voiceDictation
         default:
             return nil
         }
@@ -77,6 +80,11 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return (String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right"), ["terminal", "split", "right"])
         case .splitDown:
             return (String(localized: "command.terminalSplitDown.title", defaultValue: "Split Down"), ["terminal", "split", "down"])
+        case .voiceDictation:
+            return (
+                String(localized: "command.toggleVoiceDictation.title", defaultValue: "Toggle Voice Dictation"),
+                ["voice", "dictation", "dictate", "speech", "microphone", "mic", "talk", "transcribe"]
+            )
         }
     }
 
@@ -104,12 +112,15 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return "square.split.2x1"
         case .splitDown:
             return "square.split.1x2"
+        case .voiceDictation:
+            return "mic"
         }
     }
 
     var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action? {
         switch self {
-        case .newWorkspace, .newAgentChat, .cloudVM, .newCloudWorkspace, .newCloudMachine, .mobileConnect, .newSimulator:
+        case .newWorkspace, .newAgentChat, .cloudVM, .newCloudWorkspace, .newCloudMachine, .mobileConnect, .newSimulator,
+             .voiceDictation:
             return nil
         case .newTerminal:
             return .newTerminal
@@ -138,6 +149,7 @@ extension CmuxSurfaceTabBarBuiltInAction {
         case .newBrowser: return .openBrowser
         case .splitRight: return .splitRight
         case .splitDown: return .splitDown
+        case .voiceDictation: return .toggleVoiceDictation
         case .newAgentChat, .cloudVM, .mobileConnect, .newSimulator: return nil
         }
     }

@@ -1,5 +1,6 @@
 import CmuxCloud
 import AppKit
+import CmuxSettings
 import Foundation
 
 // MARK: - New-workspace plus-button context menu
@@ -117,6 +118,8 @@ extension AppDelegate {
             return CmuxFeatureFlags.shared.isSimulatorEnabled
         case .mobileConnect:
             return !MobileRemoteControlPolicy.isDisabled
+        case .voiceDictation:
+            return VoiceDictationCoordinator.showsTabBarButton(catalog: SettingCatalog(), defaults: .standard)
         case .newWorkspace, .newTerminal, .splitRight, .splitDown:
             return true
         }

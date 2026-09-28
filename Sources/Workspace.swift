@@ -4403,6 +4403,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         case .mobileConnect: return CmuxFeatureFlags.shared.isMobileConnectButtonEnabled
         case .newAgentChat: return CmuxFeatureFlags.shared.isAgentChatUIEnabled
         case .newSimulator: return CmuxFeatureFlags.shared.isSimulatorEnabled
+        case .voiceDictation: return VoiceDictationCoordinator.showsTabBarButton(catalog: SettingCatalog(), defaults: .standard)
         case .newBrowser:
             return BrowserAvailabilitySettings.offersBrowserAffordance(
                 isEnabled: BrowserAvailabilitySettings.isEnabled()
@@ -4506,7 +4507,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         bonsplitController.configuration = configuration
     }
 
-    private func reapplySurfaceTabBarButtonsForFeatureFlags() {
+    func reapplySurfaceTabBarButtonsForFeatureFlags() {
         guard let configuration = surfaceTabBarButtonConfiguration else { return }
         applySurfaceTabBarButtons(
             configuration.buttons,
@@ -13299,7 +13300,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return nil
     }
 
-
 }
 
 // MARK: - BonsplitDelegate
@@ -13481,7 +13481,6 @@ extension Workspace: BonsplitDelegate {
             browserPanel.hideBrowserPortalView(source: "tabDeselected")
         }
     }
-
 
     private func applyTabSelectionNow(
         tabId: TabID,
@@ -14696,6 +14695,7 @@ extension Workspace: BonsplitDelegate {
                 }
             case .newSimulator:
                 _ = newSimulatorSurface(inPane: pane, focus: true)
+            case .voiceDictation: toggleVoiceDictationFromTabBar(inPane: pane)
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }

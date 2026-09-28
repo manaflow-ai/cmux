@@ -12,10 +12,12 @@ public struct SystemSpeechTranscriberProvider: Sendable {
     public init() {}
 
     /// Returns a fresh single-session transcriber for the current OS.
-    public func makeTranscriber() -> any SpeechTranscribing {
+    ///
+    /// - Parameter levelMeter: Receives input levels for the HUD meter.
+    public func makeTranscriber(levelMeter: DictationAudioLevelMeter? = nil) -> any SpeechTranscribing {
         if #available(macOS 26.0, *) {
-            return SpeechAnalyzerDictationTranscriber()
+            return SpeechAnalyzerDictationTranscriber(levelMeter: levelMeter)
         }
-        return SFSpeechDictationTranscriber()
+        return SFSpeechDictationTranscriber(levelMeter: levelMeter)
     }
 }

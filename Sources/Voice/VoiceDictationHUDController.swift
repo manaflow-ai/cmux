@@ -15,17 +15,23 @@ final class VoiceDictationHUDController {
     static let windowIdentifier = "cmux.voiceDictationHUD"
 
     private let controller: DictationController
+    private let levelMeter: DictationAudioLevelMeter
+    private let usesCloudEngine: @MainActor () -> Bool
     private let stopAction: @MainActor () -> Void
     private var panel: NSPanel?
     private var hostingView: NSHostingView<VoiceDictationHUDView>?
-    private var snapshot = VoiceDictationHUDSnapshot(phase: .idle, transcriptTail: "")
+    private var snapshot = VoiceDictationHUDSnapshot(phase: .idle, transcriptTail: "", usesCloudEngine: false)
     private var observationActive = false
 
     init(
         controller: DictationController,
+        levelMeter: DictationAudioLevelMeter,
+        usesCloudEngine: @escaping @MainActor () -> Bool,
         stopAction: @escaping @MainActor () -> Void
     ) {
         self.controller = controller
+        self.levelMeter = levelMeter
+        self.usesCloudEngine = usesCloudEngine
         self.stopAction = stopAction
     }
 
@@ -54,10 +60,12 @@ final class VoiceDictationHUDController {
     private func syncVisibility() {
         snapshot = VoiceDictationHUDSnapshot(
             phase: controller.phase,
-            transcriptTail: String(controller.transcript.displayText.suffix(60))
+            transcriptTail: String(controller.transcript.displayText.suffix(60)),
+            usesCloudEngine: usesCloudEngine()
         )
         hostingView?.rootView = VoiceDictationHUDView(
             snapshot: snapshot,
+            levelMeter: levelMeter,
             stopAction: stopAction
         )
         switch controller.phase {
@@ -90,6 +98,7 @@ final class VoiceDictationHUDController {
         )
         panel.level = .floating
         panel.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
+        panel.setAccessibilityIdentifier("VoiceDictationHUD")
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -108,6 +117,7 @@ final class VoiceDictationHUDController {
         let hostingView = NSHostingView(
             rootView: VoiceDictationHUDView(
                 snapshot: snapshot,
+                levelMeter: levelMeter,
                 stopAction: stopAction
             )
         )

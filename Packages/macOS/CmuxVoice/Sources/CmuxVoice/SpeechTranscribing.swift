@@ -24,4 +24,14 @@ public protocol SpeechTranscribing: Sendable {
     /// event stream. Safe to call at any time, including before
     /// ``transcribe(locale:)``.
     func finishTranscribing() async
+
+    /// How long ``finishTranscribing()`` may take before the controller
+    /// gives up on the session. On-device engines flush in well under a
+    /// second; a cloud engine uploads the clip first.
+    var stopDeadline: Duration { get }
+}
+
+extension SpeechTranscribing {
+    /// The on-device default.
+    public var stopDeadline: Duration { .seconds(3) }
 }

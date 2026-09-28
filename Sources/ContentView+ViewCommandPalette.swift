@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxCommandPalette
 import CmuxFoundation
+import CmuxSettings
 import Foundation
 
 extension ContentView {
@@ -119,12 +120,14 @@ enum ShortcutParityPaletteCommand: String, CaseIterable {
     case groupSelectedWorkspaces = "palette.groupSelectedWorkspaces"
     case toggleFocusedWorkspaceGroupCollapsed = "palette.toggleFocusedWorkspaceGroupCollapsed"
     case browserHardReload = "palette.browserHardReload"
+    case toggleVoiceDictation = "palette.toggleVoiceDictation"
 
     enum Scope {
         case terminal
         case workspace
         case splits
         case browser
+        case voice
     }
 
     var shortcutAction: KeyboardShortcutSettings.Action {
@@ -142,6 +145,7 @@ enum ShortcutParityPaletteCommand: String, CaseIterable {
         case .groupSelectedWorkspaces: return .groupSelectedWorkspaces
         case .toggleFocusedWorkspaceGroupCollapsed: return .toggleFocusedWorkspaceGroupCollapsed
         case .browserHardReload: return .browserHardReload
+        case .toggleVoiceDictation: return .toggleVoiceDictation
         }
     }
 
@@ -171,6 +175,8 @@ enum ShortcutParityPaletteCommand: String, CaseIterable {
             return .splits
         case .browserHardReload:
             return .browser
+        case .toggleVoiceDictation:
+            return .voice
         }
     }
 
@@ -202,6 +208,8 @@ enum ShortcutParityPaletteCommand: String, CaseIterable {
             return ["workspace", "group", "collapse", "expand", "fold"]
         case .browserHardReload:
             return ["browser", "reload", "refresh", "hard", "cache"]
+        case .toggleVoiceDictation:
+            return ["voice", "dictation", "dictate", "speech", "microphone", "mic", "talk", "transcribe"]
         }
     }
 }
@@ -250,6 +258,12 @@ extension ContentView {
             case .browser:
                 subtitle = browserSubtitle
                 when = { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+            case .voice:
+                subtitle = workspaceSubtitle
+                when = {
+                    $0.bool(CommandPaletteContextKeys.hasWorkspace)
+                        && SettingCatalog().voice.dictationEnabled.value(in: .standard)
+                }
             }
             return CommandPaletteCommandContribution(
                 commandId: command.rawValue,
@@ -313,6 +327,9 @@ extension ContentView {
             ) ?? false
         case .browserHardReload:
             return performBrowserAction(.hardReload)
+        case .toggleVoiceDictation:
+            // Same toggle as the mic button; the palette has no key to hold.
+            return AppDelegate.shared?.toggleVoiceDictationFromUI() ?? false
         case .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
              .focusPreviousPane, .focusNextPane:
             return false

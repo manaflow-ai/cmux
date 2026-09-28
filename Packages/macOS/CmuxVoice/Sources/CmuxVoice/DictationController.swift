@@ -51,8 +51,10 @@ public final class DictationController {
     private var sessionGeneration = 0
     private var insertionSessionActive = false
 
-    /// Bounds recovery from a transcriber that never completes its final flush.
-    /// This is a user-visible shutdown deadline, not a polling interval.
+    /// Bounds recovery from a transcriber that never completes its final flush
+    /// when no engine is running yet; a running engine supplies its own
+    /// ``SpeechTranscribing/stopDeadline``. This is a user-visible shutdown
+    /// deadline, not a polling interval.
     private static let stopRecoveryTimeout: Duration = .seconds(3)
 
     /// Creates a controller.
@@ -317,9 +319,10 @@ public final class DictationController {
     private func armStopRecovery(for generation: Int) {
         stopRecoveryTask?.cancel()
         let clock = self.clock
+        let deadline = activeTranscriber?.stopDeadline ?? Self.stopRecoveryTimeout
         stopRecoveryTask = Task { @MainActor [weak self] in
             do {
-                try await clock.sleep(for: Self.stopRecoveryTimeout)
+                try await clock.sleep(for: deadline)
             } catch {
                 return
             }

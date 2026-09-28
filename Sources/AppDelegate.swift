@@ -851,9 +851,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
     private let agentChatTranscriptService = AgentChatTranscriptService()
     var settingsRuntime: SettingsRuntime?
-    /// Injected voice-dictation action. The runtime itself is owned by the
-    /// SwiftUI composition root; AppDelegate only forwards the shortcut.
-    private var voiceDictationToggleAction: (@MainActor () -> Bool)?
+    weak var voiceDictationRuntime: VoiceDictationRuntime? // owned by cmuxApp
     /// Injected before the coordinator is used; the managed-policy extension
     /// re-applies `DisableComputerUse` through it.
     var computerUseRuntimeService: ComputerUseRuntimeService?
@@ -2528,8 +2526,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         browserDataImportCoordinator: BrowserDataImportCoordinator,
         computerUseRuntimeService: ComputerUseRuntimeService,
         devicesRegistry: DeviceSurfaceProviderRegistry? = nil,
-        computersService: HiveComputersService? = nil,
-        voiceDictationToggleAction: (@MainActor () -> Bool)? = nil
+        computersService: HiveComputersService? = nil
     ) {
         captureSessionLaunchStateIfNeeded()
         self.tabManager = tabManager
@@ -2555,7 +2552,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.newMachineSheetPresenter = newMachineSheetPresenter
         self.browserDataImportCoordinator = browserDataImportCoordinator
         self.computerUseRuntimeService = computerUseRuntimeService
-        self.voiceDictationToggleAction = voiceDictationToggleAction
         let cloudUploader = CloudTelemetryUploader(
             auth: auth.coordinator, baseURL: CloudTelemetryUploader.telemetryBaseURL, client: .current()
         )
@@ -15598,8 +15594,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .toggleVoiceDictation) {
-            // Only consume when dictation is enabled in Settings.
-            return voiceDictationToggleAction?() ?? false
+            return voiceDictationRuntime?.handleShortcut(event) ?? false // false when disabled
         }
 
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
@@ -17904,6 +17899,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if workspace != nil { onExecuted?() }
                 return workspace != nil
             case .newSimulator: return performConfiguredNewSimulatorAction(context: context, onExecuted: onExecuted)
+            case .voiceDictation: return performConfiguredVoiceDictationAction(onExecuted: onExecuted)
             case .newTerminal:
                 context.tabManager.newSurface()
                 onExecuted?()
@@ -20223,22 +20219,6 @@ private extension NSWindow {
             current = candidate.superview
         }
         return false
-    }
-
-    private static func cmuxUniqueBrowserWebView(in root: NSView) -> CmuxWebView? {
-        var stack: [NSView] = [root]
-        var found: CmuxWebView?
-        while let current = stack.popLast() {
-            if let webView = current as? CmuxWebView {
-                if found == nil {
-                    found = webView
-                } else if found !== webView {
-                    return nil
-                }
-            }
-            stack.append(contentsOf: current.subviews)
-        }
-        return found
     }
 
     private static func cmuxCurrentEvent(for window: NSWindow) -> NSEvent? {

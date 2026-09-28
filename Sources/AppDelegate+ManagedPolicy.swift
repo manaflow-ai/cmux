@@ -226,7 +226,7 @@ extension AppDelegate {
         }
     }
 
-    private func allTabManagersForManagedPolicyEnforcement() -> [TabManager] {
+    func allTabManagersForManagedPolicyEnforcement() -> [TabManager] {
         var managers: [TabManager] = []
         for context in mainWindowContexts.values {
             managers.append(context.tabManager)

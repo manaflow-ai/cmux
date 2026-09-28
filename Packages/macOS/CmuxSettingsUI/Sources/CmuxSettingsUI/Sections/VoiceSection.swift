@@ -2,17 +2,34 @@ import CmuxSettings
 import Speech
 import SwiftUI
 
-/// **Voice** section — the voice-dictation master toggle and language
-/// picker. Dictation is fully on-device; the copy says so explicitly.
+/// **Voice** section: the voice-dictation master toggle, engine (on device
+/// or OpenAI with the user's key), language, shortcut behavior, agent-prompt
+/// cleanup and the tab bar mic button. The copy says plainly where audio goes.
 @MainActor
 public struct VoiceSection: View {
     @State private var enabled: DefaultsValueModel<Bool>
     @State private var language: DefaultsValueModel<String>
+    @State private var engine: DefaultsValueModel<VoiceDictationEngine>
+    @State private var hotkeyMode: DefaultsValueModel<VoiceDictationHotkeyMode>
+    @State private var cleanUp: DefaultsValueModel<Bool>
+    @State private var showTabBarButton: DefaultsValueModel<Bool>
     @State private var availableLanguages: [VoiceDictationLanguageChoice] = []
+    @State private var apiKeyDraft = ""
+    @State private var hasAPIKey = false
+    private let apiKeyStore: VoiceDictationAPIKeyStore
 
-    public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
+    public init(
+        defaultsStore: UserDefaultsSettingsStore,
+        catalog: SettingCatalog,
+        apiKeyStore: VoiceDictationAPIKeyStore = VoiceDictationAPIKeyStore()
+    ) {
         _enabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.voice.dictationEnabled))
         _language = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.voice.dictationLanguage))
+        _engine = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.voice.engine))
+        _hotkeyMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.voice.hotkeyMode))
+        _cleanUp = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.voice.cleanUpAgentPrompts))
+        _showTabBarButton = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.voice.showTabBarButton))
+        self.apiKeyStore = apiKeyStore
     }
 
     public var body: some View {
@@ -21,12 +38,30 @@ public struct VoiceSection: View {
             SettingsCard {
                 enabledRow
                 SettingsCardDivider()
-                languageRow
+                engineRow
+                if engine.current == .openAI {
+                    SettingsCardDivider()
+                    apiKeyRow
+                } else {
+                    SettingsCardDivider()
+                    languageRow
+                }
+                SettingsCardDivider()
+                hotkeyModeRow
+                SettingsCardDivider()
+                cleanUpRow
+                SettingsCardDivider()
+                tabBarButtonRow
             }
         }
         .task {
             enabled.startObserving()
             language.startObserving()
+            engine.startObserving()
+            hotkeyMode.startObserving()
+            cleanUp.startObserving()
+            showTabBarButton.startObserving()
+            hasAPIKey = apiKeyStore.hasAPIKey
             availableLanguages = await VoiceDictationLanguageChoice.systemChoices()
         }
     }
@@ -38,7 +73,7 @@ public struct VoiceSection: View {
             searchAnchorID: "setting:voice:dictationEnabled",
             String(localized: "settings.voice.dictationEnabled", defaultValue: "Voice Dictation"),
             subtitle: enabled.current
-                ? String(localized: "settings.voice.dictationEnabled.subtitleOn", defaultValue: "Press the dictation shortcut (default ⌃⌘V) to speak into the focused pane. Speech is transcribed on this Mac and never leaves the device.")
+                ? String(localized: "settings.voice.dictationEnabled.subtitleOn", defaultValue: "Press the dictation shortcut (default ⌃⌘V) or the mic button to speak into the focused pane. The text is pasted, never typed as keystrokes.")
                 : String(localized: "settings.voice.dictationEnabled.subtitleOff", defaultValue: "The dictation shortcut is inert until you enable voice dictation here.")
         ) {
             Toggle("", isOn: Binding(get: { enabled.current }, set: { enabled.set($0) }))
@@ -67,6 +102,121 @@ public struct VoiceSection: View {
             .controlSize(.small)
             .frame(maxWidth: 220)
             .accessibilityIdentifier("SettingsVoiceDictationLanguagePicker")
+        }
+    }
+}
+
+extension VoiceSection {
+    @ViewBuilder
+    var engineRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:voice:engine",
+            String(localized: "settings.voice.engine", defaultValue: "Speech Engine"),
+            subtitle: engine.current == .openAI
+                ? String(localized: "settings.voice.engine.subtitleOpenAI", defaultValue: "Audio is sent to OpenAI with your API key when you stop speaking. Best accuracy; no live preview.")
+                : String(localized: "settings.voice.engine.subtitleOnDevice", defaultValue: "Speech is transcribed on this Mac with a live preview. No audio leaves the device.")
+        ) {
+            Picker("", selection: Binding(get: { engine.current }, set: { engine.set($0) })) {
+                Text(String(localized: "settings.voice.engine.onDevice", defaultValue: "On This Mac"))
+                    .tag(VoiceDictationEngine.onDevice)
+                Text(String(localized: "settings.voice.engine.openAI", defaultValue: "OpenAI (cloud)"))
+                    .tag(VoiceDictationEngine.openAI)
+            }
+            .labelsHidden()
+            .controlSize(.small)
+            .frame(maxWidth: 220)
+            .accessibilityIdentifier("SettingsVoiceDictationEnginePicker")
+        }
+    }
+
+    @ViewBuilder
+    var apiKeyRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:voice:openAIKey",
+            String(localized: "settings.voice.openAIKey", defaultValue: "OpenAI API Key"),
+            subtitle: hasAPIKey
+                ? String(localized: "settings.voice.openAIKey.saved", defaultValue: "Saved in your Keychain.")
+                : String(localized: "settings.voice.openAIKey.missing", defaultValue: "Paste a key from platform.openai.com. It is stored in your Keychain, never in cmux.json.")
+        ) {
+            HStack(spacing: 6) {
+                SecureField(
+                    String(localized: "settings.voice.openAIKey", defaultValue: "OpenAI API Key"),
+                    text: $apiKeyDraft
+                )
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .frame(maxWidth: 160)
+                .accessibilityIdentifier("SettingsVoiceDictationAPIKeyField")
+                Button(String(localized: "settings.voice.openAIKey.save", defaultValue: "Save")) {
+                    apiKeyStore.setAPIKey(apiKeyDraft)
+                    apiKeyDraft = ""
+                    hasAPIKey = apiKeyStore.hasAPIKey
+                }
+                .controlSize(.small)
+                .disabled(apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if hasAPIKey {
+                    Button(String(localized: "settings.voice.openAIKey.remove", defaultValue: "Remove")) {
+                        apiKeyStore.setAPIKey(nil)
+                        hasAPIKey = apiKeyStore.hasAPIKey
+                    }
+                    .controlSize(.small)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    var hotkeyModeRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:voice:hotkeyMode",
+            String(localized: "settings.voice.hotkeyMode", defaultValue: "Shortcut Behavior"),
+            subtitle: String(localized: "settings.voice.hotkeyMode.subtitle", defaultValue: "Automatic: a quick press toggles dictation, holding the shortcut dictates until you let go.")
+        ) {
+            Picker("", selection: Binding(get: { hotkeyMode.current }, set: { hotkeyMode.set($0) })) {
+                Text(String(localized: "settings.voice.hotkeyMode.automatic", defaultValue: "Automatic"))
+                    .tag(VoiceDictationHotkeyMode.automatic)
+                Text(String(localized: "settings.voice.hotkeyMode.toggle", defaultValue: "Press to Toggle"))
+                    .tag(VoiceDictationHotkeyMode.toggle)
+                Text(String(localized: "settings.voice.hotkeyMode.hold", defaultValue: "Hold to Talk"))
+                    .tag(VoiceDictationHotkeyMode.hold)
+            }
+            .labelsHidden()
+            .controlSize(.small)
+            .frame(maxWidth: 220)
+            .accessibilityIdentifier("SettingsVoiceDictationHotkeyModePicker")
+        }
+    }
+
+    @ViewBuilder
+    var cleanUpRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:voice:cleanUpAgentPrompts",
+            String(localized: "settings.voice.cleanUpAgentPrompts", defaultValue: "Clean Up Agent Prompts"),
+            subtitle: String(localized: "settings.voice.cleanUpAgentPrompts.subtitle", defaultValue: "Remove fillers like “um” and “uh” when dictating to a coding agent.")
+        ) {
+            Toggle("", isOn: Binding(get: { cleanUp.current }, set: { cleanUp.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsVoiceDictationCleanUpToggle")
+        }
+    }
+
+    @ViewBuilder
+    var tabBarButtonRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:voice:showTabBarButton",
+            String(localized: "settings.voice.showTabBarButton", defaultValue: "Mic Button in Tab Bar"),
+            subtitle: String(localized: "settings.voice.showTabBarButton.subtitle", defaultValue: "Show a microphone button next to the new tab and split buttons.")
+        ) {
+            Toggle("", isOn: Binding(get: { showTabBarButton.current }, set: { showTabBarButton.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsVoiceDictationTabBarButtonToggle")
         }
     }
 }

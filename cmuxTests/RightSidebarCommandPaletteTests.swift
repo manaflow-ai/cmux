@@ -149,6 +149,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             case .browser: browserContext
             case .workspace: workspaceContext
             case .splits: splitsContext
+            case .voice: workspaceContext
             }
             XCTAssertTrue(contribution.when(visibleContext), command.rawValue)
         }
@@ -164,6 +165,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             .groupSelectedWorkspaces,
             .toggleFocusedWorkspaceGroupCollapsed,
             .browserHardReload,
+            .toggleVoiceDictation,
         ] {
             XCTAssertTrue(covered.contains(action), action.rawValue)
         }

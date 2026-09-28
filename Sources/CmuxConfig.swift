@@ -999,8 +999,8 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
     static let mobileConnect = actionReference(CmuxSurfaceTabBarBuiltInAction.mobileConnect.configID)
 
     static let defaults: [CmuxSurfaceTabBarButton] = [
-        .newTerminal,
-        .newBrowser,
+        .builtIn(.voiceDictation),
+        .newTerminal, .newBrowser,
         .splitRight,
         .splitDown
     ]
