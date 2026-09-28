@@ -6010,124 +6010,6 @@
         }
       }
     },
-    "cli.focus.defaultHelp": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Default: focus when run interactively, stay in the background when run by an agent or script."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "既定: 対話的に実行した場合はフォーカスし、エージェントやスクリプトから実行した場合はバックグラウンドのままにします。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standard: bei interaktiver Ausführung fokussieren, bei Ausführung durch einen Agenten oder ein Skript im Hintergrund bleiben."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Par défaut : prend le focus en exécution interactive, reste en arrière-plan quand un agent ou un script l’exécute."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الافتراضي: التركيز عند التشغيل التفاعلي، والبقاء في الخلفية عند التشغيل بواسطة وكيل أو برنامج نصي."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Predeterminado: enfoca al ejecutarse de forma interactiva y se queda en segundo plano cuando lo ejecuta un agente o un script."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "預設：互動執行時取得焦點；由代理程式或指令稿執行時保持在背景。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "默认：交互式运行时获得焦点；由代理或脚本运行时保持在后台。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "기본값: 대화형으로 실행하면 포커스를 가져오고, 에이전트나 스크립트가 실행하면 백그라운드에 머뭅니다."
-          }
-        }
-      }
-    },
-    "cli.help.openFocusFlags": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Focus:\n  --focus                 Switch to the new workspace\n  --no-focus              Open it in the background"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フォーカス:\n  --focus                 新しいワークスペースに切り替えます\n  --no-focus              バックグラウンドで開きます"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fokus:\n  --focus                 Zum neuen Workspace wechseln\n  --no-focus              Im Hintergrund öffnen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Focus :\n  --focus                 Bascule vers le nouvel espace de travail\n  --no-focus              L’ouvre en arrière-plan"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "التركيز:\n  --focus                 ينتقل إلى مساحة العمل الجديدة\n  --no-focus              يفتحها في الخلفية"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Foco:\n  --focus                 Cambia al nuevo espacio de trabajo\n  --no-focus              Lo abre en segundo plano"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "焦點：\n  --focus                 切換到新的工作區\n  --no-focus              在背景開啟"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "焦点：\n  --focus                 切换到新的工作区\n  --no-focus              在后台打开"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "포커스:\n  --focus                 새 워크스페이스로 전환합니다\n  --no-focus              백그라운드에서 엽니다"
-          }
-        }
-      }
-    },
     "cli.vm.help.legacyKindFlags": {
       "extractionState": "manual",
       "localizations": {
@@ -569658,6 +569540,773 @@
           "stringUnit": {
             "state": "translated",
             "value": "restore: 이 세션은 라우팅된 런처 '%@'를 통해 시작되었지만 PATH에 없습니다. 대신 에이전트를 직접 재개합니다."
+          }
+        }
+      }
+    },
+    "sidebar.extensions.action.noSpaceForPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No space for new pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مساحة للوحة جديدة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Platz für einen neuen Bereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay espacio para un panel nuevo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas de place pour un nouveau panneau"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいペインを置く場所がありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 창을 위한 공간이 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有空间容纳新窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有空間容納新窗格"
+          }
+        }
+      }
+    },
+    "agent.claude.stopFailure.body.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code stopped on an API error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code は API エラーで停止しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 因 API 错误而停止"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code wurde wegen eines API-Fehlers gestoppt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code s'est arrêté sur une erreur d'API"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقف Claude Code بسبب خطأ في واجهة API"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code se detuvo por un error de la API"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 因 API 錯誤而停止"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code가 API 오류로 중지되었습니다"
+          }
+        }
+      }
+    },
+    "agent.claude.stopFailure.status.apiError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API エラー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 错误"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-Fehler"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erreur d'API"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خطأ في واجهة API"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error de la API"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 錯誤"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 오류"
+          }
+        }
+      }
+    },
+    "agent.claude.stopFailure.status.authentication": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auth error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認証エラー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "认证错误"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Authentifizierungsfehler"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erreur d'authentification"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خطأ في المصادقة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error de autenticación"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "驗證錯誤"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인증 오류"
+          }
+        }
+      }
+    },
+    "agent.claude.stopFailure.status.billing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Billing error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請求エラー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "账单错误"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrechnungsfehler"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erreur de facturation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خطأ في الفوترة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error de facturación"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帳單錯誤"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "결제 오류"
+          }
+        }
+      }
+    },
+    "agent.claude.stopFailure.status.connectionDropped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection dropped"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続が切断されました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接已断开"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung abgebrochen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion interrompue"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انقطع الاتصال"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conexión perdida"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線已中斷"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 끊김"
+          }
+        }
+      }
+    },
+    "agent.claude.stopFailure.status.outputLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Output limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力上限"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输出上限"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgabelimit"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite de sortie"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حد المخرجات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Límite de salida"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸出上限"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "출력 한도"
+          }
+        }
+      }
+    },
+    "agent.claude.stopFailure.status.overloaded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API overloaded"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 過負荷"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 过载"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API überlastet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API surchargée"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "واجهة API محمّلة فوق طاقتها"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API sobrecargada"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 過載"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 과부하"
+          }
+        }
+      }
+    },
+    "agent.claude.stopFailure.status.rateLimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rate limited"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レート制限中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已限速"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ratenbegrenzt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite de requêtes atteinte"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تقييد المعدل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Límite de frecuencia alcanzado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已限速"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "속도 제한됨"
+          }
+        }
+      }
+    },
+    "agent.claude.stopFailure.status.usageLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用量の上限"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用量上限"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzungslimit"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite d'utilisation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حد الاستخدام"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Límite de uso"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用量上限"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용량 한도"
+          }
+        }
+      }
+    },
+    "agent.claude.stopFailure.status.usageLimitResets": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage limit, resets %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用量の上限、%@ にリセット"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用量上限，%@ 重置"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzungslimit, Reset %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite d'utilisation, réinitialisation %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حد الاستخدام، يُعاد التعيين %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Límite de uso, se restablece %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用量上限，%@ 重設"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용량 한도, %@에 초기화"
+          }
+        }
+      }
+    },
+    "cli.focus.defaultHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default: focus when run interactively, stay in the background when run by an agent or script."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既定: 対話的に実行した場合はフォーカスし、エージェントやスクリプトから実行した場合はバックグラウンドのままにします。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard: bei interaktiver Ausführung fokussieren, bei Ausführung durch einen Agenten oder ein Skript im Hintergrund bleiben."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par défaut : prend le focus en exécution interactive, reste en arrière-plan quand un agent ou un script l’exécute."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الافتراضي: التركيز عند التشغيل التفاعلي، والبقاء في الخلفية عند التشغيل بواسطة وكيل أو برنامج نصي."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predeterminado: enfoca al ejecutarse de forma interactiva y se queda en segundo plano cuando lo ejecuta un agente o un script."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設：互動執行時取得焦點；由代理程式或指令稿執行時保持在背景。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认：交互式运行时获得焦点；由代理或脚本运行时保持在后台。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본값: 대화형으로 실행하면 포커스를 가져오고, 에이전트나 스크립트가 실행하면 백그라운드에 머뭅니다."
+          }
+        }
+      }
+    },
+    "cli.help.openFocusFlags": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus:\n  --focus                 Switch to the new workspace\n  --no-focus              Open it in the background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス:\n  --focus                 新しいワークスペースに切り替えます\n  --no-focus              バックグラウンドで開きます"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokus:\n  --focus                 Zum neuen Workspace wechseln\n  --no-focus              Im Hintergrund öffnen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus :\n  --focus                 Bascule vers le nouvel espace de travail\n  --no-focus              L’ouvre en arrière-plan"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التركيز:\n  --focus                 ينتقل إلى مساحة العمل الجديدة\n  --no-focus              يفتحها في الخلفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foco:\n  --focus                 Cambia al nuevo espacio de trabajo\n  --no-focus              Lo abre en segundo plano"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "焦點：\n  --focus                 切換到新的工作區\n  --no-focus              在背景開啟"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "焦点：\n  --focus                 切换到新的工作区\n  --no-focus              在后台打开"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포커스:\n  --focus                 새 워크스페이스로 전환합니다\n  --no-focus              백그라운드에서 엽니다"
           }
         }
       }

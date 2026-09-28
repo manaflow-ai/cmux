@@ -3184,6 +3184,7 @@
 		A13387000000000000000005 /* SplitPaneGeometryProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000006 /* SplitPaneGeometryProjection.swift */; };
 		A13387000000000000000013 /* SplitPaneGeometryProjectionRenderParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000014 /* SplitPaneGeometryProjectionRenderParityTests.swift */; };
 		A1338700000000000000000F /* SplitPaneGeometryProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000010 /* SplitPaneGeometryProjectionTests.swift */; };
+		0928F192E46E73B3D73237D5 /* SplitSpaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751E2E409D9D8EED12988A80 /* SplitSpaceTests.swift */; };
 		BB778780CAC943B89A7D904E /* SSHConfiguredRemoteCommandHostTests+Harness.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF9EEAA233347858BCF3320 /* SSHConfiguredRemoteCommandHostTests+Harness.swift */; };
 		F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */; };
 		797800040000000000000001 /* SSHDeepSleepReattachTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800040000000000000002 /* SSHDeepSleepReattachTests.swift */; };
@@ -3923,6 +3924,7 @@
 		C51A740000000000000000C1 /* Workspace+SimulatorSessionPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A740000000000000000C2 /* Workspace+SimulatorSessionPersistence.swift */; };
 		A1338700000000000000000B /* Workspace+SplitDebugDescription.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1338700000000000000000C /* Workspace+SplitDebugDescription.swift */; };
 		A13387000000000000000009 /* Workspace+SplitPaneProvisionalGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1338700000000000000000A /* Workspace+SplitPaneProvisionalGeometry.swift */; };
+		A3058015FBA96C778E460B3A /* Workspace+SplitSpace.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFFCEC5E783F29C91BC6A8EE /* Workspace+SplitSpace.swift */; };
 		8300A0040000000000000004 /* Workspace+SSHConnectionBroker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8300A0030000000000000003 /* Workspace+SSHConnectionBroker.swift */; };
 		8694AD6120E0C17F50AE7DC5 /* Workspace+SSHTui.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09F38C6F6416B70783908A20 /* Workspace+SSHTui.swift */; };
 		92906758EC368F8D8A989601 /* Workspace+SSHTuiStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 938D1CC0FD9AA3B4F32498BD /* Workspace+SSHTuiStatus.swift */; };
@@ -7228,6 +7230,7 @@
 		A13387000000000000000006 /* SplitPaneGeometryProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneGeometryProjection.swift; sourceTree = "<group>"; };
 		A13387000000000000000014 /* SplitPaneGeometryProjectionRenderParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneGeometryProjectionRenderParityTests.swift; sourceTree = "<group>"; };
 		A13387000000000000000010 /* SplitPaneGeometryProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneGeometryProjectionTests.swift; sourceTree = "<group>"; };
+		751E2E409D9D8EED12988A80 /* SplitSpaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SplitSpaceTests.swift"; sourceTree = "<group>"; };
 		EDF9EEAA233347858BCF3320 /* SSHConfiguredRemoteCommandHostTests+Harness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHConfiguredRemoteCommandHostTests+Harness.swift"; sourceTree = "<group>"; };
 		F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHConfiguredRemoteCommandHostTests.swift; sourceTree = "<group>"; };
 		797800040000000000000002 /* SSHDeepSleepReattachTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHDeepSleepReattachTests.swift; sourceTree = "<group>"; };
@@ -7957,6 +7960,7 @@
 		C51A740000000000000000C2 /* Workspace+SimulatorSessionPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SimulatorSessionPersistence.swift"; sourceTree = "<group>"; };
 		A1338700000000000000000C /* Workspace+SplitDebugDescription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SplitDebugDescription.swift"; sourceTree = "<group>"; };
 		A1338700000000000000000A /* Workspace+SplitPaneProvisionalGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SplitPaneProvisionalGeometry.swift"; sourceTree = "<group>"; };
+		FFFCEC5E783F29C91BC6A8EE /* Workspace+SplitSpace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SplitSpace.swift"; sourceTree = "<group>"; };
 		8300A0030000000000000003 /* Workspace+SSHConnectionBroker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SSHConnectionBroker.swift"; sourceTree = "<group>"; };
 		09F38C6F6416B70783908A20 /* Workspace+SSHTui.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTui/Workspace+SSHTui.swift"; sourceTree = "<group>"; };
 		938D1CC0FD9AA3B4F32498BD /* Workspace+SSHTuiStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTui/Workspace+SSHTuiStatus.swift"; sourceTree = "<group>"; };
@@ -10963,6 +10967,7 @@
 				61BF07E91B28C5740AD10DD9 /* TerminalSSHSessionDetector+ProcessInfo.swift */,
 				3840C3CAEE266F282EE96A37 /* SidebarReorderInteractionState.swift */,
 				01AFEB5B2588D6391DC94892 /* WorkspaceActivityReorderController.swift */,
+				FFFCEC5E783F29C91BC6A8EE /* Workspace+SplitSpace.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -12364,6 +12369,7 @@
 				5D45948E0E0E282796BE8936 /* NotificationSuppressWhenAppFocusedTests.swift */,
 				4772A4FA42EB29D54779B2F4 /* GhosttyConfigDiagnosticsNoticePlacementTests.swift */,
 				AE748DECE9679B649874A1FE /* WorkspaceActivityReorderControllerTests.swift */,
+				751E2E409D9D8EED12988A80 /* SplitSpaceTests.swift */,
 				D0C6C5413708B2C95D6C1CC3 /* NarrowWindowSidePanelFitTests.swift */,
 			);
 			path = cmuxTests;
@@ -15437,6 +15443,7 @@
 				C51A740000000000000000C1 /* Workspace+SimulatorSessionPersistence.swift in Sources */,
 				A1338700000000000000000B /* Workspace+SplitDebugDescription.swift in Sources */,
 				A13387000000000000000009 /* Workspace+SplitPaneProvisionalGeometry.swift in Sources */,
+				A3058015FBA96C778E460B3A /* Workspace+SplitSpace.swift in Sources */,
 				8300A0040000000000000004 /* Workspace+SSHConnectionBroker.swift in Sources */,
 				8694AD6120E0C17F50AE7DC5 /* Workspace+SSHTui.swift in Sources */,
 				92906758EC368F8D8A989601 /* Workspace+SSHTuiStatus.swift in Sources */,
@@ -16837,6 +16844,7 @@
 				7A0CE100000000000000072A /* SocksV5ClientTests.swift in Sources */,
 				A13387000000000000000013 /* SplitPaneGeometryProjectionRenderParityTests.swift in Sources */,
 				A1338700000000000000000F /* SplitPaneGeometryProjectionTests.swift in Sources */,
+				0928F192E46E73B3D73237D5 /* SplitSpaceTests.swift in Sources */,
 				BB778780CAC943B89A7D904E /* SSHConfiguredRemoteCommandHostTests+Harness.swift in Sources */,
 				F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */,
 				797800040000000000000001 /* SSHDeepSleepReattachTests.swift in Sources */,
