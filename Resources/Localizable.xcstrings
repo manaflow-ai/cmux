@@ -562980,6 +562980,72 @@
             "state": "translated",
             "value": "ピクチャーインピクチャーでサーフェスを切り離す"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izdvoji površinu (slika u slici)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flyt overflade ud (billede i billede)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta superficie (Picture in Picture)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក​ផ្ទៃ​ខាង​ក្រៅ (រូបភាព​ក្នុង​រូបភាព)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta overflaten ut (bilde-i-bilde)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyodrębnij powierzchnię (obraz w obrazie)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destacar superfície (Picture in Picture)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вынести поверхность (картинка в картинке)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แยกพื้นผิวออก (ภาพซ้อนภาพ)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzeyi ayır (Resim içinde resim)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Винести поверхню (картинка в картинці)"
+          }
         }
       }
     },
@@ -563038,6 +563104,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "ピクチャーインピクチャーからサーフェスを戻す"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vrati površinu iz slike u slici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hent overflade tilbage fra billede i billede"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riporta superficie da Picture in Picture"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រឡប់​ផ្ទៃ​ពី​រូបភាព​ក្នុង​រូបភាព"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hent overflaten tilbake fra bilde-i-bilde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przywróć powierzchnię z obrazu w obrazie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retornar superfície do Picture in Picture"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вернуть поверхность из режима «картинка в картинке»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำพื้นผิวกลับจากภาพซ้อนภาพ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzeyi Resim içinde resimden geri getir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повернути поверхню з режиму «картинка в картинці»"
           }
         }
       }
@@ -563098,6 +563230,72 @@
             "state": "translated",
             "value": "ピクチャーインピクチャー"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slika u slici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Billede i billede"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picture in Picture"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបភាព​ក្នុង​រូបភាព"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilde-i-bilde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obraz w obrazie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picture in Picture"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картинка в картинке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาพซ้อนภาพ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resim içinde resim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картинка в картинці"
+          }
         }
       }
     },
@@ -563156,6 +563354,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "サーフェスのピクチャーインピクチャーを切り替え"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključi/isključi sliku u slici za površinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå billede i billede for overfladen til/fra"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva/disattiva Picture in Picture della superficie"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ/បើក​រូបភាព​ក្នុង​រូបភាព​សម្រាប់​ផ្ទៃ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå bilde-i-bilde for overflaten av/på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz obraz w obrazie powierzchni"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar Picture in Picture da superfície"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключить режим «картинка в картинке» для поверхности"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับภาพซ้อนภาพของพื้นผิว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzey Resim içinde resim özelliğini aç/kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемкнути режим «картинка в картинці» для поверхні"
           }
         }
       }
@@ -563452,6 +563716,72 @@
             "state": "translated",
             "value": "surface pip: 알 수 없는 플래그 '%@'"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: nepoznata zastavica '%@'"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: ukendt flag '%@'"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: flag sconosciuto '%@'"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip៖ ទង់​មិន​ស្គាល់ '%@'"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: ukjent flagg '%@'"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: nieznana flaga '%@'"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: sinalizador desconhecido '%@'"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: неизвестный флаг «%@»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: ไม่รู้จักแฟล็ก '%@'"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: bilinmeyen bayrak '%@'"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: невідомий прапорець «%@»"
+          }
         }
       }
     },
@@ -563510,6 +563840,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "surface pip: 예기치 않은 인수 '%@'"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: neočekivani argument '%@'"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: uventet argument '%@'"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: argomento imprevisto '%@'"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip៖ អាគុយម៉ង់​មិន​រំពឹង​ទុក '%@'"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: uventet argument '%@'"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: nieoczekiwany argument '%@'"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: argumento inesperado '%@'"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: неожиданный аргумент «%@»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: อาร์กิวเมนต์ที่ไม่คาดคิด '%@'"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: beklenmeyen bağımsız değişken '%@'"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: неочікуваний аргумент «%@»"
           }
         }
       }
@@ -563570,6 +563966,72 @@
             "state": "translated",
             "value": "surface pip --action은 \"pop\", \"return\" 또는 \"toggle\"이어야 합니다"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action mora biti „pop“, „return“ ili „toggle“"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action skal være \"pop\", \"return\" eller \"toggle\""
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action deve essere \"pop\", \"return\" o \"toggle\""
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action ត្រូវតែជា \"pop\", \"return\" ឬ \"toggle\""
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action må være «pop», «return» eller «toggle»"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action musi mieć wartość „pop”, „return” lub „toggle”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action deve ser \"pop\", \"return\" ou \"toggle\""
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action должен быть «pop», «return» или «toggle»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action ต้องเป็น \"pop\", \"return\" หรือ \"toggle\""
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action \"pop\", \"return\" veya \"toggle\" olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action має бути «pop», «return» або «toggle»"
+          }
         }
       }
     },
@@ -563628,6 +564090,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "surface pip: 잘못된 화면 핸들"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: nevažeći identifikator površine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: ugyldigt overfladehåndtag"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: handle della superficie non valido"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip៖ ចំណុច​សម្គាល់​ផ្ទៃ​មិន​ត្រឹមត្រូវ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: ugyldig overflatehåndtak"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: nieprawidłowy uchwyt powierzchni"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: identificador de superfície inválido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: недопустимый идентификатор поверхности"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: ตัวระบุพื้นผิวไม่ถูกต้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: geçersiz yüzey tanıtıcısı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: недійсний ідентифікатор поверхні"
           }
         }
       }
@@ -563688,6 +564216,72 @@
             "state": "translated",
             "value": "%@을(를) 화면 속 화면으로 분리했습니다"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Površina je izdvojena u sliku u slici: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overfladen blev flyttet ud som billede i billede: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superficie estratta in Picture in Picture: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បាន​បើក​ផ្ទៃ​ទៅ​ជា​រូបភាព​ក្នុង​រូបភាព៖ %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overflaten ble tatt ut som bilde-i-bilde: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powierzchnia wyodrębniona jako obraz w obrazie: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superfície destacada no Picture in Picture: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхность вынесена в режим «картинка в картинке»: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แยกพื้นผิวเป็นภาพซ้อนภาพแล้ว: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzey Resim içinde resim olarak ayrıldı: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхню винесено в режим «картинка в картинці»: %@"
+          }
         }
       }
     },
@@ -563746,6 +564340,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@을(를) 화면 속 화면에서 반환했습니다"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Površina je vraćena iz slike u slici: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overfladen blev hentet tilbage fra billede i billede: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superficie riportata da Picture in Picture: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បាន​ត្រឡប់​ផ្ទៃ​ពី​រូបភាព​ក្នុង​រូបភាព៖ %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overflaten ble hentet tilbake fra bilde-i-bilde: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powierzchnia przywrócona z obrazu w obrazie: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superfície retornada do Picture in Picture: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхность возвращена из режима «картинка в картинке»: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำพื้นผิวกลับจากภาพซ้อนภาพแล้ว: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzey Resim içinde resimden geri getirildi: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхню повернуто з режиму «картинка в картинці»: %@"
           }
         }
       }
@@ -566452,70 +567112,70 @@
             "value": "cmux 重新開啟後仍在還原此終端機，並確認要恢復哪個代理工作階段。請幾秒後再試。"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux još vraća terminal nakon ponovnog otvaranja i provjerava koju sesiju agenta treba nastaviti. Pokušajte ponovo za nekoliko sekundi."
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux još vraća terminal nakon ponovnog otvaranja i provjerava koju sesiju agenta treba nastaviti. Pokušajte ponovo za nekoliko sekundi."
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux gendanner stadig terminalen efter genåbning og tjekker, hvilken agentsession der skal genoptages. Prøv igen om et par sekunder."
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux gendanner stadig terminalen efter genåbning og tjekker, hvilken agentsession der skal genoptages. Prøv igen om et par sekunder."
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux sta ancora ripristinando il terminale dopo la riapertura e verifica quale sessione dell’agente riprendere. Riprova tra qualche secondo."
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sta ancora ripristinando il terminale dopo la riapertura e verifica quale sessione dell’agente riprendere. Riprova tra qualche secondo."
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux នៅតែកំពុងស្ដារទែមីណាល់ឡើងវិញ បន្ទាប់ពីបើកម្ដងទៀត ហើយកំពុងពិនិត្យមើលថាត្រូវបន្តវគ្គភ្នាក់ងារមួយណា។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux នៅតែកំពុងស្ដារទែមីណាល់ឡើងវិញ បន្ទាប់ពីបើកម្ដងទៀត ហើយកំពុងពិនិត្យមើលថាត្រូវបន្តវគ្គភ្នាក់ងារមួយណា។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux gjenoppretter fortsatt terminalen etter at den ble åpnet på nytt, og sjekker hvilken agentøkt som skal gjenopptas. Prøv igjen om noen sekunder."
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux gjenoppretter fortsatt terminalen etter at den ble åpnet på nytt, og sjekker hvilken agentøkt som skal gjenopptas. Prøv igjen om noen sekunder."
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux wciąż przywraca terminal po ponownym otwarciu i sprawdza, którą sesję agenta wznowić. Spróbuj ponownie za kilka sekund."
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux wciąż przywraca terminal po ponownym otwarciu i sprawdza, którą sesję agenta wznowić. Spróbuj ponownie za kilka sekund."
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O cmux ainda está restaurando o terminal após ser reaberto e verificando qual sessão do agente retomar. Tente novamente em alguns segundos."
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux ainda está restaurando o terminal após ser reaberto e verificando qual sessão do agente retomar. Tente novamente em alguns segundos."
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux ещё восстанавливает терминал после повторного открытия и проверяет, какой сеанс агента возобновить. Повторите попытку через несколько секунд."
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ещё восстанавливает терминал после повторного открытия и проверяет, какой сеанс агента возобновить. Повторите попытку через несколько секунд."
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux ยังคงกู้คืนเทอร์มินัลหลังจากเปิดใหม่ และกำลังตรวจสอบว่าจะทำเซสชันเอเจนต์ใดต่อ ลองอีกครั้งในอีกไม่กี่วินาที"
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ยังคงกู้คืนเทอร์มินัลหลังจากเปิดใหม่ และกำลังตรวจสอบว่าจะทำเซสชันเอเจนต์ใดต่อ ลองอีกครั้งในอีกไม่กี่วินาที"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux yeniden açıldıktan sonra terminali hâlâ geri yüklüyor ve hangi ajan oturumunun sürdürüleceğini denetliyor. Birkaç saniye sonra yeniden deneyin."
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux yeniden açıldıktan sonra terminali hâlâ geri yüklüyor ve hangi ajan oturumunun sürdürüleceğini denetliyor. Birkaç saniye sonra yeniden deneyin."
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux ще відновлює термінал після повторного відкриття та перевіряє, який сеанс агента відновити. Спробуйте ще раз за кілька секунд."
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ще відновлює термінал після повторного відкриття та перевіряє, який сеанс агента відновити. Спробуйте ще раз за кілька секунд."
           }
         }
       }
@@ -566577,70 +567237,70 @@
             "value": "此終端機正在關閉，無法讀取。"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal se zatvara i ne može se pročitati."
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal se zatvara i ne može se pročitati."
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen lukkes og kan ikke læses."
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen lukkes og kan ikke læses."
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il terminale si sta chiudendo e non può essere letto."
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale si sta chiudendo e non può essere letto."
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ទែមីណាល់កំពុងបិទ ហើយមិនអាចអានបានទេ។"
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់កំពុងបិទ ហើយមិនអាចអានបានទេ។"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen lukkes og kan ikke leses."
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen lukkes og kan ikke leses."
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal jest zamykany i nie można go odczytać."
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal jest zamykany i nie można go odczytać."
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O terminal está sendo fechado e não pode ser lido."
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal está sendo fechado e não pode ser lido."
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Терминал закрывается, и его нельзя прочитать."
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал закрывается, и его нельзя прочитать."
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "เทอร์มินัลกำลังปิดและไม่สามารถอ่านได้"
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลกำลังปิดและไม่สามารถอ่านได้"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal kapanıyor ve okunamıyor."
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal kapanıyor ve okunamıyor."
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Термінал закривається, і його не можна прочитати."
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал закривається, і його не можна прочитати."
           }
         }
       }
@@ -566702,70 +567362,70 @@
             "value": "此終端機已休眠：cmux 暫停了其閒置的代理以節省記憶體。顯示它即可喚醒（這會將其視窗帶到最前面），然後再試一次：%@"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Probudite ga tako što ćete ga prikazati (njegov prozor prelazi u prvi plan), pa pokušajte ponovo: %@"
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Probudite ga tako što ćete ga prikazati (njegov prozor prelazi u prvi plan), pa pokušajte ponovo: %@"
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Væk den ved at vise den (dens vindue kommer forrest), og prøv igen: %@"
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Væk den ved at vise den (dens vindue kommer forrest), og prøv igen: %@"
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Riattivalo mostrandolo (la sua finestra passa in primo piano), quindi riprova: %@"
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Riattivalo mostrandolo (la sua finestra passa in primo piano), quindi riprova: %@"
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ ដាស់វាដោយបង្ហាញវា (បង្អួចរបស់វានឹងមកខាងមុខ) រួចព្យាយាមម្ដងទៀត៖ %@"
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ ដាស់វាដោយបង្ហាញវា (បង្អួចរបស់វានឹងមកខាងមុខ) រួចព្យាយាមម្ដងទៀត៖ %@"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vekk den ved å vise den (vinduet kommer i forgrunnen), og prøv igjen: %@"
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vekk den ved å vise den (vinduet kommer i forgrunnen), og prøv igjen: %@"
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wybudź go, wyświetlając go (jego okno przejdzie na pierwszy plan), a potem spróbuj ponownie: %@"
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wybudź go, wyświetlając go (jego okno przejdzie na pierwszy plan), a potem spróbuj ponownie: %@"
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Desperte-o exibindo-o (a janela vem para a frente) e tente novamente: %@"
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Desperte-o exibindo-o (a janela vem para a frente) e tente novamente: %@"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Разбудите его, показав терминал (его окно выйдет на передний план), и повторите попытку: %@"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Разбудите его, показав терминал (его окно выйдет на передний план), и повторите попытку: %@"
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ ปลุกโดยแสดงเทอร์มินัล (หน้าต่างจะมาอยู่ด้านหน้า) แล้วลองอีกครั้ง: %@"
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ ปลุกโดยแสดงเทอร์มินัล (หน้าต่างจะมาอยู่ด้านหน้า) แล้วลองอีกครั้ง: %@"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Onu göstererek uyandırın (penceresi öne gelir), ardından yeniden deneyin: %@"
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Onu göstererek uyandırın (penceresi öne gelir), ardından yeniden deneyin: %@"
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Розбудіть його, показавши термінал (його вікно перейде на передній план), і спробуйте ще раз: %@"
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Розбудіть його, показавши термінал (його вікно перейде на передній план), і спробуйте ще раз: %@"
           }
         }
       }
@@ -566827,70 +567487,70 @@
             "value": "此終端機已休眠：cmux 暫停了其閒置的代理以節省記憶體。請在 cmux 中顯示此終端機以喚醒它，然後再試一次。"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Prikažite terminal u cmuxu da ga probudite, pa pokušajte ponovo."
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Prikažite terminal u cmuxu da ga probudite, pa pokušajte ponovo."
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Vis terminalen i cmux for at vække den, og prøv igen."
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Vis terminalen i cmux for at vække den, og prøv igen."
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Mostra il terminale in cmux per riattivarlo, quindi riprova."
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Mostra il terminale in cmux per riattivarlo, quindi riprova."
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ បង្ហាញទែមីណាល់នៅក្នុង cmux ដើម្បីដាស់វា រួចព្យាយាមម្ដងទៀត។"
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ បង្ហាញទែមីណាល់នៅក្នុង cmux ដើម្បីដាស់វា រួចព្យាយាមម្ដងទៀត។"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vis terminalen i cmux for å vekke den, og prøv igjen."
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vis terminalen i cmux for å vekke den, og prøv igjen."
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wyświetl terminal w cmux, aby go wybudzić, a potem spróbuj ponownie."
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wyświetl terminal w cmux, aby go wybudzić, a potem spróbuj ponownie."
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Mostre o terminal no cmux para despertá-lo e tente novamente."
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Mostre o terminal no cmux para despertá-lo e tente novamente."
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Покажите терминал в cmux, чтобы разбудить его, и повторите попытку."
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Покажите терминал в cmux, чтобы разбудить его, и повторите попытку."
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ แสดงเทอร์มินัลใน cmux เพื่อปลุก แล้วลองอีกครั้ง"
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ แสดงเทอร์มินัลใน cmux เพื่อปลุก แล้วลองอีกครั้ง"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Uyandırmak için terminali cmux'ta gösterin, ardından yeniden deneyin."
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Uyandırmak için terminali cmux'ta gösterin, ardından yeniden deneyin."
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Покажіть термінал у cmux, щоб розбудити його, і спробуйте ще раз."
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Покажіть термінал у cmux, щоб розбудити його, і спробуйте ще раз."
           }
         }
       }
@@ -566952,70 +567612,70 @@
             "value": "此終端機尚未啟動。請幾秒後再試。"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal se još nije pokrenuo. Pokušajte ponovo za nekoliko sekundi."
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal se još nije pokrenuo. Pokušajte ponovo za nekoliko sekundi."
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen er ikke startet endnu. Prøv igen om et par sekunder."
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen er ikke startet endnu. Prøv igen om et par sekunder."
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il terminale non è ancora stato avviato. Riprova tra qualche secondo."
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale non è ancora stato avviato. Riprova tra qualche secondo."
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ទែមីណាល់មិនទាន់បានចាប់ផ្តើមនៅឡើយទេ។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់មិនទាន់បានចាប់ផ្តើមនៅឡើយទេ។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen har ikke startet ennå. Prøv igjen om noen sekunder."
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen har ikke startet ennå. Prøv igjen om noen sekunder."
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal jeszcze się nie uruchomił. Spróbuj ponownie za kilka sekund."
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal jeszcze się nie uruchomił. Spróbuj ponownie za kilka sekund."
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O terminal ainda não foi iniciado. Tente novamente em alguns segundos."
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal ainda não foi iniciado. Tente novamente em alguns segundos."
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Терминал ещё не запущен. Повторите попытку через несколько секунд."
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал ещё не запущен. Повторите попытку через несколько секунд."
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "เทอร์มินัลยังไม่ได้เริ่มทำงาน ลองอีกครั้งในอีกไม่กี่วินาที"
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลยังไม่ได้เริ่มทำงาน ลองอีกครั้งในอีกไม่กี่วินาที"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal henüz başlamadı. Birkaç saniye sonra yeniden deneyin."
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal henüz başlamadı. Birkaç saniye sonra yeniden deneyin."
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Термінал ще не запущено. Спробуйте ще раз за кілька секунд."
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал ще не запущено. Спробуйте ще раз за кілька секунд."
           }
         }
       }
@@ -567509,130 +568169,130 @@
       }
     },
     "mobile.pairing.error.teamUnavailable": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Could not load your cmux team. Check your internet connection, then try again."
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not load your cmux team. Check your internet connection, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux チームを読み込めませんでした。インターネット接続を確認してから、もう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载你的 cmux 团队。请检查网络连接，然后重试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein cmux-Team konnte nicht geladen werden. Prüfe deine Internetverbindung und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger votre équipe cmux. Vérifiez votre connexion Internet, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحميل فريق cmux الخاص بك. تحقّق من اتصالك بالإنترنت، ثم حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cargar tu equipo de cmux. Comprueba tu conexión a internet e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入你的 cmux 團隊。請檢查網路連線，然後再試一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 팀을 불러올 수 없습니다. 인터넷 연결을 확인한 후 다시 시도하세요."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće učitati vaš cmux tim. Provjerite internetsku vezu i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din cmux-team kunne ikke indlæses. Kontrollér din internetforbindelse, og prøv igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile caricare il tuo team cmux. Controlla la connessione Internet e riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចផ្ទុកក្រុម cmux របស់អ្នកបានទេ។ សូមពិនិត្យការតភ្ជាប់អ៊ីនធឺណិត ហើយព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke laste inn cmux-teamet ditt. Kontroller internettilkoblingen, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się załadować Twojego zespołu cmux. Sprawdź połączenie z internetem i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível carregar sua equipe cmux. Verifique sua conexão com a internet e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось загрузить вашу команду cmux. Проверьте подключение к интернету и попробуйте ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถโหลดทีม cmux ของคุณได้ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ekibiniz yüklenemedi. İnternet bağlantınızı kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося завантажити вашу команду cmux. Перевірте підключення до інтернету й спробуйте ще раз."
+          }
+        }
       }
     },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux チームを読み込めませんでした。インターネット接続を確認してから、もう一度お試しください。"
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "无法加载你的 cmux 团队。请检查网络连接，然后重试。"
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Dein cmux-Team konnte nicht geladen werden. Prüfe deine Internetverbindung und versuche es erneut."
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Impossible de charger votre équipe cmux. Vérifiez votre connexion Internet, puis réessayez."
-      }
-    },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "تعذّر تحميل فريق cmux الخاص بك. تحقّق من اتصالك بالإنترنت، ثم حاول مرة أخرى."
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "No se pudo cargar tu equipo de cmux. Comprueba tu conexión a internet e inténtalo de nuevo."
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "無法載入你的 cmux 團隊。請檢查網路連線，然後再試一次。"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux 팀을 불러올 수 없습니다. 인터넷 연결을 확인한 후 다시 시도하세요."
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Nije moguće učitati vaš cmux tim. Provjerite internetsku vezu i pokušajte ponovo."
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Din cmux-team kunne ikke indlæses. Kontrollér din internetforbindelse, og prøv igen."
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Impossibile caricare il tuo team cmux. Controlla la connessione Internet e riprova."
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "មិនអាចផ្ទុកក្រុម cmux របស់អ្នកបានទេ។ សូមពិនិត្យការតភ្ជាប់អ៊ីនធឺណិត ហើយព្យាយាមម្ដងទៀត។"
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Kunne ikke laste inn cmux-teamet ditt. Kontroller internettilkoblingen, og prøv igjen."
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Nie udało się załadować Twojego zespołu cmux. Sprawdź połączenie z internetem i spróbuj ponownie."
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Não foi possível carregar sua equipe cmux. Verifique sua conexão com a internet e tente novamente."
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Не удалось загрузить вашу команду cmux. Проверьте подключение к интернету и попробуйте ещё раз."
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "ไม่สามารถโหลดทีม cmux ของคุณได้ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองอีกครั้ง"
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux ekibiniz yüklenemedi. İnternet bağlantınızı kontrol edip tekrar deneyin."
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Не вдалося завантажити вашу команду cmux. Перевірте підключення до інтернету й спробуйте ще раз."
-      }
-    }
-  }
-},
     "cli.restoreSession.help": {
       "extractionState": "manual",
       "localizations": {

@@ -23,6 +23,13 @@ struct CLIExplicitSurfaceRoutingTests {
                 )
             }
             let params = request["params"] as? [String: Any]
+            if params?["action"] as? String != "return" {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_action", "message": "action must be return"]
+                )
+            }
             if params?["surface_id"] != nil {
                 return Self.v2Response(
                     id: id,
@@ -66,6 +73,13 @@ struct CLIExplicitSurfaceRoutingTests {
                 )
             }
             let params = request["params"] as? [String: Any]
+            if params?["action"] as? String != "return" {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_action", "message": "action must be return"]
+                )
+            }
             if params?["surface_id"] != nil {
                 return Self.v2Response(
                     id: id,
@@ -80,6 +94,56 @@ struct CLIExplicitSurfaceRoutingTests {
                     "surface_id": Self.targetSurfaceRef,
                     "in_picture_in_picture": false,
                     "action": "return",
+                ]
+            )
+        }
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        let requests = try state.requestObjects()
+        #expect(requests.compactMap { $0["method"] as? String } == ["surface.pip"])
+    }
+
+    @Test func implicitToggleUsesSocketResolverWhenCallerSurfaceDiffers() throws {
+        let (result, state) = try runMockCommand(
+            arguments: ["surface", "pip"],
+            socketName: "pip-toggle-caller-surface",
+            includeCallerSurface: true
+        ) { line in
+            guard let request = Self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  let method = request["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            guard method == "surface.pip" else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+            let params = request["params"] as? [String: Any]
+            if params?["action"] as? String != "toggle" {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_action", "message": "action must be toggle"]
+                )
+            }
+            if params?["surface_id"] != nil {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_surface_id", "message": "surface_id must be omitted"]
+                )
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "surface_id": Self.targetSurfaceRef,
+                    "in_picture_in_picture": true,
+                    "action": "toggle",
                 ]
             )
         }

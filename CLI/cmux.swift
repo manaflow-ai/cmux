@@ -9857,10 +9857,11 @@ struct CMUXCLI {
         let surfaceRaw: String?
         if let surfaceArg {
             surfaceRaw = surfaceArg
-        } else if action == "return" || hasExplicitWindow {
+        } else if actionArg == nil || action == "return" || hasExplicitWindow {
             // A return resolves the detached PiP panel through the socket's
-            // routed window state. Do not let the caller's surface context
-            // pin it to an unrelated surface.
+            // routed window state. An implicit toggle uses the same resolver;
+            // do not let the caller's surface context pin either operation to
+            // an unrelated surface.
             surfaceRaw = nil
         } else {
             surfaceRaw = environment["CMUX_SURFACE_ID"]
