@@ -447,6 +447,47 @@ final class TerminalOutputCollector {
     #expect(store.activeTicket?.macDeviceID == "active-mac")
 }
 
+/// Opening Add Computer and tapping Cancel without pairing must not disconnect
+/// the Mac the phone is already using.
+@MainActor
+@Test func cancellingIdlePairingSheetKeepsActiveMacConnected() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56577)
+    )
+    let activeTicket = try CmxAttachTicket(
+        workspaceID: "active-workspace",
+        terminalID: "active-terminal",
+        macDeviceID: "active-mac",
+        macDisplayName: "Active Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "active-ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "active-workspace", title: "Active Workspace"),
+        try rpcHostStatusFrame(renderGrid: false, macDeviceID: "active-mac"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore(runtime: runtime, workspaces: PreviewMobileHost.workspaces)
+
+    store.signIn()
+    let result = await store.connectPairingURLResult(try attachURL(for: activeTicket).absoluteString)
+    #expect(result == .connected)
+    #expect(store.connectionState == .connected)
+
+    store.cancelPairing()
+
+    #expect(store.connectionState == .connected)
+    #expect(store.macConnectionStatus != .unavailable)
+    #expect(store.activeTicket?.macDeviceID == "active-mac")
+    #expect(store.selectedWorkspace?.id.rawValue == "active-workspace")
+}
+
 @MainActor
 @Test func versionWarningSupersedesOlderPairingAttemptWithoutConnectingIt() async throws {
     let route = try CmxAttachRoute(
