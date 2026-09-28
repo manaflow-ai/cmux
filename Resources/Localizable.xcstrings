@@ -566452,13 +566452,55 @@
     "cli.usage.record": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+          }
+        },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"

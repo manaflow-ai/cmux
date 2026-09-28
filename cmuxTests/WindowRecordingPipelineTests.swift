@@ -425,4 +425,37 @@ import Testing
         #expect(recent.first?.id == "clip-4")
         #expect(recent.last?.id == "clip-11")
     }
+
+    /// A timed-out `record start` whose call already ended must not reach into
+    /// whatever is recorded now.
+    @Test func abandoningAStartThatIsNoLongerRunningChangesNothing() async throws {
+        let registry = WindowRecordingRegistry()
+        await registry.remember(Self.finished(id: "a"))
+
+        await registry.abandonStart(token: UUID())
+
+        let status = try await registry.status(id: nil)
+        #expect(status.id == "a")
+        #expect(status.state == .finished)
+    }
+
+    /// The session a timed-out start opened ends as failed, with a reason the
+    /// caller can read from `record status`, and a later stop keeps that verdict.
+    @Test func anAbandonedSessionStopsRecordingAndStaysFailed() async throws {
+        let session = WindowRecordingSession(
+            id: "abandoned",
+            request: try WindowRecordingRequest.make(params: [:]),
+            outputURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-abandoned-\(UUID().uuidString).mp4"),
+            windowID: 0,
+            windowHandle: nil
+        )
+
+        await session.abandon(reason: "timed out")
+
+        #expect(await session.isRecording == false)
+        let stopped = await session.stop()
+        #expect(stopped.state == .failed)
+        #expect(stopped.error == "timed out")
+    }
 }
