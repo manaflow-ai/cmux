@@ -83,6 +83,30 @@ import Testing
         #expect(first.features.map(\.id) == [0, 1])
     }
 
+    /// The payload is remote, and its strings become `NSWorkspace.open`
+    /// targets and image and video loads, so anything off cmux.com is dropped
+    /// rather than followed.
+    @Test func onlyCmuxHostedMediaSurvives() throws {
+        let json = """
+        {"releases": [
+          {"version": "0.64.25", "title": "Twenty five", "url": "https://evil.example/pwn",
+           "hero": "https://files.cmux.com/changelog/hero.png",
+           "features": [
+             {"title": "A", "description": "a", "image": "https://evil.example/a.png",
+              "video": "https://cmux.com.evil.example/a.mp4"},
+             {"title": "B", "description": "b", "image": "https://cmux.com/changelog/b.png"}
+           ]}
+        ]}
+        """
+        let release = try #require(try WhatsNewCatalog.decode(Data(json.utf8)).releases.first)
+        #expect(release.url == nil)
+        // A subdomain of cmux.com is ours; a host that merely starts with it is not.
+        #expect(release.hero?.absoluteString == "https://files.cmux.com/changelog/hero.png")
+        #expect(release.features[0].image == nil)
+        #expect(release.features[0].video == nil)
+        #expect(release.features[1].image?.absoluteString == "https://cmux.com/changelog/b.png")
+    }
+
     @Test func featuresWithTheSameTitleKeepDistinctIds() throws {
         let json = """
         {"releases": [{"version": "0.64.25", "title": "Twenty five", "features": [

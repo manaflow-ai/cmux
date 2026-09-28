@@ -2,17 +2,19 @@ import { describe, expect, test } from "bun:test";
 
 import { changelogMedia } from "../app/[locale]/(landing)/docs/changelog/changelog-media";
 
-const { GET, buildHighlights } = await import("../app/api/changelog/highlights/route");
+const { GET, buildHighlights, MAX_RELEASES } = await import(
+  "../app/api/changelog/highlights/route"
+);
 
 describe("changelog highlights route", () => {
-  test("serves every changelog-media version, newest first", async () => {
+  test("serves the newest changelog-media versions, newest first", async () => {
     const response = await GET(new Request("https://cmux.test/api/changelog/highlights"));
     expect(response.status).toBe(200);
     const payload = (await response.json()) as ReturnType<typeof buildHighlights>;
     // Only shipped versions are announced; placeholder keys such as
     // "Unreleased" (renamed at release cut) stay off the app's recap.
     const shipped = Object.keys(changelogMedia).filter((key) => /^\d+(\.\d+)*$/.test(key));
-    expect(payload.releases.length).toBe(shipped.length);
+    expect(payload.releases.length).toBe(Math.min(shipped.length, MAX_RELEASES));
     expect(payload.releases.map((release) => release.version)).not.toContain("Unreleased");
     const versions = payload.releases.map((release) => release.version);
     const sorted = [...versions].sort((a, b) => {
@@ -25,6 +27,18 @@ describe("changelog highlights route", () => {
       return 0;
     });
     expect(versions).toEqual(sorted);
+  });
+
+  test("caps the payload at the newest MAX_RELEASES entries", () => {
+    const media: Record<string, { title: string }> = {};
+    for (let index = 0; index < MAX_RELEASES + 5; index += 1) {
+      media[`0.${index}.0`] = { title: `Release ${index}` };
+    }
+    const payload = buildHighlights(media);
+    expect(payload.releases.length).toBe(MAX_RELEASES);
+    // The cap drops the oldest, never the newest.
+    expect(payload.releases[0].version).toBe(`0.${MAX_RELEASES + 4}.0`);
+    expect(payload.releases.map((release) => release.version)).not.toContain("0.0.0");
   });
 
   test("answers a matching ETag with 304", async () => {
