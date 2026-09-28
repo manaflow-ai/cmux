@@ -44,7 +44,16 @@ struct MobileCloudComposition {
                 accessToken: { try? await coordinator.accessToken() },
                 refreshToken: { await coordinator.refreshToken() },
                 teamID: { await coordinator.resolvedTeamID },
-                coherentTokenPair: { try? await coordinator.coherentTokenPair() }
+                coherentTokenPair: {
+                    // Only a rejected session is a sign-out. Anything else (a
+                    // refresh or sign-in step still in flight, no network) is
+                    // transient, and throwing lets the list retry it.
+                    do {
+                        return try await coordinator.coherentTokenPair()
+                    } catch AuthError.unauthorized {
+                        return nil
+                    }
+                }
             ),
             deviceID: deviceID
         )

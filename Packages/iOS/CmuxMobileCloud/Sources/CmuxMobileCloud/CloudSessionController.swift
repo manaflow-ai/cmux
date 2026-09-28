@@ -54,7 +54,7 @@ public final class CloudSessionController {
     private var listTask: Task<Void, Never>?
     /// Re-reads the list while a machine is still provisioning, so a new
     /// machine's row turns from Starting to Running on its own.
-    private var provisioningPollTask: Task<Void, Never>?
+    private var nextListReadTask: Task<Void, Never>?
     /// How often the list is re-read while a machine is provisioning.
     static let provisioningPollInterval: Duration = .seconds(5)
     private var connections: [String: CloudMachineConnection] = [:]
@@ -108,15 +108,19 @@ public final class CloudSessionController {
     /// The scene entered the background.
     public func sceneDidEnterBackground() {
         isForeground = false
-        provisioningPollTask?.cancel()
-        provisioningPollTask = nil
+        nextListReadTask?.cancel()
+        nextListReadTask = nil
         reconcile()
     }
 
     /// The scene returned to the foreground.
     public func sceneWillEnterForeground() {
         isForeground = true
-        scheduleProvisioningPollIfNeeded()
+        if case .failed(let failure, _) = machines, failure.isRetryable {
+            refreshMachines()
+        } else {
+            scheduleProvisioningPollIfNeeded()
+        }
         reconcile()
     }
 
@@ -135,8 +139,9 @@ public final class CloudSessionController {
         shellLeaseActive = false
         listTask?.cancel()
         listTask = nil
-        provisioningPollTask?.cancel()
-        provisioningPollTask = nil
+        nextListReadTask?.cancel()
+        nextListReadTask = nil
+        listFailureCount = 0
         stopTunnel()
         tunnel = .idle
         identity = nil
@@ -319,13 +324,26 @@ public final class CloudSessionController {
             do {
                 let catalog = try await service.listMachineCatalog()
                 guard !Task.isCancelled else { return }
+                self.listFailureCount = 0
                 self.availableMachineKinds = catalog.availableKinds
                 // A destroyed machine is gone; no screen should list it.
                 self.machines = .loaded(catalog.machines.filter { $0.lifecycle != .destroyed })
                 self.scheduleProvisioningPollIfNeeded()
             } catch {
                 guard !Task.isCancelled else { return }
-                self.machines = .failed(CloudSessionFailure.classify(error, stage: .list), previous: self.machines.elements)
+                let failure = CloudSessionFailure.classify(error, stage: .list)
+                self.listFailureCount += 1
+                // The first transient failure retries quietly: right after
+                // sign-in the session's tokens can be mid-refresh, and an
+                // error that clears itself in a moment is not worth showing.
+                if failure.isRetryable, self.listFailureCount == 1, self.machines.elements.isEmpty {
+                    self.scheduleListRead(after: Self.listRetryDelay(afterFailures: 1))
+                    return
+                }
+                self.machines = .failed(failure, previous: self.machines.elements)
+                if failure.isRetryable {
+                    self.scheduleListRead(after: Self.listRetryDelay(afterFailures: self.listFailureCount))
+                }
             }
         }
     }
@@ -334,14 +352,31 @@ public final class CloudSessionController {
     /// and the app is in the foreground. Each read reschedules only if it is
     /// still needed, so the poll ends by itself once every machine settles.
     private func scheduleProvisioningPollIfNeeded() {
-        provisioningPollTask?.cancel()
-        provisioningPollTask = nil
-        guard isForeground,
-              machines.elements.contains(where: { $0.lifecycle == .provisioning }) else { return }
+        nextListReadTask?.cancel()
+        nextListReadTask = nil
+        guard machines.elements.contains(where: { $0.lifecycle == .provisioning }) else { return }
+        scheduleListRead(after: Self.provisioningPollInterval)
+    }
+
+    /// Consecutive failed list reads, which pace the retry.
+    private var listFailureCount = 0
+
+    /// The wait before re-reading the list after `failures` failed reads in a
+    /// row: two seconds, then 5 s doubling to a minute.
+    static func listRetryDelay(afterFailures failures: Int) -> Duration {
+        failures <= 1 ? .seconds(2) : .seconds(min(5 << min(failures - 2, 4), 60))
+    }
+
+    /// Schedules the one pending list read, replacing any other. Only while
+    /// in the foreground; returning there re-reads anything left unsettled.
+    private func scheduleListRead(after delay: Duration) {
+        nextListReadTask?.cancel()
+        nextListReadTask = nil
+        guard isForeground else { return }
         let clock = approvalClock
-        provisioningPollTask = Task { [weak self] in
+        nextListReadTask = Task { [weak self] in
             do {
-                try await clock.sleep(for: Self.provisioningPollInterval)
+                try await clock.sleep(for: delay)
             } catch {
                 return
             }

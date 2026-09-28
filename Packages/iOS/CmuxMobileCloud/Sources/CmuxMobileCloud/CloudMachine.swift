@@ -48,6 +48,9 @@ public struct CloudMachine: Sendable, Equatable, Identifiable, Hashable {
     public var status: String
     /// The user-chosen label, when one is set.
     public var displayName: String?
+    /// The control plane's generated name (`whimsical-cobalt-butterfly`),
+    /// which the CLI and web app show when there is no label.
+    public var slug: String?
 
     /// Creates a machine row.
     /// - Parameters:
@@ -55,18 +58,21 @@ public struct CloudMachine: Sendable, Equatable, Identifiable, Hashable {
     ///   - provider: The hosting provider.
     ///   - status: The provider-reported status; `"unknown"` when absent.
     ///   - displayName: The user-chosen label, or nil.
-    public init(id: String, provider: String, status: String, displayName: String? = nil) {
+    ///   - slug: The generated name, or nil.
+    public init(id: String, provider: String, status: String, displayName: String? = nil, slug: String? = nil) {
         self.id = id
         self.provider = provider
         self.status = status
         self.displayName = displayName
+        self.slug = slug
     }
 
-    /// The name to show everywhere a machine appears: the label when set,
-    /// otherwise the id shortened to its first eight characters after the
-    /// `vm-` prefix, which is what the control plane's ids share.
+    /// The name to show everywhere a machine appears: the label, else the
+    /// generated name, else the id shortened to its first eight characters
+    /// after the `vm-` prefix the control plane's ids share.
     public var preferredName: String {
         if let displayName, !displayName.isEmpty { return displayName }
+        if let slug, !slug.isEmpty { return slug }
         guard id.hasPrefix("vm-"), id.count > 11 else { return id }
         return String(id.prefix(11))
     }

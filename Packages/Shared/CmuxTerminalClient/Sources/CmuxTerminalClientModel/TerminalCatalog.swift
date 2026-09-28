@@ -6,11 +6,23 @@ public struct TerminalSummary: Sendable, Equatable, Codable {
     public var id: String
     public var name: String?
     public var workspaceID: String?
+    /// The title the running program set.
+    public var title: String?
+    /// The shell's reported working directory.
+    public var cwd: String?
 
-    public init(id: String, name: String? = nil, workspaceID: String? = nil) {
+    public init(
+        id: String,
+        name: String? = nil,
+        workspaceID: String? = nil,
+        title: String? = nil,
+        cwd: String? = nil
+    ) {
         self.id = id
         self.name = name
         self.workspaceID = workspaceID
+        self.title = title
+        self.cwd = cwd
     }
 }
 

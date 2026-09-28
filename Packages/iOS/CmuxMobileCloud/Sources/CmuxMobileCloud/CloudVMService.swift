@@ -102,7 +102,13 @@ public actor CloudVMService: CloudVMServing {
 
     private func credentials() async throws -> (String, String) {
         if let coherentTokenPair = tokens.coherentTokenPair {
-            guard let pair = await coherentTokenPair(),
+            let readPair: CloudAPITokenSource.TokenPair?
+            do {
+                readPair = try await coherentTokenPair()
+            } catch {
+                throw CloudAPIError.sessionUnavailable
+            }
+            guard let pair = readPair,
                   !pair.accessToken.isEmpty,
                   !pair.refreshToken.isEmpty else {
                 throw CloudAPIError.notSignedIn

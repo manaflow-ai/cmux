@@ -17,12 +17,38 @@ public struct CloudTerminalSummary: Sendable, Equatable, Identifiable, Hashable 
     /// The terminal's name, when it has one.
     public var name: String?
     public var workspaceID: String?
+    /// The title the running program set (a shell's `user@host: ~`).
+    public var title: String?
+    /// The shell's reported working directory.
+    public var currentDirectory: String?
 
     /// Creates a row.
-    public init(id: String, name: String? = nil, workspaceID: String? = nil) {
+    public init(
+        id: String,
+        name: String? = nil,
+        workspaceID: String? = nil,
+        title: String? = nil,
+        currentDirectory: String? = nil
+    ) {
         self.id = id
         self.name = name
         self.workspaceID = workspaceID
+        self.title = title
+        self.currentDirectory = currentDirectory
+    }
+
+    /// What a list shows for this terminal: its name, else its program's
+    /// title, else its directory's last component, else its id.
+    public var displayName: String {
+        for candidate in [name, title] {
+            if let candidate = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !candidate.isEmpty {
+                return candidate
+            }
+        }
+        if let directory = currentDirectory?.split(separator: "/").last {
+            return String(directory)
+        }
+        return id
     }
 }
 

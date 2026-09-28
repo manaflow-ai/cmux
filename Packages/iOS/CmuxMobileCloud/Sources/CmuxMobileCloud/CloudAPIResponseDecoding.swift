@@ -27,7 +27,8 @@ public struct CloudAPIResponseDecoding: Sendable {
             let rawStatus = (dict["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let status = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
             let displayName = (dict["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            return CloudMachine(id: id, provider: provider, status: status, displayName: displayName)
+            let slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            return CloudMachine(id: id, provider: provider, status: status, displayName: displayName, slug: slug)
         }
         let availableKinds: Set<CloudMachineKind>?
         if let limits = object["limits"] as? [String: Any],
@@ -138,7 +139,8 @@ public struct CloudAPIResponseDecoding: Sendable {
         let rawStatus = (dict["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let status = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
         let displayName = (dict["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        return CloudMachine(id: id, provider: provider, status: status, displayName: displayName)
+        let slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return CloudMachine(id: id, provider: provider, status: status, displayName: displayName, slug: slug)
     }
 
     private static func int(_ value: Any?) -> Int? {

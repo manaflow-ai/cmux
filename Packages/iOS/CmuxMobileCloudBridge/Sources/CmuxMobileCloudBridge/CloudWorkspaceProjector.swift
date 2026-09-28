@@ -114,7 +114,7 @@ public struct CloudWorkspaceProjector: Sendable {
                             component: terminal.id
                         ).identifier
                     ),
-                    name: terminal.name.flatMap { $0.isEmpty ? nil : $0 } ?? terminal.id,
+                    name: terminal.displayName,
                     isReady: true
                 )
             }

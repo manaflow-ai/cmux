@@ -73,7 +73,13 @@ final class KitSession: CloudTerminalSession, @unchecked Sendable {
 
     func listTerminals() async throws -> [CloudTerminalSummary] {
         try client.listTerminals().map {
-            CloudTerminalSummary(id: $0.id, name: $0.name, workspaceID: $0.workspaceID)
+            CloudTerminalSummary(
+                id: $0.id,
+                name: $0.name,
+                workspaceID: $0.workspaceID,
+                title: $0.title,
+                currentDirectory: $0.cwd
+            )
         }
     }
 

@@ -6,7 +6,14 @@ import Testing
     @Test func listDecodesIdAndOptionalNameAndIgnoresUnknownFields() throws {
         let json = Data(#"[{"id":"term_a","name":"shell","cwd":"/root"},{"id":"term_b"}]"#.utf8)
         let terminals = try TerminalCatalogDecoding.terminals(fromListResult: json)
-        #expect(terminals == [TerminalSummary(id: "term_a", name: "shell"), TerminalSummary(id: "term_b")])
+        #expect(terminals == [TerminalSummary(id: "term_a", name: "shell", cwd: "/root"), TerminalSummary(id: "term_b")])
+    }
+
+    @Test func listDecodesTheDaemonsTitleAndDirectory() throws {
+        // The shape cmux-tui's public terminal snapshot actually sends.
+        let json = #"[{"id":"term_6b7c","tab_id":"tab_1","tab_ids":["tab_1"],"title":"aziz@vm: ~/api","cols":80,"rows":24,"running":true,"lifecycle":"running","cwd":"/home/aziz/api"}]"#
+        let rows = try TerminalCatalogDecoding.terminals(fromListResult: Data(json.utf8))
+        #expect(rows == [TerminalSummary(id: "term_6b7c", title: "aziz@vm: ~/api", cwd: "/home/aziz/api")])
     }
 
     @Test func createReturnsTheTerminalPath() throws {
