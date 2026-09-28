@@ -45,12 +45,17 @@ class SettingsUITestCase: XCTestCase {
         return app
     }
 
-    /// Opens the Settings window via ⌘, and returns it.
+    /// The Settings window, by its identifier (`SettingsWindowPresenter.windowIdentifier`)
+    /// rather than its localized title.
+    static let settingsWindowIdentifier = "cmux.settings"
+
+    /// Opens the Settings window via ⌘, and returns it. Settings mounts its
+    /// sections progressively, so the first open can take a few seconds on CI.
     @discardableResult
     func openSettings(_ app: XCUIApplication) -> XCUIElement {
         app.typeKey(",", modifierFlags: .command)
-        let window = app.windows["Settings"]
-        XCTAssertTrue(poll(timeout: 6.0) { window.exists }, "Settings window did not open")
+        let window = app.windows[Self.settingsWindowIdentifier]
+        XCTAssertTrue(poll(timeout: 10.0) { window.exists }, "Settings window did not open")
         return window
     }
 

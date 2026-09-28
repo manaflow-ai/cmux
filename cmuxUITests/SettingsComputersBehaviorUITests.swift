@@ -155,9 +155,12 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
     }
 
     func testSettingsOpenComputersCommandLandsOnDevices() throws {
-        // Same socket location as the other socket-driven UI tests: /tmp is
-        // reachable by both the runner and the app, and short enough for sun_path.
-        let socketPath = "/tmp/cmux-ui-test-devices-\(UUID().uuidString.prefix(8)).sock"
+        // The app runs outside the runner sandbox, but the CLI inherits it and
+        // is denied /tmp sockets on some runners (errno 1). The runner's temp
+        // directory is reachable by both; keep the path below sun_path.
+        let socketPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("d\(UUID().uuidString.prefix(6))").path
+        XCTAssertLessThan(socketPath.utf8.count, 104)
         defer {
             try? FileManager.default.removeItem(atPath: socketPath)
             try? FileManager.default.removeItem(atPath: socketPath + ".lock")
@@ -176,8 +179,8 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
 
         // With Settings closed, the command opens it on Devices.
         openComputers(cli: cli, socketPath: socketPath)
-        let window = app.windows["Settings"]
-        XCTAssertTrue(poll(timeout: 8) { window.exists }, "cmux settings open computers should open Settings")
+        let window = app.windows[Self.settingsWindowIdentifier]
+        XCTAssertTrue(poll(timeout: 10) { window.exists }, "cmux settings open computers should open Settings")
         defer { closeSettings(app, window) }
         assertLandedOnDevices(window, after: "cmux settings open computers")
 
