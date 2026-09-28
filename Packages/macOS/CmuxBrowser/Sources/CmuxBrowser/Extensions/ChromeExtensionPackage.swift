@@ -250,9 +250,53 @@ public enum ChromeExtensionPackage {
         let scratch = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-unpacked-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: scratch) }
-        try fileManager.copyItem(at: source, to: scratch)
+        try copyFileContents(from: source, to: scratch, byteBudget: maximumExpandedBytes, fileManager: fileManager)
         try validateUnpackedTree(at: scratch, fileManager: fileManager)
         try replace(destination, with: scratch, fileManager: fileManager)
+    }
+
+    /// Recreates `source` under `destination` with plain directories and the
+    /// data of regular files only. Resource forks, extended attributes, and
+    /// other metadata are not copied, and every byte written counts toward
+    /// `byteBudget`, so the copy cannot grow past the limit the validator
+    /// measured.
+    static func copyFileContents(from source: URL, to destination: URL, byteBudget: Int, fileManager: FileManager) throws {
+        let rootURL = source.resolvingSymlinksInPath().standardizedFileURL
+        let rootPath = rootURL.path
+        let keys: [URLResourceKey] = [.isSymbolicLinkKey, .isRegularFileKey, .isDirectoryKey]
+        guard let enumerator = fileManager.enumerator(at: rootURL, includingPropertiesForKeys: keys) else {
+            throw Failure.unpack("cannot enumerate extension files")
+        }
+        try fileManager.createDirectory(at: destination, withIntermediateDirectories: false)
+        let chunkSize = 64 * 1024
+        var written = 0
+        for case let item as URL in enumerator {
+            let path = item.standardizedFileURL.path
+            guard path.hasPrefix(rootPath + "/") else { throw Failure.unpack("path escapes the extension folder") }
+            let relative = String(path.dropFirst(rootPath.count + 1))
+            let target = destination.appendingPathComponent(relative)
+            let values = try item.resourceValues(forKeys: Set(keys))
+            if values.isSymbolicLink == true { throw Failure.unpack("symbolic links are not allowed") }
+            if values.isDirectory == true {
+                try fileManager.createDirectory(at: target, withIntermediateDirectories: false)
+                continue
+            }
+            guard values.isRegularFile == true else { throw Failure.unpack("special files are not allowed") }
+            guard let input = FileHandle(forReadingAtPath: item.path) else {
+                throw Failure.unpack("cannot read \(relative)")
+            }
+            defer { try? input.close() }
+            guard fileManager.createFile(atPath: target.path, contents: nil),
+                  let output = FileHandle(forWritingAtPath: target.path) else {
+                throw Failure.unpack("cannot write \(relative)")
+            }
+            defer { try? output.close() }
+            while let chunk = try input.read(upToCount: chunkSize), !chunk.isEmpty {
+                written += chunk.count
+                guard written <= byteBudget else { throw Failure.unpack("the extension is too large") }
+                try output.write(contentsOf: chunk)
+            }
+        }
     }
 
     /// Refuses archive entry names that could escape the extraction root.

@@ -151,6 +151,38 @@ import Testing
         }
     }
 
+    @Test func unpackedCopyKeepsFileDataAndDropsResourceForks() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-unpacked-fork-\(UUID().uuidString)", isDirectory: true)
+        let copy = root.appendingPathExtension("copy")
+        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: copy) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("js"), withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: root.appendingPathComponent("manifest.json"))
+        let script = root.appendingPathComponent("js/background.js")
+        try Data("console.log(1)".utf8).write(to: script)
+        let fork = Data(repeating: 0x41, count: 4096)
+        let status = fork.withUnsafeBytes { setxattr(script.path, XATTR_RESOURCEFORK_NAME, $0.baseAddress, fork.count, 0, 0) }
+        try #require(status == 0)
+
+        try ChromeExtensionPackage.copyUnpacked(from: root, into: copy)
+
+        let copied = copy.appendingPathComponent("js/background.js")
+        #expect(try Data(contentsOf: copied) == Data("console.log(1)".utf8))
+        #expect(getxattr(copied.path, XATTR_RESOURCEFORK_NAME, nil, 0, 0, 0) < 0)
+    }
+
+    @Test func unpackedCopyStopsAtTheByteBudget() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-unpacked-budget-\(UUID().uuidString)", isDirectory: true)
+        let copy = root.appendingPathExtension("copy")
+        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: copy) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data(repeating: 0x20, count: 200).write(to: root.appendingPathComponent("manifest.json"))
+        #expect(throws: ChromeExtensionPackage.Failure.self) {
+            try ChromeExtensionPackage.copyFileContents(from: root, to: copy, byteBudget: 100, fileManager: .default)
+        }
+    }
+
     @Test func parsesExtensionIDsFromStoreLinks() {
         #expect(ChromeExtensionPackage.extensionID(in: "https://chromewebstore.google.com/detail/json-formatter/bcjindcccaagfpapjjmafapmmgkkhgoa?hl=en") == Self.fixtureID)
         #expect(ChromeExtensionPackage.extensionID(in: "BCJINDCCCAAGFPAPJJMAFAPMMGKKHGOA") == Self.fixtureID)
