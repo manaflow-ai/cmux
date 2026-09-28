@@ -80,6 +80,63 @@ import Testing
     }
 }
 
+@Suite struct OwnedFileReplacerTests {
+    @Test func stagesAPrivateSiblingBeforeTheTargetChanges() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let path = directory.path("debug.log")
+        try Data("old\n".utf8).write(to: URL(fileURLWithPath: path))
+
+        let sibling = try #require(OwnedFileReplacer().stage(Data("new\n".utf8), forPath: path))
+        defer { unlink(sibling) }
+
+        var status = stat()
+        try #require(lstat(sibling, &status) == 0)
+        #expect(status.st_mode & S_IFMT == S_IFREG)
+        #expect(status.st_mode & 0o7777 == 0o600)
+        #expect(status.st_uid == geteuid())
+        #expect(try String(contentsOfFile: sibling, encoding: .utf8) == "new\n")
+        #expect(try String(contentsOfFile: path, encoding: .utf8) == "old\n")
+    }
+
+    @Test func replacesAWiderFileWithAPrivateOneAndLeavesNoSibling() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let path = directory.path("debug.log")
+        try Data("old\n".utf8).write(to: URL(fileURLWithPath: path))
+        try #require(chmod(path, 0o644) == 0)
+
+        #expect(OwnedFileReplacer().replaceContents(ofPath: path, with: Data("new\n".utf8)))
+
+        #expect(try String(contentsOfFile: path, encoding: .utf8) == "new\n")
+        let attributes = try FileManager.default.attributesOfItem(atPath: path)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.url.path) == ["debug.log"])
+    }
+
+    @Test func replacesASymbolicLinkWithoutWritingThroughIt() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let target = directory.path("target")
+        try Data("keep\n".utf8).write(to: URL(fileURLWithPath: target))
+        let link = directory.path("debug.log")
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: target)
+
+        #expect(OwnedFileReplacer().replaceContents(ofPath: link, with: Data("new\n".utf8)))
+
+        #expect(try String(contentsOfFile: target, encoding: .utf8) == "keep\n")
+        #expect(try FileManager.default.attributesOfItem(atPath: link)[.type] as? FileAttributeType == .typeRegular)
+    }
+
+    @Test func failsWithoutLeavingASiblingWhenTheDirectoryIsMissing() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+
+        #expect(!OwnedFileReplacer().replaceContents(ofPath: directory.path("missing/debug.log"), with: Data()))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.url.path).isEmpty)
+    }
+}
+
 @Suite struct OwnedMarkerFileReaderTests {
     @Test func readsAnOwnedMarker() throws {
         let directory = try TemporaryDirectory()

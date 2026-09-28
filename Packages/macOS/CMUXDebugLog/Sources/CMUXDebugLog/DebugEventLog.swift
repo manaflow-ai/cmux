@@ -176,15 +176,15 @@ public final class DebugEventLog: @unchecked Sendable {
     /// Writes the current buffer to disk, replacing the existing log file.
     public func dump() {
         queue.sync {
-            // The atomic write replaces the inode, so the kept-open append
+            // The replacement is a new inode, so the kept-open append
             // handle would keep writing to the unlinked file; reopen lazily.
             try? self.appendHandle?.close()
             self.appendHandle = nil
             let content = self.entries.joined(separator: "\n") + "\n"
-            // The rename replaces a link at the path instead of following it;
-            // keep the replacement as private as the appended file.
-            guard (try? content.write(toFile: self.logPath, atomically: true, encoding: .utf8)) != nil else { return }
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: self.logPath)
+            // The replacement is created 0600 before any byte is written, so
+            // no other user can open it in /tmp, and the rename replaces a
+            // link at the path instead of following it.
+            OwnedFileReplacer().replaceContents(ofPath: self.logPath, with: Data(content.utf8))
         }
     }
 
