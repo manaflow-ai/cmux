@@ -26,7 +26,8 @@ What it does, in order:
    `/catch-up` workflow runs: `project.pbxproj`, the embedded config schema and
    `.xcstrings` conflicts resolve with their generators; any other conflict
    aborts the merge and names the paths.
-4. Runs `scripts/ci/guards-local.sh` (the `ci` group, or every group with
+4. With `--guards` (off by default; pushing runs them in CI), runs
+   `scripts/ci/guards-local.sh` (the `ci` group, or every group with
    `--all-guards`) on the merge and labels each failed step. A local pass
    stamp for the merged main commit means every failure is the branch's.
    Otherwise the failed steps rerun, with `run_ci_guards.py --root --step`, in
@@ -45,9 +46,10 @@ failure's origin is unknown or the guard run ended without step results.
 | --- | --- |
 | `--dry-run` | Print the pick and the skipped commits; change nothing. |
 | `--tip` | Merge main's tip even when it is red or still running. |
-| `--all-guards` | Run every guard group after the merge, not only `ci`. |
-| `--no-guards` | Merge only. |
-| `--strict` | Exit 3 when the branch introduced a guard failure; 2 when it cannot tell. |
+| `--guards` | Run the `ci` guards locally after the merge. Off by default: pushing runs them in CI, and a laptop running them for many agents at once stalls. |
+| `--all-guards` | Run every guard group after the merge (implies `--guards`). |
+| `--no-guards` | Merge only; the default, kept for older callers. |
+| `--strict` | Run the guards; exit 3 when the branch introduced a failure, 2 when it cannot tell. |
 
 ## Automatic catch-up
 

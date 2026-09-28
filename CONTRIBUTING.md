@@ -66,10 +66,10 @@ and the [validation guide](skills/cmux-testing/references/local-vs-ci-validation
 | Script | Description |
 |--------|-------------|
 | `./scripts/setup.sh` | One-time setup (submodules + xcframework) |
-| `./scripts/reload.sh` | Build Debug app (pass `--launch` to also open it) |
-| `./scripts/reloadp.sh` | Build and launch Release app |
-| `./scripts/reload2.sh` | Reload both Debug and Release |
-| `./scripts/rebuild.sh` | Clean rebuild |
+| `CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <tag>` | Build a tagged Debug app; add `--launch` to open it or `--build-only` for compile-only validation |
+
+See [tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md) for cache
+reuse, Release variants, and restrictions that protect the running app.
 
 <a id="fast-checks-before-building-or-pushing"></a>
 
@@ -133,7 +133,7 @@ The `ghostty` submodule points to [manaflow-ai/ghostty](https://github.com/manaf
 
 - Describe the change as the [writing guide](STYLE.md) says and fill in the pull request template, including what ran.
 - For a bug fix, commit the failing regression test before the fix; see [regression commits](skills/cmux-testing/SKILL.md#reproduce-and-repair).
-- Add one line under `## Unreleased` in [CHANGELOG.md](CHANGELOG.md) for a user-visible change.
+- Fill in the template's `## Changelog` section: one `Added`/`Changed`/`Fixed`/`Removed` line for a user-visible change, or `none`. Don't edit [CHANGELOG.md](CHANGELOG.md); the release builds it from these lines.
 - Sign the [CLA](CLA.md) once by commenting `I have read the CLA Document v2.2 and I hereby sign the CLA` on your pull request. The CLA check asks for it on your first pull request.
 
 Agents working in this repository also follow [CLAUDE.md](CLAUDE.md) (also `AGENTS.md`).
@@ -142,5 +142,5 @@ Agents working in this repository also follow [CLAUDE.md](CLAUDE.md) (also `AGEN
 
 By contributing to this repository, you agree that:
 
-1. Your contributions are licensed under the project's GNU General Public License v3.0 or later (`GPL-3.0-or-later`).
+1. Your contributions are licensed under the license of the directory you contribute to: the Business Source License 1.1 (`BUSL-1.1`) for the server directories listed in [LICENSE](LICENSE) (`web/`, `workers/ci-artifacts/`, `workers/iroh-v2/`, `workers/presence/`, `services/iroh-relay-minter/`, `cmux-tui/relays/cloudflare-do/`), and the project's GNU General Public License v3.0 or later (`GPL-3.0-or-later`) everywhere else unless a file states otherwise.
 2. You grant Manaflow, Inc. a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to use, reproduce, modify, sublicense, and distribute your contributions under any license, including a commercial license offered to third parties.

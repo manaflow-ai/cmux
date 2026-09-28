@@ -42,6 +42,15 @@ on:
         required: false
         default: ""
         type: string
+      # For a caller whose macos_runner is an owned label on attempt 1 only:
+      # plan-build bakes macos_runner into the matrix, and a re-run of failed
+      # jobs reuses that output, so the macOS builds read this instead from
+      # attempt 2 on (the owned-pool rescue's re-run, or a person's).
+      macos_retry_runner:
+        description: "Optional macOS runner label for attempt 2 and later"
+        required: false
+        default: ""
+        type: string
       linux_runner:
         description: "Optional Linux x64 runner label override"
         required: false
@@ -171,7 +180,7 @@ jobs:
   build:
     name: build ${{ matrix.target }}
     needs: plan-build
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && inputs.macos_retry_runner || matrix.runner }}
     timeout-minutes: 60
     permissions:
       contents: read
