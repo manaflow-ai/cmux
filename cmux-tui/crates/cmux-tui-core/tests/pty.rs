@@ -208,14 +208,16 @@ fn headless_creation_uses_explicit_or_authoritative_client_size() {
             "rows": 40,
         }),
     );
-    let passive_inherited = socket_request(
+    // The attached view owns the grid under the default `latest` policy, so
+    // its report both resizes the terminal and seeds new surfaces.
+    let owner_inherited = socket_request(
         &mut writer,
         &mut reader,
         serde_json::json!({"id": 4, "cmd": "new-workspace"}),
     )["data"]["surface"]
         .as_u64()
         .unwrap();
-    assert_vt_state_size(&mut writer, &mut reader, 5, passive_inherited, (80, 24));
+    assert_vt_state_size(&mut writer, &mut reader, 5, owner_inherited, (143, 40));
 
     socket_request(
         &mut writer,
@@ -281,25 +283,26 @@ fn headless_creation_uses_explicit_or_authoritative_client_size() {
 }
 
 #[test]
-fn terminal_surface_uses_only_its_explicit_geometry_authority() {
+fn terminal_surface_follows_the_latest_view_and_never_freezes() {
     let mux = Mux::new("terminal-geometry-authority", SurfaceOptions::default());
     let surface = mux
         .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
         .unwrap()
         .surface;
 
-    assert!(!mux.resize_surface_for_client(surface, 1, 120, 40).unwrap());
-    assert!(!mux.resize_surface_for_client(surface, 0, 100, 32).unwrap());
-    assert_eq!(mux.surface(surface).unwrap().size(), (80, 24));
-
-    assert_eq!(mux.claim_terminal_geometry(surface, 0), Some(true));
+    assert!(mux.resize_surface_for_client(surface, 1, 120, 40).unwrap());
+    assert!(mux.resize_surface_for_client(surface, 0, 100, 32).unwrap());
     assert_eq!(mux.surface(surface).unwrap().size(), (100, 32));
+
+    assert_eq!(mux.claim_terminal_geometry(surface, 0), Some(false));
     assert!(!mux.resize_surface_for_client(surface, 1, 70, 20).unwrap());
     assert_eq!(mux.surface(surface).unwrap().size(), (100, 32));
 
+    // The owner leaving elects the remaining view instead of freezing.
     mux.remove_surface_size_client(surface, 0);
-    assert!(!mux.resize_surface_for_client(surface, 1, 60, 18).unwrap());
-    assert_eq!(mux.surface(surface).unwrap().size(), (100, 32));
+    assert_eq!(mux.surface(surface).unwrap().size(), (70, 20));
+    assert!(mux.resize_surface_for_client(surface, 1, 60, 18).unwrap());
+    assert_eq!(mux.surface(surface).unwrap().size(), (60, 18));
 
     mux.shutdown();
 }

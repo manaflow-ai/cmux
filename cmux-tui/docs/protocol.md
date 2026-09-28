@@ -36,7 +36,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":12,"capabilities":["attach-initial-size","workspace-registry-v1","daemon-handoff-force-v1","browser-provider-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2","machine-listening-tcp-v1","server-stats-v1","clear-history-key-v1"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":12,"capabilities":["attach-initial-size","workspace-registry-v1","daemon-handoff-force-v1","browser-provider-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","view-attachment-lease-v1","view-attachment-detach-v1","shared-sizing-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2","machine-listening-tcp-v1","server-stats-v1","clear-history-key-v1"],"session":"main","pid":12345}}
 ```
 
 Responses have this shape. The second example is a failed `clear-history` request:
@@ -163,6 +163,29 @@ When the stream ends, it sends:
 ```json
 {"event":"detached","surface":4}
 ```
+
+A server-initiated detach adds `reason` (`network`, `disconnected-by` with
+`by`, or `host-shutdown`). Do not reconnect automatically after
+`disconnected-by`.
+
+## Shared Terminal Sizing
+
+`shared-sizing-v1` means terminals use the shared sizing reducer of
+[`docs/shared-terminal-sizing.md`](../../docs/shared-terminal-sizing.md): the
+newest active view sets the grid by default, and an owner that leaves hands
+the grid to the next owner. A client opts in to the new events by sending the
+same capability in `set-client-info`, together with its identity:
+
+```json
+{"id":3,"cmd":"set-client-info","name":"mirror","kind":"mac","capabilities":["shared-sizing-v1"],"user_id":"u_maya","display_name":"Maya","device_kind":"mac","device_name":"Mac Studio"}
+```
+
+It then receives `size-state` events, `participant` and `size_state` in terminal
+`attach-surface` responses, and can use `set-size-policy`, `set-size-counts`,
+`get-size-state`, relay sub-views (`resize-attached-view` with `view` and
+`identity`), and `detach-client` with a participant id and `by`. `user_id` is
+asserted by the client; the daemon does not verify it. See
+[`spec/commands.md`](../spec/commands.md#sizing).
 
 ## Client Compatibility
 

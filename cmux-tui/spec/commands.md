@@ -129,12 +129,26 @@ The `dead` pane variant is serialized only if the tree references a pane missing
 Every surface has one authoritative cell grid. Byte and render attach modes observe the same grid; attaching by itself never resizes it.
 
 Each client reports the cell grid available for every surface it displays with
-`resize-surface`. A terminal report is a viewport hint until that exact client
-and terminal view receive explicit geometry authority through
-`set-client-sizing`. One terminal has at most one geometry owner. Other views
-crop, pan, or scale the canonical grid and never resize the PTY. Input does not
-claim geometry. Releasing or disconnecting the owner freezes the current grid;
-the server does not silently elect another owner.
+`resize-surface`. Terminals use the shared sizing reducer defined in
+[`docs/shared-terminal-sizing.md`](../../docs/shared-terminal-sizing.md) and
+implemented in `cmux-tui-core/src/sizing_policy.rs`. Every client view of a
+terminal placement is one participant with id `c<client>` (or
+`c<client>@<placement>` for a projected placement other than the terminal's
+first), and every relay sub-view is one participant `c<client>/<view>`. A view
+joins when it attaches or first reports a size and leaves when its last attach
+stream ends or its connection closes.
+
+The default policy is `latest`: the counting participant with the newest
+activity sets the grid. Activity is attaching, an explicit claim through
+`set-client-sizing` (or the local TUI's focus), and `send`/`send-key` input.
+Other views crop, pan, or scale the canonical grid. When the owner leaves, the
+next owner takes the grid in the same step; the grid never freezes waiting for
+a departed owner. With no counting participant the grid keeps its last size.
+`set-size-policy` selects `smallest`, `largest`, `priority`, or `fixed`, and
+`set-size-counts` sets a participant's counts-toward-size override (tmux
+`attach -f ignore-size` is `counts:false`). A resize that the engine did not
+make, such as a direct terminal-host renderer's, is not reverted until the
+engine's own decision changes.
 
 Browser surfaces retain the legacy smallest-reported-grid reducer because a
 browser surface still has one live tab. When a browser tab becomes hidden, the
@@ -151,27 +165,36 @@ Optional-size creation commands are `apply-layout`, `new-tab`, `new-browser-tab`
 
 `resize-surface` requires both fields and clamps each to `1..10000`. Attached
 clients retain the report until release; an unattached one-shot report is
-removed when its connection closes. A passive terminal report returns
-`accepted:false` because it did not change canonical geometry, but the report
-is retained and takes effect if that view later claims authority.
+removed when its connection closes. A terminal report from a
+view that does not set the grid returns `accepted:false`, but the report is
+retained and takes effect when that view becomes the owner.
 
-For terminals, `set-client-sizing` claims or releases geometry authority.
-`exclusive:true`, `enabled:true`, and no `client` claims authority for the
-requesting connection. An explicit `client` may be used by an authorized
-controller. Omitting `client` and `exclusive` releases any owner and freezes
-the terminal. For browsers, the same command retains the legacy include,
-exclude, and exclusive reducer controls.
+For terminals, `set-client-sizing` maps onto the shared reducer.
+`enabled:true` (with or without `exclusive`) clears a `counts:false` override
+and counts as activity for the selected view; `enabled:false` sets
+`counts:false`; omitting `client` and `exclusive` restores the automatic
+counts rule for every view of the terminal. For browsers, the same command
+retains the legacy include, exclude, and exclusive reducer controls.
 
 ### Relay attachment sizing boundary
 
 The Rust `chatmux-relay` wrapper can have several relay viewers for one
 terminal. When its local owner leaves, disconnects, or receives an
 unsuccessful report response, the wrapper closes that attachment and does not
-issue a replacement claim from another relay socket. The core server has no
-generation token for ordering such a cross-socket hand-off, so geometry stays
-frozen until a newly attached relay viewer makes an explicit report and
-`set-client-sizing` claim. This relay boundary preserves the core server rule;
-it does not elect a survivor implicitly.
+issue a replacement claim from another relay socket. The core server elects
+the next owner among the remaining participants itself.
+
+A relay that forwards several leaves on one connection (a Mac mirror with its
+paired phones) reports each leaf as a relay sub-view with
+`resize-attached-view {surface, view, identity, cols, rows}`. The relay's own
+view stays its `attach-surface` lease. Sub-views have no byte stream: the
+relay renders for them and forwards `size-state` and `detached` (with `view`)
+back down.
+
+Identity trust: `user_id` in `set-client-info` and in a sub-view `identity` is
+asserted by the connection. This daemon has no Stack session and cannot verify
+it; relay tickets carry no user identity. It only selects the same-user
+handheld rule and priority keys, never access.
 
 Frontends report their grid after a surface becomes visible and whenever that viewport changes. They release the report when the surface becomes hidden, even if its attach stream remains cached. A frontend must not re-report merely because another client changed the authoritative surface size. See [`render.md`](render.md#sizing-and-multi-client-presentation) for presentation guidance.
 
@@ -384,6 +407,15 @@ Params:
 | `name` | `string` | default unchanged | Control characters are replaced with spaces; first 64 characters are retained |
 | `kind` | `string` | default unchanged | Control characters are replaced with spaces; first 64 characters are retained |
 | `capabilities` | `array<string>` | default unchanged | Additive client features understood by the server |
+| `user_id` | `string` | default unchanged | Shared sizing identity; asserted by the client and not verified |
+| `display_name` | `string` | default unchanged | Shared sizing identity; defaults to `name` |
+| `device_kind` | `string` | default unchanged | `mac`, `iphone`, `ipad`, `tui`, `browser`; anything else is `unknown`; defaults to `kind` |
+| `device_name` | `string` | default unchanged | Shared sizing identity |
+
+Identity fields are clamped like `name`. A connection that sends
+`shared-sizing-v1` in `capabilities` receives `size-state` events on its
+subscribe and attach streams and `participant`/`size_state` in terminal
+`attach-surface` responses.
 
 Result: `object{}`.
 
@@ -586,11 +618,14 @@ Params: none.
 | status | implemented |
 | since | protocol 9; per-surface request shape protocol 10 |
 
-Claims or releases terminal geometry authority, or changes legacy browser size
-participation. The `surface` field is always required. For a terminal,
-`exclusive:true` requires `enabled:true`; omitting `client` selects the
-requesting connection. The selected client must have reported a size for that
-exact view. Omitting both `client` and `exclusive` releases terminal authority.
+Maps legacy participation controls onto terminal shared sizing (see
+[Sizing](#sizing)), or changes legacy browser size participation. The
+`surface` field is always required. For a terminal, `exclusive:true` requires
+`enabled:true`; omitting `client` selects the requesting connection. The
+selected client must have reported a size for that exact view. `enabled:true`
+clears a `counts:false` override and counts as activity; `enabled:false` sets
+`counts:false`; omitting both `client` and `exclusive` restores automatic
+counting for every view. Prefer `set-size-counts` and `set-size-policy`.
 
 Params:
 
@@ -634,13 +669,19 @@ Example:
 | status | implemented |
 | since | protocol 6 additive extension |
 
-Ends a control connection. Every attached surface receives its normal `detached` event when the target transport is still writable, then the socket closes. Detaching the requesting client is allowed; the server writes that command's success response before its `detached` events and transport close.
+Ends a control connection. Every attached surface receives its `detached` event with `reason:"disconnected-by"` and `by` when the target transport is still writable, then the socket closes. The kicked viewer must not reconnect automatically. Detaching the requesting client is allowed; the server writes that command's success response before its `detached` events and transport close.
+
+`client` may also be a shared-sizing participant id from `size-state`. A
+relay sub-view id (`c<client>/<view>`) detaches only that sub-view: the relay
+stays connected and receives `detached {surface, reason:"disconnected-by", by,
+view}` on its attach stream for that surface to forward to the leaf.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `client` | `uint64` | required | Current client id from `list-clients` |
+| `client` | `uint64` or `string` | required | Client id from `list-clients`, or a participant id |
+| `by` | `object{user_id?,display_name?,device_name?}` | default: the requester's identity | Actor shown to the detached viewer; asserted, not verified |
 
 Result: `object{}`.
 
@@ -649,6 +690,7 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `unknown client <id>` | Client id is not currently connected |
+| `unknown participant <id>` | Participant id names no current view |
 | `bad request: ...` | Missing `client` or wrong JSON type |
 
 CLI mapping:
@@ -2664,6 +2706,15 @@ Result:
 object{accepted:bool,reservation_id:uint64|null,outcome:"applied"|"passive"|"superseded"}
 ```
 
+With `shared-sizing-v1`, `view:string` (1-128 printable characters, for
+example `mobile:<client_id>`) replaces `lease` and creates or updates a relay
+sub-view keyed by this connection and `view`, with optional
+`identity:object{user_id?,display_name?,device_kind?,device_name?}`. An
+omitted `identity` keeps the previous one. The connection must be attached to
+the terminal. Its result adds `participant:string`, the host participant id
+(`c<client>/<view>`); `accepted` is whether the sub-view now sets a dimension
+of the grid. Terminals only.
+
 ### release-attached-view-size
 
 | Field | Value |
@@ -2675,7 +2726,8 @@ object{accepted:bool,reservation_id:uint64|null,outcome:"applied"|"passive"|"sup
 Removes one attachment's geometry contribution while retaining its stream for
 cached rendering. A retired lease returns `outcome:"superseded"`.
 
-Params: required `surface:Id` and `lease:string`.
+Params: required `surface:Id` and exactly one of `lease:string` or
+`view:string` (a relay sub-view; it stays a participant without a viewport).
 
 Result:
 
@@ -2695,13 +2747,79 @@ Closes one leased attach stream and synchronously removes its size
 participation. The terminal, its other placements, and other client views stay
 live. Repeating a completed detach returns `outcome:"superseded"`.
 
-Params: required `surface:Id` and `lease:string`.
+Params: required `surface:Id` and exactly one of `lease:string` or
+`view:string`. With `view`, the relay sub-view leaves shared sizing and the
+next owner takes the grid.
 
 Result:
 
 ```text
 object{outcome:"applied"|"superseded"}
 ```
+
+### set-size-policy
+
+| Field | Value |
+| --- | --- |
+| name | `set-size-policy` |
+| status | implemented |
+| since | protocol 12 with `shared-sizing-v1` |
+
+Sets the shared sizing policy of one terminal (an override) or the default of
+one workspace. A terminal without an override uses its workspace default, else
+`latest`. Every participant of an affected terminal receives `size-state`.
+Policies are in memory and reset when the daemon restarts.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | exactly one of `surface`/`workspace` | Terminal surface |
+| `workspace` | `Id` | exactly one of `surface`/`workspace` | Existing workspace |
+| `policy` | `object{mode,priority?,fixed?}` or `null` | required | `mode`: `latest`, `smallest`, `largest`, `priority`, `fixed`; `priority`: array of priority keys; `fixed`: `object{cols,rows}`; `null` clears |
+
+Result: `object{state}` for a surface (the new size state), `object{}` for a
+workspace.
+
+```json
+{"id":7,"cmd":"set-size-policy","surface":4,"policy":{"mode":"smallest"}}
+{"id":7,"ok":true,"data":{"state":{"generation":5,"cols":118,"rows":30,"reason":"smallest","owners":["c1","c3"],"policy":{"mode":"smallest","priority":[],"fixed":null},"participants":[]}}}
+```
+
+### set-size-counts
+
+| Field | Value |
+| --- | --- |
+| name | `set-size-counts` |
+| status | implemented |
+| since | protocol 12 with `shared-sizing-v1` |
+
+Sets (`true`/`false`) or clears (`null`) one participant's counts-toward-size
+override. At most one selector: `client:uint64` (that client's view of this
+placement), `lease:string` (the caller's own leased view), `view:string` (the
+caller's relay sub-view), or `participant:string`. Without a selector it
+targets the caller's own view.
+
+Params: required `surface:Id` and `counts:bool|null`, plus the optional
+selector.
+
+Result: `object{outcome:"applied"|"superseded",changed?:bool,participant?:string}`.
+Errors: `unknown participant <id>`.
+
+### get-size-state
+
+| Field | Value |
+| --- | --- |
+| name | `get-size-state` |
+| status | implemented |
+| since | protocol 12 with `shared-sizing-v1` |
+
+Returns the terminal's current size state (the `size-state` event payload) and
+the caller's own participant id when it has one.
+
+Params: required `surface:Id`.
+
+Result: `object{state,self_participant:string|null}`.
 
 ### focus-pane
 
@@ -3217,6 +3335,12 @@ identifies its numeric surface. Clients must wait for the successful attach
 response and lease before sending input. Creation receipts keep their existing
 shape; their generation and terminal ID provide the identity fence. Older
 servers require the existing separate surface-resolution path.
+
+When the client sent `shared-sizing-v1` in `set-client-info`, a terminal
+attach response also includes `participant` (this view's host participant id)
+and `size_state` (the state after this view joined). A `size-state` event for
+the same join may reach the attach stream before the response; order states by
+`generation`.
 
 When both peers negotiate `view-attachment-lease-v1` through `identify` and
 `set-client-info`, the response includes an opaque `lease`. The lease names
