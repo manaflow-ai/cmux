@@ -150,6 +150,7 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/app_host_layer_transport.py",
     "scripts/ci/parallel_artifact_download.py",
+    "scripts/ci/apfs_clone.py",
     "scripts/ci/canonical-build-root.sh",
     "scripts/ci/compile-app-host-test-product.sh",
     "scripts/ci/product_input_identity.py",
@@ -869,9 +870,16 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     "scripts/ci/restore-app-host-test-product.sh",
     "scripts/ci/run-and-capture.sh",
     "scripts/ci/require_selected_test_execution.sh",
+    # The Python product lane consumes these alongside the host-free bundle.
+    "scripts/ci/run_python_test_lane.py",
+    "scripts/ci/test_execution_registry.py",
+    "tests/test_claude_hook_spool.py",
+    "tests/claude_teams_test_utils.py",
     # What restore-app-host-test-product.sh itself runs.
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/canonical-build-root.sh",
+    # What canonical-build-root.sh clones the tree with.
+    "scripts/ci/apfs_clone.py",
     "scripts/ci/relocate_package_framework_rpaths.py",
     # Seeds the checkout of compile admission and cli-product-tests.
     "scripts/ci/git-seed.sh",
@@ -914,8 +922,10 @@ CLI_LANE_INPUT_PREFIXES = (
 # ---------------------------------------------------------------------------
 
 SWIFT_PACKAGE_ROOT_PREFIX = "Packages/"
-# The job's package list, as a shell array inside its "Select package tests"
-# step. Reading it here keeps one list rather than a copy that can drift.
+# The job's package list, as a shell array in the lane script the job runs
+# (on a runner or as a fleet step). Reading it here keeps one list rather than
+# a copy that can drift.
+SWIFT_PACKAGE_LANE_SCRIPT_PATH = "scripts/ci/package-test-lane.sh"
 _SWIFT_PACKAGE_JOB_LIST_RE = re.compile(
     r"(?m)^[ \t]*PACKAGES=\(\n(?P<body>(?:[ \t]*[A-Za-z0-9_]+\n)+)[ \t]*\)\n"
 )
@@ -943,14 +953,14 @@ def swift_package_test_packages() -> Optional[tuple[str, ...]]:
     """The packages ci-macos.yml's swift-package-tests job runs, in job order."""
     root = Path(__file__).resolve().parents[2]
     try:
-        workflow = (root / MACOS_WORKFLOW_PATH).read_text(encoding="utf-8")
+        script = (root / SWIFT_PACKAGE_LANE_SCRIPT_PATH).read_text(encoding="utf-8")
     except OSError as error:
-        print(f"Could not read {MACOS_WORKFLOW_PATH}: {error}", file=sys.stderr)
+        print(f"Could not read {SWIFT_PACKAGE_LANE_SCRIPT_PATH}: {error}", file=sys.stderr)
         return None
-    matches = _SWIFT_PACKAGE_JOB_LIST_RE.findall(workflow)
+    matches = _SWIFT_PACKAGE_JOB_LIST_RE.findall(script)
     if len(matches) != 1:
         print(
-            f"Expected one PACKAGES=( ... ) list in {MACOS_WORKFLOW_PATH}, "
+            f"Expected one PACKAGES=( ... ) list in {SWIFT_PACKAGE_LANE_SCRIPT_PATH}, "
             f"found {len(matches)}",
             file=sys.stderr,
         )

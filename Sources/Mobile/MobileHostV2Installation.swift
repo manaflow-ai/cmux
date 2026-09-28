@@ -43,9 +43,9 @@ struct MobileHostV2Configuration: Sendable {
         let environment = override("CMUX_IROH_V2_ENVIRONMENT") ?? fallback
         let origin: String
         switch environment {
-        case "production": origin = "https://cmux-iroh-v2.debussy.workers.dev"
-        case "staging": origin = "https://cmux-iroh-v2-staging.debussy.workers.dev"
-        case "development": origin = "https://cmux-iroh-v2-development.debussy.workers.dev"
+        case "production": origin = "https://cmux-v2.debussy.workers.dev"
+        case "staging": origin = "https://cmux-v2-staging.debussy.workers.dev"
+        case "development": origin = "https://cmux-v2-development.debussy.workers.dev"
         default: throw V2ControlFailure.scopeMismatch
         }
         guard let url = URL(string: override("CMUX_IROH_V2_BASE_URL") ?? origin),

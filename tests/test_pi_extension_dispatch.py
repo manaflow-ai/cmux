@@ -215,6 +215,11 @@ const ctx = {
 };
 await Promise.resolve(handlers.get("session_start")({}, ctx));
 await Promise.resolve(handlers.get("before_agent_start")({ prompt: "hello" }, ctx));
+await Promise.resolve(handlers.get("tool_execution_start")({
+  toolCallId: "ui-lifecycle-tool",
+  toolName: "bash",
+  args: { command: "gh pr create --title parity" }
+}, ctx));
 await Promise.resolve(handlers.get("tool_execution_end")({
   toolCallId: "ui-lifecycle-tool",
   toolName: "bash",
@@ -264,26 +269,174 @@ while (performance.now() < deadline) {
 
     calls = lifecycle_log.read_text(encoding="utf-8").splitlines()
     completed = [line for line in calls if line.startswith("end ")]
-    expected = (
+    expected = [
         "hooks pi session-start",
         "hooks pi prompt-submit",
+        "hooks feed --source pi --event PreToolUse",
         "hooks feed --source pi --event PostToolUse",
         "hooks pi notification",
         "hooks pi stop",
-    )
+    ]
+    lifecycle_completed = [
+        line for line in completed
+        if " report_pwd " not in line
+        and " clear_git_branch " not in line
+        and " report_pr_action " not in line
+    ]
     indexes = {
-        command: [index for index, line in enumerate(completed) if command in line]
+        command: [index for index, line in enumerate(lifecycle_completed) if command in line]
         for command in expected
     }
     orderedIndexes = [indexes[command][0] for command in expected if indexes[command]]
-    commandPhases = [line.split(" ", 1)[0] for line in calls if line.startswith(("start ", "end "))]
+    commandPhases = [
+        line.split(" ", 1)[0]
+        for line in calls
+        if line.startswith(("start ", "end "))
+        and " report_pwd " not in line
+        and " clear_git_branch " not in line
+        and " report_pr_action " not in line
+    ]
     if (
-        len(completed) != len(expected)
+        len(lifecycle_completed) != len(expected)
         or any(len(found) != 1 for found in indexes.values())
         or orderedIndexes != sorted(orderedIndexes)
         or commandPhases != [phase for _ in expected for phase in ("start", "end")]
+        or sum("report_pwd " in line for line in completed) < 2
+        or sum("clear_git_branch " in line for line in completed) < 2
+        or not any("report_pr_action create" in line for line in completed)
     ):
         print(f"FAIL: detached Pi lifecycle work lost command ordering: {calls!r}")
+        return 1
+    return 0
+
+
+def check_ui_dialogs_publish_needs_input(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    if "installPiUIDialogHooks" not in extension_path.read_text(encoding="utf-8"):
+        return 0
+    dialog_log = root / "ui-dialog-cmux.log"
+    dialog_cmux = root / "ui-dialog-cmux"
+    make_executable(
+        dialog_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+payload=\"$(cat)\"
+printf '%s|%s\\n' \"$*\" \"$payload\" >> \"$CMUX_TEST_PI_DIALOG_LOG\"
+printf '{}\\n'
+""",
+    )
+    dialog_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  hasUI: true,
+  cwd: "/tmp/pi-dialog-project",
+  ui: {
+    confirm: async () => true,
+    select: async (_title, options) => options[0],
+    input: async () => "answer",
+  },
+  isIdle() { return true; },
+  sessionManager: { getSessionId() { return "pi-dialog-session"; } },
+};
+await handlers.get("session_start")({}, ctx);
+await ctx.ui.confirm("Idle command", "Run this extension action?");
+await handlers.get("before_agent_start")({ prompt: "ask me" }, ctx);
+await ctx.ui.confirm("Choose", "Which option should I use?");
+await handlers.get("session_shutdown")({ reason: "dialog test" }, ctx);
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=dialog_cmux,
+        source=dialog_source,
+        extra_env={"CMUX_TEST_PI_DIALOG_LOG": str(dialog_log)},
+    )
+    if result.returncode != 0:
+        print(f"FAIL: Pi UI dialog harness failed: {result.stderr!r}")
+        return 1
+    calls = dialog_log.read_text(encoding="utf-8").splitlines()
+    question = [line for line in calls if "hooks pi notification" in line and "questionAsked" in line]
+    response = [line for line in calls if "hooks pi approval-response" in line]
+    response_payloads = [json.loads(line.split("|", 1)[1]) for line in response]
+    question_payloads = [json.loads(line.split("|", 1)[1]) for line in question]
+    response_payload = response_payloads[-1] if response_payloads else {}
+    if (
+        len(question) != 2
+        or len(response) != 2
+        or calls.index(question[0]) > calls.index(response[0])
+        or calls.index(question[1]) > calls.index(response[1])
+        or question_payloads[1].get("turn_id") != response_payload.get("turn_id")
+        or question_payloads[0].get("turn_id") == response_payloads[1].get("turn_id")
+        or response_payloads[0].get("cmux_pi_idle_dialog") is not True
+        or response_payloads[1].get("cmux_pi_idle_dialog") is not False
+        or any("Which option should I use?" in line for line in question)
+    ):
+        print(f"FAIL: Pi UI dialog did not bracket a needs-input lifecycle: {calls!r}")
+        return 1
+    return 0
+
+
+def check_ui_dialog_rejection_publishes_response(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    if "installPiUIDialogHooks" not in extension_path.read_text(encoding="utf-8"):
+        return 0
+    dialog_log = root / "ui-dialog-rejection-cmux.log"
+    dialog_cmux = root / "ui-dialog-rejection-cmux"
+    make_executable(
+        dialog_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+printf '%s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_DIALOG_REJECTION_LOG"
+printf '{}\n'
+""",
+    )
+    dialog_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  hasUI: true,
+  cwd: "/tmp/pi-dialog-rejection-project",
+  ui: {
+    confirm: async () => { throw new Error("dialog failed"); },
+    select: async () => undefined,
+    input: async () => undefined,
+  },
+  isIdle() { return true; },
+  sessionManager: { getSessionId() { return "pi-dialog-rejection-session"; } },
+};
+await handlers.get("session_start")({}, ctx);
+try { await ctx.ui.confirm("Question", "This dialog fails"); } catch (_) {}
+await handlers.get("session_shutdown")({ reason: "dialog test" }, ctx);
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=dialog_cmux,
+        source=dialog_source,
+        extra_env={"CMUX_TEST_PI_DIALOG_REJECTION_LOG": str(dialog_log)},
+    )
+    if result.returncode != 0:
+        print(f"FAIL: Pi rejected-dialog harness failed: {result.stderr!r}")
+        return 1
+    calls = dialog_log.read_text(encoding="utf-8").splitlines()
+    questions = [line for line in calls if "hooks pi notification" in line and "questionAsked" in line]
+    responses = [line for line in calls if "hooks pi approval-response" in line]
+    if len(questions) != 1 or len(responses) != 1:
+        print(f"FAIL: rejected Pi dialog did not publish a response: {calls!r}")
         return 1
     return 0
 
@@ -453,7 +606,7 @@ const ctx = {
 };
 handlers.get("before_agent_start")({ prompt: "first" }, ctx);
 handlers.get("agent_end")({
-  messages: [{ role: "assistant", content: "first done" }],
+  messages: [{ role: "assistant", content: "The docs now explain which version to choose." }],
   stopReason: "completed"
 }, ctx);
 handlers.get("before_agent_start")({ prompt: "second" }, ctx);
@@ -496,6 +649,13 @@ await handlers.get("session_shutdown")({ reason: "test complete" }, ctx);
     )
     if first_stop is None or second_prompt is None or first_stop > second_prompt:
         print(f"FAIL: previous Pi completion raced the next prompt: {calls!r}")
+        return 1
+    first_notification = next(
+        (line for line in calls if "hooks pi notification" in line and '"turn_id":"pi-turn-transition-session:turn-1"' in line),
+        "",
+    )
+    if '"type":"question"' in first_notification:
+        print(f"FAIL: declarative Pi completion was classified as a question: {calls!r}")
         return 1
     return 0
 
@@ -2829,8 +2989,8 @@ def check_timeout_configuration_and_failure_telemetry(
     if "CMUX_PI_HOOK_TIMEOUT_MS" not in extension_text:
         print("FAIL: generated Pi extension does not expose CMUX_PI_HOOK_TIMEOUT_MS")
         return 1
-    if "cmux-pi-session-extension-marker v3" not in extension_text:
-        print("FAIL: generated Pi extension did not advance its regeneration marker to v3")
+    if "publishPiWorkspaceMetadata" in extension_text and "cmux-pi-session-extension-marker v4" not in extension_text:
+        print("FAIL: generated Pi extension did not advance its regeneration marker to v4")
         return 1
     forbidden_console_calls = [
         call
@@ -3365,6 +3525,8 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
     checks = (
         check_responsiveness,
         check_ui_lifecycle_handlers_return_immediately,
+        check_ui_dialogs_publish_needs_input,
+        check_ui_dialog_rejection_publishes_response,
         check_hot_path_defers_projection_and_reuses_launch_probes,
         check_completion_precedes_next_prompt,
         check_cross_session_lifecycle_isolation,

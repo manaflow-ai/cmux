@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 
 // Every shim run spawns dozens of processes (sh + jq per step); give the suites room.
 setDefaultTimeout(60_000);
-import { spawnSync } from "node:child_process";
+import { runChild } from "./helpers/run-child";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
@@ -14,11 +14,11 @@ import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH, guestCliInstallCommand } from ".
  * Runs the shim against a fake cmux-tui binary that prints its argv one word
  * per line, so a test can assert exactly what would reach the daemon.
  */
-function runShim(
+async function runShim(
   args: string[],
   env: Record<string, string | undefined> = {},
   setup?: (directory: string) => void,
-): { argv: string[]; status: number | null; stdout: string; stderr: string } {
+): Promise<{ argv: string[]; status: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }> {
   const dir = mkdtempSync(join(tmpdir(), "cmux-guest-cli-"));
   const shim = join(dir, "cmux");
   const fakeTui = join(dir, "cmux-tui");
@@ -28,13 +28,12 @@ function runShim(
   chmodSync(fakeTui, 0o755);
   setup?.(dir);
   const inheritedPath = env.PATH ?? process.env.PATH ?? "/usr/bin:/bin";
-  const result = spawnSync("sh", [shim, ...args], {
-    encoding: "utf8",
+  const result = await runChild("sh", [shim, ...args], {
     timeout: 12_000,
     env: { NODE_ENV: "test", HOME: dir, CMUX_TUI_BIN: fakeTui, ...env, PATH: `${dir}:${inheritedPath}` },
   });
   const argv = result.stdout.length === 0 ? [] : result.stdout.replace(/\n$/, "").split("\n");
-  return { argv, status: result.status, stdout: result.stdout, stderr: result.stderr };
+  return { argv, status: result.status, signal: result.signal, stdout: result.stdout, stderr: result.stderr };
 }
 
 const TERMINAL_ID = "term_0123456789abcdef0123456789abcdef";
@@ -73,8 +72,7 @@ case "$*" in
 esac
 `);
       chmodSync(daemon, 0o755);
-      const result = spawnSync("sh", [shim, "vm", "exec", "peer", "--", "printf", "hello"], {
-        encoding: "utf8",
+      const result = await runChild("sh", [shim, "vm", "exec", "peer", "--", "printf", "hello"], {
         timeout: 10_000,
         env: { NODE_ENV: "test", PATH: process.env.PATH, HOME: directory, CMUX_TUI_BIN: daemon, MODE: mode },
       });
@@ -97,28 +95,28 @@ esac
     }
   });
 
-  test("localizes help and interpolated errors using the guest locale", () => {
-    const help = runShim(["--help"], { LANG: "ja_JP.UTF-8" });
+  test("localizes help and interpolated errors using the guest locale", async () => {
+    const help = await runShim(["--help"], { LANG: "ja_JP.UTF-8" });
     expect(help.status).toBe(0);
     expect(help.stdout).toContain("クラウド");
-    const invalid = runShim(["auth", "status", "--invalid"], { LC_MESSAGES: "ja_JP.UTF-8" });
+    const invalid = await runShim(["auth", "status", "--invalid"], { LC_MESSAGES: "ja_JP.UTF-8" });
     expect(invalid.status).toBe(2);
     expect(invalid.stderr).toContain("不明なオプション");
     expect(invalid.stderr).toContain("--invalid");
   });
 
-  test("LC_ALL overrides other locale settings and unknown locales use English", () => {
-    const overridden = runShim(["--help"], { LC_ALL: "C", LC_MESSAGES: "ja_JP.UTF-8", LANG: "ja_JP.UTF-8" });
+  test("LC_ALL overrides other locale settings and unknown locales use English", async () => {
+    const overridden = await runShim(["--help"], { LC_ALL: "C", LC_MESSAGES: "ja_JP.UTF-8", LANG: "ja_JP.UTF-8" });
     expect(overridden.status).toBe(0);
     expect(overridden.stdout).toContain("Cloud workspace CLI");
-    const fallback = runShim(["auth", "status", "--invalid"], { LANG: "fr_FR.UTF-8" });
+    const fallback = await runShim(["auth", "status", "--invalid"], { LANG: "fr_FR.UTF-8" });
     expect(fallback.stderr).toContain("unknown option --invalid");
   });
 
-  test.each([true, false])("peer connection consumes readiness or process exit (ready=%s)", (ready) => {
+  test.each([true, false])("peer connection consumes readiness or process exit (ready=%s)", async (ready) => {
     let fixtureDirectory = "";
     try {
-      const result = runShim(["vm", "connect", "peer"], {}, (directory) => {
+      const result = await runShim(["vm", "connect", "peer"], {}, (directory) => {
         fixtureDirectory = directory;
         const peerDirectory = join(directory, ".cmux", "peers");
         mkdirSync(peerDirectory, { recursive: true });
@@ -154,8 +152,8 @@ esac
     }
   });
 
-  test("is valid POSIX sh", () => {
-    const result = spawnSync("sh", ["-n"], { input: GUEST_CMUX_SHIM, encoding: "utf8" });
+  test("is valid POSIX sh", async () => {
+    const result = await runChild("sh", ["-n"], { input: GUEST_CMUX_SHIM });
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
   });
@@ -181,8 +179,8 @@ esac
     expect(GUEST_CMUX_SHIM).toContain("workspace create --name main");
   });
 
-  test("help exposes the shared auth, CodeRouter, and agent contract", () => {
-    const run = runShim(["--help"]);
+  test("help exposes the shared auth, CodeRouter, and agent contract", async () => {
+    const run = await runShim(["--help"]);
     expect(run.status).toBe(0);
     expect(run.stdout).toContain("cmux auth status [--json]");
     expect(run.stdout).toContain("cmux coderouter status|usage [--json]|models");
@@ -200,8 +198,8 @@ esac
       chmodSync(curl, 0o755);
     };
 
-    test("reports daemon and accepted VM-bound route without exposing a token", () => {
-      const run = runShim(
+    test("reports daemon and accepted VM-bound route without exposing a token", async () => {
+      const run = await runShim(
         ["auth", "status", "--json"],
         {
           CMUX_CODEROUTER_URL: "https://coderouter.cmux.internal",
@@ -218,12 +216,13 @@ esac
       expect(run.stdout).not.toContain("crt_");
     });
 
-    test("separates TLS reachability from a rejected route", () => {
-      const run = runShim(
+    test("separates TLS reachability from a rejected route", async () => {
+      const run = await runShim(
         ["auth", "status", "--json"],
         { CMUX_CODEROUTER_URL: "https://coderouter.cmux.internal" },
         fakeCurl("401"),
       );
+      expect(run.signal).toBeNull();
       expect(run.status).not.toBe(0);
       const payload = JSON.parse(run.stdout) as Record<string, any>;
       expect(payload.authenticated).toBe(false);
@@ -232,8 +231,9 @@ esac
       expect(payload.coderouter).toMatchObject({ route_authenticated: "rejected", http_status: "401" });
     });
 
-    test("does not claim full authentication when the model plane is absent", () => {
-      const run = runShim(["auth", "status", "--json"]);
+    test("does not claim full authentication when the model plane is absent", async () => {
+      const run = await runShim(["auth", "status", "--json"]);
+      expect(run.signal).toBeNull();
       expect(run.status).not.toBe(0);
       const payload = JSON.parse(run.stdout) as Record<string, any>;
       expect(payload.authenticated).toBe(false);
@@ -241,11 +241,12 @@ esac
       expect(payload.coderouter).toMatchObject({ configured: false, route_authenticated: "not_configured" });
     });
 
-    test("refuses a route token copied into the guest", () => {
-      const run = runShim(
+    test("refuses a route token copied into the guest", async () => {
+      const run = await runShim(
         ["auth", "status"],
         { OPENAI_API_KEY: "crt_should_not_be_here" },
       );
+      expect(run.signal).toBeNull();
       expect(run.status).not.toBe(0);
       expect(run.stderr).toContain("refusing a coderouter route token");
     });
@@ -281,8 +282,8 @@ esac
     // "now" pinned 30 minutes after asOf so the relative age is deterministic.
     const USAGE_ENV = { CMUX_CODEROUTER_URL: "https://coderouter.cmux.internal", CMUX_NOW_EPOCH: String(Date.parse("2026-09-10T23:54:01Z") / 1000) };
 
-    test("renders usage for people and agents: labeled lines, trend, one row per day with usage, hints", () => {
-      const run = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(USAGE_BODY));
+    test("renders usage for people and agents: labeled lines, trend, one row per day with usage, hints", async () => {
+      const run = await runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(USAGE_BODY));
       expect(run.status).toBe(0);
       expect(run.stdout).toBe([
         "CodeRouter usage for toasty-beige-husky, last 30 days (as of 30 min ago, 2026-09-10 23:24 UTC)",
@@ -303,7 +304,7 @@ esac
       ].join("\n"));
     });
 
-    test("usage breaks spend down per workspace (named through cmux-tui), agent, and model", () => {
+    test("usage breaks spend down per workspace (named through cmux-tui), agent, and model", async () => {
       const totals = (totalTokens: number) => ({ inputTokens: totalTokens, cachedInputTokens: 0, outputTokens: 0, totalTokens, apiEquivalentUsd: totalTokens / 100_000 });
       const body = {
         ...USAGE,
@@ -320,7 +321,7 @@ esac
           { model: "claude-haiku-4-5", totals: totals(100_000) },
         ],
       };
-      const run = runShim(["coderouter", "usage"], USAGE_ENV, (directory) => {
+      const run = await runShim(["coderouter", "usage"], USAGE_ENV, (directory) => {
         usageCurl(JSON.stringify(body))(directory);
         writeFileSync(join(directory, "cmux-tui"), "#!/bin/sh\nprintf '%s' '{\"workspaces\":[{\"id\":\"ws_a\",\"name\":\"chatmux\"},{\"id\":\"ws_zzz\",\"name\":\"idle\"}]}'\n");
       });
@@ -337,61 +338,61 @@ esac
 
       // No usable name lookup (the default fake cmux-tui echoes its arguments): ids are
       // never printed, so the workspace line is dropped and the other lines stay.
-      const noNames = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify(body)));
+      const noNames = await runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify(body)));
       expect(noNames.stdout).not.toContain("workspace");
       expect(noNames.stdout).not.toContain("ws_");
       expect(noNames.stdout).toContain("agent    claude 1,300,000 (76%)   codex 403,179 (24%)");
-      const json = runShim(["coderouter", "usage", "--json"], USAGE_ENV, usageCurl(JSON.stringify(body)));
+      const json = await runShim(["coderouter", "usage", "--json"], USAGE_ENV, usageCurl(JSON.stringify(body)));
       expect(JSON.parse(json.stdout).terminals).toEqual(body.terminals);
 
       // Six or more entries: the top five, then a count of the rest.
       const many = { ...USAGE, models: Array.from({ length: 7 }, (_, i) => ({ model: `m${i}`, totals: totals(70_000 - i * 10_000) })) };
-      const long = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify(many)));
+      const long = await runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify(many)));
       expect(long.stdout).toContain("model    m0 70,000 (4%)   m1 60,000 (4%)   m2 50,000 (3%)   m3 40,000 (2%)   m4 30,000 (2%)   +2 more");
     });
 
-    test("usage names an unnamed machine by id, and explains a $0 cost on real tokens as unpriced", () => {
+    test("usage names an unnamed machine by id, and explains a $0 cost on real tokens as unpriced", async () => {
       const body = { ...USAGE, displayName: null, totals: { ...USAGE.totals, apiEquivalentUsd: 0 } };
-      const run = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify(body)));
+      const run = await runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify(body)));
       expect(run.status).toBe(0);
       expect(run.stdout).toContain("CodeRouter usage for 28e987ce-549f-4040-8489-5ed3789faf3e, last 30 days");
       expect(run.stdout).toContain("machine  28e987ce-549f-4040-8489-5ed3789faf3e\n");
       expect(run.stdout).toContain("cost     $0.00 API-equivalent  (no price on record for the models used)\n");
     });
 
-    test("usage --days limits the day table and --tsv prints the raw day table with zeros", () => {
-      const week = runShim(["coderouter", "usage", "--days", "7"], USAGE_ENV, usageCurl(USAGE_BODY));
+    test("usage --days limits the day table and --tsv prints the raw day table with zeros", async () => {
+      const week = await runShim(["coderouter", "usage", "--days", "7"], USAGE_ENV, usageCurl(USAGE_BODY));
       expect(week.status).toBe(0);
       expect(week.stdout).not.toContain("2026-09-02");
       expect(week.stdout).toContain("Days without usage are not listed (5 of 7).");
-      const tsv = runShim(["coderouter", "usage", "--tsv", "--days=3"], USAGE_ENV, usageCurl(USAGE_BODY));
+      const tsv = await runShim(["coderouter", "usage", "--tsv", "--days=3"], USAGE_ENV, usageCurl(USAGE_BODY));
       expect(tsv.status).toBe(0);
       expect(tsv.stdout).toBe("day\ttokens\tapi_equivalent_usd\n2026-09-08\t0\t0\n2026-09-09\t1234567\t12.3456\n2026-09-10\t68612\t0.004\n");
       for (const bad of ["99", "0", "x", ""]) {
-        const run = runShim(["coderouter", "usage", "--days", bad], USAGE_ENV, usageCurl(USAGE_BODY));
+        const run = await runShim(["coderouter", "usage", "--days", bad], USAGE_ENV, usageCurl(USAGE_BODY));
         expect(run.status).toBe(2);
         expect(run.stderr).toContain(`--days needs a number from 1 to 30, got '${bad}'`);
       }
     });
 
-    test("usage --json and CMUX_OUTPUT=json return the vm-usage contract unchanged, for agents and scripts", () => {
-      const run = runShim(["coderouter", "usage", "--json"], USAGE_ENV, usageCurl(USAGE_BODY));
+    test("usage --json and CMUX_OUTPUT=json return the vm-usage contract unchanged, for agents and scripts", async () => {
+      const run = await runShim(["coderouter", "usage", "--json"], USAGE_ENV, usageCurl(USAGE_BODY));
       expect(run.status).toBe(0);
       expect(JSON.parse(run.stdout)).toEqual(USAGE);
-      const env = runShim(["coderouter", "machines"], { ...USAGE_ENV, CMUX_OUTPUT: "json" }, usageCurl(USAGE_BODY));
+      const env = await runShim(["coderouter", "machines"], { ...USAGE_ENV, CMUX_OUTPUT: "json" }, usageCurl(USAGE_BODY));
       expect(JSON.parse(env.stdout)).toEqual(USAGE);
     });
 
-    test("usage exits 3 when the ledger is unavailable (text and json), and says so when the machine spent nothing", () => {
+    test("usage exits 3 when the ledger is unavailable (text and json), and says so when the machine spent nothing", async () => {
       const unavailableBody = JSON.stringify({ vmId: "vm-a", displayName: null, periodDays: 30, kind: "unavailable", asOf: null, totals: null, days: [] });
-      const unavailable = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(unavailableBody));
+      const unavailable = await runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(unavailableBody));
       expect(unavailable.status).toBe(3);
       expect(unavailable.stdout).toBe("CodeRouter usage is unavailable right now (the usage ledger did not answer). Retry in a moment.\n");
-      const json = runShim(["coderouter", "usage", "--json"], USAGE_ENV, usageCurl(unavailableBody));
+      const json = await runShim(["coderouter", "usage", "--json"], USAGE_ENV, usageCurl(unavailableBody));
       expect(json.status).toBe(3);
       expect(JSON.parse(json.stdout).kind).toBe("unavailable");
 
-      const zero = runShim(
+      const zero = await runShim(
         ["coderouter", "usage"],
         USAGE_ENV,
         usageCurl(JSON.stringify({
@@ -411,11 +412,11 @@ esac
       expect(zero.stdout).not.toContain("trend");
     });
 
-    test("usage passes through bodies it cannot format (not JSON, an error body, a non-numeric field) and rejects unknown options", () => {
-      const raw = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl("not json"));
+    test("usage passes through bodies it cannot format (not JSON, an error body, a non-numeric field) and rejects unknown options", async () => {
+      const raw = await runShim(["coderouter", "usage"], USAGE_ENV, usageCurl("not json"));
       expect(raw.status).toBe(0);
       expect(raw.stdout).toBe("not json\n");
-      const errorBody = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify({ error: "vm_not_found" })));
+      const errorBody = await runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify({ error: "vm_not_found" })));
       expect(errorBody.status).toBe(0);
       expect(JSON.parse(errorBody.stdout)).toEqual({ error: "vm_not_found" });
       for (const mutate of [
@@ -425,26 +426,26 @@ esac
       ]) {
         const malformed = JSON.parse(USAGE_BODY);
         mutate(malformed);
-        const passthrough = runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify(malformed)));
+        const passthrough = await runShim(["coderouter", "usage"], USAGE_ENV, usageCurl(JSON.stringify(malformed)));
         expect(passthrough.status).toBe(0);
         expect(JSON.parse(passthrough.stdout)).toEqual(malformed);
       }
-      const bad = runShim(["coderouter", "usage", "--tsv2"], USAGE_ENV, usageCurl(USAGE_BODY));
+      const bad = await runShim(["coderouter", "usage", "--tsv2"], USAGE_ENV, usageCurl(USAGE_BODY));
       expect(bad.status).toBe(2);
       expect(bad.stderr).toContain("coderouter usage: unknown option --tsv2");
     });
 
-    test("usage --help documents the modes, the stable lines, and the exit codes", () => {
-      const help = runShim(["coderouter", "usage", "--help"]);
+    test("usage --help documents the modes, the stable lines, and the exit codes", async () => {
+      const help = await runShim(["coderouter", "usage", "--help"]);
       expect(help.status).toBe(0);
       expect(help.stdout).toContain("cmux coderouter usage [--json|--tsv] [--days <n>]");
       expect(help.stdout).toContain("Exit codes: 0 usage shown, 1 the edge did not answer, 2 bad option, 3 usage ledger unavailable.");
-      const ja = runShim(["coderouter", "usage", "-h"], { LANG: "ja_JP.UTF-8" });
+      const ja = await runShim(["coderouter", "usage", "-h"], { LANG: "ja_JP.UTF-8" });
       expect(ja.stdout).toContain("終了コード");
     });
 
-    test("reads models through the configured HTTPS edge", () => {
-      const models = runShim(
+    test("reads models through the configured HTTPS edge", async () => {
+      const models = await runShim(
         ["coderouter", "models"],
         USAGE_ENV,
         (directory) => {
@@ -457,8 +458,8 @@ esac
       expect(JSON.parse(models.stdout).data[0].id).toBe("test-model");
     });
 
-    test("maps a bare prompt through the short agent alias", () => {
-      const run = runShim(["agent", "claude", "reply exactly pong"], {}, (directory) => {
+    test("maps a bare prompt through the short agent alias", async () => {
+      const run = await runShim(["agent", "claude", "reply exactly pong"], {}, (directory) => {
         const claude = join(directory, "claude");
         writeFileSync(claude, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n");
         chmodSync(claude, 0o755);
@@ -467,8 +468,8 @@ esac
       expect(run.stdout.trim().split("\n")).toEqual(["-p", "reply exactly pong"]);
     });
 
-    test("accepts the canonical separator before a guest prompt", () => {
-      const run = runShim(["coderouter", "agent", "codex", "--", "reply exactly pong"], {}, (directory) => {
+    test("accepts the canonical separator before a guest prompt", async () => {
+      const run = await runShim(["coderouter", "agent", "codex", "--", "reply exactly pong"], {}, (directory) => {
         const codex = join(directory, "codex");
         writeFileSync(codex, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n");
         chmodSync(codex, 0o755);
@@ -477,13 +478,13 @@ esac
       expect(run.stdout.trim().split("\n")).toEqual(["exec", "reply exactly pong"]);
     });
 
-    test("keeps cmux-tui's local agent scope available", () => {
-      const run = runShim(["agent", "list"]);
+    test("keeps cmux-tui's local agent scope available", async () => {
+      const run = await runShim(["agent", "list"]);
       expect(run.status).toBe(0);
       expect(run.argv).toEqual(["--session", "cloud", "agent", "list"]);
     });
 
-    test("lists only the VM team's account responses and exposes its fixed organization", () => {
+    test("lists only the VM team's account responses and exposes its fixed organization", async () => {
       const setup = (directory: string) => {
         const curl = join(directory, "curl");
         writeFileSync(curl, `#!/bin/sh
@@ -497,18 +498,18 @@ esac
         chmodSync(curl, 0o755);
       };
       const env = { CMUX_CODEROUTER_URL: "https://coderouter.cmux.internal" };
-      const listed = runShim(["coderouter", "accounts", "--json"], env, setup);
+      const listed = await runShim(["coderouter", "accounts", "--json"], env, setup);
       expect(listed.status).toBe(0);
       expect(JSON.parse(listed.stdout)).toMatchObject({ teamId: "team-a", accounts: [{ id: "native-a" }, { id: "claude-a" }] });
-      const current = runShim(["coderouter", "org", "current", "--json"], env, setup);
+      const current = await runShim(["coderouter", "org", "current", "--json"], env, setup);
       expect(current.status).toBe(0);
       expect(JSON.parse(current.stdout)).toEqual({ teamId: "team-a", fixed: true });
-      expect(runShim(["coderouter", "org", "switch", "team-b"], env, setup).status).toBe(2);
-      expect(runShim(["coderouter", "accounts", "--team", "team-b"], env, setup).status).toBe(2);
+      expect((await runShim(["coderouter", "org", "switch", "team-b"], env, setup)).status).toBe(2);
+      expect((await runShim(["coderouter", "accounts", "--team", "team-b"], env, setup)).status).toBe(2);
     });
 
-    test("does not merge account lists from different teams", () => {
-      const result = runShim(["coderouter", "accounts", "--json"], { CMUX_CODEROUTER_URL: "https://coderouter.cmux.internal" }, directory => {
+    test("does not merge account lists from different teams", async () => {
+      const result = await runShim(["coderouter", "accounts", "--json"], { CMUX_CODEROUTER_URL: "https://coderouter.cmux.internal" }, directory => {
         const curl = join(directory, "curl");
         writeFileSync(curl, `#!/bin/sh
 case "$*" in *claude-upstream*) printf '%s' '{"teamId":"team-b","accounts":[]}' ;; *) printf '%s' '{"teamId":"team-a","accounts":[]}' ;; esac
@@ -519,8 +520,8 @@ case "$*" in *claude-upstream*) printf '%s' '{"teamId":"team-b","accounts":[]}' 
       expect(result.stdout).toBe("");
     });
 
-    test("passes provider subcommands through the coderouter prefix", () => {
-      const run = runShim(["coderouter", "agent", "codex", "exec", "summarize"], {}, (directory) => {
+    test("passes provider subcommands through the coderouter prefix", async () => {
+      const run = await runShim(["coderouter", "agent", "codex", "exec", "summarize"], {}, (directory) => {
         const codex = join(directory, "codex");
         writeFileSync(codex, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n");
         chmodSync(codex, 0o755);
@@ -529,8 +530,8 @@ case "$*" in *claude-upstream*) printf '%s' '{"teamId":"team-b","accounts":[]}' 
       expect(run.stdout.trim().split("\n")).toEqual(["exec", "summarize"]);
     });
 
-    test("keeps account login host-owned", () => {
-      const run = runShim(["coderouter", "claude", "list"]);
+    test("keeps account login host-owned", async () => {
+      const run = await runShim(["coderouter", "claude", "list"]);
       expect(run.status).toBe(2);
       expect(run.stderr).toContain("host-owned");
       expect(run.stderr).toContain("Stack tokens");
@@ -544,8 +545,8 @@ case "$*" in *claude-upstream*) printf '%s' '{"teamId":"team-b","accounts":[]}' 
   // grammar: https://github.com/manaflow-ai/cmux/pull/12131 moved it into the
   // daemon and the daemon's tests pin it.
   describe("notify", () => {
-    test("forwards every argument verbatim to the daemon's notify verb on the local session", () => {
-      const run = runShim(
+    test("forwards every argument verbatim to the daemon's notify verb on the local session", async () => {
+      const run = await runShim(
         ["notify", "--title", "Build done", "--subtitle", "api", "--body", "3 tests passed", "--surface", "current"],
         { CMUX_TUI_TERMINAL_ID: TERMINAL_ID },
       );
@@ -567,28 +568,28 @@ case "$*" in *claude-upstream*) printf '%s' '{"teamId":"team-b","accounts":[]}' 
       ]);
     });
 
-    test("does not fold, drop, or rewrite flags: --clear and --reply reach the daemon for it to decide", () => {
-      const clear = runShim(["notify", "--clear", "--workspace", "current"], { CMUX_TUI_TERMINAL_ID: TERMINAL_ID });
+    test("does not fold, drop, or rewrite flags: --clear and --reply reach the daemon for it to decide", async () => {
+      const clear = await runShim(["notify", "--clear", "--workspace", "current"], { CMUX_TUI_TERMINAL_ID: TERMINAL_ID });
       expect(clear.status).toBe(0);
       expect(clear.argv).toEqual(["--session", "cloud", "--quiet", "notify", "--clear", "--workspace", "current"]);
-      const reply = runShim(["notify", "--title=T", "--reply"], { CMUX_TUI_TERMINAL_ID: undefined });
+      const reply = await runShim(["notify", "--title=T", "--reply"], { CMUX_TUI_TERMINAL_ID: undefined });
       expect(reply.argv).toEqual(["--session", "cloud", "--quiet", "notify", "--title=T", "--reply"]);
     });
 
-    test("drops --quiet when the caller wants the JSON result, since the two output modes exclude each other", () => {
-      const json = runShim(["notify", "--title", "T", "--json"], { CMUX_TUI_TERMINAL_ID: TERMINAL_ID });
+    test("drops --quiet when the caller wants the JSON result, since the two output modes exclude each other", async () => {
+      const json = await runShim(["notify", "--title", "T", "--json"], { CMUX_TUI_TERMINAL_ID: TERMINAL_ID });
       expect(json.argv).toEqual(["--session", "cloud", "notify", "--title", "T", "--json"]);
-      const jsonl = runShim(["notify", "--jsonl", "--title=T"], {});
+      const jsonl = await runShim(["notify", "--jsonl", "--title=T"], {});
       expect(jsonl.argv).toEqual(["--session", "cloud", "notify", "--jsonl", "--title=T"]);
     });
 
-    test("keeps --quiet when a body value merely contains a JSON flag", () => {
-      const run = runShim(["notify", "--body", "status --json complete"]);
+    test("keeps --quiet when a body value merely contains a JSON flag", async () => {
+      const run = await runShim(["notify", "--body", "status --json complete"]);
       expect(run.argv).toEqual(["--session", "cloud", "--quiet", "notify", "--body", "status --json complete"]);
     });
 
-    test("never adds Mac socket identity from the environment", () => {
-      const run = runShim(["notify", "--title", "T"], {
+    test("never adds Mac socket identity from the environment", async () => {
+      const run = await runShim(["notify", "--title", "T"], {
         CMUX_TUI_TERMINAL_ID: TERMINAL_ID,
         CMUX_SOCKET_PATH: "/tmp/should-not-leak.sock",
         CMUX_WORKSPACE_ID: "11111111-1111-1111-1111-111111111111",
@@ -599,29 +600,23 @@ case "$*" in *claude-upstream*) printf '%s' '{"teamId":"team-b","accounts":[]}' 
     });
   });
 
-  test("finds the daemon binary under the daemon's home when CMUX_TUI_BIN is unset", () => {
+  test("finds the daemon binary under the daemon's home when CMUX_TUI_BIN is unset", async () => {
     // The root layout keeps the binary at /root/.cmux/bin; layout-aware bakes
     // symlink /usr/local/bin/cmux-tui. A dev Mac with either would shadow the
     // per-test fake, so only assert when neither exists on this host.
-    const shadowed = ["/usr/local/bin/cmux-tui", "/root/.cmux/bin/cmux-tui"].some((path) => {
-      try {
-        return spawnSync("test", ["-x", path]).status === 0;
-      } catch {
-        return false;
-      }
-    });
+    const probes = await Promise.all(["/usr/local/bin/cmux-tui", "/root/.cmux/bin/cmux-tui"].map((path) => runChild("test", ["-x", path])));
+    const shadowed = probes.some((probe) => probe.status === 0);
     if (shadowed) return;
     const dir = mkdtempSync(join(tmpdir(), "cmux-guest-cli-home-"));
     const shim = join(dir, "cmux");
     writeFileSync(shim, GUEST_CMUX_SHIM);
     chmodSync(shim, 0o755);
     const binDir = join(dir, ".cmux", "bin");
-    spawnSync("mkdir", ["-p", binDir]);
+    await runChild("mkdir", ["-p", binDir]);
     const fakeTui = join(binDir, "cmux-tui");
     writeFileSync(fakeTui, '#!/bin/sh\nprintf \'home-fake\'; printf \' %s\' "$@"; echo\n');
     chmodSync(fakeTui, 0o755);
-    const result = spawnSync("sh", [shim, "notify", "--title", "T"], {
-      encoding: "utf8",
+    const result = await runChild("sh", [shim, "notify", "--title", "T"], {
       env: { NODE_ENV: "test", PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: dir, CMUX_TUI_TERMINAL_ID: TERMINAL_ID },
     });
     expect(result.stderr).toBe("");
@@ -821,12 +816,11 @@ function makeStatefulDir(): string {
 }
 
 /** Runs the shim in `dir` (HOME) against the stateful fake and returns every daemon call. */
-function runStateful(dir: string, args: string[], env: Record<string, string | undefined> = {}, input?: string, shell = "sh"): StatefulRun {
+async function runStateful(dir: string, args: string[], env: Record<string, string | undefined> = {}, input?: string, shell = "sh"): Promise<StatefulRun> {
   const log = join(dir, "calls.log");
   writeFileSync(log, "");
   writeFileSync(join(dir, "state"), "");
-  const result = spawnSync(shell, [join(dir, "cmux"), ...args], {
-    encoding: "utf8",
+  const result = await runChild(shell, [join(dir, "cmux"), ...args], {
     timeout: 20_000,
     input,
     env: {
@@ -857,15 +851,15 @@ function runStateful(dir: string, args: string[], env: Record<string, string | u
 const stripRoute = (call: string[]) => call.slice(2);
 
 describe("in-VM cmux shim: agent primitives", () => {
-  test("is valid for dash too when it is installed (the image's /bin/sh is dash)", () => {
+  test("is valid for dash too when it is installed (the image's /bin/sh is dash)", async () => {
     if (!existsSync("/bin/dash")) return;
-    const result = spawnSync("/bin/dash", ["-n"], { input: GUEST_CMUX_SHIM, encoding: "utf8" });
+    const result = await runChild("/bin/dash", ["-n"], { input: GUEST_CMUX_SHIM });
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
   });
 
-  test("help lists the layout, env, terminal, and peer verbs", () => {
-    const run = runShim(["--help"]);
+  test("help lists the layout, env, terminal, and peer verbs", async () => {
+    const run = await runShim(["--help"]);
     expect(run.status).toBe(0);
     for (const line of [
       "cmux layout export [--workspace <ws>] [--raw]",
@@ -889,13 +883,13 @@ describe("in-VM cmux shim: agent primitives", () => {
     ]) {
       expect(run.stdout).toContain(line);
     }
-    const fileHelp = runShim(["file", "help"]);
+    const fileHelp = await runShim(["file", "help"]);
     expect(fileHelp.status).toBe(0);
     for (const line of ["cmux file receive <path> [--mode <octal>]", "CMUX-FILE-READY", "CMUX-FILE-OK bytes=<n> path=<p> mode=<m>", "CMUX-FILE-ERR <reason>", "cmux vm push <machine> <local-file> <remote-path>"]) {
       expect(fileHelp.stdout).toContain(line);
     }
-    expect(runShim(["file", "help"], { LANG: "ja_JP.UTF-8" }).stdout).toContain("CMUX-FILE-READY");
-    const envHelp = runShim(["env", "help"]);
+    expect((await runShim(["file", "help"], { LANG: "ja_JP.UTF-8" })).stdout).toContain("CMUX-FILE-READY");
+    const envHelp = await runShim(["env", "help"]);
     for (const line of ["cmux env receive [--stdin]", "CMUX-ENV-READY / CMUX-ENV-OK / CMUX-ENV-ERR", "cmux env set -"]) {
       expect(envHelp.stdout).toContain(line);
     }
@@ -904,7 +898,7 @@ describe("in-VM cmux shim: agent primitives", () => {
     ]) {
       expect(run.stdout).toContain(line);
     }
-    const vmHelp = runShim(["vm", "help"]);
+    const vmHelp = await runShim(["vm", "help"]);
     expect(vmHelp.stdout).toContain("cmux vm agent <machine> --agent");
     expect(vmHelp.stdout).toContain("[--wait [--output] [--timeout <s>]]");
     expect(vmHelp.stdout).toContain("cmux vm env set|ls|rm|path <machine>");
@@ -912,96 +906,96 @@ describe("in-VM cmux shim: agent primitives", () => {
   });
 
   describe("local Mac-flavoured verbs", () => {
-    test("send defaults to the caller's terminal, --terminal overrides, nothing else is an error", () => {
+    test("send defaults to the caller's terminal, --terminal overrides, nothing else is an error", async () => {
       const dir = makeStatefulDir();
-      const mine = runStateful(dir, ["send", "hi", "there"], { CMUX_TUI_TERMINAL_ID: TERMINAL_ID });
+      const mine = await runStateful(dir, ["send", "hi", "there"], { CMUX_TUI_TERMINAL_ID: TERMINAL_ID });
       expect(mine.status).toBe(0);
       expect(mine.calls).toEqual([["--session", "cloud", "terminal", TERMINAL_ID, "write", "--text", "hi there"]]);
 
-      const other = runStateful(dir, ["send", "--terminal", "term_other", "ls -la"], { CMUX_TUI_TERMINAL_ID: TERMINAL_ID });
+      const other = await runStateful(dir, ["send", "--terminal", "term_other", "ls -la"], { CMUX_TUI_TERMINAL_ID: TERMINAL_ID });
       expect(other.calls).toEqual([["--session", "cloud", "terminal", "term_other", "write", "--text", "ls -la"]]);
 
-      const none = runStateful(dir, ["send", "hi"], { CMUX_TUI_TERMINAL_ID: undefined });
+      const none = await runStateful(dir, ["send", "hi"], { CMUX_TUI_TERMINAL_ID: undefined });
       expect(none.status).toBe(2);
       expect(none.stderr).toContain("--terminal <term_id>");
       expect(none.calls).toEqual([]);
     });
 
-    test("send-key and read-screen map to keys and screen read", () => {
+    test("send-key and read-screen map to keys and screen read", async () => {
       const dir = makeStatefulDir();
-      const keys = runStateful(dir, ["send-key", "ctrl+c", "enter"], { CMUX_TUI_TERMINAL_ID: TERMINAL_ID });
+      const keys = await runStateful(dir, ["send-key", "ctrl+c", "enter"], { CMUX_TUI_TERMINAL_ID: TERMINAL_ID });
       expect(keys.calls).toEqual([["--session", "cloud", "terminal", TERMINAL_ID, "keys", "ctrl+c", "enter"]]);
-      const screen = runStateful(dir, ["read-screen", "--terminal", "term_2", "--json"]);
+      const screen = await runStateful(dir, ["read-screen", "--terminal", "term_2", "--json"]);
       expect(screen.status).toBe(0);
       expect(screen.calls).toEqual([["--session", "cloud", "--json", "terminal", "term_2", "screen", "read"]]);
       expect(JSON.parse(screen.stdout).text).toBe("hello screen");
     });
 
-    test("terminal send types text first, then the comma-separated keys; `--` makes the rest literal", () => {
+    test("terminal send types text first, then the comma-separated keys; `--` makes the rest literal", async () => {
       const dir = makeStatefulDir();
-      const run = runStateful(dir, ["terminal", "send", "term_1", "bun", "test", "--keys", "enter,ctrl+c", "--", "--json"]);
+      const run = await runStateful(dir, ["terminal", "send", "term_1", "bun", "test", "--keys", "enter,ctrl+c", "--", "--json"]);
       expect(run.status).toBe(0);
       expect(run.calls.map(stripRoute)).toEqual([
         ["terminal", "term_1", "write", "--text", "bun test --json"],
         ["terminal", "term_1", "keys", "enter", "ctrl+c"],
       ]);
-      const keysOnly = runStateful(dir, ["terminal", "send", "term_1", "--keys", "enter"]);
+      const keysOnly = await runStateful(dir, ["terminal", "send", "term_1", "--keys", "enter"]);
       expect(keysOnly.calls.map(stripRoute)).toEqual([["terminal", "term_1", "keys", "enter"]]);
-      const nothing = runStateful(dir, ["terminal", "send", "term_1"]);
+      const nothing = await runStateful(dir, ["terminal", "send", "term_1"]);
       expect(nothing.status).toBe(2);
       expect(nothing.calls).toEqual([]);
     });
 
-    test("terminal read/wait/close; wait converts seconds to ms and exits 1 when the screen never matches", () => {
+    test("terminal read/wait/close; wait converts seconds to ms and exits 1 when the screen never matches", async () => {
       const dir = makeStatefulDir();
-      const read = runStateful(dir, ["terminal", "read", "term_9"]);
+      const read = await runStateful(dir, ["terminal", "read", "term_9"]);
       expect(read.calls.map(stripRoute)).toEqual([["terminal", "term_9", "screen", "read"]]);
-      const wait = runStateful(dir, ["terminal", "wait", "term_1", "--pattern", "pass|fail", "--timeout", "2.5"]);
+      const wait = await runStateful(dir, ["terminal", "wait", "term_1", "--pattern", "pass|fail", "--timeout", "2.5"]);
       expect(wait.status).toBe(0);
       expect(wait.stdout).toContain("OK matched /pass|fail/ on term_1");
       expect(wait.calls).toEqual([["--session", "cloud", "--json", "terminal", "term_1", "screen", "wait", "--pattern", "pass|fail", "--timeout-ms", "2500"]]);
-      const missed = runStateful(dir, ["terminal", "wait", "term_1", "--pattern", "pass"], { FAKE_MATCHED: "false" });
+      const missed = await runStateful(dir, ["terminal", "wait", "term_1", "--pattern", "pass"], { FAKE_MATCHED: "false" });
       expect(missed.status).toBe(1);
       expect(missed.stderr).toContain("timed out after 30s");
       expect(missed.calls[0]).toContain("30000");
-      const noPattern = runStateful(dir, ["terminal", "wait", "term_1"]);
+      const noPattern = await runStateful(dir, ["terminal", "wait", "term_1"]);
       expect(noPattern.status).toBe(2);
-      const close = runStateful(dir, ["terminal", "close", "term_1"]);
+      const close = await runStateful(dir, ["terminal", "close", "term_1"]);
       expect(close.calls.map(stripRoute)).toEqual([["terminal", "term_1", "close"]]);
     });
 
-    test("cmux-tui's own id-first terminal grammar still passes through untouched", () => {
+    test("cmux-tui's own id-first terminal grammar still passes through untouched", async () => {
       const dir = makeStatefulDir();
-      expect(runStateful(dir, ["terminal", "term_x", "keys", "enter"]).calls).toEqual([["--session", "cloud", "terminal", "term_x", "keys", "enter"]]);
-      expect(runStateful(dir, ["terminal", "list"]).calls).toEqual([["--session", "cloud", "terminal", "list"]]);
+      expect((await runStateful(dir, ["terminal", "term_x", "keys", "enter"])).calls).toEqual([["--session", "cloud", "terminal", "term_x", "keys", "enter"]]);
+      expect((await runStateful(dir, ["terminal", "list"])).calls).toEqual([["--session", "cloud", "terminal", "list"]]);
     });
 
-    test("new-workspace, tree, and new-split (from the caller's pane, else the focused pane; right/down only)", () => {
+    test("new-workspace, tree, and new-split (from the caller's pane, else the focused pane; right/down only)", async () => {
       const dir = makeStatefulDir();
-      expect(runStateful(dir, ["new-workspace", "--name", "t"]).calls).toEqual([["--session", "cloud", "workspace", "create", "--name", "t"]]);
-      expect(runStateful(dir, ["new-workspace"]).calls).toEqual([["--session", "cloud", "workspace", "create"]]);
-      const tree = runStateful(dir, ["tree", "--json"]);
+      expect((await runStateful(dir, ["new-workspace", "--name", "t"])).calls).toEqual([["--session", "cloud", "workspace", "create", "--name", "t"]]);
+      expect((await runStateful(dir, ["new-workspace"])).calls).toEqual([["--session", "cloud", "workspace", "create"]]);
+      const tree = await runStateful(dir, ["tree", "--json"]);
       expect(tree.calls).toEqual([["--session", "cloud", "--json", "session", "current", "snapshot"]]);
       expect(JSON.parse(tree.stdout).workspaces[0].id).toBe("ws_main");
 
-      const fromCaller = runStateful(dir, ["new-split", "down"], { CMUX_TUI_TERMINAL_ID: "term_logs" });
+      const fromCaller = await runStateful(dir, ["new-split", "down"], { CMUX_TUI_TERMINAL_ID: "term_logs" });
       expect(fromCaller.status).toBe(0);
       expect(fromCaller.calls.map(stripRoute)).toEqual([["--json", "session", "current", "snapshot"], ["pane", "pane_3", "split", "--down"]]);
-      const focused = runStateful(dir, ["new-split", "right"], { CMUX_TUI_TERMINAL_ID: undefined });
+      const focused = await runStateful(dir, ["new-split", "right"], { CMUX_TUI_TERMINAL_ID: undefined });
       expect(focused.status).toBe(0);
       expect(focused.calls.at(-1)).toEqual(["--session", "cloud", "pane", "pane_1", "split", "--right"]);
-      const explicit = runStateful(dir, ["new-split", "right", "--pane", "pane_9"]);
+      const explicit = await runStateful(dir, ["new-split", "right", "--pane", "pane_9"]);
       expect(explicit.calls).toEqual([["--session", "cloud", "pane", "pane_9", "split", "--right"]]);
-      const left = runStateful(dir, ["new-split", "left"]);
+      const left = await runStateful(dir, ["new-split", "left"]);
       expect(left.status).toBe(2);
       expect(left.stderr).toContain("right or down");
     });
   });
 
   describe("layout export", () => {
-    test("turns the focused workspace's LayoutDocument into the declarative document (tabs by index, stack → vertical splits)", () => {
+    test("turns the focused workspace's LayoutDocument into the declarative document (tabs by index, stack → vertical splits)", async () => {
       const dir = makeStatefulDir();
-      const run = runStateful(dir, ["layout", "export"]);
+      const run = await runStateful(dir, ["layout", "export"]);
       expect(run.stderr).toBe("");
       expect(run.status).toBe(0);
       expect(run.calls).toEqual([["--session", "cloud", "--json", "session", "current", "snapshot"]]);
@@ -1030,33 +1024,33 @@ describe("in-VM cmux shim: agent primitives", () => {
       });
     });
 
-    test("selects by id or unique name, refuses ambiguous names, and --raw prints the daemon document", () => {
+    test("selects by id or unique name, refuses ambiguous names, and --raw prints the daemon document", async () => {
       const dir = makeStatefulDir();
-      const api = runStateful(dir, ["layout", "export", "--workspace", "api"]);
+      const api = await runStateful(dir, ["layout", "export", "--workspace", "api"]);
       expect(api.status).toBe(0);
       expect(JSON.parse(api.stdout)).toEqual({ name: "api", cwd: dir, layout: { pane: { surfaces: [{ type: "terminal", cwd: "/root/work/api" }] } } });
-      const byId = runStateful(dir, ["layout", "export", "--workspace", "ws_api"]);
+      const byId = await runStateful(dir, ["layout", "export", "--workspace", "ws_api"]);
       expect(JSON.parse(byId.stdout).name).toBe("api");
-      const dup = runStateful(dir, ["layout", "export", "--workspace", "dup"]);
+      const dup = await runStateful(dir, ["layout", "export", "--workspace", "dup"]);
       expect(dup.status).toBe(2);
       expect(dup.stderr).toContain("ws_dup1 ws_dup2");
-      const missing = runStateful(dir, ["layout", "export", "--workspace", "nope"]);
+      const missing = await runStateful(dir, ["layout", "export", "--workspace", "nope"]);
       expect(missing.status).toBe(2);
       expect(missing.stderr).toContain("no workspace 'nope'");
-      const empty = runStateful(dir, ["layout", "export", "--workspace", "ws_empty"]);
+      const empty = await runStateful(dir, ["layout", "export", "--workspace", "ws_empty"]);
       expect(empty.status).toBe(1);
       expect(empty.stderr).toContain("no layout yet");
-      const raw = runStateful(dir, ["layout", "export", "--raw"]);
+      const raw = await runStateful(dir, ["layout", "export", "--raw"]);
       expect(JSON.parse(raw.stdout).root.kind).toBe("split");
       expect(JSON.parse(raw.stdout).screen_id).toBe("screen_1");
     });
   });
 
   describe("layout apply", () => {
-    test("builds a 3-pane document with the exact op sequence and reports every surface", () => {
+    test("builds a 3-pane document with the exact op sequence and reports every surface", async () => {
       const dir = makeStatefulDir();
       writeFileSync(join(dir, "dev.json"), JSON.stringify(LAYOUT_DOC));
-      const run = runStateful(dir, ["layout", "apply", "--json", join(dir, "dev.json")]);
+      const run = await runStateful(dir, ["layout", "apply", "--json", join(dir, "dev.json")]);
       expect(run.stderr).toBe("");
       expect(run.status).toBe(0);
       const base = `${dir}/work/app`;
@@ -1097,31 +1091,31 @@ describe("in-VM cmux shim: agent primitives", () => {
         ],
         warnings: [],
       });
-      const human = runStateful(dir, ["layout", "apply", join(dir, "dev.json")]);
+      const human = await runStateful(dir, ["layout", "apply", join(dir, "dev.json")]);
       expect(human.stdout.trim()).toBe("OK workspace=ws_new1 name=dev panes=3 surfaces=4");
     });
 
-    test("--workspace builds inside an EMPTY existing workspace and refuses one that already has panes", () => {
+    test("--workspace builds inside an EMPTY existing workspace and refuses one that already has panes", async () => {
       const dir = makeStatefulDir();
       writeFileSync(join(dir, "dev.json"), JSON.stringify(LAYOUT_DOC));
-      const busy = runStateful(dir, ["layout", "apply", "--workspace", "ws_main", join(dir, "dev.json")]);
+      const busy = await runStateful(dir, ["layout", "apply", "--workspace", "ws_main", join(dir, "dev.json")]);
       expect(busy.status).toBe(1);
       expect(busy.stderr).toContain("ws_main already has a layout (4 panes)");
       expect(busy.calls.map(stripRoute)).toEqual([["--json", "session", "current", "snapshot"]]);
-      const empty = runStateful(dir, ["layout", "apply", "--workspace", "empty", join(dir, "dev.json")]);
+      const empty = await runStateful(dir, ["layout", "apply", "--workspace", "empty", join(dir, "dev.json")]);
       expect(empty.status).toBe(0);
       expect(empty.stdout.trim()).toBe("OK workspace=ws_empty name=empty panes=3 surfaces=4");
       expect(empty.calls.map(stripRoute)[1].slice(0, 4)).toEqual(["--json", "workspace", "ws_empty", "run"]);
       expect(empty.calls.some((call) => stripRoute(call).slice(0, 3).join(" ") === "--json workspace create")).toBe(false);
-      const both = runStateful(dir, ["layout", "apply", "--workspace", "x", "--name", "y", join(dir, "dev.json")]);
+      const both = await runStateful(dir, ["layout", "apply", "--workspace", "x", "--name", "y", join(dir, "dev.json")]);
       expect(both.status).toBe(2);
       expect(both.calls).toEqual([]);
     });
 
-    test("an older daemon without --empty: the starter terminal is the root placeholder and is replaced", () => {
+    test("an older daemon without --empty: the starter terminal is the root placeholder and is replaced", async () => {
       const dir = makeStatefulDir();
       const doc = { pane: { surfaces: [{ type: "terminal", name: "shell" }] } };
-      const run = runStateful(dir, ["layout", "apply", "--json", "-"], { FAKE_NO_EMPTY: "1" }, JSON.stringify(doc));
+      const run = await runStateful(dir, ["layout", "apply", "--json", "-"], { FAKE_NO_EMPTY: "1" }, JSON.stringify(doc));
       expect(run.status).toBe(0);
       expect(run.calls.map(stripRoute)).toEqual([
         ["--json", "workspace", "create", "--empty", "--name", "layout"],
@@ -1133,13 +1127,13 @@ describe("in-VM cmux shim: agent primitives", () => {
       expect(JSON.parse(run.stdout).panes).toEqual([{ pane_id: "pane_2", surfaces: [{ type: "terminal", name: "shell", terminal_id: "term_3", tab_id: "tab_3" }] }]);
     });
 
-    test("a browser surface the daemon cannot open becomes a warning and the pane keeps its shell", () => {
+    test("a browser surface the daemon cannot open becomes a warning and the pane keeps its shell", async () => {
       const dir = makeStatefulDir();
       const doc = {
         direction: "vertical",
         children: [{ pane: { surfaces: [{ type: "terminal" }] } }, { pane: { surfaces: [{ type: "browser", url: "http://localhost:8080" }, { type: "project", cwd: "x" }] } }],
       };
-      const run = runStateful(dir, ["layout", "apply", "--json", "--name", "web", "-"], { FAKE_NO_BROWSER: "1" }, JSON.stringify(doc));
+      const run = await runStateful(dir, ["layout", "apply", "--json", "--name", "web", "-"], { FAKE_NO_BROWSER: "1" }, JSON.stringify(doc));
       expect(run.status).toBe(0);
       const ops = run.calls.map(stripRoute);
       expect(ops).toContainEqual(["--json", "pane", "pane_3", "tab", "create", "browser", "--url", "http://localhost:8080"]);
@@ -1154,26 +1148,26 @@ describe("in-VM cmux shim: agent primitives", () => {
       expect(run.stderr).toContain("warning");
     });
 
-    test.each([false, true])("uses the saved layout name without workspace metadata (explicit override: %s)", (override) => {
+    test.each([false, true])("uses the saved layout name without workspace metadata (explicit override: %s)", async (override) => {
       const dir = makeStatefulDir();
       const saved = { name: "saved-dev", workspace: { layout: { pane: { surfaces: [{ type: "terminal" }] } } } };
       const args = ["layout", "apply", "--json", ...(override ? ["--name", "explicit"] : []), "-"];
-      const run = runStateful(dir, args, {}, JSON.stringify(saved));
+      const run = await runStateful(dir, args, {}, JSON.stringify(saved));
       expect(run.status).toBe(0);
       const expectedName = override ? "explicit" : "saved-dev";
       expect(run.calls.map(stripRoute)[0]).toEqual(["--json", "workspace", "create", "--empty", "--name", expectedName]);
       expect(JSON.parse(run.stdout).workspace_name).toBe(expectedName);
     });
 
-    test("accepts a saved layout wrapper and a bare node; rejects malformed documents with the JSON path", () => {
+    test("accepts a saved layout wrapper and a bare node; rejects malformed documents with the JSON path", async () => {
       const dir = makeStatefulDir();
       const saved = { name: "dev", description: "x", workspace: { name: "from-saved", cwd: "~/src", layout: { pane: { surfaces: [{ type: "terminal", cwd: "app" }] } } } };
-      const savedRun = runStateful(dir, ["layout", "apply", "-"], {}, JSON.stringify(saved));
+      const savedRun = await runStateful(dir, ["layout", "apply", "-"], {}, JSON.stringify(saved));
       expect(savedRun.status).toBe(0);
       expect(savedRun.calls.map(stripRoute)[0]).toEqual(["--json", "workspace", "create", "--empty", "--name", "dev"]);
       expect(savedRun.calls.map(stripRoute)[1]).toEqual(["--json", "workspace", "ws_new1", "run", "--on-exit", "keep", "--cwd", `${dir}/src/app`, "--", "bash", "-l"]);
 
-      const bare = runStateful(dir, ["layout", "apply", "-"], {}, JSON.stringify({ pane: { surfaces: [{ type: "terminal" }] } }));
+      const bare = await runStateful(dir, ["layout", "apply", "-"], {}, JSON.stringify({ pane: { surfaces: [{ type: "terminal" }] } }));
       expect(bare.status).toBe(0);
       expect(bare.stdout).toContain("name=layout");
 
@@ -1186,21 +1180,21 @@ describe("in-VM cmux shim: agent primitives", () => {
         [{ name: "nothing here" }, "$: no layout found"],
       ];
       for (const [doc, message] of cases) {
-        const run = runStateful(dir, ["layout", "apply", "-"], {}, JSON.stringify(doc));
+        const run = await runStateful(dir, ["layout", "apply", "-"], {}, JSON.stringify(doc));
         expect(run.status).toBe(2);
         expect(run.stderr).toContain(message);
         expect(run.calls).toEqual([]);
       }
-      const notJson = runStateful(dir, ["layout", "apply", "-"], {}, "not json");
+      const notJson = await runStateful(dir, ["layout", "apply", "-"], {}, "not json");
       expect(notJson.status).toBe(2);
       expect(notJson.stderr).toContain("not valid JSON");
     });
   });
 
   describe("env", () => {
-    test("set writes sorted, quoted exports with mode 0600 and installs the shell hook exactly once", () => {
+    test("set writes sorted, quoted exports with mode 0600 and installs the shell hook exactly once", async () => {
       const dir = makeStatefulDir();
-      const run = runStateful(dir, ["env", "set", "FOO=bar", "BAZ=it's here", "ZED=1"]);
+      const run = await runStateful(dir, ["env", "set", "FOO=bar", "BAZ=it's here", "ZED=1"]);
       expect(run.stderr).toBe("");
       expect(run.status).toBe(0);
       expect(run.stdout).toContain("OK set 3 variables");
@@ -1210,85 +1204,85 @@ describe("in-VM cmux shim: agent primitives", () => {
       );
       expect(statSync(file).mode & 0o777).toBe(0o600);
       const hook = '[ -f "$HOME/.config/cmux/env" ] && . "$HOME/.config/cmux/env" # cmux-env-hook';
-      runStateful(dir, ["env", "set", "FOO=again"]);
+      await runStateful(dir, ["env", "set", "FOO=again"]);
       for (const rc of [".profile", ".bashrc"]) {
         const text = readFileSync(join(dir, rc), "utf8");
         expect(text.split(hook).length - 1).toBe(1);
       }
       expect(existsSync(join(dir, ".bash_profile"))).toBe(false);
       // The file is real shell: sourcing it yields the values, quotes and all.
-      const sourced = spawnSync("sh", ["-c", `. "${file}"; printf '%s|%s|%s' "$FOO" "$BAZ" "$ZED"`], { encoding: "utf8" });
+      const sourced = await runChild("sh", ["-c", `. "${file}"; printf '%s|%s|%s' "$FOO" "$BAZ" "$ZED"`]);
       expect(sourced.stdout).toBe("again|it's here|1");
     });
 
-    test("--from-file and stdin understand dotenv comments, export prefixes, and quotes; later keys win", () => {
+    test("--from-file and stdin understand dotenv comments, export prefixes, and quotes; later keys win", async () => {
       const dir = makeStatefulDir();
       writeFileSync(join(dir, "dot.env"), "# comment\nexport API_KEY=\"abc def\" # a quote: \"\nDB_URL='postgres://x' # comment\n\nPLAIN=1\r\nPLAIN=2\n");
-      const fromFile = runStateful(dir, ["env", "set", "--from-file", join(dir, "dot.env")]);
+      const fromFile = await runStateful(dir, ["env", "set", "--from-file", join(dir, "dot.env")]);
       expect(fromFile.status).toBe(0);
-      const fromStdin = runStateful(dir, ["env", "set", "-"], {}, "X=1\nexport  Y = spaced\n");
+      const fromStdin = await runStateful(dir, ["env", "set", "-"], {}, "X=1\nexport  Y = spaced\n");
       expect(fromStdin.status).toBe(0);
-      const shown = runStateful(dir, ["env", "ls", "--show"]);
+      const shown = await runStateful(dir, ["env", "ls", "--show"]);
       expect(shown.stdout).toBe("API_KEY=abc def\nDB_URL=postgres://x\nPLAIN=2\nX=1\nY=spaced\n");
-      const names = runStateful(dir, ["env", "ls"]);
+      const names = await runStateful(dir, ["env", "ls"]);
       expect(names.stdout).toBe("API_KEY\nDB_URL\nPLAIN\nX\nY\n");
-      const json = runStateful(dir, ["env", "ls", "--json", "--show"]);
+      const json = await runStateful(dir, ["env", "ls", "--json", "--show"]);
       expect(JSON.parse(json.stdout)).toEqual({
         path: join(dir, ".config", "cmux", "env"),
         keys: ["API_KEY", "DB_URL", "PLAIN", "X", "Y"],
         values: { API_KEY: "abc def", DB_URL: "postgres://x", PLAIN: "2", X: "1", Y: "spaced" },
       });
-      expect(JSON.parse(runStateful(dir, ["env", "ls", "--json"]).stdout)).toEqual({ path: join(dir, ".config", "cmux", "env"), keys: ["API_KEY", "DB_URL", "PLAIN", "X", "Y"] });
+      expect(JSON.parse((await runStateful(dir, ["env", "ls", "--json"])).stdout)).toEqual({ path: join(dir, ".config", "cmux", "env"), keys: ["API_KEY", "DB_URL", "PLAIN", "X", "Y"] });
     });
 
-    test("dotenv quote handling preserves literal hashes and backslashes", () => {
+    test("dotenv quote handling preserves literal hashes and backslashes", async () => {
       const dir = makeStatefulDir();
       const input = 'HASH="a # b" # comment\nESCAPED="a\\" # b" # comment\nPLAIN=raw # comment\n';
-      expect(runStateful(dir, ["env", "set", "-"], {}, input).status).toBe(0);
-      const values = JSON.parse(runStateful(dir, ["env", "ls", "--json", "--show"]).stdout).values;
+      expect((await runStateful(dir, ["env", "set", "-"], {}, input)).status).toBe(0);
+      const values = JSON.parse((await runStateful(dir, ["env", "ls", "--json", "--show"])).stdout).values;
       expect(values).toEqual({ HASH: "a # b", ESCAPED: 'a\\" # b', PLAIN: "raw" });
     });
 
-    test("dotenv sources and explicit assignments are applied in argument order", () => {
+    test("dotenv sources and explicit assignments are applied in argument order", async () => {
       const dir = makeStatefulDir();
       const file = join(dir, "ordered.env");
       writeFileSync(file, "KEY=file\n");
       // The stdin marker is in the middle. A parser that defers stdin until after
       // argv would incorrectly make it win over the later explicit assignment.
-      expect(runStateful(dir, ["env", "set", "KEY=first", "--from-file", file, "-", "KEY=after-stdin"], {}, "KEY=stdin\n").status).toBe(0);
-      expect(JSON.parse(runStateful(dir, ["env", "ls", "--json", "--show"]).stdout).values.KEY).toBe("after-stdin");
+      expect((await runStateful(dir, ["env", "set", "KEY=first", "--from-file", file, "-", "KEY=after-stdin"], {}, "KEY=stdin\n")).status).toBe(0);
+      expect(JSON.parse((await runStateful(dir, ["env", "ls", "--json", "--show"])).stdout).values.KEY).toBe("after-stdin");
     });
 
-    test("explicit assignments preserve literal quotes, hashes, and surrounding whitespace", () => {
+    test("explicit assignments preserve literal quotes, hashes, and surrounding whitespace", async () => {
       const dir = makeStatefulDir();
-      expect(runStateful(dir, ["env", "set", 'VALUE= "quoted" # literal ']).status).toBe(0);
-      expect(JSON.parse(runStateful(dir, ["env", "ls", "--json", "--show"]).stdout).values.VALUE).toBe(' "quoted" # literal ');
-      expect(runStateful(dir, ["env", "set", "VALUE=line\nINJECTED=yes"]).status).toBe(2);
-      expect(JSON.parse(runStateful(dir, ["env", "ls", "--json", "--show"]).stdout).values).toEqual({ VALUE: ' "quoted" # literal ' });
+      expect((await runStateful(dir, ["env", "set", 'VALUE= "quoted" # literal '])).status).toBe(0);
+      expect(JSON.parse((await runStateful(dir, ["env", "ls", "--json", "--show"])).stdout).values.VALUE).toBe(' "quoted" # literal ');
+      expect((await runStateful(dir, ["env", "set", "VALUE=line\nINJECTED=yes"])).status).toBe(2);
+      expect(JSON.parse((await runStateful(dir, ["env", "ls", "--json", "--show"])).stdout).values).toEqual({ VALUE: ' "quoted" # literal ' });
     });
 
-    test("rm removes only the named keys; invalid keys and empty sets are usage errors; path prints the file", () => {
+    test("rm removes only the named keys; invalid keys and empty sets are usage errors; path prints the file", async () => {
       const dir = makeStatefulDir();
-      runStateful(dir, ["env", "set", "A=1", "B=2", "C=3"]);
-      const rm = runStateful(dir, ["env", "rm", "A", "C"]);
+      await runStateful(dir, ["env", "set", "A=1", "B=2", "C=3"]);
+      const rm = await runStateful(dir, ["env", "rm", "A", "C"]);
       expect(rm.status).toBe(0);
-      expect(runStateful(dir, ["env", "ls"]).stdout).toBe("B\n");
-      expect(runStateful(dir, ["env", "set", "1BAD=x"]).status).toBe(2);
-      expect(runStateful(dir, ["env", "set", "BAD-KEY=x"]).status).toBe(2);
-      expect(runStateful(dir, ["env", "set", "novalue"]).status).toBe(2);
-      expect(runStateful(dir, ["env", "set"]).status).toBe(2);
-      expect(runStateful(dir, ["env", "rm"]).status).toBe(2);
-      expect(runStateful(dir, ["env", "path"]).stdout.trim()).toBe(join(dir, ".config", "cmux", "env"));
+      expect((await runStateful(dir, ["env", "ls"])).stdout).toBe("B\n");
+      expect((await runStateful(dir, ["env", "set", "1BAD=x"])).status).toBe(2);
+      expect((await runStateful(dir, ["env", "set", "BAD-KEY=x"])).status).toBe(2);
+      expect((await runStateful(dir, ["env", "set", "novalue"])).status).toBe(2);
+      expect((await runStateful(dir, ["env", "set"])).status).toBe(2);
+      expect((await runStateful(dir, ["env", "rm"])).status).toBe(2);
+      expect((await runStateful(dir, ["env", "path"])).stdout.trim()).toBe(join(dir, ".config", "cmux", "env"));
       const fresh = makeStatefulDir();
-      expect(runStateful(fresh, ["env", "ls"]).stdout).toContain("no machine env yet");
-      expect(JSON.parse(runStateful(fresh, ["env", "ls", "--json"]).stdout)).toEqual({ path: join(fresh, ".config", "cmux", "env"), keys: [] });
+      expect((await runStateful(fresh, ["env", "ls"])).stdout).toContain("no machine env yet");
+      expect(JSON.parse((await runStateful(fresh, ["env", "ls", "--json"])).stdout)).toEqual({ path: join(fresh, ".config", "cmux", "env"), keys: [] });
     });
 
-    test("env receive --stdin: READY first, then OK with the key count; values are byte-literal", () => {
+    test("env receive --stdin: READY first, then OK with the key count; values are byte-literal", async () => {
       const dir = makeStatefulDir();
       const payload = "FOO=bar\nBAZ=it's  here \nURL=postgres://u:p%40ss@h/db?x=1\n";
       const b64 = Buffer.from(payload, "utf8").toString("base64").replace(/(.{20})/g, "$1\n");
-      const run = runStateful(dir, ["env", "receive", "--stdin"], {}, `${b64}\n\nCMUX-ENV-END\n`);
+      const run = await runStateful(dir, ["env", "receive", "--stdin"], {}, `${b64}\n\nCMUX-ENV-END\n`);
       expect(run.stderr).toBe("");
       expect(run.status).toBe(0);
       const file = join(dir, ".config", "cmux", "env");
@@ -1301,55 +1295,55 @@ describe("in-VM cmux shim: agent primitives", () => {
       expect(run.calls).toEqual([]);
     });
 
-    test("env receive refuses bad keys, truncated streams, and garbage without writing anything", () => {
+    test("env receive refuses bad keys, truncated streams, and garbage without writing anything", async () => {
       const dir = makeStatefulDir();
-      const badKey = runStateful(dir, ["env", "receive", "--stdin"], {}, `${Buffer.from("OK=1\n1BAD=x\n").toString("base64")}\nCMUX-ENV-END\n`);
+      const badKey = await runStateful(dir, ["env", "receive", "--stdin"], {}, `${Buffer.from("OK=1\n1BAD=x\n").toString("base64")}\nCMUX-ENV-END\n`);
       expect(badKey.status).toBe(1);
       expect(badKey.stdout).toBe("CMUX-ENV-READY\nCMUX-ENV-ERR invalid-key 1BAD\n");
       expect(existsSync(join(dir, ".config", "cmux", "env"))).toBe(false);
-      const noEnd = runStateful(dir, ["env", "receive", "--stdin"], {}, `${Buffer.from("A=1\n").toString("base64")}\n`);
+      const noEnd = await runStateful(dir, ["env", "receive", "--stdin"], {}, `${Buffer.from("A=1\n").toString("base64")}\n`);
       expect(noEnd.status).toBe(1);
       expect(noEnd.stdout).toBe("CMUX-ENV-READY\nCMUX-ENV-ERR eof\n");
-      const garbage = runStateful(dir, ["env", "receive", "--stdin"], {}, "!!!not base64!!!\nCMUX-ENV-END\n");
+      const garbage = await runStateful(dir, ["env", "receive", "--stdin"], {}, "!!!not base64!!!\nCMUX-ENV-END\n");
       expect(garbage.status).toBe(1);
       expect(garbage.stdout).toContain("CMUX-ENV-ERR bad-base64");
-      const empty = runStateful(dir, ["env", "receive", "--stdin"], {}, "CMUX-ENV-END\n");
+      const empty = await runStateful(dir, ["env", "receive", "--stdin"], {}, "CMUX-ENV-END\n");
       expect(empty.status).toBe(1);
       expect(empty.stdout).toContain("CMUX-ENV-ERR empty");
       expect(existsSync(join(dir, ".config", "cmux", "env"))).toBe(false);
     });
 
-    test("agents started through the shim see the machine env", () => {
+    test("agents started through the shim see the machine env", async () => {
       const dir = makeStatefulDir();
-      runStateful(dir, ["env", "set", "CMUX_TEST_TOKEN=from-env"]);
+      await runStateful(dir, ["env", "set", "CMUX_TEST_TOKEN=from-env"]);
       const claude = join(dir, "claude");
       writeFileSync(claude, "#!/bin/sh\nprintf '%s\\n' \"$CMUX_TEST_TOKEN\"\n");
       chmodSync(claude, 0o755);
-      const run = runStateful(dir, ["agent", "claude", "say hi"]);
+      const run = await runStateful(dir, ["agent", "claude", "say hi"]);
       expect(run.status).toBe(0);
       expect(run.stdout.trim()).toBe("from-env");
     });
 
-    test("agent --wait/--output are already how this form runs; --timeout caps it with timeout(1)", () => {
+    test("agent --wait/--output are already how this form runs; --timeout caps it with timeout(1)", async () => {
       const dir = makeStatefulDir();
       const claude = join(dir, "claude");
       writeFileSync(claude, "#!/bin/sh\nprintf '%s\\n' \"$*\"\nif [ \"${SLOW:-0}\" = 1 ]; then sleep 5; fi\n");
       chmodSync(claude, 0o755);
       // The flags are stripped only when they lead; the agent sees the prompt form it always saw.
-      const plain = runStateful(dir, ["agent", "claude", "--wait", "--output", "--", "say", "hi"]);
+      const plain = await runStateful(dir, ["agent", "claude", "--wait", "--output", "--", "say", "hi"]);
       expect(plain.stderr).toBe("");
       expect(plain.status).toBe(0);
       expect(plain.stdout).toBe("-p say hi\n");
       expect(plain.calls).toEqual([]);
-      const capped = runStateful(dir, ["agent", "claude", "--timeout=30", "say hi"]);
+      const capped = await runStateful(dir, ["agent", "claude", "--timeout=30", "say hi"]);
       expect(capped.status).toBe(0);
       expect(capped.stdout).toBe("-p say hi\n");
       // Anything after the agent's own first token is the agent's, untouched.
-      expect(runStateful(dir, ["agent", "claude", "--resume", "--wait"]).stdout).toBe("--resume --wait\n");
-      expect(runStateful(dir, ["agent", "claude", "--timeout", "nope", "x"]).status).toBe(2);
-      const hasTimeout = spawnSync("sh", ["-c", "command -v timeout || command -v gtimeout"], { encoding: "utf8" }).status === 0;
+      expect((await runStateful(dir, ["agent", "claude", "--resume", "--wait"])).stdout).toBe("--resume --wait\n");
+      expect((await runStateful(dir, ["agent", "claude", "--timeout", "nope", "x"])).status).toBe(2);
+      const hasTimeout = (await runChild("sh", ["-c", "command -v timeout || command -v gtimeout"])).status === 0;
       if (hasTimeout) {
-        const slow = runStateful(dir, ["agent", "claude", "--timeout", "0.5", "--", "x"], { SLOW: "1" });
+        const slow = await runStateful(dir, ["agent", "claude", "--timeout", "0.5", "--", "x"], { SLOW: "1" });
         expect(slow.status).toBe(1);
         expect(slow.stderr).toContain("agent claude timed out after 0.5s");
       }
@@ -1391,33 +1385,33 @@ describe("in-VM cmux shim: agent primitives", () => {
       }
     });
 
-    test("terminal verbs ride the peer's link socket with the same flags as locally", () => {
+    test("terminal verbs ride the peer's link socket with the same flags as locally", async () => {
       const dir = peerDir();
-      const send = runStateful(dir, ["vm", "terminal", "send", peer, "term_x", "bun test", "--keys", "enter"]);
+      const send = await runStateful(dir, ["vm", "terminal", "send", peer, "term_x", "bun test", "--keys", "enter"]);
       expect(send.stderr).toBe("");
       expect(send.status).toBe(0);
       expect(send.calls).toEqual([
         ["--socket", sockPath, "terminal", "term_x", "write", "--text", "bun test"],
         ["--socket", sockPath, "terminal", "term_x", "keys", "enter"],
       ]);
-      expect(runStateful(dir, ["vm", "terminal", "read", peer, "term_x"]).calls).toEqual([["--socket", sockPath, "terminal", "term_x", "screen", "read"]]);
-      expect(runStateful(dir, ["vm", "terminal", "wait", peer, "term_x", "--pattern", "ok", "--timeout", "1"]).calls).toEqual([
+      expect((await runStateful(dir, ["vm", "terminal", "read", peer, "term_x"])).calls).toEqual([["--socket", sockPath, "terminal", "term_x", "screen", "read"]]);
+      expect((await runStateful(dir, ["vm", "terminal", "wait", peer, "term_x", "--pattern", "ok", "--timeout", "1"])).calls).toEqual([
         ["--socket", sockPath, "--json", "terminal", "term_x", "screen", "wait", "--pattern", "ok", "--timeout-ms", "1000"],
       ]);
-      expect(runStateful(dir, ["vm", "terminal", "close", peer, "term_x"]).calls).toEqual([["--socket", sockPath, "terminal", "term_x", "close"]]);
-      expect(runStateful(dir, ["vm", "send", peer, "term_x", "hello", "world"]).calls).toEqual([["--socket", sockPath, "terminal", "term_x", "write", "--text", "hello world"]]);
-      expect(runStateful(dir, ["vm", "send-key", peer, "term_x", "ctrl+c"]).calls).toEqual([["--socket", sockPath, "terminal", "term_x", "keys", "ctrl+c"]]);
-      expect(runStateful(dir, ["vm", "read-screen", peer, "term_x", "--json"]).calls).toEqual([["--socket", sockPath, "--json", "terminal", "term_x", "screen", "read"]]);
+      expect((await runStateful(dir, ["vm", "terminal", "close", peer, "term_x"])).calls).toEqual([["--socket", sockPath, "terminal", "term_x", "close"]]);
+      expect((await runStateful(dir, ["vm", "send", peer, "term_x", "hello", "world"])).calls).toEqual([["--socket", sockPath, "terminal", "term_x", "write", "--text", "hello world"]]);
+      expect((await runStateful(dir, ["vm", "send-key", peer, "term_x", "ctrl+c"])).calls).toEqual([["--socket", sockPath, "terminal", "term_x", "keys", "ctrl+c"]]);
+      expect((await runStateful(dir, ["vm", "read-screen", peer, "term_x", "--json"])).calls).toEqual([["--socket", sockPath, "--json", "terminal", "term_x", "screen", "read"]]);
       // cmux-tui's own grammar on the peer is untouched.
-      expect(runStateful(dir, ["vm", "terminal", peer, "list"]).calls).toEqual([["--socket", sockPath, "terminal", "list"]]);
+      expect((await runStateful(dir, ["vm", "terminal", peer, "list"])).calls).toEqual([["--socket", sockPath, "terminal", "list"]]);
     });
 
-    test("workspace new/rename/close/rm; rm kills every terminal viewed in the workspace first", () => {
+    test("workspace new/rename/close/rm; rm kills every terminal viewed in the workspace first", async () => {
       const dir = peerDir();
-      expect(runStateful(dir, ["vm", "workspace", "new", peer, "--name", "tests"]).calls).toEqual([["--socket", sockPath, "workspace", "create", "--name", "tests"]]);
-      expect(runStateful(dir, ["vm", "workspace", "rename", peer, "ws_a", "renamed"]).calls).toEqual([["--socket", sockPath, "workspace", "ws_a", "rename", "--name", "renamed"]]);
-      expect(runStateful(dir, ["vm", "workspace", "close", peer, "ws_a"]).calls).toEqual([["--socket", sockPath, "workspace", "ws_a", "close"]]);
-      const rm = runStateful(dir, ["vm", "workspace", "rm", peer, "ws_main"]);
+      expect((await runStateful(dir, ["vm", "workspace", "new", peer, "--name", "tests"])).calls).toEqual([["--socket", sockPath, "workspace", "create", "--name", "tests"]]);
+      expect((await runStateful(dir, ["vm", "workspace", "rename", peer, "ws_a", "renamed"])).calls).toEqual([["--socket", sockPath, "workspace", "ws_a", "rename", "--name", "renamed"]]);
+      expect((await runStateful(dir, ["vm", "workspace", "close", peer, "ws_a"])).calls).toEqual([["--socket", sockPath, "workspace", "ws_a", "close"]]);
+      const rm = await runStateful(dir, ["vm", "workspace", "rm", peer, "ws_main"]);
       expect(rm.status).toBe(0);
       expect(rm.calls).toEqual([
         ["--socket", sockPath, "--json", "session", "current", "snapshot"],
@@ -1429,12 +1423,12 @@ describe("in-VM cmux shim: agent primitives", () => {
       ]);
       expect(rm.stdout).toContain("4 terminals closed");
       // Passthrough for cmux-tui's own workspace grammar.
-      expect(runStateful(dir, ["vm", "workspace", peer, "list"]).calls).toEqual([["--socket", sockPath, "workspace", "list"]]);
+      expect((await runStateful(dir, ["vm", "workspace", peer, "list"])).calls).toEqual([["--socket", sockPath, "workspace", "list"]]);
     });
 
-    test("agent starts a durable terminal on the peer running the peer's own `cmux agent`", () => {
+    test("agent starts a durable terminal on the peer running the peer's own `cmux agent`", async () => {
       const dir = peerDir();
-      const run = runStateful(dir, ["vm", "agent", peer, "--agent", "claude", "--cwd", "/root/work/app", "--", "fix", "the tests"]);
+      const run = await runStateful(dir, ["vm", "agent", peer, "--agent", "claude", "--cwd", "/root/work/app", "--", "fix", "the tests"]);
       expect(run.stderr).toBe("");
       expect(run.status).toBe(0);
       expect(run.calls).toEqual([
@@ -1443,22 +1437,22 @@ describe("in-VM cmux shim: agent primitives", () => {
       ]);
       expect(run.stdout).toContain(`OK terminal=term_2 workspace=current machine=${peer} agent=claude`);
       // No current workspace on the peer yet → `main` is created and used.
-      const fresh = runStateful(dir, ["vm", "agent", peer, "codex", "--name", "docs", "--", "write docs"], { FAKE_NO_CURRENT: "1" });
+      const fresh = await runStateful(dir, ["vm", "agent", peer, "codex", "--name", "docs", "--", "write docs"], { FAKE_NO_CURRENT: "1" });
       expect(fresh.status).toBe(0);
       expect(fresh.calls.map((call) => call.slice(2))).toEqual([
         ["workspace", "current", "show"],
         ["--json", "workspace", "create", "--name", "main"],
         ["--json", "workspace", "ws_new2", "run", "--on-exit", "keep", "--name", "docs", "--", "cmux", "agent", "codex", "write docs"],
       ]);
-      expect(runStateful(dir, ["vm", "agent", peer, "--agent", "emacs", "--", "x"]).status).toBe(2);
+      expect((await runStateful(dir, ["vm", "agent", peer, "--agent", "emacs", "--", "x"])).status).toBe(2);
       // `vm agent <peer> list` is still cmux-tui's agent scope on the peer.
-      expect(runStateful(dir, ["vm", "agent", peer, "list"]).calls).toEqual([["--socket", sockPath, "agent", "list"]]);
+      expect((await runStateful(dir, ["vm", "agent", peer, "list"])).calls).toEqual([["--socket", sockPath, "agent", "list"]]);
     });
 
-    test("vm env set delivers values only inside the typed base64 payload of the receive handshake", () => {
+    test("vm env set delivers values only inside the typed base64 payload of the receive handshake", async () => {
       const dir = peerDir();
       const secret = "s3cr3t value with spaces";
-      const run = runStateful(dir, ["vm", "env", "set", peer, `TOKEN=${secret}`, "-"], {}, "OTHER=two\n");
+      const run = await runStateful(dir, ["vm", "env", "set", peer, `TOKEN=${secret}`, "-"], {}, "OTHER=two\n");
       expect(run.stderr).toBe("");
       expect(run.status).toBe(0);
       const ops = run.calls.map((call) => call.slice(2));
@@ -1485,17 +1479,17 @@ describe("in-VM cmux shim: agent primitives", () => {
       }
       expect(run.stdout).toContain(`OK set 2 variables on ${peer}: TOKEN OTHER`);
       // A receiver that never says READY: the terminal is closed and the command fails.
-      const notReady = runStateful(dir, ["vm", "env", "set", peer, "A=1"], { FAKE_MATCHED: "false" });
+      const notReady = await runStateful(dir, ["vm", "env", "set", peer, "A=1"], { FAKE_MATCHED: "false" });
       expect(notReady.status).toBe(1);
       expect(notReady.stderr).toContain("never became ready");
       expect(notReady.calls.at(-1)?.slice(2)).toEqual(["--json", "terminal", "term_2", "close"]);
     });
 
-    test("vm push types one file into the peer's cmux file receive over the link; only the payload carries the bytes", () => {
+    test("vm push types one file into the peer's cmux file receive over the link; only the payload carries the bytes", async () => {
       const dir = peerDir();
       const secret = Buffer.concat([Buffer.from("API_KEY=s3cr3t-value\n", "utf8"), Buffer.from([0, 1, 2, 255, 10])]);
       writeFileSync(join(dir, "local.env"), secret);
-      const run = runStateful(dir, ["vm", "push", peer, join(dir, "local.env"), "/root/app/.env", "--mode", "640"], { FAKE_FILE_BYTES: String(secret.length) });
+      const run = await runStateful(dir, ["vm", "push", peer, join(dir, "local.env"), "/root/app/.env", "--mode", "640"], { FAKE_FILE_BYTES: String(secret.length) });
       expect(run.stderr).toBe("");
       expect(run.status).toBe(0);
       const ops = run.calls.map(stripRoute);
@@ -1519,39 +1513,39 @@ describe("in-VM cmux shim: agent primitives", () => {
       }
       expect(run.stdout).toBe(`OK /root/app/.env on ${peer} (${secret.length} bytes, mode 640) delivered over the link\n`);
       // --json, the Mac's --secret spelling, and a relative remote path (resolved under the peer's $HOME by the receiver).
-      const json = runStateful(dir, ["vm", "push", "--secret", peer, join(dir, "local.env"), "app/.env", "--json"], { FAKE_FILE_PATH: "/root/app/.env", FAKE_FILE_MODE: "600" });
+      const json = await runStateful(dir, ["vm", "push", "--secret", peer, join(dir, "local.env"), "app/.env", "--json"], { FAKE_FILE_PATH: "/root/app/.env", FAKE_FILE_MODE: "600" });
       expect(json.status).toBe(0);
       expect(JSON.parse(json.stdout)).toEqual({ machine: peer, path: "/root/app/.env", bytes: secret.length, mode: "600", transport: "link" });
       expect(json.calls.map(stripRoute)[1]?.slice(-5)).toEqual(["file", "receive", "app/.env", "--mode", "600"]);
       // Refusals happen before anything touches the link.
       mkdirSync(join(dir, "tree"));
-      const directory = runStateful(dir, ["vm", "push", peer, join(dir, "tree"), "/root/tree"]);
+      const directory = await runStateful(dir, ["vm", "push", peer, join(dir, "tree"), "/root/tree"]);
       expect(directory.status).toBe(2);
       expect(directory.stderr).toContain("is a directory");
       expect(directory.calls).toEqual([]);
-      expect(runStateful(dir, ["vm", "push", peer, join(dir, "missing.env"), "/root/x"]).status).toBe(2);
-      expect(runStateful(dir, ["vm", "push", peer, join(dir, "local.env"), "/root/x", "--mode", "999"]).status).toBe(2);
-      expect(runStateful(dir, ["vm", "push", peer, join(dir, "local.env")]).status).toBe(2);
+      expect((await runStateful(dir, ["vm", "push", peer, join(dir, "missing.env"), "/root/x"])).status).toBe(2);
+      expect((await runStateful(dir, ["vm", "push", peer, join(dir, "local.env"), "/root/x", "--mode", "999"])).status).toBe(2);
+      expect((await runStateful(dir, ["vm", "push", peer, join(dir, "local.env")])).status).toBe(2);
       writeFileSync(join(dir, "big.bin"), Buffer.alloc(262145, 7));
-      const big = runStateful(dir, ["vm", "push", peer, join(dir, "big.bin"), "/root/big.bin"]);
+      const big = await runStateful(dir, ["vm", "push", peer, join(dir, "big.bin"), "/root/big.bin"]);
       expect(big.status).toBe(2);
       expect(big.stderr).toContain("256 KiB");
       expect(big.calls).toEqual([]);
       // A receiver that never says READY: the terminal is closed and the command fails.
-      const notReady = runStateful(dir, ["vm", "push", peer, join(dir, "local.env"), "/root/x"], { FAKE_MATCHED: "false" });
+      const notReady = await runStateful(dir, ["vm", "push", peer, join(dir, "local.env"), "/root/x"], { FAKE_MATCHED: "false" });
       expect(notReady.status).toBe(1);
       expect(notReady.stderr).toContain("never became ready");
       expect(notReady.calls.at(-1)?.slice(2)).toEqual(["--json", "terminal", "term_2", "close"]);
       // A receiver that refuses before READY (its reason is on the screen) is relayed verbatim.
-      const refused = runStateful(dir, ["vm", "push", peer, join(dir, "local.env"), "/root/app"], { FAKE_FILE_REFUSE: "1" });
+      const refused = await runStateful(dir, ["vm", "push", peer, join(dir, "local.env"), "/root/app"], { FAKE_FILE_REFUSE: "1" });
       expect(refused.status).toBe(1);
       expect(refused.stderr).toContain(`vm push on ${peer} failed: is-directory /root/app`);
       expect(refused.calls.at(-1)?.slice(2)).toEqual(["--json", "terminal", "term_2", "close"]);
     });
 
-    test("agent --wait blocks on the peer terminal's exit, --output pages its stream, and the exit code is the agent's", () => {
+    test("agent --wait blocks on the peer terminal's exit, --output pages its stream, and the exit code is the agent's", async () => {
       const dir = peerDir();
-      const waited = runStateful(dir, ["vm", "agent", peer, "--agent", "claude", "--wait", "--", "fix", "the tests"]);
+      const waited = await runStateful(dir, ["vm", "agent", peer, "--agent", "claude", "--wait", "--", "fix", "the tests"]);
       expect(waited.status).toBe(3);
       expect(waited.stdout).toBe("exited code=3\n");
       expect(waited.stderr).toBe(`started terminal=term_2 workspace=current machine=${peer} agent=claude; waiting\n`);
@@ -1561,7 +1555,7 @@ describe("in-VM cmux shim: agent primitives", () => {
         ["--json", "terminal", "term_2", "process", "wait", "--timeout-ms", "30000"],
       ]);
       // --output implies --wait and pages the stream by next_offset until complete.
-      const output = runStateful(dir, ["vm", "agent", peer, "claude", "--output", "--", "fix"], { FAKE_OUTPUT_PAGED: "1" });
+      const output = await runStateful(dir, ["vm", "agent", peer, "claude", "--output", "--", "fix"], { FAKE_OUTPUT_PAGED: "1" });
       expect(output.status).toBe(3);
       expect(output.stdout).toBe("line one\nline two\n");
       expect(output.calls.map(stripRoute).slice(2)).toEqual([
@@ -1570,12 +1564,12 @@ describe("in-VM cmux shim: agent primitives", () => {
         ["--json", "terminal", "term_2", "output", "read", "--after", "9"],
       ]);
       // Still running after two slices: the daemon is asked again until it exits.
-      const eventually = runStateful(dir, ["vm", "agent", peer, "claude", "--wait", "--", "x"], { FAKE_EXIT_PENDING_UNTIL: "5" });
+      const eventually = await runStateful(dir, ["vm", "agent", peer, "claude", "--wait", "--", "x"], { FAKE_EXIT_PENDING_UNTIL: "5" });
       expect(eventually.status).toBe(3);
       expect(eventually.stdout).toBe("exited code=3\n");
       expect(eventually.calls.filter((call) => call[5] === "process").length).toBe(3);
       // --timeout is sliced into daemon waits of at most 30 s; when it runs out the agent keeps running there.
-      const slow = runStateful(dir, ["vm", "agent", peer, "--agent", "codex", "--wait", "--timeout", "45", "--", "x"], { FAKE_EXIT_PENDING: "1" });
+      const slow = await runStateful(dir, ["vm", "agent", peer, "--agent", "codex", "--wait", "--timeout", "45", "--", "x"], { FAKE_EXIT_PENDING: "1" });
       expect(slow.status).toBe(1);
       expect(slow.stdout).toBe("pending\n");
       expect(slow.calls.map(stripRoute).filter((call) => call[3] === "process")).toEqual([
@@ -1585,65 +1579,65 @@ describe("in-VM cmux shim: agent primitives", () => {
       expect(slow.stderr).toContain(`agent codex on ${peer} is still running after 45s (terminal term_2`);
       expect(slow.stderr).toContain(`cmux vm terminal wait-exit ${peer} term_2`);
       // With --output the partial stream is still printed before the timeout verdict.
-      const slowOutput = runStateful(dir, ["vm", "agent", peer, "claude", "--output", "--timeout", "0.5", "--", "x"], { FAKE_EXIT_PENDING: "1" });
+      const slowOutput = await runStateful(dir, ["vm", "agent", peer, "claude", "--output", "--timeout", "0.5", "--", "x"], { FAKE_EXIT_PENDING: "1" });
       expect(slowOutput.status).toBe(1);
       expect(slowOutput.stdout).toBe("line one\nline two\n");
       expect(slowOutput.stderr).toContain("--after 18");
-      const killed = runStateful(dir, ["vm", "agent", peer, "claude", "--wait", "--", "x"], { FAKE_EXIT_KIND: "signal" });
+      const killed = await runStateful(dir, ["vm", "agent", peer, "claude", "--wait", "--", "x"], { FAKE_EXIT_KIND: "signal" });
       expect(killed.status).toBe(1);
       expect(killed.stdout).toBe("exited signal=9\n");
       expect(killed.stderr).toContain("ended by a signal");
       // JSON: one object with the outcome and, with --output, the stream; nothing on stderr.
-      const json = runStateful(dir, ["vm", "agent", peer, "--agent", "claude", "--wait", "--output", "--json", "--", "x"]);
+      const json = await runStateful(dir, ["vm", "agent", peer, "--agent", "claude", "--wait", "--output", "--json", "--", "x"]);
       expect(json.status).toBe(3);
       expect(json.stderr).toBe("");
       expect(JSON.parse(json.stdout)).toEqual({ terminal_id: "term_2", workspace_id: "current", machine: peer, agent: "claude", state: "exited", exit_code: 3, signal: null, output: "line one\nline two\n", next_offset: 18 });
-      const jsonSignal = runStateful(dir, ["vm", "agent", peer, "claude", "--wait", "--json", "--", "x"], { FAKE_EXIT_KIND: "signal" });
+      const jsonSignal = await runStateful(dir, ["vm", "agent", peer, "claude", "--wait", "--json", "--", "x"], { FAKE_EXIT_KIND: "signal" });
       expect(JSON.parse(jsonSignal.stdout)).toMatchObject({ state: "exited", exit_code: null, signal: 9 });
-      const jsonPending = runStateful(dir, ["vm", "agent", peer, "claude", "--wait", "--json", "--timeout", "1", "--", "x"], { FAKE_EXIT_PENDING: "1" });
+      const jsonPending = await runStateful(dir, ["vm", "agent", peer, "claude", "--wait", "--json", "--timeout", "1", "--", "x"], { FAKE_EXIT_PENDING: "1" });
       expect(jsonPending.status).toBe(1);
       expect(JSON.parse(jsonPending.stdout)).toMatchObject({ state: "pending", exit_code: null, signal: null });
       // Detached --json names the terminal so a later wait-exit/output can find it.
-      const detached = runStateful(dir, ["vm", "agent", peer, "--agent", "claude", "--json", "--", "x"]);
+      const detached = await runStateful(dir, ["vm", "agent", peer, "--agent", "claude", "--json", "--", "x"]);
       expect(detached.status).toBe(0);
       expect(JSON.parse(detached.stdout)).toEqual({ terminal_id: "term_2", workspace_id: "current", machine: peer, agent: "claude", state: "running" });
       expect(detached.calls.filter((call) => call[5] === "process")).toEqual([]);
-      expect(runStateful(dir, ["vm", "agent", peer, "claude", "--wait", "--timeout", "nope", "--", "x"]).status).toBe(2);
+      expect((await runStateful(dir, ["vm", "agent", peer, "claude", "--wait", "--timeout", "nope", "--", "x"])).status).toBe(2);
     });
 
-    test("layout, env, exec, and tree on a peer use the same functions over the link socket", () => {
+    test("layout, env, exec, and tree on a peer use the same functions over the link socket", async () => {
       const dir = peerDir();
-      const exported = runStateful(dir, ["vm", "layout", "export", peer, "--workspace", "api"]);
+      const exported = await runStateful(dir, ["vm", "layout", "export", peer, "--workspace", "api"]);
       expect(exported.status).toBe(0);
       expect(exported.calls).toEqual([["--socket", sockPath, "--json", "session", "current", "snapshot"]]);
       expect(JSON.parse(exported.stdout).layout).toEqual({ pane: { surfaces: [{ type: "terminal", cwd: "/root/work/api" }] } });
-      const applied = runStateful(dir, ["vm", "layout", "apply", peer, "--name", "remote", "-"], {}, JSON.stringify({ pane: { surfaces: [{ type: "terminal" }] } }));
+      const applied = await runStateful(dir, ["vm", "layout", "apply", peer, "--name", "remote", "-"], {}, JSON.stringify({ pane: { surfaces: [{ type: "terminal" }] } }));
       expect(applied.status).toBe(0);
       expect(applied.calls[0]).toEqual(["--socket", sockPath, "--json", "workspace", "create", "--empty", "--name", "remote"]);
-      expect(runStateful(dir, ["vm", "env", "ls", peer, "--json"]).calls).toEqual([
+      expect((await runStateful(dir, ["vm", "env", "ls", peer, "--json"])).calls).toEqual([
         ["--socket", sockPath, "workspace", "current", "show"],
         ["--socket", sockPath, "workspace", "current", "run", "--on-exit", "close", "--", "cmux", "env", "ls", "--json"],
       ]);
-      expect(runStateful(dir, ["vm", "env", "rm", peer, "K"]).calls.at(-1)).toEqual(["--socket", sockPath, "workspace", "current", "run", "--on-exit", "close", "--", "cmux", "env", "rm", "K"]);
-      expect(runStateful(dir, ["vm", "exec", peer, "--", "echo", "hi there"]).calls.at(-1)).toEqual(["--socket", sockPath, "workspace", "current", "run", "--on-exit", "close", "--", "echo", "hi there"]);
-      expect(runStateful(dir, ["vm", "tree", peer]).calls).toEqual([["--socket", sockPath, "--json", "session", "current", "snapshot"]]);
-      const unlinked = runStateful(dir, ["vm", "terminal", "read", "unknown-peer", "term_x"]);
+      expect((await runStateful(dir, ["vm", "env", "rm", peer, "K"])).calls.at(-1)).toEqual(["--socket", sockPath, "workspace", "current", "run", "--on-exit", "close", "--", "cmux", "env", "rm", "K"]);
+      expect((await runStateful(dir, ["vm", "exec", peer, "--", "echo", "hi there"])).calls.at(-1)).toEqual(["--socket", sockPath, "workspace", "current", "run", "--on-exit", "close", "--", "echo", "hi there"]);
+      expect((await runStateful(dir, ["vm", "tree", peer])).calls).toEqual([["--socket", sockPath, "--json", "session", "current", "snapshot"]]);
+      const unlinked = await runStateful(dir, ["vm", "terminal", "read", "unknown-peer", "term_x"]);
       expect(unlinked.status).toBe(2);
       expect(unlinked.stderr).toContain("no link for machine 'unknown-peer'");
       expect(unlinked.calls).toEqual([]);
     });
   });
 
-  test("the whole apply flow also runs under dash (the image's sh)", () => {
+  test("the whole apply flow also runs under dash (the image's sh)", async () => {
     if (!existsSync("/bin/dash")) return;
     const dir = makeStatefulDir();
-    const run = runStateful(dir, ["layout", "apply", "--json", "-"], {}, JSON.stringify(LAYOUT_DOC), "/bin/dash");
+    const run = await runStateful(dir, ["layout", "apply", "--json", "-"], {}, JSON.stringify(LAYOUT_DOC), "/bin/dash");
     expect(run.stderr).toBe("");
     expect(run.status).toBe(0);
     expect(JSON.parse(run.stdout).panes.map((pane: { pane_id: string }) => pane.pane_id)).toEqual(["pane_2", "pane_3", "pane_8"]);
-    const env = runStateful(dir, ["env", "set", "A=x y"], {}, undefined, "/bin/dash");
+    const env = await runStateful(dir, ["env", "set", "A=x y"], {}, undefined, "/bin/dash");
     expect(env.status).toBe(0);
-    expect(runStateful(dir, ["env", "ls", "--show"], {}, undefined, "/bin/dash").stdout).toBe("A=x y\n");
+    expect((await runStateful(dir, ["env", "ls", "--show"], {}, undefined, "/bin/dash")).stdout).toBe("A=x y\n");
   });
 });
 
@@ -1750,64 +1744,64 @@ function linkTwoPeers(directory: string): void {
 }
 
 describe("in-VM cmux shim: reflection", () => {
-  test("self prints who this machine is, human and JSON; whoami and reflect are aliases", () => {
-    const run = runShim(["self"], REFLECTION_ENV, fakeReflectionCurl);
+  test("self prints who this machine is, human and JSON; whoami and reflect are aliases", async () => {
+    const run = await runShim(["self"], REFLECTION_ENV, fakeReflectionCurl);
     expect(run.stderr).toBe("");
     expect(run.status).toBe(0);
     expect(run.stdout).toBe(SELF_HUMAN);
-    const json = runShim(["self", "--json"], REFLECTION_ENV, fakeReflectionCurl);
+    const json = await runShim(["self", "--json"], REFLECTION_ENV, fakeReflectionCurl);
     expect(json.status).toBe(0);
     expect(JSON.parse(json.stdout)).toEqual(REFLECTION_INDEX);
     // The probe carries only the public placeholder bearer: the edge adds the real token.
     expect(json.stdout).not.toContain("crt_");
-    expect(runShim(["whoami"], REFLECTION_ENV, fakeReflectionCurl).stdout).toBe(SELF_HUMAN);
-    expect(runShim(["reflect"], REFLECTION_ENV, fakeReflectionCurl).stdout).toBe(SELF_HUMAN);
-    expect(JSON.parse(runShim(["whoami", "--json"], REFLECTION_ENV, fakeReflectionCurl).stdout)).toEqual(REFLECTION_INDEX);
+    expect((await runShim(["whoami"], REFLECTION_ENV, fakeReflectionCurl)).stdout).toBe(SELF_HUMAN);
+    expect((await runShim(["reflect"], REFLECTION_ENV, fakeReflectionCurl)).stdout).toBe(SELF_HUMAN);
+    expect(JSON.parse((await runShim(["whoami", "--json"], REFLECTION_ENV, fakeReflectionCurl)).stdout)).toEqual(REFLECTION_INDEX);
   });
 
-  test("self answers without the daemon binary: identity precedes cmux-tui on a fresh machine", () => {
-    const run = runShim(["self"], { ...REFLECTION_ENV, CMUX_TUI_BIN: "/nonexistent/cmux-tui" }, fakeReflectionCurl);
+  test("self answers without the daemon binary: identity precedes cmux-tui on a fresh machine", async () => {
+    const run = await runShim(["self"], { ...REFLECTION_ENV, CMUX_TUI_BIN: "/nonexistent/cmux-tui" }, fakeReflectionCurl);
     expect(run.stderr).toBe("");
     expect(run.status).toBe(0);
     expect(run.stdout).toBe(SELF_HUMAN);
-    expect(runShim(["vm", "ls", "--json"], { ...REFLECTION_ENV, CMUX_TUI_BIN: "/nonexistent/cmux-tui" }, fakeReflectionCurl).status).toBe(0);
+    expect((await runShim(["vm", "ls", "--json"], { ...REFLECTION_ENV, CMUX_TUI_BIN: "/nonexistent/cmux-tui" }, fakeReflectionCurl)).status).toBe(0);
     // Everything else still needs the daemon.
-    const tree = runShim(["tree"], { ...REFLECTION_ENV, CMUX_TUI_BIN: "/nonexistent/cmux-tui" }, fakeReflectionCurl);
+    const tree = await runShim(["tree"], { ...REFLECTION_ENV, CMUX_TUI_BIN: "/nonexistent/cmux-tui" }, fakeReflectionCurl);
     expect(tree.status).toBe(1);
     expect(tree.stderr).toContain("/nonexistent/cmux-tui");
   });
 
-  test("self explains a missing alias, a machine without identity, and an unreachable edge", () => {
-    const unconfigured = runShim(["self"]);
+  test("self explains a missing alias, a machine without identity, and an unreachable edge", async () => {
+    const unconfigured = await runShim(["self"]);
     expect(unconfigured.status).toBe(2);
     expect(unconfigured.stdout).toBe("");
-    const denied = runShim(["self"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "deny" }, fakeReflectionCurl);
+    const denied = await runShim(["self"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "deny" }, fakeReflectionCurl);
     expect(denied.status).toBe(1);
     expect(denied.stderr).toContain("this machine has no VM identity");
     expect(denied.stderr).toContain("HTTP 401");
-    const down = runShim(["self"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "down" }, fakeReflectionCurl);
+    const down = await runShim(["self"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "down" }, fakeReflectionCurl);
     expect(down.status).toBe(1);
     expect(down.stderr).toContain("reflection unreachable at https://coderouter.cmux.internal/api/vm/reflection");
   });
 
-  test("self <path> passes any reflection path through and surfaces server errors", () => {
-    const peers = runShim(["self", "peers"], REFLECTION_ENV, fakeReflectionCurl);
+  test("self <path> passes any reflection path through and surfaces server errors", async () => {
+    const peers = await runShim(["self", "peers"], REFLECTION_ENV, fakeReflectionCurl);
     expect(peers.status).toBe(0);
     expect(JSON.parse(peers.stdout)).toEqual(REFLECTION_PEERS);
-    expect(JSON.parse(runShim(["self", "/integrations", "--json"], REFLECTION_ENV, fakeReflectionCurl).stdout)).toEqual(REFLECTION_INTEGRATIONS);
-    expect(JSON.parse(runShim(["reflect", "peers/"], REFLECTION_ENV, fakeReflectionCurl).stdout)).toEqual(REFLECTION_PEERS);
-    const missing = runShim(["self", "nope"], REFLECTION_ENV, fakeReflectionCurl);
+    expect(JSON.parse((await runShim(["self", "/integrations", "--json"], REFLECTION_ENV, fakeReflectionCurl)).stdout)).toEqual(REFLECTION_INTEGRATIONS);
+    expect(JSON.parse((await runShim(["reflect", "peers/"], REFLECTION_ENV, fakeReflectionCurl)).stdout)).toEqual(REFLECTION_PEERS);
+    const missing = await runShim(["self", "nope"], REFLECTION_ENV, fakeReflectionCurl);
     expect(missing.status).toBe(1);
     expect(missing.stderr).toContain("HTTP 404");
     expect(missing.stderr).toContain("no such path");
-    expect(runShim(["self", "peers?x=1"], REFLECTION_ENV, fakeReflectionCurl).status).toBe(2);
-    expect(runShim(["self", "--bogus"], REFLECTION_ENV, fakeReflectionCurl).status).toBe(2);
-    expect(runShim(["self", "peers", "owner"], REFLECTION_ENV, fakeReflectionCurl).status).toBe(2);
+    expect((await runShim(["self", "peers?x=1"], REFLECTION_ENV, fakeReflectionCurl)).status).toBe(2);
+    expect((await runShim(["self", "--bogus"], REFLECTION_ENV, fakeReflectionCurl)).status).toBe(2);
+    expect((await runShim(["self", "peers", "owner"], REFLECTION_ENV, fakeReflectionCurl)).status).toBe(2);
   });
 
-  test("self falls back to GET /api/vm/self when the control plane has no reflection index", () => {
+  test("self falls back to GET /api/vm/self when the control plane has no reflection index", async () => {
     const dir = mkdtempSync(join(tmpdir(), "cmux-guest-legacy-"));
-    const run = runShim(["self"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "legacy", HOME: dir }, (directory) => {
+    const run = await runShim(["self"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "legacy", HOME: dir }, (directory) => {
       fakeReflectionCurl(directory);
       fakeReflectionCurl(dir);
     });
@@ -1819,56 +1813,56 @@ describe("in-VM cmux shim: reflection", () => {
       "https://coderouter.cmux.internal/api/vm/reflection",
       "https://coderouter.cmux.internal/api/vm/self",
     ]);
-    expect(JSON.parse(runShim(["self", "--json"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "legacy" }, fakeReflectionCurl).stdout)).toEqual(SELF_LEGACY);
+    expect(JSON.parse((await runShim(["self", "--json"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "legacy" }, fakeReflectionCurl)).stdout)).toEqual(SELF_LEGACY);
     // A pre-superset reflection index still identifies the machine; it just cannot count the fleet.
-    const plain = runShim(["self"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "plain" }, fakeReflectionCurl);
+    const plain = await runShim(["self"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "plain" }, fakeReflectionCurl);
     expect(plain.status).toBe(0);
     expect(plain.stdout).toBe("Build box\tfs-build\trunning\t(this machine)\nteam\tteam_1\nowner\towner@example.com\nplan\tpro\n");
   });
 
-  test("auth status reports the identity next to the daemon and CodeRouter checks", () => {
-    const run = runShim(["auth", "status", "--json"], REFLECTION_ENV, fakeReflectionCurl);
+  test("auth status reports the identity next to the daemon and CodeRouter checks", async () => {
+    const run = await runShim(["auth", "status", "--json"], REFLECTION_ENV, fakeReflectionCurl);
     expect(run.status).toBe(0);
     const payload = JSON.parse(run.stdout) as Record<string, any>;
     expect(payload.authenticated).toBe(true);
     expect(payload.identity).toEqual({ vm_id: "11111111-2222-4333-8444-555555555555", name: "build-box" });
-    const human = runShim(["auth", "status"], REFLECTION_ENV, fakeReflectionCurl);
+    const human = await runShim(["auth", "status"], REFLECTION_ENV, fakeReflectionCurl);
     expect(human.stdout).toContain("Identity: build-box (11111111-2222-4333-8444-555555555555)");
-    const denied = runShim(["auth", "status", "--json"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "deny" }, fakeReflectionCurl);
+    const denied = await runShim(["auth", "status", "--json"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "deny" }, fakeReflectionCurl);
     expect((JSON.parse(denied.stdout) as Record<string, any>).identity).toBeNull();
-    expect(runShim(["auth", "status"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "deny" }, fakeReflectionCurl).stdout).toContain("Identity: unavailable (reflection: this machine has no VM identity");
+    expect((await runShim(["auth", "status"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "deny" }, fakeReflectionCurl)).stdout).toContain("Identity: unavailable (reflection: this machine has no VM identity");
     // Without an alias the field is still present, so JSON readers never see a missing key.
-    expect((JSON.parse(runShim(["auth", "status", "--json"]).stdout) as Record<string, any>).identity).toBeNull();
+    expect((JSON.parse((await runShim(["auth", "status", "--json"])).stdout) as Record<string, any>).identity).toBeNull();
   });
 
-  test("vm ls lists the owner's machines: this one marked, reachability, and this machine's link state", () => {
+  test("vm ls lists the owner's machines: this one marked, reachability, and this machine's link state", async () => {
     const dir = makeStatefulDir();
     fakeReflectionCurl(dir);
     linkTwoPeers(dir);
-    const run = runStateful(dir, ["vm", "ls"], REFLECTION_ENV);
+    const run = await runStateful(dir, ["vm", "ls"], REFLECTION_ENV);
     expect(run.stderr).toBe("");
     expect(run.status).toBe(0);
     expect(run.stdout).toBe(VM_LS_HUMAN);
     expect(run.calls).toEqual([]);
     // list, peers, and links are silent aliases of the one listing.
     for (const alias of ["list", "peers", "links"]) {
-      expect(runStateful(dir, ["vm", alias], REFLECTION_ENV).stdout).toBe(VM_LS_HUMAN);
+      expect((await runStateful(dir, ["vm", alias], REFLECTION_ENV)).stdout).toBe(VM_LS_HUMAN);
     }
-    const json = runStateful(dir, ["vm", "ls", "--json"], REFLECTION_ENV);
+    const json = await runStateful(dir, ["vm", "ls", "--json"], REFLECTION_ENV);
     expect(json.status).toBe(0);
     expect(JSON.parse(json.stdout)).toEqual({ machines: REFLECTION_MACHINES });
-    expect(runStateful(dir, ["vm", "ls", "--bogus"], REFLECTION_ENV).status).toBe(2);
+    expect((await runStateful(dir, ["vm", "ls", "--bogus"], REFLECTION_ENV)).status).toBe(2);
   });
 
-  test("vm ls reads the same list from /peers or /api/vm/self when the index predates machines[]", () => {
+  test("vm ls reads the same list from /peers or /api/vm/self when the index predates machines[]", async () => {
     const dir = makeStatefulDir();
     fakeReflectionCurl(dir);
     linkTwoPeers(dir);
     // A reflection server before the superset: the index plus /peers give the same lines.
-    const plain = runStateful(dir, ["vm", "ls"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "plain" });
+    const plain = await runStateful(dir, ["vm", "ls"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "plain" });
     expect(plain.stderr).toBe("");
     expect(plain.stdout).toBe(VM_LS_HUMAN);
-    const plainJson = JSON.parse(runStateful(dir, ["vm", "ls", "--json"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "plain" }).stdout) as { machines: Array<Record<string, unknown>> };
+    const plainJson = JSON.parse((await runStateful(dir, ["vm", "ls", "--json"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "plain" })).stdout) as { machines: Array<Record<string, unknown>> };
     expect(plainJson.machines.map((machine) => [machine.name, machine.id, machine.self, machine.reachable, machine.route])).toEqual([
       ["Build box", "fs-build", true, false, null],
       ["Reviewer", "fs-a", false, true, "ws://[fd00::4]:1337/v1/link"],
@@ -1876,16 +1870,16 @@ describe("in-VM cmux shim: reflection", () => {
       ["asleep-mole", "fs-c", false, false, null],
     ]);
     // No reflection at all: /api/vm/self knows the machines but not their routes.
-    const legacy = runStateful(dir, ["vm", "ls"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "legacy" });
+    const legacy = await runStateful(dir, ["vm", "ls"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "legacy" });
     expect(legacy.stderr).toBe("");
     expect(legacy.stdout).toBe("* Build box\tfs-build\trunning\t(this machine)\n  Reviewer\tfs-a\trunning\tlinked\n  Sleepy\tfs-b\trunning\tconnected\n  asleep-mole\tfs-c\tpaused\n");
-    expect(JSON.parse(runStateful(dir, ["vm", "ls", "--json"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "legacy" }).stdout)).toEqual({ machines: SELF_LEGACY.machines });
+    expect(JSON.parse((await runStateful(dir, ["vm", "ls", "--json"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "legacy" })).stdout)).toEqual({ machines: SELF_LEGACY.machines });
     // Nothing is invented when the control plane cannot answer.
-    const down = runStateful(dir, ["vm", "ls"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "down" });
+    const down = await runStateful(dir, ["vm", "ls"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "down" });
     expect(down.status).toBe(1);
     expect(down.stdout).toBe("");
     expect(down.stderr).toContain("reflection unreachable");
-    expect(runStateful(dir, ["vm", "ls"]).status).toBe(2);
+    expect((await runStateful(dir, ["vm", "ls"])).status).toBe(2);
   });
 
   describe("peer discovery through reflection", () => {
@@ -1908,10 +1902,10 @@ describe("in-VM cmux shim: reflection", () => {
       }
     });
 
-    test("a peer with no link file is looked up in /peers, its route is written, and the link dials it", () => {
+    test("a peer with no link file is looked up in /peers, its route is written, and the link dials it", async () => {
       const dir = makeStatefulDir();
       fakeReflectionCurl(dir);
-      const run = runStateful(dir, ["vm", "terminal", "read", "sleepy-otter", "term_x"], { ...REFLECTION_ENV, FAKE_LINK_SOCKET: sockPath });
+      const run = await runStateful(dir, ["vm", "terminal", "read", "sleepy-otter", "term_x"], { ...REFLECTION_ENV, FAKE_LINK_SOCKET: sockPath });
       expect(run.stderr).toBe("");
       expect(run.status).toBe(0);
       const peerFile = JSON.parse(readFileSync(join(dir, ".cmux", "peers", "sleepy-otter.json"), "utf8"));
@@ -1922,48 +1916,48 @@ describe("in-VM cmux shim: reflection", () => {
       expect(connect).not.toContain("--invite-file");
       expect(run.calls.at(-1)).toEqual(["--socket", sockPath, "terminal", "term_x", "screen", "read"]);
       // Display name and ids resolve to the same machine; the file is reused on the next call.
-      const byDisplay = runStateful(dir, ["vm", "terminal", "read", "Sleepy", "term_y"], { ...REFLECTION_ENV, FAKE_LINK_SOCKET: sockPath });
+      const byDisplay = await runStateful(dir, ["vm", "terminal", "read", "Sleepy", "term_y"], { ...REFLECTION_ENV, FAKE_LINK_SOCKET: sockPath });
       expect(byDisplay.status).toBe(0);
       expect(JSON.parse(readFileSync(join(dir, ".cmux", "peers", "Sleepy.json"), "utf8")).route).toBe("ws://[fd00::5]:1337/v1/link");
     });
 
-    test("wait-exit and output take the same road to a peer terminal", () => {
+    test("wait-exit and output take the same road to a peer terminal", async () => {
       const dir = makeStatefulDir();
       fakeReflectionCurl(dir);
-      const exit = runStateful(dir, ["vm", "terminal", "wait-exit", "sleepy-otter", "term_x", "--timeout", "2"], { ...REFLECTION_ENV, FAKE_LINK_SOCKET: sockPath });
+      const exit = await runStateful(dir, ["vm", "terminal", "wait-exit", "sleepy-otter", "term_x", "--timeout", "2"], { ...REFLECTION_ENV, FAKE_LINK_SOCKET: sockPath });
       expect(exit.stderr).toBe("");
       expect(exit.status).toBe(0);
       expect(exit.stdout).toBe("exited code=3\n");
       expect(exit.calls.at(-1)).toEqual(["--socket", sockPath, "--json", "terminal", "term_x", "process", "wait", "--timeout-ms", "2000"]);
-      const output = runStateful(dir, ["vm", "terminal", "output", "sleepy-otter", "term_x", "--after", "18"], { ...REFLECTION_ENV, FAKE_LINK_SOCKET: sockPath });
+      const output = await runStateful(dir, ["vm", "terminal", "output", "sleepy-otter", "term_x", "--after", "18"], { ...REFLECTION_ENV, FAKE_LINK_SOCKET: sockPath });
       expect(output.status).toBe(0);
       expect(output.stdout).toBe("line one\nline two\n");
       expect(output.calls.at(-1)).toEqual(["--socket", sockPath, "--json", "terminal", "term_x", "output", "read", "--after", "18"]);
     });
 
-    test("unknown, route-less, and reflection-less peers fail closed with the reason", () => {
+    test("unknown, route-less, and reflection-less peers fail closed with the reason", async () => {
       const dir = makeStatefulDir();
       fakeReflectionCurl(dir);
-      const unknown = runStateful(dir, ["vm", "terminal", "read", "no-such", "term_x"], REFLECTION_ENV);
+      const unknown = await runStateful(dir, ["vm", "terminal", "read", "no-such", "term_x"], REFLECTION_ENV);
       expect(unknown.status).toBe(2);
       expect(unknown.stderr).toContain("no link for machine 'no-such'");
       expect(unknown.stderr).toContain("reachable machines: brave-otter, sleepy-otter, asleep-mole");
       expect(unknown.calls).toEqual([]);
-      const routeless = runStateful(dir, ["vm", "terminal", "read", "asleep-mole", "term_x"], REFLECTION_ENV);
+      const routeless = await runStateful(dir, ["vm", "terminal", "read", "asleep-mole", "term_x"], REFLECTION_ENV);
       expect(routeless.status).toBe(2);
       expect(routeless.stderr).toContain("no private-network route");
       expect(existsSync(join(dir, ".cmux", "peers", "asleep-mole.json"))).toBe(false);
-      const down = runStateful(dir, ["vm", "terminal", "read", "sleepy-otter", "term_x"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "down" });
+      const down = await runStateful(dir, ["vm", "terminal", "read", "sleepy-otter", "term_x"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "down" });
       expect(down.status).toBe(2);
       expect(down.stderr).toContain("no link for machine 'sleepy-otter': reflection unreachable");
-      const unconfigured = runStateful(dir, ["vm", "terminal", "read", "sleepy-otter", "term_x"]);
+      const unconfigured = await runStateful(dir, ["vm", "terminal", "read", "sleepy-otter", "term_x"]);
       expect(unconfigured.status).toBe(2);
       expect(unconfigured.stderr).toContain("no model-plane alias is configured");
     });
   });
 
-  test("help is one page in the Mac's grammar: this machine, who am I, other machines, the human, models, auth", () => {
-    const run = runShim(["--help"]);
+  test("help is one page in the Mac's grammar: this machine, who am I, other machines, the human, models, auth", async () => {
+    const run = await runShim(["--help"]);
     expect(run.status).toBe(0);
     const sections = ["THIS MACHINE", "WHO AM I", "OTHER MACHINES", "REACH THE HUMAN", "MODELS AND AGENTS", "AUTH"];
     const positions = sections.map((section) => run.stdout.indexOf(section));
@@ -1976,14 +1970,14 @@ describe("in-VM cmux shim: reflection", () => {
     // One spelling per concept: whoami/reflect appear only as aliases, and no verb is listed twice.
     expect(run.stdout).not.toContain("cmux whoami [--json]");
     expect(run.stdout).not.toContain("cmux vm peers");
-    expect(runShim(["vm", "help"]).stdout).toContain("cmux vm ls [--json]");
+    expect((await runShim(["vm", "help"])).stdout).toContain("cmux vm ls [--json]");
     for (const alias of [["self", "--help"], ["whoami", "--help"], ["reflect", "-h"]]) {
-      const help = runShim(alias);
+      const help = await runShim(alias);
       expect(help.status).toBe(0);
       expect(help.stdout).toContain("cmux self peers [--json]");
       expect(help.stdout).toContain("cmux whoami = cmux self");
     }
-    const terminalHelp = runShim(["terminal", "help"]);
+    const terminalHelp = await runShim(["terminal", "help"]);
     expect(terminalHelp.stdout).toContain("cmux terminal wait-exit <id> [--timeout <seconds>] [--json]");
     expect(terminalHelp.stdout).toContain("cmux terminal output <id> [--after <offset>] [--max-bytes <n>] [--json]");
   });
@@ -1992,10 +1986,10 @@ describe("in-VM cmux shim: reflection", () => {
 describe("in-VM cmux shim: file drop", () => {
   const stream = (bytes: Buffer) => `${bytes.toString("base64").replace(/(.{76})/g, "$1\n")}\nCMUX-FILE-END\n`;
 
-  test("file receive: READY, base64 lines, END; the bytes land by rename with the mode and parents asked for", () => {
+  test("file receive: READY, base64 lines, END; the bytes land by rename with the mode and parents asked for", async () => {
     const dir = makeStatefulDir();
     const payload = Buffer.concat([Buffer.from(Array.from({ length: 256 }, (_, i) => i)), Buffer.from(Array.from({ length: 256 }, (_, i) => i))]);
-    const run = runStateful(dir, ["file", "receive", "secrets/deep/key.bin", "--mode", "640", "--stdin"], {}, stream(payload));
+    const run = await runStateful(dir, ["file", "receive", "secrets/deep/key.bin", "--mode", "640", "--stdin"], {}, stream(payload));
     expect(run.stderr).toBe("");
     expect(run.status).toBe(0);
     const file = join(dir, "secrets", "deep", "key.bin");
@@ -2009,57 +2003,57 @@ describe("in-VM cmux shim: file drop", () => {
     // Default mode 600, absolute path, and an existing file is replaced atomically (no temp file survives).
     const target = join(dir, "app.env");
     writeFileSync(target, "old\n");
-    const replaced = runStateful(dir, ["file", "receive", target, "--stdin"], {}, stream(Buffer.from("NEW=1\n")));
+    const replaced = await runStateful(dir, ["file", "receive", target, "--stdin"], {}, stream(Buffer.from("NEW=1\n")));
     expect(replaced.status).toBe(0);
     expect(replaced.stdout).toBe(`CMUX-FILE-READY\nCMUX-FILE-OK bytes=6 path=${target} mode=600\n`);
     expect(readFileSync(target, "utf8")).toBe("NEW=1\n");
     expect(statSync(target).mode & 0o777).toBe(0o600);
     expect(readdirSync(dir).filter((name) => name.startsWith(".cmux-file."))).toEqual([]);
     // CRLF line ends and blank lines from a PTY are tolerated; --mode=0755 is the four-digit form.
-    const crlf = runStateful(dir, ["file", "receive", "bin/run.sh", "--mode=0755", "--stdin"], {}, stream(Buffer.from("#!/bin/sh\necho hi\n")).replace(/\n/g, "\r\n\r\n"));
+    const crlf = await runStateful(dir, ["file", "receive", "bin/run.sh", "--mode=0755", "--stdin"], {}, stream(Buffer.from("#!/bin/sh\necho hi\n")).replace(/\n/g, "\r\n\r\n"));
     expect(crlf.status).toBe(0);
     expect(statSync(join(dir, "bin", "run.sh")).mode & 0o777).toBe(0o755);
     expect(readFileSync(join(dir, "bin", "run.sh"), "utf8")).toBe("#!/bin/sh\necho hi\n");
   });
 
-  test("file receive refuses garbage, truncation, empty and oversize payloads, directories and bad modes without leaving anything behind", () => {
+  test("file receive refuses garbage, truncation, empty and oversize payloads, directories and bad modes without leaving anything behind", async () => {
     const dir = makeStatefulDir();
     mkdirSync(join(dir, "dest"));
-    const garbage = runStateful(dir, ["file", "receive", "dest/x", "--stdin"], {}, "!!!not base64!!!\nCMUX-FILE-END\n");
+    const garbage = await runStateful(dir, ["file", "receive", "dest/x", "--stdin"], {}, "!!!not base64!!!\nCMUX-FILE-END\n");
     expect(garbage.status).toBe(1);
     expect(garbage.stdout).toBe("CMUX-FILE-READY\nCMUX-FILE-ERR bad-base64\n");
-    const truncated = runStateful(dir, ["file", "receive", "dest/x", "--stdin"], {}, `${Buffer.from("abc").toString("base64")}\n`);
+    const truncated = await runStateful(dir, ["file", "receive", "dest/x", "--stdin"], {}, `${Buffer.from("abc").toString("base64")}\n`);
     expect(truncated.status).toBe(1);
     expect(truncated.stdout).toBe("CMUX-FILE-READY\nCMUX-FILE-ERR eof\n");
-    const empty = runStateful(dir, ["file", "receive", "dest/x", "--stdin"], {}, "CMUX-FILE-END\n");
+    const empty = await runStateful(dir, ["file", "receive", "dest/x", "--stdin"], {}, "CMUX-FILE-END\n");
     expect(empty.status).toBe(1);
     expect(empty.stdout).toBe("CMUX-FILE-READY\nCMUX-FILE-ERR empty\n");
-    const big = runStateful(dir, ["file", "receive", "dest/x", "--stdin"], {}, stream(Buffer.alloc(262145, 1)));
+    const big = await runStateful(dir, ["file", "receive", "dest/x", "--stdin"], {}, stream(Buffer.alloc(262145, 1)));
     expect(big.status).toBe(1);
     expect(big.stdout).toBe("CMUX-FILE-READY\nCMUX-FILE-ERR too-large\n");
-    const exact = runStateful(dir, ["file", "receive", "dest/max", "--stdin"], {}, stream(Buffer.alloc(262144, 1)));
+    const exact = await runStateful(dir, ["file", "receive", "dest/max", "--stdin"], {}, stream(Buffer.alloc(262144, 1)));
     expect(exact.status).toBe(0);
     expect(statSync(join(dir, "dest", "max")).size).toBe(262144);
     expect(readdirSync(join(dir, "dest"))).toEqual(["max"]);
-    const directory = runStateful(dir, ["file", "receive", "dest", "--stdin"], {}, stream(Buffer.from("x")));
+    const directory = await runStateful(dir, ["file", "receive", "dest", "--stdin"], {}, stream(Buffer.from("x")));
     expect(directory.status).toBe(1);
     expect(directory.stdout).toBe(`CMUX-FILE-ERR is-directory ${join(dir, "dest")}\n`);
     // Usage errors answer before READY, so a sender sees the reason on the screen instead of a silent timeout.
-    const badMode = runStateful(dir, ["file", "receive", "dest/x", "--mode", "9", "--stdin"], {}, stream(Buffer.from("x")));
+    const badMode = await runStateful(dir, ["file", "receive", "dest/x", "--mode", "9", "--stdin"], {}, stream(Buffer.from("x")));
     expect(badMode.status).toBe(2);
     expect(badMode.stdout).toBe("CMUX-FILE-ERR bad-mode 9\n");
-    const noPath = runStateful(dir, ["file", "receive", "--stdin"], {}, stream(Buffer.from("x")));
+    const noPath = await runStateful(dir, ["file", "receive", "--stdin"], {}, stream(Buffer.from("x")));
     expect(noPath.status).toBe(2);
     expect(noPath.stdout).toBe("CMUX-FILE-ERR usage cmux file receive <path> [--mode <octal>]\n");
-    expect(runStateful(dir, ["file", "bogus"]).status).toBe(2);
-    expect(runStateful(dir, ["file", "bogus"]).stderr).toContain("unknown file command");
+    expect((await runStateful(dir, ["file", "bogus"])).status).toBe(2);
+    expect((await runStateful(dir, ["file", "bogus"])).stderr).toContain("unknown file command");
   });
 
-  test("the receiver also runs under dash (the image's sh)", () => {
+  test("the receiver also runs under dash (the image's sh)", async () => {
     if (!existsSync("/bin/dash")) return;
     const dir = makeStatefulDir();
     const payload = Buffer.from("hello from dash\n");
-    const run = runStateful(dir, ["file", "receive", "d/out.txt", "--stdin"], {}, stream(payload), "/bin/dash");
+    const run = await runStateful(dir, ["file", "receive", "d/out.txt", "--stdin"], {}, stream(payload), "/bin/dash");
     expect(run.stderr).toBe("");
     expect(run.status).toBe(0);
     expect(readFileSync(join(dir, "d", "out.txt"), "utf8")).toBe("hello from dash\n");
@@ -2067,44 +2061,44 @@ describe("in-VM cmux shim: file drop", () => {
 });
 
 describe("in-VM cmux shim: terminal exit and output", () => {
-  test("wait-exit blocks on process wait and reports the exit the way the Mac CLI does", () => {
+  test("wait-exit blocks on process wait and reports the exit the way the Mac CLI does", async () => {
     const dir = makeStatefulDir();
-    const run = runStateful(dir, ["terminal", "wait-exit", "term_x", "--timeout", "5"]);
+    const run = await runStateful(dir, ["terminal", "wait-exit", "term_x", "--timeout", "5"]);
     expect(run.stderr).toBe("");
     expect(run.status).toBe(0);
     expect(run.stdout).toBe("exited code=3\n");
     expect(run.calls).toEqual([["--session", "cloud", "--json", "terminal", "term_x", "process", "wait", "--timeout-ms", "5000"]]);
     // No timeout: the daemon waits as long as it takes.
-    expect(runStateful(dir, ["terminal", "wait-exit", "term_x"]).calls).toEqual([["--session", "cloud", "--json", "terminal", "term_x", "process", "wait"]]);
-    expect(runStateful(dir, ["terminal", "wait-exit", "term_x"], { FAKE_EXIT_KIND: "signal" }).stdout).toBe("exited signal=9\n");
-    const json = runStateful(dir, ["terminal", "wait-exit", "term_x", "--json"]);
+    expect((await runStateful(dir, ["terminal", "wait-exit", "term_x"])).calls).toEqual([["--session", "cloud", "--json", "terminal", "term_x", "process", "wait"]]);
+    expect((await runStateful(dir, ["terminal", "wait-exit", "term_x"], { FAKE_EXIT_KIND: "signal" })).stdout).toBe("exited signal=9\n");
+    const json = await runStateful(dir, ["terminal", "wait-exit", "term_x", "--json"]);
     expect(json.status).toBe(0);
     expect(JSON.parse(json.stdout).value).toMatchObject({ state: "exited", outcome: { kind: "exit", code: 3 } });
     // Still running: say so on stdout and exit 1, so scripts can loop on it.
-    const pending = runStateful(dir, ["terminal", "wait-exit", "term_x", "--timeout", "0.5"], { FAKE_EXIT_PENDING: "1" });
+    const pending = await runStateful(dir, ["terminal", "wait-exit", "term_x", "--timeout", "0.5"], { FAKE_EXIT_PENDING: "1" });
     expect(pending.status).toBe(1);
     expect(pending.stdout).toBe("pending\n");
     expect(pending.calls.at(-1)?.slice(-2)).toEqual(["--timeout-ms", "500"]);
-    const pendingJson = runStateful(dir, ["terminal", "wait-exit", "term_x", "--json"], { FAKE_EXIT_PENDING: "1" });
+    const pendingJson = await runStateful(dir, ["terminal", "wait-exit", "term_x", "--json"], { FAKE_EXIT_PENDING: "1" });
     expect(pendingJson.status).toBe(1);
     expect(JSON.parse(pendingJson.stdout).value.state).toBe("pending");
-    expect(runStateful(dir, ["terminal", "wait-exit", "term_x", "--timeout", "nope"]).status).toBe(2);
-    expect(runStateful(dir, ["terminal", "wait-exit"]).status).toBe(2);
+    expect((await runStateful(dir, ["terminal", "wait-exit", "term_x", "--timeout", "nope"])).status).toBe(2);
+    expect((await runStateful(dir, ["terminal", "wait-exit"])).status).toBe(2);
   });
 
-  test("output reads the terminal's stream by offset and prints only the text unless --json", () => {
+  test("output reads the terminal's stream by offset and prints only the text unless --json", async () => {
     const dir = makeStatefulDir();
-    const run = runStateful(dir, ["terminal", "output", "term_x", "--after", "5", "--max-bytes", "100"]);
+    const run = await runStateful(dir, ["terminal", "output", "term_x", "--after", "5", "--max-bytes", "100"]);
     expect(run.stderr).toBe("");
     expect(run.status).toBe(0);
     expect(run.stdout).toBe("line one\nline two\n");
     expect(run.calls).toEqual([["--session", "cloud", "--json", "terminal", "term_x", "output", "read", "--after", "5", "--max-bytes", "100"]]);
-    expect(runStateful(dir, ["terminal", "output", "term_x"]).calls).toEqual([["--session", "cloud", "--json", "terminal", "term_x", "output", "read"]]);
-    const json = runStateful(dir, ["terminal", "output", "term_x", "--json"]);
+    expect((await runStateful(dir, ["terminal", "output", "term_x"])).calls).toEqual([["--session", "cloud", "--json", "terminal", "term_x", "output", "read"]]);
+    const json = await runStateful(dir, ["terminal", "output", "term_x", "--json"]);
     expect(json.status).toBe(0);
     expect(JSON.parse(json.stdout).value).toEqual({ terminal_id: "term_x", text: "line one\nline two\n", start_offset: 0, next_offset: 18, complete: true });
     for (const bad of [["--max-bytes", "0"], ["--max-bytes", "4194305"], ["--after", "x"], ["--bogus"]]) {
-      expect(runStateful(dir, ["terminal", "output", "term_x", ...bad]).status).toBe(2);
+      expect((await runStateful(dir, ["terminal", "output", "term_x", ...bad])).status).toBe(2);
     }
   });
 });

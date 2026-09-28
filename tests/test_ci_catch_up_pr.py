@@ -215,7 +215,7 @@ class MergeTests(CatchUpCase):
         before = self.repo.git("rev-parse", "HEAD")
         code, result = self.catch_up()
         self.assert_blocked(code, result, before, ["README.md"])
-        self.assertIn("not a generated file", result["blocking"][0]["reason"])
+        self.assertIn("both sides changed it", result["blocking"][0]["reason"])
 
     def test_one_sided_delete_stops(self) -> None:
         self.repo.branches({"a.txt": "a\n"}, {"a.txt": "main\n"}, {"b.txt": "pr\n"})
@@ -477,6 +477,131 @@ class PbxprojTests(CatchUpCase):
         self.assertEqual(MODULE.duplicate_keys(text), ["c"])
 
 
+SWIFT_BASE = """extension Section {
+    func first() -> String {
+        "first"
+    }
+
+    func second() -> String {
+        "second"
+    }
+
+    func third(flag: Bool) -> String {
+        flag ? "on" : "off"
+    }
+}
+"""
+# Main rewrites the middle of the file; the pull request adds a function
+# between second() and third(), inside the lines main rewrote (#14876).
+SWIFT_MAIN = """extension Section {
+    func first() -> String {
+        "first"
+    }
+
+    func third(hidden: Bool) -> String {
+        hidden ? "hidden" : "shown"
+    }
+}
+"""
+SWIFT_PR = SWIFT_BASE.replace("""    func third(""", """    func added() -> String {
+        "added"
+    }
+
+    func third(""")
+
+
+class SourceTests(CatchUpCase):
+    """Conflicts in source files where one side only inserted declarations."""
+
+    PATH = "Sources/Section.swift"
+
+    def test_an_inserted_function_lands_at_its_depth_in_the_rewritten_side(self) -> None:
+        self.repo.branches({self.PATH: SWIFT_BASE}, {self.PATH: SWIFT_MAIN}, {self.PATH: SWIFT_PR})
+        code, result = self.catch_up()
+        self.assertEqual((code, result["status"]), (0, "merged"), result)
+        merged = (self.repo.path / self.PATH).read_text(encoding="utf-8")
+        self.assertEqual(merged, SWIFT_MAIN.replace("""    func third(""", """    func added() -> String {
+        "added"
+    }
+
+    func third("""))
+
+    def test_an_inserted_statement_stops(self) -> None:
+        pr = SWIFT_BASE.replace("""        "second"
+""", """        log("second")
+        "second"
+""")
+        main = SWIFT_BASE.replace("""        "second"
+""", """        "2nd"
+""")
+        self.repo.branches({self.PATH: SWIFT_BASE}, {self.PATH: main}, {self.PATH: pr})
+        before = self.repo.git("rev-parse", "HEAD")
+        code, result = self.catch_up()
+        self.assert_blocked(code, result, before, [self.PATH])
+
+    def test_both_sides_inserting_declarations_keeps_both(self) -> None:
+        main = SWIFT_BASE.replace("""    func second(""", """    func fromMain() {}
+
+    func second(""")
+        pr = SWIFT_BASE.replace("""    func second(""", """    func fromPR() {}
+
+    func second(""")
+        self.repo.branches({self.PATH: SWIFT_BASE}, {self.PATH: main}, {self.PATH: pr})
+        code, result = self.catch_up()
+        self.assertEqual((code, result["status"]), (0, "merged"), result)
+        merged = (self.repo.path / self.PATH).read_text(encoding="utf-8")
+        self.assertIn("func fromMain() {}", merged)
+        self.assertIn("func fromPR() {}", merged)
+
+    def test_only_whole_declarations_move(self) -> None:
+        merge = MODULE.merge_declarations
+        other = "extension S {\n    func b() {}\n}\n"
+        # A trailing statement, a switch or enum case, and a call all stop.
+        for inserted in ("    func a() {}\n    launch()\n", "    case extra\n", "    object.save()\n",
+                         "    init();\n", "    type = 3;\n"):
+            pr = "extension S {\n    func old() {}\n" + inserted + "    func b() {}\n}\n"
+            base = "extension S {\n    func old() {}\n    func b() {}\n}\n"
+            with self.assertRaises(ValueError, msg=inserted):
+                merge(base, pr, other)
+
+    def test_placement_keeps_attributes_directives_and_strings_whole(self) -> None:
+        merge = MODULE.merge_declarations
+        base = "extension S {\n    func old() {}\n    func b() {}\n}\n"
+        pr = "extension S {\n    func old() {}\n    func x() {}\n    func b() {}\n}\n"
+        # Main's rewrite puts an attribute on b(): x() goes before the attribute, never between.
+        attributed = merge(base, pr, "extension S {\n    @MainActor\n    func b() {}\n}\n")
+        self.assertIn("    func x() {}\n    @MainActor\n    func b() {}", attributed)
+        for other in ("extension S {\n#if DEBUG\n    func b() {}\n#endif\n}\n",
+                      'extension S {\n    func b() { print("}") }\n}\n'):
+            with self.assertRaises(ValueError, msg=other):
+                merge(base, pr, other)
+
+    def test_conflict_marker_lines_in_a_side_stop(self) -> None:
+        wide = "<" * MODULE.MARKER_SIZE
+        base = "extension S {\n    func old() {}\n}\n"
+        pr = "extension S {\n" + wide + "\n    func old() {}\n}\n"
+        with self.assertRaises(ValueError):
+            MODULE.merge_declarations(base, pr, "extension S {\n    func new() {}\n}\n")
+        with self.assertRaises(ValueError):
+            MODULE.union_pbxproj(base, pr, base)
+
+    def test_verify_rederives_the_source_file_and_rejects_an_edit(self) -> None:
+        self.repo.branches({self.PATH: SWIFT_BASE, "app.txt": "a\n"},
+                           {self.PATH: SWIFT_MAIN, "app.txt": "a\n"}, {self.PATH: SWIFT_PR})
+        head = self.repo.git("rev-parse", "HEAD")
+        code, result = self.catch_up()
+        self.assertEqual(code, 0, result)
+        base, merged = self.repo.git("rev-parse", "main"), result["head_after"]
+        completed = VerifyTests.verify(self, head, base, merged)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.repo.write({self.PATH: (self.repo.path / self.PATH).read_text(encoding="utf-8") + "// extra\n"})
+        self.repo.git("add", "-A")
+        self.repo.git("commit", "-q", "--amend", "--no-edit")
+        completed = VerifyTests.verify(self, head, base, self.repo.git("rev-parse", "HEAD"))
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn(f"{self.PATH} differs", completed.stderr)
+
+
 class VerifyTests(CatchUpCase):
     """The push job's own check of the merge commit (`catch_up_pr.py verify`)."""
 
@@ -546,7 +671,8 @@ class CommentTests(unittest.TestCase):
         result = {"status": "blocked", "base": "a" * 40, "blocking": [{"path": "README.md", "reason": "not generated"}]}
         text = MODULE.render_auto_comment(result, "not-attempted", "main", "feature", "https://run", head)
         self.assertTrue(text.startswith(f"<!-- cmux-auto-catch-up head={head} -->\n"), text)
-        self.assertIn("will not try this head again", text)
+        self.assertIn("A new push or `/catch-up` tries again.", text)
+        self.assertLessEqual(len(text.splitlines()), 4, "one short paragraph and the footer")
         self.assertIn("no-auto-catch-up", text)
         self.assertTrue(text.endswith("[Catch-up run](https://run)</sub>"), "the run link stays last")
         # Posted on many pull requests: no mention, no issue cross-reference.
@@ -852,6 +978,19 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('"$cross" != false', self.pr_script())
         self.assertNotIn("maintainerCanModify", self.text)
         self.assertNotIn("action_required", self.text)
+
+    def test_an_automatic_comment_posts_once_per_head(self) -> None:
+        # Two green main runs selected #14876's head before either commented;
+        # the finish jobs run one at a time per pull request, so the second
+        # finds the first's marker line and says nothing.
+        finish = self.workflow["jobs"]["finish"]
+        self.assertIn("pr-catch-up-auto-push-{0}", finish["concurrency"]["group"])
+        self.assertFalse(finish["concurrency"]["cancel-in-progress"])
+        step = next(step for step in finish["steps"] if step.get("name") == "Comment the result")
+        check = step["run"].index('grep -qxF -- "$marker" <<<"$bodies"')
+        self.assertLess(check, step["run"].index("gh pr comment"))
+        self.assertIn('marker="$(head -n 1 "$comment")"', step["run"])
+        self.assertIn('select(.user.login == "github-actions[bot]")', step["run"])
 
     def test_finish_does_not_trust_the_merge_job(self) -> None:
         steps = {step.get("id"): step for step in self.workflow["jobs"]["finish"]["steps"]}

@@ -867,6 +867,7 @@ struct IndexSectionView: View, Equatable {
 }
 
 struct SectionReorderGap: View, Equatable {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     /// Section the dragged item should land BEFORE if dropped here. `nil` for
     /// the trailing gap (drop appends to the end of persisted order).
     let beforeKey: SectionKey?
@@ -889,7 +890,7 @@ struct SectionReorderGap: View, Equatable {
             .overlay(alignment: .center) {
                 if isDropTarget && isValidDrop {
                     Capsule()
-                        .fill(Color.accentColor)
+                        .fill(cmuxAccent.color)
                         .frame(height: 3)
                         .padding(.horizontal, 10)
                 }

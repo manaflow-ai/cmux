@@ -1663,7 +1663,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let stopCommands = Array(state.snapshot().dropFirst(stopStart))
         XCTAssertEqual(Set(clearedKeys(stopCommands)), Set(pendingStopKeys),
             "Cursor stop/cancellation must clear both pending request identities, saw \(stopCommands)")
-        XCTAssertEqual(try pendingApprovalKeys(), [])
+        XCTAssertTrue((try pendingApprovalKeys()).isEmpty && !stopCommands.contains { $0.contains("set_status cursor") && $0.contains("Needs input") })
 
         let unrestrictedConfig: [String: Any] = [
             "version": 1,
