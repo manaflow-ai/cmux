@@ -363,6 +363,33 @@ def test_nushell_bootstrap_skips_a_shim_root_another_user_owns() -> None:
         )
 
 
+def test_nushell_bootstrap_skips_an_owned_but_group_or_other_writable_root() -> None:
+    nu = _require_nu()
+    if nu is None:
+        return
+    one_liner = _bootstrap_one_liner()
+
+    for permissions in (0o770, 0o777):
+        with tempfile.TemporaryDirectory(prefix="cmux-nu-writable-") as td:
+            tmp = Path(td)
+            sandbox = _make_sandbox(
+                tmp,
+                _DECOY_PREPEND_ENV_NU.replace("__DECOY_DIR__", str(tmp / "decoy-bin")),
+            )
+            shim_dir = sandbox["shim_dir"]
+            shim_dir.chmod(permissions)
+            env = sandbox["env"]
+            decoy_claude = str(sandbox["decoy_dir"] / "claude")
+
+            ran = _run_nu(nu, env, one_liner + "; which claude | get 0.path")
+            assert ran.returncode == 0, "bootstrap run failed" + _debug(ran)
+            assert ran.stdout.strip() == decoy_claude, (
+                "bootstrap must not move a group/other-writable owned root ahead "
+                f"of the user's PATH (mode {permissions:o}, got {ran.stdout.strip()!r})"
+                + _debug(ran)
+            )
+
+
 def test_nushell_bootstrap_moves_only_the_shim_root() -> None:
     nu = _require_nu()
     if nu is None:
@@ -425,6 +452,7 @@ if __name__ == "__main__":
     test_nushell_bootstrap_noops_outside_cmux()
     test_nushell_bootstrap_skips_a_symlinked_shim_root()
     test_nushell_bootstrap_skips_a_shim_root_another_user_owns()
+    test_nushell_bootstrap_skips_an_owned_but_group_or_other_writable_root()
     test_nushell_bootstrap_moves_only_the_shim_root()
     test_nushell_bootstrap_refronts_shim_root_without_claude_integration()
     if _find_nu() is None:

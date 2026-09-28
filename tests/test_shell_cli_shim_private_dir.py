@@ -64,6 +64,28 @@ printf 'historycmd=%s\n' "$historycmd"
 exit 0
 '''
 
+NONSTICKY_ANCESTOR_POSIX_DRIVER = r'''
+source "$CMUX_TEST_INTEGRATION"
+old="$TMPDIR/cmux-cli-shims"
+/bin/mv "$old" "$TMPDIR/cmux-cli-shims-old"
+/bin/mkdir -m 700 "$old"
+/bin/mkdir -m 700 "$old/$CMUX_SURFACE_ID"
+printf '#!/bin/sh\nprintf "attacker\\n" >> "$CMUX_TEST_MARKERS"\n' > "$old/$CMUX_SURFACE_ID/claude"
+/bin/chmod 700 "$old/$CMUX_SURFACE_ID/claude"
+claude >/dev/null 2>&1
+'''
+
+NONSTICKY_ANCESTOR_FISH_DRIVER = r'''
+source "$CMUX_TEST_INTEGRATION"
+set old "$TMPDIR/cmux-cli-shims"
+/bin/mv "$old" "$TMPDIR/cmux-cli-shims-old"
+/bin/mkdir -m 700 "$old"
+/bin/mkdir -m 700 "$old/$CMUX_SURFACE_ID"
+printf '#!/bin/sh\nprintf "attacker\\n" >> "$CMUX_TEST_MARKERS"\n' > "$old/$CMUX_SURFACE_ID/claude"
+/bin/chmod 700 "$old/$CMUX_SURFACE_ID/claude"
+claude >/dev/null 2>&1
+'''
+
 
 def shells() -> dict[str, tuple[str, list[str], Path, str]]:
     found: dict[str, tuple[str, list[str], Path, str]] = {}
@@ -277,6 +299,21 @@ class CliShimPrivateDirectory(unittest.TestCase):
             self.assertIn(str(inherited), out["path"].split(":"), out)
             self.assertFalse(case.parent.exists())
             self.assertEqual(case.marker_lines(), ["wrapper", "wrapper"])
+
+        self.for_each_shell(scenario)
+
+    def test_nonsticky_tmpdir_ancestor_replacement_never_runs_planted_shim(self) -> None:
+        def scenario(shell, case: Case) -> None:
+            # A shared non-sticky ancestor lets another local account rename a
+            # checked private child and replace the path before the next command.
+            case.tmp.chmod(0o777)
+            driver = (
+                NONSTICKY_ANCESTOR_FISH_DRIVER
+                if "fish" in Path(shell[0]).name
+                else NONSTICKY_ANCESTOR_POSIX_DRIVER
+            )
+            case.run(shell, driver)
+            self.assertEqual(case.marker_lines(), ["wrapper"])
 
         self.for_each_shell(scenario)
 

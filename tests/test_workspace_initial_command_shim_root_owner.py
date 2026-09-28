@@ -84,6 +84,14 @@ class WorkspaceInitialCommandShimRootOwner(unittest.TestCase):
         shim_root.mkdir(mode=0o700)
         self.assert_prepended(str(shim_root))
 
+    def test_owned_but_group_or_other_writable_directory_is_not_prepended(self) -> None:
+        for permissions in (0o770, 0o777):
+            with self.subTest(permissions=oct(permissions)):
+                shim_root = self.sandbox / f"shims-{permissions:o}"
+                shim_root.mkdir(mode=permissions)
+                shim_root.chmod(permissions)
+                self.assert_not_on_path(str(shim_root))
+
     def test_symlink_is_not_prepended(self) -> None:
         target = self.sandbox / "target"
         target.mkdir(mode=0o700)
