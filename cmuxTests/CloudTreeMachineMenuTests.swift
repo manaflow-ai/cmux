@@ -520,6 +520,63 @@ struct CloudTreeMachineMenuTests {
         #expect(!portMenu.items.map(\.title).contains(rename))
     }
 
+    /// Another Mac's browser rows carry a tab, so "does this row have a tab"
+    /// lets them through, but the write cannot land: the device provider maps a
+    /// tab rename onto the host's terminal rename verb, which resolves the id
+    /// with `requireTerminal: true` and answers "Terminal surface not found"
+    /// for a browser. Offering a verb that always fails is worse than not
+    /// offering it, so the gate has to know which machine the row is on.
+    @Test("A paired Mac's browser row is not offered a rename it cannot land")
+    func deviceBrowserMenuOffersNoRename() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-device-rename-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        defer { withExtendedLifetime(container) {} }
+
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(
+            deviceID: "22222222-2222-2222-2222-222222222222",
+            tag: "default"
+        ))
+        let browser = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: "surface-9"),
+            title: "Example Domain",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: nil,
+            remoteViews: [],
+            port: nil,
+            url: "https://example.com"
+        )
+        coordinator.apply(nodes: [
+            CloudTreeNode(
+                id: "device-browser-row",
+                kind: .browser(CloudTreeBrowserRow(
+                    resource: browser,
+                    isOpen: false,
+                    workspaceTitle: nil,
+                    // The device projection publishes exactly this: one view per
+                    // browser surface, keyed by the surface id.
+                    remoteView: SurfaceRemoteView(
+                        tabID: "surface-9",
+                        workspace: SurfaceRemoteWorkspace(id: "ws-1", name: "main", index: 0, focused: true),
+                        name: nil
+                    )
+                ))
+            ),
+        ])
+
+        let menu = try #require(coordinator.contextMenu(forRow: 0))
+        #expect(!menu.items.map(\.title).contains(Self.title("cloudTree.menu.rename", "Rename\u{2026}")))
+    }
+
     @Test("expired machines still allow local pinning")
     func expiredMachineCanBePinned() throws {
         let suite = "expired-pin-\(UUID().uuidString)"
