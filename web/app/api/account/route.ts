@@ -75,6 +75,7 @@ import {
   createLegacySubrouterRetirementClient,
   legacySubrouterRetirementConfig,
 } from "../../../services/subrouter/legacyRetirementClient";
+import { OBSERVED_DESTROY_CLEANUP_METADATA_KEY } from "../../../services/vms/repository";
 import {
   destroyVm,
   listUserVms,
@@ -1460,6 +1461,7 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
         id: cloudVms.id,
         billingTeamId: cloudVms.billingTeamId,
         providerVmId: cloudVms.providerVmId,
+        providerMetadata: cloudVms.providerMetadata,
         status: cloudVms.status,
       })
       .from(cloudVms)
@@ -1482,6 +1484,14 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
     if (unsafePersonalVmRows.length > 0) {
       throw new Error(
         `Personal cloud VM provider teardown or creation is still pending for ${unsafePersonalVmRows.length} row${unsafePersonalVmRows.length === 1 ? "" : "s"}`,
+      );
+    }
+    const pendingExternalCleanupRows = personalVmRows.filter((vm) =>
+      vm.status === "destroyed" && hasPendingObservedDestroyCleanup(vm.providerMetadata)
+    );
+    if (pendingExternalCleanupRows.length > 0) {
+      throw new Error(
+        `Personal cloud VM external cleanup is still pending for ${pendingExternalCleanupRows.length} row${pendingExternalCleanupRows.length === 1 ? "" : "s"}`,
       );
     }
     const personalVmIds = personalVmRows.map((vm) => vm.id);
@@ -1631,6 +1641,17 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       eq(vaultCliAuthRequests.userId, userId),
     );
   });
+}
+
+function hasPendingObservedDestroyCleanup(providerMetadata: unknown): boolean {
+  if (!providerMetadata || typeof providerMetadata !== "object" || Array.isArray(providerMetadata)) {
+    return false;
+  }
+  const cleanup = (providerMetadata as Record<string, unknown>)[OBSERVED_DESTROY_CLEANUP_METADATA_KEY];
+  if (!cleanup || typeof cleanup !== "object" || Array.isArray(cleanup)) return false;
+  const marker = cleanup as Record<string, unknown>;
+  return marker.modelPlane === true ||
+    (typeof marker.homeVolume === "string" && marker.homeVolume.trim().length > 0);
 }
 
 function assertNoActivePhonePushDeliveryLease(
