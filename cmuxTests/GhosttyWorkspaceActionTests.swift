@@ -211,6 +211,15 @@ struct GhosttyWorkspaceActionTests {
             let source = try GhosttyWorkspaceActionTestHarness()
             defer { source.close() }
             let surface = try await source.startTerminal()
+            let sourceWorkspace = try #require(source.manager.selectedWorkspace)
+            let sourcePanelID = try #require(sourceWorkspace.focusedPanelId)
+            // Current window-close policy only prompts when closing the window
+            // would discard active work. Keep the assertion focused on routing
+            // by making the source workspace represent a running command.
+            sourceWorkspace.updatePanelShellActivityState(
+                panelId: sourcePanelID,
+                state: .commandRunning
+            )
             let other = try GhosttyWorkspaceActionTestHarness()
             defer { other.close() }
             let originalHandler = source.app.debugCloseMainWindowConfirmationHandler
