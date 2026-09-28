@@ -25,7 +25,7 @@ const AttachmentSchema = z.strictObject({
   delivery: DeliveryStateSchema, outputRevision: revision, closed: z.boolean(),
 });
 type Attachment = z.infer<typeof AttachmentSchema>;
-const TEAM_SOCKET_LIMIT = 4096;
+export const TEAM_SOCKET_LIMIT = 4096;
 
 /** No presence timer, credential timer or cleanup alarm runs in this object. */
 export class TeamControl extends DurableObject<Environment> {
@@ -42,10 +42,19 @@ export class TeamControl extends DurableObject<Environment> {
       reserve: (session, key) => this.reserveSocket(session, key),
       enqueue: (ws, bytes, action) => this.enqueue(ws, bytes, action),
       changed: (result, teamId) => this.scheduleChanges(result, teamId), opening: this.opening,
+      limit: () => this.socketLimit(),
     });
     ctx.blockConcurrencyWhile(async () => { applyStorageMigrations(ctx.storage); });
     // Native WebSocket ping/pong is handled by Cloudflare without waking us.
   }
+
+  /**
+   * One cap for every socket this object holds, native and browser alike, so the
+   * two admission paths cannot drift apart. The runtime suite overrides it
+   * because 4096 live sockets are not reachable under Miniflare; nothing
+   * deployed subclasses this object, so production always reads the constant.
+   */
+  protected socketLimit(): number { return TEAM_SOCKET_LIMIT; }
 
   async fetch(request: Request): Promise<Response> {
     if (new URL(request.url).pathname === "/dashboard/socket") return this.dashboard.fetch(request);
@@ -72,7 +81,7 @@ export class TeamControl extends DurableObject<Environment> {
       if (incoming.path === "/session") return this.json(result.response);
       stage = "accept";
       if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new OperationError("invalid_request", 400);
-      if (this.ctx.getWebSockets().length >= TEAM_SOCKET_LIMIT) throw new OperationError("rate_limited", 429, true, 5000);
+      if (this.ctx.getWebSockets().length >= this.socketLimit()) throw new OperationError("rate_limited", 429, true, 5000);
       const session = result.session;
       const deviceKey = await identityKey(incoming.setup.device);
       this.opening.add(session.sessionId);
