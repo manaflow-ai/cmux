@@ -28,6 +28,12 @@ receipt (`merge_receipt.py`) records it and labels the PR `merged-unverified`. A
 main-regression comment on your PR (`main_regression_attribution.py`) is a
 fix-forward ask.
 
+**Look at the PR media.** App PRs get screenshots and a GIF of their build in
+the dogfood comment ([PR media](../../cmux-testing/references/dogfood-scenarios.md#pr-media)).
+Before merging, confirm they are of the head you merge and look at each frame
+critically; a blank or wrong frame, or no tour that reaches the change, is a
+finding to fix, not a pass.
+
 **Approval.** The main agent owns dogfood, approval, mergeability and every
 pushed fix. Merging app, runtime or UI changes requires the user's explicit
 approval after dogfood, or a direct merge directive that names the merge action

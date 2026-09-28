@@ -50,7 +50,7 @@ public struct AppSection: View {
     @State private var fileEditorCurrentLineHighlight: DefaultsValueModel<Bool>
     @State private var fileEditorTabWidth: DefaultsValueModel<Int>
     @State private var iMessage: DefaultsValueModel<Bool>
-    @State private var reorder: DefaultsValueModel<Bool>
+    @State private var reorder: DefaultsValueModel<WorkspaceAutoReorderMode>
     @State private var dockBadge: DefaultsValueModel<Bool>
     @State private var menuBarOnly: DefaultsValueModel<Bool>
     @State private var showInMenuBar: DefaultsValueModel<Bool>
@@ -656,11 +656,16 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.reorderOnNotification"),
                 String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification"),
-                subtitle: String(localized: "settings.app.reorderOnNotification.subtitle", defaultValue: "Move workspaces to the top when they receive a notification. Disable for stable shortcut positions.")
+                subtitle: String(localized: "settings.app.reorderOnNotification.modeSubtitle", defaultValue: "Move workspaces to the top when they receive a notification. Agent Activity also moves them when an agent finishes a turn, needs input, or fails, but never while you point at the sidebar. Off keeps shortcut positions stable."),
+                controlWidth: Self.columnWidth
             ) {
-                Toggle("", isOn: Binding(get: { reorder.current }, set: { reorder.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
+                Picker("", selection: Binding(get: { reorder.current }, set: { reorder.set($0) })) {
+                    Text(String(localized: "settings.app.reorderOnNotification.mode.off", defaultValue: "Off")).tag(WorkspaceAutoReorderMode.off)
+                    Text(String(localized: "settings.app.reorderOnNotification.mode.notifications", defaultValue: "Notifications")).tag(WorkspaceAutoReorderMode.notifications)
+                    Text(String(localized: "settings.app.reorderOnNotification.mode.agentActivity", defaultValue: "Agent Activity")).tag(WorkspaceAutoReorderMode.agentActivity)
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
             }
             SettingsCardDivider()
 
