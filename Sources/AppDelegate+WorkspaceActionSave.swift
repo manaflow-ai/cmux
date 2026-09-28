@@ -143,16 +143,16 @@ struct ActionsAndLaunchersDiscoveryModel: Equatable {
 extension AppDelegate {
     static var actionsAndLaunchersMenuTitle: String {
         String(
-            localized: "debug.titlebarLayoutDebug.actions",
-            defaultValue: "Actions"
-        ) + " · cmux.json…"
+            localized: "actions.discovery.menuTitle",
+            defaultValue: "Actions · cmux.json…"
+        )
     }
 
     private static var actionsAndLaunchersDialogTitle: String {
         String(
-            localized: "debug.titlebarLayoutDebug.actions",
-            defaultValue: "Actions"
-        ) + " · cmux.json"
+            localized: "actions.discovery.dialogTitle",
+            defaultValue: "Actions · cmux.json"
+        )
     }
 
     func presentActionsAndLaunchersCustomization(preferredWindow: NSWindow? = nil) {
@@ -195,12 +195,12 @@ extension AppDelegate {
             text: model.summaryText,
             entryCount: model.entries.count
         )
-        let openLabel = String(
-            localized: "settings.settingsJSON.openButton",
-            defaultValue: "Open"
-        )
-        let globalPath = (cmuxConfigStore.globalConfigPath as NSString).abbreviatingWithTildeInPath
-        alert.addButton(withTitle: "\(openLabel) \(globalPath)")
+        // The path is already shown in informativeText; keep the button label
+        // short and fully localized.
+        alert.addButton(withTitle: String(
+            localized: "menu.app.openCmuxSettingsFile",
+            defaultValue: "Open cmux.json"
+        ))
         alert.addButton(withTitle: String(
             localized: "settings.settingsJSON.docsButton",
             defaultValue: "Open Docs"
