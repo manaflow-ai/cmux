@@ -1554,11 +1554,14 @@ jobs:
     # them, one per idle runner (scripts/ci/late_placement.py). They reuse
     # admission's uploaded products there, as after an owned admission. Any
     # failure outputs {} and leaves every job where the picker put it.
+    # It also moves owned gui-token jobs to pr_retry_runner (Blacksmith) when
+    # the gui runners' queue is more than a round long (late_placement.py
+    # "Overflow off a full gui pool"), so it runs after an owned admission too.
     # Pull requests only: main's full-suite dispatch already runs on the owned
     # pools and keeps CI_OWNED_MAIN_RESERVE's machines for pull requests.
     needs:
       - macos-compile-admission
-    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && github.run_attempt == 1 && github.repository_owner == 'manaflow-ai' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (!startsWith(needs.macos-compile-admission.outputs.runner, 'glaeda-') || !contains(inputs.pr_owned_jobs, ' cli-product ')) }}
+    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && github.run_attempt == 1 && github.repository_owner == 'manaflow-ai' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 3
     permissions:
@@ -1566,7 +1569,8 @@ jobs:
     outputs:
       # Only jobs the rescue watch can find move: a marker that failed to
       # upload leaves every job where the picker put it.
-      runners: ${{ steps.late-marker.outcome == 'success' && steps.late-watch-marker.outcome == 'success' && steps.place.outputs.runners || '{}' }}
+      # Jobs moved only to Blacksmith (the gui overflow) need no marker.
+      runners: ${{ (steps.place.outputs.onto_owned == 'false' || steps.late-marker.outcome == 'success' && steps.late-watch-marker.outcome == 'success') && steps.place.outputs.runners || '{}' }}
     steps:
       # The picker's code from the base branch, as ci.yml's changes job uses it.
       - name: Check out the trusted picker
@@ -1586,6 +1590,8 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
+          # The gui backlog: the jobs of in-flight CI runs (late_placement.gui_backlog()).
+          permission-actions: read
       # All or nothing: without the org permission granted, the repository one alone.
       - name: Mint the routing token without the org permission
         id: route-token-repo
@@ -1597,6 +1603,7 @@ jobs:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
+          permission-actions: read
       - name: Place the jobs after admission
         id: place
         continue-on-error: true
@@ -1614,20 +1621,23 @@ jobs:
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           ADMISSION_RUNNER: ${{ needs.macos-compile-admission.outputs.runner }}
           ADMISSION_XCODE_APP: ${{ needs.macos-compile-admission.outputs.xcode_app }}
+          # Where owned gui-token jobs go when the gui runners' queue is past a round.
+          RETRY_RUNNER: ${{ inputs.pr_retry_runner }}
+          POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
         run: python3 scripts/ci/late_placement.py
       # A moved job waits for a root runner, which another run may take first.
       # The rescue sweeper finds this run by the fixed-name marker below, and
       # this marker tells it jobs moved (owned_pool_rescue.py,
       # LATE_MARKER_PREFIX), so it watches them like any owned job.
       - name: Record the moved jobs
-        if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}'
+        if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}' && steps.place.outputs.onto_owned != 'false'
         continue-on-error: true
         env:
           RUNNERS: ${{ steps.place.outputs.runners }}
         run: mkdir -p "$RUNNER_TEMP/late-placement" && printf '%s\n' "$RUNNERS" > "$RUNNER_TEMP/late-placement/runners.json"
       - name: Upload the late placement marker
         id: late-marker
-        if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}'
+        if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}' && steps.place.outputs.onto_owned != 'false'
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -1638,7 +1648,7 @@ jobs:
       # The rescue sweeper finds late-placed runs by this fixed name.
       - name: Upload the late owned-pool watch marker
         id: late-watch-marker
-        if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}' && github.run_attempt == 1
+        if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}' && steps.place.outputs.onto_owned != 'false' && github.run_attempt == 1
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
