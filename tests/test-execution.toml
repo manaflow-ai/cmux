@@ -993,7 +993,7 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_agents_command_fixture.py"
-lane = "legacy"
+lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_current_command_fixture.py"
