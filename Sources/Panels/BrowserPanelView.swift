@@ -7480,11 +7480,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         webView: WKWebView
     ) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
-        guard Self.isCurrentPaneOwner(
-            panel: panel,
-            paneId: paneId,
-            paneOwnershipOverride: paneOwnershipOverride
-        ) else { return false }
         host.setWindowPortalHosting(false)
         let slotView = host.ensureLocalInlineSlotView()
         slotView.setDesignComposer(designComposer)
@@ -7524,6 +7519,16 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
             applyAttachmentPresentation(host, webView: webView, hostOwnsWebView: ownsWebView)
         }
+
+        // Resolve ownership before any transfer or pin operation. The callback
+        // remains installed so a host that becomes authorized on a later
+        // representable update can still reconcile, while stale hosts return
+        // without moving the shared web view.
+        guard Self.isCurrentPaneOwner(
+            panel: panel,
+            paneId: paneId,
+            paneOwnershipOverride: paneOwnershipOverride
+        ) else { return false }
 
         if panel.releasePortalHostIfOwned(
             hostId: ObjectIdentifier(host),
