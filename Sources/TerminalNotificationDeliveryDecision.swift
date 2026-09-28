@@ -9,7 +9,8 @@ struct TerminalNotificationDeliveryDecision: Equatable, Sendable {
         isFocusedSurface: Bool,
         isMuted: Bool,
         soundWhenFocused: Bool,
-        effects: TerminalNotificationPolicyEffects
+        effects: TerminalNotificationPolicyEffects,
+        suppressWhenAppFocused: Bool = false
     ) -> Self {
         if isMuted {
             // A workspace mute drops every effect before history, badges,
@@ -18,6 +19,14 @@ struct TerminalNotificationDeliveryDecision: Equatable, Sendable {
         }
 
         guard isAppFocused, isActiveTab, isFocusedSurface else {
+            if isAppFocused, suppressWhenAppFocused {
+                // `notifications.suppressWhenAppFocused`: cmux is the active
+                // app, so skip the banner but keep the sound, pane flash,
+                // and custom command for this arrival.
+                var appFocusedEffects = effects
+                appFocusedEffects.desktop = false
+                return Self(disposition: .focusedInline, effects: appFocusedEffects)
+            }
             return Self(disposition: .externalDelivery, effects: effects)
         }
 
