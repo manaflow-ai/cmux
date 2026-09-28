@@ -11,7 +11,7 @@
     {"wait": 1},
     {"expect": {"id": "SidebarWorkspaceChecklistPopover"}},
     {"shot": "popover-open"},
-    {"clickAt": {"x": 0.65, "y": 0.6}},
+    {"clickAt": {"x": 0.9, "y": 0.85}},
     {"wait": 2},
     {"expect": {"id": "SidebarWorkspaceChecklistPopover"}, "exists": false},
     {"shot": "after-click-away"},
@@ -27,7 +27,7 @@
     {"wait": 1},
     {"expect": {"id": "SidebarWorkspaceChecklistPopover"}},
     {"shot": "reopened-after-toggle"},
-    {"clickAt": {"x": 0.65, "y": 0.6}},
+    {"clickAt": {"x": 0.9, "y": 0.85}},
     {"wait": 2},
     {"expect": {"id": "SidebarWorkspaceChecklistPopover"}, "exists": false},
     {"shot": "end", "screen": true}

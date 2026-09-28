@@ -128,6 +128,7 @@ struct SidebarRowSwiftUIPopoverPresenterTests {
         host.present(presenter)
         #expect(presenter.isShown)
         #expect(!presenter.isClosing, "Presenting again supersedes the close in flight")
+        #expect(clock.sleeperCount == 0, "Presenting again cancels the superseded fallback")
 
         // The old deadline passing must not abandon the popover now showing.
         clock.advance(by: .seconds(1))

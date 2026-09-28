@@ -408,6 +408,8 @@ struct SidebarWorkspaceRowSuspensionTests {
         #expect(restored, "A popover that survives a reparent should animate its later close again")
         #expect(popoverWindow.isVisible)
         #expect(presentationChanges.isEmpty)
+        section.popoverPresenter.onExternalDismiss = nil
+        section.popoverPresenter.close()
     }
 
     @Test

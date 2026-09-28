@@ -84,6 +84,7 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
         closeCompletionFallback.cancel()
         closeCompletionFallbackTarget = nil
         isClosing = false
+        closingProgrammatically = false
         presentationCount += 1
         applyRootView(root)
         popover.show(relativeTo: rect, of: view, preferredEdge: preferredEdge)
