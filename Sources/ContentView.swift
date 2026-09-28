@@ -908,6 +908,26 @@ struct ContentView: View {
     /// updated from its change notification. This view is the window root,
     /// so it cannot read the accent from its own environment modifier.
     @State private var cmuxAccent = AppDelegate.shared?.accentColor ?? CmuxAccentColor()
+    /// Terminal theme foreground, which colors pane flashes when no flash
+    /// color is configured. Updated from the default appearance notification.
+    @State private var terminalThemeForeground = GhosttyApp.shared.defaultForegroundColor
+
+    private var resolvedWorkspaceAttentionColor: WorkspaceAttentionColor {
+        resolveWorkspaceAttentionColor()
+    }
+
+    private func resolveWorkspaceAttentionColor(
+        configuredHex: String?? = nil,
+        accent: CmuxAccentColor? = nil,
+        themeForeground: NSColor? = nil
+    ) -> WorkspaceAttentionColor {
+        WorkspaceAttentionColor(
+            configuredHex: configuredHex ?? paneFlashColorHex,
+            accent: accent ?? cmuxAccent,
+            themeForeground: themeForeground ?? terminalThemeForeground
+        )
+    }
+
     /// Canonical sidebar width, deliberately NOT observed by ContentView:
     /// divider ticks re-evaluate only the SidebarWidthReader wrappers that
     /// consume the width, never this body. All reads/writes outside view
@@ -1181,7 +1201,7 @@ struct ContentView: View {
                 activePaneBorderColorHex: nil,
                 flashToken: workspace.tmuxWorkspaceFlashToken,
                 flashReason: workspace.tmuxWorkspaceFlashReason,
-                workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: paneFlashColorHex, accent: cmuxAccent)
+                workspaceAttentionColor: resolvedWorkspaceAttentionColor
             )
         }
 
@@ -1193,7 +1213,7 @@ struct ContentView: View {
             activePaneBorderColorHex: activePaneBorderRect == nil ? nil : resolvedActivePaneBorderColorHex,
             flashToken: workspace.tmuxWorkspaceFlashToken,
             flashReason: workspace.tmuxWorkspaceFlashReason,
-            workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: paneFlashColorHex, accent: cmuxAccent)
+            workspaceAttentionColor: resolvedWorkspaceAttentionColor
         )
     }
 
@@ -2825,6 +2845,18 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
+            if let foreground = notification.userInfo?[GhosttyNotificationKey.foregroundColor] as? NSColor,
+               foreground.hexString() != terminalThemeForeground.hexString() {
+                terminalThemeForeground = foreground
+                if let window = observedWindow {
+                    WindowTmuxWorkspacePaneOverlayController.controller(
+                        for: window,
+                        createIfNeeded: false
+                    )?.updateWorkspaceAttentionColor(
+                        resolveWorkspaceAttentionColor(themeForeground: foreground)
+                    )
+                }
+            }
             let payloadHex = (notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString()
             let eventId = (notification.userInfo?[GhosttyNotificationKey.backgroundEventId] as? NSNumber)?.uint64Value
             let source = notification.userInfo?[GhosttyNotificationKey.backgroundSource] as? String
@@ -2907,7 +2939,7 @@ struct ContentView: View {
                 for: window,
                 createIfNeeded: false
             )?.updateWorkspaceAttentionColor(
-                WorkspaceAttentionColor(configuredHex: newValue, accent: cmuxAccent)
+                resolveWorkspaceAttentionColor(configuredHex: newValue)
             )
         })
 
@@ -2919,7 +2951,7 @@ struct ContentView: View {
                 for: window,
                 createIfNeeded: false
             )?.updateWorkspaceAttentionColor(
-                WorkspaceAttentionColor(configuredHex: paneFlashColorHex, accent: observer.current)
+                resolveWorkspaceAttentionColor(accent: observer.current)
             )
         })
 
@@ -3485,7 +3517,7 @@ struct ContentView: View {
             view
                 .environment(
                     \.workspaceAttentionColor,
-                    WorkspaceAttentionColor(configuredHex: paneFlashColorHex, accent: cmuxAccent)
+                    resolvedWorkspaceAttentionColor
                 )
                 .cmuxAppearanceColorScheme(appearanceMode)
         )

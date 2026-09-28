@@ -223,6 +223,24 @@ struct PaneAttentionColorTests {
         )
     }
 
+    @Test
+    func flashFollowsThemeForegroundWhenUnset() {
+        let color = WorkspaceAttentionColor(
+            configuredHex: nil,
+            themeForeground: NSColor(hex: "#CDD6F4")
+        )
+        #expect(color.flashNSColor.hexString() == "#CDD6F4")
+        #expect(color.flashNSColor.alphaComponent == WorkspaceAttentionColor.themeForegroundFlashAlpha)
+        #expect(color.nsColor.hexString() == NSColor.systemBlue.hexString())
+    }
+
+    @Test
+    func configuredHexOverridesThemeForegroundForFlash() {
+        let color = WorkspaceAttentionColor(configuredHex: "#ff69b4", themeForeground: .white)
+        #expect(color.flashNSColor.hexString() == "#FF69B4")
+        #expect(color.flashNSColor.alphaComponent == 1)
+    }
+
     @Test(arguments: ["not-a-color", "#FFZZZZ", "FF69B4", "#FF69B4AA"])
     func rejectsValuesOutsideSchema(configuredHex: String) {
         #expect(

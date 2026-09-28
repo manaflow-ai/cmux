@@ -73,7 +73,7 @@ struct TmuxWorkspacePaneOverlayView: View {
                 rect: flashRect,
                 opacity: opacity,
                 reason: flashReason ?? .notificationArrival,
-                color: attentionColor
+                color: Color(nsColor: workspaceAttentionColor.flashNSColor)
             )
         }
     }

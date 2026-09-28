@@ -1116,7 +1116,7 @@ enum CmuxEmbeddedConfigSchema {
           "$ref": "#/$defs/colorHexOrNull",
           "default": null,
           "descriptionKey": "schemaDescriptions.notifications.paneFlashColor",
-          "description": "Override the pane flash and unread ring color. Null keeps the built-in blue."
+          "description": "Override the pane flash and unread ring color. Null flashes in the terminal theme's foreground and keeps unread rings in the cmux accent."
         },
         "suppressOnlyFocusedSurface": {
           "x-cmux-scopes": ["global"],
