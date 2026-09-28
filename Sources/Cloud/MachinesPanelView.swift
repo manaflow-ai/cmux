@@ -200,7 +200,8 @@ struct MachinesPanelView: View {
             listError: viewModel.lastErrorDescription,
             treeError: viewModel.treeErrorDescription,
             plan: viewModel.plan,
-            onDismissStale: { bannerDismissals.dismiss(id: "machines.stale", signature: $0) }
+            onDismissStale: { bannerDismissals.dismiss(id: "machines.stale", signature: $0) },
+            performListStatusAction: performListStatusAction
         )
     }
 
