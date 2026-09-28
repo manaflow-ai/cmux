@@ -1,5 +1,6 @@
 import AppKit
 import CmuxBrowser
+import CmuxCore
 import WebKit
 import XCTest
 
@@ -178,6 +179,43 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
     }
 
+    /// A remote workspace pane restores by loading its URL, which waits while
+    /// the workspace's proxy is reconnecting. The typed input must still come
+    /// back once that queued load runs.
+    func testRemotePaneRestoreQueuedForProxyRefillsTypedInput() throws {
+        let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 9876)
+        let (panel, _, pageB) = try loadScrolledFormPage { url in
+            let workspaceId = UUID()
+            return BrowserPanel(
+                workspaceId: workspaceId,
+                initialURL: url,
+                proxyEndpoint: endpoint,
+                isRemoteWorkspace: true,
+                remoteWebsiteDataStoreIdentifier: workspaceId
+            )
+        }
+        defer { panel.close() }
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden")
+        let discardedWebView = panel.webView
+        XCTAssertTrue(panel.discardHiddenWebViewForSystemMemoryPressure())
+        discardedWebView.removeFromSuperview()
+
+        panel.setRemoteProxyEndpoint(nil)
+        host(panel.webView)
+        panel.noteWebViewVisibility(true, reason: "test.visible")
+        XCTAssertTrue(panel.hasPendingRemoteNavigation)
+
+        panel.setRemoteProxyEndpoint(endpoint)
+        waitForPage(panel, url: pageB, timeout: 10)
+        waitUntil("typed input restored", timeout: 10) {
+            (self.evaluate(
+                "document.getElementById('name').value + '|' + document.getElementById('notes').value",
+                in: panel.webView
+            ) as? String) == "typed name|typed notes"
+        }
+    }
+
     /// A back/forward cache return keeps the typed input on screen, but its
     /// commit clears the pane's copy, so the page must report it again.
     func testBackForwardCacheReturnReportsTypedInputAgain() throws {
@@ -202,8 +240,11 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
     }
 
     /// Loads page A, then a scrolled page B with typed form input, and returns
-    /// the hosted panel showing B.
-    private func loadScrolledFormPage() throws -> (panel: BrowserPanel, pageA: URL, pageB: URL) {
+    /// the hosted panel showing B. `makePanel` builds the panel for page A; a
+    /// local workspace panel by default.
+    private func loadScrolledFormPage(
+        makePanel: ((URL) -> BrowserPanel)? = nil
+    ) throws -> (panel: BrowserPanel, pageA: URL, pageB: URL) {
         let pageA = fixtureDirectory.appendingPathComponent("a.html")
         let pageB = fixtureDirectory.appendingPathComponent("b.html")
         try "<html><head><title>A</title></head><body>A</body></html>"
@@ -216,7 +257,8 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         </body></html>
         """.write(to: pageB, atomically: true, encoding: .utf8)
 
-        let panel = BrowserPanel(workspaceId: UUID(), initialURL: pageA, isRemoteWorkspace: false)
+        let panel = makePanel?(pageA)
+            ?? BrowserPanel(workspaceId: UUID(), initialURL: pageA, isRemoteWorkspace: false)
         host(panel.webView)
         waitForPage(panel, url: pageA)
 

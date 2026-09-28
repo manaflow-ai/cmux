@@ -135,6 +135,64 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
         XCTAssertNotEqual(panel.webViewLifecycleState, .discarded)
     }
 
+    /// A popup the page opens is built from the opener's configuration, so it
+    /// shares the opener's content controller and its reports reach the
+    /// opener's handlers. They must not replace the opener's typed input or
+    /// keep the opener from being discarded.
+    func testPopupReportsDoNotChangeOpenerPageState() throws {
+        let panel = try loadPage(body: #"<form><input id="name" type="text"></form>"#)
+        defer { panel.close() }
+        typeValue("opener draft", intoFieldWithID: "name", in: panel)
+        waitUntil("opener input reported") {
+            panel.pageRestoration.liveFormState?.fields.contains { $0.value == "opener draft" } == true
+        }
+
+        let popupPage = fixtureDirectory.appendingPathComponent("popup.html")
+        try "<html><head><title>Popup</title></head><body>popup</body></html>"
+            .write(to: popupPage, atomically: true, encoding: .utf8)
+        let popup = WKWebView(frame: .zero, configuration: panel.webView.configuration)
+        hostWindow.contentView?.addSubview(popup)
+        defer { popup.removeFromSuperview() }
+        popup.loadFileURL(popupPage, allowingReadAccessTo: fixtureDirectory)
+        waitUntil("popup load") {
+            popup.url?.standardizedFileURL == popupPage.standardizedFileURL && !popup.isLoading
+        }
+
+        _ = evaluate(
+            """
+            window.webkit.messageHandlers.cmuxFormState.postMessage({
+              url: String(location.href),
+              fields: [{ k: "id:name", v: "popup value" }],
+              unrestorable: true
+            });
+            true;
+            """,
+            in: popup,
+            contentWorld: .browserFormState
+        )
+        _ = evaluate(
+            """
+            window.webkit.messageHandlers.cmuxMediaPlayback.postMessage(
+              { frameID: "popup-frame", playing: true, audible: true, pip: true }
+            );
+            true;
+            """,
+            in: popup,
+            contentWorld: BrowserPanel.mediaPlaybackContentWorld
+        )
+        // WebKit delivers a page's script messages before the result of a
+        // later evaluation in the same page.
+        _ = evaluate("true", in: popup, contentWorld: .browserFormState)
+        _ = evaluate("true", in: popup, contentWorld: BrowserPanel.mediaPlaybackContentWorld)
+
+        XCTAssertEqual(panel.pageRestoration.liveFormState?.fields.compactMap(\.value), ["opener draft"])
+        XCTAssertFalse(panel.pageRestoration.hasUnrestorableLiveInput)
+        XCTAssertFalse(panel.isPlayingMedia)
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden")
+        XCTAssertTrue(panel.discardHiddenWebViewForMemoryBudget(now: Date().addingTimeInterval(3600)))
+    }
+
     func testKeepActivePinBlocksDiscardAndSurvivesSessionRestore() throws {
         let panel = try loadPage(body: "<p>pinned</p>")
         defer { panel.close() }
