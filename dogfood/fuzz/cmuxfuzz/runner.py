@@ -374,12 +374,14 @@ class Fuzzer:
                 self.log(f"cua-driver daemon unavailable ({error}): pointer actions off")
                 self.cua = None
         self.stopping = False
+        self._capturing = False
         signal.signal(signal.SIGTERM, self._on_term)
         signal.signal(signal.SIGINT, self._on_term)
 
     def _on_term(self, signum, frame):
         self.stopping = True
-        raise Stop()
+        if not self._capturing:  # minimization checks `stopping` between replays and still writes the finding
+            raise Stop()
 
     def new_session(self, workdir: Path) -> tuple[AppSession, Context]:
         session = AppSession(self.app, tag=self.tag, workdir=workdir)
@@ -486,6 +488,16 @@ class Fuzzer:
         sig = result.failure.signature
         prefix = planned[: result.failed_step]
         self.log(f"minimizing {len(prefix)} steps (budget {minimize_minutes:g} min)")
+        self._capturing = True
+        try:
+            return self._minimize_and_record(workdir, session_seed, prefix, result, sig, minimize_minutes)
+        finally:
+            self._capturing = False
+
+    def _minimize_and_record(self, workdir: Path, session_seed: int, prefix: list[dict], result: SessionResult,
+                             sig: Signature, minimize_minutes: float) -> dict:
+        # One budget for the whole capture, the first replay of the plain prefix included.
+        budget_end = time.monotonic() + minimize_minutes * 60
         attempts = workdir / "minimize"
         counter = {"n": 0}
 
@@ -495,8 +507,7 @@ class Fuzzer:
 
         # First: does the plain prefix reproduce at all? A flaky failure is kept unminimized.
         if check(prefix):
-            mini = ddmin(prefix, check, max_replays=80, deadline=time.monotonic() + minimize_minutes * 60,
-                         stop=lambda: self.stopping)
+            mini = ddmin(prefix, check, max_replays=80, deadline=budget_end, stop=lambda: self.stopping)
             steps, exhausted, reproducible = mini.steps, mini.exhausted, True
             (workdir / "minimize.log").write_text("\n".join(mini.log))
         else:

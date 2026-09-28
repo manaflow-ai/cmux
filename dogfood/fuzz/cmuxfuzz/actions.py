@@ -64,6 +64,7 @@ _TITLES = ["build", "", "  spaced  ", "שלום", "日本語のワークスペ�
 _SHORTCUTS = [
     "cmd+d", "cmd+shift+d", "cmd+shift+enter", "cmd+ctrl+=", "cmd+opt+left", "cmd+opt+right",
     "cmd+opt+up", "cmd+opt+down", "ctrl+shift+h", "ctrl+shift+l", "ctrl+shift+j", "ctrl+shift+k",
+    "cmd+ctrl+w",
     "cmd+t", "cmd+w", "cmd+shift+]", "cmd+shift+[", "cmd+1", "cmd+2", "cmd+9", "cmd+b",
     "cmd+shift+p", "escape", "cmd+n", "cmd+shift+w", "cmd+k", "cmd+plus", "cmd+minus", "cmd+0",
 ]
@@ -430,7 +431,9 @@ class Executor:
         tree = self.tree()
         if combo == "cmd+w" and self.total_surfaces(tree) <= 1:
             raise Skip("last surface")
-        if combo == "cmd+shift+w" and len(tree.get("windows") or []) <= 1:
+        if combo == "cmd+shift+w" and len(self.current_window(tree).get("workspaces") or []) <= 1:
+            raise Skip("last workspace")  # Cmd+Shift+W closes the workspace
+        if combo == "cmd+ctrl+w" and len(tree.get("windows") or []) <= 1:
             raise Skip("last window")
         self.shortcut(combo)
         return ""

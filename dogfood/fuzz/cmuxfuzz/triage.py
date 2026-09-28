@@ -44,7 +44,9 @@ def _local_names() -> list[str]:
         names.update({host, host.split(".")[0]})
     with _quiet():
         names.add(getpass.getuser())
-    return sorted((n for n in names if n and len(n) >= 3), key=len, reverse=True)
+    # Never a name the issue needs: the repository, the product, the marker (a mini's user is `cmux`).
+    keep = f"{REPO} {MARKER} {MEDIA_BRANCH} cmux"
+    return sorted((n for n in names if n and len(n) >= 3 and n.lower() not in keep.lower()), key=len, reverse=True)
 
 
 class _quiet:
