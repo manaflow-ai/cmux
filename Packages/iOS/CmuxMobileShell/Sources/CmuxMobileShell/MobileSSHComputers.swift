@@ -917,6 +917,11 @@ public final class MobileSSHComputers {
         case SSHConnectionError.authenticationFailed: L10nSSH().authFailed
         case SSHConnectionError.hostKeyRejected: L10nSSH().hostKeyRejected
         case MobileSSHRuntimeError.noKey: L10nSSH().noKey
+        // A deleted key leaves the host's `keyID` pointing at a secret that is
+        // gone, so loading it throws `missingSecret`; that is the same user
+        // situation as no key, so it reads as the "choose a key" sentence
+        // rather than the raw enum case name.
+        case SSHKeyStoreError.missingSecret: L10nSSH().noKey
         case SSHConnectionError.channelRequestRejected(let request):
             ["pty-req", "shell"].contains(request) ? L10nSSH().terminalRefused : L10nSSH().requestRefused(detail: request)
         case MobileSSHRuntimeError.tmuxMissing: L10nSSH().tmuxMissing
