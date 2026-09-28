@@ -99,6 +99,8 @@ When macOS reports critical memory pressure, cmux can run the same protected tea
 
 cmux sends `SIGTERM` to the agent's process group (scoped to that workspace and surface), then swaps the live terminal for a lightweight placeholder, releasing the terminal's memory and CPU. When you visit the tab again, cmux runs the agent's native resume command with the saved session ID, so the session continues where it left off. The placeholder also shows a Resume button as a manual fallback.
 
+A workspace with hibernated agents shows a moon row (**Agent hibernated**, or a count) in the sidebar, Task Manager marks each hibernated terminal as **Hibernated** and dims it, and the menu bar menu shows how many agents are hibernated across all windows. `cmux top --json` reports `agent_hibernated` on each surface.
+
 ### Enable and configure
 
 Enable routine hibernation from the command palette (`⌘⇧P` -> **Enable Agent Hibernation**), from **Settings > Terminal > Agent Hibernation**, or from the CLI:

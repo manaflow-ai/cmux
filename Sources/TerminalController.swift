@@ -3635,7 +3635,9 @@ class TerminalController {
             "webviews": []
         ]
 
-        guard let browserPanel = workspace.controlSurfaceTarget(for: surface.surfaceID)?.panel as? BrowserPanel else {
+        let panel = workspace.controlSurfaceTarget(for: surface.surfaceID)?.panel
+        item["agent_hibernated"] = (panel as? TerminalPanel)?.isAgentHibernated ?? false
+        guard let browserPanel = panel as? BrowserPanel else {
             item["url"] = surface.isBrowser ? (surface.url ?? "") : NSNull()
             item["browser_web_content_pid"] = NSNull()
             return item

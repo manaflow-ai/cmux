@@ -95,7 +95,12 @@ final class TerminalPanel: Panel, ObservableObject {
     /// (hostedView.window == nil) until the user switches workspaces.
     @Published var viewReattachToken: UInt64 = 0
 
-    @Published var agentHibernationPhase: AgentHibernationPanelPhase = .live
+    @Published var agentHibernationPhase: AgentHibernationPanelPhase = .live {
+        didSet {
+            guard oldValue.isCommitted != agentHibernationPhase.isCommitted else { return }
+            NotificationCenter.default.post(name: .terminalPanelAgentHibernationDidChange, object: self)
+        }
+    }
     /// A native cloud pane's live attachment state (nil for local terminals).
     /// Written only by the owning cloud session; the view shows it.
     var cloudAttachment: CloudTerminalAttachmentStatus?

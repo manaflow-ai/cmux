@@ -10850,8 +10850,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             },
             onQuitApp: {
                 AppDelegate.requestApplicationTermination()
+            },
+            hibernatedAgentCount: { [weak self] in
+                self?.hibernatedAgentCountAcrossWindows() ?? 0
             }
         )
+    }
+
+    private func hibernatedAgentCountAcrossWindows() -> Int {
+        var managers = mainWindowContexts.values.map(\.tabManager)
+        if let tabManager, !managers.contains(where: { $0 === tabManager }) {
+            managers.append(tabManager)
+        }
+        return managers.reduce(0) { total, manager in
+            total + manager.tabs.reduce(0) { $0 + $1.hibernatedAgentPanelCount }
+        }
     }
 
     func toggleGlobalSearchPalette() {

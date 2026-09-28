@@ -137,6 +137,8 @@ extension Workspace {
             SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
         )
         let statusSnapshots = statusEntries.values
+            // Derived from panel state, so a restore recomputes it.
+            .filter { $0.key != Self.agentHibernatedStatusKey }
             .sorted { lhs, rhs in lhs.key < rhs.key }
             .map { entry in
                 SessionStatusEntrySnapshot(
@@ -4325,6 +4327,19 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 self.reapplySurfaceTabBarButtonsForFeatureFlags()
             }
         }
+        agentHibernationObserver = NotificationCenter.default.addObserver(
+            forName: .terminalPanelAgentHibernationDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            guard let panel = notification.object as? TerminalPanel else { return }
+            // TerminalPanel is main-actor isolated, so this runs on the main
+            // thread; refreshing synchronously keeps the row in step with the pane.
+            MainActor.assumeIsolated { [weak self] in
+                guard let self, !self.isRetiredFromOwningTabManager, panel.workspaceId == self.id else { return }
+                self.refreshAgentHibernationStatusEntry()
+            }
+        }
         // `BrowserAvailabilityMonitor` owns watching the gate's several
         // entrypoints and broadcasts only a real transition, so the tab bar
         // rebuilds on an actual availability change rather than on every
@@ -4342,6 +4357,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     private var sharedLiveAgentIndexObserver: NSObjectProtocol?
+    private var agentHibernationObserver: NSObjectProtocol?
 
     deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {
@@ -4353,6 +4369,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         if let sharedLiveAgentIndexObserver {
             NotificationCenter.default.removeObserver(sharedLiveAgentIndexObserver)
+        }
+        if let agentHibernationObserver {
+            NotificationCenter.default.removeObserver(agentHibernationObserver)
         }
         if let featureFlagsObserver {
             NotificationCenter.default.removeObserver(featureFlagsObserver)
@@ -10644,6 +10663,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             NotificationCenter.default.removeObserver(sharedLiveAgentIndexObserver)
             self.sharedLiveAgentIndexObserver = nil
         }
+        if let agentHibernationObserver {
+            NotificationCenter.default.removeObserver(agentHibernationObserver)
+            self.agentHibernationObserver = nil
+        }
         if let featureFlagsObserver {
             NotificationCenter.default.removeObserver(featureFlagsObserver)
             self.featureFlagsObserver = nil
@@ -11244,6 +11267,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         if let terminalPanel = detached.panel as? TerminalPanel {
             terminalPanel.updateWorkspaceId(id)
+            if terminalPanel.isAgentHibernated {
+                refreshAgentHibernationStatusEntry()
+            }
             configureTerminalPanel(terminalPanel)
             terminalPanel.fontSizePanelTransfer?.attach(
                 to: self
