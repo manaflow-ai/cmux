@@ -45,11 +45,11 @@ describe("Mobile devices controller", () => {
     const calls: Request[] = [];
     globalThis.fetch = (async (input, init) => { calls.push(new Request(input, init)); return Response.json({ schemaId: "dashboard.ready.v1", requestId: "r", ticket: { token: "body.signature", expiresAt: 3600, refreshAfter: 3300 } }); }) as typeof fetch;
     globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
-    const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "stack-token", onDirectory: () => {}, onError: () => {} });
+    const controller = new V2DashboardController({ origin: "https://cmux-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "stack-token", onDirectory: () => {}, onError: () => {} });
     const pending = controller.start();
     const socket = await FakeSocket.waitForInstance();
     expect(calls[0]?.headers.get("authorization")).toBe("Bearer stack-token");
-    expect(calls[0]?.url).toBe("https://cmux-iroh-v2-staging.debussy.workers.dev/v2/dashboard/session");
+    expect(calls[0]?.url).toBe("https://cmux-v2-staging.debussy.workers.dev/v2/dashboard/session");
     expect(socket?.protocols).toEqual(["cmux-v2-dashboard", "ticket.body.signature"]);
     socket?.open();
     await pending;
@@ -60,7 +60,7 @@ describe("Mobile devices controller", () => {
   test("acknowledges delivery receipts without opening another request", async () => {
     globalThis.fetch = (async () => Response.json({ schemaId: "dashboard.ready.v1", requestId: "r", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 3300 } })) as typeof fetch;
     globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
-    const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} });
+    const controller = new V2DashboardController({ origin: "https://cmux-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} });
     const pending = controller.start();
     const socket = await FakeSocket.waitForInstance(); socket.open();
     socket.message({ schemaId: "directory.changed.v1", teamId: "t", revision: 1, deliveryReceipt: { sequence: 7, token: "receipt" } });
@@ -73,7 +73,7 @@ describe("Mobile devices controller", () => {
     globalThis.fetch = (async () => Response.json({ schemaId: "dashboard.ready.v1", requestId: "r", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 3300 } })) as typeof fetch;
     globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
     const directories: unknown[] = [];
-    const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: value => directories.push(value), onError: () => {} });
+    const controller = new V2DashboardController({ origin: "https://cmux-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: value => directories.push(value), onError: () => {} });
     const pending = controller.start();
     const socket = await FakeSocket.waitForInstance(); socket.open();
     const directoryRequest = JSON.parse(await socket.waitForSent(0));
@@ -92,7 +92,7 @@ describe("Mobile devices controller", () => {
     globalThis.fetch = (async () => Response.json({ schemaId: "dashboard.ready.v1", requestId: "r", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 3300 } })) as typeof fetch;
     globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
     const directories: any[] = [];
-    const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: value => directories.push(value), onError: () => {} });
+    const controller = new V2DashboardController({ origin: "https://cmux-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: value => directories.push(value), onError: () => {} });
     const pending = controller.start();
     const socket = await FakeSocket.waitForInstance(); socket.open();
     const first = JSON.parse(await socket.waitForSent(0));
@@ -125,7 +125,7 @@ test("stopping during session issuance never opens a stale socket", async () => 
   globalThis.fetch = (() => new Promise<Response>(resolve => { finishSession = resolve; })) as typeof fetch;
   globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
   FakeSocket.instances = [];
-  const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => { throw new Error("stopped controller reported an error"); } });
+  const controller = new V2DashboardController({ origin: "https://cmux-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => { throw new Error("stopped controller reported an error"); } });
   try {
     const started = controller.start();
     await Promise.resolve();
@@ -144,7 +144,7 @@ test("a failed initial socket retries and receives a device directory", async ()
   globalThis.fetch = (async () => { opened++; return Response.json({ schemaId: "dashboard.ready.v1", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 3300 } }); }) as typeof fetch;
   globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
   const directories: unknown[] = [], errors: string[] = [];
-  const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: value => directories.push(value), onError: value => errors.push(value) });
+  const controller = new V2DashboardController({ origin: "https://cmux-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: value => directories.push(value), onError: value => errors.push(value) });
   try {
     const started = controller.start();
     const first = await FakeSocket.waitForInstance();
@@ -168,7 +168,7 @@ test("permanent authorization failures do not schedule another session", async (
   let requests = 0;
   const errors: string[] = [];
   globalThis.fetch = (async () => { requests++; return Response.json({ schemaId: "error.v1", code: "team_access_revoked", retryable: false }, { status: 403 }); }) as typeof fetch;
-  const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: value => errors.push(value) });
+  const controller = new V2DashboardController({ origin: "https://cmux-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: value => errors.push(value) });
   try {
     await controller.start();
     expect(timers).not.toHaveBeenCalled();
@@ -190,7 +190,7 @@ test("transient token retrieval failures use the bounded recovery path", async (
   globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
   let tokenCalls = 0;
   const errors: string[] = [];
-  const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => { tokenCalls += 1; if (tokenCalls === 1) throw new Error("temporary token provider failure"); return "s"; }, onDirectory: () => {}, onError: value => errors.push(value) });
+  const controller = new V2DashboardController({ origin: "https://cmux-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => { tokenCalls += 1; if (tokenCalls === 1) throw new Error("temporary token provider failure"); return "s"; }, onDirectory: () => {}, onError: value => errors.push(value) });
   try {
     await controller.start();
     expect(tokenCalls).toBe(1);
@@ -228,7 +228,7 @@ test("transient startup failures stop after a bounded retry budget", async () =>
     requests += 1;
     return new Promise<Response>(resolve => { resolveSession.push(resolve); });
   }) as typeof fetch;
-  const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} });
+  const controller = new V2DashboardController({ origin: "https://cmux-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} });
   try {
     const started = controller.start();
     await waitFor(() => resolveSession.length === 1);
@@ -260,7 +260,7 @@ test("stopping aborts an in-flight session request without reporting an error", 
     signal.addEventListener("abort", () => reject(signal!.reason), { once: true });
     requestStarted();
   })) as typeof fetch;
-  const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: message => errors.push(message) });
+  const controller = new V2DashboardController({ origin: "https://cmux-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: message => errors.push(message) });
   try {
     const started = controller.start();
     await issued;

@@ -73,6 +73,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "CLAUDE_SECURESTORAGE_CONFIG_DIR",
         "CMUX_CUSTOM_CLAUDE_PATH",
         "CMUX_CUSTOM_AMP_PATH",
+        "CMUX_CUSTOM_CODEX_PATH",
         "CMUX_ROVODEV_SESSIONS_DIR",
         "CODEX_HOME",
         "CODEBUDDY_BASE_URL",
@@ -123,6 +124,17 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
 
     private static let sortedSafeEnvironmentKeys = safeEnvironmentKeys.sorted()
 
+    /// Every environment key ``selectedEnvironment(from:kind:)`` reads.
+    ///
+    /// Out-of-process hook producers capture exactly these values so the
+    /// consumer's selection matches what it would read from its own process.
+    public var inputEnvironmentKeys: [String] {
+        Self.sortedSafeEnvironmentKeys + [
+            "CMUX_ORIGINAL_NODE_OPTIONS",
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT",
+        ]
+    }
+
     /// Returns the subset of captured environment variables that should be replayed for an agent.
     ///
     /// The optional `kind` applies agent-specific exclusions for values that are safe for one
@@ -143,6 +155,9 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
             for key in Self.hermesAgentEnvironmentKeys {
                 result.removeValue(forKey: key)
             }
+        }
+        if normalizedKind != "codex" {
+            result.removeValue(forKey: "CMUX_CUSTOM_CODEX_PATH")
         }
         if normalizedKind == "campfire" {
             for key in Self.campfireManagedEnvironmentKeys {
@@ -173,6 +188,76 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
            let path = normalizedValue(env["PATH"]) {
             selected["PATH"] = path
         }
+        if normalizedKind == "claude" {
+            // Subrouter's resume marker and the wrapper's launch-bound copy are
+            // exact command text, never a URL or credential. They cross into
+            // the durable restore record only as an agreeing pair, so a marker
+            // inherited from an ancestor `sr claude` session proves nothing.
+            let router = SubrouterClaudeResumeRouting()
+            selected.merge(router.capturedEnvironment(in: env)) { _, marker in
+                marker
+            }
+            // The account a routed launch was pinned to, recorded by the
+            // wrapper. It only picks the launcher's `--account` on restore.
+            selected.merge(router.capturedAccountEnvironment(in: env)) { _, account in
+                account
+            }
+        }
+        return selected
+    }
+
+    /// Returns the bounded environment metadata that may cross the structured
+    /// restore-record boundary. Subrouter's Codex resume marker is retained
+    /// only when the captured argv independently proves routed execution; the
+    /// ordinary restore policy still removes it before process replay.
+    public func selectedRestoreRecordEnvironment(
+        from env: [String: String],
+        kind: String?,
+        launcher: String?,
+        arguments: [String]
+    ) -> [String: String] {
+        var selected = selectedRestoreEnvironment(from: env, kind: kind)
+        let normalizedKind = kind?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard normalizedKind == "codex" else { return selected }
+
+        let router = SubrouterCodexResumeRouting()
+        guard router.resumeArguments(
+            launcher: launcher,
+            sessionID: "restore-record-validation",
+            launchArguments: arguments,
+            environment: env
+        ) != nil,
+        let marker = router.capturedMarker(in: env) else {
+            return selected
+        }
+        selected.merge(router.capturedRoutingEnvironment(in: env)) { _, routingValue in
+            routingValue
+        }
+        selected[SubrouterCodexResumeRouting.environmentKey] = marker
+        selected[SubrouterCodexResumeRouting.launchBoundEnvironmentKey] = marker
+        return selected
+    }
+
+    /// Returns replay-safe environment values for a rendered resume command.
+    /// Routed Codex resumes retain their bounded account/server inputs after
+    /// the metadata-only launcher marker has selected the explicit `sr` argv.
+    public func selectedReplayEnvironment(
+        from env: [String: String],
+        kind: String?,
+        launcher: String?,
+        arguments: [String]
+    ) -> [String: String] {
+        var selected = selectedRestoreRecordEnvironment(
+            from: env,
+            kind: kind,
+            launcher: launcher,
+            arguments: arguments
+        )
+        selected.removeValue(forKey: SubrouterCodexResumeRouting.environmentKey)
+        selected.removeValue(forKey: SubrouterCodexResumeRouting.launchBoundEnvironmentKey)
+        selected.removeValue(forKey: SubrouterClaudeResumeRouting.accountEnvironmentKey)
         return selected
     }
 
@@ -201,9 +286,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
     }
 
     private func sanitizedNodeOptions(_ rawValue: String?) -> String? {
-        let tokens = rawValue?
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init) ?? []
+        let tokens = rawValue.map { nodeOptionsTokens($0) } ?? []
         guard !tokens.isEmpty else { return nil }
 
         var sanitized: [String] = []
@@ -239,6 +322,39 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         let joined = sanitized.joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return joined.isEmpty ? nil : joined
+    }
+
+    /// Splits `NODE_OPTIONS` the way Node does: on whitespace outside double quotes,
+    /// with backslash escapes inside quotes. Tokens keep their quotes so an
+    /// unmatched token rejoins unchanged, e.g. `--require="/Users/a b/x.cjs"`.
+    private func nodeOptionsTokens(_ rawValue: String) -> [String] {
+        var tokens: [String] = []
+        var current = ""
+        var inQuotes = false
+        var escaped = false
+        for character in rawValue {
+            if escaped {
+                current.append(character)
+                escaped = false
+            } else if inQuotes, character == "\\" {
+                current.append(character)
+                escaped = true
+            } else if character == "\"" {
+                current.append(character)
+                inQuotes.toggle()
+            } else if !inQuotes, character.isWhitespace {
+                if !current.isEmpty {
+                    tokens.append(current)
+                    current = ""
+                }
+            } else {
+                current.append(character)
+            }
+        }
+        if !current.isEmpty {
+            tokens.append(current)
+        }
+        return tokens
     }
 
     private func normalizedValue(_ value: String?) -> String? {

@@ -105,12 +105,12 @@ extension TabItemView {
 
         if let key = renameWorkspaceShortcut.keyEquivalent {
             Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
-                promptRename()
+                beginInlineRenameFromContextMenu()
             }
             .keyboardShortcut(key, modifiers: renameWorkspaceShortcut.eventModifiers)
         } else {
             Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
-                promptRename()
+                beginInlineRenameFromContextMenu()
             }
         }
 

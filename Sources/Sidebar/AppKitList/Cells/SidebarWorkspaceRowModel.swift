@@ -1,3 +1,4 @@
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxWorkspaces
 import CoreGraphics
@@ -65,6 +66,10 @@ struct SidebarWorkspaceRowModel: Equatable {
     /// apply pass.
     let isMetadataExpanded: Bool
     let isMarkdownExpanded: Bool
+    /// macOS Display accessibility settings (Differentiate Without Color,
+    /// Increase Contrast) the row paints with. Part of equality so a
+    /// System Settings change repaints visible rows.
+    var displayAccessibility: DisplayAccessibilityOptions = .standard
 
     var fontScale: CGFloat { settings.sidebarFontScale }
 
