@@ -91,4 +91,104 @@ struct TerminalSessionStatusSidebarTests {
 
         #expect(keys == ["build"])
     }
+
+    @Test func sessionStatusMovesWithItsSurfaceToAnotherWorkspace() throws {
+        let source = Workspace()
+        let sourcePane = try #require(source.bonsplitController.allPaneIds.first)
+        let movedId = try #require(source.newTerminalSurface(inPane: sourcePane, focus: false)?.id)
+        var status = TerminalSessionStatus()
+        feed("\u{1B}]21337;status=Reviewing;indicator=#00aa00\u{07}", into: &status)
+        source.applyTerminalSessionStatus(status, panelId: movedId)
+        let original = try #require(entry(source, panelId: movedId))
+
+        let transfer = try #require(source.detachSurface(panelId: movedId))
+        #expect(entry(source, panelId: movedId) == nil)
+
+        let destination = Workspace()
+        let destinationPane = try #require(destination.bonsplitController.allPaneIds.first)
+        #expect(destination.attachDetachedSurface(transfer, inPane: destinationPane, focus: false) == movedId)
+
+        // The program does not re-send an unchanged status after the move.
+        #expect(entry(destination, panelId: movedId) == original)
+    }
+
+    @Test func repeatedUnchangedStatusKeepsItsTimestamp() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        var status = TerminalSessionStatus()
+        feed("\u{1B}]21337;status=Working;indicator=#ffa500\u{07}", into: &status)
+        workspace.applyTerminalSessionStatus(status, panelId: panelId)
+        let first = try #require(entry(workspace, panelId: panelId))
+
+        feed("\u{1B}]21337;status=Working;indicator=#ffa500\u{07}", into: &status)
+        workspace.applyTerminalSessionStatus(status, panelId: panelId)
+
+        #expect(entry(workspace, panelId: panelId)?.timestamp == first.timestamp)
+    }
+
+    // MARK: PTY tee publishing
+
+    @MainActor
+    private final class PublishedStatuses {
+        var values: [TerminalSessionStatus] = []
+    }
+
+    private func consume(_ output: String, in context: TerminalOutputTeeContext) {
+        Data(output.utf8).withUnsafeBytes { raw in
+            context.consume(raw.bindMemory(to: UInt8.self))
+        }
+    }
+
+    private func waitForPublishes(_ published: PublishedStatuses, count: Int) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while published.values.count < count, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(published.values.count >= count)
+    }
+
+    @Test func setThenClearInOnePublishWindowEndsCleared() async throws {
+        let published = PublishedStatuses()
+        let context = TerminalOutputTeeContext(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            agentDefinitions: [],
+            sessionStatusSink: { published.values.append($0) }
+        )
+
+        consume("\u{1B}]21337;status=Working;indicator=#ffa500\u{07}", in: context)
+        consume("\u{1B}]21337;status=;indicator=\u{07}", in: context)
+        try await waitForPublishes(published, count: 1)
+        // Let a second, wrongly scheduled publish arrive if there is one.
+        try await Task.sleep(for: .milliseconds(500))
+
+        #expect(published.values == [TerminalSessionStatus()])
+    }
+
+    @Test func resentUnchangedStatusRestoresAClearedEntry() async throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let published = PublishedStatuses()
+        let context = TerminalOutputTeeContext(
+            workspaceID: workspace.id,
+            surfaceID: panelId,
+            agentDefinitions: [],
+            sessionStatusSink: { status in
+                published.values.append(status)
+                workspace.applyTerminalSessionStatus(status, panelId: panelId)
+            }
+        )
+
+        consume("\u{1B}]21337;status=Working\u{07}", in: context)
+        try await waitForPublishes(published, count: 1)
+        #expect(entry(workspace, panelId: panelId)?.value == "Working")
+
+        // e.g. `cmux clear-status` or a sidebar context reset.
+        workspace.clearStatusEntry(key: Workspace.terminalSessionStatusKey(panelId: panelId), panelId: nil)
+        #expect(entry(workspace, panelId: panelId) == nil)
+
+        consume("\u{1B}]21337;status=Working\u{07}", in: context)
+        try await waitForPublishes(published, count: 2)
+        #expect(entry(workspace, panelId: panelId)?.value == "Working")
+    }
 }

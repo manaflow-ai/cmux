@@ -178,4 +178,28 @@ struct TerminalSessionStatusOSCTests {
     func emptyPayload() {
         #expect(parsedUpdates(["\u{1B}]21337\u{07}", "\u{1B}]21337;\u{07}"]).isEmpty)
     }
+
+    @Test("Bidi overrides, format characters and line separators are stripped")
+    func formatAndSeparatorScalarsStripped() {
+        let status = resolvedStatus([
+            "\u{1B}]21337;status=\u{202E}gnikroW\u{202C};detail=a\u{2028}b\u{2029}c\u{200B}d\u{07}",
+        ])
+
+        #expect(status.status == "gnikroW")
+        #expect(status.detail == "abcd")
+    }
+
+    @Test("An oversized payload split across reads is skipped to its ESC backslash terminator")
+    func oversizedPayloadAcrossReads() {
+        let filler = String(repeating: "z", count: TerminalSessionStatusOSCScanner.maximumPayloadBytes)
+        let parsed = parsedUpdates([
+            "\u{1B}]21337;status=\(filler)",
+            "\(filler);detail=\u{07}still inside? no",
+            "\u{1B}]21337;status=Late",
+            "\(filler)\(filler)\u{1B}\\",
+            "\u{1B}]21337;status=After\u{1B}\\",
+        ])
+
+        #expect(parsed == [TerminalSessionStatusUpdate(status: "After")])
+    }
 }
