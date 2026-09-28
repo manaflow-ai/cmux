@@ -176,6 +176,9 @@ final class CloudTreeCellView: NSTableCellView {
         } else if case .device(let row) = node.kind {
             // Full status and counts: the row itself carries only a dim fact.
             toolTip = CloudTreeDeviceRowContent(row: row, style: style).toolTip
+        } else if let help = CloudTreeRowContentView.groupCount(for: node.kind)?.help {
+            // The count's display host never hit-tests, so its help rides on the row.
+            toolTip = help
         } else {
             toolTip = nil
         }

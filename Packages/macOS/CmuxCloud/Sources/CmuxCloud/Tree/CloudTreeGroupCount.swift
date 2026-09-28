@@ -29,6 +29,7 @@ public struct CloudTreeGroupCount: Equatable, Sendable {
     /// What VoiceOver reads when the visible text is symbolic ("1 of 50
     /// machines", never "1 slash 50"); nil reads the text itself.
     public let accessibilityLabel: String?
+    /// The header row's tooltip. The row owns it: the count's own view never hit-tests.
     public let help: String?
     /// Tints the count orange, e.g. a plan at its machine ceiling.
     public let isWarning: Bool

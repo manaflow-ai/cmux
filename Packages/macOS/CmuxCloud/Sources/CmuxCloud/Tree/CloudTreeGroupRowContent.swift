@@ -28,25 +28,17 @@ public struct CloudTreeGroupRowContent: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 if style.showsGroupCounts, let count {
-                    if let help = count.help {
-                        countText(count).help(help)
-                    } else {
-                        countText(count)
-                    }
+                    Text(count.text)
+                        .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
+                        .foregroundStyle(count.isWarning ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.tertiary))
+                        .lineLimit(1)
+                        // The title truncates first; a clipped "1/5…" would misstate usage.
+                        .fixedSize()
+                        .accessibilityLabel(count.accessibilityLabel ?? count.text)
                 }
             }
             Spacer(minLength: 0)
         }
         .padding(.trailing, style.rowGrid.trailingPadding)
-    }
-
-    private func countText(_ count: CloudTreeGroupCount) -> some View {
-        Text(count.text)
-            .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
-            .foregroundStyle(count.isWarning ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.tertiary))
-            .lineLimit(1)
-            // The title truncates first; a clipped "1/5…" would misstate usage.
-            .fixedSize()
-            .accessibilityLabel(count.accessibilityLabel ?? count.text)
     }
 }
