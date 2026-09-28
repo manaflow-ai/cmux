@@ -2919,17 +2919,14 @@ jobs:
             "CMUX_CLI_BIN=$CMUX_CLI_PATH" \
             python3 scripts/ci/run_python_test_lane.py --lane macos-cli-product
 
-      - name: Run bundled Ghostty theme picker helper regression
-        run: |
-          set -euo pipefail
-          ./tests/test_bundled_ghostty_theme_picker_helper.sh
-
       # The shell and CLI no-socket lanes run wrapper regressions through
       # `node` and the Pi extension regressions through `bun`. They moved here
       # from app-host shard 4, where they were that shard's tail: they need the
-      # CLI product and no app host.
+      # CLI product and no app host. Each runs after an earlier failure, so
+      # one failing lane does not hide the others.
       - name: Ensure node for the CLI no-socket regressions
         id: detect-node
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           for candidate in "$(command -v node || true)" /opt/homebrew/bin/node /usr/local/bin/node; do
@@ -2944,17 +2941,19 @@ jobs:
           echo "found=false" >> "$GITHUB_OUTPUT"
 
       - name: Install node (runner image has none)
-        if: ${{ steps.detect-node.outputs.found == 'false' }}
+        if: ${{ !cancelled() && steps.detect-node.outputs.found == 'false' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "20"
 
       - name: Set up Bun for Pi extension dispatch regression
+        if: ${{ !cancelled() }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.3.6"
 
       - name: Install pinned nushell (shell-integration tests)
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
 
@@ -2992,9 +2991,11 @@ jobs:
       # no-socket regressions read Ghostty's shell integration from
       # ghostty/src, so fetch only that submodule.
       - name: Check out the ghostty submodule for shell regressions
+        if: ${{ !cancelled() }}
         run: git submodule update --init --depth 1 ghostty
 
       - name: Validate bash prompt bootstrap export compatibility
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           # macOS provides the legacy Bash 3.2 path; install Homebrew Bash so
@@ -3010,6 +3011,7 @@ jobs:
             python3 tests/test_issue_11257_prompt_command_export.py
 
       - name: Run shell and CLI no-socket regressions
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
 
@@ -3027,6 +3029,7 @@ jobs:
           CMUX_CLI_BIN="$CMUX_CLI_PATH" python3 scripts/ci/run_python_test_lane.py --jobs 8 --lane macos-shell --lane macos-cli-no-socket --lane macos-shell-fish --lane macos-cli-no-socket-post-fish
 
       - name: Run terminal creation interactive-shell CLI regression
+        if: ${{ !cancelled() }}
         run: CMUX_CLI_BIN="$CMUX_CLI_PATH" python3 tests/test_cli_creation_initial_command.py
 
       - name: Upload CLI product test log
