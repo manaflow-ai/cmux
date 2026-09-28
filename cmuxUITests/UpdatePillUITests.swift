@@ -303,6 +303,23 @@ final class UpdatePillUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Restart Later"].waitForExistence(timeout: 2.0), "Expected a Restart Later button")
     }
 
+    /// The footer pill shows one short word; the full status is its label and tooltip.
+    func testRestartToCompletePillStaysCompactInTheFooter() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "restartToComplete"
+        launchAndActivate(app)
+
+        let pill = pillButton(app: app, expectedLabel: "Restart to Complete Update")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        assertVisibleSize(pill)
+        XCTAssertLessThan(pill.frame.width, 100, "Expected a compact pill, got \(pill.frame)")
+        attachScreenshot(name: "update-restart-to-complete")
+        attachElementDebug(name: "update-restart-to-complete-pill", element: pill)
+    }
+
     func testUpdatePillShowsErrorStateWithRetryAndDetails() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
