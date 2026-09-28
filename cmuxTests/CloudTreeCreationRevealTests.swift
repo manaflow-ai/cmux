@@ -116,6 +116,28 @@ struct CloudTreeCreationRevealTests {
         #expect(tree.selection == clicked, "A later failure never steals a newer user selection")
     }
 
+    @Test("Selecting away and back during a create is a newer selection", arguments: [false, true])
+    func selectingAwayAndBackDuringCreateWins(afterReveal: Bool) throws {
+        let tree = Tree()
+        defer { tree.close() }
+        try tree.click(tree.machineID)
+        let token = UUID()
+        tree.render(tree.existing, reveal: .init(token: token))
+        if afterReveal {
+            tree.render(tree.pending, reveal: tree.received(token))
+            #expect(tree.selection == tree.createdID)
+        }
+        let returned = try #require(tree.selection)
+        try tree.click(tree.fixture.folderID("ws_1"))
+        try tree.click(returned)
+
+        tree.render(tree.pending, reveal: tree.received(token))
+        tree.render(tree.confirmed, reveal: tree.received(token))
+        #expect(tree.selection == returned)
+        tree.render(tree.confirmed, reveal: tree.received(token, withdrawn: true))
+        #expect(tree.selection == returned, "The row the user came back to is theirs, not the create's baseline")
+    }
+
     @Test("A tree mounted mid-create ignores the earlier request and follows the next one")
     func treeMountedDuringCreateIgnoresTheStaleRequest() throws {
         let stale = UUID()
