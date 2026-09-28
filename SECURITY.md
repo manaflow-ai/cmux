@@ -23,8 +23,8 @@ complete report.
 ## What happens next
 
 We reply as fast as we can, and we tell you what we think the impact is even
-when that differs from your read. If it is real we fix it, ship it, and say so
-in the release notes. We credit you by name or handle unless you would rather we
+when that differs from your read. If it holds up we fix it and say so in the
+release notes. We credit you by name or handle unless you would rather we
 did not, and we will not tell you to stay quiet for months.
 
 If you get no reply in a week, send it again or ping in
@@ -52,5 +52,5 @@ does something surprising, or an agent doing something you approved.
 
 ## Supported versions
 
-We fix security issues in the latest release and in NIGHTLY. There is no
-long-term support branch to backport to.
+We fix security issues in the latest release, the RC channel and NIGHTLY. There
+is no long-term support branch to backport to.

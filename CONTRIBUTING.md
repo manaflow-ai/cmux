@@ -16,7 +16,7 @@ maintainer runner access or shared backend credentials.
 
 Issues carry a severity (`S1: critical` through `S4: cosmetic`), an `area:` label,
 and sometimes `good first issue` or `help wanted`. [docs/triage.md](docs/triage.md)
-says what each one means, how new issues get labelled automatically, and how to
+says what each one means, how new issues get labeled automatically, and how to
 correct a label that is wrong. Comment on an issue before you start working on it.
 
 ## Prerequisites
@@ -143,8 +143,9 @@ fleet access are optional paths, not prerequisites for contributing.
 You do not need runner access, a signing identity or a Mac build farm to get a
 change tested. Opening the pull request is the request:
 
-- Static checks and guards run on every pull request. `python3 scripts/verify-local.py`
-  runs the same recipe locally, so fix those before you push.
+- Static checks run on every pull request, and the Linux guards run when your diff
+  touches what they cover. `python3 scripts/verify-local.py` runs the checks your
+  diff touches and `--all` runs the full recipe CI uses, so fix those before you push.
 - Swift, package and tooling tests are routed from your diff. An edited suite runs,
   and an app-source change runs the suites whose tests mention what you changed.
   No label is needed for any of that.
@@ -152,9 +153,12 @@ change tested. Opening the pull request is the request:
   needs those lanes; see [PR CI coverage](skills/cmux-testing/references/pr-ci-coverage.md).
   It is not a review or merge requirement, and it is not a substitute for saying
   what you ran.
-- `cmuxUITests/` is not run in full by any pull request job.
+- `cmuxUITests/` is not run in full by any pull request job. If your diff touches
+  that directory, the `suite-coverage` check fails until a maintainer runs the
+  affected classes and records it with `no-full-ci`, because a pull request from a
+  fork cannot dispatch those lanes itself.
 
-Read which tests executed on the current commit rather than the colour of the
+Read which tests executed on the current commit rather than the color of the
 checks list: a skipped job is green and is not coverage. If checks never start on
 your first pull request, they are waiting on a maintainer to approve a workflow
 run from a new contributor.

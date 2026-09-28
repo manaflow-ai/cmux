@@ -44,7 +44,7 @@ report is about a maintainer, say so in the subject line and it will be handled
 by someone else. Reports stay between you and whoever handles it; we will not
 share your name with the person you reported without asking you first.
 
-We will tell you we got it. What happens next depends on what happened: usually
+We try to acknowledge every report. What happens next depends on what happened: usually
 a private word, sometimes an edit or a lock, and for harassment or repeat
 behavior a block from the repository. Losing access to a repository is not a
 punishment we hand out for being wrong about a technical argument.

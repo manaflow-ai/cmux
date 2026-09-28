@@ -4,10 +4,11 @@ You want to change something in cmux and you have not done it before. This page
 is the shortest path from that to a merged pull request. It assumes nothing
 except that you can use git.
 
-cmux is a macOS terminal that treats agents as first-class panes. The app is
-Swift; the CLI and tooling are Rust, Python and TypeScript.
+cmux is a macOS terminal that treats agents as first-class panes. The app and
+the `cmux` CLI are Swift. `cmux-tui`, the SDKs and the repository tooling are
+Rust, Python and TypeScript.
 
-## 1. Pick something small and real
+## 1. Pick something small
 
 Sorted roughly by how little setup they need:
 
@@ -20,8 +21,9 @@ Sorted roughly by how little setup they need:
 | Help without building anything | [`needs-triage`](https://github.com/manaflow-ai/cmux/issues?q=is%3Aissue+is%3Aopen+label%3Aneeds-triage) |
 
 [`docs/triage.md`](triage.md) explains what those labels mean and who assigns
-them. About a third of open issues are `needs-triage`: reading one, working out
-which part of cmux it belongs to, and saying so in a comment is real help and
+them. These labels are new, so some of those searches are still thin, and
+`needs-triage` is the largest pile by a distance: reading one, working out which
+part of cmux it belongs to, and saying so in a comment is genuinely useful and
 needs no Xcode.
 
 **Say on the issue that you are picking it up.** One comment. It stops two
@@ -42,6 +44,12 @@ Most of cmux needs macOS and Xcode. These do not:
   on Linux.
 - The triage rules in [`scripts/ci/triage_rules.py`](../scripts/ci/triage_rules.py).
 - The `cmux-tui` Rust crates and the SDKs, which have their own test lanes.
+
+The web surfaces under `web/` also build and test on Linux, but note they are
+licensed differently from the app: [LICENSE](../LICENSE) puts `web/` and the
+other server directories under the Business Source License, and a change there
+needs a signed [CLA](../CLA.md) before it can be merged. The app and CLI are the
+GPL part of the tree.
 
 If you do have a Mac: [CONTRIBUTING.md](../CONTRIBUTING.md) has the
 prerequisites and the two commands that get you a running debug build
@@ -80,15 +88,15 @@ default, not a judgement about your patch.
 
 Fill in the template. The parts reviewers actually read:
 
-- **Summary** — the problem, then what a person can do after your change.
+- **Summary**: the problem, then what a person can do after your change.
   One paragraph beats five bullet points.
-- **Testing** — what you ran and what it establishes. Name the command. If you
+- **Testing**: what you ran and what it establishes. Name the command. If you
   could not run something, say which thing and why, once.
-- **Changelog** — one `Added:`/`Changed:`/`Fixed:`/`Removed:` line, or `none`
+- **Changelog**: one `Added:`/`Changed:`/`Fixed:`/`Removed:` line, or `none`
   for internal changes. Do not edit `CHANGELOG.md`; the release builds it from
   these lines.
 - For a bug fix, commit the failing test first, then the fix. That way the
-  history shows the bug was real.
+  history shows the bug was there.
 
 Keep the diff to one thing. A PR that fixes a bug and also reformats a file is
 two PRs, and the reformatting will slow down the fix.

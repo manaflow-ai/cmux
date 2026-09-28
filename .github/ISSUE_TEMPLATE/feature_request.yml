@@ -37,20 +37,20 @@ body:
     attributes:
       label: Which part of cmux is this about?
       description: |
-        A guess is fine, and "Not sure" is a real answer. It only helps triage
+        A guess is fine, and "Not sure" is a normal answer. It only helps triage
         find the right person: https://github.com/manaflow-ai/cmux/blob/main/docs/triage.md
       options:
         - Not sure
-        - terminal (rendering, scrollback, shell integration)
+        - terminal (rendering, scrollback, fonts, shell integration)
         - input (keyboard, paste, IME, mouse)
         - layout (splits, panes, tabs, windows)
         - sidebar
         - workspaces (sessions, worktrees, restore)
         - agents (Claude Code, Codex, ACP, agent panes)
-        - cloud (cmux Cloud, VMs, the dashboard)
-        - remote (cmux ssh, tunnels, relays)
+        - cloud (cmux Cloud, VMs, relays, the dashboard)
+        - remote (cmux ssh, tunnels, device pairing)
         - ios
-        - cli (the cmux command)
+        - cli (the cmux command, cmux-tui, SDKs)
         - settings
         - browser
         - command-palette

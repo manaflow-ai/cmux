@@ -1,5 +1,5 @@
 <!-- Before drafting or revising this description, read ../STYLE.md. Lead with the problem and the resulting behavior, keep it proportional, and delete any section or checklist line that does not apply. -->
-<!-- First pull request here? docs/start-here.md covers what reviewers look for, what CI runs for you, and how long this usually takes: https://github.com/manaflow-ai/cmux/blob/main/docs/start-here.md -->
+<!-- First pull request here? docs/start-here.md covers what reviewers look for and what CI runs for you: https://github.com/manaflow-ai/cmux/blob/main/docs/start-here.md -->
 
 ## Summary
 
