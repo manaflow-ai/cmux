@@ -25,7 +25,8 @@ struct AgentJournalStoreTests {
         eventId: String = UUID().uuidString,
         kind: AgentJournalEventKind = .turnStarted,
         surfaceId: String? = UUID().uuidString,
-        workspaceId: String? = UUID().uuidString
+        workspaceId: String? = UUID().uuidString,
+        sessionId: String? = "session-1"
     ) -> AgentJournalEventDraft {
         AgentJournalEventDraft(
             eventId: eventId,
@@ -33,7 +34,7 @@ struct AgentJournalStoreTests {
             occurredAtMs: 1_000,
             source: "claude",
             agentKey: "claude_code",
-            sessionId: "session-1",
+            sessionId: sessionId,
             workspaceId: workspaceId,
             surfaceId: surfaceId
         )
@@ -69,14 +70,14 @@ struct AgentJournalStoreTests {
         store.close()
     }
 
-    @Test func conditionalAppendRejectsAStaleCommittedHead() throws {
+    @Test func conditionalAppendRejectsAStaleSession() throws {
         try withStore { store, _ in
             let first = try store.append(draft(eventId: "turn-started"))
             _ = try store.append(draft(eventId: "pre-tool-use"))
 
             let stale = try store.append(
                 draft(eventId: "user-interrupt", kind: .turnCompleted),
-                ifHeadSequence: first.sequence
+                ifSessionHasNoEventAfter: first.sequence
             )
 
             #expect(stale == nil)
@@ -88,17 +89,25 @@ struct AgentJournalStoreTests {
         }
     }
 
-    @Test func conditionalAppendCommitsAtTheCurrentHead() throws {
+    @Test func conditionalAppendIgnoresUnrelatedSessions() throws {
         try withStore { store, _ in
             let first = try store.append(draft(eventId: "turn-started"))
+            _ = try store.append(
+                draft(
+                    eventId: "other-session",
+                    surfaceId: UUID().uuidString,
+                    workspaceId: UUID().uuidString,
+                    sessionId: "session-2"
+                )
+            )
 
             let appended = try store.append(
                 draft(eventId: "user-interrupt", kind: .turnCompleted),
-                ifHeadSequence: first.sequence
+                ifSessionHasNoEventAfter: first.sequence
             )
 
-            #expect(appended?.sequence == 2)
-            #expect(try store.headSequence() == 2)
+            #expect(appended?.sequence == 3)
+            #expect(try store.headSequence() == 3)
         }
     }
 

@@ -64,7 +64,8 @@ struct AgentTurnInterruptTargetTests {
             surfaceId: surface,
             workspaceId: workspace,
             agentKey: "claude_code",
-            source: "claude"
+            source: "claude",
+            boundary: .init(sessionSequences: ["session-1": 1], observedHeadSequence: 1)
         )
         await receipt.wait()
 
@@ -112,7 +113,8 @@ struct AgentTurnInterruptTargetTests {
             surfaceId: surface,
             workspaceId: workspace,
             agentKey: "claude_code",
-            source: "claude"
+            source: "claude",
+            boundary: .init(sessionSequences: ["session-1": 1], observedHeadSequence: 1)
         )
         try append(draft(id: "pre-tool-use", occurredAtMs: 1_001, nativeEvent: "PreToolUse"))
         gate.continuation.yield(())
@@ -172,7 +174,8 @@ struct AgentTurnInterruptTargetTests {
             surfaceId: surface,
             workspaceId: workspace,
             agentKey: "claude_code",
-            source: "claude"
+            source: "claude",
+            boundary: .init(sessionSequences: ["session-1": 1], observedHeadSequence: 1)
         )
 
         // This is the socket-worker commit/enqueue gap: sequence 2 is durable,
@@ -211,6 +214,59 @@ struct AgentTurnInterruptTargetTests {
             state.combinedPhase(surfaceId: surface.uuidString, agentKey: "claude_code") == .running,
             "a committed hook must win even when later ingress advances the observed head"
         )
+    }
+
+    @Test func clickBoundaryExcludesHookQueuedBeforeInterruptRequest() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-turn-control-click-boundary-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("journal.sqlite3", isDirectory: false)
+        let center = AgentJournalLifecycleCenter(databaseURL: url)
+        let surface = UUID()
+        let workspace = UUID()
+        func draft(id: String, occurredAtMs: Int64, nativeEvent: String) -> AgentJournalEventDraft {
+            AgentJournalEventDraft(
+                eventId: id,
+                kind: .turnStarted,
+                occurredAtMs: occurredAtMs,
+                source: "claude",
+                agentKey: "claude_code",
+                sessionId: "session-1",
+                workspaceId: workspace.uuidString,
+                surfaceId: surface.uuidString,
+                nativeEvent: nativeEvent
+            )
+        }
+
+        // Admission completion proves sequence 1 reached the consumer, so the
+        // memory-only capture below is the exact generation visible at click.
+        _ = await center.admitNotification(
+            draft(id: "turn-started", occurredAtMs: 1_000, nativeEvent: "UserPromptSubmit")
+        )
+        let clickBoundary = center.captureUserInterruptSessionBoundary(
+            surfaceId: surface,
+            agentKey: "claude_code"
+        )
+        #expect(clickBoundary.sessionSequences == ["session-1": 1])
+        #expect(clickBoundary.observedHeadSequence == 1)
+
+        // Escape may cause this hook to commit and enqueue before the request
+        // itself. It must not become part of the already captured click.
+        let resumed = draft(id: "pre-tool-use", occurredAtMs: 1_001, nativeEvent: "PreToolUse")
+        let resumedJSON = try #require(String(data: JSONEncoder().encode(resumed), encoding: .utf8))
+        #expect(center.handleAppendCommand(resumedJSON) == "OK 2")
+        let receipt = center.recordUserInterrupt(
+            surfaceId: surface,
+            workspaceId: workspace,
+            agentKey: "claude_code",
+            source: "claude",
+            boundary: clickBoundary
+        )
+        await receipt.wait()
+
+        let store = try AgentJournalStore(databaseURL: url)
+        let events = try store.events(afterSequence: 0, limit: 10)
+        store.close()
+        #expect(events.map(\.draft.eventId) == ["turn-started", "pre-tool-use"])
     }
 
     @Test func onlyClaudeSettlesItsTurnInTheJournal() {

@@ -1,5 +1,6 @@
 import CmuxAgentJournal
 import Foundation
+import os
 
 /// App-side owner of the agent journal: the single writer for
 /// `agent_journal_append`, the ordered consumer that reduces committed events
@@ -13,12 +14,28 @@ import Foundation
 /// taking the next operation, so sidebar assignments always apply in journal
 /// order — a startup replay can never land after a newer live event's
 /// assignment. Derived interrupt events additionally reconcile through the
-/// durable store head and conditionally append at that head, covering the
-/// socket worker's commit-before-enqueue window. The store itself is opened
+/// durable store and conditionally append against the captured session
+/// generation, covering the socket worker's commit-before-enqueue window.
+/// The store itself is opened
 /// lazily off-main (see ``AgentJournalLazyStore``), so main-actor callers only
 /// ever enqueue.
 final class AgentJournalLifecycleCenter: Sendable {
     static let shared = AgentJournalLifecycleCenter()
+
+    private struct InterruptScope: Hashable, Sendable {
+        let surfaceId: String
+        let agentKey: String
+    }
+
+    struct UserInterruptBoundary: Equatable, Sendable {
+        let sessionSequences: [String: Int64]
+        let observedHeadSequence: Int64
+    }
+
+    private struct InterruptSnapshotState: Sendable {
+        var boundaries: [InterruptScope: [String: Int64]] = [:]
+        var observedHeadSequence: Int64 = 0
+    }
 
     private enum Operation: Sendable {
         case ingest(AgentJournalEvent)
@@ -30,6 +47,7 @@ final class AgentJournalLifecycleCenter: Sendable {
             workspaceId: String,
             agentKey: String,
             source: String,
+            boundary: UserInterruptBoundary,
             receipt: AgentJournalOperationReceipt
         )
         case settleInterrupt(
@@ -37,7 +55,7 @@ final class AgentJournalLifecycleCenter: Sendable {
             workspaceId: String,
             agentKey: String,
             source: String,
-            sessionBoundary: [String: Int64],
+            boundary: UserInterruptBoundary,
             receipt: AgentJournalOperationReceipt
         )
         case recordAliases(workspaces: [String: String], surfaces: [String: String])
@@ -52,7 +70,7 @@ final class AgentJournalLifecycleCenter: Sendable {
 
         var receipt: AgentJournalOperationReceipt? {
             switch self {
-            case .requestInterrupt(_, _, _, _, let receipt),
+            case .requestInterrupt(_, _, _, _, _, let receipt),
                  .settleInterrupt(_, _, _, _, _, let receipt):
                 receipt
             default:
@@ -62,6 +80,9 @@ final class AgentJournalLifecycleCenter: Sendable {
     }
 
     private let admissions = AgentNotificationAdmissionWaiters()
+    private let interruptSnapshots = OSAllocatedUnfairLock(
+        initialState: InterruptSnapshotState()
+    )
     private let lazyStore: AgentJournalLazyStore?
     private let operations: AsyncStream<Operation>.Continuation?
     private let consumerTask: Task<Void, Never>?
@@ -83,6 +104,7 @@ final class AgentJournalLifecycleCenter: Sendable {
         let lazyStore = AgentJournalLazyStore(databaseURL: databaseURL)
         self.lazyStore = lazyStore
         let admissions = self.admissions
+        let interruptSnapshots = self.interruptSnapshots
         let channel = AsyncStream<Operation>.makeStream(bufferingPolicy: .unbounded)
         channel.continuation.onTermination = { _ in admissions.finish() }
         self.operations = channel.continuation
@@ -108,6 +130,9 @@ final class AgentJournalLifecycleCenter: Sendable {
                 while reconciledAheadSequences.remove(reconciledThroughSequence + 1) != nil {
                     reconciledThroughSequence += 1
                 }
+                interruptSnapshots.withLock {
+                    $0.observedHeadSequence = max($0.observedHeadSequence, sequence)
+                }
             }
             func noteReconciledScan(through sequence: Int64) {
                 reconciledThroughSequence = max(reconciledThroughSequence, sequence)
@@ -115,6 +140,38 @@ final class AgentJournalLifecycleCenter: Sendable {
                 reconciledAheadSequences = reconciledAheadSequences.filter {
                     $0 > reconciledFloor
                 }
+                interruptSnapshots.withLock {
+                    $0.observedHeadSequence = max($0.observedHeadSequence, sequence)
+                }
+            }
+            func publishInterruptBoundary(surfaceId: String, agentKey: String) {
+                let scope = InterruptScope(surfaceId: surfaceId, agentKey: agentKey)
+                let boundary = state.userInterruptSessionBoundary(
+                    surfaceId: surfaceId,
+                    agentKey: agentKey
+                )
+                interruptSnapshots.withLock { snapshot in
+                    if boundary.isEmpty {
+                        snapshot.boundaries.removeValue(forKey: scope)
+                    } else {
+                        snapshot.boundaries[scope] = boundary
+                    }
+                }
+            }
+            func publishAllInterruptBoundaries() {
+                var boundaries: [InterruptScope: [String: Int64]] = [:]
+                for (surfaceId, byAgent) in state.sessions {
+                    for agentKey in byAgent.keys {
+                        let boundary = state.userInterruptSessionBoundary(
+                            surfaceId: surfaceId,
+                            agentKey: agentKey
+                        )
+                        if !boundary.isEmpty {
+                            boundaries[InterruptScope(surfaceId: surfaceId, agentKey: agentKey)] = boundary
+                        }
+                    }
+                }
+                interruptSnapshots.withLock { $0.boundaries = boundaries }
             }
             // Loaded once from the store, then maintained in memory as
             // restore records new aliases: canonicalizing a replay fold via
@@ -153,16 +210,26 @@ final class AgentJournalLifecycleCenter: Sendable {
                 noteReconciledSequence(event.sequence)
                 let canonical = Self.canonicalized(event, aliases: eventAliases)
                 let decision = notifications.apply(canonical)
-                if decision.disposition != .stale, decision.projectsLifecycle,
-                   let application = Self.reduceIngest(notifications.lifecycleEvent(canonical), sourceKind: canonical.kind,
-                       aliases: eventAliases,
-                       reducer: reducer, state: &state) {
-                    await MainActor.run {
-                        Self.apply(
-                            application.assignment,
-                            workspaceHint: application.workspaceHint,
-                            activity: application.activity
-                        )
+                if decision.disposition != .stale, decision.projectsLifecycle {
+                    let lifecycleEvent = notifications.lifecycleEvent(canonical)
+                    let application = Self.reduceIngest(
+                        lifecycleEvent,
+                        sourceKind: canonical.kind,
+                        aliases: eventAliases,
+                        reducer: reducer,
+                        state: &state
+                    )
+                    if let surfaceId = lifecycleEvent.draft.surfaceId {
+                        publishInterruptBoundary(surfaceId: surfaceId, agentKey: lifecycleEvent.agentKey)
+                    }
+                    if let application {
+                        await MainActor.run {
+                            Self.apply(
+                                application.assignment,
+                                workspaceHint: application.workspaceHint,
+                                activity: application.activity
+                            )
+                        }
                     }
                 }
                 Self.clearInvalidatedNotifications(canonical, decision: decision)
@@ -243,25 +310,22 @@ final class AgentJournalLifecycleCenter: Sendable {
                     let workspaceId,
                     let agentKey,
                     let source,
+                    let boundary,
                     let receipt
                 ):
-                    let sessionBoundary = state.userInterruptSessionBoundary(
-                        surfaceId: surfaceId,
-                        agentKey: agentKey
-                    )
-                    guard !sessionBoundary.isEmpty else {
+                    guard !boundary.sessionSequences.isEmpty else {
                         receipt.finish()
                         continue
                     }
                     // The second phase enters at the back of this FIFO so hook
-                    // ingress already queued behind the click is reconciled
-                    // before the synthetic completion is derived.
+                    // ingress queued around the click is reconciled before the
+                    // captured click-time session token is settled.
                     operationContinuation.yield(.settleInterrupt(
                         surfaceId: surfaceId,
                         workspaceId: workspaceId,
                         agentKey: agentKey,
                         source: source,
-                        sessionBoundary: sessionBoundary,
+                        boundary: boundary,
                         receipt: receipt
                     ))
                 case .settleInterrupt(
@@ -269,57 +333,57 @@ final class AgentJournalLifecycleCenter: Sendable {
                     let workspaceId,
                     let agentKey,
                     let source,
-                    let sessionBoundary,
+                    let boundary,
                     let receipt
                 ):
                     defer { receipt.finish() }
                     // The hook worker commits before it enqueues `.ingest`.
-                    // Fold every durable row first, then append only if the
-                    // store head is unchanged in the append transaction.
-                    settlement: while true {
-                        do {
-                            var expectedHead = try await reconcileCommittedRows(
-                                store: store
-                            )
-                            let drafts = state.userInterruptDrafts(
-                                surfaceId: surfaceId,
-                                workspaceId: workspaceId,
-                                agentKey: agentKey,
-                                source: source,
-                                sessionBoundary: sessionBoundary
-                            )
-                            guard !drafts.isEmpty else { break settlement }
-                            for draft in drafts {
-                                guard let outcome = try store.append(
-                                    draft,
-                                    ifHeadSequence: expectedHead
-                                ) else {
-                                    continue settlement
-                                }
-                                expectedHead = outcome.sequence
-                                _ = await reconcile(
-                                    AgentJournalEvent(
-                                        sequence: outcome.sequence,
-                                        committedAtMs: outcome.committedAtMs,
-                                        draft: draft
-                                    ),
-                                    store: store,
-                                    deliver: true
-                                )
+                    // Fold every durable row first, then atomically require
+                    // only the captured session to be unchanged. Unrelated
+                    // pane traffic cannot spin or starve this sole consumer.
+                    do {
+                        _ = try await reconcileCommittedRows(store: store)
+                        let drafts = state.userInterruptDrafts(
+                            surfaceId: surfaceId,
+                            workspaceId: workspaceId,
+                            agentKey: agentKey,
+                            source: source,
+                            sessionBoundary: boundary.sessionSequences
+                        )
+                        var sessionAdvancedDuringAppend = false
+                        for draft in drafts {
+                            let sessionKey = AgentLifecycleReducerState.sessionKey(for: draft)
+                            guard boundary.sessionSequences[sessionKey] != nil,
+                                  let outcome = try store.append(
+                                      draft,
+                                      ifSessionHasNoEventAfter: boundary.observedHeadSequence
+                                  ) else {
+                                sessionAdvancedDuringAppend = true
+                                continue
                             }
-                            break settlement
-                        } catch {
-                            CmuxEventBus.shared.publish(
-                                name: "agent.journal.append_failed",
-                                category: "agent",
-                                source: "journal",
-                                payload: ["kind": AgentJournalEventKind.turnCompleted.rawValue]
+                            _ = await reconcile(
+                                AgentJournalEvent(
+                                    sequence: outcome.sequence,
+                                    committedAtMs: outcome.committedAtMs,
+                                    draft: draft
+                                ),
+                                store: store,
+                                deliver: true
                             )
-#if DEBUG
-                            cmuxDebugLog("agentJournal.interrupt.error \(String(describing: error))")
-#endif
-                            break settlement
                         }
+                        if sessionAdvancedDuringAppend {
+                            _ = try await reconcileCommittedRows(store: store)
+                        }
+                    } catch {
+                        CmuxEventBus.shared.publish(
+                            name: "agent.journal.append_failed",
+                            category: "agent",
+                            source: "journal",
+                            payload: ["kind": AgentJournalEventKind.turnCompleted.rawValue]
+                        )
+#if DEBUG
+                        cmuxDebugLog("agentJournal.interrupt.error \(String(describing: error))")
+#endif
                     }
                 case .append(let draft):
                     do {
@@ -382,6 +446,7 @@ final class AgentJournalLifecycleCenter: Sendable {
                         notifications: &notifications
                     ) else { continue }
                     noteReconciledScan(through: replay.scannedThroughSequence)
+                    publishAllInterruptBoundaries()
                     if !replay.assignments.isEmpty {
                         await MainActor.run {
                             for assignment in replay.assignments {
@@ -479,7 +544,8 @@ final class AgentJournalLifecycleCenter: Sendable {
         surfaceId: UUID,
         workspaceId: UUID,
         agentKey: String,
-        source: String
+        source: String,
+        boundary: UserInterruptBoundary
     ) -> AgentJournalOperationReceipt {
         let receipt = AgentJournalOperationReceipt()
         guard let operations else {
@@ -491,9 +557,26 @@ final class AgentJournalLifecycleCenter: Sendable {
             workspaceId: workspaceId.uuidString,
             agentKey: agentKey,
             source: source,
+            boundary: boundary,
             receipt: receipt
         ))
         return receipt
+    }
+
+    /// Captures the exact running session generations and observed journal head
+    /// visible at a Stop click. This is a memory-only lock read; it never opens
+    /// or queries SQLite on the main actor.
+    func captureUserInterruptSessionBoundary(
+        surfaceId: UUID,
+        agentKey: String
+    ) -> UserInterruptBoundary {
+        let scope = InterruptScope(surfaceId: surfaceId.uuidString, agentKey: agentKey)
+        return interruptSnapshots.withLock {
+            UserInterruptBoundary(
+                sessionSequences: $0.boundaries[scope] ?? [:],
+                observedHeadSequence: $0.observedHeadSequence
+            )
+        }
     }
 
     /// Records the workspace/panel identity remaps produced by one restored

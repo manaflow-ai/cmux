@@ -101,23 +101,26 @@ public final class AgentJournalStore: @unchecked Sendable {
         }
     }
 
-    /// Appends an event only while the journal still has the expected head.
+    /// Appends an event only while its semantic session is still at the
+    /// expected sequence.
     ///
-    /// The head comparison and append share one SQLite transaction. Callers
-    /// can therefore reconcile through a known sequence and append a derived
-    /// event without overtaking a concurrently committed producer event.
+    /// The session comparison and append share one `BEGIN IMMEDIATE`
+    /// transaction. Unrelated sessions never make a derived event retry, but
+    /// any newer row for the same native session prevents it from settling a
+    /// turn that advanced concurrently. Sources without native session ids
+    /// are scoped by surface because their reducer bucket is surface-local.
     ///
     /// - Parameters:
     ///   - draft: The event to append.
-    ///   - expectedHeadSequence: Head sequence already reconciled by the caller.
+    ///   - expectedSequence: Journal head observed when the session token was captured.
     ///   - committedAt: Commit timestamp source (injectable for tests).
-    /// - Returns: The durable outcome, or `nil` when another event committed
-    ///   after `expectedHeadSequence`.
+    /// - Returns: The durable outcome, or `nil` when the session has any row
+    ///   committed after `expectedSequence`.
     /// - Throws: The same validation, idempotency, and storage errors as
     ///   ``append(_:committedAt:)``.
     public func append(
         _ draft: AgentJournalEventDraft,
-        ifHeadSequence expectedHeadSequence: Int64,
+        ifSessionHasNoEventAfter expectedSequence: Int64,
         committedAt: Date = Date()
     ) throws -> AgentJournalAppendOutcome? {
         if let problem = draft.validationProblem() {
@@ -126,12 +129,34 @@ public final class AgentJournalStore: @unchecked Sendable {
         let committedAtMs = Int64(committedAt.timeIntervalSince1970 * 1000)
         return try withDatabase { database in
             try database.transaction {
-                let head = try Self.scalarInt64(
+                let newerSessionRow = try Self.scalarInt64(
                     database,
-                    "SELECT COALESCE(MAX(sequence), 0) FROM agent_journal;",
-                    binding: []
+                    """
+                    SELECT EXISTS(
+                        SELECT 1 FROM agent_journal
+                        WHERE sequence > ?1
+                          AND source = ?2
+                          AND agent_key = ?3
+                          AND is_subagent = 0
+                          AND (
+                              (?4 IS NOT NULL AND session_id = ?4)
+                              OR (
+                                  ?4 IS NULL
+                                  AND session_id IS NULL
+                                  AND surface_id = ?5
+                              )
+                          )
+                    );
+                    """,
+                    binding: [
+                        .int(expectedSequence),
+                        .text(draft.source),
+                        .text(draft.agentKey),
+                        .optionalText(draft.sessionId),
+                        .optionalText(draft.surfaceId),
+                    ]
                 ) ?? 0
-                guard head == expectedHeadSequence else { return nil }
+                guard newerSessionRow == 0 else { return nil }
                 return try Self.appendValidated(
                     draft,
                     committedAtMs: committedAtMs,

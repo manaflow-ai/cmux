@@ -479,7 +479,7 @@ extension AgentNotificationRegressionTests {
         _ = workspace.clearAgentLifecycle(key: "claude_code", panelId: fixture.panelId)
         #expect(!workspace.sidebarStatusEntriesVisibleForDisplay().contains { $0.key == "claude_code" })
 
-        workspace.agentLifecycleStatesByPanelId[UUID()] = ["claude_code": .running]
+        workspace.setAgentLifecycle(key: "claude_code", panelId: UUID(), lifecycle: .running)
         #expect(
             !workspace.sidebarStatusEntriesVisibleForDisplay().contains { $0.key == "claude_code" },
             "A closed panel's lifecycle must not keep relay status visible"

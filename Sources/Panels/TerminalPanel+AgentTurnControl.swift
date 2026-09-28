@@ -18,15 +18,23 @@ extension TerminalPanel {
     /// interrupt so the pane leaves `running`: Claude runs no Stop hook when
     /// interrupted.
     func interruptAgentTurn(_ target: AgentTurnInterruptTarget) {
+        let journal = AgentJournalLifecycleCenter.shared
+        // Capture before Escape can trigger a newer hook. The consumer later
+        // settles only these exact session generations.
+        let boundary = journal.captureUserInterruptSessionBoundary(
+            surfaceId: id,
+            agentKey: target.statusKey
+        )
         interruptAgentTurn(
             target,
             sendNamedKey: { sendNamedKeyResult($0) },
             recordUserInterrupt: {
-                AgentJournalLifecycleCenter.shared.recordUserInterrupt(
+                journal.recordUserInterrupt(
                     surfaceId: id,
                     workspaceId: workspaceId,
                     agentKey: target.statusKey,
-                    source: target.hookSource
+                    source: target.hookSource,
+                    boundary: boundary
                 )
             }
         )
