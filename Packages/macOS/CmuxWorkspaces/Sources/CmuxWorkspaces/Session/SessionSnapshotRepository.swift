@@ -135,7 +135,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
 
     /// Upper bound on a snapshot file accepted for import. Real snapshots
     /// (scrollback included) are a few MiB at most.
-    static let maximumImportableSnapshotBytes: Int64 = 256 * 1024 * 1024
+    static var maximumImportableSnapshotBytes: Int64 { 256 * 1024 * 1024 }
 
     private func importableSnapshot(
         data: Data,
