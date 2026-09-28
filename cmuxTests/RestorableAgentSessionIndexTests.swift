@@ -73,6 +73,103 @@ private func XCTUnwrap<T>(
 
 struct RestorableAgentSessionIndexTests {
     @Test
+    func testHookSessionRestoresThroughStableSurfaceIdentityAfterRuntimeIDsChange() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-stable-hook-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: projectsDir.appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path),
+                isDirectory: true
+            ),
+            withIntermediateDirectories: true
+        )
+
+        let sessionId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        let stableSurfaceId = UUID()
+        let originalWorkspaceId = UUID()
+        let originalPanelId = UUID()
+        let restoredWorkspaceId = UUID()
+        let restoredPanelId = UUID()
+        try writeClaudeTranscript(sessionId: sessionId, cwd: cwd, projectsDir: projectsDir)
+        var record = hookRecord(
+            sessionId: sessionId,
+            workspaceId: originalWorkspaceId,
+            panelId: originalPanelId,
+            cwd: cwd.path,
+            configDir: configDir.path,
+            updatedAt: 10
+        )
+        record["stableSurfaceId"] = stableSurfaceId.uuidString
+        try writeClaudeHookStore(root: root, sessions: [sessionId: record])
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+
+        XCTAssertEqual(
+            index.entryForStablePanel(
+                workspaceId: restoredWorkspaceId,
+                panelId: restoredPanelId,
+                stableSurfaceId: stableSurfaceId,
+                revalidateProcessEvidence: false
+            )?.snapshot.sessionId,
+            sessionId,
+            "A hook record must follow the persisted stable surface identity after restore re-mints runtime IDs."
+        )
+    }
+
+    @Test
+    func testStableSurfaceFallbackKeepsRuntimeEvidenceAndRejectsTiedHistory() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-stable-hook-history-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: projectsDir.appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path)),
+            withIntermediateDirectories: true
+        )
+        let stableID = UUID()
+        let workspaceID = UUID()
+        let currentPanelID = UUID()
+        let currentSessionID = UUID().uuidString
+        let historicalSessionIDs = [UUID().uuidString, UUID().uuidString]
+        var records: [String: [String: Any]] = [:]
+        for sessionID in [currentSessionID] + historicalSessionIDs {
+            try writeClaudeTranscript(sessionId: sessionID, cwd: cwd, projectsDir: projectsDir)
+            let isCurrent = sessionID == currentSessionID
+            var record = hookRecord(
+                sessionId: sessionID,
+                workspaceId: workspaceID,
+                panelId: isCurrent ? currentPanelID : UUID(),
+                cwd: cwd.path,
+                configDir: configDir.path,
+                updatedAt: isCurrent ? 10 : 100
+            )
+            if !isCurrent { record["stableSurfaceId"] = stableID.uuidString }
+            records[sessionID] = record
+        }
+        try writeClaudeHookStore(root: root, sessions: records)
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        #expect(index.entryForStablePanel(
+            workspaceId: workspaceID, panelId: currentPanelID,
+            stableSurfaceId: stableID, revalidateProcessEvidence: false
+        )?.snapshot.sessionId == currentSessionID)
+        #expect(index.entryForStablePanel(
+            workspaceId: UUID(), panelId: UUID(),
+            stableSurfaceId: stableID, revalidateProcessEvidence: false
+        ) == nil)
+    }
+
+    @Test
     func testClaudeHookSnapshotRequiresTranscriptFile() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory

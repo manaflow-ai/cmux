@@ -30,6 +30,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "CMUX_SOCKET_PATH": context.socketPath,
             "CMUX_WORKSPACE_ID": context.workspaceId,
             "CMUX_SURFACE_ID": leakedSurfaceId,
+            "CMUX_STABLE_SURFACE_ID": UUID().uuidString,
             "CMUX_CLI_TTY_NAME": ttyName,
             "CMUX_CLAUDE_PID": "42424",
             "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
@@ -51,6 +52,12 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let state = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let sessions = try #require(state["sessions"] as? [String: [String: Any]])
+        let record = try #require(sessions[sessionId])
+        #expect(record["surfaceId"] as? String == ttySurfaceId)
+        #expect(record["stableSurfaceId"] == nil, "The stable ID inherited from the wrong pane must not follow TTY rerouting")
 
         let request = try #require(
             resumeBindingRequests(in: context).last,
@@ -78,6 +85,8 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         defer { context.cleanup() }
 
         let sessionId = "claude-ordinary-session-start-session"
+        let stableSurfaceId = UUID().uuidString
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
         let serverHandled = startClaudeSurfaceResolutionServer(
             context: context,
             surfaces: [(context.surfaceId, "surface:1", true)],
@@ -91,6 +100,8 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "CMUX_SOCKET_PATH": context.socketPath,
             "CMUX_WORKSPACE_ID": context.workspaceId,
             "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_STABLE_SURFACE_ID": stableSurfaceId,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
             "CMUX_AGENT_LAUNCH_KIND": "claude",
@@ -109,6 +120,9 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
+        let state = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let sessions = try #require(state["sessions"] as? [String: [String: Any]])
+        #expect(sessions[sessionId]?["stableSurfaceId"] as? String == stableSurfaceId)
 
         let request = try #require(
             resumeBindingRequests(in: context).last,

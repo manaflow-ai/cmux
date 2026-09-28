@@ -479,6 +479,9 @@ extension DockSplitStore {
             tmuxStartCommand: restoredTmuxStartCommand,
             initialInput: initialInput,
             additionalEnvironment: replayEnvironment,
+            stableSurfaceId: snapshot.stableSurfaceId.flatMap {
+                excludingStableIdentities.contains($0) ? nil : $0
+            },
             focusPlacement: .rightSidebarDock,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .pacedSessionRestore,

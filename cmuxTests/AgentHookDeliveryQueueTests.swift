@@ -887,6 +887,7 @@ struct AgentHookDeliveryQueueTests {
         let commands = CodexHookCapturedSocketCommands()
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let stableSurfaceID = UUID().uuidString
         let sessionID = "issue-13489-session"
         let processID = Int(getpid())
         let stateURL = root.appendingPathComponent("codex-hook-sessions.json", isDirectory: false)
@@ -932,6 +933,7 @@ struct AgentHookDeliveryQueueTests {
             "CMUX_SOCKET_PATH": socketPath,
             "CMUX_WORKSPACE_ID": workspaceID,
             "CMUX_SURFACE_ID": surfaceID,
+            "CMUX_STABLE_SURFACE_ID": stableSurfaceID,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_BUNDLED_CLI_PATH": cliPath,
@@ -976,6 +978,7 @@ struct AgentHookDeliveryQueueTests {
             #expect(admittedEnvironment["CMUX_CODEX_PID"] == String(processID))
             #expect(admittedEnvironment["CMUX_WORKSPACE_ID"] == workspaceID)
             #expect(admittedEnvironment["CMUX_SURFACE_ID"] == surfaceID)
+            #expect(admittedEnvironment["CMUX_STABLE_SURFACE_ID"] == stableSurfaceID)
             #expect(admittedEnvironment["CMUX_AGENT_HOOK_ROUTE_SNAPSHOT"] == "1")
 
             let event = try #require(AgentHookDeliveryEvent(params: params))
@@ -1011,6 +1014,7 @@ struct AgentHookDeliveryQueueTests {
         let started = try persistedSession()
         #expect(started["workspaceId"] as? String == workspaceID)
         #expect(started["surfaceId"] as? String == surfaceID)
+        #expect(started["stableSurfaceId"] as? String == stableSurfaceID)
         #expect((started["pid"] as? NSNumber)?.intValue == processID)
         #expect(started["runtimeStatus"] as? String == "running")
 
@@ -1021,6 +1025,7 @@ struct AgentHookDeliveryQueueTests {
         let prompted = try persistedSession()
         #expect(prompted["workspaceId"] as? String == workspaceID)
         #expect(prompted["surfaceId"] as? String == surfaceID)
+        #expect(prompted["stableSurfaceId"] as? String == stableSurfaceID)
         #expect((prompted["pid"] as? NSNumber)?.intValue == processID)
         #expect(prompted["runtimeStatus"] as? String == "running")
         #expect(prompted["activePromptTurnIds"] as? [String] == ["turn-13489"])
