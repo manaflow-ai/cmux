@@ -1535,6 +1535,20 @@ enum CmuxEmbeddedConfigSchema {
         }
       }
     },
+    "agentActions": {
+      "x-cmux-scopes": ["global"],
+      "title": "agentActions",
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Clickable agent actions, one toggle per category.",
+      "properties": {
+        "turnControl": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show a Stop button over a terminal while Claude Code or Codex is working on a turn. Clicking it sends Escape, the agent's own interrupt key, and marks the turn stopped."
+        }
+      }
+    },
     "automation": {
       "x-cmux-scopes": ["global"],
       "title": "automation",

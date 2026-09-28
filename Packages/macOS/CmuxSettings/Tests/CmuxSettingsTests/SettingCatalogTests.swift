@@ -135,6 +135,10 @@ struct SettingCatalogTests {
         #expect(!SettingCatalog().terminal.confirmUnsafePaste.defaultValue)
     }
 
+    @Test func agentTurnControlDefaultsOff() {
+        #expect(!SettingCatalog().agentActions.turnControl.defaultValue)
+    }
+
     @Test func keyIdsMatchTheirSectionPrefix() {
         // Each key's dotted id must start with its section's prefix; this is
         // the convention that lets the JSON store use `id` as the JSON path.
@@ -142,6 +146,7 @@ struct SettingCatalogTests {
         for key in catalog.app.all { #expect(key.id.hasPrefix("app.")) }
         for key in catalog.mobile.all { #expect(key.id.hasPrefix("mobile.")) }
         for key in catalog.automation.all { #expect(key.id.hasPrefix("automation.")) }
+        for key in catalog.agentActions.all { #expect(key.id.hasPrefix("agentActions.")) }
         #expect(catalog.paneChrome.paneBorderColorHex.id == "paneBorderColor")
         #expect(catalog.paneChrome.activePaneBorderColorHex.id == "activePaneBorderColor")
     }

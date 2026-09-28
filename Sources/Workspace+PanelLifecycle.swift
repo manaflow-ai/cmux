@@ -32,7 +32,13 @@ extension Workspace {
 
     var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] {
         get { sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId }
-        set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
+        set {
+            let previous = sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId
+            sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue)
+            for panelId in Set(previous.keys).union(newValue.keys) where previous[panelId] != newValue[panelId] {
+                (panels[panelId] as? TerminalPanel)?.refreshAgentTurnControl()
+            }
+        }
     }
 
     /// Returns exact-session runtime identities that still match their recorded process generation.
