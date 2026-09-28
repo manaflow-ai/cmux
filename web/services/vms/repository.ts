@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, max, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, max, ne, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -21,6 +21,7 @@ import {
   cloudVmTunnelEnrollmentLocks,
   cloudVms,
   cloudVmUsageEvents,
+  observedDestroyCleanupValidityPredicate,
 } from "../../db/schema";
 import {
   accountDeletionAdvisoryLockKey,
@@ -120,18 +121,27 @@ export const OBSERVED_DESTROY_CLEANUP_CANDIDATE_PREDICATE: SQL = sql`
  * existed. Filtering before LIMIT keeps them from starving actionable work;
  * retaining them preserves evidence for operator inspection.
  */
-export const OBSERVED_DESTROY_OUTBOX_CANDIDATE_PREDICATE: SQL = sql`
-  coalesce(
-    jsonb_typeof(${cloudVmObservedDestroyCleanups.cleanup}) = 'object'
-    and (
-      ${cloudVmObservedDestroyCleanups.cleanup} @> '{"modelPlane":true}'::jsonb
-      or (
-        jsonb_typeof(${cloudVmObservedDestroyCleanups.cleanup}->'homeVolume') = 'string'
-        and length(btrim(${cloudVmObservedDestroyCleanups.cleanup}->>'homeVolume')) > 0
-      )
-    ), false
-  )
-`;
+export const OBSERVED_DESTROY_OUTBOX_CANDIDATE_PREDICATE: SQL =
+  observedDestroyCleanupValidityPredicate(cloudVmObservedDestroyCleanups.cleanup);
+
+function observedDestroyCleanupStepPredicate(
+  cleanup: SQLWrapper,
+  step: VmObservedDestroyCleanupStep,
+): SQL {
+  return step === "modelPlane"
+    ? sql`${cleanup} @> '{"modelPlane":true}'::jsonb`
+    : sql`jsonb_typeof(${cleanup}->'homeVolume') = 'string'
+      and length(btrim(${cleanup}->>'homeVolume')) > 0`;
+}
+
+function observedDestroyCleanupSingleStep(
+  cleanup: SQLWrapper,
+  step: VmObservedDestroyCleanupStep,
+): SQL {
+  return step === "modelPlane"
+    ? sql`jsonb_build_object('modelPlane', true)`
+    : sql`jsonb_build_object('homeVolume', ${cleanup}->'homeVolume')`;
+}
 export type VmObservedDestroyCleanup = {
   /** Model-plane revocation is idempotent and remains pending until acknowledged. */
   readonly modelPlane: true;
@@ -2902,24 +2912,30 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       const db = cloudDb();
       const metadata = sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)`;
       const cleanup = sql`coalesce(${metadata}->${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}, '{}'::jsonb)`;
+      const completedStepValid = observedDestroyCleanupStepPredicate(cleanup, input.step);
+      const remainingStep: VmObservedDestroyCleanupStep = input.step === "modelPlane"
+        ? "homeVolume"
+        : "modelPlane";
+      const remainingStepValid = observedDestroyCleanupStepPredicate(cleanup, remainingStep);
+      const remainingCleanup = observedDestroyCleanupSingleStep(cleanup, remainingStep);
       const updated = await db
         .update(cloudVms)
         .set({
           providerMetadata: sql`case
-            when jsonb_object_length(${cleanup}) <= 1
-              then ${metadata} - ${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}
-            else jsonb_set(
-              ${metadata},
-              array[${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}]::text[],
-              ${cleanup} - ${input.step}
-            )
+            when coalesce(${remainingStepValid}, false)
+              then jsonb_set(
+                ${metadata},
+                array[${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}]::text[],
+                ${remainingCleanup}
+              )
+            else ${metadata} - ${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}
           end`,
           updatedAt: new Date(),
         })
         .where(and(
           eq(cloudVms.id, input.id),
           eq(cloudVms.status, "destroyed"),
-          sql`${cleanup} ? ${input.step}`,
+          completedStepValid,
         ))
         .returning({ id: cloudVms.id });
       if (updated.length > 0) return true;
@@ -2928,21 +2944,36 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           .delete(cloudVmObservedDestroyCleanups)
           .where(and(
             eq(cloudVmObservedDestroyCleanups.vmId, input.id),
-            sql`${cloudVmObservedDestroyCleanups.cleanup} ? ${input.step}`,
-            sql`jsonb_object_length(${cloudVmObservedDestroyCleanups.cleanup}) = 1`,
+            observedDestroyCleanupStepPredicate(
+              cloudVmObservedDestroyCleanups.cleanup,
+              input.step,
+            ),
+            sql`not coalesce(${observedDestroyCleanupStepPredicate(
+              cloudVmObservedDestroyCleanups.cleanup,
+              remainingStep,
+            )}, false)`,
           ))
           .returning({ id: cloudVmObservedDestroyCleanups.vmId });
         if (removed.length > 0) return true;
         const transferred = await tx
           .update(cloudVmObservedDestroyCleanups)
           .set({
-            cleanup: sql`${cloudVmObservedDestroyCleanups.cleanup} - ${input.step}`,
+            cleanup: observedDestroyCleanupSingleStep(
+              cloudVmObservedDestroyCleanups.cleanup,
+              remainingStep,
+            ),
             updatedAt: new Date(),
           })
           .where(and(
             eq(cloudVmObservedDestroyCleanups.vmId, input.id),
-            sql`${cloudVmObservedDestroyCleanups.cleanup} ? ${input.step}`,
-            sql`jsonb_object_length(${cloudVmObservedDestroyCleanups.cleanup}) > 1`,
+            observedDestroyCleanupStepPredicate(
+              cloudVmObservedDestroyCleanups.cleanup,
+              input.step,
+            ),
+            observedDestroyCleanupStepPredicate(
+              cloudVmObservedDestroyCleanups.cleanup,
+              remainingStep,
+            ),
           ))
           .returning({ id: cloudVmObservedDestroyCleanups.vmId });
         return transferred.length > 0;
@@ -2953,6 +2984,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
     dbEffect("deferObservedDestroyCleanup", async () => {
       const cleanup = sql`coalesce(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
         ->${OBSERVED_DESTROY_CLEANUP_METADATA_KEY}, '{}'::jsonb)`;
+      const stepValid = observedDestroyCleanupStepPredicate(cleanup, input.step);
       const db = cloudDb();
       const updated = await db
         .update(cloudVms)
@@ -2960,7 +2992,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .where(and(
           eq(cloudVms.id, input.id),
           eq(cloudVms.status, "destroyed"),
-          sql`${cleanup} ? ${input.step}`,
+          stepValid,
         ))
         .returning({ id: cloudVms.id });
       if (updated.length > 0) return true;
@@ -2969,7 +3001,10 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .set({ updatedAt: new Date() })
         .where(and(
           eq(cloudVmObservedDestroyCleanups.vmId, input.id),
-          sql`${cloudVmObservedDestroyCleanups.cleanup} ? ${input.step}`,
+          observedDestroyCleanupStepPredicate(
+            cloudVmObservedDestroyCleanups.cleanup,
+            input.step,
+          ),
         ))
         .returning({ id: cloudVmObservedDestroyCleanups.vmId });
       return transferred.length > 0;

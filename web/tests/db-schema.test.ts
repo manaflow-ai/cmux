@@ -84,6 +84,9 @@ describe("Cloud VM database schema", () => {
     );
     expect(migration).toContain('jsonb_typeof("cleanup") = \'object\'');
     expect(migration).toContain(
+      '("cleanup" - \'modelPlane\' - \'homeVolume\') = \'{}\'::jsonb',
+    );
+    expect(migration).toContain(
       'CONSTRAINT "cloud_vm_observed_destroy_cleanups_pending_step" CHECK ( coalesce(',
     );
     expect(migration).not.toContain("REFERENCES");
@@ -98,7 +101,10 @@ describe("Cloud VM database schema", () => {
       `coalesce( jsonb_typeof("cloud_vm_observed_destroy_cleanups"."cleanup") = 'object'`,
     );
     expect(normalized).toContain(
-      `"cloud_vm_observed_destroy_cleanups"."cleanup" @> '{"modelPlane":true}'::jsonb`,
+      `("cloud_vm_observed_destroy_cleanups"."cleanup" - 'modelPlane' - 'homeVolume') = '{}'::jsonb`,
+    );
+    expect(normalized).toContain(
+      `not ("cloud_vm_observed_destroy_cleanups"."cleanup" ? 'modelPlane') or "cloud_vm_observed_destroy_cleanups"."cleanup"->'modelPlane' = 'true'::jsonb`,
     );
     expect(normalized).toContain(
       `length(btrim("cloud_vm_observed_destroy_cleanups"."cleanup"->>'homeVolume')) > 0`,
@@ -111,7 +117,18 @@ describe("Cloud VM database schema", () => {
   dbTest("rejects malformed transferred cleanup rows", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_observed_destroy_cleanups`;
-    const malformed = [null, "collision", [], {}, { modelPlane: false }, { homeVolume: "   " }];
+    const malformed = [
+      null,
+      "collision",
+      [],
+      {},
+      { modelPlane: false },
+      { homeVolume: "   " },
+      { homeVolume: "volume", modelPlane: false },
+      { homeVolume: "volume", junk: true },
+      { modelPlane: true, junk: "retained" },
+      { modelPlane: true, homeVolume: "" },
+    ];
 
     for (const [index, cleanup] of malformed.entries()) {
       let insertError: unknown;

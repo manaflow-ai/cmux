@@ -6,13 +6,19 @@ CREATE TABLE "cloud_vm_observed_destroy_cleanups" (
   CONSTRAINT "cloud_vm_observed_destroy_cleanups_pending_step" CHECK (
     coalesce(
       jsonb_typeof("cleanup") = 'object'
+      AND ("cleanup" - 'modelPlane' - 'homeVolume') = '{}'::jsonb
       AND (
-        "cleanup" @> '{"modelPlane":true}'::jsonb
+        NOT ("cleanup" ? 'modelPlane')
+        OR "cleanup"->'modelPlane' = 'true'::jsonb
+      )
+      AND (
+        NOT ("cleanup" ? 'homeVolume')
         OR (
           jsonb_typeof("cleanup"->'homeVolume') = 'string'
           AND length(btrim("cleanup"->>'homeVolume')) > 0
         )
-      ),
+      )
+      AND ("cleanup" ? 'modelPlane' OR "cleanup" ? 'homeVolume'),
       false
     )
   )
@@ -22,12 +28,18 @@ CREATE INDEX "cloud_vm_observed_destroy_cleanups_updated_idx"
   ON "cloud_vm_observed_destroy_cleanups" ("updated_at", "vm_id")
   WHERE coalesce(
     jsonb_typeof("cleanup") = 'object'
+    AND ("cleanup" - 'modelPlane' - 'homeVolume') = '{}'::jsonb
     AND (
-      "cleanup" @> '{"modelPlane":true}'::jsonb
+      NOT ("cleanup" ? 'modelPlane')
+      OR "cleanup"->'modelPlane' = 'true'::jsonb
+    )
+    AND (
+      NOT ("cleanup" ? 'homeVolume')
       OR (
         jsonb_typeof("cleanup"->'homeVolume') = 'string'
         AND length(btrim("cleanup"->>'homeVolume')) > 0
       )
-    ),
+    )
+    AND ("cleanup" ? 'modelPlane' OR "cleanup" ? 'homeVolume'),
     false
   );

@@ -6169,6 +6169,12 @@ describe("VM Effect workflows", () => {
       { length: 20 },
       (_, index) => `00000000-0000-4000-8000-${String(200 + index).padStart(12, "0")}`,
     );
+    const malformedCleanups = malformedIds.map((_, index) => {
+      if (index % 4 === 0) return { homeVolume: `legacy-volume-${index}`, modelPlane: false };
+      if (index % 4 === 1) return { homeVolume: `legacy-volume-${index}`, junk: true };
+      if (index % 4 === 2) return { modelPlane: true, junk: "legacy" };
+      return { modelPlane: true, homeVolume: `legacy-volume-${index}`, junk: "legacy" };
+    });
     const validId = "00000000-0000-4000-8000-000000000220";
     const allIds = [...malformedIds, validId];
 
@@ -6180,7 +6186,10 @@ describe("VM Effect workflows", () => {
       for (const [index, vmId] of malformedIds.entries()) {
         await tx`
           insert into cloud_vm_observed_destroy_cleanups (vm_id, provider, cleanup, updated_at)
-          values (${vmId}, 'freestyle', '{}'::jsonb, now() - interval '2 days' + ${index} * interval '1 second')
+          values (
+            ${vmId}, 'freestyle', ${JSON.stringify(malformedCleanups[index])}::jsonb,
+            now() - interval '2 days' + ${index} * interval '1 second'
+          )
         `;
       }
       await tx`
@@ -6191,12 +6200,17 @@ describe("VM Effect workflows", () => {
         alter table cloud_vm_observed_destroy_cleanups
         add constraint cloud_vm_observed_destroy_cleanups_pending_step check (
           coalesce(
-            jsonb_typeof(cleanup) = 'object' and (
-              cleanup @> '{"modelPlane":true}'::jsonb or (
+            jsonb_typeof(cleanup) = 'object'
+            and (cleanup - 'modelPlane' - 'homeVolume') = '{}'::jsonb
+            and (not (cleanup ? 'modelPlane') or cleanup->'modelPlane' = 'true'::jsonb)
+            and (
+              not (cleanup ? 'homeVolume') or (
                 jsonb_typeof(cleanup->'homeVolume') = 'string'
                 and length(btrim(cleanup->>'homeVolume')) > 0
               )
-            ), false
+            )
+            and (cleanup ? 'modelPlane' or cleanup ? 'homeVolume'),
+            false
           )
         ) not valid
       `;
@@ -6204,9 +6218,26 @@ describe("VM Effect workflows", () => {
 
     try {
       const candidates = await Effect.runPromise(
-        vmRepositoryLiveShape.observedDestroyCleanupCandidates!({ limit: 1 }),
+        vmRepositoryLiveShape.observedDestroyCleanupCandidates!({ limit: 20 }),
       );
       expect(candidates.map((candidate) => candidate.id)).toEqual([validId]);
+
+      expect(await Effect.runPromise(vmRepositoryLiveShape.completeObservedDestroyCleanup!({
+        id: malformedIds[0]!, step: "homeVolume",
+      }))).toBe(true);
+      const [{ firstMalformedCount }] = await sql<{ firstMalformedCount: string }[]>`
+        select count(*)::text as "firstMalformedCount"
+        from cloud_vm_observed_destroy_cleanups where vm_id = ${malformedIds[0]!}
+      `;
+      expect(firstMalformedCount).toBe("0");
+
+      expect(await Effect.runPromise(vmRepositoryLiveShape.completeObservedDestroyCleanup!({
+        id: malformedIds[3]!, step: "modelPlane",
+      }))).toBe(true);
+      const [sanitized] = await sql<{ cleanup: Record<string, unknown> }[]>`
+        select cleanup from cloud_vm_observed_destroy_cleanups where vm_id = ${malformedIds[3]!}
+      `;
+      expect(sanitized?.cleanup).toEqual({ homeVolume: "legacy-volume-3" });
     } finally {
       await sql`delete from cloud_vm_observed_destroy_cleanups where vm_id in ${sql(allIds)}`;
       await sql`

@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -17,6 +17,27 @@ import {
 } from "drizzle-orm/pg-core";
 
 export const vmProvider = pgEnum("vm_provider", ["freestyle"]);
+
+/** A closed, actionable observed-destroy cleanup object. */
+export function observedDestroyCleanupValidityPredicate(cleanup: SQLWrapper): SQL {
+  return sql`coalesce(
+    jsonb_typeof(${cleanup}) = 'object'
+    and (${cleanup} - 'modelPlane' - 'homeVolume') = '{}'::jsonb
+    and (
+      not (${cleanup} ? 'modelPlane')
+      or ${cleanup}->'modelPlane' = 'true'::jsonb
+    )
+    and (
+      not (${cleanup} ? 'homeVolume')
+      or (
+        jsonb_typeof(${cleanup}->'homeVolume') = 'string'
+        and length(btrim(${cleanup}->>'homeVolume')) > 0
+      )
+    )
+    and (${cleanup} ? 'modelPlane' or ${cleanup} ? 'homeVolume'),
+    false
+  )`;
+}
 
 export const vmStatus = pgEnum("vm_status", [
   "provisioning",
@@ -144,24 +165,10 @@ export const cloudVmObservedDestroyCleanups = pgTable(
   (table) => [
     index("cloud_vm_observed_destroy_cleanups_updated_idx")
       .on(table.updatedAt, table.vmId)
-      .where(sql`coalesce(
-        jsonb_typeof(${table.cleanup}) = 'object' and (
-          ${table.cleanup} @> '{"modelPlane":true}'::jsonb or (
-            jsonb_typeof(${table.cleanup}->'homeVolume') = 'string'
-            and length(btrim(${table.cleanup}->>'homeVolume')) > 0
-          )
-        ), false
-      )`),
+      .where(observedDestroyCleanupValidityPredicate(table.cleanup)),
     check(
       "cloud_vm_observed_destroy_cleanups_pending_step",
-      sql`coalesce(
-        jsonb_typeof(${table.cleanup}) = 'object' and (
-          ${table.cleanup} @> '{"modelPlane":true}'::jsonb or (
-            jsonb_typeof(${table.cleanup}->'homeVolume') = 'string'
-            and length(btrim(${table.cleanup}->>'homeVolume')) > 0
-          )
-        ), false
-      )`,
+      observedDestroyCleanupValidityPredicate(table.cleanup),
     ),
   ],
 );
