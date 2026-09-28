@@ -25,6 +25,10 @@ public struct GhosttyTerminalOptions: Equatable, Sendable {
     public var fontFamily: String? { fontFamilies.first }
     /// The terminal font size, in points.
     public var fontSize: Double
+    /// Extra line height on top of the font's own.
+    public var cellHeight: GhosttyCellHeightAdjustment
+    /// Whether glyphs are drawn with a thicker stroke (macOS only).
+    public var fontThicken: Bool
     /// The default cursor shape.
     public var cursorStyle: GhosttyCursorStyle
     /// Whether the cursor blinks by default. Ghostty blinks when unset.
@@ -70,6 +74,8 @@ public struct GhosttyTerminalOptions: Equatable, Sendable {
         fontSize = Self.fold(values(.fontSize)) { value in
             Double(value).flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         } ?? Self.defaultFontSize
+        cellHeight = Self.fold(values(.adjustCellHeight), parse: GhosttyCellHeightAdjustment.init(configValue:)) ?? .unadjusted
+        fontThicken = Self.fold(values(.fontThicken), parse: Self.parseBool) ?? false
         cursorStyle = Self.fold(values(.cursorStyle), parse: GhosttyCursorStyle.init(rawValue:)) ?? .block
         cursorBlinks = Self.fold(values(.cursorStyleBlink), parse: Self.parseBool) ?? true
         let defaultPadding = GhosttyWindowPadding(leading: Self.defaultWindowPadding)
@@ -93,6 +99,8 @@ public struct GhosttyTerminalOptions: Equatable, Sendable {
         switch change {
         case .fontFamilies(let families): updated.fontFamilies = families
         case .fontSize(let points): updated.fontSize = Self.hundredths(points)
+        case .cellHeight(let adjustment): updated.cellHeight = adjustment
+        case .fontThicken(let thicken): updated.fontThicken = thicken
         case .cursorStyle(let style): updated.cursorStyle = style
         case .cursorBlinks(let blinks): updated.cursorBlinks = blinks
         case .windowPaddingX(let points): updated.windowPaddingX = points

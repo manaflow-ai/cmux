@@ -14,6 +14,8 @@ struct GhosttyTerminalOptionsTests {
         let options = GhosttyTerminalOptions.defaults
         #expect(options.fontFamily == nil)
         #expect(options.fontSize == 13)
+        #expect(options.cellHeight == .unadjusted)
+        #expect(!options.fontThicken)
         #expect(options.cursorStyle == .block)
         #expect(options.cursorBlinks)
         #expect(options.windowPaddingX == GhosttyWindowPadding(leading: 2))
@@ -94,6 +96,24 @@ struct GhosttyTerminalOptionsTests {
         #expect(GhosttyTerminalOptionChange.scrollbackLimitBytes(25_000_000).configValues == ["25000000"])
     }
 
+    @Test("adjust-cell-height reads percentages and pixels, and writes them back")
+    func cellHeightSpellings() {
+        func cellHeight(_ values: [String]) -> GhosttyCellHeightAdjustment {
+            GhosttyTerminalOptions(directives: ["adjust-cell-height": values]).cellHeight
+        }
+        #expect(cellHeight(["8%"]) == .percent(8))
+        #expect(cellHeight(["-15 %"]) == .percent(-15))
+        #expect(cellHeight(["2"]) == .pixels(2))
+        #expect(cellHeight(["10%", "tall"]) == .percent(10))
+        #expect(cellHeight(["10%", ""]) == .unadjusted)
+        #expect(GhosttyCellHeightAdjustment.pixels(2).percentValue == 0)
+        #expect(GhosttyTerminalOptionChange.cellHeight(.percent(12)).key.rawValue == "adjust-cell-height")
+        #expect(GhosttyTerminalOptionChange.cellHeight(.percent(12)).configValues == ["12%"])
+        #expect(GhosttyTerminalOptionChange.fontThicken(true).key.rawValue == "font-thicken")
+        #expect(GhosttyTerminalOptionChange.fontThicken(true).configValues == ["true"])
+        #expect(GhosttyTerminalOptions(directives: ["font-thicken": ["true"]]).fontThicken)
+    }
+
     @Test("A font change clears inherited families before setting its own")
     func fontFamilyChangeResetsList() {
         #expect(GhosttyTerminalOptionChange.fontFamilies(["JetBrains Mono"]).configValues == ["\"\"", "\"JetBrains Mono\""])
@@ -151,6 +171,8 @@ struct GhosttyTerminalOptionsTests {
         let changes: [GhosttyTerminalOptionChange] = [
             .fontFamilies(["SF Mono"]),
             .fontSize(16),
+            .cellHeight(.percent(8)),
+            .fontThicken(true),
             .cursorStyle(.underline),
             .cursorBlinks(false),
             .windowPaddingX(GhosttyWindowPadding(leading: 10)),
