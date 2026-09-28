@@ -4339,7 +4339,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // lifecycle protocol exposes a synchronous nonisolated retirement hook.
     // Keep the property nonisolated as well so that hook can seal the current
     // generation without an asynchronous main-actor hop.
-    fileprivate nonisolated(unsafe) lazy var externalHoverOwnerCoordinator = externalHoverDiagnosticsRenderDemandTracker.makeExternalHoverOwnerCoordinator(
+    fileprivate nonisolated lazy var externalHoverOwnerCoordinator = externalHoverDiagnosticsRenderDemandTracker.makeExternalHoverOwnerCoordinator(
         scheduler: { DispatchQueue.main.async(execute: $0) },
         project: { [weak self] entry in self?.applyExternalHoverProjection(entry) },
         logTransition: { [surfaceSerial = externalHoverSurfaceSerial, externalHoverDiagnosticsGate] verdict in
