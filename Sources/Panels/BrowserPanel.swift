@@ -2108,11 +2108,13 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
     @Published var webViewInstanceID: UUID = UUID()
     /// Owns the WebKit page's attachment phase after a WebContent crash.
-    /// A terminated view stays detached until an explicit recovery action creates
-    /// a new view, even when WebKit did not provide a URL to restore.
+    /// A terminated view stays detached until a recovery creates a new view,
+    /// even when WebKit did not provide a URL to restore. A crash while the
+    /// pane was shown waits for an explicit reload; one while it was hidden
+    /// restores its page when the pane is shown again.
     enum WebContentState: Equatable {
         case active
-        case terminated(recoveryURL: URL?)
+        case terminated(recoveryURL: URL?, restoresWhenShown: Bool = false)
 
         var isTerminated: Bool {
             if case .terminated = self { return true }
@@ -2120,7 +2122,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         var recoveryURL: URL? {
-            if case .terminated(let recoveryURL) = self { return recoveryURL }
+            if case .terminated(let recoveryURL, _) = self { return recoveryURL }
             return nil
         }
     }
@@ -2224,7 +2226,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     private var pendingInteractiveBrowserPrompts: [PendingInteractiveBrowserPrompt] = []
     private var isPresentingPendingInteractiveBrowserPrompt = false
-    private var isWebViewVisibleInUI: Bool = false
+    private(set) var isWebViewVisibleInUI: Bool = false
     var isClosingWebViewLifecycle: Bool = false
 
     /// True while a canvas pane hosts this browser's webview inline (in the
@@ -2698,7 +2700,6 @@ final class BrowserPanel: Panel, ObservableObject {
             webViewLastVisibleAt = now
         }
         refreshWebViewLifecycleState()
-        noteHiddenSnapshotVisibility(visible, changed: changed)
 
         if visible {
             cancelHiddenWebViewDiscard()
@@ -2706,9 +2707,14 @@ final class BrowserPanel: Panel, ObservableObject {
                 reason: "visible.\(reason)",
                 allowBlankShellHeal: changed || isFirstVisibilityRecord
             )
+            // After the restore, which may still fold the hidden snapshot into its capture.
+            noteHiddenSnapshotVisibility(visible, changed: changed)
             drainPendingInteractiveBrowserPromptsIfPossible(reason: "visible.\(reason)")
-        } else if changed || isFirstVisibilityRecord || !hiddenWebViewDiscardManager.hasScheduledDiscard {
-            scheduleHiddenWebViewDiscardIfNeeded(reason: reason, now: now)
+        } else {
+            noteHiddenSnapshotVisibility(visible, changed: changed)
+            if changed || isFirstVisibilityRecord || !hiddenWebViewDiscardManager.hasScheduledDiscard {
+                scheduleHiddenWebViewDiscardIfNeeded(reason: reason, now: now)
+            }
         }
     }
 
@@ -2815,22 +2821,20 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         guard blockers.isEmpty else { return false }
 
+        dropWebViewForDiscard(reason: reason, now: now)
+        return true
+    }
+
+    /// Swaps in an unloaded web view that restores the page when the pane is
+    /// shown. Callers own the decision that the pane may be discarded.
+    func dropWebViewForDiscard(reason: String, now: Date) {
         cancelHiddenWebViewDiscard()
 
         let oldWebView = webView
-        let pendingRecoveryURL = pendingWebContentRecoveryURL
-        let restoreURL = pendingRecoveryURL
-            ?? restorableDisplayURLForCurrentErrorPage(liveURL: oldWebView.url)
         let history = sessionNavigationHistorySnapshot()
-        let historyCurrentURL = pendingRecoveryURL?.absoluteString
-            ?? preferredURLStringForOmnibar()
-            ?? restoreURL?.absoluteString
+        let target = discardRestoreTarget(for: oldWebView)
+        let restoreURL = target.restoreURL
         let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
-        let discardedPageState = pageStateForDiscard(
-            from: oldWebView,
-            restoreURL: restoreURL,
-            pendingRecoveryURL: pendingRecoveryURL
-        )
 
         clearBrowserFocusMode(reason: "webViewDiscard")
         invalidateSearchFocusRequests(reason: "webViewDiscard")
@@ -2877,12 +2881,11 @@ final class BrowserPanel: Panel, ObservableObject {
         restoreSessionNavigationHistory(
             backHistoryURLStrings: history.backHistoryURLStrings,
             forwardHistoryURLStrings: history.forwardHistoryURLStrings,
-            currentURLString: historyCurrentURL
+            currentURLString: target.historyCurrentURLString
         )
-        recordDiscardedPageState(discardedPageState)
+        recordDiscardedPageState(target.pageState)
         refreshNavigationAvailability()
         refreshWebViewLifecycleState()
-        return true
     }
 
     @discardableResult

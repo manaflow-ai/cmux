@@ -51,7 +51,8 @@ extension BrowserPanel {
 
     /// Restore touch for a possibly-discarded pane: detects stalled restore
     /// attempts, honors an explicit user Stop, restores through the discard
-    /// manager, and falls back to blank-shell healing.
+    /// manager (a pane whose process died while hidden restores the same
+    /// way), and falls back to blank-shell healing.
     @discardableResult
     func restoreDiscardedWebViewIfNeeded(
         reason: String,
@@ -75,6 +76,7 @@ extension BrowserPanel {
         // Stop is sticky for discarded restores too: routine visibility touches
         // must not restart a stopped load; explicit reload is the override.
         guard !userStoppedLoadSinceWebViewReplacement else { return false }
+        discardWebViewTerminatedWhileHidden()
 
         if Self.isQueuedRemoteRestoreInFlight(
             isDiscardedForMemory: hiddenWebViewDiscardManager.isDiscardedForMemory,

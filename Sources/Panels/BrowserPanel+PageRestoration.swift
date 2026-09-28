@@ -21,6 +21,51 @@ extension BrowserPanel {
         var coversNavigationHistory: Bool
     }
 
+    /// Where a discarded pane comes back to, and the page state it keeps.
+    struct DiscardRestoreTarget {
+        var restoreURL: URL?
+        var historyCurrentURLString: String?
+        var pageState: DiscardedPageState
+    }
+
+    /// Resolves the restore for a web view about to be dropped. A web view
+    /// whose process died restores the document it had committed when WebKit
+    /// kept that document's session state, like a discarded Chrome tab: a
+    /// load that had not committed is not what the user was looking at. It
+    /// loads its recovery URL otherwise.
+    func discardRestoreTarget(for webView: WKWebView) -> DiscardRestoreTarget {
+        let pendingRecoveryURL = pendingWebContentRecoveryURL
+        if pendingRecoveryURL != nil,
+           let committedURL = webView.backForwardList.currentItem?.url {
+            let committedDisplayURL = Self.remoteProxyDisplayURL(for: committedURL) ?? committedURL
+            let committedState = pageStateForDiscard(
+                from: webView,
+                restoreURL: committedDisplayURL,
+                pendingRecoveryURL: nil
+            )
+            if committedState.interactionState != nil {
+                return DiscardRestoreTarget(
+                    restoreURL: committedDisplayURL,
+                    historyCurrentURLString: committedDisplayURL.absoluteString,
+                    pageState: committedState
+                )
+            }
+        }
+        let restoreURL = pendingRecoveryURL
+            ?? restorableDisplayURLForCurrentErrorPage(liveURL: webView.url)
+        return DiscardRestoreTarget(
+            restoreURL: restoreURL,
+            historyCurrentURLString: pendingRecoveryURL?.absoluteString
+                ?? preferredURLStringForOmnibar()
+                ?? restoreURL?.absoluteString,
+            pageState: pageStateForDiscard(
+                from: webView,
+                restoreURL: restoreURL,
+                pendingRecoveryURL: pendingRecoveryURL
+            )
+        )
+    }
+
     /// Reads the dropped web view's session state. Call before the web view is
     /// torn down and before restored URL history is reinstated, since both
     /// change what the state may be trusted to cover.
