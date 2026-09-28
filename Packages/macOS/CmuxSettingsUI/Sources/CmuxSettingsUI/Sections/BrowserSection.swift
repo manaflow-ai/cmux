@@ -693,6 +693,7 @@ public struct BrowserSection: View {
                     .controlSize(.small)
                     .disabled(true)
             }
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("SettingsBrowserImportActions")
             Toggle(
                 String(localized: "settings.browser.import.hint.show", defaultValue: "Show import hint on blank browser tabs"),
@@ -708,6 +709,7 @@ public struct BrowserSection: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("SettingsBrowserImportSection")
     }
 
