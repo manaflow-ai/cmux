@@ -21,7 +21,11 @@ bool ghostty_surface_set_external_link_hover(
     uint32_t row_count,
     const char* text,
     size_t text_len,
-    const ghostty_external_hover_cell_range_s* ranges,
+    // The fork-only range typedef is not exported consistently by every
+    // GhosttyKit module cache. It is a packed three-UInt16 POD, so its
+    // pointer has the same ABI as void* and Swift passes the typed buffer
+    // without a conversion at the call site.
+    const void* ranges,
     size_t range_count,
     uint64_t out_token_bits[4],
     uint64_t host_event_id);
