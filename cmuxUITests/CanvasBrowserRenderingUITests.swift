@@ -144,7 +144,7 @@ final class CanvasBrowserRenderingUITests: BrowserFixtureSocketTestCase {
                 lastScreenshot = window.screenshot()
                 guard browserFrame.width > 100, browserFrame.height > 100,
                       windowFrame.contains(browserFrame),
-                      let bitmap = NSBitmapImageRep(data: webView.screenshot().pngRepresentation) else {
+                      let bitmap = NSBitmapImageRep(data: lastScreenshot.pngRepresentation) else {
                     diagnostic = "browser=\(browserFrame), window=\(windowFrame)"
                     return false
                 }
