@@ -121,6 +121,9 @@ public final class AuthCoordinator {
     /// The retry loop that restores a missing team scope; see
     /// ``scheduleTeamScopeRecoveryIfNeeded()``.
     @ObservationIgnored var teamScopeRecovery: (id: UUID, task: Task<Void, Never>)?
+    /// Team-list fetches in flight. A refresh that is still running owns the
+    /// outcome, so recovery waits for it instead of starting a second fetch.
+    @ObservationIgnored var activeTeamRefreshCount = 0
     /// Sign-in attempts that currently own a possible write to the token store.
     ///
     /// This ownership spans the whole flow, not just the credential-exchange
@@ -691,13 +694,21 @@ public final class AuthCoordinator {
     /// the writes when a sign-out raced the fetch, so a signed-out shell does
     /// not get the old account's teams persisted back.
     private func refreshTeams(generation: UInt64) async {
+        activeTeamRefreshCount += 1
+        let result: Result<([CMUXAuthTeam], String?), any Error>
         do {
             let client = self.client
-            let (teams, serverSelectedTeamID) = try await runPhase(.listTeams, timeout: timeouts.network) {
+            result = .success(try await runPhase(.listTeams, timeout: timeouts.network) {
                 async let teams = client.listTeams()
                 async let selectedTeamID: String? = try? await client.selectedTeamID()
                 return try await (teams, selectedTeamID)
-            }
+            })
+        } catch {
+            result = .failure(error)
+        }
+        activeTeamRefreshCount -= 1
+        switch result {
+        case let .success((teams, serverSelectedTeamID)):
             guard generation == sessionGeneration else { return }
             authenticatedTeamsSessionGeneration = generation
             availableTeams = teams
@@ -705,7 +716,7 @@ public final class AuthCoordinator {
                 selectedTeamID: serverSelectedTeamID ?? selectedTeamID,
                 teams: teams
             )
-        } catch {
+        case let .failure(error):
             authLog.error("Failed to list teams: \(error.localizedDescription, privacy: .private)")
             guard generation == sessionGeneration else { return }
             scheduleTeamScopeRecoveryIfNeeded()

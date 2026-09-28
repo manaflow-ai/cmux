@@ -5539,6 +5539,10 @@ struct CMUXCLI {
                 if let teamID = response["selected_team_id"] as? String {
                     print("  team_id:  \(teamID)")
                 }
+                if (response["team_scope_ready"] as? Bool) == false {
+                    let recovering = (response["team_scope_recovering"] as? Bool) ?? false
+                    print("  team:     not loaded\(recovering ? " (retrying)" : "")")
+                }
 
             case "login":
                 let statusBefore = try client.sendV2(method: "auth.status")

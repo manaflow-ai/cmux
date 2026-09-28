@@ -232,6 +232,7 @@ final class MobilePairingModel {
                         defaultValue: "Could not load your cmux team. Check your internet connection, then try again."
                     )
                 )
+                observeTeamScopeRecovery(coordinator)
                 return
             }
         }
@@ -245,6 +246,9 @@ final class MobilePairingModel {
                     defaultValue: "Could not start the pairing listener on this Mac."
                 )
             )
+            // The runtime keeps retrying its own setup. Keep watching so the
+            // sheet turns ready when it does, without Try Again.
+            observeHostStatus()
             return
         }
         guard generation == refreshGeneration else { return }
@@ -295,6 +299,22 @@ final class MobilePairingModel {
         connectionObservationTask = nil
         preparationTimeoutTask?.cancel()
         preparationTimeoutTask = nil
+    }
+
+    /// Refreshes once the coordinator restores the team scope, so an open sheet
+    /// recovers without Try Again.
+    private func observeTeamScopeRecovery(_ coordinator: AuthCoordinator) {
+        connectionObservationTask?.cancel()
+        let generation = refreshGeneration
+        connectionObservationTask = Task { [weak self] in
+            for await scope in coordinator.authenticatedTeamScopes() where scope != nil {
+                guard let self, !Task.isCancelled, generation == self.refreshGeneration else { return }
+                // A new task: refresh() cancels this observer, and a cancelled
+                // task would cut short the listener readiness wait.
+                Task { await self.refresh() }
+                return
+            }
+        }
     }
 
     /// Watches the mobile host's status while the window is open and flips

@@ -7,14 +7,28 @@ extension AuthCoordinator {
     }
 
     /// Whether a team-scope recovery loop is scheduled.
-    var hasPendingTeamScopeRecovery: Bool { teamScopeRecovery != nil }
+    public var hasPendingTeamScopeRecovery: Bool { teamScopeRecovery != nil }
 
-    /// Signed in, but the team list has not loaded for the current session.
+    /// Retries now when the session is signed in without a loaded team list.
+    ///
+    /// Hosts call this on signals that make a retry likely to succeed (network
+    /// path restored, system wake, app activation). It is a no-op for a
+    /// healthy session, so frequent signals cost nothing. The backoff loop
+    /// keeps running in case this attempt also fails.
+    public func recoverTeamScopeIfNeeded() async {
+        guard needsTeamScopeRecovery else { return }
+        await checkExistingSession()
+    }
+
+    /// Signed in, but the team list has not loaded for the current session
+    /// and no fetch is in flight to load it.
     ///
     /// ``authenticatedTeamScope`` stays nil in this state, so every
     /// scope-gated service (the iOS pairing host, Cloud) stays down.
     var needsTeamScopeRecovery: Bool {
-        isAuthenticated && authenticatedTeamsSessionGeneration != sessionGeneration
+        isAuthenticated
+            && activeTeamRefreshCount == 0
+            && authenticatedTeamsSessionGeneration != sessionGeneration
     }
 
     /// Starts the single retry loop that revalidates the session until the

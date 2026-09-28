@@ -20,12 +20,18 @@ import Testing
     )
     private static let backoffWindow = Duration.seconds(60)
 
-    private func makeCoordinator(client: any AuthClient, clock: ManualTestClock) -> AuthCoordinator {
+    private func makeCoordinator(
+        client: any AuthClient,
+        clock: ManualTestClock,
+        cachedSession: Bool = true
+    ) -> AuthCoordinator {
         let store = FakeKeyValueStore()
         let sessionCache = CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens")
         let userCache = CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user")
-        sessionCache.setHasTokens(true)
-        try? userCache.save(Self.user)
+        if cachedSession {
+            sessionCache.setHasTokens(true)
+            try? userCache.save(Self.user)
+        }
         return AuthCoordinator(
             client: client,
             sessionCache: sessionCache,
@@ -128,6 +134,86 @@ import Testing
         #expect(coordinator.hasPendingTeamScopeRecovery)
 
         coordinator.clearAuthState()
+        #expect(coordinator.hasPendingTeamScopeRecovery == false)
+    }
+
+    @Test func validationTimeoutAtLaunchRecoversTeamScope() async {
+        let watchdog = failAfterDeadline(.seconds(60)) { "team-scope recovery never scheduled a retry" }
+        defer { watchdog.cancel() }
+        let clock = ManualTestClock()
+        let client = FakeAuthClient(access: "access", refresh: "refresh", user: Self.user)
+        await client.setTeams([Self.team])
+        await client.setThrowOnCurrentUser(AuthError.timedOut)
+        let coordinator = makeCoordinator(client: client, clock: clock)
+
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.authenticatedTeamScope == nil)
+        #expect(coordinator.hasPendingTeamScopeRecovery)
+
+        await client.setThrowOnCurrentUser(nil)
+        await clock.waitUntilSleeper(dueWithin: Self.backoffWindow)
+        clock.advance(by: AuthCoordinator.teamScopeRecoveryDelay(afterAttempt: 0))
+
+        let scope = await awaitTeamScope(coordinator)
+        #expect(scope?.teamID == Self.team.id)
+    }
+
+    @Test func signInWithFailedTeamFetchRecoversTeamScope() async throws {
+        let watchdog = failAfterDeadline(.seconds(60)) { "team-scope recovery never scheduled a retry" }
+        defer { watchdog.cancel() }
+        let clock = ManualTestClock()
+        let client = FakeAuthClient(refresh: "refresh", user: Self.user)
+        await client.setTeams([Self.team])
+        await client.setThrowOnListTeams(URLError(.timedOut))
+        let coordinator = makeCoordinator(client: client, clock: clock, cachedSession: false)
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+
+        try await coordinator.signInWithGitHub()
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.authenticatedTeamScope == nil)
+        #expect(coordinator.hasPendingTeamScopeRecovery)
+
+        await client.setThrowOnListTeams(nil)
+        await clock.waitUntilSleeper(dueWithin: Self.backoffWindow)
+        clock.advance(by: AuthCoordinator.teamScopeRecoveryDelay(afterAttempt: 0))
+
+        let scope = await awaitTeamScope(coordinator)
+        #expect(scope?.teamID == Self.team.id)
+    }
+
+    @Test func hostTriggerRecoversWithoutWaitingForBackoff() async {
+        let clock = ManualTestClock()
+        let client = FakeAuthClient(access: "access", refresh: "refresh", user: Self.user)
+        await client.setTeams([Self.team])
+        await client.setThrowOnListTeams(URLError(.notConnectedToInternet))
+        let coordinator = makeCoordinator(client: client, clock: clock)
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+        #expect(coordinator.authenticatedTeamScope == nil)
+
+        await client.setThrowOnListTeams(nil)
+        await coordinator.recoverTeamScopeIfNeeded()
+
+        #expect(coordinator.authenticatedTeamScope?.teamID == Self.team.id)
+    }
+
+    @Test func hostTriggerIsNoOpForHealthySession() async {
+        let clock = ManualTestClock()
+        let client = FakeAuthClient(access: "access", refresh: "refresh", user: Self.user)
+        await client.setTeams([Self.team])
+        let coordinator = makeCoordinator(client: client, clock: clock)
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+        #expect(coordinator.authenticatedTeamScope != nil)
+        #expect(coordinator.hasPendingTeamScopeRecovery == false)
+
+        // A healthy session must not revalidate on every activation or wake.
+        await client.setThrowOnCurrentUser(URLError(.notConnectedToInternet))
+        await coordinator.recoverTeamScopeIfNeeded()
+        #expect(coordinator.authenticatedTeamScope != nil)
         #expect(coordinator.hasPendingTeamScopeRecovery == false)
     }
 }
