@@ -46,15 +46,19 @@ struct AgentFeedStoreView: View {
         let store = store
         return AgentFeedActions(
             permissionReply: { item, mode in
+                store.markAgentFeedItemInteracted(item)
                 Task { await store.submitAgentFeedPermissionReply(item, mode: mode) }
             },
             questionReply: { item, selections in
+                store.markAgentFeedItemInteracted(item)
                 Task { await store.submitAgentFeedQuestionReply(item, selections: selections) }
             },
             exitPlanReply: { item, mode, feedback in
+                store.markAgentFeedItemInteracted(item)
                 Task { await store.submitAgentFeedExitPlanReply(item, mode: mode, feedback: feedback) }
             },
             terminalReply: { item, text in
+                store.markAgentFeedItemInteracted(item)
                 Task {
                     if await store.submitAgentFeedTerminalReply(item, text: text) {
                         store.recordAppEvent(.agentFeedReplySucceeded)
@@ -67,6 +71,7 @@ struct AgentFeedStoreView: View {
                 }
             },
             openDestination: { item in
+                store.markAgentFeedItemInteracted(item)
                 store.recordAppEvent(.agentFeedItemOpened, count: item.remoteSurfaceID == nil ? 0 : 1)
                 Task {
                     showsNavigationFailure = !(await store.openAgentFeedDestination(
@@ -76,7 +81,8 @@ struct AgentFeedStoreView: View {
                 }
             },
             loadFullText: { item in
-                try await store.loadAgentFeedFullText(item)
+                store.markAgentFeedItemInteracted(item)
+                return try await store.loadAgentFeedFullText(item)
             },
             setNeedsInput: { item, needsInput in
                 store.setAgentFeedItemNeedsInput(item, needsInput)

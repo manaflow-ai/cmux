@@ -157,6 +157,9 @@ extension MobileShellComposite {
         agentFeedFailedTerminalReplies = [:]
         agentFeedLocalRepliesByItemID = [:]
         agentFeedTriageOverridesByItemID = [:]
+        agentFeedReadRowKeys = []
+        agentFeedUnreadBaseline = Date()
+        agentFeedPersistUnreadState()
         agentFeedItems = []
         agentFeedStatus = .idle
     }
@@ -173,7 +176,63 @@ extension MobileShellComposite {
         } else {
             agentFeedTriageOverridesByItemID[item.id] = needsInput
         }
+        if !needsInput {
+            agentFeedInsertReadRowKey(for: item.id)
+        }
         recomputeAgentFeedItems()
+    }
+
+    /// Records a visible, explicit interaction with a row (answer, reply,
+    /// open, or full-text read), clearing its unread needs-input state.
+    public func markAgentFeedItemInteracted(_ item: MobileAgentFeedItem) {
+        guard agentFeedInsertReadRowKey(for: item.id) else { return }
+        recomputeAgentFeedItems()
+    }
+
+    static func agentFeedRowKey(_ id: MobileAgentFeedItemID) -> String {
+        "\(id.macDeviceID)|\(id.macInstanceTag ?? "")|\(id.itemID)"
+    }
+
+    private static let agentFeedReadRowKeysDefaultsKey = "cmux.mobile.agentFeed.readRowKeys.v1"
+    private static let agentFeedUnreadBaselineDefaultsKey = "cmux.mobile.agentFeed.unreadBaseline.v1"
+
+    @discardableResult
+    func agentFeedInsertReadRowKey(for id: MobileAgentFeedItemID) -> Bool {
+        _ = agentFeedUnreadBaselineLoadingIfNeeded()
+        guard agentFeedReadRowKeys.insert(Self.agentFeedRowKey(id)).inserted else { return false }
+        if agentFeedReadRowKeys.count > 1_500 {
+            // The unread rule only needs recent rows; a coarse trim bounds
+            // the persisted set without tracking order.
+            agentFeedReadRowKeys.removeFirst(agentFeedReadRowKeys.count - 1_000)
+        }
+        agentFeedPersistUnreadState()
+        return true
+    }
+
+    func agentFeedUnreadBaselineLoadingIfNeeded() -> Date {
+        if let baseline = agentFeedUnreadBaseline { return baseline }
+        let defaults = UserDefaults.standard
+        if let stored = defaults.object(forKey: Self.agentFeedUnreadBaselineDefaultsKey) as? Double {
+            let baseline = Date(timeIntervalSinceReferenceDate: stored)
+            agentFeedUnreadBaseline = baseline
+            agentFeedReadRowKeys = Set(
+                defaults.stringArray(forKey: Self.agentFeedReadRowKeysDefaultsKey) ?? []
+            )
+            return baseline
+        }
+        let baseline = Date()
+        agentFeedUnreadBaseline = baseline
+        agentFeedPersistUnreadState()
+        return baseline
+    }
+
+    func agentFeedPersistUnreadState() {
+        let defaults = UserDefaults.standard
+        if let baseline = agentFeedUnreadBaseline {
+            defaults.set(baseline.timeIntervalSinceReferenceDate,
+                         forKey: Self.agentFeedUnreadBaselineDefaultsKey)
+        }
+        defaults.set(Array(agentFeedReadRowKeys), forKey: Self.agentFeedReadRowKeysDefaultsKey)
     }
 
     /// Removes one hidden Mac's rows and cancels work that could restore them.
@@ -329,6 +388,15 @@ extension MobileShellComposite {
                 if let triaged = agentFeedTriageOverridesByItemID[projected.id],
                    projected.triagedNeedsInput != triaged {
                     projected = projected.updating(triagedNeedsInput: triaged)
+                } else if agentFeedTriageOverridesByItemID[projected.id] == nil,
+                          projected.triagedNeedsInput != true,
+                          !projected.needsInput,
+                          projected.createdAt > agentFeedUnreadBaselineLoadingIfNeeded(),
+                          !agentFeedReadRowKeys.contains(Self.agentFeedRowKey(projected.id)) {
+                    // A new event needs the user until a visible, explicit
+                    // interaction (answer, reply, open, read, or swipe) marks
+                    // it read; scrolling past never does.
+                    projected = projected.updating(triagedNeedsInput: true)
                 }
                 merged.append(projected)
             }
@@ -355,6 +423,7 @@ extension MobileShellComposite {
     ) -> [MobileAgentFeedItem] {
         var result: [MobileAgentFeedItem] = []
         var indexByKey: [AgentFeedStopDuplicateKey: Int] = [:]
+        var turnIndexByKey: [String: Int] = [:]
         for item in items {
             guard item.kind == .stop else {
                 result.append(item)
@@ -368,10 +437,46 @@ extension MobileShellComposite {
                 }
                 continue
             }
+            // Some providers deliver one turn through two lanes whose reason
+            // texts differ only by truncation (a single-line preview ending
+            // in an ellipsis beside the full multi-line text). Collapse those
+            // onto one row and keep the fuller text.
+            let turnKey = "\(item.macDeviceID)|\(item.macInstanceTag ?? "")|\(item.workstreamID)|\(item.source)"
+            if let index = turnIndexByKey[turnKey],
+               abs(result[index].createdAt.timeIntervalSince(item.createdAt)) <= 120,
+               let kept = result[index].stopReason, let incoming = item.stopReason,
+               Self.stopReasonsDescribeSameTurn(kept, incoming) {
+                if incoming.count > kept.count {
+                    let reply = result[index].userReply ?? item.userReply
+                    var replacement = item
+                    if let reply, replacement.userReply == nil {
+                        replacement = replacement.updating(userReply: reply)
+                    }
+                    result[index] = replacement
+                } else if result[index].userReply == nil, let reply = item.userReply {
+                    result[index] = result[index].updating(userReply: reply)
+                }
+                continue
+            }
             indexByKey[key] = result.count
+            turnIndexByKey[turnKey] = result.count
             result.append(item)
         }
         return result
+    }
+
+    /// Whether two stop reasons are the same completion, one possibly a
+    /// whitespace-collapsed preview truncated with an ellipsis.
+    static func stopReasonsDescribeSameTurn(_ lhs: String, _ rhs: String) -> Bool {
+        func normalized(_ value: String) -> String {
+            let collapsed = value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            if collapsed.hasSuffix("…") { return String(collapsed.dropLast()) }
+            return collapsed
+        }
+        let a = normalized(lhs)
+        let b = normalized(rhs)
+        guard !a.isEmpty, !b.isEmpty else { return false }
+        return a.hasPrefix(b) || b.hasPrefix(a)
     }
 
     // MARK: - Replies

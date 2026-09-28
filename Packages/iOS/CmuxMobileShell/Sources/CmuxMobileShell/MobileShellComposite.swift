@@ -459,6 +459,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// keyed by row: `false` clears a pending row from the badge and filter
     /// without answering it; `true` re-flags a row.
     var agentFeedTriageOverridesByItemID: [MobileAgentFeedItemID: Bool] = [:]
+    /// Rows the user explicitly interacted with (answered, replied, opened,
+    /// read, or swipe-triaged). Every newer row shows as needs-input until
+    /// it appears here. Persisted phone-locally.
+    var agentFeedReadRowKeys: Set<String> = []
+    var agentFeedUnreadBaseline: Date?
     var agentFeedRefreshTasksByMac: [String: Task<Void, Never>] = [:]
     var agentFeedRefreshPendingMacIDs: Set<String> = []
     var agentFeedSuccessfulMacIDs: Set<String> = []
