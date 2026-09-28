@@ -23,7 +23,7 @@ concurrency:
 jobs:
   validate:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04 # github-hosted-required: no macOS dependency
+    runs-on: ubuntu-24.04 # github-hosted-required: a five-second manifest parse, kept off the product CI pool
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
