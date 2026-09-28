@@ -12,7 +12,13 @@ extension CMUXCLI {
         pid: Int? = nil,
         priority: Int? = nil
     ) throws {
-        var cmd = "set_status \(Self.claudeCodeStatusKey) \(value) --icon=\(icon) --color=\(color)"
+        // The socket tokenizer opens a quoted token at a bare ' or ", so a
+        // localized value such as "Erreur d'API" would swallow every option
+        // after it (--tab included) and land on the selected workspace.
+        // Plain values stay bare to keep the wire format unchanged.
+        let needsQuoting = value.contains { "'\"\\\n\r".contains($0) }
+        let wireValue = needsQuoting ? socketQuote(value) : value
+        var cmd = "set_status \(Self.claudeCodeStatusKey) \(wireValue) --icon=\(icon) --color=\(color)"
         if let priority {
             cmd += " --priority=\(priority)"
         }
