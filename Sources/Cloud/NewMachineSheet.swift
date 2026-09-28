@@ -103,13 +103,10 @@ struct NewMachineSheet: View {
     }
 
     private var agentUpdatesSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Toggle(
-                String(localized: "machines.new.agentUpdates.label", defaultValue: "Keep coding agents up to date"),
-                isOn: $model.keepsAgentsUpdated
-            )
-            .cmuxFont(size: 13)
-            .accessibilityIdentifier("NewMachineSheet.agentUpdates")
+        CloudCheckboxRow(
+            title: String(localized: "machines.new.agentUpdates.label", defaultValue: "Keep coding agents up to date"),
+            isOn: $model.keepsAgentsUpdated
+        ) {
             Text(String(
                 localized: "machines.new.agentUpdates.help",
                 defaultValue: "Updates Claude Code, Codex, OpenCode, and Pi to the newest release when you connect, at most once a day. A new release installs only after it has been public for 3 days."
@@ -125,6 +122,7 @@ struct NewMachineSheet: View {
                     .accessibilityIdentifier("NewMachineSheet.agentUpdates.networkNote")
             }
         }
+        .accessibilityIdentifier("NewMachineSheet.agentUpdates")
     }
 
     private var sizeSection: some View {

@@ -685,6 +685,7 @@
 		9AE87127E16B399C81164AF0 /* CloudBrowserProxyTestServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 696D183C5EF928DC7C1CEDBD /* CloudBrowserProxyTestServer.swift */; };
 		CCC98EF9BA15334386883FA6 /* CloudBrowserRouteAdoptionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BE40BCBDBB658B6A3D6A9B5 /* CloudBrowserRouteAdoptionTests.swift */; };
 		D01100800000000000000006 /* CloudCatalogQueryTestProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = D01100800000000000000005 /* CloudCatalogQueryTestProvider.swift */; };
+		35E1630FE2547071EFEC0C93 /* CloudCheckboxRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C4FED54191A9D1246A05B8C /* CloudCheckboxRow.swift */; };
 		954865E90FA14C5790614136 /* CloudClosedPanelRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1889B99217E645E7A477621A /* CloudClosedPanelRestoreTests.swift */; };
 		E1724349548A4068A8377242 /* CloudCommandDeadlineClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54945EFADC4466F8B520CA0 /* CloudCommandDeadlineClock.swift */; };
 		2626F8CD8D00447CA73AF900 /* CloudCommandDeadlineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791992D7B1A443AF960CC85A /* CloudCommandDeadlineTests.swift */; };
@@ -4862,6 +4863,7 @@
 		696D183C5EF928DC7C1CEDBD /* CloudBrowserProxyTestServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudBrowserProxyTestServer.swift"; sourceTree = "<group>"; };
 		5BE40BCBDBB658B6A3D6A9B5 /* CloudBrowserRouteAdoptionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudBrowserRouteAdoptionTests.swift"; sourceTree = "<group>"; };
 		D01100800000000000000005 /* CloudCatalogQueryTestProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudCatalogQueryTestProvider.swift; sourceTree = "<group>"; };
+		3C4FED54191A9D1246A05B8C /* CloudCheckboxRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudCheckboxRow.swift; sourceTree = "<group>"; };
 		1889B99217E645E7A477621A /* CloudClosedPanelRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudClosedPanelRestoreTests.swift; sourceTree = "<group>"; };
 		A54945EFADC4466F8B520CA0 /* CloudCommandDeadlineClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudCommandDeadlineClock.swift"; sourceTree = "<group>"; };
 		791992D7B1A443AF960CC85A /* CloudCommandDeadlineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudCommandDeadlineTests.swift"; sourceTree = "<group>"; };
@@ -8736,6 +8738,7 @@
 				FA7AB7C9143F6869E3ED0E95 /* MachineCreateOperation.swift */,
 				5DE6021305BAAE21622C5DFD /* MachineCreateRequest.swift */,
 				7D4EF037DE16E5A5B2DDB31A /* CloudNetworkPolicyEditorModel.swift */,
+				3C4FED54191A9D1246A05B8C /* CloudCheckboxRow.swift */,
 				2B665DEA8E3F2E94C06D0870 /* CloudNetworkPolicyEditor.swift */,
 				651CA0786CE6EF620FA48D5C /* CloudSecurityExplainer.swift */,
 				ED8A72856D6A62D59C62247B /* CloudNetworkPolicySheetModel.swift */,
@@ -13488,6 +13491,7 @@
 				68B60071A7049D7CD9C2CFD7 /* CloudAgentSkillLauncher.swift in Sources */,
 				69AA6941BCDDF67E7B44CA26 /* CloudBrowserAccessState.swift in Sources */,
 				57C7774B1620767AED6F13B7 /* CloudBrowserAccessView.swift in Sources */,
+				35E1630FE2547071EFEC0C93 /* CloudCheckboxRow.swift in Sources */,
 				32E508E45F3E7B0832FB99EA /* CloudDiagnosticsView.swift in Sources */,
 				5EDE6BFD28BE4BD58EF84889 /* CloudFeatureAvailabilityObserver.swift in Sources */,
 				CFSF00000000000000000001 /* CloudFileExplorerCommandRunning.swift in Sources */,

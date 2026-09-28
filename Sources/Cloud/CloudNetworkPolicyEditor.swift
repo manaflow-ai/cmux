@@ -135,9 +135,10 @@ struct CloudNetworkPolicyEditor: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Toggle(String(localized: "cloud.network.dns.label", defaultValue: "Allow DNS lookups"), isOn: $model.allowDns)
-                    .accessibilityIdentifier("CloudNetworkPolicyEditor.dns")
+            CloudCheckboxRow(
+                title: String(localized: "cloud.network.dns.label", defaultValue: "Allow DNS lookups"),
+                isOn: $model.allowDns
+            ) {
                 Text(String(
                     localized: "cloud.network.dns.note",
                     defaultValue: "Listed domains work without DNS. Open DNS lets tools resolve names for IP ranges, but DNS is also an outbound channel."
@@ -146,6 +147,7 @@ struct CloudNetworkPolicyEditor: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             }
+            .accessibilityIdentifier("CloudNetworkPolicyEditor.dns")
         }
     }
 
@@ -194,11 +196,10 @@ private struct CloudNetworkPresetToggles: View {
             ForEach(rows, id: \.first?.id) { row in
                 GridRow {
                     ForEach(row) { preset in
-                        Toggle(preset.label, isOn: Binding(
+                        CloudCheckboxRow(title: preset.label, isOn: Binding(
                             get: { isEnabled(preset.id) },
                             set: { setEnabled(preset.id, $0) }
                         ))
-                        .toggleStyle(.checkbox)
                         .help(preset.domains.joined(separator: ", "))
                         .accessibilityIdentifier("CloudNetworkPolicyEditor.preset.\(preset.id)")
                     }
