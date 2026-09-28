@@ -143,7 +143,8 @@ CATEGORY_ORDER = ("experiment", "stale-pr", "label-dropped", "doomed")
 # suite and the reusable-call prefix makes the API name "macos / app-host unit
 # tests (3/6)", so match on the substring. A failed compile admission fails
 # the same `macos` call before any shard starts, and so do the changed suites
-# it runs itself (ci-macos.yml inputs.unit_in_admission).
+# it runs itself (ci-macos.yml inputs.unit_in_admission, when admission
+# takes its Mac's gui token).
 DOOMED_JOB_NAME = "app-host unit tests"
 
 
