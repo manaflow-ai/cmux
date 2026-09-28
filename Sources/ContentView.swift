@@ -15881,9 +15881,11 @@ private struct SidebarHelpMenuButton: View {
 
 /// The quiet What's New indicator: a small accent dot with no animation.
 private struct SidebarWhatsNewDot: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
+
     var body: some View {
         Circle()
-            .fill(cmuxAccentColor())
+            .fill(cmuxAccent.color)
             .frame(width: 6, height: 6)
             .accessibilityLabel(String(localized: "sidebar.help.whatsNew.unseen", defaultValue: "New highlights"))
     }
