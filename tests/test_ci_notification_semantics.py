@@ -148,17 +148,22 @@ with open(os.environ['CALLS'], 'a') as f:
     f.write(json.dumps(args) + '\\n')
 package = Path(args[args.index('--package-path') + 1]).name
 if args[0] == 'build':
-    # Rendezvous: record that this build started, then wait briefly for a
-    # second one. Seeing two at once proves the prebuilds overlap.
-    started = Path(os.environ['CALLS'] + '.started')
-    started.mkdir(exist_ok=True)
-    (started / package).touch()
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        if len(list(started.iterdir())) >= 2:
-            Path(os.environ['CALLS'] + '.overlap').touch()
-            break
-        time.sleep(0.05)
+    # Rendezvous: mark this build running, then wait briefly for a second one.
+    # The mark goes away when the build ends, so two marks at once prove two
+    # prebuilds ran at the same time; serial builds never see each other.
+    running = Path(os.environ['CALLS'] + '.running')
+    running.mkdir(exist_ok=True)
+    mark = running / package
+    mark.touch()
+    try:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if len(list(running.iterdir())) >= 2:
+                Path(os.environ['CALLS'] + '.overlap').touch()
+                break
+            time.sleep(0.05)
+    finally:
+        mark.unlink()
 if package == os.environ['WARNING_PACKAGE'] and '-warnings-as-errors' in args:
     print('error: compiler warning promoted to an error')
     sys.exit(1)
@@ -174,6 +179,7 @@ print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
                 RUNNER_TEMP=str(runner_temp),
                 SELECTED_PACKAGES=str(selected),
                 SELECTED_COUNT=str(len(package_names)),
+                CMUX_SWIFT_PACKAGE_BUILD_JOBS="3",
             )
             result = subprocess.run(["/bin/bash", "-c", script], cwd=root, env=env,
                                     text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
