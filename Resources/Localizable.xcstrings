@@ -567592,6 +567592,478 @@
           }
         }
       }
+    },
+    "cli.help.clearMetaBlock": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux clear-meta-block <key> [flags]\n\nيزيل كتلة markdown من الشريط الجانبي حسب المفتاح.\n\nFlags:\n  --workspace <id|ref|index>   مساحة العمل الهدف (الافتراضي: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع مساحات العمل وفهارسها\n\nExample:\n  cmux clear-meta-block agent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux clear-meta-block <key> [flags]\n\nEntfernt einen Markdown-Block der Seitenleiste anhand seines Schlüssels.\n\nFlags:\n  --workspace <id|ref|index>   Zielarbeitsbereich (Standard: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Fensterkontext für Arbeitsbereich-Refs und -Indizes\n\nExample:\n  cmux clear-meta-block agent"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux clear-meta-block <key> [flags]\n\nRemove a sidebar markdown block by key.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Window context for workspace refs and indexes\n\nExample:\n  cmux clear-meta-block agent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux clear-meta-block <key> [flags]\n\nElimina un bloque markdown de la barra lateral por su clave.\n\nFlags:\n  --workspace <id|ref|index>   Espacio de trabajo de destino (predeterminado: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Contexto de ventana para refs e índices de espacios de trabajo\n\nExample:\n  cmux clear-meta-block agent"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux clear-meta-block <key> [flags]\n\nSupprime un bloc markdown de la barre latérale par sa clé.\n\nFlags:\n  --workspace <id|ref|index>   Espace de travail cible (par défaut : $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Contexte de fenêtre pour les refs et index d’espace de travail\n\nExample:\n  cmux clear-meta-block agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux clear-meta-block <key> [flags]\n\nキーを指定してサイドバーの markdown ブロックを削除します。\n\nFlags:\n  --workspace <id|ref|index>   対象ワークスペース（デフォルト: $CMUX_WORKSPACE_ID）\n  --window <id|ref|index>      ワークスペースの ref とインデックスを解決するウィンドウ\n\nExample:\n  cmux clear-meta-block agent"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux clear-meta-block <key> [flags]\n\n키로 사이드바 markdown 블록을 제거합니다.\n\nFlags:\n  --workspace <id|ref|index>   대상 워크스페이스 (기본값: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      워크스페이스 ref와 인덱스를 해석할 창 컨텍스트\n\nExample:\n  cmux clear-meta-block agent"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux clear-meta-block <key> [flags]\n\n按 key 移除侧边栏的 markdown 区块。\n\nFlags:\n  --workspace <id|ref|index>   目标工作区（默认：$CMUX_WORKSPACE_ID）\n  --window <id|ref|index>      工作区 ref 和索引所用的窗口范围\n\nExample:\n  cmux clear-meta-block agent"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux clear-meta-block <key> [flags]\n\n依 key 移除側邊欄的 markdown 區塊。\n\nFlags:\n  --workspace <id|ref|index>   目標工作區（預設：$CMUX_WORKSPACE_ID）\n  --window <id|ref|index>      工作區 ref 與索引所用的視窗範圍\n\nExample:\n  cmux clear-meta-block agent"
+          }
+        }
+      }
+    },
+    "cli.help.listMetaBlocks": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux list-meta-blocks [flags]\n\nيسرد كتل markdown في الشريط الجانبي لمساحة عمل، كتلة في كل سطر\nبصيغة key=markdown، مع عرض فواصل الأسطر كـ \\n.\n\nFlags:\n  --workspace <id|ref|index>   مساحة العمل الهدف (الافتراضي: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع مساحات العمل وفهارسها\n\nExample:\n  cmux list-meta-blocks\n  cmux list-meta-blocks --workspace workspace:2"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux list-meta-blocks [flags]\n\nListet die Markdown-Blöcke der Seitenleiste eines Arbeitsbereichs auf, einer pro Zeile\nals key=markdown, Zeilenumbrüche als \\n dargestellt.\n\nFlags:\n  --workspace <id|ref|index>   Zielarbeitsbereich (Standard: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Fensterkontext für Arbeitsbereich-Refs und -Indizes\n\nExample:\n  cmux list-meta-blocks\n  cmux list-meta-blocks --workspace workspace:2"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux list-meta-blocks [flags]\n\nList the sidebar markdown blocks for a workspace, one per line as\nkey=markdown, with line breaks shown as \\n.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Window context for workspace refs and indexes\n\nExample:\n  cmux list-meta-blocks\n  cmux list-meta-blocks --workspace workspace:2"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux list-meta-blocks [flags]\n\nLista los bloques markdown de la barra lateral de un espacio de trabajo, uno por\nlínea como key=markdown, con los saltos de línea mostrados como \\n.\n\nFlags:\n  --workspace <id|ref|index>   Espacio de trabajo de destino (predeterminado: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Contexto de ventana para refs e índices de espacios de trabajo\n\nExample:\n  cmux list-meta-blocks\n  cmux list-meta-blocks --workspace workspace:2"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux list-meta-blocks [flags]\n\nListe les blocs markdown de la barre latérale d’un espace de travail, un par ligne\nsous la forme key=markdown, les sauts de ligne affichés comme \\n.\n\nFlags:\n  --workspace <id|ref|index>   Espace de travail cible (par défaut : $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Contexte de fenêtre pour les refs et index d’espace de travail\n\nExample:\n  cmux list-meta-blocks\n  cmux list-meta-blocks --workspace workspace:2"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux list-meta-blocks [flags]\n\nワークスペースのサイドバー markdown ブロックを 1 行に 1 つずつ\nkey=markdown 形式で一覧表示します。改行は \\n と表示されます。\n\nFlags:\n  --workspace <id|ref|index>   対象ワークスペース（デフォルト: $CMUX_WORKSPACE_ID）\n  --window <id|ref|index>      ワークスペースの ref とインデックスを解決するウィンドウ\n\nExample:\n  cmux list-meta-blocks\n  cmux list-meta-blocks --workspace workspace:2"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux list-meta-blocks [flags]\n\n워크스페이스의 사이드바 markdown 블록을 한 줄에 하나씩\nkey=markdown 형식으로 나열하며, 줄바꿈은 \\n으로 표시합니다.\n\nFlags:\n  --workspace <id|ref|index>   대상 워크스페이스 (기본값: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      워크스페이스 ref와 인덱스를 해석할 창 컨텍스트\n\nExample:\n  cmux list-meta-blocks\n  cmux list-meta-blocks --workspace workspace:2"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux list-meta-blocks [flags]\n\n列出工作区侧边栏的 markdown 区块，每行一个，格式为\nkey=markdown，换行显示为 \\n。\n\nFlags:\n  --workspace <id|ref|index>   目标工作区（默认：$CMUX_WORKSPACE_ID）\n  --window <id|ref|index>      工作区 ref 和索引所用的窗口范围\n\nExample:\n  cmux list-meta-blocks\n  cmux list-meta-blocks --workspace workspace:2"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux list-meta-blocks [flags]\n\n列出工作區側邊欄的 markdown 區塊，每行一個，格式為\nkey=markdown，換行顯示為 \\n。\n\nFlags:\n  --workspace <id|ref|index>   目標工作區（預設：$CMUX_WORKSPACE_ID）\n  --window <id|ref|index>      工作區 ref 與索引所用的視窗範圍\n\nExample:\n  cmux list-meta-blocks\n  cmux list-meta-blocks --workspace workspace:2"
+          }
+        }
+      }
+    },
+    "cli.help.setMetaBlock": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux set-meta-block <key> [markdown | -] [flags]\n\nيرسم كتلة markdown في الشريط الجانبي لمساحة عمل. تعيين المفتاح نفسه مرة أخرى\nيستبدل كتلته، لذا يمكن لسكربت أو سطر حالة وكيل\nإعادة رسمها عند كل تحديث. يأتي markdown من الوسائط المتبقية،\nأو من stdin عندما يكون \"-\" أو محذوفًا وstdin موجّه.\nتُحفظ فواصل الأسطر. كما يتحول \\n أو \\t الحرفي في النص إلى\nسطر جديد أو علامة جدولة. الكتل الأكبر من 4 KB تُعرض نصًا عاديًا. تظهر الكتل ما دام\n\"Show Custom Metadata in Sidebar\" مفعّلًا.\n\nFlags:\n  --priority <n>         أولوية الترتيب؛ القيم الأعلى تظهر أولًا (الافتراضي: 0)\n  --workspace <id|ref|index>   مساحة العمل الهدف (الافتراضي: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع مساحات العمل وفهارسها\n\nExample:\n  cmux set-meta-block agent \"**claude** · opus · `main`\"\n  my-statusline | cmux set-meta-block agent --priority 50"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux set-meta-block <key> [markdown | -] [flags]\n\nZeichnet einen Markdown-Block in der Seitenleiste eines Arbeitsbereichs. Derselbe\nSchlüssel ersetzt seinen Block, sodass ein Skript oder eine Agent-Statuszeile ihn\nbei jeder Aktualisierung neu zeichnen kann. Markdown kommt aus den übrigen\nArgumenten oder von stdin, wenn es \"-\" ist oder fehlt und stdin umgeleitet ist.\nZeilenumbrüche bleiben erhalten. Ein wörtliches \\n oder \\t im Text wird ebenfalls zu\nZeilenumbruch oder Tabulator. Blöcke über 4 KB erscheinen als reiner Text. Blöcke sind\nsichtbar, solange \"Show Custom Metadata in Sidebar\" aktiv ist.\n\nFlags:\n  --priority <n>         Sortierpriorität; höhere Werte zuerst (Standard: 0)\n  --workspace <id|ref|index>   Zielarbeitsbereich (Standard: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Fensterkontext für Arbeitsbereich-Refs und -Indizes\n\nExample:\n  cmux set-meta-block agent \"**claude** · opus · `main`\"\n  my-statusline | cmux set-meta-block agent --priority 50"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux set-meta-block <key> [markdown | -] [flags]\n\nDraw a markdown block in the sidebar for a workspace. Setting the same\nkey again replaces its block, so a script or agent status line can\nredraw it on every update. Markdown comes from the remaining\narguments, or from stdin when it is \"-\" or omitted and stdin is piped.\nLine breaks are kept. A literal \\n or \\t in the text also becomes a\nline break or tab. Blocks over 4 KB render as plain text. Blocks show\nwhile \"Show Custom Metadata in Sidebar\" is on.\n\nFlags:\n  --priority <n>         Sort priority; higher appears first (default: 0)\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Window context for workspace refs and indexes\n\nExample:\n  cmux set-meta-block agent \"**claude** · opus · `main`\"\n  my-statusline | cmux set-meta-block agent --priority 50"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux set-meta-block <key> [markdown | -] [flags]\n\nDibuja un bloque markdown en la barra lateral de un espacio de trabajo. Usar la\nmisma clave de nuevo reemplaza su bloque, así un script o una línea de estado de\nagente puede redibujarlo en cada actualización. El markdown viene de los argumentos\nrestantes, o de stdin cuando es \"-\" o se omite y stdin está redirigido.\nSe conservan los saltos de línea. Un \\n o \\t literal en el texto también se convierte\nen salto de línea o tabulación. Los bloques de más de 4 KB se muestran como texto\nplano. Los bloques se ven mientras \"Show Custom Metadata in Sidebar\" está activado.\n\nFlags:\n  --priority <n>         Prioridad de orden; los valores altos primero (predeterminado: 0)\n  --workspace <id|ref|index>   Espacio de trabajo de destino (predeterminado: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Contexto de ventana para refs e índices de espacios de trabajo\n\nExample:\n  cmux set-meta-block agent \"**claude** · opus · `main`\"\n  my-statusline | cmux set-meta-block agent --priority 50"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux set-meta-block <key> [markdown | -] [flags]\n\nDessine un bloc markdown dans la barre latérale d’un espace de travail. Réutiliser\nla même clé remplace son bloc, pour qu’un script ou une ligne d’état d’agent le\nredessine à chaque mise à jour. Le markdown vient des arguments restants, ou de\nstdin s’il vaut \"-\" ou est omis alors que stdin est redirigé.\nLes sauts de ligne sont conservés. Un \\n ou \\t littéral devient aussi un saut de\nligne ou une tabulation. Au-delà de 4 Ko, le bloc s’affiche en texte brut. Les blocs\ns’affichent tant que \"Show Custom Metadata in Sidebar\" est activé.\n\nFlags:\n  --priority <n>         Priorité de tri ; les valeurs élevées en premier (par défaut : 0)\n  --workspace <id|ref|index>   Espace de travail cible (par défaut : $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Contexte de fenêtre pour les refs et index d’espace de travail\n\nExample:\n  cmux set-meta-block agent \"**claude** · opus · `main`\"\n  my-statusline | cmux set-meta-block agent --priority 50"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux set-meta-block <key> [markdown | -] [flags]\n\nワークスペースのサイドバーに markdown ブロックを描画します。同じキーを再度設定すると\nそのブロックが置き換わるため、スクリプトやエージェントのステータスラインが更新のたびに\n描き直せます。markdown は残りの引数から取得し、\"-\" の場合、または省略されて stdin が\nパイプの場合は stdin から読み取ります。\n改行は保持されます。テキスト中のリテラルの \\n や \\t も改行やタブになります。\n4 KB を超えるブロックはプレーンテキストで表示されます。ブロックは\n\"Show Custom Metadata in Sidebar\" がオンのときに表示されます。\n\nFlags:\n  --priority <n>         並び順の優先度。大きい値ほど先に表示（デフォルト: 0）\n  --workspace <id|ref|index>   対象ワークスペース（デフォルト: $CMUX_WORKSPACE_ID）\n  --window <id|ref|index>      ワークスペースの ref とインデックスを解決するウィンドウ\n\nExample:\n  cmux set-meta-block agent \"**claude** · opus · `main`\"\n  my-statusline | cmux set-meta-block agent --priority 50"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux set-meta-block <key> [markdown | -] [flags]\n\n워크스페이스의 사이드바에 markdown 블록을 그립니다. 같은 키를 다시 설정하면\n해당 블록이 교체되므로, 스크립트나 에이전트 상태 줄이 업데이트마다 다시 그릴 수\n있습니다. markdown은 나머지 인수에서 가져오며, \"-\"이거나 생략되고 stdin이\n파이프로 연결된 경우 stdin에서 읽습니다.\n줄바꿈은 유지됩니다. 텍스트의 문자 그대로인 \\n 또는 \\t도 줄바꿈이나 탭이 됩니다.\n4 KB를 넘는 블록은 일반 텍스트로 표시됩니다. 블록은\n\"Show Custom Metadata in Sidebar\"가 켜져 있을 때 표시됩니다.\n\nFlags:\n  --priority <n>         정렬 우선순위. 높을수록 먼저 표시 (기본값: 0)\n  --workspace <id|ref|index>   대상 워크스페이스 (기본값: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      워크스페이스 ref와 인덱스를 해석할 창 컨텍스트\n\nExample:\n  cmux set-meta-block agent \"**claude** · opus · `main`\"\n  my-statusline | cmux set-meta-block agent --priority 50"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux set-meta-block <key> [markdown | -] [flags]\n\n在工作区的侧边栏绘制一个 markdown 区块。再次设置同一个 key 会替换它的区块，\n因此脚本或代理状态行可以在每次更新时\n重新绘制。markdown 取自其余参数；\n若为 \"-\"，或省略且 stdin 为管道输入，则从 stdin 读取。\n换行会保留。文本中的字面 \\n 或 \\t 也会变成\n换行或制表符。超过 4 KB 的区块以纯文本显示。\n开启 \"Show Custom Metadata in Sidebar\" 时才会显示区块。\n\nFlags:\n  --priority <n>         排序优先级；数值越大越靠前（默认：0）\n  --workspace <id|ref|index>   目标工作区（默认：$CMUX_WORKSPACE_ID）\n  --window <id|ref|index>      工作区 ref 和索引所用的窗口范围\n\nExample:\n  cmux set-meta-block agent \"**claude** · opus · `main`\"\n  my-statusline | cmux set-meta-block agent --priority 50"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux set-meta-block <key> [markdown | -] [flags]\n\n在工作區的側邊欄繪製一個 markdown 區塊。再次設定同一個 key 會取代它的區塊，\n因此腳本或代理狀態列可以在每次更新時\n重新繪製。markdown 取自其餘引數；\n若為 \"-\"，或省略且 stdin 為管線輸入，則從 stdin 讀取。\n換行會保留。文字中的字面 \\n 或 \\t 也會變成\n換行或定位字元。超過 4 KB 的區塊以純文字顯示。\n開啟 \"Show Custom Metadata in Sidebar\" 時才會顯示區塊。\n\nFlags:\n  --priority <n>         排序優先順序；數值越大越前面（預設：0）\n  --workspace <id|ref|index>   目標工作區（預設：$CMUX_WORKSPACE_ID）\n  --window <id|ref|index>      工作區 ref 與索引所用的視窗範圍\n\nExample:\n  cmux set-meta-block agent \"**claude** · opus · `main`\"\n  my-statusline | cmux set-meta-block agent --priority 50"
+          }
+        }
+      }
+    },
+    "cli.setMetaBlock.error.invalidPriority": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block: يجب أن تكون قيمة --priority عددًا صحيحًا، والقيمة المستلمة '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block: --priority muss eine ganze Zahl sein, erhalten: '%@'"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block: --priority must be an integer, got '%@'"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block: --priority debe ser un entero, se recibió '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block : --priority doit être un entier, reçu '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block: --priority は整数である必要があります（受け取った値: '%@'）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block: --priority는 정수여야 합니다. 받은 값: '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block：--priority 必须是整数，收到 '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block：--priority 必須是整數，收到 '%@'"
+          }
+        }
+      }
+    },
+    "cli.setMetaBlock.error.missingKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب set-meta-block مفتاحًا. الاستخدام: cmux set-meta-block <key> [markdown | -]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block benötigt einen Schlüssel. Verwendung: cmux set-meta-block <key> [markdown | -]"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block requires a key. Usage: cmux set-meta-block <key> [markdown | -]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block requiere una clave. Uso: cmux set-meta-block <key> [markdown | -]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block nécessite une clé. Usage : cmux set-meta-block <key> [markdown | -]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block にはキーが必要です。使い方: cmux set-meta-block <key> [markdown | -]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block에는 키가 필요합니다. 사용법: cmux set-meta-block <key> [markdown | -]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block 需要一个 key。用法：cmux set-meta-block <key> [markdown | -]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block 需要一個 key。用法：cmux set-meta-block <key> [markdown | -]"
+          }
+        }
+      }
+    },
+    "cli.setMetaBlock.error.missingMarkdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب set-meta-block نص markdown كوسائط أو عبر stdin"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block benötigt Markdown als Argumente oder über stdin"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block requires markdown as arguments or on stdin"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block requiere markdown como argumentos o por stdin"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block nécessite du markdown en arguments ou sur stdin"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block には引数または stdin で markdown が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block에는 인수나 stdin으로 markdown이 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block 需要以参数或 stdin 提供 markdown"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block 需要以引數或 stdin 提供 markdown"
+          }
+        }
+      }
+    },
+    "cli.setMetaBlock.error.missingValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block: يتطلب %@ قيمة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block: %@ benötigt einen Wert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block: %@ requires a value"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block: %@ requiere un valor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block : %@ nécessite une valeur"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block: %@ には値が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block: %@에는 값이 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block：%@ 需要一个值"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block：%@ 需要一個值"
+          }
+        }
+      }
+    },
+    "cli.setMetaBlock.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block: خيار غير معروف %@. ضع markdown الذي يبدأ بـ -- بعد الفاصل --."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block: unbekannte Option %@. Markdown, das mit -- beginnt, gehört hinter ein -- als Trenner."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block: unknown flag %@. Put markdown that starts with -- after a -- separator."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block: opción desconocida %@. Pon el markdown que empieza con -- después de un separador --."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block : option inconnue %@. Placez le markdown qui commence par -- après un séparateur --."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block: 不明なフラグ %@。-- で始まる markdown は区切りの -- の後に置いてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block: 알 수 없는 플래그 %@. --로 시작하는 markdown은 -- 구분자 뒤에 넣으세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block：未知标志 %@。以 -- 开头的 markdown 请放在 -- 分隔符之后。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-meta-block：未知旗標 %@。以 -- 開頭的 markdown 請放在 -- 分隔符之後。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
