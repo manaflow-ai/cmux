@@ -22,6 +22,34 @@ struct CLIMetaBlockCommandTests {
         #expect(run.lines == ["report_meta_block agent -- --flag-looking text"])
     }
 
+    /// Only the first " -- " splits the socket line, so later separators,
+    /// quotes and backslashes in the markdown arrive untouched.
+    @Test func setMetaBlockKeepsSeparatorsQuotesAndBackslashesInMarkdown() throws {
+        let markdown = #"a -- "b" 'c' C:\path\file"#
+        let run = try Self.run(["set-meta-block", "agent", markdown])
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.output))
+        #expect(run.lines == ["report_meta_block agent -- \(markdown)"])
+    }
+
+    @Test func setMetaBlockWithOmittedMarkdownAndEmptyStdinFailsBeforeSending() throws {
+        // stdin is /dev/null: not a terminal, so the CLI reads it and finds nothing.
+        let run = try Self.run(["set-meta-block", "agent"], waitForServer: false)
+
+        #expect(run.result.status == 1, Comment(rawValue: run.result.output))
+        #expect(run.result.output.contains("set-meta-block requires markdown"), Comment(rawValue: run.result.output))
+        #expect(run.lines.isEmpty)
+    }
+
+    @Test(arguments: ["my key", #"a\b"#, "--", "--key"])
+    func setMetaBlockRejectsKeysThatCannotRoundTrip(key: String) throws {
+        let run = try Self.run(["set-meta-block", "--", key, "hello"], waitForServer: false)
+
+        #expect(run.result.status == 1, Comment(rawValue: run.result.output))
+        #expect(run.result.output.contains("set-meta-block: invalid key"), Comment(rawValue: run.result.output))
+        #expect(run.lines.isEmpty)
+    }
+
     @Test func setMetaBlockReadsMultilineMarkdownFromStdinDash() throws {
         let run = try Self.run(
             ["set-meta-block", "agent", "-"],

@@ -20450,8 +20450,10 @@ struct CMUXCLI {
             redraw it on every update. Markdown comes from the remaining
             arguments, or from stdin when it is "-" or omitted and stdin is piped.
             Line breaks are kept. A literal \\n or \\t in the text also becomes a
-            line break or tab. Blocks over 4 KB render as plain text. Blocks show
-            while "Show Custom Metadata in Sidebar" is on.
+            line break or tab. Keys cannot contain spaces or backslashes.
+            The sidebar shows the first 12 lines and 4,096 characters of a block,
+            and only the highest-priority block until "Show more details" is
+            clicked. Blocks show while "Show Custom Metadata in Sidebar" is on.
 
             Flags:
               --priority <n>         Sort priority; higher appears first (default: 0)
@@ -20459,7 +20461,7 @@ struct CMUXCLI {
               --window <id|ref|index>      Window context for workspace refs and indexes
 
             Example:
-              cmux set-meta-block agent "**claude** · opus · `main`"
+              cmux set-meta-block agent '**claude** · opus · `main`'
               my-statusline | cmux set-meta-block agent --priority 50
             """)
         case "clear-meta-block":
@@ -21170,10 +21172,23 @@ struct CMUXCLI {
                 defaultValue: "set-meta-block requires a key. Usage: cmux set-meta-block <key> [markdown | -]"
             ))
         }
+        // The socket splits at the first " -- " before tokenizing and its
+        // tokenizer reads backslashes differently from shellQuote, and a
+        // leading "--" parses as an option there, so such keys cannot round-trip.
+        guard !key.hasPrefix("--"),
+              !key.contains(where: { $0.isWhitespace || $0 == "\\" }) else {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.setMetaBlock.error.invalidKey",
+                    defaultValue: "set-meta-block: invalid key '%@'. Keys cannot contain spaces or backslashes or start with --."
+                ),
+                key
+            ))
+        }
 
         let markdown: String
         if markdownWords == ["-"] || (markdownWords.isEmpty && isatty(STDIN_FILENO) == 0) {
-            markdown = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
+            markdown = Self.readStandardInputText()
         } else {
             markdown = markdownWords.joined(separator: " ")
         }
@@ -21196,6 +21211,24 @@ struct CMUXCLI {
             windowOverride: windowOverride,
             rawTrailingText: encodedMarkdown
         )
+    }
+
+    /// Reads stdin to EOF with read(2). A closed descriptor (`<&-`) yields an
+    /// empty string instead of FileHandle's uncatchable Objective-C exception.
+    private static func readStandardInputText() -> String {
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let count = Darwin.read(STDIN_FILENO, &buffer, buffer.count)
+            if count > 0 {
+                data.append(buffer, count: count)
+            } else if count < 0, errno == EINTR {
+                continue
+            } else {
+                break
+            }
+        }
+        return String(decoding: data, as: UTF8.self)
     }
 
     private static func parseMetaBlockPriority(_ raw: String) throws -> Int {
