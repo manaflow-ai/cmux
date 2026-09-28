@@ -10266,6 +10266,11 @@ final class GhosttySurfaceScrollView: NSView {
     private var lastRequestedPortalOcclusionVisible: Bool?
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
+    /// Tab drags report their zone through `paneDropTargetView`, while portal reconciliation
+    /// forwards SwiftUI's zone, which is nil for those drags. The drag's zone wins, so a
+    /// reconciliation during a hover can't fade the highlight out.
+    private var forwardedDropZone: DropZone?
+    private var paneDragDropZone: DropZone?
     private var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
     weak var paneGeometryPortal: WindowTerminalPortal?
     private var pendingAutomaticFirstResponderApply = false
@@ -11009,7 +11014,7 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
             // Reuse the normal show/update path so deferred overlays get the
             // same initial animation as direct drop-zone activation.
-            setDropZoneOverlay(zone: pending)
+            applyDropZoneOverlay(zone: pending)
         }
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
@@ -11821,14 +11826,23 @@ final class GhosttySurfaceScrollView: NSView {
             abs(lhs.size.height - rhs.size.height) <= epsilon
     }
 
-    func setDropZoneOverlay(zone: DropZone?) {
+    /// Sets the zone SwiftUI forwards, or with `fromPaneDrag` the zone `paneDropTargetView` resolved.
+    func setDropZoneOverlay(zone: DropZone?, fromPaneDrag: Bool = false) {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
-                self?.setDropZoneOverlay(zone: zone)
+                self?.setDropZoneOverlay(zone: zone, fromPaneDrag: fromPaneDrag)
             }
             return
         }
+        if fromPaneDrag {
+            paneDragDropZone = zone
+        } else {
+            forwardedDropZone = zone
+        }
+        applyDropZoneOverlay(zone: paneDragDropZone ?? forwardedDropZone)
+    }
 
+    private func applyDropZoneOverlay(zone: DropZone?) {
         if let zone, (bounds.width <= 2 || bounds.height <= 2) {
             pendingDropZone = zone
 #if DEBUG
