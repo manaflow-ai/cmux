@@ -281,9 +281,6 @@ struct WorkspaceShellView: View {
     @State var workspaceActionToast: WorkspaceActionToastContent?
     var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
     @Environment(ToastCenter.self) var toasts
-    #if os(iOS)
-    @Environment(\.cloudSessionController) private var cloudSessionController
-    #endif
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
     #if os(iOS)
@@ -337,7 +334,6 @@ struct WorkspaceShellView: View {
         #if os(iOS)
         GeometryReader { geometry in
             primaryScaffold(presentation: presentation)
-            .cloudSessionLifetime()
             .background {
                 NotificationFeedSearchProjectionSync(
                     searchCoordinator: primarySearchCoordinator,
@@ -1367,9 +1363,6 @@ struct WorkspaceShellView: View {
             names[mac.macDeviceID] = mac.resolvedName
             names[mac.id] = mac.resolvedName
         }
-        for machine in cloudSessionController?.visibleMachines ?? [] {
-            names[cloudPickerID(for: machine.id)] = machine.preferredName
-        }
         if let buildScope = MobileIOSBuildScope.current() {
             names = names.mapValues(buildScope.computerDisplayName)
         }
@@ -1378,12 +1371,10 @@ struct WorkspaceShellView: View {
             workspaces: store.workspaces,
             existing: store.pairedMacBuildLabelsByEntryID()
         )
-        var pickerMachineIDs = scope.machineIDs
-        pickerMachineIDs.formUnion((cloudSessionController?.visibleMachines ?? []).map { cloudPickerID(for: $0.id) })
         let toolbarMachineSnapshots = WorkspaceMachineSnapshots(
             workspaces: store.workspaces,
             filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
-            macPickerMachineIDs: pickerMachineIDs,
+            macPickerMachineIDs: scope.machineIDs,
             namesByID: names,
             buildLabelsByID: buildLabelsByID,
             fallbackName: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Computer")
@@ -1726,15 +1717,10 @@ struct WorkspaceShellView: View {
             notificationFeedItems: store.notificationFeedItems,
             foregroundMacDeviceID: store.connectedMacDeviceID ?? store.activeTicket?.macDeviceID,
             foregroundInstanceTag: store.connectedMacInstanceTag,
-            additionalMachineIDs: Set((cloudSessionController?.visibleMachines ?? []).map { cloudPickerID(for: $0.id) }),
             aliasesFor: {
                 store.pairedMacAliasIDs(for: $0, instanceTag: $1)
             }
         )
-    }
-
-    private func cloudPickerID(for machineID: String) -> String {
-        "cloud:\(machineID)"
     }
 
     private func autoOpenSelectedWorkspaceForSoakIfNeeded() {
