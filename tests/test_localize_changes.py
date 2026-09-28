@@ -344,6 +344,59 @@ class LocalizeChangesTests(unittest.TestCase):
             'cmux record note "dragging the workspace"',
         )
 
+    def test_multiline_default_wrapped_with_a_line_continuation_reaches_the_catalog(self):
+        # Settings prose wraps a long sentence with a trailing backslash, which
+        # the compiler joins into one line. Five shipped keys are written this
+        # way, and treating the continuation as an unknown escape dropped all of
+        # them with no line number to find them by.
+        text = (
+            'String(localized: "settings.demo.note", defaultValue: """\n'
+            '    Uses a direct connection when one is available to macOS, then \\\n'
+            '    falls back to an allowed relay.\n'
+            '    """)\n'
+        )
+
+        messages, attention = MODULE.parse_swift_messages("Sources/Demo.swift", text)
+
+        self.assertEqual(attention, [])
+        self.assertEqual(
+            messages["settings.demo.note"].source,
+            "Uses a direct connection when one is available to macOS, then falls back to an allowed relay.",
+        )
+
+    def test_multiline_indentation_comes_from_the_closing_delimiter(self):
+        # Swift strips the closing delimiter's indentation, not the first line's,
+        # so a line indented past the delimiter keeps the extra spaces.
+        text = (
+            'String(localized: "cli.help.indent", defaultValue: """\n'
+            '    Flags:\n'
+            '      --loud   Be loud\n'
+            '    """)\n'
+        )
+
+        messages, attention = MODULE.parse_swift_messages("CLI/Demo.swift", text)
+
+        self.assertEqual(attention, [])
+        self.assertEqual(messages["cli.help.indent"].source, "Flags:\n  --loud   Be loud")
+
+    def test_multiline_default_with_one_unbalanced_quote_still_parses(self):
+        # An odd number of quotation marks in help text is ordinary: a flag
+        # example quotes its value and the sentence closes with a parenthesis.
+        # Only skipping the whole literal keeps the scanner from reading the rest
+        # of the file as one long string.
+        text = (
+            'String(localized: "cli.help.odd", defaultValue: """\n'
+            '    Pass --flag="value (quoted)\n'
+            '    """)\n'
+            'String(localized: "after", defaultValue: "After")\n'
+        )
+
+        messages, attention = MODULE.parse_swift_messages("CLI/Demo.swift", text)
+
+        self.assertEqual(attention, [])
+        self.assertEqual(messages["cli.help.odd"].source, 'Pass --flag="value (quoted)')
+        self.assertEqual(messages["after"].source, "After")
+
     def test_multiline_interpolation_still_needs_manual_review(self):
         text = (
             'String(localized: "cli.help.interp", defaultValue: """\n'
