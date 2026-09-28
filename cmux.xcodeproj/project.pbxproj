@@ -2157,6 +2157,7 @@
 		15E786D5806C3DF2C8321E4F /* MachineRowActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90586458CDCDE7700CEDE927 /* MachineRowActions.swift */; };
 		800100000000000000000302 /* MachinesCloudStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 800100000000000000000301 /* MachinesCloudStatus.swift */; };
 				D80010000000000000000102 /* MachinesControlBarComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = D80010000000000000000101 /* MachinesControlBarComponents.swift */; };
+		C6210849A98B0C07D5240A69 /* MachinesListStatusToolbarRowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 311C986A1E7430418708AAA6 /* MachinesListStatusToolbarRowTests.swift */; };
 		58CF0FC31BE78E5EB1413C9E /* MachinesListStatusViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7858F7AEBE9927DEAB5CABC /* MachinesListStatusViews.swift */; };
 		4A6A6A54919FEE7C66D41678 /* MachinesPanelBanners.swift in Sources */ = {isa = PBXBuildFile; fileRef = 031E69302DA348EC747F0B64 /* MachinesPanelBanners.swift */; };
 		7690848956F4C55873F767F6 /* MachinesPanelModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78F49DA9F80DC43173341410 /* MachinesPanelModelTests.swift */; };
@@ -6202,6 +6203,7 @@
 		90586458CDCDE7700CEDE927 /* MachineRowActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MachineRowActions.swift"; sourceTree = "<group>"; };
 		800100000000000000000301 /* MachinesCloudStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachinesCloudStatus.swift; sourceTree = "<group>"; };
 				D80010000000000000000101 /* MachinesControlBarComponents.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachinesControlBarComponents.swift; sourceTree = "<group>"; };
+		311C986A1E7430418708AAA6 /* MachinesListStatusToolbarRowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MachinesListStatusToolbarRowTests.swift"; sourceTree = "<group>"; };
 		D7858F7AEBE9927DEAB5CABC /* MachinesListStatusViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachinesListStatusViews.swift; sourceTree = "<group>"; };
 		031E69302DA348EC747F0B64 /* MachinesPanelBanners.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MachinesPanelBanners.swift"; sourceTree = "<group>"; };
 		78F49DA9F80DC43173341410 /* MachinesPanelModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachinesPanelModelTests.swift; sourceTree = "<group>"; };
@@ -12331,6 +12333,7 @@
 				3D5E43A566AB0B441162EC5A /* CloudTreeNodeCacheTests.swift */,
 				23E35F95320CBED308AD98CF /* CloudTreeTogglePerformanceTests.swift */,
 				0C37EA14DE74095FB1BB23E1 /* CloudTreeDisclosureIntentTests.swift */,
+				311C986A1E7430418708AAA6 /* MachinesListStatusToolbarRowTests.swift */,
 				1C38B9AFEEE4FAE6089C250F /* CloudTreeRowToolTipTests.swift */,
 				6F27EA9972F21B98FB4A7312 /* SurfaceCatalogObservationTests.swift */,
 				DEAB02E73CAA231F5E266CF7 /* ClaudeStopFailureStatusTests.swift */,
@@ -16513,6 +16516,7 @@
 				C11218000000000000000014 /* LocalTmuxSessionListParser.swift in Sources */,
 				484A89A4B4AA08EF63E0DB51 /* MachineCreateCoordinatorTests.swift in Sources */,
 				E4C9D6A1F2B34E5D8C7A9012 /* MachineCreateOptimisticProjectionTests.swift in Sources */,
+				C6210849A98B0C07D5240A69 /* MachinesListStatusToolbarRowTests.swift in Sources */,
 				7690848956F4C55873F767F6 /* MachinesPanelModelTests.swift in Sources */,
 				98E6802001D61AC24F2ABB09 /* MachinesPanelUncappedPlanTests.swift in Sources */,
 				A7C0F0010000000000000002 /* MacPairedMacBackupPublisherScopeTests.swift in Sources */,
