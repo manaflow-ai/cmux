@@ -5,8 +5,9 @@ import { UserAvatar, useStackApp } from "@hexclave/next";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
-import type { DashboardSessionUser } from "@/app/lib/dashboard-session";
-import { Link, useRouter } from "@/i18n/navigation";
+import { Link } from "@tanstack/react-router";
+import type { DashboardSessionUser } from "../lib/session-types";
+import { localeHomeHref } from "../lib/locale-href";
 import { clearCoderouterOrganizationScope } from "@/services/coderouter/organizationScope";
 import { useThemeToggle } from "@/app/[locale]/theme";
 import { useDashboardTeamScope, type DashboardCatalogTeam } from "./dashboard-team-scope";
@@ -19,13 +20,12 @@ export function DashboardAccountMenuFallback() {
 }
 
 /**
- * The identity row. The user arrives from the server session so the row
- * paints with the shell instead of after a second client fetch to Stack.
+ * The identity row. The user comes from the dashboard session query that
+ * gates the shell, so the row paints with the frame.
  */
 export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | null }) {
   const t = useTranslations("dashboard.accountMenu");
   const locale = useLocale();
-  const router = useRouter();
   const stackApp = useStackApp();
   const teamScope = useDashboardTeamScope(user?.id ?? null);
   const theme = useThemeToggle();
@@ -77,7 +77,7 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
                   <div className="truncate text-xs text-muted">{user.primaryEmail}</div>
                 ) : null}
               </div>
-              <Menu.Item render={<Link href="/dashboard/settings" />} className={menuItemClass}>
+              <Menu.Item render={<Link to="/dashboard/settings" />} className={menuItemClass}>
                 <SettingsIcon />
                 <span>{t("settings")}</span>
               </Menu.Item>
@@ -92,7 +92,7 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
                 <ThemeIcon dark={theme.resolvedTheme === "dark"} />
                 <span>{theme.resolvedTheme === "dark" ? t("themeLight") : t("themeDark")}</span>
               </Menu.Item>
-              <Menu.Item render={<Link href="/dashboard/billing" />} className={menuItemClass}>
+              <Menu.Item render={<Link to="/dashboard/billing" />} className={menuItemClass}>
                 <BillingIcon />
                 <span>{t("billing")}</span>
               </Menu.Item>
@@ -115,8 +115,8 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
                   try {
                     await stackApp.signOut();
                     clearCoderouterOrganizationScope();
-                    router.replace("/");
-                    router.refresh();
+                    // Leaving the SPA: a document load drops every cached query.
+                    window.location.assign(localeHomeHref(locale));
                   } catch {
                     setSignOutPending(false);
                     setSignOutError(true);

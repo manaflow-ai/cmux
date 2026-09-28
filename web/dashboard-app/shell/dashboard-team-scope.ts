@@ -2,8 +2,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef } from "react";
-import { useSearchParams } from "next/navigation";
-import { usePathname, useRouter } from "@/i18n/navigation";
+import { useDashboardUrl } from "../lib/url";
 import {
   clearCoderouterOrganizationScope,
   coderouterOrganizationFromCookieHeader,
@@ -61,9 +60,8 @@ type ConfirmedTeamSwitchState = {
  * without a page-level picker. The legacy cookie is mirrored for older pages.
  */
 export function useDashboardTeamScope(userId: string | null): DashboardTeamScope {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const url = useDashboardUrl();
+  const searchParams = url.searchParams;
   const queryClient = useQueryClient();
   const activeSwitchId = useRef(0);
   const nextSwitchId = useRef(0);
@@ -119,7 +117,7 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
     );
     persistCoderouterOrganizationScope(userId, team.id);
     optimisticSearch.set("team", team.id);
-    router.replace(pathWithSearch(pathname, optimisticSearch));
+    url.replaceSearch(optimisticSearch);
 
     const persistRequest = async () => {
       const cancellation = new AbortController();
@@ -181,9 +179,7 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
           } else {
             persistCoderouterOrganizationScope(userId, rollback.cookieScope);
           }
-          router.replace(
-            pathWithSearch(pathname, new URLSearchParams(rollback.search)),
-          );
+          url.replaceSearch(new URLSearchParams(rollback.search));
         }
         activeSwitchId.current = 0;
       }
@@ -194,21 +190,14 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
     if (activeSwitchId.current === operationId) {
       queryClient.setQueryData(queryKey, confirmed.catalog);
       persistCoderouterOrganizationScope(userId, confirmed.cookieScope ?? team.id);
-      router.replace(
-        pathWithSearch(pathname, new URLSearchParams(confirmed.search)),
-      );
+      url.replaceSearch(new URLSearchParams(confirmed.search));
       activeSwitchId.current = 0;
-      router.refresh();
+      await url.refresh();
     }
     finish();
   };
 
   return { status: "ready", teams, selected, switchTeam };
-}
-
-function pathWithSearch(pathname: string, searchParams: URLSearchParams): string {
-  const query = searchParams.toString();
-  return query ? `${pathname}?${query}` : pathname;
 }
 
 /** Teams the dashboard can show: route users and account-only managers. */

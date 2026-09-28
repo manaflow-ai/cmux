@@ -1236,6 +1236,11 @@
         "description": "Keys that act for this team. Anyone with a key can use the team's access, so store keys securely.",
         "create": "Create team API key"
       }
+    },
+    "notFound": {
+      "title": "Page not found",
+      "body": "This dashboard page does not exist or was moved.",
+      "home": "Go to dashboard"
     }
   },
   "vault": {

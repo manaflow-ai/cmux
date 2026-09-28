@@ -2,12 +2,12 @@
 
 import { useTranslations } from "next-intl";
 import { useState } from "react";
-import { Link, usePathname } from "@/i18n/navigation";
+import { Link, useLocation, type LinkProps } from "@tanstack/react-router";
 
 type DashboardNavGroup = {
   label: string;
   items: Array<{
-    href: string;
+    to: NonNullable<LinkProps["to"]>;
     label: string;
     active: boolean;
   }>;
@@ -25,7 +25,7 @@ export function DashboardShell({
 }) {
   const t = useTranslations("dashboard.nav");
   const common = useTranslations("common");
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const groups: DashboardNavGroup[] = [];
   if (vaultEnabled) {
@@ -33,12 +33,12 @@ export function DashboardShell({
       label: t("vaultGroup"),
       items: [
         {
-          href: "/dashboard/vault",
+          to: "/dashboard/vault",
           label: t("vaultOverview"),
           active: pathname === "/dashboard/vault",
         },
         {
-          href: "/dashboard/vault/sessions",
+          to: "/dashboard/vault/sessions",
           label: t("vaultSessions"),
           active: pathname.startsWith("/dashboard/vault/sessions"),
         },
@@ -50,7 +50,7 @@ export function DashboardShell({
       label: t("cloudGroup"),
       items: [
         {
-          href: "/dashboard/cloud",
+          to: "/dashboard/cloud",
           label: t("cloudDevices"),
           active: pathname.startsWith("/dashboard/cloud"),
         },
@@ -60,7 +60,7 @@ export function DashboardShell({
       label: t("coderouterGroup"),
       items: [
         {
-          href: "/dashboard/coderouter",
+          to: "/dashboard/coderouter",
           label: t("coderouterOverview"),
           active: pathname.startsWith("/dashboard/coderouter"),
         },
@@ -70,12 +70,12 @@ export function DashboardShell({
       label: t("remoteControlGroup"),
       items: [
         {
-          href: "/dashboard/mobile-devices",
+          to: "/dashboard/mobile-devices",
           label: t("mobileDevices"),
           active: pathname.startsWith("/dashboard/mobile-devices"),
         },
         {
-          href: "/dashboard/testflight",
+          to: "/dashboard/testflight",
           label: t("testflight"),
           active: pathname.startsWith("/dashboard/testflight"),
         },
@@ -85,17 +85,17 @@ export function DashboardShell({
       label: t("accountGroup"),
       items: [
         {
-          href: "/dashboard/settings",
+          to: "/dashboard/settings",
           label: t("settings"),
           active: pathname.startsWith("/dashboard/settings"),
         },
         {
-          href: "/dashboard/teams",
+          to: "/dashboard/teams",
           label: t("teams"),
           active: pathname.startsWith("/dashboard/teams"),
         },
         {
-          href: "/dashboard/billing",
+          to: "/dashboard/billing",
           label: t("billing"),
           active: pathname.startsWith("/dashboard/billing"),
         },
@@ -111,7 +111,7 @@ export function DashboardShell({
       <aside className="sticky top-0 hidden h-screen flex-col border-r border-border bg-background sm:flex">
         <div className="flex h-11 shrink-0 items-center border-b border-border px-3">
           <Link
-            href="/dashboard"
+            to="/dashboard"
             className="font-medium focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
           >
             {t("brand")}
@@ -127,7 +127,7 @@ export function DashboardShell({
         <header className="sticky top-0 z-30 border-b border-border bg-background sm:fixed sm:inset-x-auto sm:bottom-0 sm:left-0 sm:top-auto sm:w-[13rem] sm:border-b-0 sm:border-r sm:border-t">
           <div className="flex min-h-11 items-center justify-between px-3 py-1.5 sm:px-2">
             <Link
-              href="/dashboard"
+              to="/dashboard"
               className="font-medium focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground sm:hidden"
             >
               {t("brand")}
@@ -199,8 +199,8 @@ export function DashboardNavGroupView({
       <div className="mt-1 space-y-0.5">
         {group.items.map((item) => (
           <Link
-            key={item.href}
-            href={item.href}
+            key={item.to}
+            to={item.to}
             onClick={onNavigate}
             aria-current={item.active ? "page" : undefined}
             className={`block border-l px-2 py-1.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
