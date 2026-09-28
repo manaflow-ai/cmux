@@ -1024,7 +1024,11 @@ tagged_derived_data_path() {
 # the existing overrides next to the resolver's error.
 resolve_cmux_tui_client_commit() {
   local commit
-  if ! commit="$("$PWD/scripts/ci/resolve-cmux-tui-client-commit.sh")"; then
+  local -a resolver_args=()
+  if [[ -n "${CMUX_TUI_CLIENT_MAX_FALLBACK:-}" ]]; then
+    resolver_args+=(--max-fallback "$CMUX_TUI_CLIENT_MAX_FALLBACK")
+  fi
+  if ! commit="$("$PWD/scripts/ci/resolve-cmux-tui-client-commit.sh" ${resolver_args[@]+"${resolver_args[@]}"})"; then
     cat >&2 <<'EOF'
 error: no published cmux-tui client for this checkout, so the app bundle cannot get one.
        A branch that changes cmux-tui has no published client for its own commits
@@ -1439,7 +1443,7 @@ fi
 CMUX_DEV_API_BASE_URL_VALUE="$(cmux_attach_resolve_dev_api_base_url "$CMUX_DEV_ORIGIN")"
 CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_DEV_BACKEND_URL:-${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}}"
 CMUX_IROH_V2_ENVIRONMENT_VALUE="${CMUX_IROH_V2_ENVIRONMENT:-development}"
-CMUX_IROH_V2_BASE_URL_VALUE="${CMUX_IROH_V2_BASE_URL:-https://cmux-iroh-v2-development.debussy.workers.dev}"
+CMUX_IROH_V2_BASE_URL_VALUE="${CMUX_IROH_V2_BASE_URL:-https://cmux-v2-development.debussy.workers.dev}"
 CMUX_IROH_V2_FORCE_RELAY_VALUE="${CMUX_IROH_V2_FORCE_RELAY:-0}"
 CMUX_AUTH_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
 CMUX_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"

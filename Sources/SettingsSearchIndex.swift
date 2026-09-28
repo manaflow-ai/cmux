@@ -3,7 +3,7 @@ import SwiftUI
 enum SettingsSearchIndex {
     static let defaultSelectionID = sectionID(for: .account)
 
-    private static let sectionEntries: [SettingsSearchEntry] = SettingsNavigationTarget.visibleCases.map { target in
+    private static let sectionEntries: [SettingsSearchEntry] = SettingsNavigationTarget.allCases.map { target in
         SettingsSearchEntry(
             id: sectionID(for: target),
             kind: .section,
@@ -145,6 +145,7 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "loading-spinner-position", String(localized: "settings.app.loadingSpinnerPosition", defaultValue: "Loading Spinner Position"), "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side"),
         setting(.sidebarAppearance, "notification-badge-position", String(localized: "settings.app.notificationBadgePosition", defaultValue: "Notification Badge Position"), "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side"),
         setting(.sidebarAppearance, "show-metadata", String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"), "report meta status block"),
+        setting(.sidebarAppearance, "compact-agent-status", String(localized: "settings.app.compactAgentStatus", defaultValue: "Compact Agent Status"), "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex"),
         setting(.sidebarAppearance, "right-max-width", String(localized: "settings.sidebar.rightMaxWidth", defaultValue: "Dock Max Width"), "dock right sidebar max width terminal reservation cap logs lazygit"),
         setting(.sidebarAppearance, "right-sidebar-tabs", String(localized: "settings.sidebar.rightTabs", defaultValue: "Right Sidebar Tabs"), "right sidebar tabs show hide reorder order files find vault feed dock cloud mode switcher customize"),
         setting(.customSidebars, "enabled", String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), "custom sidebars enable show vibe swift json interpreted picker"),
@@ -158,6 +159,7 @@ enum SettingsSearchIndex {
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
+        setting(.automation, "pi", String(localized: "settings.automation.pi", defaultValue: "Pi Integration"), "pi agent hooks notifications"),
         setting(.automation, "claude-path", String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), "custom claude executable"),
         setting(
             .automation,
@@ -297,6 +299,7 @@ enum SettingsSearchIndex {
         "sidebar.loadingSpinnerPosition": settingID(for: .sidebarAppearance, idSuffix: "loading-spinner-position"),
         "sidebar.notificationBadgePosition": settingID(for: .sidebarAppearance, idSuffix: "notification-badge-position"),
         "sidebar.showCustomMetadata": settingID(for: .sidebarAppearance, idSuffix: "show-metadata"),
+        "sidebar.compactAgentStatus": settingID(for: .sidebarAppearance, idSuffix: "compact-agent-status"),
         "sidebar.rightMaxWidth": settingID(for: .sidebarAppearance, idSuffix: "right-max-width"),
         "sidebar-font-size": settingID(for: .sidebarAppearance, idSuffix: "font-size"),
         "surface-tab-bar-font-size": settingID(for: .terminal, idSuffix: "tab-bar-font-size"),
@@ -330,6 +333,7 @@ enum SettingsSearchIndex {
         "automation.socketControlMode": settingID(for: .automation, idSuffix: "socket-mode"),
         "automation.socketPassword": settingID(for: .automation, idSuffix: "socket-password"),
         "automation.claudeCodeIntegration": settingID(for: .automation, idSuffix: "claude-code"),
+        "automation.piIntegration": settingID(for: .automation, idSuffix: "pi"),
         "automation.claudeBinaryPath": settingID(for: .automation, idSuffix: "claude-path"),
         "automation.workspaceAutoNaming": settingID(for: .automation, idSuffix: "workspace-auto-naming"),
         "automation.ripgrepBinaryPath": settingID(for: .automation, idSuffix: "ripgrep-path"),
@@ -384,9 +388,7 @@ enum SettingsSearchIndex {
     }
 
     static func sectionEntry(for target: SettingsNavigationTarget) -> SettingsSearchEntry {
-        entriesByID[sectionID(for: target)]
-            ?? entriesByID[sectionID(for: target.canonicalTarget)]
-            ?? sectionEntries[0]
+        entriesByID[sectionID(for: target)] ?? sectionEntries[0]
     }
 
     static func sectionID(for target: SettingsNavigationTarget) -> String { "section:\(target.rawValue)" }

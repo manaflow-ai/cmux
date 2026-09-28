@@ -169,6 +169,8 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import apfs_clone  # noqa: E402
+import owned_spm_scratch  # noqa: E402
 import seed_derived_data as seed  # noqa: E402
 
 STAMP = "stamp.json"
@@ -259,6 +261,8 @@ def clone(source: Path, destination: Path) -> None:
     """An APFS clone of a directory tree, falling back to a copy."""
     clear(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if apfs_clone.clone_directory(source, destination):
+        return
     if subprocess.run(["cp", "-cR", str(source), str(destination)], capture_output=True).returncode != 0:
         remove(destination)
         shutil.copytree(source, destination, symlinks=True)
@@ -283,7 +287,8 @@ def sweep_discarded(store: Path) -> None:
 # `warm-keys` publishes it (`parked`) for pr_runner_pool.py's distance routing. A root keeps at most
 # PR_SLOTS parked builds, each for PR_SLOT_HOURS. There is no free-disk floor: parked builds are the
 # first thing given up when space runs out. `keep` that hits ENOSPC evicts every parked build on the
-# mini, oldest first, and retries, and `evict-parked` does the same for disk tooling (glaeda-disk).
+# mini, oldest first, with the SwiftPM package builds no job holds (owned_spm_scratch.py evict), and
+# retries, and `evict-parked` does the same for parked builds for disk tooling (glaeda-disk).
 # A main build is never parked, so eviction never touches one.
 PR_BUILDS = "pr-builds"
 PR_SLOTS = 2
@@ -620,10 +625,11 @@ def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr
         try:
             clone(derived, incoming)
         except OSError as error:
-            # Out of space: parked builds go first (oldest first), then the clone gets one more try.
+            # Out of space: parked builds go first (oldest first), and the SwiftPM package builds no job
+            # holds (owned_spm_scratch.py), then the clone gets one more try.
             # copytree's shutil.Error carries its per-file errors as text, without an errno.
             full = error.errno == errno.ENOSPC or "No space left on device" in str(error)
-            if not full or not evict_parked(store):
+            if not full or not (evict_parked(store) + owned_spm_scratch.evict(mini_store(store))):
                 raise
             remove(incoming)
             clone(derived, incoming)
@@ -716,12 +722,20 @@ def stamp_keys(store: Path, fingerprint: str) -> list[str]:
     return [warm_key(str(stamp.get("merged_onto") or "")), pr_key(stamp.get("pr"))]
 
 
+def is_root_store(path: Path) -> bool:
+    suffix = path.name[len(ROOT_STORE_PREFIX):]
+    return path.name.startswith(ROOT_STORE_PREFIX) and suffix.isdigit() and len(suffix) <= 2
+
+
+def mini_store(store: Path) -> Path:
+    """Root 1's store, which also holds the mini's SwiftPM scratch (STORE is it, or STORE/../cmux-ci-<k>)."""
+    return store.parent if is_root_store(store) else store
+
+
 def other_root_stores(store: Path) -> list[Path]:
     """The mini's other canonical roots' stores (STORE is root 1's, or STORE/../cmux-ci-<k>)."""
-    def is_root(path: Path) -> bool:
-        suffix = path.name[len(ROOT_STORE_PREFIX):]
-        return path.name.startswith(ROOT_STORE_PREFIX) and suffix.isdigit() and len(suffix) <= 2
-    base = store.parent if is_root(store) else store
+    is_root = is_root_store
+    base = mini_store(store)
     try:
         roots = [base, *sorted(path for path in base.iterdir() if is_root(path))]
     except OSError:

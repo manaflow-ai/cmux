@@ -1273,6 +1273,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// the current run arms its sentinel so a crash can recover a missing primary
     /// snapshot from the immutable `-previous` copy.
     private var previousSessionLaunchWasUnclean = false
+    /// Read-only view for agent session recovery (`AgentSessionRecovery.swift`).
+    var previousLaunchWasUncleanForRecovery: Bool { previousSessionLaunchWasUnclean }
+    /// When the previous (possibly crashed) run launched; recovery only
+    /// considers agent sessions active since then.
+    var previousSessionLaunchStartedAt: Date?
+    var didScheduleAgentSessionRecovery = false
     private var didCaptureSessionLaunchState = false
     private var didArmSessionLaunchSentinel = false
     var didAttemptStartupSessionRestore = false
@@ -2687,6 +2693,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let env = ProcessInfo.processInfo.environment
         if isRunningUnderXCTest(env) || env["CMUX_UI_TEST_MODE"] == "1" {
             uiTestSocketSanityCoordinator.scheduleIfNeeded(environment: env)
+            // Read `shared` here, on the main actor; the script runs its
+            // commands off it through the nonisolated line handler.
+            let controller = TerminalController.shared
+            UITestSocketCommandScript.runIfRequested(environment: env) {
+                controller.handleSocketLine($0)
+            }
         }
         // Best-effort one-time migration: a value previously stored in the
         // legacy ~/.config/cmux/dev-window-display file moves into the shared
@@ -3631,6 +3643,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // this also keeps isolated unit-test app delegates from affecting the
         // user's next launch.
         guard !isRunningUnderXCTest(environment), !isRunningUnderXCTestCached else { return }
+        previousSessionLaunchStartedAt = GhosttyCrashBreadcrumb.priorSessionLaunchStartDate(environment: environment)
         previousSessionLaunchWasUnclean = GhosttyCrashBreadcrumb.captureSessionLaunchState(
             environment: environment
         )
@@ -3867,6 +3880,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // completeSessionRestoreOperation triggers replay after the
             // restored panel-identity aliases are recorded.
             AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
+            scheduleAgentSessionRecoveryAfterUncleanLaunchIfNeeded()
         }
         if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
             isTerminatingApp: isTerminatingApp,
@@ -3979,6 +3993,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Every restored workspace has enqueued its identity aliases by now;
         // the journal consumer is FIFO, so the replay fold sees all of them.
         AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
+        if !isManualReopen {
+            scheduleAgentSessionRecoveryAfterUncleanLaunchIfNeeded()
+        }
         startupSessionSnapshot = nil
         let wasApplyingSessionRestore = isApplyingSessionRestore
         isApplyingSessionRestore = false
@@ -5339,7 +5356,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func sessionSidebarSnapshot(for context: MainWindowContext) -> SessionSidebarSnapshot {
         SessionSidebarSnapshot(
-            isVisible: context.sidebarState.isVisible,
+            // A sidebar hidden only because the window was too narrow is still wanted.
+            isVisible: context.sidebarState.isVisible || context.sidebarState.isAutoCollapsed,
             selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
             width: SessionPersistencePolicy.sanitizedSidebarWidth(
                 Double(context.sidebarState.persistedWidth)
@@ -7541,7 +7559,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return context.tabManager
     }
 
-    private struct FocusedTerminalShortcutContext {
+    struct FocusedTerminalShortcutContext {
         let tabManager: TabManager
         let workspaceId: UUID
         let panelId: UUID
@@ -7589,7 +7607,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func focusedTerminalShortcutContext(preferredWindow: NSWindow? = nil) -> FocusedTerminalShortcutContext? {
+    func focusedTerminalShortcutContext(preferredWindow: NSWindow? = nil) -> FocusedTerminalShortcutContext? {
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
         let responder = shortcutRoutingFirstResponder(preferredWindow: targetWindow)
         guard let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
@@ -9934,6 +9952,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserTransparentBackground: Bool = false,
         placementOverride: WorkspacePlacement? = nil,
         applyCreationTitleAsCustomTitle: Bool = true,
+        select: Bool = true,
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
@@ -9975,7 +9994,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             discardOrphanedMainWindowContext(context)
             return nil
         }
-        setActiveMainWindow(window)
+        // `select: false` (a socket open without focus) creates the workspace behind
+        // the current selection: no window switch, no workspace switch.
+        if select {
+            setActiveMainWindow(window)
+        }
         if shouldBringToFront {
             bringToFront(window)
         }
@@ -9988,7 +10011,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                select: true,
+                select: select,
                 placementOverride: placementOverride,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
@@ -9997,7 +10020,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 title: title, titleSource: titleSource,
                 workingDirectory: workingDirectory,
                 initialTerminalInput: initialTerminalInput,
-                select: true,
+                select: select,
                 placementOverride: placementOverride,
                 autoWelcomeIfNeeded: initialTerminalInput == nil,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
@@ -10005,13 +10028,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else if title != nil {
             workspace = context.tabManager.addWorkspaceIfActive(
                 title: title, titleSource: titleSource,
-                select: true,
+                select: select,
                 placementOverride: placementOverride,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else {
             workspace = context.tabManager.addWorkspaceIfActive(
-                select: true,
+                select: select,
                 placementOverride: placementOverride
             )
         }
@@ -14494,6 +14517,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// launch-time config load, which ran before the reload observer existed.
     private func startGhosttyConfigLiveReload() {
         ghosttyConfigLiveReloadCoordinator.start()
+        GhosttyApp.shared.configurationFilesWillLoad = { [weak self] in
+            self?.ghosttyConfigLiveReloadCoordinator.noteConfigurationFilesWillLoad()
+        }
         ghosttyConfigDiagnosticsNoticePresenter.update(
             diagnosticMessages: GhosttyApp.shared.lastLoadedConfigDiagnosticMessages
         )
@@ -18346,9 +18372,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         Task { @MainActor [weak self] in
-            let options = self?.notificationDelivery.presentationOptions(for: notification) ?? []
-            completionHandler(options)
+            completionHandler(self?.foregroundPresentationOptions(for: notification.request.content) ?? [])
         }
+    }
+
+    /// Foreground presentation for a delivered banner. A banner whose pane became
+    /// focused after it was scheduled presents without sound.
+    func foregroundPresentationOptions(for content: UNNotificationContent) -> UNNotificationPresentationOptions {
+        let keepsSoundQuiet = notificationStore?.keepsPresentedNotificationQuiet(
+            userInfo: content.userInfo
+        ) ?? false
+        let options = notificationDelivery.presentationOptions(
+            for: content,
+            keepsSoundQuiet: keepsSoundQuiet
+        )
+#if DEBUG
+        cmuxDebugLog(
+            "notification.present hasSound=\(content.sound != nil ? 1 : 0) keepsSoundQuiet=\(keepsSoundQuiet ? 1 : 0) sound=\(options.contains(.sound) ? 1 : 0)"
+        )
+#endif
+        return options
     }
 
     /// Installs window focus routing and returns the registrations to its lifecycle owner.

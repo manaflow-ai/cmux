@@ -1347,26 +1347,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
     }
 
     func testSettingsFileStoreParsesWorkspaceWorkingDirectoryInheritanceSetting() throws {
-        let defaults = UserDefaults.standard
-        let managedKey = SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey
-        let previousValue = defaults.object(forKey: managedKey)
-        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
-        defer {
-            if let previousValue {
-                defaults.set(previousValue, forKey: managedKey)
-            } else {
-                defaults.removeObject(forKey: managedKey)
-            }
-
-            if let previousBackups {
-                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
-            } else {
-                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
-            }
-        }
-
-        defaults.removeObject(forKey: managedKey)
-        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        // Isolated suite: app-host processes on one machine share
+        // UserDefaults.standard, so a false written there leaks into other runs.
+        let (defaults, suiteName) = try makeIsolatedSettingsFileDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -1386,40 +1370,19 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         _ = KeyboardShortcutSettingsFileStore(
             primaryPath: settingsFileURL.path,
             fallbackPath: nil,
+            additionalFallbackPaths: [],
+            notificationCenter: NotificationCenter(),
+            userDefaults: defaults,
+            languageSettingsStore: LanguageSettingsStore(defaults: defaults, domainName: suiteName),
             startWatching: false
         )
 
-        XCTAssertFalse(UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.workspaceInheritWorkingDirectory))
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.workspaceInheritWorkingDirectory))
     }
 
     func testInvalidForkConversationDefaultDoesNotAbortRemainingAppSettings() throws {
-        let defaults = UserDefaults.standard
-        let forkKey = AgentConversationForkDefaultSettings.key
-        let inheritanceKey = SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey
-        let previousForkValue = defaults.object(forKey: forkKey)
-        let previousInheritanceValue = defaults.object(forKey: inheritanceKey)
-        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
-        defer {
-            if let previousForkValue {
-                defaults.set(previousForkValue, forKey: forkKey)
-            } else {
-                defaults.removeObject(forKey: forkKey)
-            }
-            if let previousInheritanceValue {
-                defaults.set(previousInheritanceValue, forKey: inheritanceKey)
-            } else {
-                defaults.removeObject(forKey: inheritanceKey)
-            }
-            if let previousBackups {
-                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
-            } else {
-                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
-            }
-        }
-
-        defaults.removeObject(forKey: forkKey)
-        defaults.removeObject(forKey: inheritanceKey)
-        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        let (defaults, suiteName) = try makeIsolatedSettingsFileDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -1440,11 +1403,22 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         _ = KeyboardShortcutSettingsFileStore(
             primaryPath: settingsFileURL.path,
             fallbackPath: nil,
+            additionalFallbackPaths: [],
+            notificationCenter: NotificationCenter(),
+            userDefaults: defaults,
+            languageSettingsStore: LanguageSettingsStore(defaults: defaults, domainName: suiteName),
             startWatching: false
         )
 
-        XCTAssertEqual(AgentConversationForkDefaultSettings.current(), .right)
-        XCTAssertFalse(UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.workspaceInheritWorkingDirectory))
+        XCTAssertEqual(AgentConversationForkDefaultSettings.current(defaults: defaults), .right)
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.workspaceInheritWorkingDirectory))
+    }
+
+    private func makeIsolatedSettingsFileDefaults() throws -> (UserDefaults, String) {
+        let suiteName = "KeyboardShortcutSettingsFileStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        return (defaults, suiteName)
     }
 
     func testSettingsFileStoreParsesSidebarWorkspaceTitleWrapSetting() throws {
@@ -3296,11 +3270,12 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testNewWorkspaceInheritsSourceWorkingDirectoryByDefault() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) { settings in
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
+                autoWelcomeIfNeeded: false,
+                settings: settings
             )
 
             let inserted = manager.addWorkspace(autoWelcomeIfNeeded: false)
@@ -3311,12 +3286,13 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testDisabledInheritanceUsesGhosttyDefaultForNewWorkspaceCwd() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(false) { settings in
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
             let fallbackCwd = "/tmp/cmux-ghostty-default-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
                 autoWelcomeIfNeeded: false,
+                settings: settings,
                 defaultWorkspaceWorkingDirectoryProvider: { fallbackCwd }
             )
 
@@ -3328,12 +3304,13 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testExplicitNoInheritanceUsesGhosttyDefaultWhenGlobalInheritanceEnabled() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) { settings in
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
             let fallbackCwd = "/tmp/cmux-ghostty-default-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
                 autoWelcomeIfNeeded: false,
+                settings: settings,
                 defaultWorkspaceWorkingDirectoryProvider: { fallbackCwd }
             )
 
@@ -3348,12 +3325,13 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testExplicitWorkspaceWorkingDirectoryWinsWhenInheritanceIsDisabled() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(false) { settings in
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
             let explicitCwd = "/tmp/cmux-explicit-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
+                autoWelcomeIfNeeded: false,
+                settings: settings
             )
 
             let inserted = manager.addWorkspace(
@@ -3367,11 +3345,12 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testDetachedWorkspaceInheritsSourceWorkingDirectoryByDefaultWhenTransferHasNoDirectory() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) { settings in
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
+                autoWelcomeIfNeeded: false,
+                settings: settings
             )
             let source = try XCTUnwrap(manager.selectedWorkspace)
             let detached = makeDetachedWorkspaceTestTransfer(sourceWorkspaceId: source.id)
@@ -3387,12 +3366,13 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testDisabledInheritanceLeavesDetachedWorkspaceFallbackCwdUnsetWhenTransferHasNoDirectory() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(false) { settings in
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
             let fallbackCwd = FileManager.default.homeDirectoryForCurrentUser.path
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
+                autoWelcomeIfNeeded: false,
+                settings: settings
             )
             let source = try XCTUnwrap(manager.selectedWorkspace)
             let detached = makeDetachedWorkspaceTestTransfer(sourceWorkspaceId: source.id)
@@ -3408,12 +3388,13 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testDetachedWorkspaceTransferDirectoryWinsWhenInheritanceIsDisabled() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(false) { settings in
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
             let transferCwd = "/tmp/cmux-detached-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
+                autoWelcomeIfNeeded: false,
+                settings: settings
             )
             let source = try XCTUnwrap(manager.selectedWorkspace)
             let detached = makeDetachedWorkspaceTestTransfer(
@@ -3459,28 +3440,22 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         XCTAssertNil(inserted.surfaceResumeBinding(panelId: detached.panelId))
     }
 
+    /// Runs `body` against an isolated settings suite. App-host test processes
+    /// share one `UserDefaults.standard` per machine (preferences ignore
+    /// `CFFIXED_USER_HOME`), so writing this key there leaks into other tests.
     private func withWorkspaceWorkingDirectoryInheritanceSetting(
         _ value: Bool?,
-        _ body: () throws -> Void
-    ) rethrows {
-        let defaults = UserDefaults.standard
-        let key = SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey
-        let previousValue = defaults.object(forKey: key)
-        defer {
-            if let previousValue {
-                defaults.set(previousValue, forKey: key)
-            } else {
-                defaults.removeObject(forKey: key)
-            }
-        }
-
+        _ body: (UserDefaultsSettingsClient) throws -> Void
+    ) throws {
+        let suiteName = "WorkspaceCreationWorkingDirectoryInheritanceTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
         if let value {
-            defaults.set(value, forKey: key)
-        } else {
-            defaults.removeObject(forKey: key)
+            settings.set(value, for: SettingCatalog().app.workspaceInheritWorkingDirectory)
         }
 
-        try body()
+        try body(settings)
     }
     private func makeDetachedWorkspaceTestTransfer(
         sourceWorkspaceId: UUID,
@@ -3545,6 +3520,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot?,
+            initialTerminalStartsOnFirstVisit: Bool,
             initialTerminalEnvironment: [String: String],
             initialBrowserURL: URL?,
             initialBrowserOmnibarVisible: Bool,
@@ -3563,6 +3539,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
+                initialTerminalStartsOnFirstVisit: initialTerminalStartsOnFirstVisit,
                 initialTerminalEnvironment: initialTerminalEnvironment,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
@@ -3861,6 +3838,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot?,
+            initialTerminalStartsOnFirstVisit: Bool,
             initialTerminalEnvironment: [String: String],
             initialBrowserURL: URL?,
             initialBrowserOmnibarVisible: Bool,
@@ -3879,6 +3857,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
+                initialTerminalStartsOnFirstVisit: initialTerminalStartsOnFirstVisit,
                 initialTerminalEnvironment: initialTerminalEnvironment,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
@@ -4213,7 +4192,7 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification))
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification), .notifications)
     }
 
     func testDisabledWhenSetToFalse() {
@@ -4225,7 +4204,7 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(false, forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
-        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification))
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification), .off)
     }
 
     func testEnabledWhenSetToTrue() {
@@ -4237,7 +4216,7 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(true, forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
-        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification))
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification), .notifications)
     }
 }
 
