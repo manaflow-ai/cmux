@@ -1881,7 +1881,6 @@
       "browserAutomation": "Автоматизація браузера",
       "skills": "Навички",
       "notifications": "Сповіщення",
-      "agentIntegrations": "Інтеграції з агентами",
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
       "changelog": "Журнал змін",
@@ -1896,7 +1895,13 @@
       "cloudWorkspaces": "Робочі простори та агенти",
       "cloudNetworking": "Файли та мережа",
       "cloudCli": "Довідник Cloud CLI",
-      "cloudTroubleshooting": "Безпека та усунення проблем"
+      "cloudTroubleshooting": "Безпека та усунення проблем",
+      "workspacesSection": "Робочі простори",
+      "agentsSection": "Агенти",
+      "automationSection": "Автоматизація",
+      "remoteSection": "Віддалений доступ",
+      "customizeSection": "Налаштування та адміністрування",
+      "basicsSection": "Основи"
     },
     "dock": {
       "metaTitle": "Dock",

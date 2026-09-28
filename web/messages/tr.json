@@ -1804,7 +1804,6 @@
       "browserAutomation": "Tarayıcı Otomasyonu",
       "skills": "Yetenekler",
       "notifications": "Bildirimler",
-      "agentIntegrations": "Agent Integrations",
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
       "changelog": "Değişiklik Günlüğü",
@@ -1819,7 +1818,13 @@
       "cloudWorkspaces": "Çalışma Alanları ve Aracılar",
       "cloudNetworking": "Dosyalar ve Ağ",
       "cloudCli": "Cloud CLI Referansı",
-      "cloudTroubleshooting": "Güvenlik ve Sorun Giderme"
+      "cloudTroubleshooting": "Güvenlik ve Sorun Giderme",
+      "workspacesSection": "Çalışma Alanları",
+      "agentsSection": "Ajanlar",
+      "automationSection": "Otomasyon",
+      "remoteSection": "Uzaktan Erişim",
+      "customizeSection": "Özelleştirme ve Yönetim",
+      "basicsSection": "Temel Bilgiler"
     },
     "dock": {
       "metaTitle": "Dock",
