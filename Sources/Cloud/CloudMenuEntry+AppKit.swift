@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCloud
+import CmuxFoundation
 
 /// AppKit rendering of ``CloudMenuEntry`` for the status item and the Cloud
 /// sidebar's context menu. Items carry their closures, so a rebuilt menu never
