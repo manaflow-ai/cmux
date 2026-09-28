@@ -122,8 +122,10 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
     }
 
     func testPendingSwitchDisablesMenuAndFailedSwitchReportsError() {
+        // Long enough that the switch is still pending after the menu reopens
+        // on a slow runner; the error wait below outlasts it.
         let app = launchSignedInApp(teams: Self.fixtureTeams, environment: [
-            "CMUX_UITEST_AUTH_FIXTURE_TEAM_SWITCH_DELAY_MS": "3000",
+            "CMUX_UITEST_AUTH_FIXTURE_TEAM_SWITCH_DELAY_MS": "8000",
             "CMUX_UITEST_AUTH_FIXTURE_REJECT_TEAM_ID": "team-alpha",
         ])
         defer { app.terminate() }
@@ -132,6 +134,14 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
 
         trigger.click()
         teamItem(app, id: "team-alpha", title: "Alpha Squad").click()
+        let pendingValue = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "Switching teams…"),
+            object: trigger
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [pendingValue], timeout: 5), .completed,
+            "The trigger stays one button and tells VoiceOver a switch is pending."
+        )
         trigger.click()
         let switching = app.menuItems.matching(NSPredicate(
             format: "identifier == %@ OR title == %@", "CloudTeamPickerSwitchingStatus", "Switching teams…"
@@ -148,7 +158,7 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
             format: "identifier == %@ OR label == %@",
             "CloudTeamPickerSwitchError", "Could not switch teams. Try again."
         )).firstMatch
-        XCTAssertTrue(error.waitForExistence(timeout: 10), "A rejected switch reports its failure.")
+        XCTAssertTrue(error.waitForExistence(timeout: 20), "A rejected switch reports its failure.")
         waitForLabel(of: trigger, containing: Self.longTeamName)
         capture("team-dropdown-switch-failed")
     }

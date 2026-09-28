@@ -8,6 +8,26 @@ import Testing
 @testable import cmux
 #endif
 
+/// Stands in for the team menu's tracking loop: a nested run loop, like
+/// `NSMenu.popUp`, that records whether main-queue work ran while it spun.
+@MainActor
+private final class MenuTrackingProbe {
+    private var queueDrained = false
+    private(set) var drainedWhileTracking: Bool?
+
+    func track() {
+        queueDrained = false
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { self.queueDrained = true }
+        }
+        let deadline = Date().addingTimeInterval(1)
+        while !queueDrained, Date() < deadline {
+            _ = RunLoop.current.run(mode: .default, before: deadline)
+        }
+        drainedWhileTracking = queueDrained
+    }
+}
+
 @MainActor
 @Suite("Cloud team picker menu")
 struct CloudTeamPickerMenuTests {
@@ -93,6 +113,33 @@ struct CloudTeamPickerMenuTests {
 
         #expect(dismissCount == 1)
         #expect(menuCount == 0)
+    }
+
+    /// A palette or shortcut open must not run the menu's tracking loop inside
+    /// a main-queue callout. A nested loop there cannot drain the main queue, so
+    /// every main-queue and main-actor job would wait until the menu closed
+    /// (the starvation #10788 hit with a nested terminate loop).
+    @Test func programmaticOpenKeepsTheMainQueueRunningWhileTracking() async throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 60),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        window.isReleasedWhenClosed = false
+        let anchor = CloudTeamPickerMenuAnchorView(frame: NSRect(x: 0, y: 0, width: 120, height: 22))
+        window.contentView?.addSubview(anchor)
+        let probe = MenuTrackingProbe()
+        anchor.makeMenu = { NSMenu() }
+        anchor.trackMenu = { _, _, _ in probe.track() }
+
+        anchor.syncPresentation(true)
+        for _ in 0..<300 where probe.drainedWhileTracking == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(anchor.window === window)
+        #expect(probe.drainedWhileTracking == true, "The menu tracked inside a main-queue callout.")
     }
 
     private func nextMainQueueTurn() async {

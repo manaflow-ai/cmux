@@ -48,6 +48,11 @@ final class CloudTeamPickerMenuAnchorView: NSView {
     var onDismiss: (@MainActor () -> Void)?
     var isRightToLeft = false
     var isEnabled = true
+    /// Runs the menu's modal tracking loop. Tests stand in for it to observe
+    /// the context the loop runs in.
+    var trackMenu: @MainActor (NSMenu, NSPoint, NSView) -> Void = { menu, location, view in
+        _ = menu.popUp(positioning: nil, at: location, in: view)
+    }
 
     private(set) var trackingMenu: NSMenu?
     private var isPresentationRequested = false
@@ -124,7 +129,7 @@ final class CloudTeamPickerMenuAnchorView: NSView {
         // Flipped coordinates: the menu's top-leading corner sits just below the
         // trigger, aligned with its leading edge in either layout direction.
         let origin = NSPoint(x: isRightToLeft ? bounds.width : 0, y: bounds.height + 2)
-        menu.popUp(positioning: nil, at: origin, in: self)
+        trackMenu(menu, origin, self)
         trackingMenu = nil
         isPresentationRequested = false
         onDismiss?()
