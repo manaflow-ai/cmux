@@ -248,6 +248,36 @@ struct TerminalPredictionEngineTests {
         }
     }
 
+    @Test func returnAnsweredByANewlineIsNotAMisprediction() {
+        // Typing a command and Return faster than the round trip: the remote
+        // answers with the echo, then CR LF. The newline is Return doing what
+        // it does, so repeating this never suspends prediction.
+        var session = armedSession()
+        for _ in 0..<6 {
+            session.type("s")
+            session.type("\r")
+            session.remote("s\r\n$ ")
+            session.engine.presentedFrame(at: session.clock)
+            #expect(session.drawn == "")
+            session.advance(.milliseconds(600))
+            session.type("l")
+            session.remote("l")
+        }
+        #expect(session.engine.status(at: session.clock) != .suspended)
+    }
+
+    @Test func aLineEraseAfterReturnLeavesTheSubmittedLineDrawn() {
+        // Ctrl-U acts on the new line; the submitted one keeps its glyph
+        // until its echo arrives.
+        var session = armedSession()
+        session.type("s")
+        session.type("\r")
+        session.advance(.milliseconds(10))
+        session.engine.typedLineErase(at: session.clock)
+        #expect(session.drawn == "s")
+        #expect(session.blanks == [])
+    }
+
     @Test func nonASCIITextIsNeverPredicted() {
         // Width is not one cell for CJK, and combining marks do not advance the
         // cursor at all.
