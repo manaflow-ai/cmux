@@ -97,11 +97,14 @@ final class GhosttyConfigDiagnosticsNoticePresenter {
         panel.identifier = NSUserInterfaceItemIdentifier("cmux.ghosttyConfigDiagnosticsNotice")
         panel.contentView = hostingView
 
+        // Sit below the Bonsplit tab bar so it stays fully visible, with the
+        // same gap under the tab bar as from the window's right edge.
         let content = host.contentLayoutRect
         let inset: CGFloat = 12
+        let topOffset = WindowChromeMetrics.bonsplitTabBarHeight + inset
         let originInWindow = NSPoint(
             x: content.maxX - size.width - inset,
-            y: content.maxY - size.height - inset
+            y: content.maxY - size.height - topOffset
         )
         let screenOrigin = host.convertPoint(toScreen: originInWindow)
         panel.setFrameOrigin(screenOrigin)
