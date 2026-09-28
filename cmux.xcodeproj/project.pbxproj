@@ -945,9 +945,10 @@
 		2D7F228001C24ABD865AFD66 /* CloudVMStateSnapshotComparisonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EFB9C9E7B5D4F39873871A1 /* CloudVMStateSnapshotComparisonTests.swift */; };
 		C12093000000000000000002 /* CloudVPNExplicitActivationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12093000000000000000001 /* CloudVPNExplicitActivationTests.swift */; };
 		2CDEFA3DEE2C33025EAC4223 /* CloudVPNSetupModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5EC244BC074AE6469235568 /* CloudVPNSetupModel.swift */; };
+		549C9947A81C58B3F6402500 /* CloudVPNSetupPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EB75F0FF57EE985A8E4DD5 /* CloudVPNSetupPanel.swift */; };
+		C8783B458C963A34D5A93FF3 /* CloudVPNSetupPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 914BE02DDB0D0E6C277EEF8E /* CloudVPNSetupPanelView.swift */; };
 		5189C042A99401477E4DE49A /* CloudVPNSetupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3718948C68AF1E2610D73490 /* CloudVPNSetupTests.swift */; };
 		59FECE3AAB392E8976A8D16A /* CloudVPNSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA45F7A29A3227884DC3929F /* CloudVPNSetupView.swift */; };
-		C1CBC12C560CA2290D92532B /* CloudVPNSetupWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAA7AA864A12F2A2014F8EBC /* CloudVPNSetupWindowController.swift */; };
 		62AABF1720674956200EC388 /* CloudWireGuardHubTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6544386D2BA373AF2133B58 /* CloudWireGuardHubTests.swift */; };
 		D12439060000000000000001 /* CloudWorkspaceBindingReconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12439060000000000000002 /* CloudWorkspaceBindingReconciliation.swift */; };
 		D12439010000000000000001 /* CloudWorkspaceBindingRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12439010000000000000002 /* CloudWorkspaceBindingRegressionTests.swift */; };
@@ -5121,9 +5122,10 @@
 		7EFB9C9E7B5D4F39873871A1 /* CloudVMStateSnapshotComparisonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMStateSnapshotComparisonTests.swift; sourceTree = "<group>"; };
 		C12093000000000000000001 /* CloudVPNExplicitActivationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVPNExplicitActivationTests.swift; sourceTree = "<group>"; };
 		D5EC244BC074AE6469235568 /* CloudVPNSetupModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVPNSetupModel.swift; sourceTree = "<group>"; };
+		62EB75F0FF57EE985A8E4DD5 /* CloudVPNSetupPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVPNSetupPanel.swift; sourceTree = "<group>"; };
+		914BE02DDB0D0E6C277EEF8E /* CloudVPNSetupPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVPNSetupPanelView.swift; sourceTree = "<group>"; };
 		3718948C68AF1E2610D73490 /* CloudVPNSetupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudVPNSetupTests.swift"; sourceTree = "<group>"; };
 		EA45F7A29A3227884DC3929F /* CloudVPNSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVPNSetupView.swift; sourceTree = "<group>"; };
-		BAA7AA864A12F2A2014F8EBC /* CloudVPNSetupWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVPNSetupWindowController.swift; sourceTree = "<group>"; };
 		C6544386D2BA373AF2133B58 /* CloudWireGuardHubTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWireGuardHubTests.swift; sourceTree = "<group>"; };
 		D12439060000000000000002 /* CloudWorkspaceBindingReconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceBindingReconciliation.swift; sourceTree = "<group>"; };
 		D12439010000000000000002 /* CloudWorkspaceBindingRegressionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceBindingRegressionTests.swift; sourceTree = "<group>"; };
@@ -12382,8 +12384,9 @@
 			children = (
 				8E9D51274EC32D701633288E /* CloudTunnelActivationObserver.swift */,
 				D5EC244BC074AE6469235568 /* CloudVPNSetupModel.swift */,
+				62EB75F0FF57EE985A8E4DD5 /* CloudVPNSetupPanel.swift */,
+				914BE02DDB0D0E6C277EEF8E /* CloudVPNSetupPanelView.swift */,
 				EA45F7A29A3227884DC3929F /* CloudVPNSetupView.swift */,
-				BAA7AA864A12F2A2014F8EBC /* CloudVPNSetupWindowController.swift */,
 			);
 			path = Tunnel;
 			sourceTree = "<group>";
@@ -13603,8 +13606,9 @@
 				C7F29A7CD7C6410F87BB8537 /* CloudVMLoadingPanel.swift in Sources */,
 				C7F29A7CD7C6410F87BB8536 /* CloudVMLoadingPanelView.swift in Sources */,
 			2CDEFA3DEE2C33025EAC4223 /* CloudVPNSetupModel.swift in Sources */,
+			549C9947A81C58B3F6402500 /* CloudVPNSetupPanel.swift in Sources */,
+			C8783B458C963A34D5A93FF3 /* CloudVPNSetupPanelView.swift in Sources */,
 			59FECE3AAB392E8976A8D16A /* CloudVPNSetupView.swift in Sources */,
-			C1CBC12C560CA2290D92532B /* CloudVPNSetupWindowController.swift in Sources */,
 				D12439060000000000000001 /* CloudWorkspaceBindingReconciliation.swift in Sources */,
 				0CF98EFC979F48F49B178E2E /* CloudWorkspaceCreationCoordinator.swift in Sources */,
 				F3C8E0247F0746A1B76F4585 /* CloudWorkspaceCreationHost.swift in Sources */,

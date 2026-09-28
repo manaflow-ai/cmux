@@ -24,6 +24,7 @@ final class CloudVPNSetupModel {
         return true
     }
 
+    var isAttached: Bool { coordinator != nil }
     var state: CloudTunnelState { status?.state ?? .off }
     var isSupported: Bool { coordinator?.backend.isNetworkExtension == true }
     var isCheckingStatus: Bool { coordinator == nil || (isSupported && status == nil) }
@@ -51,8 +52,6 @@ final class CloudVPNSetupModel {
     var statusMessage: String? {
         errorMessage ?? unavailableMessage ?? status.flatMap(CloudTunnelBanner.init(status:))?.text
     }
-
-    func prepareForPresentation() { status = nil }
 
     func observe() async {
         guard let coordinator else { return }

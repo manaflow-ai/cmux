@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// One setup surface shared by Ports help and Cloud Settings.
+/// The Cloud VPN setup content that Ports and Cloud Settings open in a pane.
 @MainActor
 struct CloudVPNSetupView: View {
     let model: CloudVPNSetupModel

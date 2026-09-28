@@ -862,6 +862,8 @@ extension Workspace {
             return nil
         case .accountSignIn:
             return nil
+        case .cloudVPNSetup:
+            return nil
         }
         return SessionPanelSnapshot(
             id: panelId,
@@ -2331,6 +2333,8 @@ extension Workspace {
         case .mobilePairing:
             return nil
         case .accountSignIn:
+            return nil
+        case .cloudVPNSetup:
             return nil
         }
     }
@@ -6745,7 +6749,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if isRemoteTmuxMirror { return false }
         if panels.values.contains(where: {
             switch $0.panelType {
-            case .cloudVMLoading, .mobilePairing, .accountSignIn:
+            case .cloudVMLoading, .mobilePairing, .accountSignIn, .cloudVPNSetup:
                 true
             default:
                 false
