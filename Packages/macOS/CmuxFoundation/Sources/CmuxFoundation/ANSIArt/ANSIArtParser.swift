@@ -4,11 +4,16 @@ public import Foundation
 ///
 /// Honors SGR (`ESC [ … m`) colors and weights: reset, bold, dim, inverse, the
 /// 16 base colors, 256-color (`38;5;n`) and truecolor (`38;2;r;g;b`, also the
-/// colon forms). Every other escape sequence (cursor movement, erase, OSC
-/// titles and hyperlinks, DCS, charset selection) and every control character
-/// except newline and tab is dropped, so art captured from a real terminal
-/// renders as its visible text only. Malformed sequences never leak their
-/// bytes into the text.
+/// colon forms). Cursor forward (`ESC [ n C`) and repeat (`ESC [ n b`), which
+/// `chafa` uses to compress output, place blank or repeated cells. Every other
+/// escape sequence (other cursor movement, erase, OSC titles and hyperlinks,
+/// DCS, charset selection) and every control character except newline and tab
+/// is dropped, so art captured from a terminal renders as its visible text
+/// only. Malformed sequences never leak their bytes into the text.
+///
+/// Text is measured in grapheme clusters, so an emoji sequence takes one
+/// two-cell character, and at most 16
+/// scalars are kept in one cell.
 ///
 /// Input is capped: data over ``maxBytes`` is rejected, and lines past
 /// ``maxLines`` or cells past ``maxColumns`` are cut off.

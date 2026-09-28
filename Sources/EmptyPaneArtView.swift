@@ -49,13 +49,12 @@ struct EmptyPaneArtView: View {
                 let colors = palette.resolvedColors(for: run.style)
                 let dimming = run.style.isDim ? 0.5 : 1
                 let foreground = Self.color(colors.foreground, opacity: dimming)
-                let cells = Array(run.text.unicodeScalars)
                 if let background = colors.background {
                     context.fill(
                         Path(cellRect(
                             column: column,
                             row: row,
-                            width: cells.reduce(0) { $0 + ANSIArt.cellWidth(of: $1) },
+                            width: run.text.reduce(0) { $0 + ANSIArt.cellWidth(of: $1) },
                             layout: layout
                         )),
                         with: .color(Self.color(background, opacity: 1))
@@ -65,26 +64,28 @@ struct EmptyPaneArtView: View {
                 // Characters the terminal font covers at one cell share a
                 // segment; a wide character or one drawn from a fallback font
                 // gets its own, so the rest of the line stays on the grid.
-                // Combining marks stay with the character before them.
+                // Each character is a whole grapheme cluster, so an emoji
+                // sequence or a letter with marks is drawn as one glyph.
                 var textStart = column
-                var text = String.UnicodeScalarView()
+                var text = ""
                 var segmentIsIsolated = false
                 func flushText() {
                     defer {
-                        text = String.UnicodeScalarView()
+                        text = ""
                         segmentIsIsolated = false
                     }
-                    guard !String(text).allSatisfy(\.isWhitespace) else { return }
+                    guard !text.allSatisfy(\.isWhitespace) else { return }
                     let font = run.style.isBold ? layout.boldFont : layout.font
                     context.draw(
-                        Text(String(text)).font(Font(font as CTFont)).foregroundStyle(foreground),
+                        Text(text).font(Font(font as CTFont)).foregroundStyle(foreground),
                         at: CGPoint(x: CGFloat(textStart) * layout.cellSize.width, y: CGFloat(row) * layout.cellSize.height),
                         anchor: .topLeading
                     )
                 }
-                for scalar in cells {
-                    let width = ANSIArt.cellWidth(of: scalar)
-                    if let block = ANSIArtBlockElement(scalar) {
+                for character in run.text {
+                    let width = ANSIArt.cellWidth(of: character)
+                    let scalars = character.unicodeScalars
+                    if scalars.count == 1, let scalar = scalars.first, let block = ANSIArtBlockElement(scalar) {
                         flushText()
                         let cell = cellRect(column: column, row: row, width: 1, layout: layout)
                         for unit in block.rects {
@@ -99,8 +100,11 @@ struct EmptyPaneArtView: View {
                         column += 1
                         continue
                     }
-                    let needsOwnSegment = width > 1 || (width == 1 && !layout.coveredCharacters.contains(scalar))
-                    if width > 0, segmentIsIsolated || needsOwnSegment {
+                    let isCovered = scalars.allSatisfy {
+                        ANSIArt.cellWidth(ofScalar: $0) == 0 || layout.coveredCharacters.contains($0)
+                    }
+                    let needsOwnSegment = width > 1 || !isCovered
+                    if segmentIsIsolated || needsOwnSegment {
                         flushText()
                     }
                     if text.isEmpty {
@@ -109,7 +113,7 @@ struct EmptyPaneArtView: View {
                     if needsOwnSegment {
                         segmentIsIsolated = true
                     }
-                    text.append(scalar)
+                    text.append(character)
                     column += width
                 }
                 flushText()

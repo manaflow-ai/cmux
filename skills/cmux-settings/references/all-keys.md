@@ -237,7 +237,7 @@ What a pane with no surfaces shows.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `emptyPane.artFile` | string | `""` | Path to a text or ANSI art file shown in empty panes above the Terminal and Browser buttons, for example ~/.config/cmux/empty-pane.ans. Supports a leading ~. ANSI colors (16, 256 and 24-bit), bold and dim are drawn; other escape sequences are ignored. The art uses the terminal font and palette and shrinks to fit the pane. Leave empty, or point at a missing file or one over 64 KB, for the default empty pane. |
+| `emptyPane.artFile` | string | `""` | Path to a text or ANSI art file shown in empty panes above the Terminal and Browser buttons. Use an absolute path or one starting with ~/, for example ~/.config/cmux/empty-pane.ans. ANSI colors (16, 256 and 24-bit), bold, dim and inverse are drawn, and cursor-forward and repeat sequences place cells; other escape sequences are ignored. The art uses the terminal font and palette and shrinks to fit the pane. Leave empty, or point at a missing file or one over 64 KB, for the default empty pane. |
 
 ## diffViewer
 

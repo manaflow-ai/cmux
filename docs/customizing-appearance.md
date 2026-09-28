@@ -200,8 +200,9 @@ chafa --size 40x20 logo.png > ~/.config/cmux/empty-pane.ans
 The art is drawn in your terminal font and palette, at the terminal font size
 when it fits, and shrinks as a whole to fit smaller panes; lines never wrap.
 ANSI colors (16, 256 and 24-bit), bold, dim and inverse are drawn, block
-characters like `▀` are filled edge to edge, and every other escape sequence is
-ignored. A missing file, one over 64 KB, or one with no visible characters keeps
+characters like `▀` are filled edge to edge, cursor-forward and repeat
+sequences place their cells, and every other escape sequence is ignored.
+Use an absolute path or one starting with `~/`. A missing file, one over 64 KB, or one with no visible characters keeps
 the default view. Changing the setting applies right away; after editing the
 art file itself, run `cmux reload-config` or open a new empty pane.
 

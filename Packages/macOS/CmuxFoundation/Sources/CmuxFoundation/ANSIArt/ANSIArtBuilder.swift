@@ -6,12 +6,24 @@ struct ANSIArtBuilder {
     let maxColumns: Int
     let tabWidth: Int
 
+    /// The most scalars one cell keeps. Real emoji sequences need about
+    /// ten; the cap stops a stack of combining marks from costing layout time.
+    static let maxScalarsPerCell = 16
+
     private var style = ANSIArtStyle()
     private var lines: [ANSIArtLine] = []
     private var runs: [ANSIArtRun] = []
-    private var pending = String.UnicodeScalarView()
+    private var pending = ""
     private var pendingStyle = ANSIArtStyle()
     private var column = 0
+    /// The grapheme cluster being read. It is placed once the next scalar
+    /// starts a new cluster, because a later scalar (VS16, ZWJ, a mark) can
+    /// still change its width.
+    private var cluster = ""
+    private var clusterScalarCount = 0
+    private var clusterStyle = ANSIArtStyle()
+    /// The last character placed, which `CSI n b` repeats.
+    private var lastPlaced: Character?
 
     init(maxLines: Int, maxColumns: Int, tabWidth: Int) {
         self.maxLines = maxLines
@@ -22,24 +34,53 @@ struct ANSIArtBuilder {
     var isFull: Bool { lines.count >= maxLines }
 
     mutating func append(_ scalar: Unicode.Scalar) {
-        let width = ANSIArt.cellWidth(of: scalar)
-        guard column + width <= maxColumns else { return }
-        if style != pendingStyle {
-            flushRun()
-            pendingStyle = style
+        // No ASCII scalar extends a cluster (CR, the one exception before LF,
+        // never reaches the builder), so most art skips the cluster check.
+        if !cluster.isEmpty, !scalar.isASCII {
+            var extended = cluster
+            extended.unicodeScalars.append(scalar)
+            if extended.count == 1 {
+                if clusterScalarCount < Self.maxScalarsPerCell {
+                    cluster = extended
+                    clusterScalarCount += 1
+                }
+                return
+            }
         }
-        pending.append(scalar)
-        column += width
+        placeCluster()
+        cluster = String(scalar)
+        clusterScalarCount = 1
+        clusterStyle = style
     }
 
+    /// Advances to the next tab stop over blank cells.
     mutating func appendTab() {
-        let spaces = tabWidth - column % tabWidth
-        for _ in 0..<spaces {
-            append(" ")
-        }
+        placeCluster()
+        appendBlankCells(tabWidth - column % tabWidth)
+    }
+
+    /// Moves `count` cells right over blank cells (`CSI n C`). The cells are
+    /// unpainted, as in a terminal, so they take the default style.
+    mutating func appendBlankCells(_ count: Int) {
+        placeCluster()
+        let count = min(count, maxColumns - column)
+        guard count > 0 else { return }
+        place(String(repeating: " ", count: count), width: count, style: ANSIArtStyle())
+    }
+
+    /// Repeats the last placed character `count` times (`CSI n b`).
+    mutating func repeatLastCharacter(_ count: Int) {
+        placeCluster()
+        guard let lastPlaced else { return }
+        let width = ANSIArt.cellWidth(of: lastPlaced)
+        guard width > 0 else { return }
+        let count = min(count, (maxColumns - column) / width)
+        guard count > 0 else { return }
+        place(String(repeating: String(lastPlaced), count: count), width: count * width, style: style)
     }
 
     mutating func newLine() {
+        placeCluster()
         flushRun()
         if !isFull {
             lines.append(ANSIArtLine(runs: Self.trimmingTrailingBlankCells(runs)))
@@ -50,6 +91,7 @@ struct ANSIArtBuilder {
 
     func finish() -> ANSIArt? {
         var copy = self
+        copy.placeCluster()
         if !copy.pending.isEmpty || !copy.runs.isEmpty {
             copy.newLine()
         }
@@ -59,10 +101,35 @@ struct ANSIArtBuilder {
         return lines.isEmpty ? nil : ANSIArt(lines: lines)
     }
 
+    /// Places the cluster being read. A cluster with no base character (a
+    /// mark at the start of a line) has no cell and is dropped, as is one
+    /// past ``maxColumns``.
+    private mutating func placeCluster() {
+        guard !cluster.isEmpty else { return }
+        defer {
+            cluster = ""
+            clusterScalarCount = 0
+        }
+        let character = Character(cluster)
+        let width = ANSIArt.cellWidth(of: character)
+        guard width > 0, column + width <= maxColumns else { return }
+        place(cluster, width: width, style: clusterStyle)
+        lastPlaced = character
+    }
+
+    private mutating func place(_ text: String, width: Int, style: ANSIArtStyle) {
+        if style != pendingStyle {
+            flushRun()
+            pendingStyle = style
+        }
+        pending += text
+        column += width
+    }
+
     private mutating func flushRun() {
         guard !pending.isEmpty else { return }
-        runs.append(ANSIArtRun(text: String(pending), style: pendingStyle))
-        pending = String.UnicodeScalarView()
+        runs.append(ANSIArtRun(text: pending, style: pendingStyle))
+        pending = ""
     }
 
     // MARK: SGR
@@ -173,7 +240,7 @@ struct ANSIArtBuilder {
         var runs = runs
         while var last = runs.last {
             guard last.style.background == nil, !last.style.isInverse else { break }
-            let trimmed = last.text.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
+            let trimmed = Self.trimmingTrailingWhitespace(last.text)
             if trimmed.isEmpty {
                 runs.removeLast()
                 continue
@@ -183,5 +250,18 @@ struct ANSIArtBuilder {
             break
         }
         return runs
+    }
+
+    /// Drops trailing whitespace in one backward pass (a regex here was
+    /// quadratic on long blank lines).
+    private static func trimmingTrailingWhitespace(_ text: String) -> String {
+        let scalars = text.unicodeScalars
+        var end = scalars.endIndex
+        while end > scalars.startIndex {
+            let before = scalars.index(before: end)
+            guard scalars[before].properties.isWhitespace else { break }
+            end = before
+        }
+        return String(scalars[..<end])
     }
 }

@@ -19,7 +19,7 @@ public struct ANSIArtLine: Hashable, Sendable {
     /// ``ANSIArt/cellWidth(of:)``.
     public var columnCount: Int {
         runs.reduce(0) { total, run in
-            run.text.unicodeScalars.reduce(total) { $0 + ANSIArt.cellWidth(of: $1) }
+            run.text.reduce(total) { $0 + ANSIArt.cellWidth(of: $1) }
         }
     }
 }

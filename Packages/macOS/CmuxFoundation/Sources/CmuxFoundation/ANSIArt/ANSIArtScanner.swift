@@ -64,7 +64,9 @@ struct ANSIArtScanner {
         }
     }
 
-    /// Consumes a CSI body and applies it when it is SGR.
+    /// Consumes a CSI body. SGR (`m`) styles the text; cursor forward (`C`)
+    /// and repeat (`b`), which `chafa` emits to compress runs, place cells.
+    /// Every other sequence is dropped.
     private mutating func consumeControlSequence() {
         var parameters = String.UnicodeScalarView()
         var hasIntermediate = false
@@ -82,13 +84,42 @@ struct ANSIArtScanner {
                 index += 1
             case 0x40...0x7E:
                 index += 1
-                if scalar == "m", !hasIntermediate, !isMalformed {
-                    builder.applySGR(String(parameters))
+                if !hasIntermediate, !isMalformed {
+                    apply(final: scalar, parameters: String(parameters))
                 }
                 return
+            case 0x0A, 0x1B:
+                // A newline or a new escape ends the sequence and is left
+                // for the main loop.
+                return
+            case 0x00...0x1F, 0x7F:
+                // Terminals execute other C0 controls (and ignore DEL)
+                // inside a sequence without ending it.
+                index += 1
             default:
                 return
             }
+        }
+    }
+
+    private mutating func apply(final: Unicode.Scalar, parameters: String) {
+        switch final {
+        case "m":
+            builder.applySGR(parameters)
+        case "C", "b":
+            // Private (`?`, `>`, …) forms are other requests.
+            guard parameters.unicodeScalars.allSatisfy({ ("0"..."9").contains($0) || $0 == ";" }) else { return }
+            let first = parameters.split(separator: ";", omittingEmptySubsequences: false).first.map(String.init) ?? ""
+            // A missing or zero count means 1; anything huge is capped by
+            // the builder's column limit.
+            let count = max(Int(first.prefix(6)) ?? 1, 1)
+            if final == "C" {
+                builder.appendBlankCells(count)
+            } else {
+                builder.repeatLastCharacter(count)
+            }
+        default:
+            break
         }
     }
 

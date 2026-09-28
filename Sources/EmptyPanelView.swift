@@ -13,6 +13,7 @@ struct EmptyPanelView: View {
     @State private var browserAvailable = BrowserAvailabilitySettings.isEnabled()
     @AppStorage(EmptyPaneCatalogSection().artFile.userDefaultsKey) private var artFilePath = ""
     @State private var customArt: EmptyPaneArtView.Content?
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var fontMagnificationPercent
 
     /// Space kept below the art for the action buttons and around the edges.
     private static let artReservedHeight: CGFloat = 100
@@ -93,19 +94,31 @@ struct EmptyPanelView: View {
         }
     }
 
-    /// Reads the art off the main thread, then pairs it with the terminal's
-    /// current font and palette. A cleared setting or unusable file restores
-    /// the default view.
+    /// Reads the art and the terminal config off the main thread, then
+    /// shows the art in the terminal's font, size and palette. A cleared
+    /// setting or unusable file restores the default view.
     private func reloadCustomArt() async {
         let path = artFilePath
         guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             customArt = nil
             return
         }
-        let loader = EmptyPaneArtLoader()
-        let art = await Task.detached(priority: .utility) { loader.art(atPath: path) }.value
+        let colorScheme = GhosttyConfig.currentColorSchemePreference()
+        let magnification = fontMagnificationPercent
+        let content = await Task.detached(priority: .utility) {
+            let loader = EmptyPaneArtLoader()
+            return loader.art(atPath: path).map { art in
+                loader.content(
+                    for: art,
+                    config: GhosttyConfig.loadForCmux(
+                        preferredColorScheme: colorScheme,
+                        globalFontMagnificationPercent: magnification
+                    )
+                )
+            }
+        }.value
         guard !Task.isCancelled else { return }
-        customArt = art.map { loader.content(for: $0, config: GhosttyConfig.loadForCmux()) }
+        customArt = content
     }
 
     var body: some View {
@@ -141,9 +154,11 @@ struct EmptyPanelView: View {
         .trackingBrowserAffordanceAvailability($browserAvailable)
         // Re-read on setting changes and on config reloads (`cmux reload-config`,
         // theme switches), which also pick up edits to the art file itself.
-        .task(id: artFilePath) { @MainActor in
+        .task(id: ArtReloadTrigger(path: artFilePath, fontMagnificationPercent: fontMagnificationPercent)) { @MainActor in
+            // Subscribe before the first load so a reload during it is not missed.
+            let configReloads = NotificationCenter.default.notifications(named: .ghosttyConfigDidReload)
             await reloadCustomArt()
-            for await _ in NotificationCenter.default.notifications(named: .ghosttyConfigDidReload) {
+            for await _ in configReloads {
                 await reloadCustomArt()
             }
         }
@@ -173,4 +188,10 @@ struct EmptyPanelView: View {
             }
         }
     }
+}
+
+/// What the empty pane's art depends on besides config reloads.
+private struct ArtReloadTrigger: Equatable {
+    let path: String
+    let fontMagnificationPercent: Int
 }

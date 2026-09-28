@@ -20,13 +20,33 @@ public struct ANSIArt: Hashable, Sendable {
         lines.map(\.columnCount).max() ?? 0
     }
 
-    /// The number of character cells `scalar` advances, as a terminal lays it
-    /// out: 0 for combining marks and format characters, which join the
-    /// previous cell; 2 for East Asian wide characters and emoji; else 1.
+    /// The number of character cells `character` (one grapheme cluster)
+    /// advances, as a terminal lays it out: 2 for emoji and East Asian wide
+    /// characters, 1 for other characters, and 0 for a cluster with no base
+    /// character, such as a combining mark at the start of a line.
     ///
-    /// - Parameter scalar: A printable scalar from the art.
+    /// An emoji ZWJ sequence or flag counts once, and a text-default emoji
+    /// followed by VS16 (U+FE0F), like `❤️`, takes 2 cells.
+    ///
+    /// - Parameter character: A printable character from the art.
     /// - Returns: 0, 1 or 2.
-    public static func cellWidth(of scalar: Unicode.Scalar) -> Int {
+    public static func cellWidth(of character: Character) -> Int {
+        let scalars = character.unicodeScalars
+        guard let base = scalars.first else { return 0 }
+        let width = cellWidth(ofScalar: base)
+        if width == 1, base.properties.isEmoji, scalars.contains("\u{FE0F}") {
+            return 2
+        }
+        return width
+    }
+
+    /// The number of cells a lone `scalar` advances: 0 for combining marks
+    /// and format characters, which join the previous cell; 2 for East Asian
+    /// wide characters and emoji-presentation scalars; else 1.
+    ///
+    /// - Parameter scalar: A printable scalar.
+    /// - Returns: 0, 1 or 2.
+    public static func cellWidth(ofScalar scalar: Unicode.Scalar) -> Int {
         switch scalar.properties.generalCategory {
         case .nonspacingMark, .enclosingMark, .format:
             return 0

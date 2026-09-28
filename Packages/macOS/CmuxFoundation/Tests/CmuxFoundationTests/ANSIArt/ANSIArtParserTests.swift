@@ -89,7 +89,8 @@ import Testing
             + "\(esc)]8;;https://example.com\(esc)\\A\(esc)]8;;\(esc)\\"
             + "\(esc)(B\(esc)7B\(esc)[3CC\(esc)[>4;1mD\(esc)P+q544e\(esc)\\E\(esc)[?25h"
         let art = try #require(parser.parse(input))
-        #expect(art.lines.map(\.text) == ["ABCDE"])
+        // `ESC[3C` moves over three blank cells rather than being dropped.
+        #expect(art.lines.map(\.text) == ["AB   CDE"])
         // The private-marker `ESC[>4;1m` is not SGR and must not turn bold on.
         #expect(runs(art).allSatisfy { !$0.style.isBold })
     }
@@ -168,5 +169,68 @@ import Testing
     @Test func adjacentCellsWithTheSameStyleShareARun() throws {
         let art = try #require(parser.parse("\(esc)[31mab\(esc)[31mcd\(esc)[32me"))
         #expect(runs(art).map(\.text) == ["abcd", "e"])
+    }
+
+    @Test func cursorForwardLeavesBlankCellsInTheDefaultStyle() throws {
+        let art = try #require(parser.parse("\(esc)[41mA\(esc)[3CB\(esc)[CC\(esc)[0CD\(esc)[?5CE"))
+        #expect(art.lines.map(\.text) == ["A   B C DE"])
+        #expect(runs(art).map(\.text) == ["A", "   ", "B", " ", "C", " ", "DE"])
+        #expect(runs(art)[1].style == ANSIArtStyle())
+        #expect(runs(art)[2].style.background == .indexed(1))
+    }
+
+    @Test func repeatRepeatsTheLastCharacterInTheCurrentStyle() throws {
+        let art = try #require(parser.parse("\(esc)[31m\u{2580}\(esc)[4b\(esc)[32m\(esc)[b\nx\u{1F600}\(esc)[2b"))
+        #expect(art.lines.map(\.text) == [String(repeating: "\u{2580}", count: 6), "x\u{1F600}\u{1F600}\u{1F600}"])
+        #expect(runs(art).map(\.text) == [String(repeating: "\u{2580}", count: 5), "\u{2580}"])
+        #expect(runs(art)[1].style.foreground == .indexed(2))
+        #expect(art.lines[1].columnCount == 7)
+    }
+
+    @Test func cursorForwardAndRepeatStopAtTheColumnCap() throws {
+        let capped = ANSIArtParser(maxColumns: 6)
+        let art = try #require(capped.parse("ab\(esc)[999999999C\ncd\(esc)[999999999bx"))
+        #expect(art.lines.map(\.text) == ["ab", "cddddd"])
+    }
+
+    @Test func controlsInsideASequenceAreSkippedWithoutEndingIt() throws {
+        // DEL and CR inside a CSI are skipped (terminals ignore or execute
+        // them); a newline ends the sequence and still breaks the line.
+        let art = try #require(parser.parse("A\(esc)[3\u{7F}1mB\(esc)[1\r;32mC\(esc)[3\nD"))
+        #expect(art.lines.map(\.text) == ["ABC", "D"])
+        #expect(runs(art).first { $0.text == "B" }?.style.foreground == .indexed(1))
+        #expect(runs(art).first { $0.text == "C" }?.style.isBold == true)
+        #expect(runs(art).first { $0.text == "C" }?.style.foreground == .indexed(2))
+    }
+
+    @Test func emojiSequencesMeasureAsOneCellPair() throws {
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"
+        let heart = "\u{2764}\u{FE0F}"
+        let flag = "\u{1F1E8}\u{1F1E6}"
+        let art = try #require(parser.parse("\(family)\(heart)\(flag)\u{2764}a"))
+        #expect(art.columnCount == 2 + 2 + 2 + 1 + 1)
+        #expect(ANSIArt.cellWidth(of: Character(family)) == 2)
+        #expect(ANSIArt.cellWidth(of: Character(heart)) == 2)
+        #expect(ANSIArt.cellWidth(of: "\u{2764}") == 1)
+        #expect(ANSIArt.cellWidth(of: "1\u{FE0F}\u{20E3}") == 2)
+    }
+
+    @Test func capsTheScalarsStackedOnOneCell() throws {
+        let zalgo = "a" + String(repeating: "\u{301}", count: 5000) + "b"
+        let art = try #require(parser.parse(zalgo))
+        #expect(art.lines[0].text.unicodeScalars.count == ANSIArtBuilder.maxScalarsPerCell + 1)
+        #expect(art.columnCount == 2)
+    }
+
+    @Test func longBlankLinesParseQuickly() throws {
+        // A quadratic trailing-space trim made this take seconds.
+        let line = String(repeating: " ", count: 399) + "x"
+        let input = Array(repeating: line, count: 160).joined(separator: "\n")
+        let clock = ContinuousClock()
+        var art: ANSIArt?
+        let elapsed = clock.measure { art = parser.parse(input) }
+        #expect(art?.lines.count == 160)
+        #expect(art?.columnCount == 400)
+        #expect(elapsed < .seconds(5))
     }
 }
