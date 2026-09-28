@@ -74,7 +74,12 @@ final class TerminalSizeBoundsOverlayView: NSView {
         }
         let key = "\(snapshot.state.cols)x\(snapshot.state.rows)|\(snapshot.state.owners.joined(separator: ","))"
         defer { lastChangeKey = key }
-        guard let lastChangeKey, lastChangeKey != key, previous != nil else { return }
+        guard let lastChangeKey, lastChangeKey != key, let previous else { return }
+        // Resizing your own window while you own the grid is not news; an
+        // ownership change or someone else's resize is.
+        let ownersChanged = previous.state.owners != snapshot.state.owners
+        let selfOwns = snapshot.selfParticipantID.map { snapshot.state.owners == [$0] } ?? false
+        guard ownersChanged || !selfOwns else { return }
         let display = TerminalSharingDisplay(snapshot: snapshot)
         hudText = (TerminalSharingDisplay.gridLabel(snapshot.state.size), display.ownerLabel)
         isFlashing = true
