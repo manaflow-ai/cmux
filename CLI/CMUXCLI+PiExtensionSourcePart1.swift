@@ -7,6 +7,7 @@ extension CMUXCLI {
 
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -21,7 +22,6 @@ interface PendingCompletion {
 }
 
 interface SessionState {
-  nextTurn: number;
   activeTurnId?: string;
   pendingCompletion?: PendingCompletion;
   feedDeliveryFailed: boolean;
@@ -473,7 +473,6 @@ function stateFor(sessionStates: Map<string, SessionState>, sessionId: string): 
   let state = sessionStates.get(sessionId);
   if (!state) {
     state = {
-      nextTurn: 0,
       feedDeliveryFailed: false,
       stopped: false,
     };
@@ -490,25 +489,23 @@ function eventTurnId(event: unknown): string | null {
 
 function beginTurn(sessionStates: Map<string, SessionState>, sessionId: string, event: unknown): string {
   const state = stateFor(sessionStates, sessionId);
-  const turnId = eventTurnId(event) || `${sessionId}:turn-${state.nextTurn + 1}`;
-  if (!eventTurnId(event)) state.nextTurn += 1;
-  state.activeTurnId = turnId;
-  state.pendingCompletion = undefined;
+  const turnId = currentTurnId(sessionStates, sessionId, event);
   state.stopped = false;
   return turnId;
 }
 
 function currentTurnId(sessionStates: Map<string, SessionState>, sessionId: string, event: unknown): string {
   const state = stateFor(sessionStates, sessionId);
-  const turnId = eventTurnId(event) || state.activeTurnId || `${sessionId}:turn-${state.nextTurn + 1}`;
-  if (!eventTurnId(event) && !state.activeTurnId) state.nextTurn += 1;
+  // cmux retains completion receipts across extension reloads. A local counter
+  // reuses receipt keys; allocate once and retain the UUID through continuations.
+  const turnId = eventTurnId(event) || state.activeTurnId || randomUUID();
+  state.activeTurnId = turnId;
   return turnId;
 }
 
 function finishTurn(sessionStates: Map<string, SessionState>, sessionId: string, event: unknown): string {
   const state = stateFor(sessionStates, sessionId);
-  const turnId = eventTurnId(event) || state.activeTurnId || `${sessionId}:turn-${state.nextTurn + 1}`;
-  if (!eventTurnId(event) && !state.activeTurnId) state.nextTurn += 1;
+  const turnId = currentTurnId(sessionStates, sessionId, event);
   state.activeTurnId = undefined;
   state.pendingCompletion = undefined;
   state.stopped = true;

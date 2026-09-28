@@ -76,6 +76,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
         plusButton.onClick = { [weak self] in self?.actions?.onTapPlus() }
         plusButton.menuProvider = { [weak self] in self?.makePlusMenu() }
+        plusButton.concealImmediately()
         addSubview(plusButton)
 
         topDropIndicator.wantsLayer = true
@@ -94,6 +95,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         super.prepareForReuse()
         suspendPresentation()
         model = nil
+        isPointerHovering = false
+        plusButton.concealImmediately()
         hintPill.resetForReuse()
     }
 
@@ -194,7 +197,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             )
             unreadBadgeView.configure(
                 count: model.anchorUnreadCount,
-                fillColor: .controlAccentColor,
+                fillColor: cmuxNotificationBadgeNSColor(
+                    hex: model.notificationBadgeColorHex,
+                    fallback: model.accentColor.nsColor(for: colorScheme)
+                ),
                 textColor: .white,
                 font: unreadBadgeFont
             )
@@ -220,7 +226,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             : 4
         backgroundView.layer?.backgroundColor = headerBackgroundColor(for: model).cgColor
 
-        let accent = cmuxAccentNSColor(for: colorScheme)
+        topDropIndicator.accentColor = model.accentColor
+        bottomDropIndicator.accentColor = model.accentColor
+        let accent = model.accentColor.nsColor(for: colorScheme)
         topDropIndicator.layer?.backgroundColor = accent.cgColor
         bottomDropIndicator.layer?.backgroundColor = accent.cgColor
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
@@ -244,7 +252,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     func paintControllerDropIndicator(top: Bool, bottom: Bool) {
         let colorScheme: ColorScheme = model.map { $0.colorSchemeIsDark ? .dark : .light }
             ?? SidebarAppearanceColorResolver().currentColorScheme()
-        let accent = cmuxAccentNSColor(for: colorScheme)
+        let accent = (model?.accentColor ?? CmuxAccentColor()).nsColor(for: colorScheme)
         topDropIndicator.layer?.backgroundColor = accent.cgColor
         bottomDropIndicator.layer?.backgroundColor = accent.cgColor
         topDropIndicator.isHidden = !top
@@ -647,33 +655,22 @@ final class SidebarHeaderGlyphButton: NSButton {
         menuProvider?() ?? super.menu(for: event)
     }
 
-    /// Arc-style hover reveal: 120ms ease-out fade instead of a hard snap.
-    /// Hit-testing follows the target state immediately so a fading-out
-    /// button never swallows a click.
+    /// Starting state for hover-revealed buttons, and the reset on cell
+    /// reuse. NSButton is born visible, so without this every fresh or
+    /// recycled cell painted an X on its first unhovered configure, which
+    /// flashed the close buttons on all rows at once after a workspace close.
+    func concealImmediately() {
+        setRevealed(false)
+    }
+
+    /// Hover reveal lands in the same frame as the hover change. The row
+    /// swaps its trailing badge or spinner for this button synchronously, so
+    /// a fade here left the slot blank on hover-in and doubled up on
+    /// hover-out.
     func setRevealed(_ revealed: Bool) {
-        if revealed {
-            if isHidden {
-                alphaValue = 0
-                isHidden = false
-            }
-            isEnabled = true
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.12
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                animator().alphaValue = 1
-            }
-        } else {
-            guard !isHidden else { return }
-            isEnabled = false
-            NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.12
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                animator().alphaValue = 0
-            }, completionHandler: { [weak self] in
-                guard let self, !self.isEnabled else { return }
-                self.isHidden = true
-            })
-        }
+        isEnabled = revealed
+        alphaValue = revealed ? 1 : 0
+        isHidden = !revealed
     }
 }
 
@@ -792,24 +789,18 @@ final class SidebarShortcutHintPillView: NSView {
         visibilityGeneration &+= 1
         let generation = visibilityGeneration
 
-        if reduceMotionProvider() {
+        // Hints appear at once (the modifier hold is already the wait) and
+        // only fade out.
+        if revealed || reduceMotionProvider() {
             applyImmediateVisibility(revealed)
             return
         }
 
-        if revealed {
-            if isHidden {
-                layer?.opacity = 0
-                isHidden = false
-            }
-            animateOpacity(to: 1, generation: generation)
-        } else {
-            guard !isHidden else {
-                layer?.opacity = 0
-                return
-            }
-            animateOpacity(to: 0, generation: generation, hidesWhenFinished: true)
+        guard !isHidden else {
+            layer?.opacity = 0
+            return
         }
+        fadeOut(generation: generation)
     }
 
     private func applyImmediateVisibility(_ revealed: Bool) {
@@ -821,32 +812,26 @@ final class SidebarShortcutHintPillView: NSView {
         isHidden = !revealed
     }
 
-    private func animateOpacity(
-        to value: Float,
-        generation: UInt64,
-        hidesWhenFinished: Bool = false
-    ) {
+    private func fadeOut(generation: UInt64) {
         guard let layer else { return }
         let currentOpacity = layer.presentation()?.opacity ?? layer.opacity
         let animation = CABasicAnimation(keyPath: "opacity")
         animation.fromValue = currentOpacity
-        animation.toValue = value
+        animation.toValue = 0
         animation.duration = ShortcutHintAnimation.visibilityDuration
         animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        if hidesWhenFinished {
-            CATransaction.setCompletionBlock { [weak self] in
-                Task { @MainActor [weak self] in
-                    guard let self,
-                          self.visibilityGeneration == generation,
-                          !self.isRevealed else { return }
-                    self.isHidden = true
-                }
+        CATransaction.setCompletionBlock { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.visibilityGeneration == generation,
+                      !self.isRevealed else { return }
+                self.isHidden = true
             }
         }
-        layer.opacity = value
+        layer.opacity = 0
         layer.add(animation, forKey: Self.visibilityAnimationKey)
         CATransaction.commit()
     }

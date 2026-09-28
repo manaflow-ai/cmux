@@ -1,15 +1,21 @@
-/// Serializes Settings and first-use requests for the Computer Use permission UI.
+import CmuxComputerUse
+
+/// The presentation boundary for deliberate Settings and protected-tool requests.
 ///
 /// The runtime owns setup progress and tool admission. Presenting a window never
 /// grants access; the user still completes the existing permission/capture flow.
+/// Ambient lifecycle/status updates have no presentation entry point here.
 @MainActor
 final class ComputerUseOnboardingCoordinator {
     typealias StartingPoint = ComputerUseOnboardingWindowController.StartingPoint
-    typealias Presenter = @MainActor (StartingPoint) -> Void
+    typealias Origin = ComputerUseOnboardingWindowController.PresentationOrigin
+    typealias Presenter = @MainActor (StartingPoint, Origin) -> Void
 
+    private let runtimeService: ComputerUseRuntimeService
     private let presenter: Presenter
 
-    init(presenter: @escaping Presenter) {
+    init(runtimeService: ComputerUseRuntimeService, presenter: @escaping Presenter) {
+        self.runtimeService = runtimeService
         self.presenter = presenter
     }
 
@@ -18,15 +24,20 @@ final class ComputerUseOnboardingCoordinator {
     /// honored even while onboarding is visible.
     @discardableResult
     func requestFromSettings(startingAt startingPoint: StartingPoint) -> Bool {
-        presenter(startingPoint)
+        runtimeService.onboardingWasPresented()
+        presenter(startingPoint, .userAction)
         return true
     }
 
-    /// Presents setup after runtime admission claims an explicit first-use
-    /// request. Runtime phase claiming remains the source of truth.
+    /// Claims and presents first-use setup atomically on the main actor. A ready
+    /// helper or an already claimed flow stays quiet, including after dismissal.
+    /// Call only for authenticated, locally owned functional CUA requests.
+    /// An agent's tool call is not a user action, so the window must not take
+    /// focus from the app the user is working in.
     @discardableResult
     func requestFromToolInvocation() -> Bool {
-        presenter(.overview)
+        guard runtimeService.requestAutomaticOnboarding() else { return false }
+        presenter(.overview, .toolInvocation)
         return true
     }
 }

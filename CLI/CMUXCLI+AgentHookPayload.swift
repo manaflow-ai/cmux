@@ -77,7 +77,7 @@ extension CMUXCLI {
         var compact: [String: Any] = [:]
 
         for key in [
-            "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
+            "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath", "agent_id", "agentId",
             "permission_mode", "permissionMode",
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
             "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
