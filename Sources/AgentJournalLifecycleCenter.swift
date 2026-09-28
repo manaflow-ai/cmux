@@ -93,6 +93,29 @@ final class AgentJournalLifecycleCenter: Sendable {
             let replayPolicy = AgentJournalReplayPolicy()
             var state = AgentLifecycleReducerState()
             var notifications = AgentNotificationReconciler()
+            // `state.headSequence` is only the largest sequence observed; it
+            // cannot prove that every lower committed row was folded. Socket
+            // workers commit before enqueueing, so a later ingress can arrive
+            // while an earlier committed row is still missing from the FIFO.
+            var reconciledThroughSequence: Int64 = 0
+            var reconciledAheadSequences: Set<Int64> = []
+            func containsReconciledSequence(_ sequence: Int64) -> Bool {
+                sequence <= reconciledThroughSequence || reconciledAheadSequences.contains(sequence)
+            }
+            func noteReconciledSequence(_ sequence: Int64) {
+                guard sequence > reconciledThroughSequence else { return }
+                reconciledAheadSequences.insert(sequence)
+                while reconciledAheadSequences.remove(reconciledThroughSequence + 1) != nil {
+                    reconciledThroughSequence += 1
+                }
+            }
+            func noteReconciledScan(through sequence: Int64) {
+                reconciledThroughSequence = max(reconciledThroughSequence, sequence)
+                let reconciledFloor = reconciledThroughSequence
+                reconciledAheadSequences = reconciledAheadSequences.filter {
+                    $0 > reconciledFloor
+                }
+            }
             // Loaded once from the store, then maintained in memory as
             // restore records new aliases: canonicalizing a replay fold via
             // per-event SQL lookups would cost two round-trips per event.
@@ -124,6 +147,10 @@ final class AgentJournalLifecycleCenter: Sendable {
             }
             func reconcile(_ event: AgentJournalEvent, store: AgentJournalStore, deliver: Bool) async -> Bool {
                 guard let eventAliases = resolver(store) else { return false }
+                // The consumer is serial: after aliases resolve, this event's
+                // lifecycle/notification fold completes before another
+                // operation can inspect the reconciliation cursor.
+                noteReconciledSequence(event.sequence)
                 let canonical = Self.canonicalized(event, aliases: eventAliases)
                 let decision = notifications.apply(canonical)
                 if decision.disposition != .stale, decision.projectsLifecycle,
@@ -169,14 +196,19 @@ final class AgentJournalLifecycleCenter: Sendable {
                 }
             }
             func reconcileCommittedRows(
-                store: AgentJournalStore,
-                afterSequence: Int64
+                store: AgentJournalStore
             ) async throws -> Int64 {
-                var cursor = afterSequence
+                // A successful store scan may cross a pruned sequence prefix
+                // or undecodable rows, both of which are safe to cover even
+                // though they cannot advance the event-by-event cursor.
+                var cursor = reconciledThroughSequence
                 while true {
                     let page = try store.readPage(afterSequence: cursor, limit: 2_048)
-                    if page.isEmpty { return cursor }
-                    for event in page.events {
+                    if page.isEmpty {
+                        noteReconciledScan(through: cursor)
+                        return cursor
+                    }
+                    for event in page.events where !containsReconciledSequence(event.sequence) {
                         _ = await reconcile(event, store: store, deliver: true)
                     }
                     cursor = max(cursor, page.scannedThroughSequence)
@@ -247,8 +279,7 @@ final class AgentJournalLifecycleCenter: Sendable {
                     settlement: while true {
                         do {
                             var expectedHead = try await reconcileCommittedRows(
-                                store: store,
-                                afterSequence: state.headSequence
+                                store: store
                             )
                             let drafts = state.userInterruptDrafts(
                                 surfaceId: surfaceId,
@@ -342,17 +373,18 @@ final class AgentJournalLifecycleCenter: Sendable {
                     }
                 case .startupReplay:
                     guard let replayAliases = resolver(store) else { continue }
-                    let assignments = Self.reduceStartupReplay(
+                    guard let replay = Self.reduceStartupReplay(
                         store: store,
                         aliases: replayAliases,
                         reducer: reducer,
                         replayPolicy: replayPolicy,
                         state: &state,
                         notifications: &notifications
-                    )
-                    if !assignments.isEmpty {
+                    ) else { continue }
+                    noteReconciledScan(through: replay.scannedThroughSequence)
+                    if !replay.assignments.isEmpty {
                         await MainActor.run {
-                            for assignment in assignments {
+                            for assignment in replay.assignments {
                                 Self.apply(assignment, workspaceHint: nil)
                             }
                         }

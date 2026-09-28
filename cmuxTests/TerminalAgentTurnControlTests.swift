@@ -135,7 +135,7 @@ struct AgentTurnInterruptTargetTests {
         )
     }
 
-    @Test func committedPreToolUseWithoutIngressPreventsInterruptCompletion() async throws {
+    @Test func committedPreToolUseGapBeforeLaterIngressPreventsInterruptCompletion() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-turn-control-commit-gap-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("journal.sqlite3", isDirectory: false)
@@ -144,17 +144,24 @@ struct AgentTurnInterruptTargetTests {
             for await _ in gate.stream { return }
         })
         let surface = UUID()
+        let otherSurface = UUID()
         let workspace = UUID()
-        func draft(id: String, occurredAtMs: Int64, nativeEvent: String) -> AgentJournalEventDraft {
+        func draft(
+            id: String,
+            occurredAtMs: Int64,
+            nativeEvent: String,
+            surfaceId: UUID = surface,
+            sessionId: String = "session-1"
+        ) -> AgentJournalEventDraft {
             AgentJournalEventDraft(
                 eventId: id,
                 kind: .turnStarted,
                 occurredAtMs: occurredAtMs,
                 source: "claude",
                 agentKey: "claude_code",
-                sessionId: "session-1",
+                sessionId: sessionId,
                 workspaceId: workspace.uuidString,
-                surfaceId: surface.uuidString,
+                surfaceId: surfaceId.uuidString,
                 nativeEvent: nativeEvent
             )
         }
@@ -169,12 +176,23 @@ struct AgentTurnInterruptTargetTests {
         )
 
         // This is the socket-worker commit/enqueue gap: sequence 2 is durable,
-        // but its `.ingest` operation has not reached the consumer yet.
+        // but its `.ingest` operation has not reached the consumer yet. The
+        // unrelated sequence 3 does reach the consumer before settlement, so
+        // a maximum-only cursor would skip sequence 2 permanently.
         let hookStore = try AgentJournalStore(databaseURL: url)
         _ = try hookStore.append(
             draft(id: "pre-tool-use", occurredAtMs: 1_001, nativeEvent: "PreToolUse")
         )
         hookStore.close()
+        let unrelated = draft(
+            id: "unrelated-turn",
+            occurredAtMs: 1_002,
+            nativeEvent: "UserPromptSubmit",
+            surfaceId: otherSurface,
+            sessionId: "session-2"
+        )
+        let unrelatedJSON = try #require(String(data: JSONEncoder().encode(unrelated), encoding: .utf8))
+        #expect(center.handleAppendCommand(unrelatedJSON) == "OK 3")
         gate.continuation.yield(())
         gate.continuation.finish()
         await receipt.wait()
@@ -182,7 +200,7 @@ struct AgentTurnInterruptTargetTests {
         let store = try AgentJournalStore(databaseURL: url)
         let events = try store.events(afterSequence: 0, limit: 10)
         store.close()
-        #expect(events.map(\.draft.nativeEvent) == ["UserPromptSubmit", "PreToolUse"])
+        #expect(events.map(\.draft.eventId) == ["turn-started", "pre-tool-use", "unrelated-turn"])
 
         let reducer = AgentLifecycleReducer()
         var state = AgentLifecycleReducerState()
@@ -191,7 +209,7 @@ struct AgentTurnInterruptTargetTests {
         }
         #expect(
             state.combinedPhase(surfaceId: surface.uuidString, agentKey: "claude_code") == .running,
-            "a committed hook must win even while its consumer ingress is delayed"
+            "a committed hook must win even when later ingress advances the observed head"
         )
     }
 

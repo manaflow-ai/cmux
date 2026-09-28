@@ -12,6 +12,13 @@ extension AgentJournalLifecycleCenter {
         let activity: AgentLifecycleActivity?
     }
 
+    struct StartupReplayResult: Sendable {
+        let assignments: [AgentLifecycleAssignment]
+        /// Highest durable row the successful replay scan examined, including
+        /// rows from a newer schema that this binary could not decode.
+        let scannedThroughSequence: Int64
+    }
+
     /// - Parameter sourceKind: The kind the producer emitted. The notification
     ///   reconciler rewrites some kinds (idle observations, attention
     ///   resolutions, child events) into phase assertions before reduction;
@@ -61,7 +68,7 @@ extension AgentJournalLifecycleCenter {
         replayPolicy: AgentJournalReplayPolicy,
         state: inout AgentLifecycleReducerState,
         notifications: inout AgentNotificationReconciler
-    ) -> [AgentLifecycleAssignment] {
+    ) -> StartupReplayResult? {
         var cursor: Int64 = 0
         var folded = 0
         var skipped = 0
@@ -82,7 +89,7 @@ extension AgentJournalLifecycleCenter {
 #if DEBUG
                 cmuxDebugLog("agentJournal.replay.error cursor=\(cursor) \(String(describing: error))")
 #endif
-                return []
+                return nil
             }
             if page.isEmpty { break }
             for event in page.events {
@@ -113,7 +120,10 @@ extension AgentJournalLifecycleCenter {
                 "painted=\(assignments.count) unattributed=\(state.unattributedEvents.count)"
         )
 #endif
-        return assignments
+        return StartupReplayResult(
+            assignments: assignments,
+            scannedThroughSequence: cursor
+        )
     }
 
     /// Rewrites the event's identity through the restore alias chains so
