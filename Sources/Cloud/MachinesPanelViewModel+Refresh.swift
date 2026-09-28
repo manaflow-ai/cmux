@@ -49,6 +49,11 @@ extension MachinesPanelViewModel {
 
     func startPolling() {
         wantsPolling = true
+        if listProblem == .sessionRejected {
+            wantsPolling = false
+            pausePolling()
+            return
+        }
         guard isCloudEnabled() else { pausePolling(); return }
         // Showing the panel or returning online is a recovery; polls are not.
         recoverList()

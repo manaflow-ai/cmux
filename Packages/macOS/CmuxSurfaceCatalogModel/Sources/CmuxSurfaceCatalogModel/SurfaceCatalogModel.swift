@@ -1900,7 +1900,6 @@ public enum SurfaceDestination: Hashable, Sendable {
     case workspace(id: UUID, placement: SurfacePlacement)
     case split(workspaceID: UUID, paneID: String, direction: SurfaceSplitDirection)
     case tab(workspaceID: UUID, paneID: String, index: Int?)
-
     public var workspaceID: UUID {
         switch self {
         case .workspace(let id, _): return id
@@ -1909,12 +1908,10 @@ public enum SurfaceDestination: Hashable, Sendable {
         }
     }
 }
-
 public enum SurfacePlacement: String, Codable, Sendable {
     case split
     case tab
 }
-
 /// What a provider knows about its machine, for the tree header.
 public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
     public var id: SurfaceMachineID
@@ -1927,6 +1924,7 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
     public var diskMb: Int?
     public var linkState: SurfaceLinkState
     public var linkError: String?
+    public var linkFailure: SurfaceMachineLinkFailure?
     public var cpuPercent: Double?
     public var memoryUsedMb: Int?
     public var diskUsedMb: Int?
@@ -1950,6 +1948,7 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         diskMb: Int? = nil,
         linkState: SurfaceLinkState,
         linkError: String? = nil,
+        linkFailure: SurfaceMachineLinkFailure? = nil,
         cpuPercent: Double? = nil,
         memoryUsedMb: Int? = nil,
         diskUsedMb: Int? = nil,
@@ -1966,6 +1965,7 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         self.diskMb = diskMb
         self.linkState = linkState
         self.linkError = linkError
+        self.linkFailure = linkFailure
         self.cpuPercent = cpuPercent
         self.memoryUsedMb = memoryUsedMb
         self.diskUsedMb = diskUsedMb

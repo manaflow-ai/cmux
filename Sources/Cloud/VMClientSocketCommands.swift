@@ -456,7 +456,7 @@ extension TerminalController {
                     // already forgotten; treat that 404 as success so the
                     // normal CLI completion path dismisses the operation and
                     // never traps the person in an error sheet.
-                    if case .httpStatus(404, _) = error {
+                    if error.cloudHTTPError?.status == 404 {
                         await MainActor.run {
                             AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: vmId)
                         }

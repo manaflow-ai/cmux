@@ -2,6 +2,7 @@ import CmuxCloud
 import AppKit
 import Bonsplit
 import CmuxSurfaceCatalogModel
+import CmuxSettings
 import CmuxWorkspaces
 import Foundation
 
@@ -19,6 +20,28 @@ import Foundation
 /// same grace a reconnect uses, and a failure is explained inside the pane with Retry.
 @MainActor
 extension Workspace {
+    /// Reuses the existing CLI fork/create path for a machine whose backend
+    /// state is terminally invalid. The attach policy is reset by the link
+    /// manager when the user acts again, so no automatic loop is reintroduced.
+    func recreateCloudMachine(_ machine: SurfaceMachineID) {
+        guard let machineID = machine.cloudMachineID, !machineID.isEmpty else { return }
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        _ = CloudVMActionLauncher.shared.start(
+            socketPath: socketPath,
+            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+            arguments: ["vm", "fork", machineID],
+            successTitle: String(localized: "cloudPane.recreate.success", defaultValue: "Machine recreated"),
+            presentsFailureAlert: true,
+            onCompletion: { [weak self] completion in
+                guard completion.succeeded else { return }
+                guard let self, let failureID = self.cloudPaneCreationFailureStore.failure?.id else { return }
+                self.cloudPaneCreationFailureStore.dismiss(id: failureID)
+            }
+        )
+    }
+
     /// The pane that initiated the request owns its error, regardless of later
     /// focus changes. A hidden source tab must not cover the tab replacing it.
     var cloudPaneCreationFailureSourceView: NSView? {

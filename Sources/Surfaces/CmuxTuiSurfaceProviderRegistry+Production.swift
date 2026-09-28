@@ -37,6 +37,10 @@ extension CmuxTuiSurfaceProviderRegistry {
                 guard let client = VMClient.shared else { return nil }
                 return try? await client.listPage()
             },
+            listPageWithError: {
+                guard let client = VMClient.shared else { throw VMClientError.notSignedIn }
+                return try await client.listPage()
+            },
             hasCloudSession: { AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true }
         )
     }

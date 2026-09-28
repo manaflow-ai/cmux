@@ -49,7 +49,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxCloudTests",
-            dependencies: ["CmuxCloud"]
+            dependencies: ["CmuxCloud", "CmuxSurfaceCatalogModel"]
         )
     ]
 )

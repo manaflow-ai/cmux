@@ -374,7 +374,6 @@ final class MachinesPanelViewModel: ObservableObject {
             self.scheduleFreeAccessTransition(now: now)
         }
     }
-
     /// Drop every locally cached machine and in-flight sample when auth ends.
     /// This is intentionally callable by the panel as well as the sign-out
     /// notification observer so a signed-out panel can never render a stale
@@ -398,7 +397,6 @@ final class MachinesPanelViewModel: ObservableObject {
         hasLoadedOnce = false
         isLoading = false
     }
-
     /// Retire old requests before changing pin scope. Catalog discoveries are
     /// admitted again only after the shared registry refreshes the new account.
     @discardableResult
@@ -420,7 +418,6 @@ final class MachinesPanelViewModel: ObservableObject {
         if wantsPolling { startPolling() }
         return task
     }
-
     func scopedCatalogSnapshot() -> SurfaceCatalogSnapshot {
         let snapshot = catalogProvider()
         guard awaitingCatalogScope else { return snapshot }
@@ -450,7 +447,7 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     func refresh() {
-        guard isCloudEnabled(), let client = client ?? VMClient.shared else { return }
+        guard isCloudEnabled(), listProblem != .sessionRejected, let client = client ?? VMClient.shared else { return }
         guard refreshTask == nil else { refreshRequestedWhileLoading = true; return }
         isLoading = true
         let generation = refreshGeneration
@@ -553,6 +550,9 @@ final class MachinesPanelViewModel: ObservableObject {
             }
             lastErrorDescription = String(describing: error)
             listProblem = Self.classifyListFailure(error)
+            if listProblem == .sessionRejected {
+                stopPolling()
+            }
         } catch {
             guard !Task.isCancelled, generation == refreshGeneration,
                   scope == machinePinStore?.scopeIdentifier else { return }

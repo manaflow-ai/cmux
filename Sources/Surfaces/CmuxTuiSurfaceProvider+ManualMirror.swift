@@ -306,8 +306,11 @@ extension CmuxTuiSurfaceProvider {
         let generation = lifecycleGeneration
         reservation.retry = { [weak self] in
             guard let self else { return }
-            self.restoredAttachTasks[panelID]?.cancel()
-            self.attachReservedTerminalPane(reservation, resource: resource, remoteTabID: remoteTabID)
+            Task { @MainActor in
+                await self.links.resetRetry(machineID: self.machineID)
+                self.restoredAttachTasks[panelID]?.cancel()
+                self.attachReservedTerminalPane(reservation, resource: resource, remoteTabID: remoteTabID)
+            }
         }
         reservation.cancel = { [weak self] in
             guard let self else { return }
@@ -360,6 +363,12 @@ extension CmuxTuiSurfaceProvider {
                     return
                 } catch {
                     guard !Task.isCancelled else { return }
+                    if let typed = (error as? VMClientError)?.cloudHTTPError,
+                       (typed.requiresRecreate || typed.rejectsSession) {
+                        self.restoredAttachTasks[panelID] = nil
+                        workspace.failReservedCloudTerminalPane(reservation, error: error)
+                        return
+                    }
                     if error as? CloudDiagnosticFailure == .placement {
                         self.restoredAttachTasks[panelID] = nil
                         workspace.failReservedCloudTerminalPane(reservation, error: error)

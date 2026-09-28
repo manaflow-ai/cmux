@@ -66,7 +66,8 @@ public actor CloudMachineLinkManager {
     private var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
     private var browserProxies: [String: CloudBrowserProxyProcess] = [:]
     private var browserProxyStarts: [String: Task<CloudBrowserProxyEndpoint, Error>] = [:]
-    private var lastFailure: [String: (at: Date, error: String)] = [:]
+    private struct LinkFailure { let at: Date; let error: String; let typed: CloudVMHTTPError?; let terminal: Bool }
+    private var lastFailure: [String: LinkFailure] = [:]
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
     /// a machine whose route is broken.
     private let retryBackoff: TimeInterval = 15
@@ -87,7 +88,6 @@ public actor CloudMachineLinkManager {
     /// link never accumulates a backlog of defaults commands.
     private var themePushInFlight: Set<String> = []
     private var themePushQueued: Set<String> = []
-
     public init(
         paths: CloudTuiClientPaths = CloudTuiClientPaths(),
         clientURL: URL? = CloudTuiClientPaths.clientURL(),
@@ -105,7 +105,6 @@ public actor CloudMachineLinkManager {
         self.hub = hub
         self.hostThemeColors = hostThemeColors
     }
-
     /// Whether a link to `route` goes through the WireGuard hub: the client must know
     /// the flag and the route's host must be a literal address inside the private
     /// network (the hub's enrolled routes when known, else the private ranges).
@@ -114,13 +113,10 @@ public actor CloudMachineLinkManager {
               let host = IPNetworkPrefix.routeHost(route) else { return false }
         return CloudWireGuardHub.routesHost(host, enrolledRoutes: enrolledRoutes)
     }
-
     var hasClient: Bool { clientURL != nil }
-
     func setPrivateAddress(_ address: String?, for machineID: String) {
         setPrivateAddresses(address.map { [$0] } ?? [], for: machineID)
     }
-
     /// A create receipt proved the machine's image serves the trusted
     /// private-network listener (snapshot-v2), so its first link dials
     /// `--carrier` like a machine linked before. Without this, New Machine's
@@ -130,7 +126,6 @@ public actor CloudMachineLinkManager {
         guard paths.deviceFingerprint(for: machineID) == nil else { return }
         paths.saveDeviceFingerprint(CloudTuiClientPaths.carrierDeviceMarker, for: machineID)
     }
-
     public func setPrivateAddresses(_ addresses: [String], for machineID: String) {
         var seen = Set<String>()
         let addresses = addresses.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -143,15 +138,12 @@ public actor CloudMachineLinkManager {
         let host = address.contains(":") ? "[\(address)]" : address
         privateRoutes[machineID] = "ws://\(host):1337/v1/link"
     }
-
     public func privateAddresses(for machineID: String) -> [String] {
         privateAddressCandidates[machineID] ?? []
     }
-
     public func privateRoute(for machineID: String) -> String? {
         privateRoutes[machineID]
     }
-
     /// The link for `machineID`, connecting (and enrolling) if needed.
     public func connected(machineID: String) async throws -> CloudMachineLink.Connected {
         guard isCloudEnabled() else {
@@ -168,7 +160,6 @@ public actor CloudMachineLinkManager {
         }
         return try await connectMeasured(machineID: machineID)
     }
-
     private func connectMeasured(machineID: String) async throws -> CloudMachineLink.Connected {
         if let link = links[machineID], await link.isConnected, let connected = await link.connected {
             return connected
@@ -186,7 +177,11 @@ public actor CloudMachineLinkManager {
                 "outcome": "started"
             ]
         )
-        if let failure = lastFailure[machineID], Date().timeIntervalSince(failure.at) < retryBackoff {
+        if let failure = lastFailure[machineID], failure.terminal {
+            if let typed = failure.typed { throw VMClientError.typedHTTPStatus(typed) }
+            throw ManagerError.retryLater(failure.error)
+        }
+        if let failure = lastFailure[machineID], Date.now.timeIntervalSince(failure.at) < retryBackoff {
             recordPreflightFailure(machineID: machineID, reason: "retry_backoff", correlationID: correlationID)
             throw ManagerError.retryLater(failure.error)
         }
@@ -298,7 +293,13 @@ public actor CloudMachineLinkManager {
         } catch {
             guard connecting[machineID] == task else { throw error }
             let text = CloudMachineLink.errorText(error)
-            lastFailure[machineID] = (Date(), text)
+            let typed = (error as? VMClientError)?.cloudHTTPError
+            let terminal = typed.map { !$0.admitsAutomaticRetry || $0.requiresRecreate || $0.rejectsSession } ?? true
+            if terminal {
+                lastFailure[machineID] = LinkFailure(at: .now, error: text, typed: typed, terminal: true)
+            } else {
+                lastFailure[machineID] = nil
+            }
             links[machineID] = nil
             #if DEBUG
             CMUXDebugLog.logDebugEvent("cloud.link.failed machine=\(machineID) error=\(String(reflecting: error)) text=\(text)")
@@ -315,17 +316,14 @@ public actor CloudMachineLinkManager {
             throw error
         }
     }
-
     public func link(machineID: String) -> CloudMachineLink? {
         links[machineID]
     }
-
     /// A browser carrier can present the machine's stored device identity directly.
     /// Only a first-time machine needs the one-time trusted-listener preparation.
     public nonisolated static func browserProxyNeedsTrustedListenerPreparation(deviceFingerprint: String?) -> Bool {
         deviceFingerprint == nil
     }
-
     /// One authenticated browser carrier per machine, sharing the app's userspace WireGuard hub.
     public func browserProxy(machineID: String) async throws -> CloudBrowserProxyEndpoint {
         try Task.checkCancellation()
@@ -401,7 +399,6 @@ public actor CloudMachineLinkManager {
         guard browserProxies[machineID] === proxy else { throw CancellationError() }
         return endpoint
     }
-
     /// A pane may cancel its wait while another pane still needs the shared carrier.
     private func browserProxyResult(_ task: Task<CloudBrowserProxyEndpoint, Error>) async throws -> CloudBrowserProxyEndpoint {
         let result = CloudLinkFirstValue<Result<CloudBrowserProxyEndpoint, Error>>()
@@ -409,7 +406,6 @@ public actor CloudMachineLinkManager {
         guard let value = await result.result else { throw CancellationError() }
         return try value.get()
     }
-
     private func browserProxyStartFinished(machineID: String, proxy: CloudBrowserProxyProcess, result: Result<CloudBrowserProxyEndpoint, Error>) async {
         guard browserProxies[machineID] === proxy else { return }
         browserProxyStarts[machineID] = nil
@@ -418,7 +414,6 @@ public actor CloudMachineLinkManager {
             await proxy.stop()
         }
     }
-
     /// Records a preflight failure without mutating link retry state.
     private func recordPreflightFailure(machineID: String, reason: String, correlationID: String) {
         breadcrumb(
@@ -431,7 +426,6 @@ public actor CloudMachineLinkManager {
             ]
         )
     }
-
     /// Machines with a live link right now: the app-side consumers of the
     /// private network for the tunnel's idle policy.
     public var connectedMachineCount: Int {
@@ -452,7 +446,7 @@ public actor CloudMachineLinkManager {
         if connecting[machineID] != nil {
             return LinkStatus(state: .connecting, error: nil)
         }
-        if let failure = lastFailure[machineID], Date().timeIntervalSince(failure.at) < retryBackoff {
+        if let failure = lastFailure[machineID], failure.terminal || Date.now.timeIntervalSince(failure.at) < retryBackoff {
             return LinkStatus(state: .error, error: failure.error)
         }
         return nil
@@ -473,6 +467,12 @@ public actor CloudMachineLinkManager {
             await link.disconnect()
         }
         lastFailure[machineID] = nil
+    }
+
+    public func resetRetry(machineID: String) async {
+        lastFailure[machineID] = nil
+        let client = await MainActor.run { VMClient.shared }
+        await client?.resetAttachRetry(machineID: machineID)
     }
 
     public func disconnectAll() async {

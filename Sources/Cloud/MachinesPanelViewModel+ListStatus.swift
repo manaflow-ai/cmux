@@ -25,11 +25,15 @@ extension MachinesPanelViewModel {
     /// mapping without a live client.
     nonisolated static func classifyListFailure(_ error: VMClientError) -> CloudListProblem {
         switch error {
-        case .httpStatus(401, _):
+        case .httpStatus(401, _), .httpStatus(403, _):
+            return .sessionRejected
+        case .typedHTTPStatus(let error) where error.rejectsSession:
             return .sessionRejected
         case .httpStatus(402, _):
             return .requiresPro
-        case .notSignedIn, .sessionRefreshFailed, .backendUnreachable, .httpStatus, .malformedResponse, .lifecycleUnsupported,
+        case .typedHTTPStatus(let error) where error.status == 402:
+            return .requiresPro
+        case .notSignedIn, .sessionRefreshFailed, .backendUnreachable, .httpStatus, .typedHTTPStatus, .malformedResponse, .lifecycleUnsupported,
              .disabledByManagedPolicy, .cloudMachinesDisabled:
             // A managed policy can race a refresh; keep the generic unreachable state.
             return .unreachable

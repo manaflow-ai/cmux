@@ -84,6 +84,25 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         #expect(await waitUntil { !registry.isPolling })
     }
 
+    @Test("a server-rejected Cloud session stops the registry poller")
+    @MainActor
+    func rejectedSessionRetiresAutomaticFleetReads() async {
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { true },
+            listPageWithError: {
+                throw VMClientError.typedHTTPStatus(CloudVMHTTPError(
+                    status: 401,
+                    body: #"{"error":"unauthorized","retryable":false}"#
+                ))
+            },
+            notificationCenter: NotificationCenter()
+        )
+        registry.start(catalog: SurfaceCatalog())
+        #expect(await waitUntil { !registry.isPolling })
+        #expect(await registry.refresh(force: true) == false)
+    }
+
     @Test("sign-out re-syncs the poll: with the opt-in gone it stops instead of listing the next account")
     @MainActor
     func signOutStopsPollingWhenNoLongerAllowed() async {

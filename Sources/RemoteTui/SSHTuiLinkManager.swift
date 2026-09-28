@@ -94,6 +94,11 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         return .init(state: state, error: error)
     }
 
+    func resetRetry(machineID: String) async {
+        // SSH links have no Cloud VM refusal gate; the method keeps the shared
+        // provider retry seam uniform across Cloud and SSH providers.
+    }
+
     func privateAddresses(for machineID: String) -> [String] { ["127.0.0.1"] }
 
     func browserProxy(machineID: String) async throws -> CloudBrowserProxyEndpoint {

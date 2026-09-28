@@ -3,7 +3,7 @@ import AppKit
 import CmuxSurfaceCatalogModel
 
 extension CloudTreeOutlineView.Coordinator {
-    func machineMenuItems(_ machine: MachineSnapshot) -> [NSMenuItem] {
+    func machineMenuItems(_ machine: MachineSnapshot, info: SurfaceMachineInfo? = nil) -> [NSMenuItem] {
         var items: [NSMenuItem] = []
         let actions = machineActions
         let nodeActions = nodeActions
@@ -19,8 +19,15 @@ extension CloudTreeOutlineView.Coordinator {
             self?.applyMachineOrder(machines)
         })
         items.append(contentsOf: machineReorderMenuItems(id: id))
-        if machine.freeAccess == .expired {
-            items.append(item(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect\u{2026}")) { actions.promptUpgrade() })
+        if info?.linkFailure == .recreateRequired {
+            items.append(item(String(localized: "machines.menu.recreate", defaultValue: "Recreate")) {
+                actions.runCommand(id, ["vm", "fork"])
+            })
+            if let error = info?.linkError {
+                items.append(item(CloudErrorCopy.title) { CloudErrorCopy.copy(error) })
+            }
+        } else if machine.freeAccess == .expired {
+            items.append(item(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect…")) { actions.promptUpgrade() })
         } else {
             items.append(item(String(localized: "machines.menu.openShell", defaultValue: "Open Shell")) { nodeActions.newTerminal(.cloud(id), nil) })
             items.append(item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { nodeActions.newWorkspace(.cloud(id)) })
@@ -36,7 +43,7 @@ extension CloudTreeOutlineView.Coordinator {
         }
         items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
         items.append(.separator())
-        items.append(item(String(localized: "machines.menu.rename", defaultValue: "Rename\u{2026}")) { actions.promptRename(id, machine.label) })
+        items.append(item(String(localized: "machines.menu.rename", defaultValue: "Rename…")) { actions.promptRename(id, machine.label) })
         if let address = machine.privateAddress {
             items.append(item(String(localized: "machines.menu.copyIPAddress", defaultValue: "Copy IP Address")) { [nodeActions] in nodeActions.copyToPasteboard(address) })
         }
@@ -64,7 +71,7 @@ extension CloudTreeOutlineView.Coordinator {
             items.append(item(String(localized: "machines.pending.cancel", defaultValue: "Cancel Create")) { create.cancel(id) })
         } else if !operation.isReconciling {
             items.append(item(String(localized: "machines.pending.retry", defaultValue: "Retry Create")) { create.retry(id) })
-            items.append(item(String(localized: "machines.pending.showError", defaultValue: "Show Error\u{2026}")) { create.showFailure(id) })
+            items.append(item(String(localized: "machines.pending.showError", defaultValue: "Show Error…")) { create.showFailure(id) })
             items.append(item(String(localized: "machines.pending.copyError", defaultValue: "Copy Error")) { create.copyFailure(id) })
             items.append(.separator())
         }

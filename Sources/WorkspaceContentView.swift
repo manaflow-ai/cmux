@@ -436,7 +436,8 @@ struct WorkspaceContentView: View {
         .modifier(CloudPaneCreationFailurePresentation(
             failureStore: workspace.cloudPaneCreationFailureStore,
             isWorkspaceVisible: isWorkspaceVisible,
-            sourceView: workspace.cloudPaneCreationFailureSourceView
+            sourceView: workspace.cloudPaneCreationFailureSourceView,
+            onRecreate: { machine in workspace.recreateCloudMachine(machine) }
         ))
     }
     private func syncBonsplitNotificationBadges() {
@@ -444,7 +445,6 @@ struct WorkspaceContentView: View {
         let restoredUnread = workspace.restoredUnreadPanelIds
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
-
         for paneId in workspace.bonsplitController.allPaneIds {
             for tab in workspace.bonsplitController.tabs(inPane: paneId) {
                 let panelId = workspace.panelIdFromSurfaceId(tab.id)

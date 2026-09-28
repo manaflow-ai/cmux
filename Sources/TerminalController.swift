@@ -3896,7 +3896,7 @@ class TerminalController {
                 // `cmux auth login` alone would short-circuit on "already
                 // signed in" — the fix is sign out, then sign in.
                 let message: String
-                if case .httpStatus = vmError {
+                if vmError.cloudHTTPError != nil {
                     message = String(
                         localized: "socket.cloudVM.sessionRejected",
                         defaultValue: "The cmux Cloud service rejected this session. Run `cmux auth logout`, then `cmux auth login`, and retry."
@@ -3961,23 +3961,13 @@ class TerminalController {
     /// Backend error metadata passthrough so the CLI can make compatibility
     /// decisions structurally instead of parsing formatted display text.
     private nonisolated static func cloudVMBackendErrorData(_ error: Error) -> [String: Any]? {
-        guard case let VMClientError.httpStatus(status, body) = error else {
-            return nil
-        }
-        var payload: [String: Any] = ["http_status": status]
-        let object = body.data(using: .utf8)
-            .flatMap { try? JSONSerialization.jsonObject(with: $0, options: []) as? [String: Any] }
-        if let code = object?["error"] as? String, !code.isEmpty {
-            payload["backend_code"] = code
-        }
-        if let retryable = object?["retryable"] as? Bool {
-            payload["retryable"] = retryable
-        }
-        // The server trace id (support reference) travels with the structured
-        // error so the CLI and scripts can log it without parsing display text.
-        if let traceID = object?["traceId"] as? String, !traceID.isEmpty {
-            payload["trace_id"] = traceID
-        }
+        guard let typed = (error as? VMClientError)?.cloudHTTPError else { return nil }
+        var payload: [String: Any] = ["http_status": typed.status]
+        if !typed.code.isEmpty { payload["backend_code"] = typed.code }
+        payload["retryable"] = typed.retryable
+        if let retryAfter = typed.retryAfterSeconds { payload["retry_after_seconds"] = retryAfter }
+        if let phase = typed.phase { payload["phase"] = phase }
+        if let traceID = typed.traceId, !traceID.isEmpty { payload["trace_id"] = traceID }
         return payload
     }
 
@@ -4004,38 +3994,12 @@ class TerminalController {
         if let rejection = error as? SurfaceTransferRejection {
             return rejection.message
         }
-        guard case let VMClientError.httpStatus(status, body) = error else {
+        guard let typed = (error as? VMClientError)?.cloudHTTPError else {
             guard let vmError = error as? VMClientError else { return fallback }
             let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(String(describing: vmError))
             return safe.isEmpty || safe == CloudVMActionLauncher.hiddenOutputPlaceholder ? fallback : safe
         }
-        guard let data = body.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return formattedCloudVMHTTPError(status: status, body: "")
-        }
-        // Reuse the formatter's HTTP code and action copy, but pass only public
-        // fields. Provider details and unvalidated support references stay out.
-        var publicObject: [String: Any] = [:]
-        for key in ["error", "message", "reason", "action", "retryAfterSeconds"] {
-            publicObject[key] = object[key]
-        }
-        if let ui = object["ui"] as? [String: Any] {
-            var publicUI: [String: Any] = [:]
-            for key in ["title", "message", "retryAfterSeconds"] {
-                publicUI[key] = ui[key]
-            }
-            publicObject["ui"] = publicUI
-        }
-        let ui = object["ui"] as? [String: Any]
-        if let trace = (object["traceId"] as? String) ?? (ui?["traceId"] as? String),
-           trace.count == 32, trace.allSatisfy(\.isHexDigit) {
-            publicObject["traceId"] = trace
-        }
-        guard let publicData = try? JSONSerialization.data(withJSONObject: publicObject),
-              let publicBody = String(data: publicData, encoding: .utf8) else { return fallback }
-        let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(
-            formattedCloudVMHTTPError(status: status, body: publicBody)
-        )
+        let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(typed.displayText)
         return safe.isEmpty || safe == CloudVMActionLauncher.hiddenOutputPlaceholder ? fallback : safe
     }
 
@@ -4044,21 +4008,17 @@ class TerminalController {
         case .notSignedIn:
             return true
         case .httpStatus(let status, _):
-            return status == 401
+            return status == 401 || status == 403
+        case .typedHTTPStatus(let error):
+            return error.rejectsSession
         case .sessionRefreshFailed, .backendUnreachable, .malformedResponse, .lifecycleUnsupported, .disabledByManagedPolicy, .cloudMachinesDisabled:
             return false
         }
     }
 
     private nonisolated static func isCloudVMTransportUnsupportedError(_ error: VMClientError) -> Bool {
-        guard case let .httpStatus(status, body) = error, status == 501 else {
-            return false
-        }
-        guard let data = body.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
-            return false
-        }
-        return object["error"] as? String == "vm_attach_transport_unsupported"
+        guard let typed = error.cloudHTTPError, typed.status == 501 else { return false }
+        return typed.code == "vm_attach_transport_unsupported"
     }
 
     nonisolated func v2AsyncResultCall(

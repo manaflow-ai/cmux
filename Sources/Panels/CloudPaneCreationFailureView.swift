@@ -1,6 +1,7 @@
 import CmuxCloud
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxSurfaceCatalogModel
 import SwiftUI
 
 /// Mounts the latest cloud pane creation failure above one workspace's content.
@@ -8,6 +9,7 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
     let failureStore: CloudPaneCreationFailureStore
     var isWorkspaceVisible = true
     var sourceView: NSView?
+    var onRecreate: @MainActor (SurfaceMachineID) -> Void = { _ in }
     #if DEBUG
     @AppStorage("cloudPaneFailurePrototypeStyle") private var prototypeStyle = "compact-bordered"
     #endif
@@ -28,6 +30,7 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
                 sourceView: sourceView,
                 style: style,
                 onRetry: failureStore.canRetry ? { [weak failureStore] id in failureStore?.retry(id: id) } : nil,
+                onRecreate: onRecreate,
                 onDismiss: { [weak failureStore] id in failureStore?.dismiss(id: id) }
             )
         }
@@ -40,6 +43,7 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
         let sourceView: NSView?
         let style: CloudPaneCreationFailureView.Style
         let onRetry: ((UUID) -> Void)?
+        let onRecreate: @MainActor (SurfaceMachineID) -> Void
         let onDismiss: (UUID) -> Void
 
         func makeCoordinator() -> Coordinator { Coordinator() }
@@ -59,6 +63,7 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
                 sourceView: sourceView,
                 style: style,
                 onRetry: onRetry,
+                onRecreate: onRecreate,
                 onDismiss: onDismiss
             )
         }
@@ -115,6 +120,7 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
             private var failure: CloudPaneCreationFailure?
             private var onDismiss: ((UUID) -> Void)?
             private var onRetry: ((UUID) -> Void)?
+            private var onRecreate: (@MainActor (SurfaceMachineID) -> Void)?
             private var layoutDirection: LayoutDirection = .leftToRight
             private var colorScheme: ColorScheme = .light
             private var card: NSHostingView<AnyView>?
@@ -133,6 +139,7 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
                 sourceView: NSView?,
                 style: CloudPaneCreationFailureView.Style,
                 onRetry: ((UUID) -> Void)?,
+                onRecreate: @escaping @MainActor (SurfaceMachineID) -> Void,
                 onDismiss: @escaping (UUID) -> Void
             ) {
                 self.failure = failure
@@ -141,6 +148,7 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
                 self.sourceView = sourceView
                 self.style = style
                 self.onRetry = onRetry
+                self.onRecreate = onRecreate
                 self.onDismiss = onDismiss
                 synchronize()
             }
@@ -207,7 +215,8 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
                 let root = AnyView(
                     CloudPaneCreationFailureView(
                         failure: failure, style: style,
-                        onRetry: onRetry == nil ? nil : { [weak self] in self?.onRetry?(failure.id) },
+                        onRetry: onRetry == nil || failure.isRecreateRequired ? nil : { [weak self] in self?.onRetry?(failure.id) },
+                        onRecreate: failure.isRecreateRequired ? { [weak self] in self?.onRecreate?(failure.machine) } : nil,
                         onDismiss: { [weak self] in self?.onDismiss?(failure.id) }
                     )
                     .environment(\.layoutDirection, layoutDirection)
@@ -254,13 +263,14 @@ struct CloudPaneCreationFailureView: View {
     let failure: CloudPaneCreationFailure
     var style: Style = .compactBordered
     var onRetry: (() -> Void)? = nil
+    var onRecreate: (() -> Void)? = nil
     let onDismiss: () -> Void
 
     var body: some View {
         CloudFailureCard(
             title: failure.displayTitle, detail: failure.errorText,
             copyableText: failure.copyableText, style: style,
-            onRetry: onRetry, onDismiss: onDismiss
+            onRetry: onRetry, actionTitle: failure.primaryActionTitle, onRecreate: onRecreate, onDismiss: onDismiss
         )
     }
 }
@@ -274,6 +284,8 @@ struct CloudFailureCard: View {
     let copyableText: String
     var style: Style = .compactBordered
     var onRetry: (() -> Void)? = nil
+    var actionTitle: String? = nil
+    var onRecreate: (() -> Void)? = nil
     let onDismiss: () -> Void
 
     private var cornerRadius: CGFloat {
@@ -294,11 +306,17 @@ struct CloudFailureCard: View {
                 .frame(maxWidth: .infinity, alignment: style == .dialog ? .center : .leading)
                 .fixedSize(horizontal: false, vertical: true)
             if let onRetry {
-                Button(String(localized: "common.retry", defaultValue: "Retry"), action: onRetry)
+                Button(actionTitle ?? String(localized: "common.retry", defaultValue: "Retry"), action: onRetry)
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .fixedSize()
                     .accessibilityIdentifier("CloudPaneCreationFailureRetry")
+            } else if let onRecreate {
+                Button(actionTitle ?? String(localized: "cloudPane.recreate", defaultValue: "Recreate"), action: onRecreate)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .fixedSize()
+                    .accessibilityIdentifier("CloudPaneCreationFailureRecreate")
             }
         }
         .padding(12)
