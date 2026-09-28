@@ -195,6 +195,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_write_sidebar_extension_point.py
 
+      - name: Test btop agent sidebar example bounds
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_btop_agents_sidebar.py
+
       - name: Validate settings rows advertise supported cmux.json paths
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_settings_configuration_review_paths.py
