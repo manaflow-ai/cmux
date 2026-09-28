@@ -4,9 +4,10 @@ import Foundation
 /// Server-events lane writer over irx: opened lazily at priority 50, reset on
 /// stall so the host service can renegotiate, mirroring the legacy contract.
 ///
-/// When the phone negotiated surface lanes, each terminal's render-grid frames
-/// go on their own uni stream (``IrxSurfaceEventLanes``) instead of this
-/// shared lane, so a burst for one terminal cannot delay another's echo.
+/// Per-terminal surface lanes (``IrxSurfaceEventLanes``) are disabled: with
+/// more active terminals than the lane cap, lane churn exhausted the phone's
+/// uni-stream credit and stalled every terminal. All render-grid frames use
+/// this shared lane, and the host never grants surface lanes.
 actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
     private let connection: IrxConnection
     private let journal: IrxJournal
@@ -22,7 +23,7 @@ actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
     ) {
         self.connection = connection
         self.journal = journal
-        maximumSurfaceEventLaneCount = surfaceLaneConfiguration.maximumLaneCount
+        maximumSurfaceEventLaneCount = 0
         surfaceLanes = IrxSurfaceEventLanes(
             configuration: surfaceLaneConfiguration,
             journal: journal,
