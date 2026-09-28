@@ -23,7 +23,9 @@ final class CloudCreateTeamSheetPresenter {
                 return
             }
             // The sheet went away without Cancel or Create, for example with
-            // its host window. Start over instead of raising a hidden window.
+            // its host window. Start over instead of raising a hidden window,
+            // and order the old one out so it cannot come back beside the new.
+            sheetWindow.orderOut(nil)
             reset()
         }
         let sessionID = UUID()
