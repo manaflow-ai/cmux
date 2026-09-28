@@ -1,5 +1,6 @@
 import Testing
 import AppKit
+import Combine
 import CmuxNotifications
 import CmuxUpdater
 import CoreGraphics
@@ -398,6 +399,20 @@ final class WorkspaceContentViewVisibilityTests {
         unaffectedWorkspaceCell.applyModelProbeForTesting = { _ in
             unaffectedApplyCount += 1
         }
+        // If a background workspace publication enters the measurement, retain
+        // its synchronous publisher stack so the failure identifies the owner
+        // instead of suggesting that the quiet-drain timeout should be raised.
+        var workspacePublicationStacks: [String] = []
+        let workspacePublications = tabManager.tabs.map { workspace in
+            let id = workspace.id
+            return workspace.objectWillChange.sink {
+                guard counts.isMeasuringInvalidations else { return }
+                workspacePublicationStacks.append(
+                    "Workspace \(id):\n" + Thread.callStackSymbols.prefix(48).joined(separator: "\n")
+                )
+            }
+        }
+        defer { workspacePublications.forEach { $0.cancel() } }
         counts.reset()
         counts.isMeasuringInvalidations = true
         defer { counts.isMeasuringInvalidations = false }
@@ -425,7 +440,7 @@ final class WorkspaceContentViewVisibilityTests {
         )
         #expect(
             counts.workspaceContentBody == 0,
-            "Unread changes must not rebuild terminal or browser content."
+            "Unread changes must not rebuild terminal or browser content. Publications: \(workspacePublicationStacks.joined(separator: "\n\n"))"
         )
         #expect(
             counts.verticalTabsSidebarBody == 0,
