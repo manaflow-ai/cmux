@@ -1599,8 +1599,9 @@ jobs:
     # admission's uploaded products there, as after an owned admission. Any
     # failure outputs {} and leaves every job where the picker put it.
     # It also moves owned gui-token jobs to pr_retry_runner (Blacksmith) when
-    # the gui runners' queue is more than a round long (late_placement.py
-    # "Overflow off a full gui pool"), so it runs after an owned admission too.
+    # the gui runners' queue is more than a round long and Blacksmith's queue
+    # would start them sooner (late_placement.py "Overflow off a full gui
+    # pool"), so it runs after an owned admission too.
     # Pull requests only: main's full-suite dispatch already runs on the owned
     # pools and keeps CI_OWNED_MAIN_RESERVE's machines for pull requests.
     needs:
@@ -1634,7 +1635,7 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
-          # The gui backlog: the jobs of in-flight CI runs (late_placement.gui_backlog()).
+          # The gui and Blacksmith backlogs: the jobs of in-flight CI runs (late_placement.gui_backlog()).
           permission-actions: read
       # All or nothing: without the org permission granted, the repository one alone.
       - name: Mint the routing token without the org permission
