@@ -7,6 +7,9 @@ extension AgentJournalLifecycleCenter {
     struct LifecycleApplication: Sendable {
         let assignment: AgentLifecycleAssignment
         let workspaceHint: String?
+        /// The meaningful transition this live event caused, if any. Drives
+        /// agent-activity sidebar ordering; startup replay never sets it.
+        let activity: AgentLifecycleActivity?
     }
 
     static func reduceIngest(
@@ -17,6 +20,9 @@ extension AgentJournalLifecycleCenter {
     ) -> LifecycleApplication? {
         guard event.kind != .messagePublished else { return nil }
         let canonical = canonicalized(event, aliases: aliases)
+        let previousPhase = canonical.draft.surfaceId.flatMap {
+            state.combinedPhase(surfaceId: $0, agentKey: canonical.agentKey)
+        }
         reducer.apply(canonical, to: &state)
         guard canonical.draft.unattributedReason == nil else {
             publishUnattributedDiagnostic(canonical)
@@ -27,13 +33,15 @@ extension AgentJournalLifecycleCenter {
             return nil
         }
         guard !canonical.draft.isSubagent else { return nil }
+        let phase = state.combinedPhase(surfaceId: surfaceId, agentKey: canonical.agentKey)
         return LifecycleApplication(
             assignment: AgentLifecycleAssignment(
                 surfaceId: surfaceId,
                 agentKey: canonical.agentKey,
-                phase: state.combinedPhase(surfaceId: surfaceId, agentKey: canonical.agentKey)
+                phase: phase
             ),
-            workspaceHint: canonical.draft.workspaceId
+            workspaceHint: canonical.draft.workspaceId,
+            activity: AgentLifecycleActivity.classify(event: canonical.kind, from: previousPhase, to: phase)
         )
     }
 
@@ -160,7 +168,11 @@ extension AgentJournalLifecycleCenter {
     }
 
     @MainActor
-    static func apply(_ assignment: AgentLifecycleAssignment, workspaceHint: String?) {
+    static func apply(
+        _ assignment: AgentLifecycleAssignment,
+        workspaceHint: String?,
+        activity: AgentLifecycleActivity? = nil
+    ) {
         guard AgentHibernationLifecycleStatusKeys.isAllowed(assignment.agentKey) else { return }
         guard let panelId = UUID(uuidString: assignment.surfaceId) else { return }
         let owner: ControlSidebarPanelOwner?
@@ -200,6 +212,9 @@ extension AgentJournalLifecycleCenter {
             )
         } else {
             owner.clearAgentLifecycle(key: assignment.agentKey, panelId: panelId)
+        }
+        if let activity, case .workspace(let workspace) = owner {
+            WorkspaceActivityReorderController.shared.agentActivity(activity, workspaceId: workspace.id)
         }
 #if DEBUG
         cmuxDebugLog(

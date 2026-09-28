@@ -52,6 +52,7 @@ A tour is a steps array, or an object with `steps` and an optional `launch`:
 | `{"clickAt": {"x": 0.1, "y": 0.2}}`, `hoverAt` | Acts on a point in the main window, 0 to 1 from the top left. |
 | `{"menu": ["File", "New Workspace"]}` | Clicks through the menu bar. |
 | `{"socket": "method", "params": {...}, "save": "name"}` | A v2 control socket request. The reply is attached; `save` keeps its `result`, and a later param `"${name.workspace_id}"` reads a field from it. |
+| `{"socketLine": "agent_journal_append {...}"}` | One raw v1 socket line, for verbs with no v2 method. Every `${name.path}` inside it is replaced with a saved value; numeric path parts index arrays (`${ws.surfaces.0.id}`). A reply starting with `ERROR` fails the step. |
 | `{"expect": target, "exists": false}` | Checks that an element exists (or not). |
 
 A target is an accessibility identifier string, or an object with `id`,

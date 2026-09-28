@@ -1552,7 +1552,7 @@ final class TerminalNotificationStore: ObservableObject {
             "notification.store.effectsOnly workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
         )
 #endif
-        effects.applySidebarOrdering(defaults: .standard) {
+        effects.applySidebarOrdering(defaults: .standard, workspaceId: notification.tabId) { [self] in
             reorderSidebars(for: notification)
         }
         if hasAnyNotificationEffect(effects) {
@@ -1598,7 +1598,7 @@ final class TerminalNotificationStore: ObservableObject {
             setFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
         }
 
-        effects.applySidebarOrdering(defaults: .standard) {
+        effects.applySidebarOrdering(defaults: .standard, workspaceId: notification.tabId) { [self] in
             reorderSidebars(for: notification)
         }
 
