@@ -175,7 +175,7 @@ struct RemoteRelayAgentHookPolicyTests {
 
     /// Out-of-bounds or mistyped resume binding fields are denied.
     @Test("out-of-bounds resume binding fields are denied", arguments: [
-        "relative", "control", "long-cwd", "cwd-type", "cwd-backslash-quote", "cwd-substitution", "cwd-bidi", "word-c1",
+        "relative", "control", "long-cwd", "cwd-type", "cwd-shell-punctuation", "cwd-backslash", "cwd-single-quote", "cwd-substitution", "cwd-bidi", "word-c1",
         "too-many-ancestors", "too-many-words", "long-word", "total-bytes", "empty-ancestor", "word-type", "flat",
     ])
     func outOfBoundsResumeBindingFieldsAreDenied(shape: String) throws {
@@ -186,7 +186,9 @@ struct RemoteRelayAgentHookPolicyTests {
         case "long-cwd": ("remote_cwd", "/" + String(repeating: "x", count: 1_024))
         case "cwd-type": ("remote_cwd", 7)
         // Typed into a remote shell of unknown dialect: fish reads \' inside single quotes.
-        case "cwd-backslash-quote": ("remote_cwd", "/tmp/;id;#\\")
+        case "cwd-shell-punctuation": ("remote_cwd", "/tmp/;id;#")
+        case "cwd-backslash": ("remote_cwd", "/tmp/a\\b")
+        case "cwd-single-quote": ("remote_cwd", "/tmp/a'b")
         case "cwd-substitution": ("remote_cwd", "/tmp/$(id)")
         case "cwd-bidi": ("remote_cwd", "/tmp/a\u{202E}b")
         case "word-c1": ("ancestor_executables", [["env", "llm\u{85}gw"]])

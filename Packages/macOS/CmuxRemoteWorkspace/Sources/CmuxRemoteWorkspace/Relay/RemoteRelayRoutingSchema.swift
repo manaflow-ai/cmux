@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 /// Closed parameter contracts for the methods intentionally exposed to a relay.
@@ -93,62 +94,16 @@ struct RemoteRelayRoutingSchema {
         return nil
     }
 
-    // Mirrors `RelayAgentResumeContext` in CMUXAgentLaunch, which the CLI
-    // re-checks after admission; this package does not depend on it.
-    static let maximumRelayRemoteWorkingDirectoryBytes = 1_024
-    static let maximumRelayAncestors = 8
-    static let maximumRelayAncestorWords = 6
-    static let maximumRelayAncestorWordBytes = 128
-    static let maximumRelayAncestorBytes = 2_048
-
-    /// Punctuation a relayed remote directory may use besides letters, digits, and marks. The
-    /// Mac types the path into a remote shell whose dialect it cannot see, so quotes,
-    /// backslashes, and shell metacharacters are refused rather than escaped.
-    static let relayRemoteWorkingDirectoryPunctuation = " /._-+,@:=~%"
-
-    /// An absolute remote path within bounds that uses only letters, digits, marks, and
-    /// ``relayRemoteWorkingDirectoryPunctuation``.
+    /// An admissible relayed remote directory. The rule lives in
+    /// `RelayAgentResumeContext`, which the CLI applies again after admission,
+    /// so the relay gate and the binding builder cannot drift apart.
     static func isAdmissibleRelayRemoteWorkingDirectory(_ value: String) -> Bool {
-        value.hasPrefix("/") && value.utf8.count <= maximumRelayRemoteWorkingDirectoryBytes
-            && value.unicodeScalars.allSatisfy { scalar in
-                CharacterSet.alphanumerics.contains(scalar)
-                    || relayRemoteWorkingDirectoryPunctuation.unicodeScalars.contains(scalar)
-            }
+        RelayAgentResumeContext.isAdmissibleWorkingDirectory(value)
     }
 
-    /// Ancestor argv words within the relay bounds: at most 8 ancestors of 1 to 6
-    /// words, 128 bytes per word, 2 KiB in total, no control characters.
+    /// Ancestor argv words within the shared relay bounds, or `nil`.
     static func admissibleRelayAncestorExecutables(_ value: Any) -> [[String]]? {
-        guard let ancestors = value as? [Any], ancestors.count <= maximumRelayAncestors else { return nil }
-        var total = 0
-        var result: [[String]] = []
-        for ancestor in ancestors {
-            guard let words = ancestor as? [Any], !words.isEmpty,
-                  words.count <= maximumRelayAncestorWords else { return nil }
-            var admitted: [String] = []
-            for word in words {
-                guard let text = word as? String,
-                      text.utf8.count <= maximumRelayAncestorWordBytes,
-                      !containsControlCharacter(text) else { return nil }
-                total += text.utf8.count
-                admitted.append(text)
-            }
-            result.append(admitted)
-        }
-        return total <= maximumRelayAncestorBytes ? result : nil
-    }
-
-    /// Whether `value` holds a C0 or C1 control character, DEL, a line or paragraph separator, or
-    /// a bidirectional formatting character.
-    private static func containsControlCharacter(_ value: String) -> Bool {
-        value.unicodeScalars.contains { scalar in
-            switch scalar.value {
-            case 0..<0x20, 0x7F...0x9F, 0x200E, 0x200F, 0x2028, 0x2029, 0x202A...0x202E, 0x2066...0x2069:
-                return true
-            default:
-                return false
-            }
-        }
+        RelayAgentResumeContext.admissibleAncestorExecutables(value)
     }
 
     /// Returns the first parameter outside the method's reviewed contract, or
