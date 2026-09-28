@@ -18,6 +18,14 @@ import SwiftUI
 final class GhosttyConfigDiagnosticsNoticePresenter {
     static let autoDismissDelay: Duration = .seconds(20)
 
+    /// Height of the chrome cmux draws above the workspace content, used to
+    /// place the card just under it. Standard mode draws the app titlebar band
+    /// and the Bonsplit tab bar; minimal mode draws the tab bar only.
+    static func chromeHeight(isMinimalMode: Bool) -> CGFloat {
+        let tabBar = WindowChromeMetrics.bonsplitTabBarHeight
+        return isMinimalMode ? tabBar : WindowChromeMetrics.appTitlebarHeight + tabBar
+    }
+
     private var policy = GhosttyConfigDiagnosticsNoticePolicy()
     private var panel: NSPanel?
     private var pendingNotice: GhosttyConfigDiagnosticsNotice?
@@ -102,7 +110,10 @@ final class GhosttyConfigDiagnosticsNoticePresenter {
         // from the window top with cmux's chrome heights: the native titlebar
         // behind contentLayoutRect is taller than the titlebar cmux draws.
         let inset: CGFloat = 12
-        let chromeHeight = WindowChromeMetrics.appTitlebarHeight + WindowChromeMetrics.bonsplitTabBarHeight
+        // Minimal mode does not draw the app titlebar band at all
+        // (WorkspaceTitlebarModeLayer renders it only when the mode is not
+        // minimal), so the tab bar is the only chrome above the content there.
+        let chromeHeight = Self.chromeHeight(isMinimalMode: WorkspacePresentationModeSettings.isMinimal())
         let originInWindow = NSPoint(
             x: host.frame.width - size.width - inset,
             y: host.frame.height - chromeHeight - size.height - inset
