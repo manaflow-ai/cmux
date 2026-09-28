@@ -847,7 +847,7 @@ extension CMUXCLI {
         guard let raw = environment["CMUX_VM_WAIT_POLL_SECONDS"],
               let parsed = TimeInterval(raw),
               parsed.isFinite,
-              parsed > 0,
+              parsed >= 0.01,
               parsed <= 3 else {
             return 3
         }
