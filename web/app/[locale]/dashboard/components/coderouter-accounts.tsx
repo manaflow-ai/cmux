@@ -684,7 +684,7 @@ function NativeAccountActions({
 
 export type TransferRequestResult =
   | { readonly ok: true }
-  | { readonly ok: false; readonly status: number | null };
+  | { readonly ok: false; readonly status: number | null; readonly error: string | null };
 
 /** Moves one native account from `teamId` to `destinationTeamId`. */
 export async function requestNativeAccountTransfer(
@@ -698,9 +698,20 @@ export async function requestNativeAccountTransfer(
       body: JSON.stringify({ destinationTeamId: input.destinationTeamId }),
       signal: AbortSignal.timeout(API_KEY_REQUEST_TIMEOUT_MS),
     });
-    return response.ok ? { ok: true } : { ok: false, status: response.status };
+    if (response.ok) return { ok: true };
+    return { ok: false, status: response.status, error: await responseErrorCode(response) };
   } catch {
-    return { ok: false, status: null };
+    return { ok: false, status: null, error: null };
+  }
+}
+
+async function responseErrorCode(response: Response): Promise<string | null> {
+  try {
+    const body: unknown = await response.json();
+    const error = typeof body === "object" && body !== null ? (body as { error?: unknown }).error : undefined;
+    return typeof error === "string" ? error : null;
+  } catch {
+    return null;
   }
 }
 
@@ -712,9 +723,16 @@ const TRANSFER_ERROR_KEYS = {
   503: "transferUnavailableError",
 } as const;
 
-function transferErrorMessage(status: number | null, t: Translator): string {
+/** Message key for a failed transfer. The route answers 403 "forbidden" when
+ * the viewer can no longer manage the source team, and 403
+ * "destination_forbidden" when the destination refuses the account. */
+export function transferErrorKey(
+  status: number | null,
+  error: string | null,
+): "teamAccessError" | "transferError" | (typeof TRANSFER_ERROR_KEYS)[keyof typeof TRANSFER_ERROR_KEYS] {
+  if (status === 403 && error === "forbidden") return "teamAccessError";
   const key = status === null ? undefined : TRANSFER_ERROR_KEYS[status as keyof typeof TRANSFER_ERROR_KEYS];
-  return t(key ?? "transferError");
+  return key ?? "transferError";
 }
 
 function NativeAccountTransfer({
@@ -749,7 +767,7 @@ function NativeAccountTransfer({
     setStatus({ state: "submitting" });
     const result = await requestNativeAccountTransfer({ teamId, accountId, destinationTeamId: destination.id });
     if (!result.ok) {
-      setStatus({ state: "error", message: transferErrorMessage(result.status, t) });
+      setStatus({ state: "error", message: t(transferErrorKey(result.status, result.error)) });
       return;
     }
     setOpen(false);

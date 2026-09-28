@@ -1341,6 +1341,7 @@ class PerJobPlacement(unittest.TestCase):
 
 ROOT_MINI = "glaeda-root-std-xcode-26.6"
 SIDE_MINI = "glaeda-side-std-xcode-26.6"
+GUI_MINI = "glaeda-gui-std-xcode-26.6"
 
 
 class QueueBehindBusyRunners(unittest.TestCase):
@@ -3424,6 +3425,45 @@ class LiveIdleRunners(unittest.TestCase):
         self.assertEqual((live.runner, live.root_runner, live.owned_budget), (MINI, ROOT_MINI, 10))
         self.assertGreaterEqual(live.root_budget, 9)
         self.assertIn("0 of 19 root runners free", live.reason)
+
+    def test_newer_runs_hold_one_root_runner_each_with_gui_runners(self):
+        # The shape of run 36371179217 (2026-09-28): 15 root runners online and
+        # 12 busy, 2 runs replayed and 3 newer runs with a 32-machine peak on
+        # std. Charging that whole peak to the root runners left 0 for the
+        # run, so its admission went to Blacksmith. With gui runners each
+        # newer run holds one root runner, its admission.
+        routed = pool.Routed(unknown=2, owned={MINI: 32}, owned_now={MINI: 9}, owned_runs={MINI: 3},
+                             live_now={MINI: 9}, live_runs={MINI: 3}, live_unknown=2)
+        kwargs = dict(machines=29, jobs=10, root_jobs=1, queue_rounds="2", split="1", routed=routed,
+                      live_owned={MINI: 3, ROOT_MINI: 3}, live_online={MINI: 29, ROOT_MINI: 15})
+        fixed = owned_choice(fleet(busy=26), owned_slots=json.dumps({MINI: 29, ROOT_MINI: 19, GUI_MINI: 10}),
+                             **kwargs)
+        self.assertEqual((fixed.runner, fixed.root_runner), (MINI, ROOT_MINI))
+        self.assertGreaterEqual(fixed.root_budget, 1)
+        # Its admission is placed owned.
+        self.assertIn("admission", pool.place(pool.FULL_RUN, fixed.owned_budget, root_budget=fixed.root_budget,
+                                              gui_runners=True)[0])
+        # Without gui runners on std (another pool's gui count does not count), a newer
+        # run's shards take root runners too: its whole peak is charged.
+        whole = owned_choice(fleet(busy=26), owned_slots=json.dumps({MINI: 29, ROOT_MINI: 19, LIGHT: 4,
+                                                                     "glaeda-gui-light-xcode-26.6": 4}), **kwargs)
+        self.assertEqual((whole.runner, whole.root_runner, whole.root_budget), (MINI, ROOT_MINI, 0))
+        self.assertIn("0 of 15 root runners free", whole.reason)
+
+    def test_decide_charges_the_root_runners_newer_runs_hold(self):
+        # Without `root_since` the root runners are charged the newer runs'
+        # machines; with it, only the root runners they hold.
+        snap = fleet(busy=0)
+        snap["pools"][ROOT_MINI] = {"queued": 0, "running": 0}
+        slots = {MINI: 11, ROOT_MINI: 10}
+        settings = pool.settings("", "", "", "1", PR_XCODE, "1")
+        peak = pool.decide(snap, settings, now=NOW, xcode_pins=OWNED_PINS, owned_slots=slots, jobs=1,
+                           root_jobs=1, owned_since={MINI: 4}, owned_now={MINI: 4})
+        runs = pool.decide(snap, settings, now=NOW, xcode_pins=OWNED_PINS, owned_slots=slots, jobs=1,
+                           root_jobs=1, owned_since={MINI: 4}, owned_now={MINI: 4},
+                           root_since={MINI: 1}, root_now={MINI: 1})
+        self.assertIn("6 of 10 root runners free", peak.reason)
+        self.assertIn("9 of 10 root runners free", runs.reason)
 
     def test_a_failed_snapshot_download_leaves_the_owned_pools_to_the_live_runners(self):
         windows = []
