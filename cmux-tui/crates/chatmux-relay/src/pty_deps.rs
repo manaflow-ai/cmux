@@ -110,6 +110,30 @@ fn session_socket_path(socket_dir: &Path, uid: u32, session: &str) -> Result<Pat
     Ok(Path::new("/tmp").join(format!("cmux-tui-hashed-{uid}")).join(format!("{digest}.sock")))
 }
 
+/// Resolve a session socket and prepare the directories it depends on.
+async fn prepare_session_socket(
+    socket_dir: &Path,
+    uid: u32,
+    session: &str,
+) -> Result<PathBuf, String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    tokio::fs::create_dir_all(socket_dir)
+        .await
+        .map_err(|error| format!("control socket directory create failed: {error}"))?;
+    let metadata = tokio::fs::metadata(socket_dir)
+        .await
+        .map_err(|error| format!("control socket directory stat failed: {error}"))?;
+    if !metadata.is_dir() || metadata.uid() != uid {
+        return Err(format!("control socket directory is not owned by uid {uid}"));
+    }
+    let mut permissions = metadata.permissions();
+    permissions.set_mode(0o700);
+    tokio::fs::set_permissions(socket_dir, permissions)
+        .await
+        .map_err(|error| format!("control socket directory permissions failed: {error}"))?;
+    session_socket_path(socket_dir, uid, session)
+}
+
 fn unix_socket_path_fits(path: &Path) -> bool {
     use std::os::unix::ffi::OsStrExt;
 
@@ -916,22 +940,7 @@ impl PtyDeps for RealPtyDeps {
         cwd: &ResolvedCwd,
         env: &HashMap<String, String>,
     ) -> Result<EnsureDaemon, String> {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        tokio::fs::create_dir_all(socket_dir)
-            .await
-            .map_err(|error| format!("control socket directory create failed: {error}"))?;
-        let metadata = tokio::fs::metadata(socket_dir)
-            .await
-            .map_err(|error| format!("control socket directory stat failed: {error}"))?;
-        if !metadata.is_dir() || metadata.uid() != self.uid {
-            return Err(format!("control socket directory is not owned by uid {}", self.uid));
-        }
-        let mut permissions = metadata.permissions();
-        permissions.set_mode(0o700);
-        tokio::fs::set_permissions(socket_dir, permissions)
-            .await
-            .map_err(|error| format!("control socket directory permissions failed: {error}"))?;
-        let socket_path = session_socket_path(socket_dir, self.uid, session)?;
+        let socket_path = prepare_session_socket(socket_dir, self.uid, session).await?;
         if socket_exists(&socket_path).await {
             let ready = match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
                 Ok(control) => control_ready(&control, session).await,
@@ -1109,6 +1118,44 @@ mod tests {
         let fallback = session_socket_path(&long_dir, 501, &session).unwrap();
         assert!(fallback.starts_with("/tmp/cmux-tui-hashed-501/"));
         assert!(unix_socket_path_fits(&fallback));
+    }
+
+    #[tokio::test]
+    async fn private_session_socket_refuses_a_shared_fallback_parent() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        // SAFETY: getuid is always safe.
+        let uid = unsafe { libc::getuid() };
+        // A short base keeps the hashed fallback below it within sun_path,
+        // while this session name is too long for the preferred and /tmp
+        // leaves. The test never touches the real /tmp/cmux-tui-<uid>.
+        let base = PathBuf::from(format!("/tmp/r{}", std::process::id()));
+        let _ = tokio::fs::remove_dir_all(&base).await;
+        tokio::fs::create_dir(&base).await.unwrap();
+        let socket_dir = base.join(format!("cmux-tui-{uid}"));
+        let hashed_dir = base.join(format!("cmux-tui-hashed-{uid}"));
+        let elsewhere = base.join("elsewhere");
+        tokio::fs::create_dir(&elsewhere).await.unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &hashed_dir).unwrap();
+        let session = "s".repeat(110);
+
+        let error = prepare_session_socket(&socket_dir, uid, &session)
+            .await
+            .expect_err("a symlinked fallback directory is refused");
+        assert!(error.contains("not owned"), "{error}");
+
+        tokio::fs::remove_file(&hashed_dir).await.unwrap();
+        tokio::fs::create_dir(&hashed_dir).await.unwrap();
+        tokio::fs::set_permissions(&hashed_dir, std::fs::Permissions::from_mode(0o777))
+            .await
+            .unwrap();
+        let socket_path = prepare_session_socket(&socket_dir, uid, &session)
+            .await
+            .expect("an own fallback directory is made private");
+        assert_eq!(socket_path.parent(), Some(hashed_dir.as_path()));
+        let mode = tokio::fs::symlink_metadata(&hashed_dir).await.unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+        let _ = tokio::fs::remove_dir_all(&base).await;
     }
 
     #[test]
