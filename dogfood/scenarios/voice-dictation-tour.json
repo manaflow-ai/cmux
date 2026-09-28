@@ -33,7 +33,7 @@
     {"shot": "text-after-palette"},
     {"key": ",", "modifiers": ["command"]},
     {"wait": 1.5},
-    {"type": "voice"},
+    {"click": {"label": "Voice", "type": "staticText"}},
     {"wait": 1},
     {"shot": "settings-voice"},
     {"tree": "settings-voice"},
