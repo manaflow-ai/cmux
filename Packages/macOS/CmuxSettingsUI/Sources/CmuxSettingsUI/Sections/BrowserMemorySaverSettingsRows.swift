@@ -5,7 +5,8 @@ import SwiftUI
 
 /// Browser Memory Saver rows in Settings > Browser: the on/off toggle, how
 /// hidden tabs are picked (memory budget or timer), the hidden tab memory
-/// budget, and the delay before a hidden tab may be freed.
+/// budget, the delay before a hidden tab may be freed, and whether a freed
+/// tab restores on its own when shown.
 @MainActor
 struct BrowserMemorySaverSettingsRows: View {
     let controlWidth: CGFloat
@@ -14,6 +15,7 @@ struct BrowserMemorySaverSettingsRows: View {
     @LiveSetting(\.browser.hiddenWebViewDiscardMode) private var mode
     @LiveSetting(\.browser.hiddenWebViewMemoryBudgetMB) private var memoryBudgetMB
     @LiveSetting(\.browser.hiddenWebViewDiscardDelaySeconds) private var delay
+    @LiveSetting(\.browser.autoRestoreUnloadedPages) private var autoRestore
 
     var body: some View {
         SettingsCardRow(
@@ -81,6 +83,18 @@ struct BrowserMemorySaverSettingsRows: View {
             }
             .disabled(!enabled)
             .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardDelayStepper")
+        }
+        SettingsCardDivider()
+
+        SettingsCardRow(
+            configurationReview: .json("browser.autoRestoreUnloadedPages"),
+            String(localized: "settings.browser.autoRestoreUnloadedPages", defaultValue: "Restore Unloaded Pages Automatically"),
+            subtitle: String(localized: "settings.browser.autoRestoreUnloadedPages.subtitle", defaultValue: "Brings back an unloaded page as soon as its tab is shown. When off, the tab shows the page's last snapshot until you click Restore.")
+        ) {
+            Toggle("", isOn: $autoRestore)
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBrowserAutoRestoreUnloadedPagesToggle")
         }
     }
 

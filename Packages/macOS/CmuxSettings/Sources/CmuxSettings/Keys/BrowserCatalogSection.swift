@@ -65,6 +65,14 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserHiddenWebViewMemoryBudgetMB"
     )
 
+    /// Whether a page unloaded to save memory restores as soon as its pane
+    /// is shown. When off, the pane waits for the user to restore it.
+    public let autoRestoreUnloadedPages = DefaultsKey<Bool>(
+        id: "browser.autoRestoreUnloadedPages",
+        defaultValue: true,
+        userDefaultsKey: "browserAutoRestoreUnloadedPages"
+    )
+
     /// Shows a save panel for each browser download instead of saving directly
     /// to the user's Downloads folder.
     public let askWhereToSaveDownloads = DefaultsKey<Bool>(

@@ -264,8 +264,53 @@ extension BrowserPanel {
                         token: token,
                         image: BrowserPageSnapshotImage(jpegData: encoded, pointSize: pointSize)
                     )
+                    // The unloaded-page placeholder may already be showing without it.
+                    if self.showsUnloadedPagePlaceholder {
+                        self.objectWillChange.send()
+                    }
                 }
             }
+        }
+    }
+
+    /// Whether the pane shows the unloaded-page placeholder: its page was
+    /// unloaded to save memory and waits for the user to restore it.
+    var showsUnloadedPagePlaceholder: Bool {
+        webViewLifecycleState == .discarded && hiddenWebViewDiscardManager.waitsForManualRestore
+    }
+
+    /// What the pane asks the user to do before its page comes back, if anything.
+    var pageRecoveryPrompt: BrowserPageRecoveryPrompt? {
+        if shouldRenderWebView, hasRecoverableWebContentTermination {
+            return .crashed
+        }
+        guard showsUnloadedPagePlaceholder else { return nil }
+        return .unloaded(snapshot: pageRestoration.discardedCapture?.snapshot)
+    }
+
+    func performPageRecovery(_ prompt: BrowserPageRecoveryPrompt) {
+        switch prompt {
+        case .crashed:
+            recoverTerminatedWebContent(reason: "overlayButton")
+        case .unloaded:
+            restoreUnloadedPage()
+        }
+    }
+
+    /// Restores a page left unloaded for the user, with its history, scroll
+    /// position and typed input.
+    func restoreUnloadedPage() {
+        restoreDiscardedWebViewIfNeeded(reason: "manual_restore")
+    }
+
+    /// Refreshes the placeholder after the automatic restore setting or the
+    /// keep-active pin changes, and restores a shown page that no longer
+    /// waits for the user.
+    func noteUnloadedPageRestorePolicyChanged() {
+        guard hiddenWebViewDiscardManager.isDiscardedForMemory else { return }
+        objectWillChange.send()
+        if isWebViewVisibleInUI {
+            restoreDiscardedWebViewIfNeeded(reason: "policy_changed", trigger: .paneShown)
         }
     }
 

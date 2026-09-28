@@ -145,6 +145,7 @@ extension CmuxSettingsFileStore {
         "browser.hiddenWebViewDiscardMode",
         "browser.hiddenWebViewMemoryBudgetMB",
         "browser.hiddenWebViewDiscardDelaySeconds",
+        "browser.autoRestoreUnloadedPages",
         "browser.askWhereToSaveDownloads",
         "browser.openTerminalLinksInCmuxBrowser",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",

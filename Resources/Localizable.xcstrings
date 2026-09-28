@@ -563657,6 +563657,301 @@
           }
         }
       }
+    },
+    "browser.discard.unloadedMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This page was unloaded to save memory."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Seite wurde entladen, um Arbeitsspeicher zu sparen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette page a été déchargée pour économiser de la mémoire."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إلغاء تحميل هذه الصفحة لتوفير الذاكرة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta página se descargó para ahorrar memoria."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已卸載此網頁以節省記憶體。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已卸载此页面以节省内存。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모리를 절약하기 위해 이 페이지를 언로드했습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリを節約するため、このページはアンロードされました。"
+          }
+        }
+      }
+    },
+    "browser.discard.restore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiederherstellen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استعادة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還原"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복원"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元"
+          }
+        }
+      }
+    },
+    "settings.browser.autoRestoreUnloadedPages": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Unloaded Pages Automatically"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entladene Seiten automatisch wiederherstellen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer automatiquement les pages déchargées"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استعادة الصفحات التي أُلغي تحميلها تلقائيًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar automáticamente las páginas descargadas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動還原已卸載的網頁"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动恢复已卸载的页面"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "언로드된 페이지 자동 복원"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アンロードされたページを自動的に復元"
+          }
+        }
+      }
+    },
+    "settings.browser.autoRestoreUnloadedPages.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brings back an unloaded page as soon as its tab is shown. When off, the tab shows the page's last snapshot until you click Restore."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stellt eine entladene Seite wieder her, sobald ihr Tab angezeigt wird. Wenn deaktiviert, zeigt der Tab die letzte Momentaufnahme der Seite, bis Sie auf „Wiederherstellen“ klicken."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaure une page déchargée dès que son onglet est affiché. Si cette option est désactivée, l’onglet affiche le dernier aperçu de la page jusqu’à ce que vous cliquiez sur Restaurer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستعيد الصفحة التي أُلغي تحميلها بمجرد عرض علامة تبويبها. عند إيقاف هذا الخيار، تعرض علامة التبويب آخر لقطة للصفحة إلى أن تنقر على استعادة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recupera una página descargada en cuanto se muestra su pestaña. Si está desactivado, la pestaña muestra la última captura de la página hasta que hagas clic en Restaurar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標籤頁一顯示就還原已卸載的網頁。關閉時，標籤頁會顯示網頁的最後快照，直到你按一下「還原」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签页一显示就恢复已卸载的页面。关闭时，标签页会显示页面的最后快照，直到你点击“恢复”。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭이 표시되는 즉시 언로드된 페이지를 복원합니다. 끄면 복원을 클릭할 때까지 탭에 페이지의 마지막 스냅샷이 표시됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブが表示されるとすぐに、アンロードされたページを復元します。オフの場合、「復元」をクリックするまでタブにはページの最後のスナップショットが表示されます。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.browser.unloaded-page-auto-restore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoRestoreUnloadedPages restore reload unloaded discarded hidden tabs placeholder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoRestoreUnloadedPages wiederherstellen neu laden entladen verworfen ausgeblendete Tabs Platzhalter"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoRestoreUnloadedPages restaurer recharger déchargée supprimée onglets masqués espace réservé"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoRestoreUnloadedPages استعادة إعادة تحميل إلغاء التحميل مهملة علامات التبويب المخفية عنصر نائب"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoRestoreUnloadedPages restaurar recargar descargada descartada pestañas ocultas marcador de posición"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoRestoreUnloadedPages 還原 重新載入 已卸載 已捨棄 隱藏標籤頁 預留位置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoRestoreUnloadedPages 恢复 重新加载 已卸载 已丢弃 隐藏标签页 占位符"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoRestoreUnloadedPages 복원 새로고침 언로드 삭제됨 숨겨진 탭 자리 표시자"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoRestoreUnloadedPages 復元 再読み込み アンロード 破棄 非表示のタブ プレースホルダ"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

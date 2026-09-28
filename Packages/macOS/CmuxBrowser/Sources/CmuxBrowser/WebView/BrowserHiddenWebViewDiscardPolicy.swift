@@ -8,6 +8,7 @@ public enum BrowserHiddenWebViewDiscardPolicy {
         public let hiddenDelay: TimeInterval
         public let mode: BrowserHiddenWebViewDiscardMode
         public let memoryBudgetMB: Int
+        public let autoRestoresUnloadedPages: Bool
     }
 
     public static let enabledKey = "browserHiddenWebViewDiscardEnabled"
@@ -22,6 +23,8 @@ public enum BrowserHiddenWebViewDiscardPolicy {
     public static let defaultMemoryBudgetMB = 2048
     public static let minimumMemoryBudgetMB = 256
     public static let maximumMemoryBudgetMB = 65536
+    public static let autoRestoreKey = "browserAutoRestoreUnloadedPages"
+    public static let defaultAutoRestore = true
 
     public static var isEnabled: Bool {
         isEnabled(defaults: .standard)
@@ -36,7 +39,8 @@ public enum BrowserHiddenWebViewDiscardPolicy {
             isEnabled: isEnabled(defaults: defaults),
             hiddenDelay: hiddenDelay(defaults: defaults),
             mode: mode(defaults: defaults),
-            memoryBudgetMB: memoryBudgetMB(defaults: defaults)
+            memoryBudgetMB: memoryBudgetMB(defaults: defaults),
+            autoRestoresUnloadedPages: autoRestoresUnloadedPages(defaults: defaults)
         )
     }
 
@@ -115,5 +119,13 @@ public enum BrowserHiddenWebViewDiscardPolicy {
             return defaultMemoryBudgetMB
         }
         return storedValue
+    }
+
+    /// Whether an unloaded page restores as soon as its pane is shown. When
+    /// off, the pane shows a placeholder until the user restores it
+    /// (https://github.com/manaflow-ai/cmux/issues/9561).
+    public static func autoRestoresUnloadedPages(defaults: UserDefaults) -> Bool {
+        guard defaults.object(forKey: autoRestoreKey) != nil else { return defaultAutoRestore }
+        return defaults.bool(forKey: autoRestoreKey)
     }
 }

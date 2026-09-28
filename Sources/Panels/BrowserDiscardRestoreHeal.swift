@@ -49,6 +49,15 @@ extension BrowserPanel {
         return navigation === tracked
     }
 
+    /// What asked for a discarded page to come back.
+    enum DiscardRestoreTrigger {
+        /// The pane became visible. With automatic restore off, the page
+        /// waits for the user instead.
+        case paneShown
+        /// The user or an automation needs the page now.
+        case explicitRequest
+    }
+
     /// Restore touch for a possibly-discarded pane: detects stalled restore
     /// attempts, honors an explicit user Stop, restores through the discard
     /// manager (a pane whose process died while hidden restores the same
@@ -56,6 +65,7 @@ extension BrowserPanel {
     @discardableResult
     func restoreDiscardedWebViewIfNeeded(
         reason: String,
+        trigger: DiscardRestoreTrigger = .explicitRequest,
         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy,
         allowBlankShellHeal: Bool = true,
         forceRestartPendingRestore: Bool = false
@@ -89,6 +99,9 @@ extension BrowserPanel {
         let restoreURL = restoredHistoryCurrentURL ?? currentURL
         guard let restoreURL, !Self.isAboutBlankURL(restoreURL) else {
             return reactivateDiscardedPaneWithoutRestorableURL(reason: reason)
+        }
+        if trigger == .paneShown, hiddenWebViewDiscardManager.waitsForManualRestore {
+            return false
         }
 
         if hiddenWebViewDiscardManager.restoreIfNeeded(reason: reason, force: forceRestartPendingRestore, performRestore: {

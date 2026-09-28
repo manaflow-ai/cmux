@@ -1723,6 +1723,11 @@ enum CmuxEmbeddedConfigSchema {
           "default": 300,
           "description": "Seconds a browser tab must stay hidden before cmux may free its page memory. In timer mode, every tab hidden this long is freed."
         },
+        "autoRestoreUnloadedPages": {
+          "type": "boolean",
+          "default": true,
+          "description": "Restore a browser page unloaded to save memory, or whose web process ended while hidden, as soon as its tab is shown. When false, the tab shows the page's last snapshot until you click Restore."
+        },
         "askWhereToSaveDownloads": {
           "type": "boolean",
           "default": false,

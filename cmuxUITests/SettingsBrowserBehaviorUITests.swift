@@ -34,6 +34,7 @@ final class SettingsBrowserBehaviorUITests: SettingsUITestCase {
         "browserHiddenWebViewDiscardMode",
         "browserHiddenWebViewMemoryBudgetMB",
         "browserHiddenWebViewDiscardDelaySeconds",
+        "browserAutoRestoreUnloadedPages",
         "browserInsecureHTTPAllowlist",
         "browserImportHintShowOnBlankTabs",
         "reactGrabVersion",

@@ -51,6 +51,10 @@ public final class BrowserHiddenWebViewDiscardManager {
     public private(set) var lastRestoreReason: String?
     public private(set) var restoredSessionShouldRenderWebView: Bool?
     public private(set) var isRestoreNavigationPending: Bool = false
+    /// Whether the discarded page is a relaunched pane's first load, which
+    /// was deferred until the pane is shown rather than unloaded to save
+    /// memory.
+    public private(set) var isDeferredFirstLoad = false
 
     /// A per-pane pin that keeps the page live while hidden, even under
     /// system memory pressure.
@@ -59,6 +63,13 @@ public final class BrowserHiddenWebViewDiscardManager {
             guard keepsPageActive != oldValue else { return }
             delegate?.hiddenWebViewDiscardManagerPolicyDidChange(self, reason: "keep_active_changed")
         }
+    }
+
+    /// Whether a page unloaded to save memory waits for the user to restore
+    /// it instead of restoring when its pane is shown.
+    public var waitsForManualRestore: Bool {
+        isDiscardedForMemory && !isRestoreNavigationPending && !isDeferredFirstLoad
+            && !policyState.autoRestoresUnloadedPages
     }
 
     public var hasScheduledDiscard: Bool {
@@ -298,9 +309,10 @@ public final class BrowserHiddenWebViewDiscardManager {
         }
     }
 
-    public func markDiscarded(reason: String, now: Date) {
+    public func markDiscarded(reason: String, now: Date, isDeferredFirstLoad: Bool = false) {
         isDiscardedForMemory = true
         isRestoreNavigationPending = false
+        self.isDeferredFirstLoad = isDeferredFirstLoad
         discardedAt = now
         lastDiscardReason = reason
         updateRestoredSessionRenderIntent(true)
@@ -361,6 +373,7 @@ public final class BrowserHiddenWebViewDiscardManager {
         guard isDiscardedForMemory else { return false }
         isDiscardedForMemory = false
         isRestoreNavigationPending = false
+        isDeferredFirstLoad = false
         discardedAt = nil
         lastRestoreReason = reason
         updateRestoredSessionRenderIntent(nil)
@@ -371,6 +384,7 @@ public final class BrowserHiddenWebViewDiscardManager {
         cancel()
         isDiscardedForMemory = false
         isRestoreNavigationPending = false
+        isDeferredFirstLoad = false
         discardedAt = nil
         lastDiscardReason = nil
         lastRestoreReason = nil

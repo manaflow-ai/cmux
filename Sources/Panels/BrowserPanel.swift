@@ -2695,6 +2695,7 @@ final class BrowserPanel: Panel, ObservableObject {
             cancelHiddenWebViewDiscard()
             restoreDiscardedWebViewIfNeeded(
                 reason: "visible.\(reason)",
+                trigger: .paneShown,
                 allowBlankShellHeal: changed || isFirstVisibilityRecord
             )
             // After the restore, which may still fold the hidden snapshot into its capture.
@@ -4616,7 +4617,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private func deferRestoredWebViewLoadUntilVisible(url: URL, reason: String) {
         currentURL = url
         shouldRenderWebView = false
-        hiddenWebViewDiscardManager.markDiscarded(reason: reason, now: Date())
+        hiddenWebViewDiscardManager.markDiscarded(reason: reason, now: Date(), isDeferredFirstLoad: true)
         refreshNavigationAvailability()
         refreshWebViewLifecycleState()
     }
@@ -6034,6 +6035,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
         reason: String
     ) {
         reevaluateHiddenWebViewDiscardScheduling(reason: reason)
+        noteUnloadedPageRestorePolicyChanged()
     }
 }
 

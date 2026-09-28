@@ -78,6 +78,7 @@ struct SettingsRowAnchorResolutionTests {
         "browser.hiddenWebViewDiscardMode",
         "browser.hiddenWebViewMemoryBudgetMB",
         "browser.hiddenWebViewDiscardDelaySeconds",
+        "browser.autoRestoreUnloadedPages",
         "browser.askWhereToSaveDownloads",
         "browser.hostsToOpenInEmbeddedBrowser",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",

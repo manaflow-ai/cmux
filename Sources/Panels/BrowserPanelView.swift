@@ -1937,34 +1937,14 @@ struct BrowserPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay {
-            if panel.shouldRenderWebView, panel.hasRecoverableWebContentTermination {
-                webContentRecoveryOverlay
+            if let prompt = panel.pageRecoveryPrompt {
+                BrowserPageRecoveryOverlay(prompt: prompt, backgroundColor: browserChromeBackgroundColor) {
+                    panel.performPageRecovery(prompt)
+                }
             }
         }
         .layoutPriority(1)
         .zIndex(0)
-    }
-
-    private var webContentRecoveryOverlay: some View {
-        ZStack {
-            Color(nsColor: browserChromeBackgroundColor)
-                .opacity(0.92)
-            Button(action: {
-                panel.recoverTerminatedWebContent(reason: "overlayButton")
-            }) {
-                Label(
-                    String(localized: "browser.error.reload", defaultValue: "Reload"),
-                    systemImage: "arrow.clockwise"
-                )
-                .cmuxFont(size: 13, weight: .medium)
-                .padding(.horizontal, 6)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .safeHelp(String(localized: "browser.reload", defaultValue: "Reload"))
-            .accessibilityIdentifier("BrowserWebContentRecoveryButton")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func triggerFocusFlashAnimation() {

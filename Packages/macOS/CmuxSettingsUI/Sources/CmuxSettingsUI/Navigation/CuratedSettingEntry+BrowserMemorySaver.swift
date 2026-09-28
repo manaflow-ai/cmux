@@ -28,6 +28,12 @@ extension Array where Element == CuratedSettingEntry {
                 id: "hidden-webview-discard-delay",
                 title: String(localized: "settings.browser.hiddenWebViewDiscardDelay", defaultValue: "Memory Saver Delay"),
                 synonyms: "Memory Saver Delay browser.hiddenWebViewDiscardDelaySeconds memory hidden tabs delay seconds discard unload"
+            ),
+            .init(
+                section: .browser,
+                id: "unloaded-page-auto-restore",
+                title: String(localized: "settings.browser.autoRestoreUnloadedPages", defaultValue: "Restore Unloaded Pages Automatically"),
+                synonyms: "Restore Unloaded Pages Automatically browser.autoRestoreUnloadedPages reload restore unloaded discarded hidden tabs placeholder"
             )
         ]
     }

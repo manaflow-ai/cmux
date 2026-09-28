@@ -8,8 +8,8 @@ import Testing
 @testable import cmux
 #endif
 
-/// cmux.json coverage for the browser Memory Saver mode and memory budget
-/// added for https://github.com/manaflow-ai/cmux/issues/15069.
+/// cmux.json coverage for the browser Memory Saver mode, memory budget and
+/// automatic restore added for https://github.com/manaflow-ai/cmux/issues/15069.
 @Suite("Browser Memory Saver settings file", .serialized)
 struct BrowserHiddenWebViewDiscardSettingsFileTests {
     private static let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
@@ -19,6 +19,7 @@ struct BrowserHiddenWebViewDiscardSettingsFileTests {
         BrowserHiddenWebViewDiscardPolicy.modeKey,
         BrowserHiddenWebViewDiscardPolicy.memoryBudgetKey,
         BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey,
+        BrowserHiddenWebViewDiscardPolicy.autoRestoreKey,
         settingsFileBackupsDefaultsKey,
         importedManagedDefaultsKey
     ]
@@ -61,6 +62,22 @@ struct BrowserHiddenWebViewDiscardSettingsFileTests {
             #expect(BrowserHiddenWebViewDiscardPolicy.mode(defaults: defaults) == .memoryBudget)
             #expect(BrowserHiddenWebViewDiscardPolicy.memoryBudgetMB(defaults: defaults) == 2048)
             #expect(defaults.double(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey) == 90)
+        }
+    }
+
+    @Test
+    func appliesAutomaticRestoreToggle() throws {
+        try loadSettingsFile(
+            """
+            {
+              "browser": {
+                "autoRestoreUnloadedPages": false
+              }
+            }
+            """
+        ) { defaults in
+            #expect(defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.autoRestoreKey) as? Bool == false)
+            #expect(!BrowserHiddenWebViewDiscardPolicy.autoRestoresUnloadedPages(defaults: defaults))
         }
     }
 
