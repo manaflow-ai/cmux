@@ -133,9 +133,10 @@ struct AgentSessionRecovery: Sendable {
             if candidate.routesThroughSubrouter {
                 // sr recomputes the auth selection and markers; replaying the
                 // captured ones would pin the resume to a dead launch's route.
-                launchCommand?.environment = launchCommand?.environment?.filter {
+                let replayable = candidate.launchCommand?.environment?.filter {
                     !SubrouterClaudeResumeRouting.restoreOwnedEnvironmentKeys.contains($0.key)
                 }
+                launchCommand?.environment = replayable
             }
             return AgentResumeCommandBuilder.launcherResumeShellCommand(
                 kind: kind,
