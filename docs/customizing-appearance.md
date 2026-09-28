@@ -179,6 +179,32 @@ skipped, and the error goes to the log rather than showing as a config error.
 | `split-divider-color` | Ghostty config | Pane divider color when `paneBorderColor` is unset |
 | `paneBorderColor` | `cmux.json` | Divider color between cmux panes |
 | `activePaneBorderColor` | `cmux.json` | Border around the focused pane |
+| `emptyPane.artFile` | `cmux.json` | Your own text or ANSI art in empty panes |
+
+### Empty pane art
+
+A pane with no tabs shows a terminal icon and "Empty Panel" above the Terminal
+and Browser buttons. Point `emptyPane.artFile` at a text file to show your own
+art there instead. Save the output of any art tool:
+
+```sh
+figlet -f slant cmux | lolcat -f > ~/.config/cmux/empty-pane.ans
+toilet -f future --gay cmux > ~/.config/cmux/empty-pane.ans
+chafa --size 40x20 logo.png > ~/.config/cmux/empty-pane.ans
+```
+
+```json
+{ "emptyPane": { "artFile": "~/.config/cmux/empty-pane.ans" } }
+```
+
+The art is drawn in your terminal font and palette, at the terminal font size
+when it fits, and shrinks as a whole to fit smaller panes; lines never wrap.
+ANSI colors (16, 256 and 24-bit), bold, dim and inverse are drawn, block
+characters like `▀` are filled edge to edge, cursor-forward and repeat
+sequences place their cells, and every other escape sequence is ignored.
+Use an absolute path or one starting with `~/`. A missing file, one over 64 KB, or one with no visible characters keeps
+the default view. Changing the setting applies right away; after editing the
+art file itself, run `cmux reload-config` or open a new empty pane.
 
 ## Sidebar
 

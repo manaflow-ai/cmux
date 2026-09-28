@@ -22,6 +22,7 @@ private enum SettingsJSONPathFallbackCatalog {
         "fileEditor.tabWidth",
         "fileExplorer.doubleClickAction",
         "diffViewer.defaultLayout",
+        "emptyPane.artFile",
     ]
 }
 

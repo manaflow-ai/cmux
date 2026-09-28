@@ -1,7 +1,7 @@
 import CmuxSettings
 import Foundation
 
-/// Settings-file section parsers for file editor, file explorer, markdown, mobile, and sidebar workspace-todo options, extracted from `KeyboardShortcutSettingsFileStore.swift`, which sits at its file-length budget.
+/// Settings-file section parsers for file editor, file explorer, empty pane, markdown, mobile, and sidebar workspace-todo options, extracted from `KeyboardShortcutSettingsFileStore.swift`, which sits at its file-length budget.
 extension CmuxSettingsFileStore {
     func parseFileEditorSection(
         _ section: [String: Any],
@@ -64,6 +64,26 @@ extension CmuxSettingsFileStore {
             snapshot.managedUserDefaults[defaultsKey] = .bool(value)
         } else if section.keys.contains(jsonKey) {
             logInvalid("fileEditor.\(jsonKey)", sourcePath: sourcePath)
+        }
+    }
+
+    /// Dispatches the root `fileExplorer` and `emptyPane` sections. Lives here
+    /// because the root parser sits at its file-length budget.
+    func parseFileExplorerAndEmptyPaneSections(
+        _ root: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let fileExplorerSection = root["fileExplorer"] as? [String: Any] {
+            parseFileExplorerSection(fileExplorerSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
+        if let emptyPaneSection = root["emptyPane"] as? [String: Any] {
+            let artFile = EmptyPaneCatalogSection().artFile
+            if let raw = jsonString(emptyPaneSection["artFile"]) {
+                snapshot.managedUserDefaults[artFile.userDefaultsKey] = .string(raw)
+            } else if emptyPaneSection.keys.contains("artFile") {
+                logInvalid(artFile.id, sourcePath: sourcePath)
+            }
         }
     }
 
