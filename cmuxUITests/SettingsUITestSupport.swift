@@ -119,17 +119,24 @@ class SettingsUITestCase: XCTestCase {
             // Settings rows may carry the identifier while AppKit exposes the
             // actual switch or checkbox as a child. Prefer that control over
             // the identifier-bearing container, whose value is often nil.
-            let row = root.descendants(matching: .any)[id]
+            let row = root.descendants(matching: .any).matching(identifier: id).firstMatch
             for candidate in [row.switches.firstMatch, row.checkBoxes.firstMatch]
                 where candidate.exists {
                 resolved = candidate
                 return true
             }
 
+            // Last resort: a control that carries the identifier but is
+            // neither a switch nor a checkbox and has no such child.
+            if row.exists {
+                resolved = row
+                return true
+            }
+
             return false
         }
         XCTAssertTrue(found, "Expected toggle \(id) to exist")
-        return resolved ?? root.descendants(matching: .any)[id]
+        return resolved ?? root.descendants(matching: .any).matching(identifier: id).firstMatch
     }
 
     /// Reads a toggle's on state from its accessibility value.
