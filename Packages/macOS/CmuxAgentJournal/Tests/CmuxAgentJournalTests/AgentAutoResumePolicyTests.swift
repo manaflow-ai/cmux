@@ -117,6 +117,24 @@ struct AgentAutoResumePolicyTests {
         #expect(tracker.isPending(surfaceId: surface, token: token))
     }
 
+    @Test func aDetailLessEchoOfTheErrorKeepsThePendingResume() {
+        // A StopFailure also journals through the error notification, which
+        // carries no failure detail. That echo must not cancel the resume.
+        var tracker = AgentAutoResumeTracker()
+        guard case let .schedule(_, _, _, token) = tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded: Overloaded"
+        ) else {
+            Issue.record("expected a schedule")
+            return
+        }
+        #expect(tracker.observe(kind: .errorReported, surfaceId: surface, isSubagent: false, detail: nil) == .none)
+        #expect(tracker.isPending(surfaceId: surface, token: token))
+        #expect(
+            tracker.observe(kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "usage_limit: Weekly limit")
+                == .cancel(surfaceId: surface)
+        )
+    }
+
     @Test func permanentFailuresAndSubagentsNeverSchedule() {
         var tracker = AgentAutoResumeTracker()
         #expect(tracker.observe(kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "authentication_failed") == .none)
