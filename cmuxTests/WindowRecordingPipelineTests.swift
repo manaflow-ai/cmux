@@ -214,8 +214,10 @@ import Testing
 
         #expect(FileManager.default.fileExists(atPath: url.path))
         let asset = AVURLAsset(url: url)
-        let duration = try await asset.load(.duration).seconds
-        #expect(duration > 0.4)
+        // The clip's encoded length, not a measured time: the frames above
+        // are stamped up to 0.5 s, so a clip timed by capture spans past 0.4 s.
+        let clipSeconds = try await asset.load(.duration).seconds
+        #expect(clipSeconds > 0.4)
         let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
         let size = try await track.load(.naturalSize)
         #expect(Int(size.width) == 160)

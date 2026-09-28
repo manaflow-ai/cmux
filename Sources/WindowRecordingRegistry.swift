@@ -60,7 +60,7 @@ actor WindowRecordingRegistry {
         if let active {
             throw Failure.busy(active.id)
         }
-        let identifier = WindowRecordingOutputNaming.identifier(date: Date())
+        let identifier = WindowRecordingRequest.recordingIdentifier(date: Date())
         let session = WindowRecordingSession(
             id: identifier,
             request: request,
@@ -196,11 +196,7 @@ actor WindowRecordingRegistry {
             return URL(fileURLWithPath: outputPath)
         }
         return FileManager.default.temporaryDirectory
-            .appendingPathComponent(WindowRecordingOutputNaming.directoryName)
-            .appendingPathComponent(WindowRecordingOutputNaming.filename(
-                label: request.label,
-                identifier: identifier,
-                format: request.format
-            ))
+            .appendingPathComponent(WindowRecordingRequest.outputDirectoryName)
+            .appendingPathComponent(request.outputFilename(identifier: identifier))
     }
 }
