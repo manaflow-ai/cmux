@@ -456,6 +456,30 @@ struct SidebarAppKitRowCellTests {
         #expect(try titleFont(Self.makeModel(unreadCount: 3)) == NSFont.systemFont(ofSize: size, weight: .semibold))
     }
 
+    /// The selection preview paints colors ahead of the authoritative apply,
+    /// but row heights are measured from the stored model. Weight changes text
+    /// metrics, so a preview that also changed the weight could draw a wrapped
+    /// title at one weight inside a frame measured at the other.
+    @Test
+    func optimisticSelectionPaintDoesNotChangeTitleWeight() throws {
+        let model = Self.makeModel(isActive: false)
+        let cell = Self.configuredCell(model: model)
+        func titleFont() throws -> NSFont {
+            let titleView = try #require(
+                Self.descendants(of: cell)
+                    .compactMap { $0 as? SidebarRowTextView }
+                    .first { !$0.isHidden && $0.stringValue == model.snapshot.title }
+            )
+            return try #require(titleView.font)
+        }
+
+        let resting = NSFont.systemFont(ofSize: model.scaled(12.5), weight: .regular)
+        #expect(try titleFont() == resting)
+        cell.showOptimisticSelectionHighlight()
+        #expect(cell.hasOptimisticSelectionForTesting)
+        #expect(try titleFont() == resting)
+    }
+
     @Test
     func cancelingInlineRenameRestoresWorkspaceTitle() throws {
         let model = Self.makeModel()

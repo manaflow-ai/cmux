@@ -153,6 +153,24 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         )
     }
 
+    /// Title font resolved from the row's STORED model, even while a painted
+    /// copy supplies the colors.
+    ///
+    /// Row heights are measured from the stored model, and weight changes text
+    /// metrics: a wrapped title can need one more line at semibold than at
+    /// regular. Letting the optimistic selection paint flip the weight would
+    /// therefore draw a row at one weight inside a frame measured at another,
+    /// and `refreshVisiblePumpHeightOverrides` can record that mis-measured
+    /// height and keep it past the paint. Selection colors still flip on press;
+    /// the weight follows the authoritative apply a moment later.
+    private func titleFont(paintedWith painted: SidebarWorkspaceRowModel) -> NSFont {
+        let measured = model ?? painted
+        return .systemFont(
+            ofSize: measured.scaled(12.5),
+            weight: Self.titleWeight(for: measured).appKitWeight
+        )
+    }
+
     var currentModelForMeasurement: SidebarWorkspaceRowModel? { model }
 
     /// Paints the FULL selected treatment instantly on press by applying a
@@ -619,7 +637,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
 #endif
         titleView.stringValue = boundedTitle
-        titleView.font = .systemFont(ofSize: model.scaled(12.5), weight: Self.titleWeight(for: model).appKitWeight)
+        let titleFont = titleFont(paintedWith: model)
+        titleView.font = titleFont
+        // A rename in progress occupies the title's slot, so it tracks the same
+        // font: a notification arriving mid-rename would otherwise leave the
+        // field one weight behind the row it sits in.
+        renameSession?.field.font = titleFont
         titleView.textColor = palette.primaryText
         titleView.alphaValue = snapshot.isMuted ? 0.6 : 1
 
@@ -1156,7 +1179,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         )
         // The rename field replaces the title in place, so it draws at the
         // title's weight and the text does not shift when editing starts.
-        session.field.font = .systemFont(ofSize: model.scaled(12.5), weight: Self.titleWeight(for: model).appKitWeight)
+        session.field.font = titleFont(paintedWith: model)
         session.field.inlineRenameTextColor = palette(model).selectedForeground(1.0)
         renameSession = session
         titleView.isHidden = true
