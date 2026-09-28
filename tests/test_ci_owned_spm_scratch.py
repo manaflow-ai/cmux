@@ -80,10 +80,18 @@ class Scratch(unittest.TestCase):
         self.assertFalse((self.workspace / "Packages/Shared/A/.build").exists())
 
     def test_prune_caps_the_mini_oldest_build_first_across_runners(self):
-        make_entry(self.scratch, "retired-runner", 100, 1)
-        make_entry(self.scratch, "current", 100, 5)
+        retired = make_entry(self.scratch, "retired-runner", 100, 1)
+        current = make_entry(self.scratch, "current", 100, 5)
+        # Creating package directories can touch the root after its last build.
+        os.utime(retired, (20, 20))
+        os.utime(current, (10, 10))
         scratch.prune(self.scratch, max_bytes=150)
         self.assertEqual([path.name for path in scratch.entries(self.scratch)], ["current"])
+
+    def test_empty_directory_uses_its_own_modification_time(self):
+        self.scratch.mkdir()
+        os.utime(self.scratch, (10, 10))
+        self.assertEqual(scratch.tree_stats(self.scratch), (0, 10))
 
     def test_prune_skips_a_directory_another_job_holds(self):
         held = make_entry(self.scratch, "busy", 100, 1)
