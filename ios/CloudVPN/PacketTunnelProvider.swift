@@ -67,7 +67,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     /// Every `Address` and `AllowedIPs` entry must be private, and there must
-    /// be at least one route.
+    /// be at least one route. Kept as a local copy of
+    /// `CloudVPNRoutePolicy.permitsOnlyPrivateRoutes(inQuickConfig:)` because
+    /// this extension does not link CmuxMobileCloud; the two must change
+    /// together.
     private func routesArePrivate(in configuration: String) -> Bool {
         var cidrs: [String] = []
         var routeCount = 0

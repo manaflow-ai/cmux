@@ -30,3 +30,33 @@ public struct CloudVPNRoutePolicy: Sendable {
         return false
     }
 }
+
+extension CloudVPNRoutePolicy {
+    /// Whether a wg-quick text routes only private space: every `Address`
+    /// and `AllowedIPs` entry permitted, and at least one route present.
+    ///
+    /// This is the check that matters: the installed artifact is the TEXT
+    /// (which the server may have supplied whole via `clientConfig`), so
+    /// validating enrollment fields alone would let a divergent server text
+    /// through to the Keychain. The packet tunnel extension re-runs the same
+    /// line rule before starting, as its own last line of defense.
+    public func permitsOnlyPrivateRoutes(inQuickConfig text: String) -> Bool {
+        var cidrs: [String] = []
+        var routeCount = 0
+        for line in text.split(whereSeparator: \.isNewline) {
+            let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count == 2 else { continue }
+            let values = parts[1].split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            switch parts[0].lowercased() {
+            case "allowedips":
+                routeCount += values.count
+                cidrs += values
+            case "address":
+                cidrs += values
+            default:
+                continue
+            }
+        }
+        return routeCount > 0 && cidrs.allSatisfy(permits)
+    }
+}

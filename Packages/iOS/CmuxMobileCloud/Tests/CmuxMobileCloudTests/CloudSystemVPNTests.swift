@@ -114,6 +114,28 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         #expect(rig.controller.phase == .failed(.configuration))
     }
 
+    @Test func aPublicRouteInsideServerConfigTextIsRefused() async {
+        let rig = Rig()
+        var enrollment = Fixtures.enrollment
+        // The FIELDS look private, but the server-supplied wg-quick text (the
+        // artifact that actually gets installed) routes everything.
+        enrollment.clientConfig = """
+        [Interface]
+        Address = 100.100.0.7/32
+        [Peer]
+        PublicKey = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+        Endpoint = 203.0.113.9:51820
+        AllowedIPs = 10.0.0.0/8, 0.0.0.0/0
+        """
+        rig.service.enrollment = .success(enrollment)
+        await signedIn(rig)
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.manager.installed.isEmpty)
+        #expect(rig.controller.phase == .failed(.configuration))
+    }
+
     @Test func enrollmentFailureIsReportedAsEnrollment() async {
         let rig = Rig()
         rig.service.enrollment = .failure(CloudAPIError.httpStatus(500, message: nil, action: nil))

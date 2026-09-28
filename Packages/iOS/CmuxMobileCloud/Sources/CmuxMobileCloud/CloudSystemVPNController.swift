@@ -141,6 +141,12 @@ public final class CloudSystemVPNController {
                 } catch {
                     throw CloudSystemVPNError.configuration
                 }
+                // The text is what gets installed, and the server may have
+                // supplied it whole; the enrollment-field check above cannot
+                // vouch for it.
+                guard routePolicy.permitsOnlyPrivateRoutes(inQuickConfig: configuration.text) else {
+                    throw CloudSystemVPNError.configuration
+                }
                 try await manager.installAndStart(configuration: configuration.text, scope: scope)
                 guard self.generation == generation else { return }
                 phase = manager.phase
