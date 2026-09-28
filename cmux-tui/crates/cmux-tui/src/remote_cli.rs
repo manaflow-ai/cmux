@@ -2439,7 +2439,7 @@ fn ensure_daemon(
     mux_socket_override: Option<&Path>,
 ) -> anyhow::Result<()> {
     let _lock = lock_daemon_start(session_state)?;
-    if UnixStream::connect(link).is_ok() {
+    if connect_same_user_socket(link).is_ok() {
         return Ok(());
     }
 
@@ -2448,17 +2448,23 @@ fn ensure_daemon(
     // exec'ing a "(deleted)" path, and daemon/client builds never skew.
     let executable = cmux_tui_core::platform::self_exe_for_spawn()?;
     let log_path = session_state.join("daemon.log");
-    let mux_socket = mux_socket_override
+    let explicit_mux_socket = mux_socket_override
         .map(Path::to_path_buf)
-        .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from))
+        .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from));
+    let mux_socket_is_derived = explicit_mux_socket.is_none();
+    let mux_socket = explicit_mux_socket
         .map_or_else(|| cmux_tui_core::server::try_default_socket_path(session), Ok)?;
-    if UnixStream::connect(&mux_socket).is_err() {
+    if mux_socket_is_derived {
+        // A derived path may fall back to a shared /tmp name. Claim or check
+        // its directory the same way the mux owner will before probing it.
+        cmux_tui_core::server::prepare_socket_parent(&mux_socket, true)?;
+    }
+    if connect_same_user_socket(&mux_socket).is_err() {
         let log = open_private_daemon_file(&log_path, true)
             .with_context(|| format!("could not open daemon log {}", log_path.display()))?;
         let mut mux_owner = Command::new(&executable);
         mux_owner
-            .args(["--headless", "--session", session, "--socket"])
-            .arg(&mux_socket)
+            .args(mux_owner_args(session, &mux_socket, mux_socket_is_derived))
             .stdin(Stdio::null())
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log));
@@ -2491,6 +2497,30 @@ fn ensure_daemon(
     wait_for_detached_socket(&mut child, link, Duration::from_secs(20), "remote daemon", &log_path)
 }
 
+/// Arguments for the headless mux owner `ensure_daemon` starts. A derived
+/// socket path is left for the owner to derive again from the same session,
+/// so it keeps the owner checks it applies to its own runtime directory.
+fn mux_owner_args(session: &str, mux_socket: &Path, mux_socket_is_derived: bool) -> Vec<OsString> {
+    let mut args: Vec<OsString> =
+        ["--headless", "--session", session].into_iter().map(OsString::from).collect();
+    if !mux_socket_is_derived {
+        args.push("--socket".into());
+        args.push(mux_socket.into());
+    }
+    args
+}
+
+/// Connect to a socket this daemon's own user serves. The daemon only starts
+/// and talks to listeners it or an earlier run of it created.
+fn connect_same_user_socket(path: &Path) -> io::Result<UnixStream> {
+    let stream = UnixStream::connect(path)?;
+    cmux_tui_core::platform::require_unix_peer_uid(
+        &stream,
+        cmux_tui_core::platform::effective_uid(),
+    )?;
+    Ok(stream)
+}
+
 fn wait_for_detached_socket(
     child: &mut Child,
     socket: &Path,
@@ -2500,7 +2530,7 @@ fn wait_for_detached_socket(
 ) -> anyhow::Result<()> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if UnixStream::connect(socket).is_ok() {
+        if connect_same_user_socket(socket).is_ok() {
             return Ok(());
         }
         match child.try_wait() {
@@ -2590,7 +2620,7 @@ fn configure_detached_process(command: &mut Command) {
 }
 
 fn open_mux_monitor(path: &Path) -> anyhow::Result<UnixStream> {
-    let stream = UnixStream::connect(path).with_context(|| {
+    let stream = connect_same_user_socket(path).with_context(|| {
         format!("cannot attach remote sidecar to mux socket {}", path.display())
     })?;
     stream.set_read_timeout(Some(Duration::from_millis(250)))?;
@@ -2869,6 +2899,20 @@ mod tests {
             .is_err()
         );
         assert_eq!(load_count.get(), 0);
+    }
+
+    #[test]
+    fn private_socket_remote_mux_owner_derives_its_own_socket() {
+        let socket = Path::new("/tmp/cmux-tui-501/work.sock");
+        assert_eq!(
+            mux_owner_args("work", socket, true),
+            ["--headless", "--session", "work"].map(OsString::from)
+        );
+        assert_eq!(
+            mux_owner_args("work", socket, false),
+            ["--headless", "--session", "work", "--socket", "/tmp/cmux-tui-501/work.sock"]
+                .map(OsString::from)
+        );
     }
 
     #[test]

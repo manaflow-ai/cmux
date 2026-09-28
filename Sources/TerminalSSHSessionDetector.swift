@@ -417,6 +417,10 @@ struct DetectedSSHSession: Equatable, Sendable {
 }
 
 enum TerminalSSHSessionDetector {
+    private static let noArgumentFlags = Set("46AaCfGgKkMNnqsTtVvXxYy")
+    private static let nonInteractiveFlags = Set("nTGV")
+    private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOopQRSWw")
+
     struct ProcessSnapshot: Equatable {
         let pid: Int32
         let pgid: Int32
@@ -425,14 +429,10 @@ enum TerminalSSHSessionDetector {
         let executableName: String
     }
 
-    /// Detects an SSH or Eternal Terminal session in the TTY's foreground
-    /// process group, which the caller reads with `tcgetpgrp` on the PTY.
-    /// Runs on the main thread during drops and pastes, so it reads only that
-    /// group and never walks the machine's process table.
-    static func detect(foregroundProcessGroup processGroupID: Int32, ttyName: String) -> DetectedSSHSession? {
+    static func detect(forTTY ttyName: String) -> DetectedSSHSession? {
         let normalizedTTY = normalizeTTYName(ttyName)
-        guard processGroupID > 0, !normalizedTTY.isEmpty else { return nil }
-        let processes = processSnapshots(inProcessGroup: processGroupID, ttyName: normalizedTTY)
+        guard !normalizedTTY.isEmpty else { return nil }
+        let processes = processSnapshots(forTTY: normalizedTTY)
         guard !processes.isEmpty else { return nil }
 
         var argumentsByPID: [Int32: [String]] = [:]
@@ -447,6 +447,17 @@ enum TerminalSSHSessionDetector {
             processes: processes,
             argumentsByPID: argumentsByPID
         )
+    }
+
+    /// Whether the TTY's foreground job contains an `ssh` or `et` process.
+    /// `processGroupID` is the PTY's foreground process group (`tcgetpgrp`).
+    /// Cheap enough for the main actor; see
+    /// ``processSnapshots(inProcessGroup:ttyName:)`` for the complexity contract.
+    static func foregroundJobHasRemoteShell(processGroupID: Int32, ttyName: String) -> Bool {
+        let normalizedTTY = normalizeTTYName(ttyName)
+        guard !normalizedTTY.isEmpty else { return false }
+        return processSnapshots(inProcessGroup: processGroupID, ttyName: normalizedTTY)
+            .contains { isForegroundRemoteShellProcess($0, ttyName: normalizedTTY) }
     }
 
     static func detectForTesting(
@@ -538,10 +549,6 @@ enum TerminalSSHSessionDetector {
             updatedAt: capturedAt
         )
     }
-
-    private static let noArgumentFlags = Set("46AaCfGgKkMNnqsTtVvXxYy")
-    private static let nonInteractiveFlags = Set("nTGV")
-    private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOopQRSWw")
 
     private static func normalizeTTYName(_ ttyName: String) -> String {
         let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -642,50 +649,6 @@ enum TerminalSSHSessionDetector {
             return value == "yes" || value == "true"
         }
         return key == "sessiontype" && value == "none"
-    }
-
-    /// Reads one process group from the kernel, keeping only members whose
-    /// controlling terminal is `ttyName`.
-    static func processSnapshots(inProcessGroup processGroupID: Int32, ttyName: String) -> [ProcessSnapshot] {
-        var ttyStat = stat()
-        guard processGroupID > 0,
-              stat("/dev/\(ttyName)", &ttyStat) == 0,
-              (ttyStat.st_mode & S_IFMT) == S_IFCHR else {
-            return []
-        }
-
-        var mib = [CTL_KERN, KERN_PROC, KERN_PROC_PGRP, processGroupID]
-        let stride = MemoryLayout<kinfo_proc>.stride
-        var size = 0
-        guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0 else { return [] }
-
-        // Leave room for processes that join the group between the two calls.
-        var infos = [kinfo_proc](repeating: kinfo_proc(), count: size / stride + 8)
-        size = infos.count * stride
-        let status = infos.withUnsafeMutableBytes { rawBuffer in
-            sysctl(&mib, u_int(mib.count), rawBuffer.baseAddress, &size, nil, 0)
-        }
-        guard status == 0 else { return [] }
-
-        return infos.prefix(size / stride)
-            .filter { $0.kp_eproc.e_tdev == ttyStat.st_rdev }
-            .map { info in
-                ProcessSnapshot(
-                    pid: info.kp_proc.p_pid,
-                    pgid: info.kp_eproc.e_pgid,
-                    tpgid: info.kp_eproc.e_tpgid,
-                    tty: ttyName,
-                    executableName: executableName(fromComm: info.kp_proc.p_comm)
-                )
-            }
-    }
-
-    private static func executableName<Comm>(fromComm comm: Comm) -> String {
-        withUnsafeBytes(of: comm) { rawBuffer in
-            String(decoding: rawBuffer.prefix { $0 != 0 }, as: UTF8.self)
-        }
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        .lowercased()
     }
 
     static func commandLineArguments(forPID pid: Int32) -> [String]? {

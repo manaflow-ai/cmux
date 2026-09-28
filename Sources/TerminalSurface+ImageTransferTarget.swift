@@ -1,4 +1,5 @@
 import CmuxTerminal
+import Foundation
 
 extension TerminalSurface {
     @MainActor
@@ -25,17 +26,65 @@ extension TerminalSurface {
         if let target = AppDelegate.shared?.remoteTmuxController.remoteUploadTarget(forSurfaceId: id) {
             return .remote(target)
         }
-        // The PTY's foreground process group (tcgetpgrp) bounds the SSH check
-        // to one group, so a drop or paste never waits on a process-table walk.
-        if let ttyName = workspace.surfaceTTYNames[id],
-           let processGroupID = foregroundProcessID(),
-           let session = TerminalSSHSessionDetector.detect(
-               foregroundProcessGroup: Int32(processGroupID),
+        return .local
+    }
+
+    @MainActor
+    func resolvedImageTransferTargetAsync(
+        mode: TerminalImageTransferMode = .paste,
+        in workspace: Workspace? = nil,
+        detector: @escaping @Sendable (String) -> DetectedSSHSession? = { tty in
+            TerminalSSHSessionDetector.detect(forTTY: tty)
+        },
+        timeoutSleep: @escaping @Sendable (TimeInterval) async -> Void = {
+            timeout in
+            await TerminalSSHSessionDetector
+                .defaultDetectionTimeoutSleep(timeout)
+        }
+    ) async -> TerminalImageTransferTarget {
+        let workspace = workspace ?? owningWorkspace()
+        let knownTarget = resolvedImageTransferTarget(mode: mode, in: workspace)
+        guard let ttyName = imageTransferDetectionTTY(mode: mode, in: workspace),
+              let session = await TerminalSSHSessionDetector.detectAsync(
+                  forTTY: ttyName,
+                  detector: detector,
+                  timeoutSleep: timeoutSleep
+              ) else {
+            return knownTarget
+        }
+        return .remote(.detectedSSH(session))
+    }
+
+    /// The TTY to check for a user-started SSH session, or nil when the
+    /// transfer is local without any process lookup.
+    ///
+    /// Every drop and paste calls this on the main actor, and a nil result
+    /// inserts the path in the same turn, as upstream Ghostty does. Keep it
+    /// O(foreground job): the PTY names its foreground group (`tcgetpgrp`),
+    /// and only a group with an `ssh` or `et` member needs the bounded async
+    /// lookup. Never add a scan of all processes here; on a loaded Mac that
+    /// delayed every dropped path by seconds.
+    @MainActor
+    func imageTransferDetectionTTY(
+        mode: TerminalImageTransferMode = .paste,
+        in workspace: Workspace? = nil
+    ) -> String? {
+        let workspace = workspace ?? owningWorkspace()
+        guard resolvedImageTransferTarget(mode: mode, in: workspace) == .local,
+              let ttyName = workspace?.surfaceTTYNames[id],
+              !ttyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        // Without a live PTY there is no foreground group to read; keep the
+        // async lookup so an unknown job is never assumed local.
+        if let processGroupID = foregroundProcessID(),
+           !TerminalSSHSessionDetector.foregroundJobHasRemoteShell(
+               processGroupID: Int32(processGroupID),
                ttyName: ttyName
            ) {
-            return .remote(.detectedSSH(session))
+            return nil
         }
-        return .local
+        return ttyName
     }
 
     @MainActor
