@@ -579,7 +579,11 @@ export type VmRepositoryShape = {
     readonly providerSessionId: string;
     readonly title?: string | null;
     readonly status?: CloudVmSessionStatus;
-    /** Attaches to add to the running total, defaulting to 1. Not a new value to store. */
+    /**
+     * Attaches contributed by this call, defaulting to 1; pass a positive count.
+     * The insert branch stores it as the session's first count and the conflict
+     * branch adds it to the existing total, so this is never a replacement value.
+     */
     readonly attachmentCount?: number;
     readonly effectiveCols?: number | null;
     readonly effectiveRows?: number | null;
