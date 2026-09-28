@@ -10388,6 +10388,32 @@ final class GhosttySurfaceScrollView: NSView {
         return (before, after, bounds.size)
     }
 
+    /// Shows the overlay on the left zone, settles it, retargets to the right
+    /// zone, and reports the geometry animations the retarget installed.
+    func debugProbeDropOverlayRetarget() -> (geometryAnimationKeys: [String], bounds: CGSize) {
+        dropZoneOverlayAnimationGeneration &+= 1
+        activeDropZone = nil
+        pendingDropZone = nil
+        dropZoneOverlayView.layer?.removeAllAnimations()
+        dropZoneOverlayView.isHidden = true
+        dropZoneOverlayView.alphaValue = 1
+
+        setDropZoneOverlay(zone: .left)
+        dropZoneOverlayView.layer?.removeAllAnimations()
+        dropZoneOverlayView.alphaValue = 1
+        setDropZoneOverlay(zone: .right)
+
+        let geometryKeys: Set<String> = ["frameOrigin", "frameSize", "position", "bounds", "bounds.origin", "bounds.size"]
+        let layer = dropZoneOverlayView.layer
+        let animated = (layer?.animationKeys() ?? []).filter { key in
+            if geometryKeys.contains(key) { return true }
+            guard let keyPath = (layer?.animation(forKey: key) as? CAPropertyAnimation)?.keyPath else { return false }
+            return geometryKeys.contains(keyPath)
+        }
+        setDropZoneOverlay(zone: nil)
+        return (animated, bounds.size)
+    }
+
     var debugSurfaceId: UUID? {
         surfaceView.terminalSurface?.id
     }
