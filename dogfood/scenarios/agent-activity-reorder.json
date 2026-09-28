@@ -1,4 +1,14 @@
 {
+ "paths": [
+  "Sources/Sidebar/WorkspaceActivityReorderController*",
+  "Sources/Sidebar/SidebarReorderInteractionState*",
+  "Sources/Cloud/Sidebar/TerminalNotificationPolicyEffects*",
+  "Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Reorder/*",
+  "Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceReorderCoordinator*",
+  "Packages/macOS/CmuxAgentJournal/Sources/CmuxAgentJournal/AgentLifecycleActivity*",
+  "Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/WorkspaceAutoReorderMode*",
+  "dogfood/scenarios/agent-activity-reorder.json"
+ ],
  "launch": {
   "args": [
    "-workspaceAutoReorderOnNotification",
