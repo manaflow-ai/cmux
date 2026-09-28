@@ -554783,55 +554783,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hibernates idle background agent terminals above the live terminal limit. Even when this is off, cmux may hibernate them under critical memory pressure."
+            "value": "Hibernates idle background agent terminals above the live terminal limit. Even when this is off, cmux may hibernate them under memory pressure."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Versetzt inaktive Agenten-Terminals im Hintergrund in den Ruhezustand, sobald das Limit für aktive Terminals überschritten ist. Auch wenn diese Option deaktiviert ist, kann cmux sie bei kritischer Speicherauslastung in den Ruhezustand versetzen."
+            "value": "Versetzt inaktive Agenten-Terminals im Hintergrund in den Ruhezustand, sobald das Limit für aktive Terminals überschritten ist. Auch wenn diese Option deaktiviert ist, kann cmux sie bei hoher Speicherauslastung in den Ruhezustand versetzen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Met en hibernation les terminaux d’agent inactifs en arrière-plan au-delà de la limite de terminaux actifs. Même si cette option est désactivée, cmux peut les mettre en hibernation en cas de pression mémoire critique."
+            "value": "Met en hibernation les terminaux d’agent inactifs en arrière-plan au-delà de la limite de terminaux actifs. Même si cette option est désactivée, cmux peut les mettre en hibernation en cas de pression mémoire."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يُدخل طرفيات الوكلاء الخاملة في الخلفية في السبات عند تجاوز حد الطرفيات النشطة. وحتى عند إيقاف هذا الخيار، قد يُدخلها cmux في السبات عند ضغط الذاكرة الحرج."
+            "value": "يُدخل طرفيات الوكلاء الخاملة في الخلفية في السبات عند تجاوز حد الطرفيات النشطة. وحتى عند إيقاف هذا الخيار، قد يُدخلها cmux في السبات عند ضغط الذاكرة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pone en hibernación las terminales de agentes inactivas en segundo plano que superan el límite de terminales activas. Aunque esta opción esté desactivada, cmux puede ponerlas en hibernación si la presión de memoria es crítica."
+            "value": "Pone en hibernación las terminales de agentes inactivas en segundo plano que superan el límite de terminales activas. Aunque esta opción esté desactivada, cmux puede ponerlas en hibernación si hay presión de memoria."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "作用中終端機超過上限時，閒置的背景代理終端機會進入休眠。即使關閉此選項，cmux 仍可能在記憶體壓力達到嚴重程度時讓它們休眠。"
+            "value": "作用中終端機超過上限時，閒置的背景代理終端機會進入休眠。即使關閉此選項，cmux 仍可能在記憶體吃緊時讓它們休眠。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "活动终端超过上限时，空闲的后台代理终端会进入休眠。即使关闭此选项，cmux 仍可能在内存压力达到严重程度时让它们休眠。"
+            "value": "活动终端超过上限时，空闲的后台代理终端会进入休眠。即使关闭此选项，cmux 仍可能在内存紧张时让它们休眠。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "활성 터미널 수가 한도를 넘으면 백그라운드에서 유휴 상태인 에이전트 터미널을 최대 절전 모드로 전환합니다. 이 옵션을 꺼도 메모리 압박이 심각하면 cmux가 해당 터미널을 최대 절전 모드로 전환할 수 있습니다."
+            "value": "활성 터미널 수가 한도를 넘으면 백그라운드에서 유휴 상태인 에이전트 터미널을 최대 절전 모드로 전환합니다. 이 옵션을 꺼도 메모리가 부족하면 cmux가 해당 터미널을 최대 절전 모드로 전환할 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "実行中のターミナル数が上限を超えると、アイドル状態のバックグラウンドエージェントのターミナルを休止させます。この設定がオフでも、メモリ逼迫が深刻な場合は cmux がこれらを休止させることがあります。"
+            "value": "実行中のターミナル数が上限を超えると、アイドル状態のバックグラウンドエージェントのターミナルを休止させます。この設定がオフでも、メモリが逼迫している場合は cmux がこれらを休止させることがあります。"
           }
         }
       }
