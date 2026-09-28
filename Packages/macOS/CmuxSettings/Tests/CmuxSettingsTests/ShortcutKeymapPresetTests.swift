@@ -233,7 +233,7 @@ struct ShortcutKeymapPresetTests {
     /// Switching between the two presets that share the number row has to land
     /// on exactly the target's override set, with nothing of the other left
     /// behind and the shared rows not rewritten on the way through.
-    @Test func iTerm2RoundTripsThroughBrowser() {
+    @Test func iTerm2RoundTripsThroughBrowser() throws {
         let start = snapshot(applied(.iTerm2))
 
         let toBrowser = ShortcutKeymapPreset.browser.plan(from: start)
@@ -242,19 +242,42 @@ struct ShortcutKeymapPresetTests {
         #expect(!toBrowser.changes.contains { $0.action == .selectSurfaceByNumber })
         #expect(!toBrowser.changes.contains { $0.action == .selectWorkspaceByNumber })
 
-        var bindings = applied(.iTerm2)
-        for change in toBrowser.changes {
-            if let write = change.write { bindings[change.action] = write } else { bindings[change.action] = nil }
-        }
-        #expect(bindings == applied(.browser))
-        #expect(ShortcutKeymapPreset.active(in: snapshot(bindings)) == .browser)
+        let asBrowser = try replaying(toBrowser, onto: applied(.iTerm2))
+        #expect(asBrowser == applied(.browser))
+        #expect(ShortcutKeymapPreset.active(in: snapshot(asBrowser)) == .browser)
 
-        let back = ShortcutKeymapPreset.iTerm2.plan(from: snapshot(bindings))
-        for change in back.changes {
-            if let write = change.write { bindings[change.action] = write } else { bindings[change.action] = nil }
+        let back = ShortcutKeymapPreset.iTerm2.plan(from: snapshot(asBrowser))
+        let asITerm2 = try replaying(back, onto: asBrowser)
+        #expect(asITerm2 == applied(.iTerm2))
+        #expect(ShortcutKeymapPreset.active(in: snapshot(asITerm2)) == .iTerm2)
+    }
+
+    /// Applies a plan's writes to a bindings dictionary the way the JSON store
+    /// does, so the result can be compared against ``applied(_:)``.
+    ///
+    /// A plan writes the hand-editable ``ShortcutKeymapBinding`` form, while
+    /// bindings compare as parsed ``StoredShortcut``, so each write is parsed
+    /// on the way in. A write that does not parse would drop the key and read
+    /// as "the preset does not override this action", which would make a round
+    /// trip pass for the wrong reason, so that fails here instead.
+    private func replaying(
+        _ plan: ShortcutKeymapPlan,
+        onto bindings: [ShortcutAction: StoredShortcut]
+    ) throws -> [ShortcutAction: StoredShortcut] {
+        var result = bindings
+        for change in plan.changes {
+            guard let write = change.write else {
+                // No write means the override is removed and the cmux default
+                // applies again.
+                result[change.action] = nil
+                continue
+            }
+            result[change.action] = try #require(
+                write.shortcut,
+                "\(plan.preset) writes an unparseable binding for \(change.action)"
+            )
         }
-        #expect(bindings == applied(.iTerm2))
-        #expect(ShortcutKeymapPreset.active(in: snapshot(bindings)) == .iTerm2)
+        return result
     }
 
     /// Whether two bindings can fire on the same keystroke sequence. A chord
