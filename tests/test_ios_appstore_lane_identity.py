@@ -1342,7 +1342,7 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         )
 
 
-def test_official_testflight_workflow_publishes_changelog_notes() -> None:
+def test_official_testflight_workflow_publishes_generated_notes() -> None:
     workflow = (ROOT / ".github" / "workflows" / "ios-appstore-upload.yml").read_text(
         encoding="utf-8"
     )
@@ -1351,11 +1351,15 @@ def test_official_testflight_workflow_publishes_changelog_notes() -> None:
     )[1].split("      - name: Record completed upload before group assignment", 1)[0]
     _check(
         "ARGS=(--lane appstore --signing manual)" in upload_step,
-        "official cmux.app TestFlight upload enables the default changelog notes path",
+        "official cmux.app TestFlight upload keeps the changelog notes path as the no-base fallback",
+    )
+    _check(
+        '--notes-from-range "$LAST_UPLOAD_SHA"' in upload_step,
+        "official cmux.app TestFlight upload generates What to Test notes from the commits since the previous upload",
     )
     _check(
         "--skip-notes" not in upload_step,
-        "official cmux.app TestFlight upload does not suppress changelog notes",
+        "official cmux.app TestFlight upload does not suppress What to Test notes",
     )
 
 
@@ -1857,7 +1861,7 @@ def main() -> None:
         )
         test_bump_ios_version_accepts_trailing_appstore_lane(tmp / "version-bump-test", fakebin)
         test_upload_appstore_lane_uses_production_bundle_id(tmp / "upload-test", fakebin)
-        test_official_testflight_workflow_publishes_changelog_notes()
+        test_official_testflight_workflow_publishes_generated_notes()
         test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp / "upload-live-test", fakebin)
         test_profile_installer_accepts_production_profile_by_default(tmp / "profile-test", fakebin)
         test_profile_installer_ignores_stale_primary_secret(tmp / "profile-stale-test", fakebin)

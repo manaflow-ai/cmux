@@ -60,11 +60,13 @@ final class MobileIrohSoakRunner {
     private let interval: Duration
     private let operationTimeout: Duration
     private let requiresRelay: Bool
+    private let allowForcedReconnect: Bool
     private var operationDeadline = ContinuousClock.now
 
     init(
         profile: Profile, durationSeconds: Int? = nil, minimumCycles: Int? = nil,
-        interval: Duration? = nil, operationTimeout: Duration = .seconds(30), requiresRelay: Bool = true
+        interval: Duration? = nil, operationTimeout: Duration = .seconds(30), requiresRelay: Bool = true,
+        allowForcedReconnect: Bool = true
     ) {
         self.profile = profile
         self.durationSeconds = durationSeconds ?? profile.seconds
@@ -72,6 +74,7 @@ final class MobileIrohSoakRunner {
         self.interval = interval ?? profile.interval
         self.operationTimeout = operationTimeout
         self.requiresRelay = requiresRelay
+        self.allowForcedReconnect = allowForcedReconnect
         evidence = Evidence(profile: profile, requestedDurationSeconds: durationSeconds ?? profile.seconds)
     }
 
@@ -154,7 +157,8 @@ final class MobileIrohSoakRunner {
             }
             guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
             if profile == .stress {
-                evidence.currentOperation = cycle % 120 == 119 ? "forced_reconnect" : [
+                let shouldForceReconnect = allowForcedReconnect && cycle % 120 == 119
+                evidence.currentOperation = shouldForceReconnect ? "forced_reconnect" : [
                     "workspace_navigation", "unicode_output_burst", "workspace_create_close", "terminal_after_refresh",
                 ][cycle % 4]
                 for (operation, seconds) in try await stress(cycle, cycleMarker) {
@@ -162,7 +166,7 @@ final class MobileIrohSoakRunner {
                     evidence.operationCounts[operation, default: 0] += 1
                     evidence.operationLatencies[operation, default: .init()].record(seconds)
                 }
-                if cycle % 120 == 119 {
+                if shouldForceReconnect {
                     expectedConnection = try observe(await connection())
                 } else if try observe(await connection()) != expectedConnection {
                     throw Failure.connectionChanged
