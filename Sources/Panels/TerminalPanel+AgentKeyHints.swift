@@ -5,11 +5,6 @@ import CmuxTerminalCore
 /// Clickable agent key hints (`agentActions.keyHints`): a click on a hint an
 /// agent printed, such as `ctrl+o to expand`, presses those keys.
 extension TerminalPanel {
-    private struct AgentKeyHintAgentContext {
-        var agent: AgentKeyHintDetector.Agent
-        var lifecycle: AgentHibernationLifecycleState
-    }
-
     /// Whether the key hints setting is on.
     static var agentKeyHintsEnabled: Bool {
         AgentActionsCatalogSection().keyHints.value(in: .standard)
@@ -91,14 +86,6 @@ extension TerminalPanel {
             ? ClaudeCodeKeybindingsFile.shared.current(maxAge: keybindingsMaxAge)
             : .empty
         return AgentKeyHintChordResolver(claudeKeybindings: bindings).keys(for: hint, agent: agent)
-    }
-
-    /// A click on an agent key hint, resolved before it is pressed.
-    struct AgentKeyHintClick: Equatable {
-        var hint: AgentKeyHint
-        var agent: AgentKeyHintDetector.Agent
-        var lifecycle: AgentHibernationLifecycleState
-        var policy: AgentKeyHintClickPolicy
     }
 
     /// The hint a left click on a terminal cell presses, when the setting is

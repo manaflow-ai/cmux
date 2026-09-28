@@ -3350,6 +3350,9 @@
 		B82090010000000000000001 /* TCCUsageDescriptionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B82090010000000000000002 /* TCCUsageDescriptionUITests.swift */; };
 		0044CBDD567D9CD29E6A6F12 /* TelemetrySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 257DFD20F0961FE0BDAF70F2 /* TelemetrySettings.swift */; };
 		A10199010000000000000001 /* TerminalAdaptiveDefaultThemeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10199010000000000000002 /* TerminalAdaptiveDefaultThemeSettings.swift */; };
+		7864B2932961A4C12A27A86F /* TerminalAgentKeyHintDeferredRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = F139257AC059153FD919695B /* TerminalAgentKeyHintDeferredRequest.swift */; };
+		823063CE633603B5783FAD93 /* TerminalAgentKeyHintDeferredSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CC4DA07AF4A95F926737323 /* TerminalAgentKeyHintDeferredSnapshot.swift */; };
+		1D6A20ACE16A3096E4F6B7C7 /* TerminalAgentKeyHintPointerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B08F5F3EDFB91678956E735A /* TerminalAgentKeyHintPointerState.swift */; };
 		C86BDB965EDA4846636372A6 /* TerminalAgentKeyHintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63FC8361FA46F1BDB73BB497 /* TerminalAgentKeyHintTests.swift */; };
 		C10190010000000000000002 /* TerminalAgentPanelInitialTitleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10190010000000000000001 /* TerminalAgentPanelInitialTitleTests.swift */; };
 		D63A5534840D8E39C2CB9D48 /* TerminalAgentTurnControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29C4A4BD09A65729D5CABC98 /* TerminalAgentTurnControlTests.swift */; };
@@ -3574,6 +3577,8 @@
 		C71500060000000000000001 /* TerminalPaneBackgroundView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71500050000000000000001 /* TerminalPaneBackgroundView.swift */; };
 		D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */; };
 		8997E0048997E0048997E004 /* TerminalPanel+AgentHibernation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997F0048997F0048997F004 /* TerminalPanel+AgentHibernation.swift */; };
+		93D31A1B5D3705253D5BF428 /* TerminalPanel+AgentKeyHintAgentContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFEC6C7A576AE97A67BDFD5 /* TerminalPanel+AgentKeyHintAgentContext.swift */; };
+		A3F7529B75E43F22B9B1D99D /* TerminalPanel+AgentKeyHintClick.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E25E33C22C08135C7993274 /* TerminalPanel+AgentKeyHintClick.swift */; };
 		0A88F200D6DE2028B233056F /* TerminalPanel+AgentKeyHints.swift in Sources */ = {isa = PBXBuildFile; fileRef = C29C74CD93ABC0AD224843AA /* TerminalPanel+AgentKeyHints.swift */; };
 		107A669D53C071A3C49D692E /* TerminalPanel+AgentTurnControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 047C063C25C9A02B00F4619E /* TerminalPanel+AgentTurnControl.swift */; };
 		A5F100000000000000000007 /* TerminalPanel+NotificationScroll.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F100000000000000000008 /* TerminalPanel+NotificationScroll.swift */; };
@@ -7383,6 +7388,9 @@
 		B82090010000000000000002 /* TCCUsageDescriptionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TCCUsageDescriptionUITests.swift; sourceTree = "<group>"; };
 		257DFD20F0961FE0BDAF70F2 /* TelemetrySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TelemetrySettings.swift"; sourceTree = "<group>"; };
 		A10199010000000000000002 /* TerminalAdaptiveDefaultThemeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAdaptiveDefaultThemeSettings.swift; sourceTree = "<group>"; };
+		F139257AC059153FD919695B /* TerminalAgentKeyHintDeferredRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAgentKeyHintDeferredRequest.swift; sourceTree = "<group>"; };
+		6CC4DA07AF4A95F926737323 /* TerminalAgentKeyHintDeferredSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAgentKeyHintDeferredSnapshot.swift; sourceTree = "<group>"; };
+		B08F5F3EDFB91678956E735A /* TerminalAgentKeyHintPointerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAgentKeyHintPointerState.swift; sourceTree = "<group>"; };
 		63FC8361FA46F1BDB73BB497 /* TerminalAgentKeyHintTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalAgentKeyHintTests.swift"; sourceTree = "<group>"; };
 		C10190010000000000000001 /* TerminalAgentPanelInitialTitleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAgentPanelInitialTitleTests.swift; sourceTree = "<group>"; };
 		29C4A4BD09A65729D5CABC98 /* TerminalAgentTurnControlTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalAgentTurnControlTests.swift"; sourceTree = "<group>"; };
@@ -7607,6 +7615,8 @@
 		C71500050000000000000001 /* TerminalPaneBackgroundView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneBackgroundView.swift; sourceTree = "<group>"; };
 		D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneDropTargetView.swift; sourceTree = "<group>"; };
 		8997F0048997F0048997F004 /* TerminalPanel+AgentHibernation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+AgentHibernation.swift"; sourceTree = "<group>"; };
+		AAFEC6C7A576AE97A67BDFD5 /* TerminalPanel+AgentKeyHintAgentContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+AgentKeyHintAgentContext.swift"; sourceTree = "<group>"; };
+		5E25E33C22C08135C7993274 /* TerminalPanel+AgentKeyHintClick.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+AgentKeyHintClick.swift"; sourceTree = "<group>"; };
 		C29C74CD93ABC0AD224843AA /* TerminalPanel+AgentKeyHints.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+AgentKeyHints.swift"; sourceTree = "<group>"; };
 		047C063C25C9A02B00F4619E /* TerminalPanel+AgentTurnControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+AgentTurnControl.swift"; sourceTree = "<group>"; };
 		A5F100000000000000000008 /* TerminalPanel+NotificationScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+NotificationScroll.swift"; sourceTree = "<group>"; };
@@ -10956,6 +10966,11 @@
 				36C1F9C28D7E37CC4A1583D3 /* TerminalAgentTurnControlView.swift */,
 				DC0674036E2A7F742B565DC4 /* GhosttyNSView+AgentKeyHints.swift */,
 				C29C74CD93ABC0AD224843AA /* TerminalPanel+AgentKeyHints.swift */,
+				F139257AC059153FD919695B /* TerminalAgentKeyHintDeferredRequest.swift */,
+				6CC4DA07AF4A95F926737323 /* TerminalAgentKeyHintDeferredSnapshot.swift */,
+				B08F5F3EDFB91678956E735A /* TerminalAgentKeyHintPointerState.swift */,
+				AAFEC6C7A576AE97A67BDFD5 /* TerminalPanel+AgentKeyHintAgentContext.swift */,
+				5E25E33C22C08135C7993274 /* TerminalPanel+AgentKeyHintClick.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14981,6 +14996,9 @@
 				7490C00F7490C00F7490C00F /* TaskVMInfoMemoryPressureFootprintSampler.swift in Sources */,
 				0044CBDD567D9CD29E6A6F12 /* TelemetrySettings.swift in Sources */,
 				A10199010000000000000001 /* TerminalAdaptiveDefaultThemeSettings.swift in Sources */,
+				7864B2932961A4C12A27A86F /* TerminalAgentKeyHintDeferredRequest.swift in Sources */,
+				823063CE633603B5783FAD93 /* TerminalAgentKeyHintDeferredSnapshot.swift in Sources */,
+				1D6A20ACE16A3096E4F6B7C7 /* TerminalAgentKeyHintPointerState.swift in Sources */,
 				2319F780FDCBC34F942CCC28 /* TerminalAgentTurnControlView.swift in Sources */,
 				8362A0030000000000000003 /* TerminalCallerTTYBinding.swift in Sources */,
 				8362A0010000000000000001 /* TerminalCallerTTYResolver.swift in Sources */,
@@ -15172,6 +15190,8 @@
 				C71500060000000000000001 /* TerminalPaneBackgroundView.swift in Sources */,
 				D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */,
 				8997E0048997E0048997E004 /* TerminalPanel+AgentHibernation.swift in Sources */,
+				93D31A1B5D3705253D5BF428 /* TerminalPanel+AgentKeyHintAgentContext.swift in Sources */,
+				A3F7529B75E43F22B9B1D99D /* TerminalPanel+AgentKeyHintClick.swift in Sources */,
 				0A88F200D6DE2028B233056F /* TerminalPanel+AgentKeyHints.swift in Sources */,
 				107A669D53C071A3C49D692E /* TerminalPanel+AgentTurnControl.swift in Sources */,
 				A5F100000000000000000007 /* TerminalPanel+NotificationScroll.swift in Sources */,

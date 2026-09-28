@@ -5321,8 +5321,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func layout() {
         super.layout()
-        // A pending click and underline both refer to the old grid geometry.
-        cancelAgentKeyHintInteraction()
+        // The final deferred snapshot rejects a real grid change. Merely being
+        // asked to lay out again must not drop a completed click.
         clearAgentKeyHintHover()
         // A portal-owned view is sized by the portal's commit; only a view
         // that AppKit lays out directly publishes its own bounds.

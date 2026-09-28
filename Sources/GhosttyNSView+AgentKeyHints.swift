@@ -30,52 +30,6 @@ struct TerminalAgentKeyHintViewportState: Equatable {
     }
 }
 
-/// Everything a deferred hint press must still match before it sends input.
-struct TerminalAgentKeyHintDeferredRequest {
-    let terminalSurfaceIdentity: ObjectIdentifier
-    let runtimeSurfaceGeneration: UInt64
-    let panelIdentity: ObjectIdentifier
-    let cell: TerminalAgentKeyHintCell
-    let row: String
-    let viewport: TerminalAgentKeyHintViewportState
-    let click: TerminalPanel.AgentKeyHintClick
-    let modifierFlags: NSEvent.ModifierFlags
-}
-
-/// A fresh read of the state protected by a deferred hint request.
-struct TerminalAgentKeyHintDeferredSnapshot {
-    let terminalSurface: TerminalSurface
-    let runtimeSurfaceGeneration: UInt64
-    let panel: TerminalPanel
-    let cell: TerminalAgentKeyHintCell
-    let row: String
-    let viewport: TerminalAgentKeyHintViewportState
-    let hasSelection: Bool
-    let mouseCaptured: Bool
-}
-
-/// Per-view pointer state for clickable agent key hints (`agentActions.keyHints`).
-@MainActor
-final class TerminalAgentKeyHintPointerState {
-    /// The cell a single left click pressed, while the setting is on.
-    var pressCell: TerminalAgentKeyHintCell?
-    /// A released click waiting out the double-click interval.
-    var deferredPress = AgentKeyHintDeferredPress(delay: NSEvent.doubleClickInterval)
-    /// Re-resolves the original cell and authorization immediately before
-    /// sending input. Invalidations clear this closure.
-    var pendingPress: (() -> Void)?
-    /// The cell hover last resolved; hover resolves again only when it changes.
-    var hoverCell: TerminalAgentKeyHintCell?
-    /// The hint under the pointer: its row and cells.
-    var hoveredHint: (row: Int, columns: Range<Int>)?
-    /// The viewport the hovered hint was read from.
-    var hoveredViewport: TerminalAgentKeyHintViewportState?
-    var underlineView: GhosttyFlashOverlayView?
-    var toolTipTag: NSView.ToolTipTag?
-    /// Tooltip owners are not retained by AppKit.
-    var toolTipText: NSString?
-}
-
 extension GhosttyNSView {
     /// How long hover trusts an earlier check of `~/.claude/keybindings.json`.
     private static let agentKeyHintHoverKeybindingsMaxAge: TimeInterval = 5
@@ -88,6 +42,7 @@ extension GhosttyNSView {
     func settleAgentKeyHintPendingPress(clickCount: Int) {
         let state = agentKeyHintPointer
         guard state.pendingPress != nil else { return }
+        state.cancelDeferredPressTask()
         let due = state.deferredPress.press(clickCount: clickCount)
         let press = state.pendingPress
         state.pendingPress = nil
@@ -98,16 +53,18 @@ extension GhosttyNSView {
     /// and deterministic regression coverage share this consumption path.
     func fireAgentKeyHintPendingPress(at now: TimeInterval) {
         let state = agentKeyHintPointer
+        state.cancelDeferredPressTask()
         guard state.deferredPress.fire(at: now) else { return }
         let press = state.pendingPress
         state.pendingPress = nil
         press?()
     }
 
-    /// Drops both halves of an in-progress hint click. Geometry, viewport,
-    /// and ownership changes call this before the deferred action can fire.
+    /// Drops both halves of an in-progress hint click. Explicit lifecycle and
+    /// input invalidations, such as detach and scroll, call this immediately.
     func cancelAgentKeyHintInteraction() {
         let state = agentKeyHintPointer
+        state.cancelDeferredPressTask()
         state.pressCell = nil
         state.deferredPress.cancel()
         state.pendingPress = nil
@@ -175,6 +132,7 @@ extension GhosttyNSView {
         press: @escaping (TerminalPanel, TerminalPanel.AgentKeyHintClick) -> Void
     ) {
         let state = agentKeyHintPointer
+        state.cancelDeferredPressTask()
         state.pendingPress = {
             guard let snapshot = currentSnapshot(),
                   ObjectIdentifier(snapshot.terminalSurface) == request.terminalSurfaceIdentity,
@@ -196,10 +154,21 @@ extension GhosttyNSView {
             press(snapshot.panel, currentClick)
         }
         let due = state.deferredPress.release(at: ProcessInfo.processInfo.systemUptime)
-        // A little past the deadline, so the timer never finds it not yet due.
+        // A little past the deadline, so the task never finds it not yet due.
         let delay = max(0, due - ProcessInfo.processInfo.systemUptime) + 0.01
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.fireAgentKeyHintPendingPress(at: ProcessInfo.processInfo.systemUptime)
+        let sequence = state.deferredPressTaskSequence
+        let sleep = state.deferredPressSleep
+        state.deferredPressTask = Task { @MainActor [weak self] in
+            do {
+                try await sleep(.seconds(delay))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            let currentState = self.agentKeyHintPointer
+            guard currentState.deferredPressTaskSequence == sequence else { return }
+            currentState.deferredPressTask = nil
+            self.fireAgentKeyHintPendingPress(at: ProcessInfo.processInfo.systemUptime)
         }
     }
 
@@ -290,8 +259,8 @@ extension GhosttyNSView {
     }
 
     /// Hides any hint hover and cancels an unreleased press. A completed click
-    /// keeps waiting through pointer exit; scroll, resize, and detach cancel it
-    /// at their stronger invalidation boundaries.
+    /// keeps waiting through pointer exit and no-op layout. Scroll and detach
+    /// cancel it; final snapshot validation rejects real viewport changes.
     func clearAgentKeyHintHover() {
         let state = agentKeyHintPointer
         state.pressCell = nil

@@ -40,6 +40,7 @@ public struct AgentKeyHint: Sendable, Equatable {
 /// scrollback or in the agent's prose would press a key the live UI never
 /// offered. Ctrl and Alt chords name one binding and count on any line.
 public struct AgentKeyHintDetector: Sendable {
+    /// Agent TUI whose rendered key-hint grammar should be recognized.
     public enum Agent: Sendable, Equatable {
         case claudeCode
         case codex

@@ -243,6 +243,7 @@ struct TerminalAgentKeyHintTests {
         let view = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 40))
         var currentGeneration = generation
         var currentRow = expandLine
+        var currentViewport = viewport
         var fired = 0
         func installDeferredClosure() {
             view.deferAgentKeyHintPress(
@@ -254,7 +255,7 @@ struct TerminalAgentKeyHintTests {
                         panel: fixture.panel,
                         cell: cell,
                         row: currentRow,
-                        viewport: viewport,
+                        viewport: currentViewport,
                         hasSelection: false,
                         mouseCaptured: false
                     )
@@ -264,9 +265,10 @@ struct TerminalAgentKeyHintTests {
         }
 
         installDeferredClosure()
+        view.layout()
         view.clearAgentKeyHintHover()
         view.fireAgentKeyHintPendingPress(at: .greatestFiniteMagnitude)
-        #expect(fired == 1, "Pointer exit after mouse-up must preserve the real deferred callback")
+        #expect(fired == 1, "No-op layout and pointer exit must preserve the released deferred callback")
 
         currentRow = "x ⎿  … +53 lines (ctrl+o to expand)"
         #expect(fixture.panel.agentKeyHintClick(
@@ -282,13 +284,28 @@ struct TerminalAgentKeyHintTests {
 
         currentRow = expandLine
         installDeferredClosure()
+        currentViewport = TerminalAgentKeyHintViewportState(
+            scrollbarTotal: 25,
+            scrollbarOffset: 0,
+            scrollbarLength: 25,
+            rows: 25,
+            columns: 80,
+            cursorRow: 21,
+            cursorColumn: 0
+        )
+        view.layout()
+        view.fireAgentKeyHintPendingPress(at: .greatestFiniteMagnitude)
+        #expect(fired == 1, "A real viewport/grid change must reject the released deferred callback")
+
+        currentViewport = viewport
+        installDeferredClosure()
         currentGeneration &+= 1
         view.fireAgentKeyHintPendingPress(at: .greatestFiniteMagnitude)
         #expect(fired == 1, "A changed terminal runtime generation must cancel the deferred click")
     }
 
     @Test
-    func layoutInvalidationCancelsADeferredClick() {
+    func noOpLayoutKeepsAReleasedDeferredClick() {
         let view = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 40))
         var fired = false
         view.agentKeyHintPointer.pressCell = TerminalAgentKeyHintCell(row: 1, column: 2)
@@ -298,9 +315,10 @@ struct TerminalAgentKeyHintTests {
         view.layout()
 
         #expect(view.agentKeyHintPointer.pressCell == nil)
-        #expect(view.agentKeyHintPointer.pendingPress == nil)
-        #expect(view.agentKeyHintPointer.deferredPress.deadline == nil)
-        #expect(!fired)
+        #expect(view.agentKeyHintPointer.pendingPress != nil)
+        #expect(view.agentKeyHintPointer.deferredPress.deadline != nil)
+        view.fireAgentKeyHintPendingPress(at: .greatestFiniteMagnitude)
+        #expect(fired)
     }
 
     @Test
