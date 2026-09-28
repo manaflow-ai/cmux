@@ -7501,6 +7501,7 @@ final class cmuxUITests: XCTestCase {
 
         tap(terminalDropdown, in: app)
         assertTerminalMenuItemExists("terminal-delayed", in: app)
+        dismissOpenMenu(in: app)
 
         tap(backButton, in: app)
         let reopenedRow = app.descendants(matching: .any)[
@@ -7706,6 +7707,7 @@ final class cmuxUITests: XCTestCase {
 
         tap(terminalDropdown, in: app)
         assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
+        dismissOpenMenu(in: app)
 
         tap(backButton, in: app)
         let reopenedRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-3"]
