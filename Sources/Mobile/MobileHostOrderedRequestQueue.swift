@@ -83,6 +83,7 @@ struct MobileTerminalInputOrderingTicket: Sendable {
     fileprivate let id: UUID
     fileprivate let surfaceID: UUID
     fileprivate let token: MobileTerminalInputOrderingToken
+    fileprivate let inputSequence: UInt64?
     fileprivate let turn: Task<Void, Never>
 
     func waitForTurn() async {
@@ -113,7 +114,9 @@ final class MobileTerminalInputOrdering {
     private var activeTokens: Set<MobileTerminalInputOrderingToken> = []
     private var tokenByIdentity: [String: MobileTerminalInputOrderingToken] = [:]
     private var identityByToken: [MobileTerminalInputOrderingToken: String] = [:]
-    private var lastSequenceBySurfaceAndToken: [SurfaceSequenceKey: UInt64] = [:]
+    private var lastAcceptedSequenceBySurfaceAndToken: [SurfaceSequenceKey: UInt64] = [:]
+    private var pendingSequencesBySurfaceAndToken: [SurfaceSequenceKey: Set<UInt64>] = [:]
+    private var committedTicketIDs: Set<UUID> = []
     private var tailsBySurfaceID: [UUID: (ticketID: UUID, task: Task<Void, Never>)] = [:]
     private var finishSignalsByTicketID: [UUID: AsyncStream<Void>.Continuation] = [:]
 
@@ -150,7 +153,10 @@ final class MobileTerminalInputOrdering {
 
     func invalidate(_ token: MobileTerminalInputOrderingToken) {
         guard activeTokens.remove(token) != nil else { return }
-        lastSequenceBySurfaceAndToken = lastSequenceBySurfaceAndToken.filter {
+        lastAcceptedSequenceBySurfaceAndToken = lastAcceptedSequenceBySurfaceAndToken.filter {
+            $0.key.token != token
+        }
+        pendingSequencesBySurfaceAndToken = pendingSequencesBySurfaceAndToken.filter {
             $0.key.token != token
         }
         identityByToken.removeValue(forKey: token)
@@ -167,13 +173,16 @@ final class MobileTerminalInputOrdering {
         }
         if let inputSequence {
             let key = SurfaceSequenceKey(surfaceID: surfaceID, token: token)
-            if let previous = lastSequenceBySurfaceAndToken[key], inputSequence <= previous {
+            let previousAccepted = lastAcceptedSequenceBySurfaceAndToken[key]
+            let previousPending = pendingSequencesBySurfaceAndToken[key]?.max()
+            if let previous = [previousAccepted, previousPending].compactMap({ $0 }).max(),
+               inputSequence <= previous {
                 return .failure(.staleSequence)
             }
-            // Advance at reservation time, not after execution. A later lane
-            // frame must not be admitted behind a queued older frame and then
-            // make the older frame look fresh when it finally runs.
-            lastSequenceBySurfaceAndToken[key] = inputSequence
+            // Keep a pending fence while the terminal operation is queued. The
+            // applied watermark advances only after the PTY accepts the input,
+            // so a failed send can release its sequence for a retry.
+            pendingSequencesBySurfaceAndToken[key, default: []].insert(inputSequence)
         }
 
         let ticketID = UUID()
@@ -194,6 +203,7 @@ final class MobileTerminalInputOrdering {
             id: ticketID,
             surfaceID: surfaceID,
             token: token,
+            inputSequence: inputSequence,
             turn: turn
         ))
     }
@@ -202,7 +212,32 @@ final class MobileTerminalInputOrdering {
         activeTokens.contains(ticket.token)
     }
 
+    /// Commits a reserved input sequence after its terminal operation reports
+    /// that the PTY accepted the input. Failed operations remain retryable.
+    func commit(_ ticket: MobileTerminalInputOrderingTicket) {
+        guard let inputSequence = ticket.inputSequence else { return }
+        let key = SurfaceSequenceKey(surfaceID: ticket.surfaceID, token: ticket.token)
+        pendingSequencesBySurfaceAndToken[key]?.remove(inputSequence)
+        if pendingSequencesBySurfaceAndToken[key]?.isEmpty == true {
+            pendingSequencesBySurfaceAndToken[key] = nil
+        }
+        if let previous = lastAcceptedSequenceBySurfaceAndToken[key] {
+            lastAcceptedSequenceBySurfaceAndToken[key] = max(previous, inputSequence)
+        } else {
+            lastAcceptedSequenceBySurfaceAndToken[key] = inputSequence
+        }
+        committedTicketIDs.insert(ticket.id)
+    }
+
     func finish(_ ticket: MobileTerminalInputOrderingTicket) {
+        if !committedTicketIDs.remove(ticket.id),
+           let inputSequence = ticket.inputSequence {
+            let key = SurfaceSequenceKey(surfaceID: ticket.surfaceID, token: ticket.token)
+            pendingSequencesBySurfaceAndToken[key]?.remove(inputSequence)
+            if pendingSequencesBySurfaceAndToken[key]?.isEmpty == true {
+                pendingSequencesBySurfaceAndToken[key] = nil
+            }
+        }
         guard let continuation = finishSignalsByTicketID.removeValue(forKey: ticket.id) else {
             return
         }

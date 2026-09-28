@@ -53,6 +53,45 @@ struct MobileHostOrderedInputTests {
     }
 
     @Test
+    @MainActor
+    func failedReservationCanRetryUntilInputIsAccepted() async {
+        let ordering = MobileTerminalInputOrdering()
+        let token = ordering.beginConnection(identity: "client:phone")
+        let surfaceID = UUID()
+        guard case let .success(firstTicket) = ordering.reserve(
+            surfaceID: surfaceID,
+            token: token,
+            inputSequence: 4
+        ) else {
+            Issue.record("the first input reservation should be admitted")
+            return
+        }
+        await firstTicket.waitForTurn()
+        ordering.finish(firstTicket)
+
+        guard case let .success(retryTicket) = ordering.reserve(
+            surfaceID: surfaceID,
+            token: token,
+            inputSequence: 4
+        ) else {
+            Issue.record("a failed input should release its sequence for retry")
+            return
+        }
+        await retryTicket.waitForTurn()
+        ordering.commit(retryTicket)
+        ordering.finish(retryTicket)
+
+        guard case .failure(.staleSequence) = ordering.reserve(
+            surfaceID: surfaceID,
+            token: token,
+            inputSequence: 4
+        ) else {
+            Issue.record("an accepted input sequence should reject duplicate retry")
+            return
+        }
+    }
+
+    @Test
     func terminalInputRunsSeriallyWhileOtherRequestsRemainConcurrent() async throws {
         let transport = OrderedInputRecordingTransport()
         let gate = OrderedInputHandlerGate()

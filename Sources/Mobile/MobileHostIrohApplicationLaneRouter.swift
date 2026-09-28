@@ -927,11 +927,15 @@ actor MobileHostIrohApplicationLaneRouter {
             guard MobileHostService.shared.terminalInputOrdering.isCurrent(ticket) else {
                 return false
             }
-            return applyTerminalInput(
+            let accepted = applyTerminalInput(
                 input,
                 surfaceID: surfaceID,
                 receivedAtMicros: receivedAtMicros
             )
+            if accepted {
+                MobileHostService.shared.terminalInputOrdering.commit(ticket)
+            }
+            return accepted
         }
     }
 

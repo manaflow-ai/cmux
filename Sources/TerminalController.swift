@@ -14927,10 +14927,14 @@ class TerminalController {
             params: pinnedParams,
             auth: request.auth
         )
-        return await mobileHostHandleRPCUnordered(
+        let result = await mobileHostHandleRPCUnordered(
             pinnedRequest,
             executionContext: executionContext
         )
+        if case .ok = result {
+            MobileHostService.shared.terminalInputOrdering.commit(ticket)
+        }
+        return result
     }
 
     private nonisolated static func mobileInputSequence(params: [String: Any]) -> UInt64? {
