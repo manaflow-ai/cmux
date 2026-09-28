@@ -9960,9 +9960,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    func resolvedImageTransferTarget(mode: TerminalImageTransferMode) -> TerminalImageTransferTarget {
+    func imageTransferTargetResolution(mode: TerminalImageTransferMode) -> TerminalImageTransferTargetResolution {
         MainActor.assumeIsolated {
-            terminalSurface?.resolvedImageTransferTarget(mode: mode) ?? .local
+            terminalSurface?.imageTransferTargetResolution(mode: mode) ?? .resolved(.local)
         }
     }
 

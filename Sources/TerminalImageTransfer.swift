@@ -10,7 +10,7 @@ enum TerminalImageTransferMode: Codable, Sendable {
     case drop
 }
 
-enum TerminalRemoteUploadTarget: Equatable {
+enum TerminalRemoteUploadTarget: Equatable, Sendable {
     case workspaceRemote
     case detectedSSH(DetectedSSHSession)
 }

@@ -3621,6 +3621,7 @@
 		C75100030000000000000001 /* TerminalSelectionTranslationAnchorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75100030000000000000002 /* TerminalSelectionTranslationAnchorView.swift */; };
 		85510003A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85510004A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift */; };
 		A5001543 /* TerminalSSHSessionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001545 /* TerminalSSHSessionDetector.swift */; };
+		B42AD1F9F86EEE736ABB7EC3 /* TerminalSSHSessionDetectorProcessSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31BFCF49D4B667B5C2A0BE3C /* TerminalSSHSessionDetectorProcessSnapshotTests.swift */; };
 		D4A9923A0000000000000001 /* TerminalStartupRestoreCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A9923A0000000000000002 /* TerminalStartupRestoreCoordinator.swift */; };
 		99230001992300019923000E /* TerminalStartupRestoreFailureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99230001992300019923000D /* TerminalStartupRestoreFailureTests.swift */; };
 		124760000000000000000009 /* TerminalSurface+CloudImagePaste.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000009 /* TerminalSurface+CloudImagePaste.swift */; };
@@ -7636,6 +7637,7 @@
 		C75100030000000000000002 /* TerminalSelectionTranslationAnchorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSelectionTranslationAnchorView.swift; sourceTree = "<group>"; };
 		85510004A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalShellResolver+CurrentUser.swift"; sourceTree = "<group>"; };
 		A5001545 /* TerminalSSHSessionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHSessionDetector.swift; sourceTree = "<group>"; };
+		31BFCF49D4B667B5C2A0BE3C /* TerminalSSHSessionDetectorProcessSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalSSHSessionDetectorProcessSnapshotTests.swift"; sourceTree = "<group>"; };
 		D4A9923A0000000000000002 /* TerminalStartupRestoreCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStartupRestoreCoordinator.swift; sourceTree = "<group>"; };
 		99230001992300019923000D /* TerminalStartupRestoreFailureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStartupRestoreFailureTests.swift; sourceTree = "<group>"; };
 		124770000000000000000009 /* TerminalSurface+CloudImagePaste.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TerminalSurface+CloudImagePaste.swift"; sourceTree = SOURCE_ROOT; };
@@ -12302,6 +12304,7 @@
 				3D5E43A566AB0B441162EC5A /* CloudTreeNodeCacheTests.swift */,
 				23E35F95320CBED308AD98CF /* CloudTreeTogglePerformanceTests.swift */,
 				0C37EA14DE74095FB1BB23E1 /* CloudTreeDisclosureIntentTests.swift */,
+				31BFCF49D4B667B5C2A0BE3C /* TerminalSSHSessionDetectorProcessSnapshotTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16851,6 +16854,7 @@
 				C0DE53360000000000000001 /* TerminalSearchOverlayMouseReleaseTests.swift in Sources */,
 				A11E5E1E0000000000000011 /* TerminalSelectionAccessibilityIngressGateTests.swift in Sources */,
 				A11E5E1E0000000000000003 /* TerminalSelectionAccessibilityNotifier.swift in Sources */,
+				B42AD1F9F86EEE736ABB7EC3 /* TerminalSSHSessionDetectorProcessSnapshotTests.swift in Sources */,
 				99230001992300019923000E /* TerminalStartupRestoreFailureTests.swift in Sources */,
 				40CEF603FB3F6F03B5CB2965 /* TerminalSurfaceTestTeardown.swift in Sources */,
 				A91C0D0F0000000000000002 /* TerminalTabIconRegressionTests.swift in Sources */,

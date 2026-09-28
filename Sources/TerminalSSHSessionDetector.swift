@@ -5,7 +5,7 @@ import CmuxRemoteSession
 import Foundation
 import Darwin
 
-struct DetectedSSHSession: Equatable {
+struct DetectedSSHSession: Equatable, Sendable {
     let destination: String
     let port: Int?
     let identityFile: String?
@@ -535,7 +535,6 @@ enum TerminalSSHSessionDetector {
         )
     }
 
-    private static let psPath = "/bin/ps"
     private static let noArgumentFlags = Set("46AaCfGgKkMNnqsTtVvXxYy")
     private static let nonInteractiveFlags = Set("nTGV")
     private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOopQRSWw")
@@ -641,50 +640,46 @@ enum TerminalSSHSessionDetector {
         return key == "sessiontype" && value == "none"
     }
 
-    private static func processSnapshots(forTTY ttyName: String) -> [ProcessSnapshot] {
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: psPath)
-        process.arguments = ["-ww", "-t", ttyName, "-o", "pid=,pgid=,tpgid=,tty=,ucomm="]
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
+    /// Reads the processes attached to one TTY straight from the kernel.
+    /// Callers run on the main thread while a drop or paste is in flight, so
+    /// this must not scale with the machine's process count the way `ps` does.
+    static func processSnapshots(forTTY ttyName: String) -> [ProcessSnapshot] {
+        var ttyStat = stat()
+        guard stat("/dev/\(ttyName)", &ttyStat) == 0,
+              (ttyStat.st_mode & S_IFMT) == S_IFCHR else {
             return []
         }
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
-        process.waitUntilExit()
+        var mib = [CTL_KERN, KERN_PROC, KERN_PROC_TTY, Int32(ttyStat.st_rdev)]
+        let stride = MemoryLayout<kinfo_proc>.stride
+        var size = 0
+        guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0 else { return [] }
 
-        guard process.terminationStatus == 0,
-              let output = String(data: data, encoding: .utf8) else {
-            return []
+        // Leave room for processes that start between the two calls.
+        var infos = [kinfo_proc](repeating: kinfo_proc(), count: size / stride + 16)
+        size = infos.count * stride
+        let status = infos.withUnsafeMutableBytes { rawBuffer in
+            sysctl(&mib, u_int(mib.count), rawBuffer.baseAddress, &size, nil, 0)
         }
+        guard status == 0 else { return [] }
 
-        return output
-            .split(separator: "\n")
-            .compactMap(parseProcessSnapshot)
+        return infos.prefix(size / stride).map { info in
+            ProcessSnapshot(
+                pid: info.kp_proc.p_pid,
+                pgid: info.kp_eproc.e_pgid,
+                tpgid: info.kp_eproc.e_tpgid,
+                tty: ttyName,
+                executableName: executableName(fromComm: info.kp_proc.p_comm)
+            )
+        }
     }
 
-    private static func parseProcessSnapshot(_ line: Substring) -> ProcessSnapshot? {
-        let parts = line.split(maxSplits: 4, whereSeparator: \.isWhitespace)
-        guard parts.count == 5,
-              let pid = Int32(parts[0]),
-              let pgid = Int32(parts[1]),
-              let tpgid = Int32(parts[2]) else {
-            return nil
+    private static func executableName<Comm>(fromComm comm: Comm) -> String {
+        withUnsafeBytes(of: comm) { rawBuffer in
+            String(decoding: rawBuffer.prefix { $0 != 0 }, as: UTF8.self)
         }
-
-        return ProcessSnapshot(
-            pid: pid,
-            pgid: pgid,
-            tpgid: tpgid,
-            tty: String(parts[3]),
-            executableName: String(parts[4]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
     }
 
     static func commandLineArguments(forPID pid: Int32) -> [String]? {

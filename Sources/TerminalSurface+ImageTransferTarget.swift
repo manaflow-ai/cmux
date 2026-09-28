@@ -1,11 +1,23 @@
 import CmuxTerminal
 
+/// Where an image or file transfer goes, split so the one slow step is explicit.
+enum TerminalImageTransferTargetResolution: Equatable {
+    case resolved(TerminalImageTransferTarget)
+    /// Only a process-table read of this TTY can tell a local shell from a
+    /// user-started SSH session. That read can take seconds on a loaded Mac.
+    case detectSSHSession(ttyName: String)
+
+    static func target(detectedOn ttyName: String) -> TerminalImageTransferTarget {
+        TerminalSSHSessionDetector.detect(forTTY: ttyName).map { .remote(.detectedSSH($0)) } ?? .local
+    }
+}
+
 extension TerminalSurface {
     @MainActor
-    func resolvedImageTransferTarget(
+    func imageTransferTargetResolution(
         mode: TerminalImageTransferMode = .paste,
         in workspace: Workspace? = nil
-    ) -> TerminalImageTransferTarget {
+    ) -> TerminalImageTransferTargetResolution {
         // The bound session remains authoritative even during reconnect, before
         // its local workspace or a fresh remote numeric surface can be resolved.
         let workspace = workspace ?? owningWorkspace()
@@ -14,22 +26,51 @@ extension TerminalSurface {
         // a local path or a Cloud image request.
         if let workspace, workspace.usesSSHTui,
            workspace.machineOwningSurface(id)?.isSSH == true {
-            return .remote(.workspaceRemote)
+            return .resolved(.remote(.workspaceRemote))
         }
-        if mode == .paste, isManagedCloudImageTarget(in: workspace) { return .cloud }
-        guard let workspace else { return .local }
+        if mode == .paste, isManagedCloudImageTarget(in: workspace) { return .resolved(.cloud) }
+        guard let workspace else { return .resolved(.local) }
         if workspace.isRemoteTerminalSurface(id) {
-            return .remote(.workspaceRemote)
+            return .resolved(.remote(.workspaceRemote))
         }
         // Manual tmux mirrors have no local TTY for the SSH process detector.
         if let target = AppDelegate.shared?.remoteTmuxController.remoteUploadTarget(forSurfaceId: id) {
-            return .remote(target)
+            return .resolved(.remote(target))
         }
-        if let ttyName = workspace.surfaceTTYNames[id],
-           let session = TerminalSSHSessionDetector.detect(forTTY: ttyName) {
-            return .remote(.detectedSSH(session))
+        if let ttyName = workspace.surfaceTTYNames[id] {
+            return .detectSSHSession(ttyName: ttyName)
         }
-        return .local
+        return .resolved(.local)
+    }
+
+    /// Blocks on the process-table read when one is needed. Prefer
+    /// ``resolveImageTransferTarget(mode:in:)`` from asynchronous callers.
+    @MainActor
+    func resolvedImageTransferTarget(
+        mode: TerminalImageTransferMode = .paste,
+        in workspace: Workspace? = nil
+    ) -> TerminalImageTransferTarget {
+        switch imageTransferTargetResolution(mode: mode, in: workspace) {
+        case .resolved(let target):
+            return target
+        case .detectSSHSession(let ttyName):
+            return TerminalImageTransferTargetResolution.target(detectedOn: ttyName)
+        }
+    }
+
+    @MainActor
+    func resolveImageTransferTarget(
+        mode: TerminalImageTransferMode = .paste,
+        in workspace: Workspace? = nil
+    ) async -> TerminalImageTransferTarget {
+        switch imageTransferTargetResolution(mode: mode, in: workspace) {
+        case .resolved(let target):
+            return target
+        case .detectSSHSession(let ttyName):
+            return await Task.detached(priority: .userInitiated) {
+                TerminalImageTransferTargetResolution.target(detectedOn: ttyName)
+            }.value
+        }
     }
 
     @MainActor
