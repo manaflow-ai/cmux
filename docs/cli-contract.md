@@ -93,6 +93,7 @@ Environment:
 | `automation` | Manage config-backed event rules: `list`, `show <id>`, dry-run `test <id> --event <json>`, `enable`, `disable`, `logs`, and `reload`. Rules live in `~/.cmuxterm/automations.json`; actions are dispatched by the running app. |
 | `glaeda` | Emit one caller-neutral `glaeda-external-execution-request/v1` and validate/correlate one bounded Glaeda receipt. `request` and `observe` are local data operations and do not require a running cmux socket. They carry exact Git source plus caller correlation only; CMUX workspace/UI and provider placement stay outside the request. |
 | `sessions [list]` | List saved agent session records without requiring a running cmux socket. Filters: `--agent <name>`, `--session <id>`, `--workspace <id>`, `--surface <id>`, `--cwd <text>`. Overrides: `--state-dir <path>`, `--codex-home <path>`. Text output defaults to 100 results; `--limit <n>` takes a positive integer and `--all` removes the limit. Supports `--json`. |
+| `sessions live` | List the running app's live agent sessions across all workspaces, ordered for triage. Requires a running cmux socket and never launches one. Filters: `--needs-me` (only sessions waiting on a human), `--state <needs-input\|working\|idle\|ended>`, `--agent <name>`. Text output defaults to 100 results; `--limit <n>` takes a positive integer and `--all` removes the limit. Supports `--json`. Backed by the socket v2 method `agent.sessions.list`. Distinct from `sessions [list]`, which reads saved records off disk and knows no live state. |
 | `session move <session-id> --to <ssh-destination\|local>` | Move a stopped Claude Code session between this Mac and an SSH host and resume it there. Refuses while a Claude process for the session runs on either side. Carries the cwd's git checkout (a snapshot commit of the working tree on top of HEAD at `refs/agent-move/<id>`, HEAD on the same branch when it is safe, plus modified, deleted and untracked non-ignored files; adds a worktree when the repository exists on the destination but the path does not; refuses when the destination has its own uncommitted changes or its branch has commits HEAD lacks), then the transcript, its session directory, file history, and the project memory directory (merged both ways, newest wins, nothing deleted). When the destination home is not the same directory at the same path, paths under the home are mapped and the project is re-slugged. Opens a `cmux ssh` workspace (or a local workspace for `--to local`) that resumes the session with its recorded launcher (on a host, cmux-owned launchers such as `claude-teams` fall back to the plain agent command), and clears the old local surface's resume binding. `--from` defaults to where the last move put the session (`~/.cmuxterm/agent-moves/<id>.json`). Flags: `--name`, `--no-code`, `--port`, `--identity`, `--ssh-option`, `--no-focus`. |
 | `auth` | Manage auth status, login, logout, and the selected team through the app. |
 | `coderouter`, `cr` | `cmux coderouter <status|machines|claude>` manages the team's coderouter model plane through the app (sign-in state, per-machine usage, the team's Claude upstream accounts). Every other `cmux coderouter ...` verb and all of `cmux cr ...` exec the CodeRouter CLI unchanged with the `CMUX_*`/`CMUXD_*` environment stripped: `coderouter` or `cr` on PATH first, then the official installer's `~/.coderouter/bin/coderouter` (`$CODEROUTER_INSTALL/bin` when set), never with a network call. When neither exists and stdin and stderr are terminals, cmux shows the documented installer `curl -fsSL https://cmux.com/coderouter/install.sh | sh`, says what it does (checksum-verified binary into `~/.coderouter/bin`, PATH line in the shell profile), asks once (`Install CodeRouter now? [y/N]`), and after `y` fetches the script, runs it with `sh`, and execs the new install with the original arguments. Any other outcome (non-interactive, declined, download or installer failure) prints that install command on stderr and exits 127. |
@@ -322,6 +323,31 @@ object with:
 | `limit` | Applied result limit, or `null` when `--all` removes it. |
 | `stores` | Per-agent hook store files that were read: `agent`, `path`, `exists`, `session_count`. |
 | `sessions` | The limited result set of session records. |
+
+`cmux sessions live` asks the running app instead, because only the live
+registry knows a session's current state, when that state began, and its
+conversation title. Sessions arrive in triage order: waiting on a human first
+(longest wait first), then running (longest first), then idle and ended (most
+recent activity first). Ties break on session id, so the order is stable across
+calls. `--json` prints one object with:
+
+| Field | Contract |
+| --- | --- |
+| `sessions` | The filtered, limited result set, in the order described above. |
+| `count` | Number of sessions printed. |
+| `state_counts` | Per-state totals for what was printed: `needs_input`, `working`, `idle`, `ended`, `total`. |
+| `matched_of_total` | Present only when a filter dropped something: how many sessions the app reported before filtering. |
+| `generated_at` | When the app built the reply. |
+
+Each session object carries `session_id`, `agent`, `agent_name`, `state`,
+`attention_rank` (0 needs input, 1 working, 2 idle, 3 ended), `needs_attention`,
+`state_confirmed`, `last_activity_at`, `children_running` and `version`, plus
+`state_since` and `state_age_seconds` for `needs_input` and `working`, and
+`title`, `cwd`, `workspace_id`, `surface_id`, `transcript_path`, `pid` and
+`ended_at` when known. `state_confirmed` is false for a session discovered from
+the process table: its presence is known but its idleness was never confirmed by
+a hook, so do not report it as idle without qualification. The reply spans every
+workspace; `agent.sessions.list` is not available through a remote relay.
 
 Auth subcommands:
 
@@ -807,6 +833,8 @@ the expected text without connecting to a cmux socket.
 - `cmux cloud guide --help` -> `Usage: cmux cloud guide | cmux cloud --skill [--json]`
 - `cmux cloud --skill -h` -> `Usage: cmux cloud guide | cmux cloud --skill [--json]`
 - `cmux sessions --help` -> `Usage: cmux sessions list [options]`
+- `cmux sessions --help` -> `cmux sessions live [options]`
+- `cmux sessions live --help` -> `--needs-me            Only sessions waiting on a human`
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`

@@ -34,7 +34,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxMobileHostTests",
-            dependencies: ["CmuxMobileHost"]
+            dependencies: [
+                "CmuxMobileHost",
+                .product(name: "CmuxAgentChat", package: "CmuxAgentChat"),
+            ]
         ),
     ]
 )

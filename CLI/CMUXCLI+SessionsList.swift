@@ -303,9 +303,14 @@ extension CMUXCLI {
         String(localized: "cli.sessions.usage", defaultValue: """
         Usage: cmux sessions list [options]
                cmux sessions [options]
+               cmux sessions live [options]
 
         Print saved agent session records from ~/.cmuxterm/*-hook-sessions.json.
         This command does not require a running cmux socket.
+
+        For what is happening right now, use `cmux sessions live` instead: it asks
+        the running app, so it knows each session's current state, how long it has
+        held it, and the conversation title. Saved records know none of those.
         By default, broad output shows active, restorable, or transcript-backed records.
         Pass --all to inspect every saved hook record.
 
@@ -328,6 +333,18 @@ extension CMUXCLI {
         Compatibility aliases:
           cmux sessions debug [options]
           cmux session-debug [options]
+
+        cmux sessions live [options]
+          Live agent sessions from the running app, ordered for triage: sessions
+          waiting on you first (longest wait first), then running (longest first),
+          then idle and ended (most recent first). Requires a running cmux.
+
+          --needs-me            Only sessions waiting on a human
+          --state <name>        Only needs-input, working, idle or ended
+          --agent <name>        Only one agent, for example codex or claude
+          --limit <n>           Limit text output (default: 100)
+          --all                 Print all matches
+          --json                Print structured JSON
         """)
     }
 
