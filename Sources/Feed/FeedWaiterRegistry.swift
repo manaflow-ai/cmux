@@ -60,14 +60,14 @@ final class FeedWaiterRegistry: Sendable {
         item: WorkstreamItem,
         deferDecisionSignal: Bool = false
     ) -> WorkstreamDecision? {
-        var decisionToApply: WorkstreamDecision?
-        groups.withLock { groups in
-            guard var group = groups[registration.requestID], group.id == registration.groupID else { return }
+        let decisionToApply = groups.withLock { groups -> WorkstreamDecision? in
+            guard var group = groups[registration.requestID], group.id == registration.groupID else { return nil }
             group.event = event
             group.itemID = item.id
             if let decision = group.decision {
                 decisionToApply = decision
             } else {
+                decisionToApply = nil
                 switch item.status {
                 case .resolved:
                     // A handled retry is a no-op; never grant permission again from history.
@@ -87,6 +87,7 @@ final class FeedWaiterRegistry: Sendable {
                     groups[registration.requestID] = group
                 }
             }
+            return nil
         }
         return decisionToApply
     }
