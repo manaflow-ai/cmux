@@ -20,6 +20,9 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let onOpenPreferences: () -> Void
     private let onQuitApp: () -> Void
     private var notificationMenuSnapshotCancellable: AnyCancellable?
+    private let cloudMenuEntries: @MainActor () -> [CloudMenuEntry]
+    private let onCloudMenuWillOpen: @MainActor () -> Void
+    private var cloudModelObserver: NSObjectProtocol?
     private var globalFontObserver: NSObjectProtocol?
     private let buildHintTitle: String?
 
@@ -41,6 +44,8 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let quitItem = NSMenuItem(title: String(localized: "menu.quitCmux", defaultValue: "Quit cmux"), action: nil, keyEquivalent: "")
 
     private var notificationItems: [NSMenuItem] = []
+    private let cloudSectionSeparator = NSMenuItem.separator()
+    private var cloudItems: [NSMenuItem] = []
     init(
         notificationStore: TerminalNotificationStore,
         caffeineController: CaffeineController,
@@ -53,7 +58,9 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         onToggleSleepyMode: @escaping () -> Void,
         onCheckForUpdates: @escaping () -> Void,
         onOpenPreferences: @escaping () -> Void,
-        onQuitApp: @escaping () -> Void
+        onQuitApp: @escaping () -> Void,
+        cloudMenuEntries: @escaping @MainActor () -> [CloudMenuEntry] = { [] },
+        onCloudMenuWillOpen: @escaping @MainActor () -> Void = {}
     ) {
         self.notificationStore = notificationStore
         self.caffeineController = caffeineController
@@ -67,6 +74,8 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         self.onCheckForUpdates = onCheckForUpdates
         self.onOpenPreferences = onOpenPreferences
         self.onQuitApp = onQuitApp
+        self.cloudMenuEntries = cloudMenuEntries
+        self.onCloudMenuWillOpen = onCloudMenuWillOpen
         self.buildHintTitle = MenuBarBuildHintFormatter.menuTitle()
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
@@ -91,6 +100,14 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.refreshUI() }
+        }
+        // A fleet read that lands while the menu is open updates it in place.
+        cloudModelObserver = NotificationCenter.default.addObserver(
+            forName: CloudMenuModel.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.rebuildCloudItems() }
         }
 
         refreshUI()
@@ -131,6 +148,8 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         menu.addItem(caffeineItem)
 
         menu.addItem(MenuBarProfilingMenuItem.make())
+        cloudSectionSeparator.isHidden = true
+        menu.addItem(cloudSectionSeparator)
         menu.addItem(notificationListSeparator)
         notificationSectionSeparator.isHidden = true
         menu.addItem(notificationSectionSeparator)
@@ -169,6 +188,8 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        guard menu === self.menu else { return }
+        onCloudMenuWillOpen()
         refreshUI()
     }
 
@@ -182,6 +203,10 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         if let globalFontObserver {
             NotificationCenter.default.removeObserver(globalFontObserver)
             self.globalFontObserver = nil
+        }
+        if let cloudModelObserver {
+            NotificationCenter.default.removeObserver(cloudModelObserver)
+            self.cloudModelObserver = nil
         }
         statusItem.menu = nil
         NSStatusBar.system.removeStatusItem(statusItem)
@@ -217,6 +242,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         clearAllItem.isEnabled = snapshot.hasNotifications
 
         rebuildInlineNotificationItems(recentNotifications: snapshot.recentNotifications)
+        rebuildCloudItems()
 
         if let button = statusItem.button {
             button.image = MenuBarIconRenderer.makeImage(unreadCount: displayedUnreadCount)
@@ -236,6 +262,25 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         }
         item.keyEquivalent = keyEquivalent
         item.keyEquivalentModifierMask = shortcut.modifierFlags
+    }
+
+    /// The Cloud section (machines, create verbs, account) sits between the
+    /// app toggles and the notifications, from the same entries as the
+    /// main-menu Cloud menu. It disappears entirely when Cloud is off.
+    private func rebuildCloudItems() {
+        for item in cloudItems {
+            menu.removeItem(item)
+        }
+        cloudItems.removeAll(keepingCapacity: true)
+
+        let items = CloudMenuAppKitRenderer.items(cloudMenuEntries())
+        cloudSectionSeparator.isHidden = items.isEmpty
+        let insertionIndex = menu.index(of: cloudSectionSeparator) + 1
+        guard !items.isEmpty, insertionIndex > 0 else { return }
+        for (offset, item) in items.enumerated() {
+            menu.insertItem(item, at: insertionIndex + offset)
+        }
+        cloudItems = items
     }
 
     private func rebuildInlineNotificationItems(recentNotifications: [TerminalNotification]) {
