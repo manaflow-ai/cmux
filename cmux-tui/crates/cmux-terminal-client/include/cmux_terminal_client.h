@@ -154,6 +154,17 @@ char *cmux_terminal_client_list_terminals(
     char *error_buffer,
     size_t error_capacity,
     uint64_t timeout_milliseconds);
+// Returns the daemon's public session snapshot (session.snapshot: workspaces,
+// screens, panes, tabs, terminals, and the rest of the session) as an owned
+// UTF-8 JSON string to release with cmux_terminal_client_string_free, or NULL
+// with the error written. A terminal's tab_id -> tab.pane_id ->
+// pane.screen_id -> screen.workspace_id places it under its workspace, which
+// terminal.list alone cannot. A timeout of 0 means no deadline.
+char *cmux_terminal_client_session_snapshot(
+    CmuxTerminalClient *client,
+    char *error_buffer,
+    size_t error_capacity,
+    uint64_t timeout_milliseconds);
 char *cmux_terminal_client_create_terminal(
     CmuxTerminalClient *client,
     const char *name,

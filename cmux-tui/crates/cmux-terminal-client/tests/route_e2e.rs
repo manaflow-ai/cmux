@@ -26,12 +26,12 @@ use cmux_remote_protocol::{
     TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED,
 };
 use cmux_terminal_client::{
-    cmux_terminal_client_attach_with_timeout, cmux_terminal_client_connect_route,
-    cmux_terminal_client_create_terminal, cmux_terminal_client_detach,
-    cmux_terminal_client_disconnect, cmux_terminal_client_has_exited,
-    cmux_terminal_client_list_terminals, cmux_terminal_client_set_output_callback,
-    cmux_terminal_client_set_viewer_size_priority, cmux_terminal_client_string_free,
-    cmux_wireguard_net_free, cmux_wireguard_net_start,
+    CmuxTerminalClient, cmux_terminal_client_attach_with_timeout,
+    cmux_terminal_client_connect_route, cmux_terminal_client_create_terminal,
+    cmux_terminal_client_detach, cmux_terminal_client_disconnect, cmux_terminal_client_has_exited,
+    cmux_terminal_client_list_terminals, cmux_terminal_client_session_snapshot,
+    cmux_terminal_client_set_output_callback, cmux_terminal_client_set_viewer_size_priority,
+    cmux_terminal_client_string_free, cmux_wireguard_net_free, cmux_wireguard_net_start,
 };
 use cmux_tui_core::terminal_host_protocol::{
     Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MessageKind, encode_frame,
@@ -107,6 +107,7 @@ fn frame(kind: MessageKind, payload: Vec<u8>, sequence: u64) -> Bytes {
 struct PhoneDaemon {
     rejects_viewer_size_priority: bool,
     terminal_opens: Mutex<Vec<BTreeMap<String, String>>>,
+    mux_operations: Mutex<Vec<String>>,
 }
 
 /// The daemon side of the services a phone client uses: one TerminalBytes
@@ -136,7 +137,7 @@ async fn serve_phone_services(daemon: Arc<ServiceMultiplexer>, phone: Arc<PhoneD
                 for lane in [Lane::Interactive, Lane::Control, Lane::Bulk] {
                     stream.send_on(lane, Bytes::from(opened.clone())).await.unwrap();
                 }
-                tokio::spawn(mux_responder(stream));
+                tokio::spawn(mux_responder(stream, phone.clone()));
             }
             other => panic!("unexpected service {other:?}"),
         }
@@ -180,7 +181,7 @@ async fn serve_terminal_bytes(stream: Arc<cmux_remote::service::ServiceStream>) 
 }
 
 /// Decode CMXL packets into lines the way the daemon bridge does, and answer.
-async fn mux_responder(stream: Arc<cmux_remote::service::ServiceStream>) {
+async fn mux_responder(stream: Arc<cmux_remote::service::ServiceStream>, phone: Arc<PhoneDaemon>) {
     const HEADER: usize = 20;
     let mut message = 100_u64;
     while let Ok(Some(chunk)) = stream.receive().await {
@@ -192,7 +193,9 @@ async fn mux_responder(stream: Arc<cmux_remote::service::ServiceStream>) {
         let request: serde_json::Value = serde_json::from_slice(line).unwrap();
         assert_eq!(request["protocol"], "cmux.protocol/2");
         assert_eq!(request["params"]["machine"], "current");
-        let result = match request["operation"].as_str().unwrap() {
+        let operation = request["operation"].as_str().unwrap();
+        phone.mux_operations.lock().unwrap().push(operation.to_string());
+        let result = match operation {
             "terminal.list" => {
                 assert!(request.get("idempotency_key").is_none());
                 serde_json::json!([{ "id": TERMINAL_ID, "name": "shell" }])
@@ -216,6 +219,11 @@ async fn mux_responder(stream: Arc<cmux_remote::service::ServiceStream>) {
                         "terminal_id": TERMINAL_ID,
                     },
                 })
+            }
+            "session.snapshot" => {
+                assert!(request.get("idempotency_key").is_none());
+                assert_eq!(request["params"]["session"], "current");
+                session_snapshot_reply()
             }
             other => panic!("unexpected operation {other}"),
         };
@@ -514,22 +522,34 @@ fn unsupported_scheme_and_missing_state_dir_fail_cleanly() {
     assert!(!error_text(&error).is_empty());
 }
 
-/// Connects over a plain loopback route, attaches once per entry of
-/// `choices` (detaching in between) with that viewer-size priority choice,
-/// and returns whether each TerminalBytes open the daemon saw carried the key.
-fn viewer_size_priority_opens(rejects_key: bool, choices: &[bool]) -> Vec<bool> {
+/// A trimmed public session snapshot whose ids link one terminal to its
+/// workspace: terminal.tab_id -> tab.pane_id -> pane.screen_id ->
+/// screen.workspace_id.
+fn session_snapshot_reply() -> serde_json::Value {
+    serde_json::json!({
+        "workspaces": [{ "id": "ws_1", "title": "phone" }],
+        "screens": [{ "id": "screen_1", "workspace_id": "ws_1" }],
+        "panes": [{ "id": "pane_1", "screen_id": "screen_1" }],
+        "tabs": [{ "id": "tab_1", "pane_id": "pane_1" }],
+        "terminals": [{ "id": TERMINAL_ID, "tab_id": "tab_1" }],
+    })
+}
+
+/// Connects a client over a plain loopback route (no tunnel) to a fake daemon
+/// serving `phone`, runs `body` with it, then disconnects.
+fn with_loopback_client<T>(
+    phone: Arc<PhoneDaemon>,
+    body: impl FnOnce(*mut CmuxTerminalClient) -> T,
+) -> T {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let daemon_state = tempdir().unwrap();
     let client_state = tempdir().unwrap();
-    let phone =
-        Arc::new(PhoneDaemon { rejects_viewer_size_priority: rejects_key, ..Default::default() });
     let (auth, server, invitation_uri, route) = runtime.block_on(async {
-        let auth = AuthDatabase::load_or_create(daemon_state.path(), "priority", false).unwrap();
+        let auth = AuthDatabase::load_or_create(daemon_state.path(), "loopback", false).unwrap();
         let (daemon, mut accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
         let server = serve_direct_websocket(daemon, "127.0.0.1:0".parse().unwrap(), 65_535, false)
             .await
             .unwrap();
-        let phone = phone.clone();
         tokio::spawn(async move {
             while let Some(connection) = accepted.recv().await {
                 let services = ServiceMultiplexer::new(connection, EndpointRole::Daemon);
@@ -548,7 +568,7 @@ fn viewer_size_priority_opens(rejects_key: bool, choices: &[bool]) -> Vec<bool> 
     let mut error = vec![0 as c_char; 512];
     let route_c = c(&route);
     let state_c = c(client_state.path().to_str().unwrap());
-    let device_c = c("iPhone priority test");
+    let device_c = c("iPhone loopback test");
     let invitation_c = c(&invitation_uri);
     // SAFETY: all strings are live NUL-terminated; no tunnel is used.
     let client = unsafe {
@@ -566,26 +586,61 @@ fn viewer_size_priority_opens(rejects_key: bool, choices: &[bool]) -> Vec<bool> 
     assert!(!client.is_null(), "connect failed: {}", error_text(&error));
     runtime.block_on(approver).unwrap();
 
-    let terminal_c = c(TERMINAL_ID);
-    for &preferred in choices {
-        // SAFETY: live handle; the terminal id is NUL-terminated.
-        let attached = unsafe {
-            assert!(cmux_terminal_client_set_viewer_size_priority(client, preferred));
-            cmux_terminal_client_attach_with_timeout(
+    let result = body(client);
+    // SAFETY: live handle, owned exactly once.
+    unsafe { cmux_terminal_client_disconnect(client) };
+    runtime.block_on(async { server.shutdown().await.unwrap() });
+    result
+}
+
+#[test]
+fn session_snapshot_returns_the_daemon_snapshot_over_mux_control() {
+    let phone = Arc::new(PhoneDaemon::default());
+    let snapshot = with_loopback_client(phone.clone(), |client| {
+        let mut error = vec![0 as c_char; 512];
+        // SAFETY: live handle and a writable error buffer.
+        let text = unsafe {
+            cmux_terminal_client_session_snapshot(
                 client,
-                terminal_c.as_ptr(),
                 error.as_mut_ptr(),
                 error.len(),
                 TIMEOUT_MS,
             )
         };
-        assert!(attached, "attach failed: {}", error_text(&error));
-        // SAFETY: live handle.
-        unsafe { cmux_terminal_client_detach(client) };
-    }
-    // SAFETY: live handle, owned exactly once.
-    unsafe { cmux_terminal_client_disconnect(client) };
-    runtime.block_on(async { server.shutdown().await.unwrap() });
+        assert!(!text.is_null(), "session snapshot failed: {}", error_text(&error));
+        take_string(text)
+    });
+    let snapshot: serde_json::Value = serde_json::from_str(&snapshot).unwrap();
+    assert_eq!(snapshot, session_snapshot_reply());
+    assert_eq!(*phone.mux_operations.lock().unwrap(), ["session.snapshot"]);
+}
+
+/// Attaches once per entry of `choices` (detaching in between) with that
+/// viewer-size priority choice, and returns whether each TerminalBytes open
+/// the daemon saw carried the key.
+fn viewer_size_priority_opens(rejects_key: bool, choices: &[bool]) -> Vec<bool> {
+    let phone =
+        Arc::new(PhoneDaemon { rejects_viewer_size_priority: rejects_key, ..Default::default() });
+    with_loopback_client(phone.clone(), |client| {
+        let mut error = vec![0 as c_char; 512];
+        let terminal_c = c(TERMINAL_ID);
+        for &preferred in choices {
+            // SAFETY: live handle; the terminal id is NUL-terminated.
+            let attached = unsafe {
+                assert!(cmux_terminal_client_set_viewer_size_priority(client, preferred));
+                cmux_terminal_client_attach_with_timeout(
+                    client,
+                    terminal_c.as_ptr(),
+                    error.as_mut_ptr(),
+                    error.len(),
+                    TIMEOUT_MS,
+                )
+            };
+            assert!(attached, "attach failed: {}", error_text(&error));
+            // SAFETY: live handle.
+            unsafe { cmux_terminal_client_detach(client) };
+        }
+    });
 
     let opens = phone.terminal_opens.lock().unwrap();
     opens
