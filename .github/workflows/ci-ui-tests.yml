@@ -8,10 +8,13 @@ run-name: ${{ format('UI tests for CI run {0} attempt {1}', inputs.run_id || git
 # then waits for this workflow's verdict and reports it, which keeps the result
 # on the pull request and under ci-status. This workflow, and the dispatcher it
 # runs, always come from the default branch. It starts with every CI run
-# attempt (re-runs included), returns at once for anything but a
+# attempt, returns at once for anything but a
 # same-repository pull request that changes cmuxUITests/, and otherwise waits
 # for the attempt's request. It cancels the dispatched run when the CI attempt
-# finishes first. scripts/ci/ui_tests_dispatch.py has the rules. The run-name
+# finishes first. A re-run made with GITHUB_TOKEN may emit no workflow_run
+# event, so the bots that re-run CI (owned_pool_rescue.py, classify_failures.py)
+# dispatch this workflow for the new attempt themselves; a duplicate joins the
+# same concurrency group. scripts/ci/ui_tests_dispatch.py has the rules. The run-name
 # is how `ui-tests` finds its run; keep it in step with dispatch_title() there.
 on:
   workflow_run:
@@ -129,4 +132,6 @@ jobs:
           CMUX_CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           CMUX_CMUX_CI_XCODE_APP_PR: ${{ vars.CMUX_CI_XCODE_APP_PR }}
           CMUX_CI_E2E_OWNED_UI: ${{ vars.CI_E2E_OWNED_UI }}
-        run: python3 scripts/ci/ui_tests_dispatch.py dispatch
+        # exec: the runner signals the step's shell on cancel, and bash would
+        # not pass it on, so the dispatched run would outlive this one.
+        run: exec python3 scripts/ci/ui_tests_dispatch.py dispatch

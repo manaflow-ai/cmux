@@ -205,6 +205,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import MAX_QUEUE_ROUNDS, parse_queue_rounds, persistent  # noqa: E402
+import ui_tests_dispatch  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 E2E_WORKFLOW_PATH = ".github/workflows/test-e2e.yml"
@@ -494,9 +495,10 @@ class GitHub:
         self.headers = _headers(token)
         self.read_headers = _headers(read_token) if read_token else self.headers
 
-    def request(self, method: str, path: str, *, own_token: bool = False) -> Any:
+    def request(self, method: str, path: str, *, own_token: bool = False, body: Mapping | None = None) -> Any:
         headers = self.read_headers if method == "GET" and not own_token else self.headers
-        request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", method=method, headers=headers)
+        data = json.dumps(body).encode() if body is not None else None
+        request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", method=method, headers=headers, data=data)
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
                 body = response.read()
@@ -609,9 +611,28 @@ class GitHub:
 
     def rerun(self, run_id: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun")
+        self.request_ui_tests(run_id)
 
     def rerun_failed(self, run_id: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs")
+        self.request_ui_tests(run_id)
+
+    def request_ui_tests(self, run_id: int) -> None:
+        """Start ci-ui-tests.yml for the attempt a re-run of a pull request's CI began.
+
+        This token's re-run may emit no workflow_run event, and that attempt's
+        ui-tests job waits for ci-ui-tests.yml (ui_tests_dispatch.rerun_dispatch()).
+        Best effort: a failure here never stops the rescue.
+        """
+        try:
+            run = self.request("GET", f"/actions/runs/{run_id}") or {}
+            if run.get("path") != CI_WORKFLOW_PATH or run.get("event") != "pull_request":
+                return
+            path, body = ui_tests_dispatch.rerun_dispatch(run_id, run.get("run_attempt"))
+            self.request("POST", f"/{path}", body=body)
+        except (urllib.error.URLError, OSError, ValueError) as error:
+            print(f"::warning::could not start {ui_tests_dispatch.DISPATCH_WORKFLOW_FILE} for run {run_id}: {error}",
+                  flush=True)
 
 
 @dataclasses.dataclass

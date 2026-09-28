@@ -1632,6 +1632,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: python3 scripts/ci/ui_tests_dispatch.py await-verdict
 
   dogfood-build:

@@ -55,12 +55,18 @@ UI_TEST_PREFIX = "cmuxUITests/"
 # The files API lists at most 3000 files of a pull request.
 MAX_FILE_PAGES = 30
 POLL_SECONDS = 60
+# The request follows compile admission, usually tens of minutes after the
+# attempt starts, so its wait reads less often.
+REQUEST_POLL_SECONDS = 120
 # How long the waiting side looks for the dispatch run of its attempt. The
 # dispatch run is created when the CI attempt is, so it normally exists before
 # `ui-tests` starts.
 FIND_DISPATCH_SECONDS = 20 * 60
 MAX_CONSECUTIVE_ERRORS = 10
 RUN_LINE = re.compile(r"^Run: https://github\.com/[^/]+/[^/]+/actions/runs/(\d+)")
+# dispatch-focused-test.py attaches to an identical run already in flight;
+# that run belongs to whoever started it and is never cancelled from here.
+REUSED_LINE = "reusing that run instead of dispatching"
 
 
 def request_artifact(attempt: int | str) -> str:
@@ -70,6 +76,18 @@ def request_artifact(attempt: int | str) -> str:
 def dispatch_title(run_id: int | str, attempt: int | str) -> str:
     """ci-ui-tests.yml's run-name for one CI run attempt."""
     return f"UI tests for CI run {run_id} attempt {attempt}"
+
+
+def rerun_dispatch(run_id: int | str, attempt: int | str, ref: str = "main") -> tuple[str, dict]:
+    """The workflow_dispatch that serves a CI attempt a bot re-ran.
+
+    A re-run made with GITHUB_TOKEN (the owned-pool rescue, failure
+    attribution) may not emit workflow_run, so those callers start this
+    workflow themselves. Returns (path under repos/<repo>/, body). A duplicate
+    from a workflow_run event joins the same concurrency group and replaces it.
+    """
+    return (f"actions/workflows/{DISPATCH_WORKFLOW_FILE}/dispatches",
+            {"ref": ref, "inputs": {"run_id": str(run_id), "run_attempt": str(attempt)}})
 
 
 def validate_selectors(selectors: object) -> list[str]:
@@ -131,8 +149,13 @@ class GitHub:
         if self.read_token:
             try:
                 return json.loads(self._gh(["api", path], self.read_token))
-            except subprocess.CalledProcessError:
-                pass  # The read token may lack a scope; the job token answers.
+            except subprocess.CalledProcessError as error:
+                # An expired installation token (401) or a read the App may not
+                # make (403) goes to the job token; anything else is a real error.
+                if not re.search(r"HTTP 40[13]\b", error.stderr or ""):
+                    raise
+                if "HTTP 401" in (error.stderr or ""):
+                    self.read_token = ""
         return json.loads(self._gh(["api", path], self.token))
 
     def post(self, path: str) -> None:
@@ -183,6 +206,22 @@ def touches_ui_tests(gh: GitHub, pull_numbers: list[int]) -> bool | None:
     return False
 
 
+API_ERRORS = (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError)
+
+
+def retrying(read: Callable[[], Any], *, sleep: Callable[[float], None], interval: float = 10) -> Any:
+    """One read, retried through transient API errors."""
+    for tries in range(1, MAX_CONSECUTIVE_ERRORS + 1):
+        try:
+            return read()
+        except API_ERRORS as error:
+            print(f"GitHub API error ({tries}): {getattr(error, 'stderr', '') or error}", file=sys.stderr, flush=True)
+            if tries == MAX_CONSECUTIVE_ERRORS:
+                raise
+            sleep(interval)
+    raise AssertionError("unreachable")
+
+
 def poll(check: Callable[[], Any], *, sleep: Callable[[float], None], interval: float = POLL_SECONDS) -> Any:
     """Call `check` until it returns non-None, tolerating transient API errors."""
     errors = 0
@@ -190,7 +229,7 @@ def poll(check: Callable[[], Any], *, sleep: Callable[[float], None], interval: 
         try:
             result = check()
             errors = 0
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
+        except API_ERRORS as error:
             errors += 1
             print(f"GitHub API error ({errors}): {getattr(error, 'stderr', '') or error}", file=sys.stderr, flush=True)
             if errors >= MAX_CONSECUTIVE_ERRORS:
@@ -203,14 +242,14 @@ def poll(check: Callable[[], Any], *, sleep: Callable[[float], None], interval: 
 
 def await_request(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[float], None] = time.sleep) -> dict | None:
     """The validated request of this CI attempt, or None when it will make none."""
-    run = source_attempt(gh, run_id, attempt)
+    run = retrying(lambda: source_attempt(gh, run_id, attempt), sleep=sleep)
     reason = serves(run, gh.repository)
     if reason:
         print(f"Nothing to run: {reason}.", flush=True)
         return None
     head_sha = run["head_sha"]
     numbers = [int(pr["number"]) for pr in run.get("pull_requests") or [] if isinstance(pr.get("number"), int)]
-    touched = touches_ui_tests(gh, numbers)
+    touched = retrying(lambda: touches_ui_tests(gh, numbers), sleep=sleep)
     if touched is False:
         print(f"Nothing to run: pull request {numbers} changes nothing under {UI_TEST_PREFIX}.", flush=True)
         return None
@@ -223,17 +262,18 @@ def await_request(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[flo
         status = source_attempt(gh, run_id, attempt).get("status")
         artifacts = gh.get(f"repos/{{repo}}/actions/runs/{run_id}/artifacts?name={name}&per_page=100")
         found = [a for a in artifacts.get("artifacts", []) if a.get("name") == name and not a.get("expired")]
+        if status == "completed":
+            # Nothing waits for a verdict any more: ui-tests was cancelled or gave up.
+            return False
         if found:
             with tempfile.TemporaryDirectory() as directory:
                 gh.download(run_id, name, directory)
                 return parse_request((Path(directory) / "request.json").read_bytes(), head_sha)
-        if status == "completed":
-            return False
         return None
 
-    request = poll(check, sleep=sleep)
+    request = poll(check, sleep=sleep, interval=REQUEST_POLL_SECONDS)
     if request is False:
-        print(f"Nothing to run: the CI attempt completed without uploading {name}.", flush=True)
+        print(f"Nothing to run: the CI attempt completed, so nothing waits for {name}.", flush=True)
         return None
     return request
 
@@ -247,12 +287,15 @@ class Dispatch:
         self.run_id = run_id
         self.attempt = attempt
         self.dispatched: str | None = None
+        self.reused = False
         self.stop = threading.Event()
 
     def _read(self, process: subprocess.Popen) -> None:
         assert process.stdout is not None
         for line in process.stdout:
             print(line, end="", flush=True)
+            if REUSED_LINE in line:
+                self.reused = True
             match = RUN_LINE.match(line)
             if match:
                 self.dispatched = match.group(1)
@@ -260,7 +303,7 @@ class Dispatch:
     def _source_finished(self) -> bool:
         try:
             return source_attempt(self.gh, self.run_id, self.attempt).get("status") == "completed"
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        except API_ERRORS:
             return False
 
     def run(self, interval: float = POLL_SECONDS, tick: float = 1.0) -> int:
@@ -289,7 +332,9 @@ class Dispatch:
                 os.killpg(process.pid, signal.SIGINT)
             except ProcessLookupError:
                 pass
-            if self.dispatched:
+            if self.dispatched and self.reused:
+                print(f"Leaving run {self.dispatched} running: it was already in flight for another caller.", flush=True)
+            elif self.dispatched:
                 try:
                     self.gh.post(f"repos/{{repo}}/actions/runs/{self.dispatched}/cancel")
                     print(f"Cancelled run {self.dispatched}.", flush=True)
@@ -332,8 +377,9 @@ def parse_time(value: str) -> dt.datetime:
     return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def find_dispatch_run(gh: GitHub, run_id: str, attempt: str, since: dt.datetime) -> dict | None:
-    """The newest ci-ui-tests.yml run serving this attempt, created since `since`."""
+def find_dispatch_run(gh: GitHub, run_id: str, attempt: str, since: dt.datetime,
+                      default_branch: str = "main") -> dict | None:
+    """The newest default-branch ci-ui-tests.yml run serving this attempt, created since `since`."""
     title = dispatch_title(run_id, attempt)
     created = since.strftime("%Y-%m-%dT%H:%M:%SZ")
     matches = []
@@ -342,7 +388,8 @@ def find_dispatch_run(gh: GitHub, run_id: str, attempt: str, since: dt.datetime)
             f"repos/{{repo}}/actions/workflows/{DISPATCH_WORKFLOW_FILE}/runs"
             f"?created=%3E%3D{created}&per_page=100&page={page}"
         ).get("workflow_runs", [])
-        matches.extend(run for run in runs if run.get("display_title") == title)
+        matches.extend(run for run in runs
+                       if run.get("display_title") == title and run.get("head_branch") == default_branch)
         if len(runs) < 100:
             break
     return max(matches, key=lambda run: run.get("created_at", ""), default=None)
@@ -360,23 +407,26 @@ def dispatch_step_conclusion(gh: GitHub, dispatch_run_id: int | str) -> str | No
 
 
 def await_verdict(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[float], None] = time.sleep,
-                  now: Callable[[], float] = time.monotonic) -> int:
-    started = parse_time(source_attempt(gh, run_id, attempt)["run_started_at"])
-    since = started - dt.timedelta(minutes=10)
+                  now: Callable[[], float] = time.monotonic, default_branch: str = "main") -> int:
+    run = retrying(lambda: source_attempt(gh, run_id, attempt), sleep=sleep)
+    # The dispatch run is created when the attempt is requested: for attempt 1
+    # that is the run's creation (a labeled run can then queue for hours before
+    # it starts); a re-run is requested when its attempt starts.
+    requested = run["created_at"] if str(attempt) == "1" else run["run_started_at"]
+    since = parse_time(requested) - dt.timedelta(minutes=10)
     deadline = now() + FIND_DISPATCH_SECONDS
 
     def find() -> dict | bool | None:
-        run = find_dispatch_run(gh, run_id, attempt, since)
-        if run is not None:
-            return run
+        match = find_dispatch_run(gh, run_id, attempt, since, default_branch)
+        if match is not None:
+            return match
         return False if now() >= deadline else None
 
     found = poll(find, sleep=sleep)
     if found is False:
         print(
-            f"::error::No {DISPATCH_WORKFLOW_FILE} run titled {dispatch_title(run_id, attempt)!r} appeared. "
-            f"A maintainer can start it: gh workflow run {DISPATCH_WORKFLOW_FILE} --repo {gh.repository} "
-            f"-f run_id={run_id} -f run_attempt={attempt}",
+            f"::error::No {DISPATCH_WORKFLOW_FILE} run titled {dispatch_title(run_id, attempt)!r} appeared, "
+            "so nothing dispatched the UI tests. Re-run this job: a re-run requests them again.",
             flush=True,
         )
         return 1
@@ -387,7 +437,7 @@ def await_verdict(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[flo
         return run if run.get("status") == "completed" else None
 
     finished = poll(check, sleep=sleep)
-    step = dispatch_step_conclusion(gh, found["id"])
+    step = retrying(lambda: dispatch_step_conclusion(gh, found["id"]), sleep=sleep)
     if finished.get("conclusion") == "success" and step == "success":
         print(f"UI tests passed: {found.get('html_url')}", flush=True)
         return 0
@@ -417,7 +467,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Requesting {' '.join(body['selectors'])} at {body['head_sha']}.", flush=True)
             return 0
         if args.command == "await-verdict":
-            return await_verdict(github_from_env(), os.environ["RUN_ID"], os.environ["RUN_ATTEMPT"])
+            return await_verdict(github_from_env(), os.environ["RUN_ID"], os.environ["RUN_ATTEMPT"],
+                                 default_branch=os.environ.get("DEFAULT_BRANCH") or "main")
         if args.command == "await-request":
             found = await_request(github_from_env(), os.environ["SOURCE_RUN_ID"], os.environ["SOURCE_RUN_ATTEMPT"])
             if found is None:

@@ -34,7 +34,7 @@ def ci_run(**overrides):
     run = {
         "id": 100, "path": ".github/workflows/ci.yml", "event": "pull_request", "head_sha": HEAD,
         "head_repository": {"full_name": REPO}, "pull_requests": [{"number": 7}], "status": "in_progress",
-        "run_started_at": "2026-09-28T10:00:00Z", "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/100",
+        "created_at": "2026-09-28T10:00:00Z", "run_started_at": "2026-09-28T10:00:00Z", "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/100",
     }
     run.update(overrides)
     return run
@@ -144,14 +144,15 @@ class AwaitRequestTests(unittest.TestCase):
         })
         self.assertIsNone(ui.await_request(gh, "100", "1", sleep=lambda _: None))
 
-    def test_a_request_uploaded_just_before_completion_is_still_served(self) -> None:
+    def test_a_request_whose_attempt_completed_is_not_dispatched(self) -> None:
+        # ui-tests was cancelled or gave up, so nothing would read the verdict.
         request = {"head_sha": HEAD, "merge_sha": "", "selectors": ["cmuxUITests/A"]}
         gh = FakeGitHub({
             RUN: [ci_run(), ci_run(status="completed")],
             FILES: [[{"filename": "cmuxUITests/AUITests.swift"}]],
             ARTIFACTS: [ARTIFACT],
         }, request)
-        self.assertEqual(ui.await_request(gh, "100", "1", sleep=self.fail)["selectors"], ["cmuxUITests/A"])
+        self.assertIsNone(ui.await_request(gh, "100", "1", sleep=self.fail))
 
     def test_a_malformed_request_fails_instead_of_dispatching(self) -> None:
         gh = FakeGitHub({RUN: [ci_run()], FILES: [[{"filename": "cmuxUITests/A.swift"}]], ARTIFACTS: [ARTIFACT]},
@@ -160,8 +161,9 @@ class AwaitRequestTests(unittest.TestCase):
             ui.await_request(gh, "100", "1", sleep=self.fail)
 
 
-def dispatch_run(conclusion="success", status="completed", title=None, run_id=900):
+def dispatch_run(conclusion="success", status="completed", title=None, run_id=900, branch="main"):
     return {"id": run_id, "status": status, "conclusion": conclusion, "created_at": "2026-09-28T10:00:05Z",
+            "head_branch": branch,
             "display_title": title or ui.dispatch_title("100", "1"), "html_url": f"https://x/{run_id}"}
 
 
@@ -211,6 +213,24 @@ class AwaitVerdictTests(unittest.TestCase):
         ui.find_dispatch_run(gh, "100", "1", dt.datetime(2026, 9, 28, 9, 50, tzinfo=dt.timezone.utc))
         self.assertIn("created=%3E%3D2026-09-28T09:50:00Z", gh.calls[0])
 
+    def lookup_since(self, run: dict, attempt: str) -> str:
+        gh = FakeGitHub({f"repos/{REPO}/actions/runs/100/attempts/{attempt}": [run], LIST: [{"workflow_runs": []}]})
+        clock = iter(range(0, 10**6, 600))
+        ui.await_verdict(gh, "100", attempt, sleep=lambda _: None, now=lambda: next(clock))
+        return next(call for call in gh.calls if call.startswith(LIST))
+
+    def test_a_run_that_queued_for_hours_is_found_from_its_creation(self) -> None:
+        # A labeled run waits behind the running one; its dispatch run was
+        # created when it was requested, not when it started.
+        queued = ci_run(created_at="2026-09-28T07:00:00Z", run_started_at="2026-09-28T10:00:00Z")
+        self.assertIn("created=%3E%3D2026-09-28T06:50:00Z", self.lookup_since(queued, "1"))
+        # A re-run's dispatch run is created when the re-run starts.
+        self.assertIn("created=%3E%3D2026-09-28T09:50:00Z", self.lookup_since(queued, "2"))
+
+    def test_only_a_default_branch_run_counts(self) -> None:
+        gh = FakeGitHub({LIST: [{"workflow_runs": [dispatch_run(branch="other")]}]})
+        self.assertIsNone(ui.find_dispatch_run(gh, "100", "1", dt.datetime(2026, 9, 28, tzinfo=dt.timezone.utc)))
+
 
 class DispatchTests(unittest.TestCase):
     def test_cancels_the_dispatched_run_when_the_ci_attempt_finishes(self) -> None:
@@ -235,6 +255,15 @@ class DispatchTests(unittest.TestCase):
         threading.Thread(target=cancel_once_named, daemon=True).start()
         self.assertEqual(job.run(interval=60, tick=0.1), 130)
         self.assertEqual(gh.posts, [f"repos/{REPO}/actions/runs/556/cancel"])
+
+    def test_leaves_a_run_it_attached_to_running(self) -> None:
+        command = [sys.executable, "-c",
+                   "import time; print('x is already queued at y on z; reusing that run instead of dispatching.'); "
+                   "print('Run: https://github.com/manaflow-ai/cmux/actions/runs/557', flush=True); time.sleep(60)"]
+        gh = FakeGitHub({RUN: [lambda: ci_run(status="completed" if job.dispatched else "in_progress")]})
+        job = ui.Dispatch(gh, command, "100", "1")
+        self.assertEqual(job.run(interval=0.2, tick=0.1), 130)
+        self.assertEqual(gh.posts, [])
 
     def test_returns_the_dispatcher_verdict(self) -> None:
         gh = FakeGitHub({RUN: [ci_run()]})
@@ -292,6 +321,9 @@ class WorkflowTests(unittest.TestCase):
             self.assertIs(checkout["with"]["persist-credentials"], False)
         dispatch = next(step for step in steps if step.get("name") == ui.DISPATCH_STEP_NAME)
         self.assertEqual(dispatch["working-directory"], "dispatcher")
+        # The runner signals the step's shell on cancel; exec makes that the
+        # script, which then cancels the dispatched run.
+        self.assertTrue(dispatch["run"].startswith("exec python3 "), dispatch["run"])
         self.assertLess(steps.index(checkouts[-1]), steps.index(dispatch))
         # Untrusted values reach scripts only through the environment.
         for step in steps:
