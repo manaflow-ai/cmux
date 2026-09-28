@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Point this clone's git at scripts/git-hooks/ for tracked, reviewed hooks.
-# Installs the tracked pre-commit hook (pbxproj normalization and test
-# registration) without hiding custom hooks.
+# Installs tracked pre-commit checks and the post-merge merge-driver refresh
+# without hiding custom hooks.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -14,7 +14,8 @@ cd "$REPO_ROOT"
 # warning, not an error: setup.sh runs this last under `set -e`, and an existing
 # hook setup is not a setup failure.
 # shellcheck disable=SC2016 # printed literally, for the contributor's hook to expand
-TRACKED_HOOK='"$(git rev-parse --show-toplevel)/scripts/git-hooks/pre-commit" "$@" || exit $?'
+TRACKED_PRE_COMMIT='"$(git rev-parse --show-toplevel)/scripts/git-hooks/pre-commit" "$@" || exit $?'
+TRACKED_POST_MERGE='"$(git rev-parse --show-toplevel)/scripts/git-hooks/post-merge" "$@" || exit $?'
 warn_manual_wiring() {
     local hooks_dir="$1"
     {
@@ -22,7 +23,12 @@ warn_manual_wiring() {
         echo "registration) alongside your hooks, add this line to $hooks_dir/pre-commit"
         echo "(create it with a #!/bin/sh line and chmod +x if it does not exist):"
         echo ""
-        echo "    $TRACKED_HOOK"
+        echo "    $TRACKED_PRE_COMMIT"
+        echo ""
+        echo "To keep the trusted merge-driver copies current after pulling main, add"
+        echo "this line to $hooks_dir/post-merge as well:"
+        echo ""
+        echo "    $TRACKED_POST_MERGE"
         echo ""
         echo "Or use only the tracked hooks in this clone (your existing hooks then stop"
         echo "running here): git config core.hooksPath scripts/git-hooks"

@@ -163,18 +163,81 @@ def logical_source_key(
     return None
 
 
+def logical_source_entries(module, text: str) -> dict[tuple[str, str, str], set[str]]:
+    """All source identities in a project, with parser-derived locations.
+
+    This scans the token stream once. In particular, marker-shaped text inside
+    a quoted shell script cannot spoof a section or array boundary.
+    """
+    section: str | None = None
+    stack: list[tuple[str, str | None]] = []
+    assigned_key: str | None = None
+    previous_token: str | None = None
+    matches = iter(module.PBX_TOKEN_RE.finditer(text))
+    current = next(matches, None)
+    entries: dict[tuple[str, str, str], set[str]] = {}
+
+    def consume(match) -> None:
+        nonlocal section, assigned_key, previous_token
+        token = match.group()
+        if match.lastgroup == "comment":
+            if stack == [("dictionary", None), ("dictionary", "objects")]:
+                stripped = token.strip()
+                if begin := SECTION_BEGIN_RE.fullmatch(stripped):
+                    section = begin.group(1)
+                elif end := SECTION_END_RE.fullmatch(stripped):
+                    if section == end.group(1):
+                        section = None
+            return
+        if token == "=" and previous_token is not None:
+            assigned_key = previous_token.strip("\"'")
+        elif token == "{":
+            stack.append(("dictionary", assigned_key))
+            assigned_key = None
+        elif token == "(":
+            stack.append(("array", assigned_key))
+            assigned_key = None
+        elif token in "})":
+            if stack:
+                stack.pop()
+            assigned_key = None
+        elif token not in {",", ";"}:
+            assigned_key = None
+        previous_token = token
+
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        while current is not None and current.end() <= offset:
+            consume(current)
+            current = next(matches, None)
+        inside_multiline_token = (
+            current is not None and current.start() < offset < current.end()
+        )
+        if not inside_multiline_token:
+            array = next((name for kind, name in reversed(stack) if kind == "array"), None)
+            if key := logical_source_key(line, section, array):
+                entries.setdefault(key, set()).add(line.strip())
+        offset += len(line)
+    return entries
+
+
 def source_entry_union(module, base: str, ours: str, theirs: str) -> str:
     """Union only source-file entries in their known order-insensitive containers."""
     merged = module.union_pbxproj(base, ours, theirs)
+    ours_entries = logical_source_entries(module, ours)
+    theirs_entries = logical_source_entries(module, theirs)
+    for key in ours_entries.keys() & theirs_entries.keys():
+        if ours_entries[key] != theirs_entries[key]:
+            raise ValueError(
+                "both sides added the same logical file with different Xcode object IDs"
+            )
     prefix = ""
     for part in module.split_conflicts(module.merge_file(base, ours, theirs)):
         if isinstance(part, str):
             prefix += part
             continue
         ours_lines, base_lines, theirs_lines = part
-        logical_entries: list[dict[tuple[str, str, str], set[str]]] = []
         for side in (ours_lines, theirs_lines):
-            side_entries: dict[tuple[str, str, str], set[str]] = {}
             slots = module.insertions(base_lines, side)
             if slots is None:
                 raise ValueError(
@@ -190,16 +253,6 @@ def source_entry_union(module, base: str, ours: str, theirs: str) -> str:
                         "automatic union is limited to source-file project entries;"
                         " order-sensitive or unknown insertions need a person"
                     )
-                for line in lines:
-                    if key := logical_source_key(line, section, array):
-                        side_entries.setdefault(key, set()).add(line.strip())
-            logical_entries.append(side_entries)
-        ours_entries, theirs_entries = logical_entries
-        for key in ours_entries.keys() & theirs_entries.keys():
-            if ours_entries[key] != theirs_entries[key]:
-                raise ValueError(
-                    "both sides added the same logical file with different Xcode object IDs"
-                )
         prefix += "".join(base_lines)
     return merged
 

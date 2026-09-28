@@ -8,10 +8,10 @@ HEAD_SHA="$(git rev-parse HEAD)"
 # This hook is tracked, so never run its installer merely because an arbitrary
 # checked-out branch asks. The current commit must exactly equal main fetched
 # from the canonical manaflow-ai/cmux remote already configured by the user.
-for remote in $(git remote); do
+while IFS= read -r remote; do
     url="$(git remote get-url "$remote" 2>/dev/null || true)"
     case "$url" in
-        *github.com:manaflow-ai/cmux.git|*github.com/manaflow-ai/cmux.git|*github.com/manaflow-ai/cmux)
+        git@github.com:manaflow-ai/cmux.git|ssh://git@github.com/manaflow-ai/cmux.git|https://github.com/manaflow-ai/cmux.git|https://github.com/manaflow-ai/cmux)
             trusted_ref="refs/remotes/$remote/main"
             trusted_sha="$(git rev-parse --verify "$trusted_ref" 2>/dev/null || true)"
             if [[ -n "$trusted_sha" && "$HEAD_SHA" == "$trusted_sha" ]]; then
@@ -19,6 +19,6 @@ for remote in $(git remote); do
             fi
             ;;
     esac
-done
+done < <(git remote)
 
 exit 0

@@ -212,6 +212,20 @@ def test_quoted_path_cannot_hide_the_same_file_with_different_ids():
     assert "same logical file" in stderr, stderr
 
 
+def test_same_file_at_different_insertion_positions_is_refused():
+    base = project(["Alpha.swift", "Zeta.swift"])
+    ours = project(["Alpha.swift", "Shared.swift", "Zeta.swift"])
+    theirs = project(["Alpha.swift", "Zeta.swift", "Shared.swift"])
+    theirs = theirs.replace(uuid("frShared.swift"), uuid("frShared.swift-theirs"))
+    theirs = theirs.replace(uuid("bfShared.swift"), uuid("bfShared.swift-theirs"))
+
+    code, merged, stderr = run(base, ours, theirs)
+
+    assert code == 1
+    assert "same logical file" in stderr, stderr
+    assert "<" * 32 in merged
+
+
 def test_one_sided_change_applies():
     base = project(["Alpha.swift"])
     ours = project(["Alpha.swift"])

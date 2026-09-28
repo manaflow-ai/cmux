@@ -156,16 +156,50 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertFalse(marker.exists())
 
     def test_trusted_main_post_merge_migrates_legacy_driver_commands(self):
+        hook = self.repo / "scripts/git-hooks/post-merge"
+        hook.unlink()
         self.git("add", ".")
         self.git(
             "-c", "user.name=Merge Test",
             "-c", "user.email=merge@example.invalid",
-            "commit", "-qm", "trusted main",
+            "commit", "-qm", "old main",
         )
         self.git("remote", "add", "upstream", "git@github.com:manaflow-ai/cmux.git")
-        self.git("update-ref", "refs/remotes/upstream/main", "HEAD")
+        self.git("switch", "-q", "-c", "trusted-main")
+        shutil.copy2(SOURCE / "scripts/git-hooks/post-merge", hook)
+        self.git("add", str(hook.relative_to(self.repo)))
+        self.git(
+            "-c", "user.name=Merge Test",
+            "-c", "user.email=merge@example.invalid",
+            "commit", "-qm", "add trusted migration hook",
+        )
+        trusted_main = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("update-ref", "refs/remotes/upstream/main", trusted_main)
+        self.git("switch", "-q", "main")
+        self.git("config", "core.hooksPath", "scripts/git-hooks")
         self.git("config", "merge.xcstrings.driver", "python3 scripts/merge-xcstrings.py %O %A %B %P")
         self.git("config", "merge.pbxproj.driver", "python3 scripts/merge-pbxproj.py %O %A %B %P")
+
+        result = self.git("merge", "--ff-only", "upstream/main", check=False)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout.strip(), trusted_main)
+        self.assertTrue(os.access(hook, os.X_OK), "Git ignores non-executable hooks")
+        self.assert_merge_driver_installed()
+
+    def test_post_merge_rejects_lookalike_github_url(self):
+        marker = self.root / "untrusted-installer-ran"
+        installer = self.repo / INSTALLER
+        installer.write_text(f"#!/bin/sh\ntouch {shlex.quote(str(marker))}\n", encoding="utf-8")
+        installer.chmod(0o755)
+        self.git("add", ".")
+        self.git(
+            "-c", "user.name=Merge Test",
+            "-c", "user.email=merge@example.invalid",
+            "commit", "-qm", "lookalike remote checkout",
+        )
+        self.git("remote", "add", "upstream", "https://attacker.invalid/github.com/manaflow-ai/cmux")
+        self.git("update-ref", "refs/remotes/upstream/main", "HEAD")
 
         result = subprocess.run(
             ["bash", "scripts/git-hooks/post-merge"],
@@ -176,7 +210,7 @@ class InstallGitHooksTests(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_merge_driver_installed()
+        self.assertFalse(marker.exists())
 
     def test_global_hooks_path_warns_and_succeeds(self):
         global_hooks = self.root / "global-hooks"
@@ -189,6 +223,7 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertEqual(self.local_hooks_path(), "", "must not override the contributor's hooks")
         self.assertIn(str(global_hooks), result.stderr)
         self.assertIn("scripts/git-hooks/pre-commit", result.stderr, "must say how to wire the hook")
+        self.assertIn("scripts/git-hooks/post-merge", result.stderr, "must say how to refresh merge drivers")
         self.assert_merge_driver_installed()
 
     def default_hooks_dir(self):
@@ -217,6 +252,7 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertEqual(hook.read_text(), LFS_PRE_PUSH)
         self.assertIn("pre-push", result.stderr)
         self.assertIn("scripts/git-hooks/pre-commit", result.stderr, "must say how to chain the hook")
+        self.assertIn("scripts/git-hooks/post-merge", result.stderr, "must say how to refresh merge drivers")
         self.assert_merge_driver_installed()
 
     def test_outside_a_git_repository_still_fails(self):
