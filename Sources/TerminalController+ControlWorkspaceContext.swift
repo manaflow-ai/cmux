@@ -515,10 +515,9 @@ extension TerminalController: ControlWorkspaceContext {
         let relayToken = v2RawString(params, "relay_token")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let foregroundAuthToken = v2RawString(params, "foreground_auth_token")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let localSocketPath = ControlWorkspaceRemoteLocalSocketPath.resolved(
-            requested: v2RawString(params, "local_socket_path"),
+        let localSocketPath = ControlWorkspaceRemoteLocalSocketPath(
             controllerSocketPath: currentSocketPathForRemoteRestore()
-        )
+        ).resolved(requested: v2RawString(params, "local_socket_path"))
         let hasExplicitAgentSocketPath = v2HasNonNullParam(params, "ssh_auth_sock")
         let agentSocketPath = v2RawString(params, "ssh_auth_sock")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
