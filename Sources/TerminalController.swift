@@ -6461,7 +6461,7 @@ class TerminalController {
                 workspaceId: ws.id,
                 surfaceId: surfaceId,
                 browserPanel: browserPanel,
-                webView: browserPanel.webView
+                webView: browserPanel.webViewForAutomationCommand()
             ),
             nil
         )

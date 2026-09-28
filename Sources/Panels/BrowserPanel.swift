@@ -2207,6 +2207,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var webViewLifecycleState: BrowserWebViewLifecycleState = .newTab
     private(set) var webViewLastVisibleAt: Date?
     private(set) var webViewLastHiddenAt: Date?
+    var webViewLastAutomationCommandAt: Date?
     private(set) var webViewLastVisibilityChangeAt: Date?
     private(set) var webViewLastVisibilityChangeReason: String?
     var hasBackgroundPreloadHost: Bool {
@@ -6016,7 +6017,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
     }
 
     var hiddenWebViewDiscardHiddenAt: Date? {
-        webViewLastHiddenAt
+        hiddenWebViewIdleSince
     }
 
     var hiddenWebViewDiscardWebViewInstanceID: UUID {

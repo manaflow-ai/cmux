@@ -15,6 +15,14 @@ extension BrowserPanel {
         keepsPageActiveWhileHidden ? true : nil
     }
 
+    /// When the hidden pane was last in use: when it was hidden, or when an
+    /// automation command last drove it, whichever is later. Hidden-pane
+    /// discards count their delay from here and evict the longest idle first.
+    var hiddenWebViewIdleSince: Date? {
+        guard let hiddenAt = webViewLastHiddenAt else { return nil }
+        return max(hiddenAt, webViewLastAutomationCommandAt ?? hiddenAt)
+    }
+
     /// This pane as the memory budget sees it. A pane with no live WebContent
     /// process, because it was discarded or its process died, holds no memory.
     func hiddenMemoryBudgetPane(
@@ -27,7 +35,7 @@ extension BrowserPanel {
             id: id,
             processID: hasLiveProcess ? processIdentifier(webView) : nil,
             isVisible: isWebViewVisibleInUI,
-            hiddenAt: webViewLastHiddenAt,
+            hiddenAt: hiddenWebViewIdleSince,
             isEvictable: hiddenWebViewDiscardManager.isEligibleForMemoryBudgetDiscard(now: now)
         )
     }
