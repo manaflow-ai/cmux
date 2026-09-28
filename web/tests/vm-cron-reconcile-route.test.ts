@@ -97,8 +97,9 @@ describe("VM reconcile cron route", () => {
     // so the cron hands the workflow the model-plane revoker.
     const reconcileCalls = (reconcileVmProviderStatuses as unknown as { mock: { calls: unknown[][] } }).mock.calls;
     expect(reconcileCalls).toHaveLength(1);
-    const reconcileInput = reconcileCalls[0]?.[0] as { modelPlane?: { revoke?: unknown } } | undefined;
+    const reconcileInput = reconcileCalls[0]?.[0] as { modelPlane?: { revoke?: unknown }; teamDirectory?: { listMemberIds?: unknown } } | undefined;
     expect(typeof reconcileInput?.modelPlane?.revoke).toBe("function");
+    expect(typeof reconcileInput?.teamDirectory?.listMemberIds).toBe("function");
     expect(runVmWorkflow).toHaveBeenCalledWith({ workflow: "vm-reconcile" });
   });
 });
