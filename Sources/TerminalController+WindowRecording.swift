@@ -208,7 +208,22 @@ extension TerminalController {
                 // The caller's `out` names something that is not a file the
                 // recorder may replace, so this is their parameter, not our bug.
                 return "invalid_params"
+            case .stoppedWhileStarting:
+                // A stop of this caller's own arrived while the start was still
+                // opening the clip, so the two calls conflicted; nothing here is
+                // cmux's fault and nothing is left running.
+                return "conflict"
             case .captureFailed, .composeFailed, .alreadyFinished:
+                return "internal_error"
+            }
+        }
+        if let failure = error as? WindowRecordingWriterError {
+            switch failure {
+            case .setup:
+                // The writer refuses to open at a path it cannot write, which is
+                // the caller's `out` and something they can fix.
+                return "invalid_params"
+            case .frame, .finish, .noFrames:
                 return "internal_error"
             }
         }

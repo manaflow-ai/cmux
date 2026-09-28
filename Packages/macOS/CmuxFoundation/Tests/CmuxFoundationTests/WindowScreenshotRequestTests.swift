@@ -132,6 +132,20 @@ import Testing
         #expect(failure?.message == "region width and height must each be at least 8 points")
     }
 
+    @Test func aRegionTooLargeToBeMeantIsRefused() throws {
+        // `shot` shares the region decoder with `record`, so it shares the upper
+        // bound: the geometry turns points into pixel integers.
+        let failure = #expect(throws: WindowScreenshotRequest.Failure.self) {
+            try WindowScreenshotRequest.make(params: ["region": [0, 0, 1e19, 1e19]])
+        }
+        #expect(failure == .regionTooLarge)
+        #expect(failure?.message == "region position and size must each stay within 100000 points")
+
+        #expect(throws: WindowScreenshotRequest.Failure.regionTooLarge) {
+            try WindowScreenshotRequest.make(params: ["region": "-1e19,0,100,100"])
+        }
+    }
+
     @Test func aMalformedRegionQuotesWhatWasGiven() throws {
         let failure = #expect(throws: WindowScreenshotRequest.Failure.self) {
             try WindowScreenshotRequest.make(params: ["region": "10,20,300"])

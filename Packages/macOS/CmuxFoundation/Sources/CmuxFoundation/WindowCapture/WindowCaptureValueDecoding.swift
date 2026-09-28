@@ -11,6 +11,7 @@ enum WindowCaptureValueFailure: Error, Equatable {
     case outOfRange(field: String, message: String)
     case malformedRegion(String)
     case regionTooSmall(minimumExtent: Double)
+    case regionTooLarge(maximumExtent: Double)
     case outputPathNotAbsolute(String)
     case outputExtensionMismatch(path: String)
 }
@@ -73,7 +74,8 @@ enum WindowCaptureValueDecoding {
     /// a region through: a CLI flag and a JSON array.
     static func region(
         _ value: Any?,
-        minimumExtent: Double
+        minimumExtent: Double,
+        maximumExtent: Double
     ) throws -> WindowRecordingRegion? {
         guard let value else { return nil }
         let region: WindowRecordingRegion
@@ -101,6 +103,15 @@ enum WindowCaptureValueDecoding {
         }
         guard region.width >= minimumExtent, region.height >= minimumExtent else {
             throw WindowCaptureValueFailure.regionTooSmall(minimumExtent: minimumExtent)
+        }
+        // An upper bound as well as a lower one: the geometry turns points into
+        // pixel integers, and "--region 0,0,1e19,1e19" is something a caller can
+        // type. No window is anywhere near this wide.
+        guard abs(region.x) <= maximumExtent,
+              abs(region.y) <= maximumExtent,
+              region.width <= maximumExtent,
+              region.height <= maximumExtent else {
+            throw WindowCaptureValueFailure.regionTooLarge(maximumExtent: maximumExtent)
         }
         return region
     }

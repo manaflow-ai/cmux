@@ -41,6 +41,7 @@ public struct WindowScreenshotRequest: Equatable, Sendable {
         case outOfRange(field: String, message: String)
         case malformedRegion(String)
         case regionTooSmall
+        case regionTooLarge
         case outputPathNotAbsolute(String)
         case outputExtensionMismatch(path: String, format: Format)
 
@@ -59,6 +60,9 @@ public struct WindowScreenshotRequest: Equatable, Sendable {
             case .regionTooSmall:
                 let minimum = Int(WindowScreenshotRequest.minimumRegionExtent)
                 return "region width and height must each be at least \(minimum) points"
+            case .regionTooLarge:
+                let maximum = Int(WindowScreenshotRequest.maximumRegionExtent)
+                return "region position and size must each stay within \(maximum) points"
             case let .outputPathNotAbsolute(path):
                 return "out '\(path)' must be an absolute path"
             case let .outputExtensionMismatch(path, format):
@@ -138,7 +142,8 @@ public struct WindowScreenshotRequest: Equatable, Sendable {
         )
         let region = try WindowCaptureValueDecoding.region(
             params["region"],
-            minimumExtent: Self.minimumRegionExtent
+            minimumExtent: Self.minimumRegionExtent,
+            maximumExtent: Self.maximumRegionExtent
         )
         let outputPath = try WindowCaptureValueDecoding.outputPath(
             params["out"],
@@ -185,6 +190,8 @@ private extension WindowScreenshotRequest.Failure {
             self = .malformedRegion(value)
         case .regionTooSmall:
             self = .regionTooSmall
+        case .regionTooLarge:
+            self = .regionTooLarge
         case let .outputPathNotAbsolute(path):
             self = .outputPathNotAbsolute(path)
         case let .outputExtensionMismatch(path):
@@ -204,4 +211,5 @@ extension WindowScreenshotRequest {
     public static let allowedMaximumWidth = 64...8192
     public static let allowedQuality = 0.1...1.0
     public static let minimumRegionExtent: Double = 8
+    public static let maximumRegionExtent: Double = 100_000
 }

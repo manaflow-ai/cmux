@@ -44,6 +44,40 @@ import Testing
         )
     }
 
+    /// A stop that lands while the start is still opening the clip conflicts
+    /// with it; neither call is at fault and nothing is left recording.
+    @Test func aStopDuringStartIsAConflict() {
+        #expect(
+            TerminalController.recordingErrorCode(
+                for: WindowRecordingSessionError.stoppedWhileStarting
+            ) == "conflict"
+        )
+    }
+
+    /// The writer's own failures were missing from the switch, so `--out` on a
+    /// read-only volume read as cmux's fault. Only opening the file is the
+    /// caller's parameter; a frame that will not encode is ours.
+    @Test func writerFailuresSeparateSetupFromEncoding() {
+        #expect(
+            TerminalController.recordingErrorCode(
+                for: WindowRecordingWriterError.setup("could not create the gif at /clip.gif")
+            ) == "invalid_params"
+        )
+        #expect(
+            TerminalController.recordingErrorCode(
+                for: WindowRecordingWriterError.frame("the writer rejected a frame")
+            ) == "internal_error"
+        )
+        #expect(
+            TerminalController.recordingErrorCode(
+                for: WindowRecordingWriterError.finish("the writer did not complete")
+            ) == "internal_error"
+        )
+        #expect(
+            TerminalController.recordingErrorCode(for: WindowRecordingWriterError.noFrames) == "internal_error"
+        )
+    }
+
     /// The case the router's switch was missing: a caller who points `--out` at
     /// a directory gets told their parameter is wrong, not that cmux broke.
     @Test func anUnusableOutputPathIsTheCallersParameter() {
