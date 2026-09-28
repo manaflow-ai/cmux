@@ -109,7 +109,7 @@ def tree_stats(entry: Path) -> tuple[int, float]:
     recorded = size_path(entry)
     measured = mtime(recorded)
     with contextlib.suppress(OSError, ValueError):
-        if measured is not None and measured >= used:
+        if measured is not None and measured > used:  # a tie re-measures: coarse clocks
             return int(recorded.read_text()), used
     size = tree_bytes(entry)
     with contextlib.suppress(OSError), open(lock_path(entry), "a") as handle:
