@@ -11,6 +11,9 @@ final class WorkspaceNavigationBarController: UIViewController {
     private var leadingGroup = UIBarButtonItemGroup(barButtonItems: [], representativeItem: nil)
     private var trailingIDs: [WorkspaceNavigationBar.Item.ID] = []
     private var trailingGroups: [UIBarButtonItemGroup] = []
+    private var installedLeadingGroups: [UIBarButtonItemGroup] = []
+    private var installedTrailingGroups: [UIBarButtonItemGroup] = []
+    private var installedPinnedGroup: UIBarButtonItemGroup?
     private var terminalPicker: TerminalPickerBarItem?
     private weak var owner: UIViewController?
     private var originalItem: OriginalItem?
@@ -132,6 +135,9 @@ final class WorkspaceNavigationBarController: UIViewController {
         if item.pinnedTrailingGroup !== desiredPinnedGroup {
             item.pinnedTrailingGroup = desiredPinnedGroup
         }
+        installedLeadingGroups = desiredLeadingGroups
+        installedTrailingGroups = desiredTrailingGroups
+        installedPinnedGroup = desiredPinnedGroup
     }
 
     private func makeTrailingGroups(
@@ -166,17 +172,19 @@ final class WorkspaceNavigationBarController: UIViewController {
             item.style = originalItem.style
             item.largeTitleDisplayMode = originalItem.largeTitleDisplayMode
         }
-        if item.leadingItemGroups.elementsEqual([leadingGroup], by: { $0 === $1 }) {
+        if item.leadingItemGroups.elementsEqual(installedLeadingGroups, by: { $0 === $1 }) {
             item.leadingItemGroups = originalItem.leadingGroups
         }
-        let appliedTrailingGroups = Array(trailingGroups.dropFirst())
-        if item.trailingItemGroups.elementsEqual(appliedTrailingGroups, by: { $0 === $1 }) {
+        if item.trailingItemGroups.elementsEqual(installedTrailingGroups, by: { $0 === $1 }) {
             item.trailingItemGroups = originalItem.trailingGroups
             item.additionalOverflowItems = originalItem.additionalOverflowItems
         }
-        if let pinnedGroup = trailingGroups.first, item.pinnedTrailingGroup === pinnedGroup {
+        if item.pinnedTrailingGroup === installedPinnedGroup {
             item.pinnedTrailingGroup = originalItem.trailingGroup
         }
+        installedLeadingGroups = []
+        installedTrailingGroups = []
+        installedPinnedGroup = nil
         self.owner = nil
         self.originalItem = nil
     }

@@ -11,11 +11,14 @@ final class WorkspaceNavigationTitleView: UIView {
     private let capsule: UIVisualEffectView
     // UINavigationItem.titleView keeps a little more layout width than the
     // compact SwiftUI title capsule. Keep that native slot, but give the
-    // rendered capsule the same 36-point chrome and compact leading/trailing
-    // treatment as the original toolbar.
+    // rendered capsule the same native 44-point title chrome and compact
+    // leading/trailing treatment as the original toolbar. The hosted label
+    // remains a centered 36-point content slot inside that chrome.
     private static let capsuleLeadingInset: CGFloat = 0
     private static let capsuleTrailingInset: CGFloat = 10
     private static let contentHorizontalInset: CGFloat = 10
+    private static let contentHeight: CGFloat = 36
+    private static let capsuleHeight: CGFloat = 44
     private static let preferredContentWidth: CGFloat = 192
 
     init() {
@@ -71,15 +74,21 @@ final class WorkspaceNavigationTitleView: UIView {
         super.layoutSubviews()
         capsule.frame = CGRect(
             x: Self.capsuleLeadingInset,
-            y: 4,
+            y: 0,
             width: max(0, bounds.width - Self.capsuleLeadingInset - Self.capsuleTrailingInset),
-            height: min(36, bounds.height)
+            height: min(Self.capsuleHeight, bounds.height)
         )
         if #unavailable(iOS 26.0) {
             capsule.layer.cornerRadius = capsule.bounds.height / 2
         }
         let inset = min(Self.contentHorizontalInset, capsule.bounds.width / 2)
-        contentView.frame = capsule.bounds.insetBy(dx: inset, dy: 0)
+        let contentHeight = min(Self.contentHeight, capsule.bounds.height)
+        contentView.frame = CGRect(
+            x: inset,
+            y: (capsule.bounds.height - contentHeight) / 2,
+            width: max(0, capsule.bounds.width - inset * 2),
+            height: contentHeight
+        )
     }
 }
 #endif
