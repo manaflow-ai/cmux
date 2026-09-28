@@ -9,8 +9,11 @@ public import Foundation
 /// with live work look hibernatable.
 ///
 /// An entry without a work state reads exactly as it did before: a plain
-/// running row. An unrecognized value from a newer CLI parses to `nil` and
-/// degrades the same way.
+/// running row. An unrecognized value is not accepted anywhere: the control
+/// socket rejects the whole `set_status` with an error, the same way it
+/// already rejects an unknown `--format` or a non-integer `--priority`. A
+/// future fourth state therefore needs the app to ship before the CLI that
+/// sends it.
 public enum SidebarAgentWorkState: String, Sendable, Equatable, CaseIterable {
     /// The agent itself is working: a model turn or a tool call is in flight.
     case running
@@ -21,17 +24,15 @@ public enum SidebarAgentWorkState: String, Sendable, Equatable, CaseIterable {
     /// CI run. Not idle, and not hibernatable.
     case waiting
 
-    /// Parses a reported value, tolerating case and `-`/`_` spelling.
+    /// Parses a reported value, tolerating surrounding space and case and
+    /// nothing else. Deliberately the same acceptance set as the control
+    /// socket's own `--work` parse, so a value the socket rejects can never
+    /// look parseable here.
     public static func parse(_ rawValue: String) -> SidebarAgentWorkState? {
-        let normalized = rawValue
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: "_", with: "-")
-        switch normalized {
-        case "running": return .running
-        case "subagents", "subagent": return .subagents
-        case "waiting": return .waiting
-        default: return nil
-        }
+        SidebarAgentWorkState(
+            rawValue: rawValue
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+        )
     }
 }

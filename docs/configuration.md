@@ -224,8 +224,8 @@ The glyph shows the loudest state that applies:
 | An agent reported an error | red warning triangle |
 | An agent needs input | amber dot |
 | An agent is running through subagents | pulsing gray connected-points glyph |
-| An agent is running | pulsing gray dot, in place of the loading spinner |
 | An agent is waiting on a background command, a scheduled wakeup or a CI run | gray hourglass |
+| An agent is running | pulsing gray dot, in place of the loading spinner |
 | An agent is starting (no state reported yet) | dashed ring |
 | Unread notifications | blue dot, in place of the unread count badge |
 | Open pull request | gray pull request glyph |
@@ -234,6 +234,8 @@ The glyph shows the loudest state that applies:
 | Agent idle (done, seen) | gray checkmark |
 | Branch, no pull request | gray branch glyph |
 | Plain terminal | none; the title starts at the row's edge |
+
+The hourglass only goes up when every running agent in the workspace reported that it is waiting, so a second agent still working keeps the row running.
 
 cmux does not fetch a pull request's checks or mergeability, so an open pull request is gray whatever CI says. A pull request whose state repeated refresh failures could not confirm does not set the glyph at all.
 

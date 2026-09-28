@@ -262,7 +262,8 @@ extension TerminalController: ControlSidebarContext {
             color: entry.color,
             urlAbsoluteString: entry.url?.absoluteString,
             priority: entry.priority,
-            format: ControlSidebarMetadataFormat(rawValue: entry.format.rawValue) ?? .plain
+            format: ControlSidebarMetadataFormat(rawValue: entry.format.rawValue) ?? .plain,
+            workState: entry.workState.flatMap { ControlSidebarAgentWorkState(rawValue: $0.rawValue) }
         )
     }
 
