@@ -40,6 +40,15 @@ approach in your own PR, credit them in every such commit with `Co-authored-by`
 using their commit email, link your PR from theirs and thank them. Let a human
 close it; never close an outside PR without a human-written explanation.
 
+The server directories listed in [LICENSE](LICENSE) (`web/`, `workers/ci-artifacts/`,
+`workers/iroh-v2/`, `workers/presence/`, `services/iroh-relay-minter/`,
+`cmux-tui/relays/cloudflare-do/`) use the Business Source License, which needs
+every outside author's CLA grant. Do not merge a PR that changes those
+directories while CLA Assistant is red, and do not copy an outside
+contributor's work there under a `Co-authored-by` trailer unless that person
+has signed the CLA. Keep code that ships in the macOS or iOS app out of those
+directories.
+
 Read [STYLE.md](STYLE.md) before drafting or revising issues, PR descriptions,
 RFCs or progress updates. Fill the PR's `## Changelog` section with one
 `Added`/`Changed`/`Fixed`/`Removed` line for user-visible changes, otherwise `none`.
