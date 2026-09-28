@@ -12,9 +12,11 @@ extension AgentHibernationRecord {
             Set(processIdentities.keys) == processIDs
     }
 
-    /// When the oldest process in the agent's scope started. Background work
-    /// the transcript records before this belongs to an earlier agent process.
-    var agentProcessStartedAt: Date? {
+    /// Background work the transcript records before this belongs to an earlier
+    /// agent process: the start of the oldest process in the agent's scope. With
+    /// no live process left, every recorded launch died with it.
+    var backgroundWorkNotBefore: Date? {
+        guard processLiveness == .running else { return .distantFuture }
         guard let earliest = processIdentities.values.min(by: {
             ($0.startSeconds, $0.startMicroseconds) < ($1.startSeconds, $1.startMicroseconds)
         }) else {

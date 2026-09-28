@@ -168,7 +168,7 @@ extension AgentHibernationController {
         for requests: [ConfirmedTeardownRequest]
     ) async -> [AgentHibernationPanelKey: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome] {
         let agents = requests.map {
-            ($0.record.key, $0.record.agent, $0.record.agentProcessStartedAt)
+            ($0.record.key, $0.record.agent, $0.record.backgroundWorkNotBefore)
         }
         return await withTaskGroup(
             of: (AgentHibernationPanelKey, AgentHibernationTranscriptGuard.TeardownSnapshotOutcome).self,

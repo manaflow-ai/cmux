@@ -10,12 +10,14 @@ extension CmuxTopProcessSnapshot {
         "sh", "bash", "zsh", "fish", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "pwsh", "elvish", "xonsh",
     ]
 
-    /// Descendants of `agentRootPIDs` that are shells the agent started after
-    /// its launch baseline. Agents run tool commands through a shell, so a live
-    /// late shell is a background command, a Monitor or watch loop, or a
-    /// subagent's shell still doing work. Terminating the agent would kill it.
-    /// Unknown start times never count as work; the scope's identity checks
-    /// already refuse panes without complete identities.
+    /// Direct children of `agentRootPIDs` that are shells the agent started
+    /// after its launch baseline. Claude runs every tool command in a shell it
+    /// spawns itself, so a live late child shell is a background command, a
+    /// Monitor or watch loop, or a subagent's command still doing work, and
+    /// terminating the agent would kill it. Shells deeper in the tree (an MCP
+    /// server's `sh -c` under node) are not agent work and do not count.
+    /// Unknown start times never count; the scope's identity checks already
+    /// refuse panes without complete identities.
     func agentBackgroundWorkProcessIDs(
         agentRootPIDs: Set<Int>,
         descendantProcessIDs: Set<Int>
@@ -26,6 +28,7 @@ extension CmuxTopProcessSnapshot {
         return descendantProcessIDs.filter { processID in
             guard !agentRootPIDs.contains(processID),
                   let process = processesByPID[processID],
+                  agentRootPIDs.contains(process.parentPID),
                   let startSeconds = process.processIdentity?.startSeconds,
                   startSeconds > baselineEnd else {
                 return false

@@ -45,6 +45,15 @@ struct AgentHibernationBackgroundWorkTests {
         #expect(scope.containsUnrelatedProcess == false)
     }
 
+    @Test
+    func lateShellUnderAnMCPServerDoesNotCountAsBackgroundWork() {
+        let scope = processSnapshot(including: [
+            .init(pid: 320, parent: 102, group: 101, name: "sh", startOffset: 900),
+        ]).agentHibernationProcessScope(panelProcessIDs: [101], agentProcessIDs: [101])
+
+        #expect(scope.containsUnrelatedProcess == false)
+    }
+
     // MARK: Transcript
 
     @Test
@@ -125,6 +134,23 @@ struct AgentHibernationBackgroundWorkTests {
 
         #expect(Self.unfinished(lines) == ["toolu_monitor"])
         #expect(Self.unfinished(lines + [Self.queuedNotification(toolUseID: "toolu_monitor", taskID: "bmon1", status: "completed")]).isEmpty)
+    }
+
+    @Test
+    func todoTaskIDsAreNotBackgroundLaunches() {
+        let todoUpdate = #"{"type":"user","timestamp":"2026-09-28T08:00:08.000Z","message":{"role":"user","content":[{"tool_use_id":"toolu_todo","type":"tool_result","content":"Updated task #3"}]},"toolUseResult":{"success":true,"taskId":"3","updatedFields":["status"]}}"#
+
+        #expect(Self.unfinished([todoUpdate]).isEmpty)
+    }
+
+    @Test
+    func taskStopFinishesTheStoppedTask() {
+        let lines = [
+            Self.backgroundBashLaunch(toolUseID: "toolu_server", taskID: "bserver1"),
+            #"{"type":"user","timestamp":"2026-09-28T08:03:00.000Z","message":{"role":"user","content":[{"tool_use_id":"toolu_stop","type":"tool_result","content":"Successfully stopped task: bserver1"}]},"toolUseResult":{"message":"Successfully stopped task: bserver1","task_id":"bserver1","task_type":"local_bash","command":"./server"}}"#,
+        ]
+
+        #expect(Self.unfinished(lines).isEmpty)
     }
 
     private static func unfinished(_ lines: [String], notBefore: Date? = nil) -> Set<String> {

@@ -29,10 +29,12 @@ extension AgentHibernationTranscriptGuard {
     ) -> Set<String> {
         var launches: [BackgroundLaunch] = []
         var finishedIDs: Set<String> = []
-        let launchMarker = Data(#""toolUseResult""#.utf8)
+        let launchMarkers = ["\"backgroundTaskId\"", "\"async_launched\"", "\"timeoutMs\"", "\"task_id\""]
+            .map { Data($0.utf8) }
         let notificationMarker = Data("<task-notification>".utf8)
+        let timestamps = TranscriptTimestampParser()
         for line in data.split(separator: 10, omittingEmptySubsequences: true) {
-            let hasLaunch = line.range(of: launchMarker) != nil
+            let hasLaunch = launchMarkers.contains { line.range(of: $0) != nil }
             let hasNotification = line.range(of: notificationMarker) != nil
             guard hasLaunch || hasNotification,
                   let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any] else {
@@ -40,11 +42,14 @@ extension AgentHibernationTranscriptGuard {
             }
             if hasLaunch, let lineLaunches = backgroundLaunches(in: object) {
                 let launchedBeforeAgent = notBefore.flatMap { notBefore in
-                    transcriptTimestamp(object["timestamp"]).map { $0 < notBefore }
+                    timestamps.date(object["timestamp"]).map { $0 < notBefore }
                 } ?? false
                 if !launchedBeforeAgent {
                     launches.append(contentsOf: lineLaunches)
                 }
+            }
+            if hasLaunch, let stoppedTaskID = stoppedTaskID(in: object) {
+                finishedIDs.insert(stoppedTaskID)
             }
             if hasNotification {
                 for text in taskNotificationCarrierTexts(in: object) {
@@ -67,7 +72,12 @@ extension AgentHibernationTranscriptGuard {
     private static func backgroundLaunches(in object: [String: Any]) -> [BackgroundLaunch]? {
         guard let result = object["toolUseResult"] as? [String: Any] else { return nil }
         let taskID: String?
-        if let id = nonEmptyString(result["backgroundTaskId"]) ?? nonEmptyString(result["taskId"]) {
+        if let id = nonEmptyString(result["backgroundTaskId"]) {
+            taskID = id
+        } else if let id = nonEmptyString(result["taskId"]),
+                  result["timeoutMs"] != nil || result["persistent"] != nil {
+            // Monitor. Other tools also return a `taskId` (todo updates), so the
+            // Monitor-only keys are required.
             taskID = id
         } else if (result["isAsync"] as? Bool) == true,
                   (result["status"] as? String) == "async_launched" {
@@ -87,6 +97,16 @@ extension AgentHibernationTranscriptGuard {
             return BackgroundLaunch(toolUseID: id, taskID: taskID)
         }
         return launches.isEmpty ? nil : launches
+    }
+
+    /// The task a TaskStop result reports as stopped. A stopped task does not
+    /// always leave a terminal notification behind.
+    private static func stoppedTaskID(in object: [String: Any]) -> String? {
+        guard let result = object["toolUseResult"] as? [String: Any],
+              result["task_type"] != nil else {
+            return nil
+        }
+        return nonEmptyString(result["task_id"])
     }
 
     /// The places Claude records a delivered or queued task notification. Tool
@@ -152,12 +172,18 @@ extension AgentHibernationTranscriptGuard {
         return string
     }
 
-    private static func transcriptTimestamp(_ value: Any?) -> Date? {
-        guard let string = value as? String else { return nil }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: string) { return date }
-        return ISO8601DateFormatter().date(from: string)
+    private struct TranscriptTimestampParser {
+        private let fractional: ISO8601DateFormatter = {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter
+        }()
+        private let whole = ISO8601DateFormatter()
+
+        func date(_ value: Any?) -> Date? {
+            guard let string = value as? String else { return nil }
+            return fractional.date(from: string) ?? whole.date(from: string)
+        }
     }
 
     /// The last `maxBytes` of the file, starting at a line boundary.
