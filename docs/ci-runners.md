@@ -315,7 +315,7 @@ loaded mini, then the name. The picker's candidates, pick and predicted
 seconds go to admission's record (`route.picker`) through the
 `admission_route` output. A candidate's compile is multiplied by 1.19 while
 another root runner of its mini is busy (an overlapped compile runs that much
-slower) and by 1.43 on the Austin minis, so compiles spread across minis
+slower) and by 1.43 on the two M4 minis, so compiles spread across minis
 without `CI_OWNED_SPREAD`. A busy runner the snapshot does not list yet waits
 as an admission that has just begun instead of dropping out.
 

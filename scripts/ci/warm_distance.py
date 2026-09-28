@@ -487,7 +487,7 @@ UNKNOWN_JOB_SECONDS = 600.0
 # A compile runs slower while another root of its mini compiles too, and slower on the two older minis.
 # Owned admissions of 2026-09-26 to 28 (rebuild tier, alone on an M4 Pro mini p50 403 s): overlapped by
 # another admission on the same mini for at least half its compile p50 484 s (158 compiles, x1.19); on
-# cmux-austin-mini-* p50 575 s (23 compiles, x1.43). distance_route() multiplies a candidate's compile by
+# the two M4 (not M4 Pro) minis p50 575 s (23 compiles, x1.43). distance_route() multiplies a candidate's compile by
 # them, so compiles spread across minis without CI_OWNED_SPREAD's separate pin.
 CONTENDED_FACTOR = 1.19
 SLOW_MINI_FACTOR = 1.43

@@ -7,7 +7,7 @@ swift-package-tests runs `swift test --package-path <package>` for the
 packages a change selects. On an owned Mac (a glaeda runner) the workspace is
 reused, but actions/checkout cleans it (`git clean -ffdx`), so every job
 deleted each package's `.build` and built the package and its dependencies from
-nothing: 206 to 594 MB per package on cmux11s on 2026-09-26, 1,430 runner-minutes
+nothing: 206 to 594 MB per package on one mini on 2026-09-26, 1,430 runner-minutes
 a day across the minis. The checkout keeps the modification times of files it
 did not change, so a kept `.build` rebuilds only what the change touched.
 
