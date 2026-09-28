@@ -23,32 +23,8 @@ final class SidebarHelpMenuUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    func testHelpMenuOpensKeyboardShortcutsSection() {
-        let app = XCUIApplication()
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        launchAndActivate(app)
-
-        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
-
-        let helpButton = requireElement(
-            candidates: helpButtonCandidates(in: app),
-            timeout: 6.0,
-            description: "sidebar help button"
-        )
-        helpButton.click()
-
-        let keyboardShortcutsItem = requireElement(
-            candidates: helpMenuItemCandidates(in: app, identifier: "SidebarHelpMenuOptionKeyboardShortcuts", title: "Keyboard Shortcuts"),
-            timeout: 3.0,
-            description: "Keyboard Shortcuts help menu item"
-        )
-        keyboardShortcutsItem.click()
-
-        XCTAssertTrue(app.staticTexts["ShortcutRecordingHint"].waitForExistence(timeout: 6.0))
-    }
-
     func testHelpMenuCheckForUpdatesTriggersSidebarUpdatePill() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_FEED_URL"] = "https://cmux.test/appcast.xml"
         app.launchEnvironment["CMUX_UI_TEST_FEED_MODE"] = "available"
@@ -78,7 +54,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
     }
 
     func testHelpMenuSendFeedbackOpensComposerSheet() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         launchAndActivate(app)
 
@@ -147,6 +123,104 @@ final class SidebarHelpMenuUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["5/4000"].waitForExistence(timeout: 2.0))
     }
 
+    func testHelpMenuSettingsOpensDismissesAndReopensWithShortcut() {
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchArguments += [
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+            "-ApplePersistenceIgnoreState", "YES",
+            "-NSQuitAlwaysKeepsWindows", "NO",
+            "-menuBarOnly", "false",
+        ]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launch()
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 10.0) {
+                app.state == .runningForeground || app.state == .runningBackground
+            },
+            "App failed to launch. state=\(app.state.rawValue)"
+        )
+        app.activate()
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 6.0) { app.state == .runningForeground },
+            "App did not become foreground before interactions. state=\(app.state.rawValue)"
+        )
+
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 10.0))
+
+        let helpButton = requireElement(
+            candidates: helpButtonCandidates(in: app),
+            timeout: 6.0,
+            description: "sidebar help button"
+        )
+        helpButton.click()
+
+        let settingsItem = requireElement(
+            candidates: helpMenuItemCandidates(
+                in: app,
+                identifier: "SidebarHelpMenuOptionSettings",
+                title: "Settings…"
+            ),
+            timeout: 3.0,
+            description: "Settings help menu item"
+        )
+        settingsItem.click()
+
+        let settings = app.windows["Settings"]
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 6.0) { settings.exists },
+            "Expected Settings to open from the sidebar Help menu"
+        )
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 2.0) {
+                !app.buttons["SidebarHelpMenuOptionSettings"].exists
+                    && !app.buttons["Settings…"].exists
+            },
+            "Expected the Help popover to dismiss after opening Settings"
+        )
+        XCTAssertEqual(app.windows.count, 2, "Expected one main window and one Settings window")
+
+        settings.typeKey("w", modifierFlags: [.command])
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 3.0) { app.windows.count == 1 && !settings.exists },
+            "Expected Cmd+W to close Settings and return to the main window"
+        )
+
+        helpButton.click()
+        let reopenedSettingsItem = requireElement(
+            candidates: helpMenuItemCandidates(
+                in: app,
+                identifier: "SidebarHelpMenuOptionSettings",
+                title: "Settings…"
+            ),
+            timeout: 3.0,
+            description: "Settings help menu item after closing Settings"
+        )
+        reopenedSettingsItem.click()
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 6.0) { app.windows["Settings"].exists },
+            "Expected the Help menu to reopen Settings after closing it"
+        )
+
+        settings.typeKey("w", modifierFlags: [.command])
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 3.0) { app.windows.count == 1 && !settings.exists },
+            "Expected Settings to close before exercising Cmd+,"
+        )
+
+        app.typeKey(",", modifierFlags: [.command])
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 6.0) { settings.exists && app.windows.count == 2 },
+            "Expected Cmd+, to reopen the existing Settings surface"
+        )
+        app.typeKey(",", modifierFlags: [.command])
+        XCTAssertEqual(
+            app.windows.count,
+            2,
+            "Expected a repeated Cmd+, to reuse the single Settings window instead of creating a duplicate"
+        )
+    }
+
     private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
         sidebarHelpPollUntil(timeout: timeout) {
             app.windows.count >= count
@@ -160,6 +234,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
             app.buttons["Help"],
             sidebar.buttons["SidebarHelpMenuButton"],
             sidebar.buttons["Help"],
+            app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Help")).firstMatch,
         ]
     }
 
@@ -202,20 +277,37 @@ final class SidebarHelpMenuUITests: XCTestCase {
     }
 
     private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
-        app.launch()
-        let activated = sidebarHelpPollUntil(timeout: activateTimeout) {
-            guard app.state != .runningForeground else {
-                return true
-            }
-            app.activate()
-            return app.state == .runningForeground
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("Headless CI may launch the app without foreground activation", options: options) {
+            app.launch()
         }
-        if !activated {
-            app.activate()
-        }
+
         XCTAssertTrue(
-            sidebarHelpPollUntil(timeout: 2.0) { app.state == .runningForeground },
-            "App did not reach runningForeground before UI interactions"
+            sidebarHelpPollUntil(timeout: 10.0) {
+                app.state == .runningForeground || app.state == .runningBackground
+            },
+            "App failed to launch. state=\(app.state.rawValue)"
+        )
+
+        if app.state != .runningForeground {
+            let activated = sidebarHelpPollUntil(timeout: activateTimeout) {
+                guard app.state != .runningForeground else {
+                    return true
+                }
+                app.activate()
+                return app.state == .runningForeground
+            }
+            if !activated {
+                app.activate()
+            }
+        }
+
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 6.0) {
+                app.state == .runningForeground
+            },
+            "App did not become foreground before interactions. state=\(app.state.rawValue)"
         )
     }
 }
@@ -227,7 +319,7 @@ final class FeedbackComposerShortcutUITests: XCTestCase {
     }
 
     func testCmdOptionFOpensFeedbackComposer() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launch()
         app.activate()
@@ -248,7 +340,7 @@ final class FeedbackComposerShortcutUITests: XCTestCase {
     }
 
     func testCmdOptionFWorksWithHiddenSidebar() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launch()
         app.activate()
@@ -273,7 +365,7 @@ final class FeedbackComposerShortcutUITests: XCTestCase {
     }
 
     func testCmdOptionFWorksFromSettingsWindow() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
         app.launch()
@@ -330,7 +422,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     func testCmdShiftPBackspaceReturnsToWorkspaceResults() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         configureSocketControlledLaunch(app)
         launchAndActivate(app)
 
@@ -412,7 +504,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     func testCmdShiftPCheckQueryPrefersCheckForUpdatesBeforeAttemptUpdate() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         launchAndActivate(app)
@@ -428,24 +520,29 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         let searchField = app.textFields["CommandPaletteSearchField"]
         searchField.typeText("check")
 
-        let row0 = app.descendants(matching: .any).matching(identifier: "CommandPaletteResultRow.0").firstMatch
-        let row1 = app.descendants(matching: .any).matching(identifier: "CommandPaletteResultRow.1").firstMatch
+        // Row identifiers are "CommandPaletteResultRow.<index>.<commandId>".
+        let row0 = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "CommandPaletteResultRow.0."))
+            .firstMatch
+        let row1 = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "CommandPaletteResultRow.1."))
+            .firstMatch
 
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 5.0) {
                 row0.exists &&
                     row1.exists &&
-                    (row0.value as? String) == "palette.checkForUpdates" &&
-                    (row1.value as? String) == "palette.attemptUpdate"
+                    row0.identifier == "CommandPaletteResultRow.0.palette.checkForUpdates" &&
+                    row1.identifier == "CommandPaletteResultRow.1.palette.attemptUpdate"
             },
-            "Expected the check query to rank Check for Updates before Attempt Update. row0=\(String(describing: row0.value)) row1=\(String(describing: row1.value))"
+            "Expected the check query to rank Check for Updates before Attempt Update. row0=\(row0.identifier) row1=\(row1.identifier)"
         )
-        XCTAssertEqual(row0.value as? String, "palette.checkForUpdates")
-        XCTAssertEqual(row1.value as? String, "palette.attemptUpdate")
+        XCTAssertEqual(row0.identifier, "CommandPaletteResultRow.0.palette.checkForUpdates")
+        XCTAssertEqual(row1.identifier, "CommandPaletteResultRow.1.palette.attemptUpdate")
     }
 
     func testCmdPSearchCanIncludeSurfacesFromOtherWorkspacesWhenEnabled() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         configureSocketControlledLaunch(app, showSettingsWindow: true)
         launchAndActivate(app)
 
@@ -521,7 +618,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     func testMinimalModeToggleKeepsSettingsWindowFocused() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let diagnosticsPath = "/tmp/cmux-ui-test-settings-focus-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -588,7 +685,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     func testMenuBarOnlyToggleKeepsSettingsWindowFocused() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let diagnosticsPath = "/tmp/cmux-ui-test-menu-bar-only-focus-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
         resetMenuBarOnlyDefault()
@@ -673,7 +770,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     func testCommandPaletteCanEnableAndDisableMinimalMode() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         configureSocketControlledLaunch(app, showSettingsWindow: true)
         app.launchArguments += ["-workspacePresentationMode", "standard"]
         launchAndActivate(app)
@@ -764,7 +861,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     func testSwitcherEmptyStateDoesNotBlinkWhileRefiningNoMatchQuery() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         configureSocketControlledLaunch(app)
         launchAndActivate(app)
 
@@ -987,8 +1084,8 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        sidebarHelpPollUntil(timeout: timeout) {
-            socketCommand("ping") == "PONG"
+        waitForControlSocketReady(socketPath: socketPath, pingTimeout: timeout) {
+            self.socketCommand("ping") == "PONG"
         }
     }
 

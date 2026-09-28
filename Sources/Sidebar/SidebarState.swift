@@ -1,9 +1,13 @@
+import CmuxWorkspaces
 import Combine
 import CoreGraphics
+import Foundation
 
 final class SidebarState: ObservableObject {
     @Published var isVisible: Bool
     @Published var persistedWidth: CGFloat
+    private var visibilityWillChangeOwnerId: UUID?
+    private var visibilityWillChange: ((Bool) -> Void)?
 
     init(isVisible: Bool = true, persistedWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)) {
         self.isVisible = isVisible
@@ -12,7 +16,27 @@ final class SidebarState: ObservableObject {
     }
 
     func toggle() {
-        isVisible.toggle()
+        setVisible(!isVisible)
+    }
+
+    func setVisible(_ nextValue: Bool) {
+        guard nextValue != isVisible else { return }
+        visibilityWillChange?(nextValue)
+        isVisible = nextValue
+    }
+
+    func installVisibilityWillChangeHandler(
+        ownerId: UUID,
+        _ handler: @escaping (Bool) -> Void
+    ) {
+        visibilityWillChangeOwnerId = ownerId
+        visibilityWillChange = handler
+    }
+
+    func removeVisibilityWillChangeHandler(ownerId: UUID) {
+        guard visibilityWillChangeOwnerId == ownerId else { return }
+        visibilityWillChangeOwnerId = nil
+        visibilityWillChange = nil
     }
 }
 
@@ -50,5 +74,45 @@ enum SidebarResizeInteraction {
 
     static var totalHitWidth: CGFloat {
         sidebarSideHitWidth + contentSideHitWidth
+    }
+}
+
+enum SidebarSelectedWorkspaceScrollPolicy {
+    static func shouldScrollSelectedWorkspace<ID: Equatable>(
+        selectedWorkspaceId: ID?,
+        oldWorkspaceIds: [ID],
+        newWorkspaceIds: [ID]
+    ) -> Bool {
+        guard let selectedWorkspaceId,
+              let newIndex = newWorkspaceIds.firstIndex(of: selectedWorkspaceId) else {
+            return false
+        }
+
+        guard let oldIndex = oldWorkspaceIds.firstIndex(of: selectedWorkspaceId) else {
+            return true
+        }
+
+        guard oldWorkspaceIds.count == newWorkspaceIds.count else {
+            return false
+        }
+
+        guard oldIndex != newIndex else {
+            return false
+        }
+
+        return true
+    }
+
+    /// A member of a collapsed group has no sidebar row of its own, so its
+    /// UUID is not a scrollable `.id` and `scrollTo` would no-op. Target the
+    /// group header (which carries the anchor workspace id) so the scroll
+    /// still lands where the workspace lives. Decided purely from model data,
+    /// never from what the lazy layout happens to have realized.
+    static func scrollTargetWorkspaceId(
+        selectedWorkspaceId: UUID,
+        group: WorkspaceGroup?
+    ) -> UUID {
+        guard let group, group.isCollapsed else { return selectedWorkspaceId }
+        return group.anchorWorkspaceId
     }
 }

@@ -1,0 +1,63 @@
+[package]
+name = "cmux-diff-sidecar"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[features]
+default = []
+benchmark = []
+http-server = [
+    "dep:axum",
+    "dep:futures-util",
+    "dep:notify",
+    "dep:reqwest",
+    "dep:rustls",
+    "dep:tokio-util",
+    "tokio/net",
+]
+
+[dependencies]
+axum = { version = "0.8.9", features = ["ws"], optional = true }
+futures-util = { version = "0.3.31", optional = true }
+fs2 = "0.4.3"
+notify = { version = "8.2.0", optional = true }
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls-no-provider", "stream"], optional = true }
+rustls = { version = "0.23.41", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+tokio = { version = "1.52.3", features = ["fs", "io-std", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-util = { version = "0.7.18", features = ["io"], optional = true }
+ts-rs = { version = "12.0.1", features = ["serde-json-impl"] }
+uuid = { version = "1.22.0", features = ["v4"] }
+
+[dev-dependencies]
+tokio-tungstenite = "0.29.0"
+
+[[bin]]
+name = "diff-sidecar-test-host"
+path = "tests/support/test_host.rs"
+required-features = ["http-server"]
+
+[[test]]
+name = "server_integration"
+path = "tests/server_integration.rs"
+required-features = ["http-server"]
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", features = ["process"] }
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = "z"
+panic = "abort"
+strip = "symbols"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"

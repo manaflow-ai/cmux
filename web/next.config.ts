@@ -1,11 +1,235 @@
 import "./app/env";
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
+import { withSentryConfig } from "@sentry/nextjs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { poweredByHeader, securityHeaderRules } from "./security-headers";
+import { directDevBackendHost } from "./app/lib/direct-dev-backend-origin";
 
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
+const webRoot = path.dirname(fileURLToPath(import.meta.url));
+const docsChannel = process.env.CMUX_DOCS_CHANNEL;
+const isDocsZone = docsChannel === "release" || docsChannel === "nightly";
+const releaseDocsOrigin =
+  process.env.CMUX_RELEASE_DOCS_ORIGIN ?? "https://cmux-docs-release.vercel.app";
+const nightlyDocsOrigin =
+  process.env.CMUX_NIGHTLY_DOCS_ORIGIN ?? "https://cmux-docs-nightly.vercel.app";
+// The embedded browser reaches a dev server through its per-instance
+// Tailscale Serve hostname. Published development VMs also use generated
+// `*.cmux.sh` hostnames. Next.js blocks cross-origin HMR and RSC resources
+// unless those origins are explicitly allowed. This setting is used only by
+// `next dev`; production keeps the default protection.
+const directDevBackendAllowedHost = directDevBackendHost();
+const developmentPublicationOrigins = [
+  ...(directDevBackendAllowedHost ? [directDevBackendAllowedHost] : []),
+  "*.cmux.sh",
+];
+
+// Agent landing pages moved under /agents/<agent>. Keep the old top-level
+// slugs working with permanent redirects, for the bare English path and every
+// locale-prefixed variant.
+const localePrefix =
+  ":locale(ja|zh-CN|zh-TW|ko|de|es|fr|it|da|pl|ru|bs|ar|no|pt-BR|th|tr|km|uk)";
+const agentSlugMoves: [from: string, to: string][] = [
+  ["/claude-code-terminal", "/agents/claude-code"],
+  ["/codex-cli", "/agents/codex"],
+  ["/opencode", "/agents/opencode"],
+];
+const baseNightlyMoves = ["", ".md", ".txt"].flatMap((ext) => [
+  {
+    source: `/docs/base${ext}`,
+    destination: `/docs/nightly/base${ext}`,
+    permanent: false,
+  },
+  {
+    source: `/en/docs/base${ext}`,
+    destination: `/docs/nightly/base${ext}`,
+    permanent: false,
+  },
+]);
+const tuiInstallerHeaderRules = [
+  {
+    source: "/tui/install.sh",
+    headers: [
+      { key: "Content-Type", value: "text/plain; charset=utf-8" },
+      { key: "Content-Disposition", value: "inline" },
+    ],
+  },
+  {
+    source: "/tui/install.ps1",
+    headers: [
+      { key: "Content-Type", value: "text/plain; charset=utf-8" },
+      { key: "Content-Disposition", value: "inline" },
+    ],
+  },
+];
 
 const nextConfig: NextConfig = {
+  poweredByHeader,
+  typescript: {
+    // The full project typecheck runs as its own CI job. Keep test and tool
+    // files out of Next's production-build check so the same work is not done
+    // twice and application errors still fail the build.
+    tsconfigPath:
+      process.env.NODE_ENV === "production"
+        ? "tsconfig.next.json"
+        : "tsconfig.json",
+  },
+  allowedDevOrigins: developmentPublicationOrigins,
+  cacheComponents: true,
+  partialPrefetching: true,
+  experimental: {
+    exposeTestingApiInProductionBuild: process.env.NEXT_INSTANT_TEST === "1",
+    // Vercel restores .next/cache between deployments. Local and CI builds do
+    // not have a durable cache, so avoid writing and compacting a large cache
+    // database that cannot be reused by the next build.
+    turbopackFileSystemCacheForBuild: process.env.VERCEL === "1",
+    instantInsights: {
+      validationLevel: "warning",
+    },
+  },
+  env: {
+    CMUX_DOCS_CHANNEL: docsChannel ?? "",
+  },
+  assetPrefix: isDocsZone ? `/_docs-assets/${docsChannel}` : undefined,
+  async rewrites() {
+    if (isDocsZone) {
+      return {
+        beforeFiles: [
+          // Direct docs previews use the same search URLs as the main site.
+          // Serve their own index instead of requiring the outer site router.
+          {
+            source: `/_docs-search/${docsChannel}/:path*`,
+            destination: "/pagefind/:path*",
+          },
+          {
+            source: `/_docs-assets/${docsChannel}/_next/:path*`,
+            destination: "/_next/:path*",
+          },
+        ],
+      };
+    }
+    return {
+      beforeFiles: [
+        {
+          source: "/_docs-assets/release/:path*",
+          destination: `${releaseDocsOrigin}/:path*`,
+        },
+        {
+          source: "/_docs-assets/nightly/:path*",
+          destination: `${nightlyDocsOrigin}/:path*`,
+        },
+        {
+          source: "/_docs-search/release/:path*",
+          destination: `${releaseDocsOrigin}/pagefind/:path*`,
+        },
+        {
+          source: "/_docs-search/nightly/:path*",
+          destination: `${nightlyDocsOrigin}/pagefind/:path*`,
+        },
+        {
+          source: "/docs/nightly",
+          destination: `${nightlyDocsOrigin}/docs/getting-started`,
+        },
+        {
+          source: "/docs/nightly/:path*",
+          destination: `${nightlyDocsOrigin}/docs/:path*`,
+        },
+        {
+          source: "/:locale/docs/nightly",
+          destination: `${nightlyDocsOrigin}/:locale/docs/getting-started`,
+        },
+        {
+          source: "/:locale/docs/nightly/:path*",
+          destination: `${nightlyDocsOrigin}/:locale/docs/:path*`,
+        },
+        { source: "/docs", destination: `${releaseDocsOrigin}/docs` },
+        {
+          source: "/docs/:path*",
+          destination: `${releaseDocsOrigin}/docs/:path*`,
+        },
+        {
+          source: "/:locale/docs",
+          destination: `${releaseDocsOrigin}/:locale/docs`,
+        },
+        {
+          source: "/:locale/docs/:path*",
+          destination: `${releaseDocsOrigin}/:locale/docs/:path*`,
+        },
+      ],
+    };
+  },
+  async redirects() {
+    // Cover the HTML page plus its agent-readable .md/.txt variants, which were
+    // live and advertised in llms.txt before the move.
+    const exts = ["", ".md", ".txt"];
+    const agentRedirects = agentSlugMoves.flatMap(([from, to]) =>
+      exts.flatMap((ext) => [
+        // Bare English path (canonical, no locale prefix).
+        { source: `${from}${ext}`, destination: `${to}${ext}`, permanent: true },
+        // Explicit /en prefix (the agent-readable router accepts /en/... and
+        // dotted variants bypass the locale middleware, so it must be covered).
+        {
+          source: `/en${from}${ext}`,
+          destination: `${to}${ext}`,
+          permanent: true,
+        },
+        // Every other locale prefix.
+        {
+          source: `/${localePrefix}${from}${ext}`,
+          destination: `/:locale${to}${ext}`,
+          permanent: true,
+        },
+      ]),
+    );
+    return [...(isDocsZone ? [] : baseNightlyMoves), ...agentRedirects];
+  },
+  async headers() {
+    const channelSecurityHeaders =
+      docsChannel !== "nightly"
+        ? securityHeaderRules
+        : securityHeaderRules.map((rule) => ({
+            ...rule,
+            headers: [
+              ...rule.headers,
+              { key: "X-Robots-Tag", value: "noindex, follow" },
+            ],
+          }));
+    return [...channelSecurityHeaders, ...tuiInstallerHeaderRules];
+  },
+  turbopack: {
+    root: webRoot,
+  },
+  outputFileTracingIncludes: {
+    // Cloud VM lifecycle routes load these templates at runtime when building
+    // the guest prompt command. Keep the source assets in every traced server
+    // function; static analysis cannot follow the URL-relative fs reads after
+    // Turbopack bundles the module.
+    "/*": [
+      "./services/vms/images/devbox/cmux-bashrc",
+      "./services/vms/images/devbox/cmux-prompt.bash",
+    ],
+    "**/opengraph-image": [
+      "./app/lib/open-graph-fonts/**/*",
+      "./app/**/assets/landing-image.png",
+      "./public/logo.png",
+    ],
+    "**/browser-opengraph-image": ["./public/logo.png"],
+    // Changelog versions outside generateStaticParams render at request time
+    // and read the copy that tools/sync-changelog.ts writes before the build.
+    "**/docs/changelog": ["./CHANGELOG.md"],
+    "**/docs/changelog/**": ["./CHANGELOG.md"],
+    "**/sitemap.xml": ["./CHANGELOG.md"],
+    // IndexNow also reads the sitemap when its deployed function starts.
+    "/api/cron/indexnow": ["./CHANGELOG.md"],
+  },
   images: {
+    // AVIF first: for the detailed hero screenshot (crisp terminal text +
+    // transparent rounded window corners) it rings far less than WebP at the
+    // same size. Allow q100 so the hero can opt out of lossy degradation.
+    formats: ["image/avif", "image/webp"],
+    qualities: [75, 85],
     remotePatterns: [
       {
         protocol: "https",
@@ -16,4 +240,16 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withNextIntl(nextConfig);
+const configuredNext = withNextIntl(nextConfig);
+
+export default process.env.SENTRY_AUTH_TOKEN
+  ? withSentryConfig(configuredNext, {
+      org: process.env.SENTRY_ORG,
+      project: process.env.SENTRY_PROJECT,
+      authToken: process.env.SENTRY_AUTH_TOKEN,
+      silent: true,
+      telemetry: false,
+      widenClientFileUpload: true,
+      disableLogger: true,
+    })
+  : configuredNext;

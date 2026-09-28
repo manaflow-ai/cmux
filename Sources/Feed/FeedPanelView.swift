@@ -1,8 +1,8 @@
+import CmuxFoundation
 import AppKit
 import Bonsplit
-import CMUXWorkstream
+import CMUXAgentLaunch
 import SwiftUI
-
 #if DEBUG
 private func feedDebugResponderSummary(_ responder: NSResponder?) -> String {
     guard let responder else { return "nil" }
@@ -43,7 +43,6 @@ private extension WorkstreamExitPlanMode {
         }
     }
 }
-
 /// Right-sidebar Feed view. Matches the Sessions page visual language:
 /// compact rows with SF Symbol + 13pt title + secondary metadata,
 /// full-width hover backgrounds, and control-bar pill buttons styled
@@ -62,7 +61,7 @@ struct FeedPanelView: View {
             case .actionable:
                 return String(localized: "feed.filter.actionable", defaultValue: "Actionable")
             case .activity:
-                return String(localized: "feed.filter.activity", defaultValue: "Activity")
+                return String(localized: "feed.filter.activity", defaultValue: "All Activity")
             }
         }
         var symbolName: String {
@@ -75,12 +74,18 @@ struct FeedPanelView: View {
 
     @State private var filter: Filter = .actionable
     @StateObject private var viewModel = FeedPanelViewModel()
+    let chromeBackgroundColor: NSColor
 
     var body: some View {
         VStack(spacing: 0) {
             controlBar
-            Divider()
-            FeedListView(filter: filter, items: viewModel.items)
+            FeedListView(
+                filter: filter,
+                items: viewModel.items,
+                hasMorePersistedItems: viewModel.hasMorePersistedItems,
+                isLoadingOlderItems: viewModel.isLoadingOlderItems,
+                onLoadOlderItems: viewModel.loadOlderItems
+            )
         }
     }
 
@@ -98,19 +103,16 @@ struct FeedPanelView: View {
             controlBarContent
             #endif
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .frame(height: 29)
+        .rightSidebarChromeBar()
+        .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
+        .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 
     private var controlBarContent: some View {
         HStack(spacing: 6) {
             ForEach(Filter.allCases) { f in
-                FeedButton(
-                    label: f.label,
-                    leadingIcon: f.symbolName,
-                    kind: .ghost,
-                    size: .compact,
+                FeedSecondaryFilterButton(
+                    filter: f,
                     isSelected: filter == f
                 ) {
                     filter = f
@@ -121,48 +123,36 @@ struct FeedPanelView: View {
     }
 }
 
-/// Bridges the `@Observable` WorkstreamStore to a Combine `@Published`
-/// snapshot so SwiftUI reliably re-renders the Feed panel on every
-/// mutation. This is the documented pattern for observing an
-/// Observable from outside SwiftUI's implicit body-tracking (singleton
-/// access + optional chain breaks the implicit path in our case).
-///
-/// Re-arms `withObservationTracking` after every change so the next
-/// mutation also fires. If the view is created before the store is
-/// installed, it waits for the coordinator's install notification.
-@MainActor
-final class FeedPanelViewModel: ObservableObject {
-    @Published private(set) var items: [WorkstreamItem] = []
-    private var storeInstalledObserver: NSObjectProtocol?
+private struct FeedSecondaryFilterButton: View {
+    let filter: FeedPanelView.Filter
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var isHovered = false
 
-    init() {
-        storeInstalledObserver = NotificationCenter.default.addObserver(
-            forName: FeedCoordinator.storeInstalledNotification,
-            object: FeedCoordinator.shared,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.arm()
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                Image(systemName: filter.symbolName)
+                    .symbolRenderingMode(.monochrome)
+                    .cmuxFont(
+                        size: RightSidebarChromeControlStyle.secondaryIconSize,
+                        weight: RightSidebarChromeControlStyle.iconWeight
+                    )
+                Text(filter.label)
+                    .cmuxFont(
+                        size: RightSidebarChromeControlStyle.labelSize,
+                        weight: RightSidebarChromeControlStyle.labelWeight
+                    )
             }
+            .rightSidebarChromePill(
+                isSelected: isSelected,
+                isHovered: isHovered,
+                geometryKeyPrefix: "rightSidebarSecondaryControl_feed_\(filter.rawValue)"
+            )
         }
-        arm()
-    }
-
-    deinit {
-        if let storeInstalledObserver {
-            NotificationCenter.default.removeObserver(storeInstalledObserver)
-        }
-    }
-
-    private func arm() {
-        guard let store = FeedCoordinator.shared.store else { return }
-        withObservationTracking {
-            items = store.items
-        } onChange: { [weak self] in
-            Task { @MainActor in
-                self?.arm()
-            }
-        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(filter.label)
     }
 }
 
@@ -173,21 +163,28 @@ final class FeedPanelViewModel: ObservableObject {
 private struct FeedListView: View {
     let filter: FeedPanelView.Filter
     let items: [WorkstreamItem]
+    let hasMorePersistedItems: Bool
+    let isLoadingOlderItems: Bool
+    let onLoadOlderItems: () -> Void
 
     @State private var focusSnapshot = FeedFocusSnapshot()
     @State private var scrollRequest: FeedScrollRequest?
     @State private var scrollRequestSequence = 0
+    @State private var stopDrafts: [UUID: FeedStopDraft] = [:]
 
     var body: some View {
         let snapshots = visibleSnapshots(items)
+        let activityGroups = filter == .activity ? activitySnapshotGroups(snapshots) : nil
+        let focusSnapshots = activityGroups?.ordered ?? snapshots
         let rowActions = FeedRowActions.bound()
         ScrollViewReader { proxy in
             Group {
-                if snapshots.isEmpty {
+                if snapshots.isEmpty && !shouldShowActivityHistoryLoader {
                     emptyState
                 } else {
                     contentBody(
                         snapshots: snapshots,
+                        activityGroups: activityGroups,
                         actions: rowActions
                     )
                 }
@@ -206,13 +203,13 @@ private struct FeedListView: View {
                         syncFeedFocusSnapshot(window: window)
                     },
                     onMoveSelection: { delta in
-                        moveSelection(in: snapshots, delta: delta)
+                        moveSelection(in: focusSnapshots, delta: delta)
                     },
                     onActivateSelection: {
-                        activateSelection(in: snapshots, actions: rowActions)
+                        activateSelection(in: focusSnapshots, actions: rowActions)
                     },
                     onFocusFirstItemRequested: {
-                        focusFirstVisibleItem(in: snapshots, focusHost: false)
+                        focusFirstVisibleItem(in: focusSnapshots, focusHost: false)
                     },
                     onFocusChanged: { focused in
                         let window = activeFeedWindow()
@@ -233,6 +230,7 @@ private struct FeedListView: View {
     @ViewBuilder
     private func contentBody(
         snapshots: [FeedItemSnapshot],
+        activityGroups: ActivitySnapshotGroups?,
         actions: FeedRowActions
     ) -> some View {
         switch filter {
@@ -242,28 +240,11 @@ private struct FeedListView: View {
                 actions: actions
             )
         case .activity:
-            let stable = snapshots.filter(prefersStableSurface)
-            let history = snapshots.filter { !prefersStableSurface($0) }
-            if history.isEmpty {
-                stableScrollSurface(
-                    snapshots: stable,
-                    actions: actions
-                )
-            } else {
-                VStack(spacing: 0) {
-                    if !stable.isEmpty {
-                        stableRows(
-                            snapshots: stable,
-                            actions: actions
-                        )
-                        rowSeparator
-                    }
-                    historyList(
-                        snapshots: history,
-                        actions: actions
-                    )
-                }
-            }
+            activityScrollSurface(
+                groups: activityGroups ?? activitySnapshotGroups(snapshots),
+                actions: actions,
+                showsLoadMore: hasMorePersistedItems
+            )
         }
     }
 
@@ -271,7 +252,7 @@ private struct FeedListView: View {
         snapshots: [FeedItemSnapshot],
         actions: FeedRowActions
     ) -> some View {
-        ScrollView {
+        ScrollView(.vertical) {
             LazyVStack(spacing: 0) {
                 ForEach(Array(snapshots.enumerated()), id: \.element.id) { idx, snapshot in
                     rowSurface(
@@ -287,35 +268,43 @@ private struct FeedListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    private func stableRows(
-        snapshots: [FeedItemSnapshot],
-        actions: FeedRowActions
-    ) -> some View {
-        VStack(spacing: 0) {
-            ForEach(Array(snapshots.enumerated()), id: \.element.id) { idx, snapshot in
-                rowSurface(
-                    snapshot: snapshot,
-                    actions: actions,
-                    showsDivider: idx < snapshots.count - 1
-                )
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func historyList(
-        snapshots: [FeedItemSnapshot],
-        actions: FeedRowActions
+    private func activityScrollSurface(
+        groups: ActivitySnapshotGroups,
+        actions: FeedRowActions,
+        showsLoadMore: Bool
     ) -> some View {
         List {
-            // Single chronological history stream. The plain List keeps
-            // virtualization for older feed rows while active decision
-            // surfaces live above it in a stable stack.
-            ForEach(Array(snapshots.enumerated()), id: \.element.id) { idx, snapshot in
+            ForEach(Array(groups.stable.enumerated()), id: \.element.id) { idx, snapshot in
                 rowSurface(
                     snapshot: snapshot,
                     actions: actions,
-                    showsDivider: idx < snapshots.count - 1
+                    showsDivider: idx < groups.stable.count - 1
+                )
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            }
+            if !groups.stable.isEmpty && (!groups.history.isEmpty || showsLoadMore) {
+                rowSeparator
+                    .id("feed.activity.separator")
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+            }
+            ForEach(Array(groups.history.enumerated()), id: \.element.id) { idx, snapshot in
+                rowSurface(
+                    snapshot: snapshot,
+                    actions: actions,
+                    showsDivider: idx < groups.history.count - 1
+                )
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            }
+            if showsLoadMore {
+                FeedHistoryLoadMoreRow(
+                    isLoading: isLoadingOlderItems,
+                    action: onLoadOlderItems
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
@@ -329,6 +318,27 @@ private struct FeedListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private struct ActivitySnapshotGroups {
+        let stable: [FeedItemSnapshot]
+        let history: [FeedItemSnapshot]
+        let ordered: [FeedItemSnapshot]
+    }
+
+    private func activitySnapshotGroups(_ snapshots: [FeedItemSnapshot]) -> ActivitySnapshotGroups {
+        var stable: [FeedItemSnapshot] = []
+        var history: [FeedItemSnapshot] = []
+        stable.reserveCapacity(snapshots.count)
+        history.reserveCapacity(snapshots.count)
+        for snapshot in snapshots {
+            if prefersStableSurface(snapshot) {
+                stable.append(snapshot)
+            } else {
+                history.append(snapshot)
+            }
+        }
+        return ActivitySnapshotGroups(stable: stable, history: history, ordered: stable + history)
+    }
+
     private func rowSurface(
         snapshot: FeedItemSnapshot,
         actions: FeedRowActions,
@@ -340,11 +350,15 @@ private struct FeedListView: View {
             isSelected: focusSnapshot.selectedItemId == snapshot.id,
             isFocusActive: focusSnapshot.isKeyboardActive && focusSnapshot.selectedItemId == snapshot.id,
             showsDivider: showsDivider,
+            stopDraft: stopDraftBinding(for: snapshot.id),
             onPressSelect: {
-                selectRow(snapshot.id, focusFeed: true)
+                selectRow(snapshot.id, focusFeed: false)
             },
             onControlFocus: {
                 selectRow(snapshot.id, focusFeed: false)
+            },
+            onControlAction: {
+                selectRow(snapshot.id, focusFeed: true)
             },
             onControlBlur: {
                 syncFeedFocusSnapshot()
@@ -357,14 +371,26 @@ private struct FeedListView: View {
         .id(snapshot.id)
     }
 
+    private func stopDraftBinding(for id: UUID) -> Binding<FeedStopDraft> {
+        Binding(
+            get: { stopDrafts[id] ?? FeedStopDraft() },
+            set: { draft in
+                if draft.isPristine {
+                    stopDrafts.removeValue(forKey: id)
+                } else {
+                    stopDrafts[id] = draft
+                }
+            }
+        )
+    }
+
     /// Walks the full items list (not just the filtered visible set),
     /// ordered by createdAt, and records the most recent user-prompt
     /// text per workstreamId. Rows consult this dict to show a
     /// "You: …" echo line at the top of their card.
     private static func lastPromptByWorkstream(_ items: [WorkstreamItem]) -> [String: String] {
         var out: [String: String] = [:]
-        let sorted = items.sorted { $0.createdAt < $1.createdAt }
-        for item in sorted {
+        for item in items {
             if case .userPrompt(let text) = item.payload, !text.isEmpty {
                 out[item.workstreamId] = text
             }
@@ -395,7 +421,7 @@ private struct FeedListView: View {
         // in the chronological slot where they arrived so the user's
         // mental map of "this was the second request I got" doesn't
         // get shuffled when they answer it.
-        return base.sorted { $0.createdAt > $1.createdAt }
+        return Array(base.reversed())
     }
 
     private func visibleSnapshots(_ items: [WorkstreamItem]) -> [FeedItemSnapshot] {
@@ -412,6 +438,10 @@ private struct FeedListView: View {
         snapshot.status.isPending || snapshot.kind == .stop
     }
 
+    private var shouldShowActivityHistoryLoader: Bool {
+        filter == .activity && hasMorePersistedItems
+    }
+
     private func selectRow(_ id: UUID, focusFeed: Bool) {
         let selectionChanged = focusSnapshot.selectedItemId != id
         let window = activeFeedWindow()
@@ -422,7 +452,7 @@ private struct FeedListView: View {
             "frBefore=\(feedDebugResponderSummary(window?.firstResponder))"
         )
 #endif
-        if focusFeed || selectionChanged {
+        if focusFeed {
             FeedInlineNativeTextView.blurActiveEditor()
         }
         let optimisticSnapshot = FeedFocusSnapshot(selectedItemId: id, isKeyboardActive: true)
@@ -555,14 +585,14 @@ private struct FeedListView: View {
                           defaultValue: "No pending decisions")
                  : String(localized: "feed.empty.activity.title",
                           defaultValue: "No activity yet"))
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .foregroundColor(.secondary)
             Text(filter == .actionable
                  ? String(localized: "feed.empty.actionable.subtitle",
                           defaultValue: "Permission, plan, and question requests from AI agents will appear here.")
                  : String(localized: "feed.empty.activity.subtitle",
                           defaultValue: "Agent decisions and todo-list updates will appear here."))
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundColor(.secondary.opacity(0.7))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
@@ -576,18 +606,29 @@ private struct FeedScrollRequest: Equatable {
     let sequence: Int
 }
 
+struct FeedStopDraft: Equatable {
+    var reply = ""
+
+    var isPristine: Bool {
+        reply.isEmpty
+    }
+}
+
 private struct FeedRowSurface: View {
     let snapshot: FeedItemSnapshot
     let actions: FeedRowActions
     let isSelected: Bool
     let isFocusActive: Bool
     let showsDivider: Bool
+    @Binding var stopDraft: FeedStopDraft
     let onPressSelect: () -> Void
     let onControlFocus: () -> Void
+    let onControlAction: () -> Void
     let onControlBlur: () -> Void
     let onActivate: () -> Void
 
     @State private var isHovered = false
+    @State private var stopReplyFocusRequest = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -597,8 +638,13 @@ private struct FeedRowSurface: View {
                 isSelected: isFocusActive,
                 onPressSelect: onPressSelect,
                 onControlFocus: onControlFocus,
+                onControlAction: onControlAction,
                 onControlBlur: onControlBlur,
-                onActivate: onActivate
+                onActivate: onActivate,
+                stopDraft: $stopDraft,
+                stopDraftValue: stopDraft,
+                stopFocusRequest: $stopReplyFocusRequest,
+                stopFocusRequestValue: stopReplyFocusRequest
             )
             .equatable()
             if showsDivider {
@@ -609,13 +655,14 @@ private struct FeedRowSurface: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(rowBackgroundFill)
-        .animation(.easeOut(duration: 0.14), value: isHovered)
-        .animation(.easeOut(duration: 0.14), value: isSelected)
+        // Only the hover fill fades. Selection moves with j/k and lands in
+        // the next frame, and the row content never animates.
+        .background {
+            rowBackgroundFill
+                .animation(.easeOut(duration: 0.14), value: isHovered)
+        }
         .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.14)) {
-                isHovered = hovering
-            }
+            isHovered = hovering
         }
     }
 
@@ -745,7 +792,7 @@ final class FeedKeyboardFocusView: NSView {
             "fr=\(feedDebugResponderSummary(window?.firstResponder))"
         )
 #endif
-        if let mode = RightSidebarMode.modeShortcut(for: event) {
+        if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                 mode: mode,
                 focusFirstItem: true,
@@ -916,12 +963,12 @@ struct FeedRowActions {
             },
             jump: { workstreamId in
                 Task { @MainActor in
-                    _ = FeedCoordinator.shared.focusIfPossible(workstreamId: workstreamId)
+                    _ = await FeedCoordinator.shared.focusIfPossible(workstreamId: workstreamId)
                 }
             },
             sendText: { workstreamId, text in
                 Task { @MainActor in
-                    FeedCoordinator.shared.sendTextToWorkstream(
+                    _ = await FeedCoordinator.shared.sendTextToWorkstream(
                         workstreamId: workstreamId,
                         text: text
                     )
@@ -952,14 +999,21 @@ struct FeedItemRow: View, Equatable {
     let isSelected: Bool
     let onPressSelect: () -> Void
     let onControlFocus: () -> Void
+    let onControlAction: () -> Void
     let onControlBlur: () -> Void
     let onActivate: () -> Void
+    @Binding var stopDraft: FeedStopDraft
+    let stopDraftValue: FeedStopDraft
+    @Binding var stopFocusRequest: Int
+    let stopFocusRequestValue: Int
 
     @State private var didHandlePressSelection = false
 
     static func == (lhs: FeedItemRow, rhs: FeedItemRow) -> Bool {
         lhs.snapshot == rhs.snapshot
             && lhs.isSelected == rhs.isSelected
+            && lhs.stopDraftValue == rhs.stopDraftValue
+            && lhs.stopFocusRequestValue == rhs.stopFocusRequestValue
     }
 
     var body: some View {
@@ -969,7 +1023,7 @@ struct FeedItemRow: View, Equatable {
                 FeedContextBlock(context: context, source: snapshot.source)
             } else if let echo = promptEcho, !echo.isEmpty {
                 Text(echo)
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .foregroundColor(.secondary)
                     .lineLimit(2)
                     .truncationMode(.tail)
@@ -1029,11 +1083,11 @@ struct FeedItemRow: View, Equatable {
     private var chipHeader: some View {
         HStack(alignment: .center, spacing: 8) {
             Image(systemName: snapshot.kind.symbolName)
-                .font(.system(size: 12, weight: .medium))
+                .cmuxFont(size: 12, weight: .medium)
                 .foregroundColor(kindTint)
                 .frame(width: 14, height: 14)
             Text(headerTitle)
-                .font(.system(size: 12, weight: .medium))
+                .cmuxFont(size: 12, weight: .medium)
                 .foregroundColor(.primary.opacity(0.92))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -1103,9 +1157,7 @@ struct FeedItemRow: View, Equatable {
 
     private func chip(text: String, fg: Color, bg: Color, mono: Bool = false) -> some View {
         Text(text)
-            .font(mono
-                  ? .system(size: 10, weight: .medium).monospacedDigit()
-                  : .system(size: 10, weight: .medium))
+            .cmuxFont(size: 10, weight: .medium, monospacedDigit: mono)
             .foregroundColor(fg)
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
@@ -1120,11 +1172,11 @@ struct FeedItemRow: View, Equatable {
         case .claude: return Color(red: 0.92, green: 0.54, blue: 0.29)
         case .codex: return .green
         case .opencode: return .blue
+        case .hermesAgent: return .teal
         case .cursor: return .purple
         default: return .secondary
         }
     }
-
     private var sourceChipBackground: Color {
         return sourceChipForeground.opacity(0.18)
     }
@@ -1180,7 +1232,9 @@ struct FeedItemRow: View, Equatable {
             PermissionActionArea(
                 toolName: toolName,
                 toolInputJSON: toolInputJSON,
+                source: snapshot.source,
                 status: snapshot.status,
+                onActionRow: onControlAction,
                 onApprove: { mode in
                     actions.approvePermission(snapshot.id, mode)
                 }
@@ -1192,6 +1246,7 @@ struct FeedItemRow: View, Equatable {
                 status: snapshot.status,
                 isRowSelected: isSelected,
                 onFocusRow: onControlFocus,
+                onActionRow: onControlAction,
                 onBlurRow: onControlBlur,
                 onApprove: { mode, feedback in
                     actions.approveExitPlan(snapshot.id, mode, feedback)
@@ -1204,6 +1259,7 @@ struct FeedItemRow: View, Equatable {
                 status: snapshot.status,
                 isRowSelected: isSelected,
                 onFocusRow: onControlFocus,
+                onActionRow: onControlAction,
                 onBlurRow: onControlBlur,
                 context: displayContext,
                 onReply: { selections in
@@ -1212,9 +1268,10 @@ struct FeedItemRow: View, Equatable {
             )
         case .stop:
             StopActionArea(
-                workstreamId: snapshot.workstreamId,
-                isRowSelected: isSelected,
+                draft: $stopDraft,
+                focusRequest: $stopFocusRequest,
                 onFocusRow: onControlFocus,
+                onActionRow: onControlAction,
                 onBlurRow: onControlBlur,
                 onSend: { text in actions.sendText(snapshot.workstreamId, text) }
             )
@@ -1263,7 +1320,7 @@ struct FeedItemRow: View, Equatable {
 
     private func statusTag(_ text: String, color: Color) -> some View {
         Text(text)
-            .font(.system(size: 10, weight: .medium))
+            .cmuxFont(size: 10, weight: .medium)
             .foregroundColor(color)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
@@ -1348,7 +1405,7 @@ private struct FeedLabeledTextRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(label)
-                .font(.system(size: 10, weight: .semibold))
+                .cmuxFont(size: 10, weight: .semibold)
                 .foregroundColor(labelColor)
                 .frame(width: 48, alignment: .leading)
             if rendersMarkdown {
@@ -1359,7 +1416,7 @@ private struct FeedLabeledTextRow: View {
                 )
             } else {
                 Text(text)
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .foregroundColor(textColor)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -1370,7 +1427,9 @@ private struct FeedLabeledTextRow: View {
 private struct PermissionActionArea: View {
     let toolName: String
     let toolInputJSON: String
+    let source: WorkstreamSource
     let status: WorkstreamStatus
+    let onActionRow: () -> Void
     let onApprove: (WorkstreamPermissionMode) -> Void
 
     var body: some View {
@@ -1379,22 +1438,53 @@ private struct PermissionActionArea: View {
             codeBlock
             if status.isPending {
                 HStack(spacing: 6) {
-                    FeedButton(
-                        label: String(localized: "feed.permission.deny", defaultValue: "Deny"),
-                        kind: .dark, size: .medium, fullWidth: true
-                    ) { onApprove(.deny) }
-                    FeedButton(
-                        label: String(localized: "feed.permission.once", defaultValue: "Allow Once"),
-                        kind: .light, size: .medium, fullWidth: true
-                    ) { onApprove(.once) }
-                    FeedButton(
-                        label: String(localized: "feed.permission.always", defaultValue: "Always Allow"),
-                        kind: .primary, size: .medium, fullWidth: true
-                    ) { onApprove(.always) }
-                    FeedButton(
-                        label: String(localized: "feed.permission.bypass", defaultValue: "Bypass"),
-                        kind: .destructive, size: .medium, fullWidth: true
-                    ) { onApprove(.bypass) }
+                    FeedButton(label: String(localized: "feed.permission.deny", defaultValue: "Deny"),
+                               kind: .dark, size: .medium, fullWidth: true) {
+                        onActionRow()
+                        onApprove(.deny)
+                    }
+                        .accessibilityIdentifier("FeedPermissionDenyButton")
+                    if FeedPermissionActionPolicy.supportsOncePermissionMode(
+                        source: source,
+                        toolInputJSON: toolInputJSON
+                    ) {
+                        FeedButton(label: String(localized: "feed.permission.once", defaultValue: "Allow Once"),
+                                   kind: .light, size: .medium, fullWidth: true) {
+                            onActionRow()
+                            onApprove(.once)
+                        }
+                            .accessibilityIdentifier("FeedPermissionAllowOnceButton")
+                    }
+                    if FeedPermissionActionPolicy.supportsAlwaysPermissionMode(
+                        source: source,
+                        toolInputJSON: toolInputJSON
+                    ) {
+                        FeedButton(label: String(localized: "feed.permission.always", defaultValue: "Always Allow"),
+                                   kind: .primary, size: .medium, fullWidth: true) {
+                            onActionRow()
+                            onApprove(.always)
+                        }
+                            .accessibilityIdentifier("FeedPermissionAlwaysAllowButton")
+                    }
+                    if FeedPermissionActionPolicy.supportsAllPermissionMode(
+                        source: source,
+                        toolInputJSON: toolInputJSON
+                    ) {
+                        FeedButton(label: String(localized: "feed.permission.all", defaultValue: "All tools"),
+                                   kind: .primary, size: .medium, fullWidth: true) {
+                            onActionRow()
+                            onApprove(.all)
+                        }
+                            .accessibilityIdentifier("FeedPermissionAllToolsButton")
+                    }
+                    if FeedPermissionActionPolicy.supportsBypassPermissions(source: source) {
+                        FeedButton(label: String(localized: "feed.permission.bypass", defaultValue: "Bypass"),
+                                   kind: .destructive, size: .medium, fullWidth: true) {
+                            onActionRow()
+                            onApprove(.bypass)
+                        }
+                            .accessibilityIdentifier("FeedPermissionBypassButton")
+                    }
                 }
             } else if let badge = submittedBadge {
                 FeedButton(
@@ -1421,10 +1511,10 @@ private struct PermissionActionArea: View {
     private var toolLabel: some View {
         HStack(spacing: 5) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 10, weight: .medium))
+                .cmuxFont(size: 10, weight: .medium)
                 .foregroundColor(.orange)
             Text(toolName)
-                .font(.system(size: 11, weight: .semibold))
+                .cmuxFont(size: 11, weight: .semibold)
                 .foregroundColor(.orange)
         }
     }
@@ -1439,19 +1529,19 @@ private struct PermissionActionArea: View {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     if let sigil = preview.sigil {
                         Text(sigil)
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .cmuxFont(size: 11, weight: .medium, design: .monospaced)
                             .foregroundColor(.orange)
                     }
                     Text(primary)
-                        .font(.system(size: 11, design: .monospaced))
+                        .cmuxFont(size: 11, design: .monospaced)
                         .foregroundColor(.primary.opacity(0.95))
-                        .textSelection(.enabled)
+                        .copyOnlyTextSelection(for: primary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             if let secondary = preview.secondary, !secondary.isEmpty {
                 Text(secondary)
-                    .font(.system(size: 10))
+                    .cmuxFont(size: 10)
                     .foregroundColor(.secondary.opacity(0.85))
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -1514,6 +1604,7 @@ private struct PermissionInputPreview {
 /// Replaces the old PermissionCTAButton / PlanCTAButton /
 /// FeedPillButton trio so styling is defined in exactly one place.
 struct FeedButton: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     enum Kind: String {
         /// Transparent pill that lights up on hover/selection. Used
         /// for filter bar pills and single-select option pills.
@@ -1602,13 +1693,13 @@ struct FeedButton: View {
         HStack(spacing: iconSpacing) {
             if let leadingIcon {
                 Image(systemName: leadingIcon)
-                    .font(.system(size: iconSize, weight: .semibold))
+                    .cmuxFont(size: iconSize, weight: .semibold)
             }
             Text(label)
-                .font(.system(size: labelSize, weight: .semibold))
+                .cmuxFont(size: labelSize, weight: .semibold)
             if let trailingIcon {
                 Image(systemName: trailingIcon)
-                    .font(.system(size: iconSize, weight: .semibold))
+                    .cmuxFont(size: iconSize, weight: .semibold)
             }
         }
     }
@@ -1623,7 +1714,7 @@ struct FeedButton: View {
                 Image(systemName: trailingIcon)
             }
         }
-        .font(.system(size: labelSize, weight: .semibold))
+        .cmuxFont(size: labelSize, weight: .semibold)
     }
 
     private func performAction() {
@@ -1828,9 +1919,9 @@ struct FeedButton: View {
         case .light:
             return isHovered ? Color.white.opacity(0.96) : Color.white.opacity(0.88)
         case .primary:
-            return isHovered
-                ? Color(red: 0.28, green: 0.55, blue: 0.95)
-                : Color(red: 0.24, green: 0.48, blue: 0.88)
+            guard isHovered else { return cmuxAccent.color }
+            let accent = cmuxAccent.nsColor(isDark: colorScheme == .dark)
+            return Color(nsColor: accent.blended(withFraction: 0.15, of: .white) ?? accent)
         case .success:
             return isHovered
                 ? Color(red: 0.22, green: 0.72, blue: 0.42)
@@ -1862,7 +1953,7 @@ struct FeedButton: View {
         case .soft: return Color.gray
         case .dark: return Color.black
         case .light: return Color.white
-        case .primary: return Color(red: 0.24, green: 0.48, blue: 0.88)
+        case .primary: return cmuxAccent.color
         case .success: return Color(red: 0.18, green: 0.62, blue: 0.35)
         case .warning: return Color(red: 0.92, green: 0.54, blue: 0.29)
         case .destructive: return Color(red: 0.75, green: 0.22, blue: 0.22)
@@ -2027,6 +2118,22 @@ struct FeedButton: View {
 #endif
     }
 
+    /// Edge for solid pills. The white Allow Once pill sits on a white panel in
+    /// light mode and the black Deny pill on a dark panel in dark mode, so both
+    /// get a hairline in `Color.primary`, which flips with the appearance and
+    /// shows exactly where the fill matches the panel.
+    static func solidBorderOpacity(for kind: Kind) -> Double {
+        switch kind {
+        case .dark, .light: return 0.18
+        case .ghost, .soft, .primary, .success, .warning, .destructive: return 0
+        }
+    }
+
+    private var solidBorder: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .stroke(Color.primary.opacity(Self.solidBorderOpacity(for: kind)), lineWidth: 1)
+    }
+
     @ViewBuilder
     private var buttonBorder: some View {
 #if DEBUG
@@ -2034,7 +2141,7 @@ struct FeedButton: View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         switch generation >= 0 ? FeedButtonDebugSettings.visualStyle : .solid {
         case .solid:
-            EmptyView()
+            solidBorder
         case .standardGlass:
             shape.stroke(Color.white.opacity(0.12), lineWidth: FeedButtonDebugSettings.borderWidth)
         case .standardTintedGlass:
@@ -2073,7 +2180,7 @@ struct FeedButton: View {
             EmptyView()
         }
 #else
-        EmptyView()
+        solidBorder
 #endif
     }
 
@@ -2135,6 +2242,7 @@ private struct ExitPlanActionArea: View {
     let status: WorkstreamStatus
     let isRowSelected: Bool
     let onFocusRow: () -> Void
+    let onActionRow: () -> Void
     let onBlurRow: () -> Void
     let onApprove: (WorkstreamExitPlanMode, String?) -> Void
 
@@ -2171,7 +2279,7 @@ private struct ExitPlanActionArea: View {
                     axis: .vertical
                 )
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .tint(Color.primary.opacity(0.75))
                 .focused($feedbackFocused)
                 .lineLimit(2...5)
@@ -2204,7 +2312,8 @@ private struct ExitPlanActionArea: View {
                         kind: hasFeedback ? .primary : .soft,
                         size: .medium, fullWidth: true
                     ) {
-                        onFocusRow()
+                        feedbackFocused = false
+                        onActionRow()
                         // Feedback always wins over mode; hook translates
                         // non-empty feedback into block+reason.
                         onApprove(hasFeedback ? .manual : .ultraplan, hasFeedback ? trimmedFeedback : nil)
@@ -2216,7 +2325,8 @@ private struct ExitPlanActionArea: View {
                         size: .medium, fullWidth: true,
                         dimmed: hasFeedback
                     ) {
-                        onFocusRow()
+                        feedbackFocused = false
+                        onActionRow()
                         onApprove(.manual, hasFeedback ? trimmedFeedback : nil)
                     }
                     FeedButton(
@@ -2226,7 +2336,8 @@ private struct ExitPlanActionArea: View {
                         size: .medium, fullWidth: true,
                         dimmed: hasFeedback
                     ) {
-                        onFocusRow()
+                        feedbackFocused = false
+                        onActionRow()
                         onApprove(.autoAccept, hasFeedback ? trimmedFeedback : nil)
                     }
                 }
@@ -2272,10 +2383,10 @@ private struct ExitPlanAllowedPromptsView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
                 Image(systemName: "checklist")
-                    .font(.system(size: 10, weight: .medium))
+                    .cmuxFont(size: 10, weight: .medium)
                     .foregroundColor(Color.purple.opacity(0.85))
                 Text(String(localized: "feed.exitplan.allowedPrompts", defaultValue: "Allowed prompts"))
-                    .font(.system(size: 11, weight: .semibold))
+                    .cmuxFont(size: 11, weight: .semibold)
                     .foregroundColor(Color.purple.opacity(0.9))
             }
             VStack(alignment: .leading, spacing: 5) {
@@ -2283,7 +2394,7 @@ private struct ExitPlanAllowedPromptsView: View {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         if !prompt.tool.isEmpty {
                             Text(prompt.tool)
-                                .font(.system(size: 10, weight: .semibold))
+                                .cmuxFont(size: 10, weight: .semibold)
                                 .foregroundColor(.purple)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 1)
@@ -2293,7 +2404,7 @@ private struct ExitPlanAllowedPromptsView: View {
                                 )
                         }
                         Text(prompt.prompt)
-                            .font(.system(size: 11))
+                            .cmuxFont(size: 11)
                             .foregroundColor(.primary.opacity(0.86))
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -2315,13 +2426,13 @@ private struct ExitPlanPlanFileView: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: "doc.text")
-                .font(.system(size: 10, weight: .medium))
+                .cmuxFont(size: 10, weight: .medium)
                 .foregroundColor(.secondary)
             Text(String(localized: "feed.exitplan.planFile", defaultValue: "Plan file"))
-                .font(.system(size: 10, weight: .semibold))
+                .cmuxFont(size: 10, weight: .semibold)
                 .foregroundColor(.secondary)
             Text((path as NSString).lastPathComponent)
-                .font(.system(size: 10, design: .monospaced))
+                .cmuxFont(size: 10, design: .monospaced)
                 .foregroundColor(.secondary.opacity(0.85))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -2355,10 +2466,8 @@ private struct FeedMarkdownInlineText: View {
                 interpretedSyntax: .inlineOnlyPreservingWhitespace
             )
         )) ?? AttributedString(text)
-        let font = weight.map { Font.system(size: fontSize, weight: $0) }
-            ?? Font.system(size: fontSize)
         Text(parsed)
-            .font(font)
+            .cmuxFont(size: fontSize, weight: weight ?? .regular)
             .foregroundColor(foregroundColor)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -2369,6 +2478,7 @@ private struct FeedMarkdownInlineText: View {
 /// Claude markdown inside each line gets parsed tastefully. Heading text
 /// intentionally stays at body scale.
 private struct PlanBodyView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let plan: String
     let rendersMarkdown: Bool
 
@@ -2390,7 +2500,7 @@ private struct PlanBodyView: View {
                         ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                             HStack(alignment: .top, spacing: 5) {
                                 Text("\(item.index).")
-                                    .font(.system(size: 11, weight: .medium).monospacedDigit())
+                                    .cmuxFont(size: 11, weight: .medium, monospacedDigit: true)
                                     .foregroundColor(.secondary)
                                 markdownText(item.text, color: .primary.opacity(0.85))
                             }
@@ -2401,7 +2511,7 @@ private struct PlanBodyView: View {
                         ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                             HStack(alignment: .top, spacing: 8) {
                                 Circle()
-                                    .fill(Color.blue.opacity(0.85))
+                                    .fill(cmuxAccent.color.opacity(0.85))
                                     .frame(width: 3.5, height: 3.5)
                                     .padding(.top, 5.5)
                                     .frame(width: 10, alignment: .center)
@@ -2429,7 +2539,7 @@ private struct PlanBodyView: View {
             )
         } else {
             Text(text)
-                .font(.system(size: 11, weight: weight ?? .regular))
+                .cmuxFont(size: 11, weight: weight ?? .regular)
                 .foregroundColor(color)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -2542,6 +2652,7 @@ private struct QuestionActionArea: View {
     let status: WorkstreamStatus
     let isRowSelected: Bool
     let onFocusRow: () -> Void
+    let onActionRow: () -> Void
     let onBlurRow: () -> Void
     let context: WorkstreamContext?
     let onReply: ([String]) -> Void
@@ -2555,9 +2666,12 @@ private struct QuestionActionArea: View {
     // non-empty, wins over preset option selections for that
     // question — mirrors Claude's TUI fallback.
     @State private var freeTexts: [String: String] = [:]
-    @State private var focusedCustomAnswerId: String?
+    @State private var customAnswerFocusKey: String?
+    @State private var customAnswerFocusRequest = 0
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     var body: some View {
+        let _ = globalFontPercent
         VStack(alignment: .leading, spacing: 12) {
             if shouldRenderLongForm, let q = questions.first {
                 longFormBlock(question: q)
@@ -2637,7 +2751,7 @@ private struct QuestionActionArea: View {
         let selected = selections[questionId]?.contains(option.id) == true
         return Button {
             guard status.isPending else { return }
-            onFocusRow()
+            onActionRow()
             clearCustomAnswerFocus()
             var current = selections[questionId] ?? []
             if multi {
@@ -2653,7 +2767,7 @@ private struct QuestionActionArea: View {
         } label: {
             HStack(alignment: .top, spacing: 10) {
                 Text("\(index)")
-                    .font(.system(size: 11, weight: .bold).monospacedDigit())
+                    .cmuxFont(size: 11, weight: .bold, monospacedDigit: true)
                     .foregroundColor(selected ? .white : .secondary)
                     .frame(width: 20, height: 20)
                     .background(
@@ -2662,18 +2776,18 @@ private struct QuestionActionArea: View {
                     )
                 VStack(alignment: .leading, spacing: 2) {
                     Text(option.label)
-                        .font(.system(size: 12, weight: .semibold))
+                        .cmuxFont(size: 12, weight: .semibold)
                         .foregroundColor(.primary)
                     if let description = option.description, !description.isEmpty {
                         Text(description)
-                            .font(.system(size: 11))
+                            .cmuxFont(size: 11)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer()
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 12, weight: .medium))
+                    .cmuxFont(size: 12, weight: .medium)
                     .foregroundColor(selected ? Color(red: 0.24, green: 0.48, blue: 0.88) : .secondary.opacity(0.45))
             }
             .padding(10)
@@ -2700,10 +2814,10 @@ private struct QuestionActionArea: View {
         let customId = Self.customAnswerSelectionId
         let selected = selections[questionId]?.contains(customId) == true
         let focusKey = customAnswerFocusKey(questionId)
-        let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        let font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .semibold)
         return HStack(alignment: .top, spacing: 10) {
             Text("\(index)")
-                .font(.system(size: 11, weight: .bold).monospacedDigit())
+                .cmuxFont(size: 11, weight: .bold, monospacedDigit: true)
                 .foregroundColor(selected ? .white : .secondary)
                 .frame(width: 20, height: 20)
                 .background(
@@ -2712,7 +2826,7 @@ private struct QuestionActionArea: View {
                 )
             customAnswerField(
                 text: customAnswerBinding(questionId: questionId, multi: multi),
-                isFocused: customAnswerFocusBinding(focusKey),
+                focusRequest: focusRequest(forCustomAnswerKey: focusKey),
                 font: font,
                 onFocus: {
                     onFocusRow()
@@ -2721,7 +2835,7 @@ private struct QuestionActionArea: View {
                 onBlur: onBlurRow
             )
             Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 12, weight: .medium))
+                .cmuxFont(size: 12, weight: .medium)
                 .foregroundColor(selected ? Color(red: 0.24, green: 0.48, blue: 0.88) : .secondary.opacity(0.45))
                 .padding(.leading, 8)
                 .padding(.top, 3)
@@ -2741,7 +2855,7 @@ private struct QuestionActionArea: View {
             guard status.isPending else { return }
             onFocusRow()
             selectCustomAnswer(questionId: questionId, multi: multi)
-            focusedCustomAnswerId = focusKey
+            requestCustomAnswerFocus(focusKey)
         }
         .feedIBeamCursorOnHover(enabled: status.isPending)
         .disabled(!status.isPending)
@@ -2751,19 +2865,19 @@ private struct QuestionActionArea: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .top, spacing: 5) {
                 Text("\(index).")
-                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    .cmuxFont(size: 11, weight: .semibold, monospacedDigit: true)
                     .foregroundColor(.blue)
                 Text(question.prompt)
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .foregroundColor(.primary.opacity(0.95))
                     .fixedSize(horizontal: false, vertical: true)
             }
             if question.multiSelect {
                 HStack(spacing: 3) {
                     Image(systemName: "checklist")
-                        .font(.system(size: 8, weight: .medium))
+                        .cmuxFont(size: 8, weight: .medium)
                     Text(String(localized: "feed.question.multiSelect", defaultValue: "Multi-select"))
-                        .font(.system(size: 9, weight: .semibold))
+                        .cmuxFont(size: 9, weight: .semibold)
                         .tracking(0.3)
                 }
                 .foregroundColor(.orange)
@@ -2777,7 +2891,7 @@ private struct QuestionActionArea: View {
             if question.options.isEmpty {
                 Text(String(localized: "feed.question.noOptions",
                             defaultValue: "Agent provided no options."))
-                    .font(.system(size: 10))
+                    .cmuxFont(size: 10)
                     .foregroundColor(.secondary)
             } else {
                 WrapHStack(spacing: 6) {
@@ -2802,10 +2916,10 @@ private struct QuestionActionArea: View {
     /// preset option selection for that question on submit.
     private func freeFormField(questionId: String, multi: Bool) -> some View {
         let focusKey = customAnswerFocusKey(questionId)
-        let font = NSFont.systemFont(ofSize: 11)
+        let font = GlobalFontMagnification.systemFont(ofSize: 11)
         return customAnswerField(
             text: customAnswerBinding(questionId: questionId, multi: multi),
-            isFocused: customAnswerFocusBinding(focusKey),
+            focusRequest: focusRequest(forCustomAnswerKey: focusKey),
             font: font,
             onFocus: {
                 onFocusRow()
@@ -2829,26 +2943,27 @@ private struct QuestionActionArea: View {
             guard status.isPending else { return }
             onFocusRow()
             selectCustomAnswer(questionId: questionId, multi: multi)
-            focusedCustomAnswerId = focusKey
+            requestCustomAnswerFocus(focusKey)
         }
     }
 
     private func customAnswerField(
         text: Binding<String>,
-        isFocused: Binding<Bool>,
+        focusRequest: Int?,
         font: NSFont,
         onFocus: @escaping () -> Void,
         onBlur: @escaping () -> Void
     ) -> some View {
         FeedInlineTextField(
             text: text,
-            isFocused: isFocused,
+            focusRequest: focusRequest,
             placeholder: String(localized: "feed.question.typeSomething",
                                 defaultValue: "Type something..."),
             isEnabled: status.isPending,
             font: font,
             onFocus: onFocus,
-            onBlur: onBlur
+            onBlur: onBlur,
+            onSubmit: nil
         )
         .frame(
             maxWidth: .infinity,
@@ -2876,21 +2991,17 @@ private struct QuestionActionArea: View {
         )
     }
 
-    private func customAnswerFocusBinding(_ focusKey: String) -> Binding<Bool> {
-        Binding<Bool>(
-            get: { focusedCustomAnswerId == focusKey },
-            set: { focused in
-                if focused {
-                    focusedCustomAnswerId = focusKey
-                } else if focusedCustomAnswerId == focusKey {
-                    focusedCustomAnswerId = nil
-                }
-            }
-        )
-    }
-
     private func customAnswerFocusKey(_ questionId: String) -> String {
         "\(questionId)::custom"
+    }
+
+    private func focusRequest(forCustomAnswerKey focusKey: String) -> Int? {
+        customAnswerFocusKey == focusKey ? customAnswerFocusRequest : nil
+    }
+
+    private func requestCustomAnswerFocus(_ focusKey: String) {
+        customAnswerFocusKey = focusKey
+        customAnswerFocusRequest += 1
     }
 
     private func selectCustomAnswer(questionId: String, multi: Bool) {
@@ -2904,7 +3015,7 @@ private struct QuestionActionArea: View {
     }
 
     private func clearCustomAnswerFocus() {
-        focusedCustomAnswerId = nil
+        customAnswerFocusKey = nil
     }
 
     private func optionPill(
@@ -2925,7 +3036,7 @@ private struct QuestionActionArea: View {
             dimmed: !status.isPending
         ) {
             guard status.isPending else { return }
-            onFocusRow()
+            onActionRow()
             clearCustomAnswerFocus()
             var current = selections[questionId] ?? []
             if multi {
@@ -3014,7 +3125,7 @@ private struct QuestionActionArea: View {
             fullWidth: true,
             dimmed: !enabled
         ) {
-            onFocusRow()
+            onActionRow()
             // Selections carry human-readable answer strings (one per
             // answered question) so the hook can feed them straight
             // back to the agent as the user's reply.
@@ -3031,7 +3142,7 @@ private struct QuestionActionArea: View {
             size: .medium,
             fullWidth: true
         ) {
-            onFocusRow()
+            onActionRow()
             onReply([Self.skipInterviewAndPlanAnswer])
         }
     }
@@ -3046,6 +3157,7 @@ private final class FeedInlineNativeTextView: NSTextView, FeedKeyboardFocusRespo
 
     var onActivate: (() -> Void)?
     var onEscape: (() -> Void)?
+    var onSubmit: (() -> Void)?
 
     static func blurActiveEditor() {
         guard let activeEditor else { return }
@@ -3086,6 +3198,17 @@ private final class FeedInlineNativeTextView: NSTextView, FeedKeyboardFocusRespo
         return super.performKeyEquivalent(with: event)
     }
 
+    override func keyDown(with event: NSEvent) {
+        let normalizedFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let shouldSubmit = (event.keyCode == 36 || event.keyCode == 76)
+            && normalizedFlags.intersection([.shift, .option, .command, .control]).isEmpty
+        if shouldSubmit, !hasMarkedText(), let onSubmit {
+            onSubmit()
+            return
+        }
+        super.keyDown(with: event)
+    }
+
     override func resetCursorRects() {
         super.resetCursorRects()
         addCursorRect(bounds, cursor: .iBeam)
@@ -3120,7 +3243,7 @@ private final class FeedInlineTextEditorView: NSView {
 
     let textView = FeedInlineNativeTextView(frame: .zero)
     private let placeholderField = FeedInlinePassthroughLabel(labelWithString: "")
-    private var currentFont = NSFont.systemFont(ofSize: 11)
+    private var currentFont = GlobalFontMagnification.systemFont(ofSize: 11)
 
     static func minimumHeight(for font: NSFont) -> CGFloat {
         ceil(font.ascender - font.descender + font.leading) + textInset.height * 2
@@ -3250,8 +3373,11 @@ private final class FeedInlineTextEditorView: NSView {
         )
         layoutManager.ensureLayout(for: textContainer)
         let usedRect = layoutManager.usedRect(for: textContainer)
+        let extraLineHeight = layoutManager.extraLineFragmentTextContainer == textContainer
+            ? layoutManager.extraLineFragmentRect.height
+            : 0
         let lineHeight = ceil(currentFont.ascender - currentFont.descender + currentFont.leading)
-        let contentHeight = max(lineHeight, ceil(usedRect.height))
+        let contentHeight = max(lineHeight, ceil(usedRect.height + extraLineHeight))
         return max(
             Self.minimumHeight(for: currentFont),
             ceil(contentHeight + Self.textInset.height * 2)
@@ -3279,22 +3405,24 @@ private final class FeedInlineTextEditorView: NSView {
 
 private struct FeedInlineTextField: NSViewRepresentable {
     @Binding var text: String
-    @Binding var isFocused: Bool
 
+    let focusRequest: Int?
     let placeholder: String
     let isEnabled: Bool
     let font: NSFont
     let onFocus: () -> Void
     let onBlur: () -> Void
+    let onSubmit: (() -> Void)?
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: FeedInlineTextField
         var isProgrammaticMutation = false
         weak var view: FeedInlineTextEditorView?
-        var pendingFocusRequest: Bool?
+        var lastAppliedFocusRequest: Int?
 
         init(parent: FeedInlineTextField) {
             self.parent = parent
+            self.lastAppliedFocusRequest = parent.focusRequest
         }
 
         func activateField() {
@@ -3302,16 +3430,9 @@ private struct FeedInlineTextField: NSViewRepresentable {
             dlog("feed.editor.activateField")
 #endif
             parent.onFocus()
-            if !parent.isFocused {
-                parent.isFocused = true
-            }
         }
 
         func blurField() {
-            pendingFocusRequest = nil
-            if parent.isFocused {
-                parent.isFocused = false
-            }
             guard let view, let window = view.window, window.firstResponder === view.textView else {
                 return
             }
@@ -3344,9 +3465,6 @@ private struct FeedInlineTextField: NSViewRepresentable {
             if !isProgrammaticMutation, let textView = notification.object as? NSTextView {
                 parent.text = textView.string
             }
-            if parent.isFocused {
-                parent.isFocused = false
-            }
             guard let window = view?.window else {
                 parent.onBlur()
                 return
@@ -3373,6 +3491,7 @@ private struct FeedInlineTextField: NSViewRepresentable {
         view.textView.onEscape = { [weak coordinator = context.coordinator] in
             coordinator?.blurField()
         }
+        view.textView.onSubmit = onSubmit
         configure(view)
         context.coordinator.view = view
         return view
@@ -3387,6 +3506,7 @@ private struct FeedInlineTextField: NSViewRepresentable {
         nsView.textView.onEscape = { [weak coordinator = context.coordinator] in
             coordinator?.blurField()
         }
+        nsView.textView.onSubmit = onSubmit
         configure(nsView)
 
         if nsView.textView.string != text, !nsView.textView.hasMarkedText() {
@@ -3397,32 +3517,34 @@ private struct FeedInlineTextField: NSViewRepresentable {
         }
 
         guard let window = nsView.window else { return }
-        let firstResponder = window.firstResponder
-        let isFirstResponder = firstResponder === nsView.textView
-
-        if isFocused, isEnabled, !isFirstResponder, context.coordinator.pendingFocusRequest != true {
-            context.coordinator.pendingFocusRequest = true
-            DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
-                coordinator?.pendingFocusRequest = nil
-                guard let coordinator, coordinator.parent.isFocused, coordinator.parent.isEnabled else { return }
-                nsView?.focusIfNeeded()
+        let isFirstResponder = window.firstResponder === nsView.textView
+        if let focusRequest,
+           focusRequest != context.coordinator.lastAppliedFocusRequest {
+            context.coordinator.lastAppliedFocusRequest = focusRequest
+            if isEnabled {
+                nsView.focusIfNeeded()
+            } else if isFirstResponder {
+                moveFocusToFeedHost(in: window)
             }
-        } else if (!isFocused || !isEnabled), isFirstResponder, context.coordinator.pendingFocusRequest != false {
-            context.coordinator.pendingFocusRequest = false
-            Task { @MainActor [weak nsView, weak coordinator = context.coordinator] in
-                coordinator?.pendingFocusRequest = nil
-                guard let nsView, let window = nsView.window else { return }
-                let stillFocused = window.firstResponder === nsView.textView
-                guard stillFocused else { return }
-                if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                    mode: .feed,
-                    focusFirstItem: false,
-                    preferredWindow: window
-                ) != true {
-                    window.makeFirstResponder(nil)
-                }
+        } else if focusRequest == nil {
+            context.coordinator.lastAppliedFocusRequest = nil
+            if !isEnabled, isFirstResponder {
+                moveFocusToFeedHost(in: window)
             }
+        } else if !isEnabled, isFirstResponder {
+            moveFocusToFeedHost(in: window)
         }
+    }
+
+    private func moveFocusToFeedHost(in window: NSWindow) {
+        if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+            mode: .feed,
+            focusFirstItem: false,
+            preferredWindow: window
+        ) == true {
+            return
+        }
+        window.makeFirstResponder(nil)
     }
 
     private func configure(_ view: FeedInlineTextEditorView) {
@@ -3442,6 +3564,7 @@ private struct FeedInlineTextField: NSViewRepresentable {
         nsView.textView.delegate = nil
         nsView.textView.onActivate = nil
         nsView.textView.onEscape = nil
+        nsView.textView.onSubmit = nil
     }
 }
 
@@ -3549,47 +3672,55 @@ private struct FlowLayout: Layout {
 /// types the reply into the agent's terminal surface and presses
 /// Return — so the user can reply without switching focus.
 private struct StopActionArea: View {
-    let workstreamId: String
-    let isRowSelected: Bool
+    @Binding var draft: FeedStopDraft
+    @Binding var focusRequest: Int
+
     let onFocusRow: () -> Void
+    let onActionRow: () -> Void
     let onBlurRow: () -> Void
     let onSend: (String) -> Void
 
-    @State private var reply: String = ""
-    @FocusState private var replyFocused: Bool
-
     private var trimmed: String {
-        reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        draft.reply.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     private var canSend: Bool { !trimmed.isEmpty }
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
+    private var replyFont: NSFont { GlobalFontMagnification.systemFont(ofSize: 12) }
+    private var replyBinding: Binding<String> {
+        Binding(
+            get: { draft.reply },
+            set: { draft.reply = $0 }
+        )
+    }
 
     var body: some View {
+        let _ = globalFontPercent
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 5) {
                 Image(systemName: "checkmark.circle")
-                    .font(.system(size: 10))
+                    .cmuxFont(size: 10)
                     .foregroundColor(.secondary)
                 Text(String(localized: "feed.stop.label", defaultValue: "Claude finished — reply to continue"))
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .foregroundColor(.secondary)
             }
-            TextField(
-                String(localized: "feed.stop.placeholder", defaultValue: "Reply to Claude…"),
-                text: $reply,
-                axis: .vertical
+            FeedInlineTextField(
+                text: replyBinding,
+                focusRequest: focusRequest == 0 ? nil : focusRequest,
+                placeholder: String(localized: "feed.stop.placeholder", defaultValue: "Reply to Claude…"),
+                isEnabled: true,
+                font: replyFont,
+                onFocus: onFocusRow,
+                onBlur: onBlurRow,
+                onSubmit: sendReply
             )
-            .textFieldStyle(.plain)
-            .font(.system(size: 12))
-            .focused($replyFocused)
-            .onChange(of: replyFocused) { _, focused in
-                if focused {
-                    onFocusRow()
-                } else {
-                    onBlurRow()
-                }
-            }
-            .lineLimit(1...5)
-            .padding(10)
+            .frame(
+                maxWidth: .infinity,
+                minHeight: FeedInlineTextEditorView.minimumHeight(for: replyFont),
+                alignment: .leading
+            )
+            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color.primary.opacity(0.06))
@@ -3598,11 +3729,11 @@ private struct StopActionArea: View {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .stroke(Color.primary.opacity(canSend ? 0.25 : 0.10), lineWidth: 1)
             )
-            .onSubmit {
-                if canSend {
-                    onSend(trimmed)
-                    reply = ""
-                }
+            .contentShape(Rectangle())
+            .feedIBeamCursorOnHover(enabled: true)
+            .onTapGesture {
+                onFocusRow()
+                requestReplyFocus()
             }
             FeedButton(
                 label: String(localized: "feed.stop.send", defaultValue: "Send to Claude"),
@@ -3612,16 +3743,21 @@ private struct StopActionArea: View {
                 fullWidth: true,
                 dimmed: !canSend
             ) {
-                onFocusRow()
-                onSend(trimmed)
-                reply = ""
+                guard canSend else { return }
+                onActionRow()
+                sendReply()
             }
         }
-        .onChange(of: isRowSelected) { _, selected in
-            if !selected {
-                replyFocused = false
-            }
-        }
+    }
+
+    private func requestReplyFocus() {
+        focusRequest += 1
+    }
+
+    private func sendReply() {
+        guard canSend else { return }
+        onSend(trimmed)
+        draft.reply = ""
     }
 }
 
@@ -3642,7 +3778,7 @@ private struct TelemetryActionArea: View {
             .truncationMode(.tail)
         } else if !summary.isEmpty {
             Text(summary)
-                .font(.system(size: 11, design: .monospaced))
+                .cmuxFont(size: 11, design: .monospaced)
                 .foregroundColor(.secondary.opacity(0.85))
                 .lineLimit(3)
                 .truncationMode(.tail)
@@ -3691,10 +3827,10 @@ private struct TodoListBody: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 4) {
                 Text(String(localized: "feed.todos.title", defaultValue: "Tasks"))
-                    .font(.system(size: 11, weight: .semibold))
+                    .cmuxFont(size: 11, weight: .semibold)
                     .foregroundColor(.primary.opacity(0.9))
                 Text(summaryLabel)
-                    .font(.system(size: 10))
+                    .cmuxFont(size: 10)
                     .foregroundColor(.secondary)
             }
             VStack(alignment: .leading, spacing: 3) {
@@ -3709,7 +3845,7 @@ private struct TodoListBody: View {
                             localized: "feed.todos.moreCompleted",
                             defaultValue: "... +\(done.count - visibleDone.count) completed"
                         ))
-                            .font(.system(size: 11))
+                            .cmuxFont(size: 11)
                             .foregroundColor(.secondary.opacity(0.8))
                             .padding(.leading, 22)
                     }
@@ -3718,7 +3854,7 @@ private struct TodoListBody: View {
                 if expanded && done.count > 2 {
                     Button { expanded = false } label: {
                         Text(String(localized: "feed.todos.collapse", defaultValue: "Collapse"))
-                            .font(.system(size: 11))
+                            .cmuxFont(size: 11)
                             .foregroundColor(.secondary.opacity(0.8))
                             .padding(.leading, 22)
                     }
@@ -3747,11 +3883,11 @@ private struct TodoListBody: View {
     private func row(_ todo: WorkstreamTaskTodo) -> some View {
         HStack(alignment: .top, spacing: 6) {
             Image(systemName: symbol(for: todo.state))
-                .font(.system(size: 11, weight: .medium))
+                .cmuxFont(size: 11, weight: .medium)
                 .foregroundColor(color(for: todo.state))
                 .frame(width: 14, height: 14)
             Text(todo.content)
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .foregroundColor(todo.state == .completed
                     ? .secondary.opacity(0.7)
                     : .primary.opacity(0.9))
@@ -3784,7 +3920,7 @@ private struct ResolvedDivider: View {
         HStack(spacing: 8) {
             line
             Text(String(localized: "feed.divider.resolved", defaultValue: "Resolved"))
-                .font(.system(size: 10, weight: .medium))
+                .cmuxFont(size: 10, weight: .medium)
                 .tracking(0.5)
                 .foregroundColor(.secondary.opacity(0.7))
             line

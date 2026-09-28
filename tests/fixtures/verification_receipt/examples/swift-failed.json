@@ -1,0 +1,182 @@
+{
+  "artifacts": {
+    "launched": null,
+    "produced": null
+  },
+  "assessment": {
+    "exact_verification": false,
+    "launched_matches_produced": false,
+    "qualifications": [
+      "exact_snapshot_not_established"
+    ],
+    "review_current": false
+  },
+  "authority": "evidence_only",
+  "checks": [
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "preparation",
+      "status": "skipped"
+    },
+    {
+      "evidence": "evidence.executions",
+      "executed": true,
+      "phase": "parsing",
+      "status": "failed"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "typechecking",
+      "status": "skipped"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "tests",
+      "status": "skipped"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "packaging",
+      "status": "skipped"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "live",
+      "status": "skipped"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "static_analysis",
+      "status": "skipped"
+    }
+  ],
+  "environment": {
+    "architecture": "arm64",
+    "build_input_identity": null,
+    "configuration": "static preflight",
+    "platform": "Darwin",
+    "toolchain": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)\nTarget: arm64-apple-macosx26.0"
+  },
+  "evidence": {
+    "argv_normalization": "Historical absolute parser paths normalized to checkout-relative replay arguments; this is the recorded original result, not a new execution.",
+    "executions": [
+      {
+        "argv": [
+          "swiftc",
+          "-frontend",
+          "-parse",
+          "-swift-version",
+          "5",
+          "-D",
+          "DEBUG",
+          "-enable-bare-slash-regex",
+          "./cmuxTests/AgentIntegrationSettingsControllerTests.swift"
+        ],
+        "cancelled": false,
+        "elapsed_seconds": 0.132,
+        "executed": true,
+        "exit_code": 1,
+        "id": "swift-syntax",
+        "label": "Swift syntax (1 selected files)",
+        "output_sha256": "efaefd99dd2b5d527f8aca15fa5a1ac5392c80ec3115f4e23cee3d4f5e187331",
+        "phase": "parsing",
+        "script_sha256": null,
+        "status": "failed",
+        "tests": null
+      }
+    ],
+    "kind": "local_static_preflight",
+    "reproduction": {
+      "ci_job_url": "https://github.com/manaflow-ai/cmux/actions/runs/35525568719/job/106117704441",
+      "head_sha": "92094443b3c33bde26ab2e5bfb6bda5f0366c443",
+      "input_sha256": "d4ce3fcd6122b77d2ccc904d089d8a40f52d787e988bb043b102ac707db577f9",
+      "path": "cmuxTests/AgentIntegrationSettingsControllerTests.swift",
+      "repair": null,
+      "repository": "https://github.com/manaflow-ai/cmux",
+      "scope": "PR-head file reproduces the logged syntax error; not an assertion of full CI checkout identity"
+    },
+    "swift_inputs": {
+      "after": [
+        {
+          "path": "cmuxTests/AgentIntegrationSettingsControllerTests.swift",
+          "sha256": "d4ce3fcd6122b77d2ccc904d089d8a40f52d787e988bb043b102ac707db577f9"
+        }
+      ],
+      "before": [
+        {
+          "path": "cmuxTests/AgentIntegrationSettingsControllerTests.swift",
+          "sha256": "d4ce3fcd6122b77d2ccc904d089d8a40f52d787e988bb043b102ac707db577f9"
+        }
+      ]
+    }
+  },
+  "integrations": {
+    "glaeda_request_id": null,
+    "glaeda_run_id": null,
+    "stensibly_run_id": null,
+    "stensibly_settlement_id": null
+  },
+  "outcome": {
+    "scope": "selected static preflight checks",
+    "status": "failed"
+  },
+  "recipe": {
+    "argv": [
+      "python3",
+      "scripts/verify-local.py",
+      "--only",
+      "swift-syntax",
+      "--swift",
+      "cmuxTests/AgentIntegrationSettingsControllerTests.swift"
+    ],
+    "claim_class": "pre_build_static_sanity",
+    "id": "cmux-fast-static-checks/v1",
+    "revision": "4f9d0946562793c716dd544005debeb92d296ecab87dfcca0cb38a92288f71c7"
+  },
+  "review": {
+    "current_head": null,
+    "evidence": null,
+    "reviewed_head": null,
+    "status": "unsupported"
+  },
+  "schema_version": "cmux-verification/v1",
+  "source": {
+    "after": {
+      "clean": true,
+      "commit": "1047798cfda50fdbbb312ee1b2a609960827c257",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tree": "cb011f03706b90d8a633c18eb173c16c0b144ba4"
+    },
+    "base_sha": null,
+    "before": {
+      "clean": true,
+      "commit": "1047798cfda50fdbbb312ee1b2a609960827c257",
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tree": "cb011f03706b90d8a633c18eb173c16c0b144ba4"
+    },
+    "checkout_sha": "1047798cfda50fdbbb312ee1b2a609960827c257",
+    "exact_snapshot": null,
+    "head_sha": "1047798cfda50fdbbb312ee1b2a609960827c257",
+    "merge_sha": null,
+    "repository": "isolated parser reproduction fixture (one CMUX source file)",
+    "semantics": "latest_checkout_at_execution",
+    "tree": "cb011f03706b90d8a633c18eb173c16c0b144ba4"
+  },
+  "tests": {
+    "accepted_baselines": [],
+    "discovered": null,
+    "executed": null,
+    "runner_reported": null,
+    "selected": null,
+    "selection": [],
+    "skipped": null
+  }
+}

@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux.sock")
 SSH_HOST = os.environ.get("CMUX_SSH_TEST_HOST", "").strip()
 SSH_PORT = os.environ.get("CMUX_SSH_TEST_PORT", "").strip()
 SSH_IDENTITY = os.environ.get("CMUX_SSH_TEST_IDENTITY", "").strip()
@@ -189,7 +189,7 @@ def main() -> int:
     marker_file = f"CMUX_REMOTE_PROXY_MOVE_{stamp}.txt"
     marker_body = f"CMUX_REMOTE_PROXY_BODY_{stamp}"
     ready_token = f"CMUX_HTTP_READY_{stamp}"
-    default_web_port = 20000 + (os.getpid() % 5000)
+    default_web_port = 20000 + (os.getpid() % 3000)
     ssh_web_port = int(os.environ.get("CMUX_SSH_TEST_WEB_PORT", str(default_web_port)))
     url = f"http://localhost:{ssh_web_port}/{marker_file}"
 

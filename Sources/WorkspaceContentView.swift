@@ -1,115 +1,120 @@
 import SwiftUI
 import Foundation
 import AppKit
+import CmuxAppKitSupportUI
+import CmuxFoundation
 import Bonsplit
-
-enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
-    case surface
-    case bonsplitPane
-    case tmuxActivePane
-
-    var usesWorkspacePaneOverlay: Bool {
-        self == .bonsplitPane
-    }
-
-    var usesTmuxActivePaneOverlay: Bool {
-        self == .tmuxActivePane
-    }
-}
-
-struct TmuxOverlayExperimentSettings {
-    static let enabledKey = "tmuxOverlayExperimentEnabled"
-    static let targetKey = "tmuxOverlayExperimentTarget"
-    static let defaultEnabled = false
-    static let defaultTarget: TmuxOverlayExperimentTarget = .surface
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: enabledKey) as? Bool ?? defaultEnabled
-    }
-
-    static func target(defaults: UserDefaults = .standard) -> TmuxOverlayExperimentTarget {
-        target(
-            enabled: isEnabled(defaults: defaults),
-            rawValue: defaults.string(forKey: targetKey)
-        )
-    }
-
-    static func target(enabled: Bool, rawValue: String?) -> TmuxOverlayExperimentTarget {
-        guard enabled else { return .surface }
-        guard let rawValue,
-              let target = TmuxOverlayExperimentTarget(rawValue: rawValue) else {
-            return defaultTarget
-        }
-        return target
-    }
-}
+import CmuxWorkspaces
+import CmuxTerminal
 
 private enum WorkspaceTitlebarInteractionMetrics {
-    // Keep in sync with Bonsplit's tab bar height so the monitor only covers
-    // the minimal-mode titlebar strip.
-    static let minimalModeTopStripHeight: CGFloat = 30
+    // Keep in sync with the minimal-mode titlebar strip so the monitor only
+    // covers titlebar chrome.
+    static let minimalModeTopStripHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
 }
 
-struct TmuxPaneLayoutPane: Codable, Equatable, Sendable {
-    let paneId: String
-    let left: Int
-    let top: Int
-    let width: Int
-    let height: Int
-    let isActive: Bool
-}
+enum WorkspacePanelVisibilityPolicy {
+    nonisolated static func panelVisibleInUI(
+        isWorkspaceVisible: Bool,
+        paneHasSelectedTab: Bool,
+        isSelectedInPane: Bool,
+        isFocused: Bool
+    ) -> Bool {
+        guard isWorkspaceVisible else { return false }
+        return isSelectedInPane || (isFocused && !paneHasSelectedTab)
+    }
 
-struct TmuxPaneLayoutReport: Codable, Equatable, Sendable {
-    let panes: [TmuxPaneLayoutPane]
-
-    var activePane: TmuxPaneLayoutPane? {
-        panes.first(where: \.isActive) ?? panes.first
+    nonisolated static func visiblePanelIdForRenderedPane(
+        paneId: UUID,
+        selectedPanelId: UUID?,
+        firstPanelId: UUID?,
+        focusedPanelId: UUID?,
+        focusedPanelPaneId: UUID?
+    ) -> UUID? {
+        if let selectedPanelId {
+            return selectedPanelId
+        }
+        if focusedPanelPaneId == paneId, let focusedPanelId {
+            return focusedPanelId
+        }
+        return firstPanelId
     }
 }
 
-func tmuxActivePaneOverlayRect(
-    surfaceFrame: CGRect,
-    cellSize: CGSize,
-    pane: TmuxPaneLayoutPane
-) -> CGRect? {
-    guard cellSize.width > 0,
-          cellSize.height > 0,
-          pane.width > 0,
-          pane.height > 0 else {
-        return nil
+private struct WorkspacePanelContentHostView: View {
+    let workspace: Workspace
+    let panel: any Panel
+    let paneId: PaneID
+    let isFocused: Bool
+    let isSelectedInPane: Bool
+    let isVisibleInUI: Bool
+    let allowsPointerInput: Bool
+    let portalPriority: Int
+    let isSplit: Bool
+    let appearance: PanelAppearance
+    let windowAppearance: WindowAppearanceSnapshot
+    let customSidebarTabManager: TabManager?
+    let hasUnreadNotification: Bool
+    let onFocus: () -> Void
+    let onRequestPanelFocus: () -> Void
+    let onResumeAgentHibernation: () -> Void
+    let onAutoResumeAgentHibernation: () -> Void
+    let onTriggerFlash: () -> Void
+
+    var body: some View {
+        PanelContentView(
+            panel: panel,
+            workspaceId: workspace.id,
+            paneId: paneId,
+            isFocused: isFocused,
+            isSelectedInPane: isSelectedInPane,
+            isVisibleInUI: isVisibleInUI,
+            allowsPointerInput: allowsPointerInput,
+            portalPriority: portalPriority,
+            isSplit: isSplit,
+            appearance: appearance,
+            windowAppearance: windowAppearance,
+            customSidebarTabManager: customSidebarTabManager,
+            hasUnreadNotification: hasUnreadNotification,
+            terminalAgentContext: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace),
+            terminalPaneOwnershipResolver: { [weak workspace, weak panel] in
+                guard let workspace,
+                      let panel,
+                      let livePanel = workspace.panels[panel.id],
+                      livePanel === panel,
+                      workspace.paneId(forPanelId: panel.id)?.id == paneId.id,
+                      let tabId = workspace.surfaceIdFromPanelId(panel.id) else {
+                    return false
+                }
+                // selectedTabId, not selectedTab: building a Tab reads every
+                // TabItem property, which subscribes this update to the tab's
+                // title. Portal ownership only needs identity.
+                return workspace.bonsplitController.selectedTabId(inPane: paneId) == tabId
+            },
+            onFocus: onFocus,
+            onRequestPanelFocus: onRequestPanelFocus,
+            onResumeAgentHibernation: onResumeAgentHibernation,
+            onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
+            onTriggerFlash: onTriggerFlash,
+            onRequestDeferredBrowserMaterialization: {
+                workspace.requestDeferredBrowserMaterialization(panelId: panel.id, isVisibleInUI: isVisibleInUI)
+            }
+        )
     }
-
-    return CGRect(
-        x: surfaceFrame.origin.x + (CGFloat(pane.left) * cellSize.width),
-        y: surfaceFrame.origin.y + (CGFloat(pane.top) * cellSize.height),
-        width: CGFloat(pane.width) * cellSize.width,
-        height: CGFloat(pane.height) * cellSize.height
-    )
-}
-
-private extension PixelRect {
-    var cgRect: CGRect {
-        CGRect(x: x, y: y, width: width, height: height)
-    }
-}
-
-struct TmuxWorkspacePaneOverlayRenderState: Equatable {
-    let workspaceId: UUID
-    let unreadRects: [CGRect]
-    let flashRect: CGRect?
-    let flashToken: UInt64
-    let flashReason: WorkspaceAttentionFlashReason?
 }
 
 @MainActor
-final class TmuxWorkspacePaneOverlayModel: ObservableObject {
-    @Published private(set) var unreadRects: [CGRect] = []
-    @Published private(set) var flashRect: CGRect?
-    @Published private(set) var flashStartedAt: Date?
-    @Published private(set) var flashReason: WorkspaceAttentionFlashReason?
+final class TmuxWorkspacePaneOverlayModel {
+    private(set) var unreadRects: [CGRect] = []
+    private(set) var flashRect: CGRect?
+    private(set) var activePaneBorderRect: CGRect?
+    private(set) var activePaneBorderColorHex: String?
+    private(set) var flashStartedAt: Date?
+    private(set) var flashReason: WorkspaceAttentionFlashReason?
+    private(set) var workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
 
-    private var lastWorkspaceId: UUID?
-    private var lastFlashToken: UInt64?
+    private var currentWorkspaceId: UUID?
+    private var lastFlashTokenByWorkspaceId: [UUID: UInt64] = [:]
 
     func apply(
         _ state: TmuxWorkspacePaneOverlayRenderState,
@@ -117,106 +122,38 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
     ) {
         unreadRects = state.unreadRects
         flashRect = state.flashRect
+        activePaneBorderRect = state.activePaneBorderRect
+        activePaneBorderColorHex = state.activePaneBorderColorHex
         flashReason = state.flashReason
+        workspaceAttentionColor = state.workspaceAttentionColor
 
-        let didChangeWorkspace = lastWorkspaceId != state.workspaceId
-        if didChangeWorkspace {
-            lastWorkspaceId = state.workspaceId
-            lastFlashToken = state.flashToken
-            flashStartedAt = nil
-            return
-        }
-
-        if let lastFlashToken,
-           state.flashToken != lastFlashToken,
+        let didChangeWorkspace = currentWorkspaceId != state.workspaceId
+        let previousFlashToken = lastFlashTokenByWorkspaceId[state.workspaceId]
+        let didChangeFlashToken = previousFlashToken.map { state.flashToken != $0 } ?? (state.flashToken > 0)
+        if didChangeFlashToken,
            state.flashRect != nil {
             flashStartedAt = now()
+        } else if didChangeWorkspace {
+            flashStartedAt = nil
         }
-        self.lastFlashToken = state.flashToken
+        currentWorkspaceId = state.workspaceId
+        if (previousFlashToken == nil && state.flashToken == 0) ||
+            !didChangeFlashToken ||
+            state.flashRect != nil {
+            lastFlashTokenByWorkspaceId[state.workspaceId] = state.flashToken
+        }
     }
 
     func clear() {
         unreadRects = []
         flashRect = nil
+        activePaneBorderRect = nil
+        activePaneBorderColorHex = nil
         flashStartedAt = nil
         flashReason = nil
-        lastWorkspaceId = nil
-        lastFlashToken = nil
-    }
-}
-
-struct TmuxWorkspacePaneOverlayView: View {
-    let unreadRects: [CGRect]
-    let flashRect: CGRect?
-    let flashStartedAt: Date?
-    let flashReason: WorkspaceAttentionFlashReason?
-
-    var body: some View {
-        TimelineView(.animation) { timeline in
-            Canvas { context, _ in
-                for rect in unreadRects {
-                    drawUnreadRing(in: &context, rect: rect)
-                }
-
-                guard let flashRect,
-                      let flashStartedAt else { return }
-                let elapsed = timeline.date.timeIntervalSince(flashStartedAt)
-                let opacity = FocusFlashPattern.opacity(at: elapsed)
-                guard opacity > 0.001 else { return }
-                drawFlashRing(
-                    in: &context,
-                    rect: flashRect,
-                    opacity: opacity,
-                    reason: flashReason ?? .notificationArrival
-                )
-            }
-        }
-        .allowsHitTesting(false)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func drawUnreadRing(in context: inout GraphicsContext, rect: CGRect) {
-        guard let path = ringPath(for: rect) else { return }
-        var glowContext = context
-        glowContext.addFilter(.shadow(color: Color.blue.opacity(0.35), radius: 3))
-        glowContext.stroke(
-            path,
-            with: .color(Color.blue),
-            style: StrokeStyle(lineWidth: PanelOverlayRingMetrics.lineWidth, lineJoin: .round)
-        )
-    }
-
-    private func drawFlashRing(
-        in context: inout GraphicsContext,
-        rect: CGRect,
-        opacity: Double,
-        reason: WorkspaceAttentionFlashReason
-    ) {
-        guard let path = ringPath(for: rect) else { return }
-        let presentation = WorkspaceAttentionCoordinator.flashStyle(for: reason)
-        let strokeColor = Color(nsColor: presentation.accent.strokeColor)
-
-        var glowContext = context
-        glowContext.addFilter(
-            .shadow(
-                color: strokeColor.opacity(opacity * presentation.glowOpacity),
-                radius: presentation.glowRadius
-            )
-        )
-        glowContext.stroke(
-            path,
-            with: .color(strokeColor.opacity(opacity)),
-            style: StrokeStyle(lineWidth: PanelOverlayRingMetrics.lineWidth, lineJoin: .round)
-        )
-    }
-
-    private func ringPath(for rect: CGRect) -> Path? {
-        guard rect.width > PanelOverlayRingMetrics.inset * 2,
-              rect.height > PanelOverlayRingMetrics.inset * 2 else { return nil }
-        return Path(
-            roundedRect: PanelOverlayRingMetrics.pathRect(in: rect),
-            cornerRadius: PanelOverlayRingMetrics.cornerRadius
-        )
+        workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
+        currentWorkspaceId = nil
+        lastFlashTokenByWorkspaceId = [:]
     }
 }
 
@@ -225,8 +162,15 @@ struct WorkspaceContentView: View {
     @ObservedObject var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
+    /// True when the right sidebar (Dock / Files / Find) owns keyboard focus in
+    /// this window. The main pane dims its focus ring while this is true so main
+    /// and Dock focus are mutually exclusive. Does not affect input-activeness
+    /// (`isWorkspaceInputActive`) or drag interactivity — only the visual/active
+    /// focus state — so the terminal stays visible (via `isSelectedInPane`).
+    var rightSidebarOwnsInputFocus: Bool = false
     let isFullScreen: Bool
     let workspacePortalPriority: Int
+    let windowAppearance: WindowAppearanceSnapshot
     let onThemeRefreshRequest: ((
         _ reason: String,
         _ backgroundEventId: UInt64?,
@@ -234,36 +178,31 @@ struct WorkspaceContentView: View {
         _ notificationPayloadHex: String?
     ) -> Void)?
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
-    @AppStorage(WorkspacePresentationModeSettings.modeKey)
-    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+    @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
-
-    private var isMinimalMode: Bool {
-        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
-    }
-
-    static func panelVisibleInUI(
-        isWorkspaceVisible: Bool,
-        isSelectedInPane: Bool,
-        isFocused: Bool
-    ) -> Bool {
-        guard isWorkspaceVisible else { return false }
-        // During pane/tab reparenting, Bonsplit can transiently report selected=false
-        // for the currently focused panel. Keep focused content visible to avoid blank frames.
-        return isSelectedInPane || isFocused
-    }
+#if DEBUG
+    @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
+#endif
 
     var body: some View {
+#if DEBUG
+        let _ = {
+            if minimalModeInvalidationProbe.shouldTraceBodyChanges?() == true {
+                Self._printChanges()
+            }
+            minimalModeInvalidationProbe.workspaceContentBody?()
+        }()
+#endif
         let appearance = PanelAppearance.fromConfig(config)
-        let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
-            workspace.panels.count > 1
+        let isSplit = workspace.hasMultipleSplitSurfaces
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
+        let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
+        let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
         // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
         // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
         let _ = { workspace.bonsplitController.isInteractive = isWorkspaceInputActive }()
-
 
         // Wire up file drop handling so bonsplit's PaneDragContainerView can forward
         // Finder file drops to the correct terminal panel.
@@ -273,7 +212,7 @@ struct WorkspaceContentView: View {
                 // Find the focused panel in this pane and drop the files into it.
                 guard let tabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id,
                       let panelId = workspace.panelIdFromSurfaceId(tabId),
-                      let panel = workspace.panels[panelId] as? TerminalPanel else { return false }
+                      let panel = workspace.terminalInputTarget(forPanelID: panelId)?.panel else { return false }
                 return panel.hostedView.handleDroppedURLs(urls)
             }
         }()
@@ -282,55 +221,114 @@ struct WorkspaceContentView: View {
             // Content for each tab in bonsplit
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
             if let panel = workspace.panel(for: tab.id) {
-                let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
-                let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
+                // Un-gated "is this the workspace's focused panel". Used for the
+                // visibility fallback so the focused panel stays rendered during
+                // transient Bonsplit selection churn (selected=false) EVEN while
+                // the right sidebar owns focus — gating this would reintroduce
+                // blank frames.
+                let isFocusedPanel = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
+                // Gated focus for the ring/active state only: the main pane yields
+                // its focus ring while the right sidebar (Dock) owns focus.
+                let isFocused = isFocusedPanel && !rightSidebarOwnsInputFocus
+                let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
+                let isSelectedInPane = selectedTab?.id == tab.id
                 let isVisibleInUI = Self.panelVisibleInUI(
                     isWorkspaceVisible: isWorkspaceVisible,
+                    paneHasSelectedTab: selectedTab != nil,
                     isSelectedInPane: isSelectedInPane,
-                    isFocused: isFocused
+                    isFocused: isFocusedPanel
                 )
                 let showsNotificationRing = Workspace.shouldShowUnreadIndicator(
                     hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
                         forTabId: workspace.id,
                         surfaceId: panel.id
                     ),
-                    isManuallyUnread: workspace.manualUnreadPanelIds.contains(panel.id)
+                    hasPanelUnreadIndicator: workspace.manualUnreadPanelIds.contains(panel.id) ||
+                        workspace.restoredUnreadPanelIds.contains(panel.id),
+                    isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                    isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panel.id
                 )
-                PanelContentView(
-                    panel: panel,
-                    paneId: paneId,
-                    isFocused: isFocused,
-                    isSelectedInPane: isSelectedInPane,
-                    isVisibleInUI: isVisibleInUI,
-                    portalPriority: workspacePortalPriority,
-                    isSplit: isSplit,
-                    appearance: appearance,
-                    hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
-                    onFocus: {
-                        // Keep bonsplit focus in sync with the AppKit first responder for the
-                        // active workspace. This prevents divergence between the blue focused-tab
-                        // indicator and where keyboard input/flash-focus actually lands.
-                        guard isWorkspaceInputActive else { return }
-                        guard workspace.panels[panel.id] != nil else { return }
-                        workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
-                    },
-                    onRequestPanelFocus: {
-                        guard isWorkspaceInputActive else { return }
-                        guard workspace.panels[panel.id] != nil else { return }
-                        AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
-                            workspaceId: workspace.id,
-                            panelId: panel.id,
-                            in: NSApp.keyWindow ?? NSApp.mainWindow
+                if let windowMirror = workspace.remoteTmuxWindowMirror(forPanelId: panel.id) {
+                    // Every tmux window renders through one stable container,
+                    // including its initial one-pane layout.
+                    RemoteTmuxWindowMirrorSplitView(
+                        mirror: windowMirror,
+                        appearance: appearance,
+                        isOuterFocused: isFocused,
+                        isVisibleInUI: isVisibleInUI,
+                        portalPriority: workspacePortalPriority,
+                        onOuterFocus: { workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId) },
+                        unreadSurfaceIDs: Set(
+                            windowMirror.surfaceIDsInLayoutOrder.lazy
+                                .filter {
+                                    notificationStore.hasVisibleNotificationIndicator(
+                                        forTabId: workspace.id,
+                                        surfaceId: $0
+                                    )
+                                }
                         )
-                        workspace.focusPanel(panel.id)
-                    },
-                    onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
-                )
-                .onTapGesture {
-                    workspace.bonsplitController.focusPane(paneId)
+                    )
+                    .onTapGesture {
+                        workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId)
+                    }
+                } else {
+                    WorkspacePanelContentHostView(
+                        workspace: workspace,
+                        panel: panel,
+                        paneId: paneId,
+                        isFocused: isFocused,
+                        isSelectedInPane: isSelectedInPane,
+                        isVisibleInUI: isVisibleInUI,
+                        allowsPointerInput: isWorkspaceInputActive
+                            && isWorkspaceVisible
+                            && isSelectedInPane,
+                        portalPriority: workspacePortalPriority,
+                        isSplit: isSplit,
+                        appearance: appearance,
+                        windowAppearance: windowAppearance,
+                        customSidebarTabManager: workspace.owningTabManager,
+                        hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                        onFocus: {
+                            // Keep bonsplit focus in sync with the AppKit first responder for the
+                            // active workspace. This prevents divergence between the blue focused-tab
+                            // indicator and where keyboard input/flash-focus actually lands.
+                            guard isWorkspaceInputActive else { return }
+                            guard workspace.panels[panel.id] != nil else { return }
+                            workspace.focusPanel(
+                                panel.id,
+                                trigger: .terminalFirstResponder,
+                                focusTransactionId: workspace.activeFocusTransactionId
+                            )
+                        },
+                        onRequestPanelFocus: {
+                            guard isWorkspaceInputActive else { return }
+                            guard workspace.panels[panel.id] != nil else { return }
+                            AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
+                                workspaceId: workspace.id,
+                                panelId: panel.id,
+                                in: NSApp.keyWindow ?? NSApp.mainWindow
+                            )
+                            workspace.focusPanel(panel.id)
+                        },
+                        onResumeAgentHibernation: {
+                            guard isWorkspaceInputActive else { return }
+                            guard workspace.panels[panel.id] != nil else { return }
+                            workspace.resumeAgentHibernation(panelId: panel.id, focus: true)
+                        },
+                        onAutoResumeAgentHibernation: {
+                            guard isWorkspaceInputActive else { return }
+                            guard workspace.panels[panel.id] != nil else { return }
+                            workspace.resumeAgentHibernation(panelId: panel.id, focus: false)
+                        },
+                        onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
+                    )
+                    .onTapGesture {
+                        workspace.bonsplitController.focusPane(paneId)
+                    }
                 }
+            } else if workspace.cloudVMID != nil {
+                TerminalPanelUnavailableView(appearance: appearance)
             } else {
-                // Fallback for tabs without panels (shouldn't happen normally)
                 EmptyPanelView(workspace: workspace, paneId: paneId)
             }
         } emptyPane: { paneId in
@@ -347,8 +345,23 @@ struct WorkspaceContentView: View {
         .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
+            updateAgentHibernationPresentationVisibility()
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
+        }
+        .onChange(of: isWorkspaceVisible) { _, isVisible in
+            updateAgentHibernationPresentationVisibility()
+            guard isVisible else { return }
+            refreshGhosttyAppearanceConfig(
+                reason: "workspaceBecameVisible",
+                forceInitialApply: true
+            )
+        }
+        .onChange(of: isWorkspaceInputActive) { _, _ in
+            updateAgentHibernationPresentationVisibility()
+        }
+        .onDisappear {
+            workspace.setAgentHibernationAutoResumePresentationVisible(false)
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
@@ -356,9 +369,21 @@ struct WorkspaceContentView: View {
         .onChange(of: workspace.manualUnreadPanelIds) { _, _ in
             syncBonsplitNotificationBadges()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            GhosttyConfig.invalidateLoadCache()
-            refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
+        .onChange(of: workspace.restoredUnreadPanelIds) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
+        .onChange(of: isWorkspaceManuallyUnread) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
+        .onChange(of: workspaceManualUnreadPanelId) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
+            workspace.applyGhosttyChrome(from: config, reason: "paneChromeSettingsDidChange")
+        }
+        .onDisplayAccessibilityOptionsChange { _ in
+            // Increase Contrast changes the separator color the chrome resolves.
+            workspace.applyGhosttyChrome(from: config, reason: "displayAccessibilityOptionsDidChange")
         }
         .onChange(of: colorScheme) { oldValue, newValue in
             // Keep split overlay color/opacity in sync with light/dark theme transitions.
@@ -366,14 +391,13 @@ struct WorkspaceContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
             let payloadHex = (notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString() ?? "nil"
+            let foregroundHex = (notification.userInfo?[GhosttyNotificationKey.foregroundColor] as? NSColor)?.hexString() ?? "nil"
             let eventId = (notification.userInfo?[GhosttyNotificationKey.backgroundEventId] as? NSNumber)?.uint64Value
             let source = (notification.userInfo?[GhosttyNotificationKey.backgroundSource] as? String) ?? "nil"
             logTheme(
-                "theme notification workspace=\(workspace.id.uuidString) event=\(eventId.map(String.init) ?? "nil") source=\(source) payload=\(payloadHex) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
+                "theme notification workspace=\(workspace.id.uuidString) event=\(eventId.map(String.init) ?? "nil") source=\(source) payload=\(payloadHex) payloadFg=\(foregroundHex) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appFg=\(GhosttyApp.shared.defaultForegroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
             )
-            // Payload ordering can lag across rapid config/theme updates.
-            // Resolve from GhosttyApp.shared.defaultBackgroundColor to keep tabs aligned
-            // with Ghostty's current runtime theme.
+            // Resolve from Ghostty's runtime state because notification payload ordering can lag.
             refreshGhosttyAppearanceConfig(
                 reason: "ghosttyDefaultBackgroundDidChange",
                 backgroundEventId: eventId,
@@ -381,19 +405,45 @@ struct WorkspaceContentView: View {
                 notificationPayloadHex: payloadHex
             )
         }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyChromeConfigurationDidChange)) { _ in
+            refreshGhosttyAppearanceConfig(
+                reason: "ghosttyChromeConfigurationDidChange"
+            )
+        }
 
         Group {
-            if isMinimalMode && !isFullScreen {
-                bonsplitView
-                    .ignoresSafeArea(.container, edges: .top)
+            if workspace.layoutMode == .canvas {
+                WorkspaceCanvasHostView(
+                    workspace: workspace,
+                    isWorkspaceVisible: isWorkspaceVisible,
+                    isWorkspaceInputActive: isWorkspaceInputActive,
+                    portalPriority: workspacePortalPriority,
+                    appearance: appearance, windowAppearance: windowAppearance
+                )
             } else {
                 bonsplitView
             }
         }
+        .overlay {
+            if workspace.isManagedCloudVMWorkspace {
+                CloudSurfaceDropGate(workspaceID: workspace.id, isActive: isWorkspaceInputActive)
+            }
+        }
+        .modifier(WorkspaceContentMinimalModeSafeAreaModifier(isFullScreen: isFullScreen))
+        // A workspace is a page: accept the parent proposal instead of
+        // contributing a hidden child's content-derived ideal to its ZStack.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .modifier(CloudPaneCreationFailurePresentation(
+            failureStore: workspace.cloudPaneCreationFailureStore,
+            isWorkspaceVisible: isWorkspaceVisible,
+            sourceView: workspace.cloudPaneCreationFailureSourceView
+        ))
     }
-
     private func syncBonsplitNotificationBadges() {
         let manualUnread = workspace.manualUnreadPanelIds
+        let restoredUnread = workspace.restoredUnreadPanelIds
+        let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
+        let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
         for paneId in workspace.bonsplitController.allPaneIds {
             for tab in workspace.bonsplitController.tabs(inPane: paneId) {
@@ -401,8 +451,15 @@ struct WorkspaceContentView: View {
                 let expectedKind = panelId.flatMap { workspace.panelKind(panelId: $0) }
                 let expectedPinned = panelId.map { workspace.isPanelPinned($0) } ?? false
                 let shouldShow = panelId.map {
-                    notificationStore.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: $0) ||
-                        manualUnread.contains($0)
+                    Workspace.shouldShowUnreadIndicator(
+                        hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
+                            forTabId: workspace.id,
+                            surfaceId: $0
+                        ),
+                        hasPanelUnreadIndicator: manualUnread.contains($0) || restoredUnread.contains($0),
+                        isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                        isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == $0
+                    )
                 } ?? false
                 let kindUpdate: String?? = expectedKind.map { .some($0) }
 
@@ -424,67 +481,20 @@ struct WorkspaceContentView: View {
         workspace.bonsplitController.zoomedPaneId.map { "zoom:\($0.id.uuidString)" } ?? "unzoomed"
     }
 
-    private static let tmuxWorkspacePaneTopChromeHeight: CGFloat = 30
-
-    private enum TmuxWorkspacePaneOverlayTrimMode {
-        case workspaceLocal
-        case windowContent
-    }
-
-    private static func tmuxWorkspacePaneContentRect(
-        _ rect: CGRect,
-        trimMode: TmuxWorkspacePaneOverlayTrimMode
-    ) -> CGRect {
-        let topInset = min(tmuxWorkspacePaneTopChromeHeight, max(0, rect.height - 1))
-        switch trimMode {
-        case .workspaceLocal, .windowContent:
-            return CGRect(
-                x: rect.origin.x,
-                y: rect.origin.y + topInset,
-                width: rect.width,
-                height: max(0, rect.height - topInset)
-            )
-        }
-    }
-
-    private static func tmuxWorkspacePaneRect(
-        layoutSnapshot: LayoutSnapshot?,
-        paneId: PaneID?,
-        includeContainerOffset: Bool,
-        trimMode: TmuxWorkspacePaneOverlayTrimMode
-    ) -> CGRect? {
-        guard let layoutSnapshot,
-              let paneId,
-              let paneRect = layoutSnapshot.panes
-                .first(where: { $0.paneId == paneId.id.uuidString })?
-                .frame
-                .cgRect else {
-            return nil
-        }
-
-        let rect: CGRect
-        if includeContainerOffset {
-            rect = paneRect.offsetBy(
-                dx: 0,
-                dy: -CGFloat(layoutSnapshot.containerFrame.y)
-            )
-        } else {
-            rect = paneRect.offsetBy(
-                dx: -CGFloat(layoutSnapshot.containerFrame.x),
-                dy: -CGFloat(layoutSnapshot.containerFrame.y)
-            )
-        }
-        return tmuxWorkspacePaneContentRect(rect, trimMode: trimMode)
-    }
+    static let tmuxPaneOverlayGeometry = TmuxPaneOverlayGeometry(
+        topChromeHeight: MinimalModeChromeMetrics.titlebarHeight
+    )
 
     private static func tmuxWorkspacePaneRects(
         workspace: Workspace,
         notificationStore: TerminalNotificationStore,
         layoutSnapshot: LayoutSnapshot?,
-        includeContainerOffset: Bool,
-        trimMode: TmuxWorkspacePaneOverlayTrimMode
+        includeContainerOffset: Bool
     ) -> [CGRect] {
         guard let layoutSnapshot else { return [] }
+        let geometry = tmuxPaneOverlayGeometry
+        let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
+        let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
         return layoutSnapshot.panes.compactMap { pane in
             guard let selectedTabId = pane.selectedTabId,
@@ -498,7 +508,10 @@ struct WorkspaceContentView: View {
                     forTabId: workspace.id,
                     surfaceId: panelId
                 ),
-                isManuallyUnread: workspace.manualUnreadPanelIds.contains(panelId)
+                hasPanelUnreadIndicator: workspace.manualUnreadPanelIds.contains(panelId) ||
+                    workspace.restoredUnreadPanelIds.contains(panelId),
+                isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panelId
             )
             guard shouldShowUnread else { return nil }
 
@@ -515,7 +528,7 @@ struct WorkspaceContentView: View {
                     dy: -CGFloat(layoutSnapshot.containerFrame.y)
                 )
             }
-            return tmuxWorkspacePaneContentRect(rect, trimMode: trimMode)
+            return geometry.contentRect(rect)
         }
     }
 
@@ -523,11 +536,9 @@ struct WorkspaceContentView: View {
         layoutSnapshot: LayoutSnapshot?,
         paneId: PaneID?
     ) -> CGRect? {
-        tmuxWorkspacePaneRect(
+        tmuxPaneOverlayGeometry.overlayRect(
             layoutSnapshot: layoutSnapshot,
-            paneId: paneId,
-            includeContainerOffset: false,
-            trimMode: .workspaceLocal
+            paneId: paneId
         )
     }
 
@@ -535,11 +546,9 @@ struct WorkspaceContentView: View {
         layoutSnapshot: LayoutSnapshot?,
         paneId: PaneID?
     ) -> CGRect? {
-        tmuxWorkspacePaneRect(
+        tmuxPaneOverlayGeometry.windowOverlayRect(
             layoutSnapshot: layoutSnapshot,
-            paneId: paneId,
-            includeContainerOffset: true,
-            trimMode: .windowContent
+            paneId: paneId
         )
     }
 
@@ -547,15 +556,10 @@ struct WorkspaceContentView: View {
         cachedSnapshot: LayoutSnapshot?,
         liveSnapshot: LayoutSnapshot?
     ) -> LayoutSnapshot? {
-        if let liveSnapshot,
-           tmuxLayoutSnapshotHasRenderableGeometry(liveSnapshot) {
-            return liveSnapshot
-        }
-        if let cachedSnapshot,
-           tmuxLayoutSnapshotHasRenderableGeometry(cachedSnapshot) {
-            return cachedSnapshot
-        }
-        return cachedSnapshot ?? liveSnapshot
+        tmuxPaneOverlayGeometry.effectiveSnapshot(
+            cachedSnapshot: cachedSnapshot,
+            liveSnapshot: liveSnapshot
+        )
     }
 
     static func tmuxWorkspacePaneUnreadRects(
@@ -567,8 +571,7 @@ struct WorkspaceContentView: View {
             workspace: workspace,
             notificationStore: notificationStore,
             layoutSnapshot: layoutSnapshot,
-            includeContainerOffset: false,
-            trimMode: .workspaceLocal
+            includeContainerOffset: false
         )
     }
 
@@ -581,50 +584,12 @@ struct WorkspaceContentView: View {
             workspace: workspace,
             notificationStore: notificationStore,
             layoutSnapshot: layoutSnapshot,
-            includeContainerOffset: true,
-            trimMode: .windowContent
+            includeContainerOffset: true
         )
     }
 
-    private static func tmuxLayoutSnapshotHasRenderableGeometry(_ snapshot: LayoutSnapshot) -> Bool {
-        snapshot.containerFrame.width > 1 &&
-            snapshot.containerFrame.height > 1 &&
-            snapshot.panes.contains { pane in
-                pane.frame.width > 1 && pane.frame.height > 1
-            }
-    }
-
-    static func resolveGhosttyAppearanceConfig(
-        reason: String = "unspecified",
-        backgroundOverride: NSColor? = nil,
-        loadConfig: () -> GhosttyConfig = { GhosttyConfig.load() },
-        defaultBackground: () -> NSColor = { GhosttyApp.shared.defaultBackgroundColor },
-        defaultBackgroundOpacity: () -> Double = { GhosttyApp.shared.defaultBackgroundOpacity }
-    ) -> GhosttyConfig {
-        var next = loadConfig()
-        let loadedBackgroundHex = next.backgroundColor.hexString()
-        let defaultBackgroundHex: String
-        let resolvedBackground: NSColor
-
-        if let backgroundOverride {
-            resolvedBackground = backgroundOverride
-            defaultBackgroundHex = "skipped"
-        } else {
-            let fallback = defaultBackground()
-            resolvedBackground = fallback
-            defaultBackgroundHex = fallback.hexString()
-        }
-
-        next.backgroundColor = resolvedBackground
-        // Use the runtime opacity from the Ghostty engine, which may differ from the
-        // file-level value parsed by GhosttyConfig.load().
-        next.backgroundOpacity = defaultBackgroundOpacity()
-        if GhosttyApp.shared.backgroundLogEnabled {
-            GhosttyApp.shared.logBackground(
-                "theme resolve reason=\(reason) loadedBg=\(loadedBackgroundHex) overrideBg=\(backgroundOverride?.hexString() ?? "nil") defaultBg=\(defaultBackgroundHex) finalBg=\(next.backgroundColor.hexString()) opacity=\(String(format: "%.3f", next.backgroundOpacity)) theme=\(next.theme ?? "nil")"
-            )
-        }
-        return next
+    private func updateAgentHibernationPresentationVisibility() {
+        workspace.setAgentHibernationAutoResumePresentationVisible(isWorkspaceVisible && isWorkspaceInputActive)
     }
 
     private func refreshGhosttyAppearanceConfig(
@@ -632,24 +597,52 @@ struct WorkspaceContentView: View {
         backgroundOverride: NSColor? = nil,
         backgroundEventId: UInt64? = nil,
         backgroundSource: String? = nil,
-        notificationPayloadHex: String? = nil
+        notificationPayloadHex: String? = nil,
+        forceInitialApply: Bool = false
     ) {
+        guard isWorkspaceVisible else { return }
+
+        let previousSignature = Self.ghosttyAppearanceSignature(
+            config,
+            usesHostLayerBackground: lastAppliedUsesHostLayerBackground
+        )
         let previousBackgroundHex = config.backgroundColor.hexString()
         let next = Self.resolveGhosttyAppearanceConfig(
             reason: reason,
             backgroundOverride: backgroundOverride
         )
+        let nextUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
+        let nextSignature = Self.ghosttyAppearanceSignature(
+            next,
+            usesHostLayerBackground: nextUsesHostLayerBackground
+        )
         let eventLabel = backgroundEventId.map(String.init) ?? "nil"
         let sourceLabel = backgroundSource ?? "nil"
         let payloadLabel = notificationPayloadHex ?? "nil"
+        let configChanged = previousSignature != nextSignature
         let backgroundChanged = previousBackgroundHex != next.backgroundColor.hexString()
         let opacityChanged = abs(config.backgroundOpacity - next.backgroundOpacity) > 0.0001
-        let shouldRequestTitlebarRefresh = backgroundChanged || opacityChanged || reason == "onAppear"
+        let blurChanged = config.backgroundBlur != next.backgroundBlur
+        let shouldForceInitialApply = forceInitialApply || reason == "onAppear"
+        let shouldRequestTitlebarRefresh = backgroundChanged || opacityChanged || blurChanged || shouldForceInitialApply
+        let shouldApplyChrome = configChanged || shouldForceInitialApply
+        let shouldRefreshWindowBackground = backgroundChanged || opacityChanged || blurChanged || shouldForceInitialApply
+        if !shouldApplyChrome && !shouldRefreshWindowBackground && !shouldRequestTitlebarRefresh {
+            logTheme(
+                "theme refresh skip workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) source=\(sourceLabel) payload=\(payloadLabel)"
+            )
+            return
+        }
         logTheme(
             "theme refresh begin workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) source=\(sourceLabel) payload=\(payloadLabel) previousBg=\(previousBackgroundHex) nextBg=\(next.backgroundColor.hexString()) overrideBg=\(backgroundOverride?.hexString() ?? "nil")"
         )
         withTransaction(Transaction(animation: nil)) {
-            config = next
+            if configChanged {
+                config = next
+            }
+            if shouldApplyChrome {
+                lastAppliedUsesHostLayerBackground = nextUsesHostLayerBackground
+            }
             if shouldRequestTitlebarRefresh {
                 onThemeRefreshRequest?(
                     reason,
@@ -669,16 +662,20 @@ struct WorkspaceContentView: View {
         )
         let chromeReason =
             "refreshGhosttyAppearanceConfig:reason=\(reason):event=\(eventLabel):source=\(sourceLabel):payload=\(payloadLabel)"
-        workspace.applyGhosttyChrome(from: next, reason: chromeReason)
-        if let terminalPanel = workspace.focusedTerminalPanel {
-            terminalPanel.applyWindowBackgroundIfActive()
-            logTheme(
-                "theme refresh terminal-applied workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) panel=\(workspace.focusedPanelId?.uuidString ?? "nil")"
-            )
-        } else {
-            logTheme(
-                "theme refresh terminal-skipped workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) focusedPanel=\(workspace.focusedPanelId?.uuidString ?? "nil")"
-            )
+        if shouldApplyChrome {
+            workspace.applyGhosttyChrome(from: next, reason: chromeReason)
+        }
+        if shouldRefreshWindowBackground {
+            if let terminalPanel = workspace.focusedTerminalInputTarget()?.panel {
+                terminalPanel.applyWindowBackgroundIfActive()
+                logTheme(
+                    "theme refresh terminal-applied workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) panel=\(workspace.focusedPanelId?.uuidString ?? "nil")"
+                )
+            } else {
+                logTheme(
+                    "theme refresh terminal-skipped workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) focusedPanel=\(workspace.focusedPanelId?.uuidString ?? "nil")"
+                )
+            }
         }
         logTheme(
             "theme refresh end workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) chromeBg=\(workspace.bonsplitController.configuration.appearance.chromeColors.backgroundHex ?? "nil")"
@@ -692,6 +689,35 @@ struct WorkspaceContentView: View {
 }
 
 extension WorkspaceContentView {
+    static func terminalAgentContext(panel: any Panel, workspace: Workspace) -> String {
+        var parts: [String] = []
+        if let terminalPanel = panel as? TerminalPanel {
+            if let initialCommand = terminalPanel.surface.initialCommand {
+                parts.append("initialCommand:\(initialCommand)")
+            }
+            if let tmuxStartCommand = terminalPanel.surface.tmuxStartCommand {
+                parts.append("tmuxStartCommand:\(tmuxStartCommand)")
+            }
+            if let pendingLaunchCommand = terminalPanel.textBoxState.pendingLaunchCommand?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !pendingLaunchCommand.isEmpty {
+                parts.append("textBoxPendingLaunchCommand:\(pendingLaunchCommand)")
+            }
+        }
+        if let restoredAgent = workspace.restoredAgentSnapshotForContinuation(panelId: panel.id) {
+            parts.append("restoredAgent:\(restoredAgent.kind.rawValue)")
+        }
+        if let agentPIDKeys = workspace.agentPIDKeysByPanelId[panel.id], !agentPIDKeys.isEmpty {
+            for key in agentPIDKeys.sorted() {
+                parts.append("agentPIDKey:\(key)")
+            }
+        }
+        return parts
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+
     #if DEBUG
     static func debugPanelLookup(tab: Bonsplit.Tab, workspace: Workspace) {
         let found = workspace.panel(for: tab.id) != nil
@@ -716,18 +742,48 @@ extension WorkspaceContentView {
     #endif
 }
 
+/// Keeps `isAvailable` in step with the browser availability gate for views
+/// that offer a browser affordance.
+///
+/// `BrowserAvailabilityMonitor` owns watching the gate's entrypoints, so this
+/// follows that one signal instead of subscribing to the underlying sources
+/// again.
+struct BrowserAffordanceAvailabilityTracking: ViewModifier {
+    @Binding var isAvailable: Bool
+
+    func body(content: Content) -> some View {
+        content.task { @MainActor in
+            isAvailable = BrowserAvailabilitySettings.isEnabled()
+            let changes = NotificationCenter.default.notifications(
+                named: BrowserAvailabilityMonitor.didChangeNotification
+            )
+            for await _ in changes {
+                isAvailable = BrowserAvailabilitySettings.isEnabled()
+            }
+        }
+    }
+}
+
+extension View {
+    /// Tracks browser availability for a view that offers a browser affordance.
+    func trackingBrowserAffordanceAvailability(_ isAvailable: Binding<Bool>) -> some View {
+        modifier(BrowserAffordanceAvailabilityTracking(isAvailable: isAvailable))
+    }
+}
+
 /// View shown for empty panes
 struct EmptyPanelView: View {
     @ObservedObject var workspace: Workspace
     let paneId: PaneID
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var browserAvailable = BrowserAvailabilitySettings.isEnabled()
 
     private struct ShortcutHint: View {
         let text: String
 
         var body: some View {
             Text(text)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .cmuxFont(size: 11, weight: .semibold, design: .rounded)
                 .foregroundStyle(.white.opacity(0.9))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
@@ -744,7 +800,7 @@ struct EmptyPanelView: View {
         cmuxDebugLog("emptyPane.newTerminal pane=\(paneId.id.uuidString.prefix(5))")
         #endif
         focusPane()
-        _ = workspace.newTerminalSurface(inPane: paneId)
+        _ = workspace.newTerminalSurface(inPane: paneId, inheritWorkingDirectoryFallback: true)
     }
 
     private func createBrowser() {
@@ -772,54 +828,60 @@ struct EmptyPanelView: View {
         shortcut: StoredShortcut,
         action: @escaping () -> Void
     ) -> some View {
+        let button = Button(action: action) {
+            HStack(spacing: 10) {
+                HStack(spacing: 6) {
+                    // `.borderedProminent` paints its label in the system's
+                    // on-accent text color, so bake that semantic color rather
+                    // than a literal white.
+                    CmuxSystemSymbolImage(
+                        systemName: systemImage,
+                        pointSize: 13,
+                        tint: Color(nsColor: .alternateSelectedControlTextColor)
+                    )
+                    Text(title)
+                }
+                ShortcutHint(text: shortcut.displayString)
+            }
+        }
+        .buttonStyle(.borderedProminent)
+
         if let key = shortcut.keyEquivalent {
-            Button(action: action) {
-                HStack(spacing: 10) {
-                    Label(title, systemImage: systemImage)
-                    ShortcutHint(text: shortcut.displayString)
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(key, modifiers: shortcut.eventModifiers)
+            button.keyboardShortcut(key, modifiers: shortcut.eventModifiers)
         } else {
-            Button(action: action) {
-                HStack(spacing: 10) {
-                    Label(title, systemImage: systemImage)
-                    ShortcutHint(text: shortcut.displayString)
-                }
-            }
-            .buttonStyle(.borderedProminent)
+            button
         }
     }
 
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: "terminal.fill")
-                .font(.system(size: 48))
-                .foregroundStyle(.tertiary)
+            CmuxSystemSymbolImage(magnified: "terminal.fill", pointSize: 48, tint: Color(nsColor: .tertiaryLabelColor))
 
-            Text("Empty Panel")
-                .font(.headline)
+            Text(String(localized: "emptyPanel.title", defaultValue: "Empty Panel"))
+                .cmuxFont(.headline)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
                 emptyPaneActionButton(
-                    title: "Terminal",
+                    title: String(localized: "emptyPanel.action.terminal", defaultValue: "Terminal"),
                     systemImage: "terminal.fill",
                     shortcut: newSurfaceShortcut,
                     action: createTerminal
                 )
 
-                emptyPaneActionButton(
-                    title: "Browser",
-                    systemImage: "globe",
-                    shortcut: openBrowserShortcut,
-                    action: createBrowser
-                )
+                if BrowserAvailabilitySettings.offersBrowserAffordance(isEnabled: browserAvailable) {
+                    emptyPaneActionButton(
+                        title: String(localized: "emptyPanel.action.browser", defaultValue: "Browser"),
+                        systemImage: "globe",
+                        shortcut: openBrowserShortcut,
+                        action: createBrowser
+                    )
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
+        .trackingBrowserAffordanceAvailability($browserAvailable)
 #if DEBUG
         .onAppear {
             DebugUIEventCounters.emptyPanelAppearCount += 1

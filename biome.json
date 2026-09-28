@@ -1,0 +1,56 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
+  "root": true,
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true,
+    "defaultBranch": "main"
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "biome.json",
+      "package.json",
+      "scripts/**/*.{js,mjs,cjs,ts,tsx,json,jsonc}",
+      "web/**",
+      "webviews/**",
+      "Resources/feed-tui/**",
+      "!.greptile",
+      "!skills",
+      "!vendor",
+      "!ghostty",
+      "!web/db/migrations",
+      "!!GhosttyKit.xcframework",
+      "!!Native/**/target",
+      "!!Packages/**/.build",
+      "!!Resources/agent-session-react",
+      "!!Resources/agent-session-solid",
+      "!!Resources/markdown-viewer",
+      "!!web/.next",
+      "!!web/.pagefind-site",
+      "!!web/.vercel",
+      "!!web/build",
+      "!!web/coverage",
+      "!!web/dist",
+      "!!web/out",
+      "!!web/public/pagefind",
+      "!!webviews/build",
+      "!!webviews/coverage",
+      "!!webviews/dist",
+      "!!**/node_modules"
+    ]
+  },
+  "formatter": {
+    "enabled": false
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended"
+    }
+  },
+  "assist": {
+    "enabled": false
+  }
+}
