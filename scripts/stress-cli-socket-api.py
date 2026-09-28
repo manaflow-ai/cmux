@@ -1124,7 +1124,7 @@ def build_socket_cases(ctx: StressContext, capabilities: set[str]) -> list[Socke
         SocketCase("surface.read_text", "surface.read_text", lambda c: {**p_surface(c), "lines": 5, "scrollback": True}, expect_ok=None),
         SocketCase("surface.clear_history", "surface.clear_history", p_surface, expect_ok=None),
         SocketCase("surface.trigger_flash", "surface.trigger_flash", p_surface, expect_ok=None),
-        SocketCase("surface.offer_code_block", "surface.offer_code_block", lambda c: {**p_surface(c), "text": "echo stress", "language": "bash", "label": "stress"}, expect_ok=None),
+        SocketCase("surface.offer_code_block", "surface.offer_code_block", lambda c: {**p_surface(c), "text": "echo stress", "language": "bash", "label": "stress"}),
         SocketCase("surface.create", "surface.create", lambda c: {"workspace_id": require(c.workspace_id, "workspace"), "type": "terminal", "focus": False}, layout_mutation=True),
         SocketCase("surface.close", "surface.close", lambda c: {"workspace_id": require(c.workspace_id, "workspace"), "surface_id": c.create_surface_for_case("close")}, expect_ok=None, layout_mutation=True),
         SocketCase("surface.split", "surface.split", lambda c: {**p_surface(c), "direction": "right", "focus": False}, expect_ok=None, layout_mutation=True),

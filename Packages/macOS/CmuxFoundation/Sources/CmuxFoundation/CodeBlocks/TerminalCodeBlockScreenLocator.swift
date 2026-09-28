@@ -115,6 +115,12 @@ public struct TerminalCodeBlockRunPolicy: Sendable {
             if scalar == "\n" || scalar == "\t" { return true }
             if scalar.value < 0x20 || scalar.value == 0x7F { return false }
             if (0x80...0x9F).contains(scalar.value) { return false }
+            // Bidi overrides/isolates and Unicode line separators can make
+            // the pasted command differ from what the review shows.
+            if scalar.value == 0x202E
+                || (0x2066...0x2069).contains(scalar.value)
+                || scalar.value == 0x2028
+                || scalar.value == 0x2029 { return false }
             return true
         }
         var result = String(String.UnicodeScalarView(scalars))

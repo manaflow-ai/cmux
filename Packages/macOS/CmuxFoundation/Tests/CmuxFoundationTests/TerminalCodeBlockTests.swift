@@ -192,6 +192,8 @@ struct TerminalCodeBlockTests {
         #expect(policy.pasteText("make\n") == "make")
         #expect(policy.pasteText("a\r\nb") == "a\nb")
         #expect(policy.pasteText("echo \u{1B}[201~hi\u{07}") == "echo [201~hi")
+        #expect(policy.pasteText("ls \u{202E}txt.exe\u{2066}x\u{2069}\u{2028}y") == "ls txt.exexy")
+        #expect(policy.requiresReview("ls \u{202E}txt.exe"))
     }
 
     @Test("A multi-line command is pasted only while bracketed paste is on")

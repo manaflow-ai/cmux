@@ -207,6 +207,21 @@ final class TerminalCodeBlockController {
             guard let self else { return }
             self.transcriptLoad = nil
             guard let loaded else { return }
+            // The pane may have switched sessions while the read ran.
+            let currentPath = self.host?.surfaceView.terminalSurface?.id
+                .flatMap { surfaceID in
+                    TerminalController.shared.agentChatTranscriptService?
+                        .registry.liveSession(surfaceID: surfaceID.uuidString)
+                }
+                .flatMap { record in
+                    TerminalController.shared.agentChatTranscriptService?
+                        .resolver.boundedTranscriptPath(for: record)
+                }
+            guard currentPath == path else {
+                self.transcriptEntries = []
+                self.viewportReadAt = .distantPast
+                return
+            }
             self.transcriptStamp = loaded.0
             self.transcriptEntries = loaded.1
             self.viewportReadAt = .distantPast

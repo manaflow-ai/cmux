@@ -7384,7 +7384,8 @@ struct CMUXCLI {
             while cbIndex < commandArgs.count {
                 let arg = commandArgs[cbIndex]
                 func cbValue() throws -> String {
-                    guard cbIndex + 1 < commandArgs.count else {
+                    guard cbIndex + 1 < commandArgs.count,
+                          !commandArgs[cbIndex + 1].hasPrefix("--") else {
                         throw CLIError(message: "code-block: \(arg) requires a value")
                     }
                     cbIndex += 1
