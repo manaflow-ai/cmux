@@ -258,4 +258,10 @@ if (JSON.stringify(turnShape) !== JSON.stringify(expectedShape)) {
   throw new Error(`agent messages grouped wrong: ${JSON.stringify(turnShape)}`);
 }
 
+// A sender name is shown as written, even with replacement patterns in it.
+const { agentMessageLabel } = await import("../src/components/Transcript");
+if (agentMessageLabel("a$&b", ["en"]) !== "Message from a$&b") {
+  throw new Error(`sender label mangled: ${agentMessageLabel("a$&b", ["en"])}`);
+}
+
 console.log("turn summary and virtualization: OK");
