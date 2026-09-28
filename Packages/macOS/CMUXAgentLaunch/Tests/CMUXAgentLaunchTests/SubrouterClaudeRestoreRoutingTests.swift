@@ -128,6 +128,7 @@ struct SubrouterClaudeRestoreRoutingTests {
         #expect(invocation.environment["CMUX_CUSTOM_CLAUDE_PATH"] == capturedClaude)
         #expect(invocation.environment["PATH"] == ambientEnvironment["PATH"])
         #expect(invocation.preflightInvocations.isEmpty)
+        #expect(invocation.notices.isEmpty)
     }
 
     /// The 2026-09-27 failure: sessions launched with `sr claude proxy --account x`
@@ -402,6 +403,8 @@ struct SubrouterClaudeRestoreRoutingTests {
         ))
 
         expectPlainClaudeReplay(invocation, baseURL: localPoolBaseURL, "sr missing")
+        // The fallback is reported, so the user knows why the session is not routed.
+        #expect(invocation.notices == [.routedLauncherUnavailable(executable: "sr")])
     }
 
     @Test("A cmux launcher such as claude-teams is never rerouted through Subrouter")
