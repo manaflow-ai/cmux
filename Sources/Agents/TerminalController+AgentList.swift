@@ -23,7 +23,7 @@ extension TerminalController {
     @MainActor
     /// Nil when the app or its session registry is not up: an empty list would
     /// wrongly say no agent is running.
-    private static func captureAgentActivity() async -> [AgentActivitySnapshot]? {
+    static func captureAgentActivity() async -> [AgentActivitySnapshot]? {
         guard let appDelegate = AppDelegate.shared,
               let sessions = TerminalController.shared.agentChatTranscriptService else { return nil }
         return await AgentActivityIndex(

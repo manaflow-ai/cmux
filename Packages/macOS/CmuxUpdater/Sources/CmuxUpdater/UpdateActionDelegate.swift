@@ -22,8 +22,9 @@ public protocol UpdateActionDelegate: AnyObject {
     func updaterWillRelaunchApplication()
 
     /// What relaunching right now would interrupt. An automatic install waits while this is
-    /// non-empty (see ``UpdateRelaunchBlockers``).
-    func updaterRelaunchBlockers() -> UpdateRelaunchBlockers
+    /// non-empty (see ``UpdateRelaunchBlockers``). Async because classifying an agent can read
+    /// its pane's process tree off the main actor; a holding gate awaits it every few seconds.
+    func updaterRelaunchBlockers() async -> UpdateRelaunchBlockers
 
     /// How long ago the user last pressed a key, clicked, or moved the pointer, anywhere on the
     /// Mac. An automatic install waits for a quiet moment.

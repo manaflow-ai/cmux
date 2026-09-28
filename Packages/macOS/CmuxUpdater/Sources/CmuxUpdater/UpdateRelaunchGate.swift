@@ -161,8 +161,8 @@ final class UpdateRelaunchGate {
         }
     }
 
-    /// Publishes a holding state through `publish` and relaunches when `mode` allows it (see
-    /// the type's discussion), running `prepare` first. Install Now runs `prepare` and
+    /// Publishes a holding state through `publish` once the first `readiness` read returns, and
+    /// relaunches when `mode` allows it (see the type's discussion), running `prepare` first. Install Now runs `prepare` and
     /// `relaunch` without waiting; Later runs `later` instead. Each hold runs at most one of
     /// `relaunch` or `later`: a new hold defers the old one, and ``cancel()`` (the update
     /// session ended) runs neither. `isShown` reports whether the published state is still the
@@ -170,7 +170,7 @@ final class UpdateRelaunchGate {
     /// state.
     func hold(
         mode: Mode,
-        readiness: @escaping @MainActor () -> Readiness,
+        readiness: @escaping @MainActor () async -> Readiness,
         isShown: @escaping @MainActor () -> Bool,
         publish: @escaping @MainActor (UpdateState) -> Void,
         prepare: @escaping @MainActor () async -> Void,
@@ -185,9 +185,11 @@ final class UpdateRelaunchGate {
         log.append("update relaunch held (mode=\(mode))")
         let actions = Actions(publish: publish, prepare: prepare)
         request.actions = actions
-        publishHold(request, blockers: readiness().blockers, actions: actions)
         let interval = recheckInterval
         waitTask = Task { @MainActor [weak self, clock] in
+            let initial = await readiness()
+            guard !Task.isCancelled, let gate = self, gate.pending === request else { return }
+            gate.publishHold(request, blockers: initial.blockers, actions: actions)
             while !Task.isCancelled {
                 do {
                     try await clock.sleep(for: interval)
@@ -200,7 +202,8 @@ final class UpdateRelaunchGate {
                     self.cancel()
                     return
                 }
-                let current = readiness()
+                let current = await readiness()
+                guard !Task.isCancelled, self.pending === request else { return }
                 guard Self.mayRelaunch(current, mode: request.mode, quietPeriod: self.quietPeriod) else {
                     self.publishHold(request, blockers: current.blockers, actions: actions)
                     continue
@@ -212,7 +215,8 @@ final class UpdateRelaunchGate {
                 guard self.pending === request else { return }
                 // The capture takes a moment: an agent may have started a command, or the user
                 // may be back. Relaunch only if it is still clear.
-                let after = readiness()
+                let after = await readiness()
+                guard !Task.isCancelled, self.pending === request else { return }
                 if request.installNowRequested
                     || Self.mayRelaunch(after, mode: request.mode, quietPeriod: self.quietPeriod) {
                     self.log.append("update relaunch gate: relaunching")

@@ -19,7 +19,7 @@ private final class RelaunchHost: UpdateActionDelegate {
         onPrepare?()
     }
     func updaterWillRelaunchApplication() {}
-    func updaterRelaunchBlockers() -> UpdateRelaunchBlockers { blockers }
+    func updaterRelaunchBlockers() async -> UpdateRelaunchBlockers { blockers }
     func updaterTimeSinceLastUserInput() -> Duration { idle }
 }
 
@@ -59,12 +59,24 @@ private final class CallCounter: @unchecked Sendable {
     }
 
     /// Starts an automatic install the way Sparkle does: the background download finishes, the
-    /// driver runs the immediate-install block, and Sparkle asks whether to postpone.
-    private func startAutomaticInstall(_ driver: UpdateDriver, installs: CallCounter) {
+    /// driver runs the immediate-install block, and Sparkle asks whether to postpone. Returns
+    /// once the hold has read the host's blockers and published them.
+    private func startAutomaticInstall(_ driver: UpdateDriver, installs: CallCounter) async {
         let handled = driver.handleWillInstallUpdateOnQuit(immediateInstallHandler: {
             #expect(driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 }))
         })
         #expect(handled)
+        await settle {
+            guard case .installing(let installing) = driver.model.state else { return false }
+            return installing.relaunchBlockers != nil
+        }
+    }
+
+    /// An install the user asked for, the way Sparkle asks about it. Returns once the driver has
+    /// read the host's blockers and either held the relaunch or started relaunching.
+    private func requestInstall(_ driver: UpdateDriver, installs: CallCounter) async {
+        #expect(driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 }))
+        await settle { waitingBlockers != nil || host.prepareCount > 0 }
     }
 
     private var waitingBlockers: UpdateRelaunchBlockers? {
@@ -126,7 +138,7 @@ private final class CallCounter: @unchecked Sendable {
         host.blockers = blockers(risky: 1, care: 2, commands: 1)
         host.idle = .zero
 
-        _ = driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 })
+        await requestInstall(driver, installs: installs)
 
         #expect(driver.relaunchGate.mode == .askUser)
         #expect(installing?.updateWhenClear != nil)
@@ -147,7 +159,7 @@ private final class CallCounter: @unchecked Sendable {
         let installs = CallCounter()
         host.blockers = blockers(risky: 2)
         host.idle = .zero
-        _ = driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 })
+        await requestInstall(driver, installs: installs)
 
         installing?.updateWhenClear?()
         #expect(driver.relaunchGate.mode == .whenClear)
@@ -164,14 +176,14 @@ private final class CallCounter: @unchecked Sendable {
         let driver = makeDriver()
         let installs = CallCounter()
         host.blockers = blockers(risky: 1)
-        _ = driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 })
+        await requestInstall(driver, installs: installs)
 
         installing?.dismiss()
         #expect(model.text == "Restart to Complete Update")
         #expect(!driver.relaunchGate.isWaiting)
 
         installing?.retryTerminatingApplication()
-        #expect(driver.relaunchGate.mode == .askUser)
+        await settle { driver.relaunchGate.mode == .askUser && waitingBlockers != nil }
         #expect(installs.count == 0)
     }
 
@@ -199,7 +211,7 @@ private final class CallCounter: @unchecked Sendable {
         let installs = CallCounter()
         host.idle = .seconds(5)
 
-        startAutomaticInstall(driver, installs: installs)
+        await startAutomaticInstall(driver, installs: installs)
 
         #expect(driver.relaunchGate.isWaiting)
         #expect(waitingBlockers == .empty)
@@ -219,7 +231,7 @@ private final class CallCounter: @unchecked Sendable {
         let driver = makeDriver()
         let installs = CallCounter()
         host.blockers = blockers(care: 3)
-        startAutomaticInstall(driver, installs: installs)
+        await startAutomaticInstall(driver, installs: installs)
         #expect(model.description.hasSuffix("3 agents will be resumed mid-task."))
 
         await recheck { installs.count == 1 }
@@ -230,7 +242,7 @@ private final class CallCounter: @unchecked Sendable {
         let installs = CallCounter()
         host.blockers = blockers(risky: 2, commands: 0)
 
-        startAutomaticInstall(driver, installs: installs)
+        await startAutomaticInstall(driver, installs: installs)
         #expect(waitingBlockers?.riskyAgents.count == 2)
 
         for _ in 0..<5 {
@@ -251,7 +263,7 @@ private final class CallCounter: @unchecked Sendable {
         let installs = CallCounter()
         host.blockers = blockers(risky: 0, commands: 1)
 
-        startAutomaticInstall(driver, installs: installs)
+        await startAutomaticInstall(driver, installs: installs)
         for _ in 0..<3 {
             await tick()
         }
@@ -267,7 +279,7 @@ private final class CallCounter: @unchecked Sendable {
     @Test func agentThatStartsATurnDuringPrepareKeepsTheUpdateWaiting() async {
         let driver = makeDriver()
         let installs = CallCounter()
-        startAutomaticInstall(driver, installs: installs)
+        await startAutomaticInstall(driver, installs: installs)
 
         // The quiet moment arrives, but an agent starts a turn while the host captures its
         // sessions: relaunching now would cut that turn off.
@@ -289,7 +301,7 @@ private final class CallCounter: @unchecked Sendable {
     @Test func userReturningDuringPrepareKeepsTheUpdateWaiting() async {
         let driver = makeDriver()
         let installs = CallCounter()
-        startAutomaticInstall(driver, installs: installs)
+        await startAutomaticInstall(driver, installs: installs)
 
         host.onPrepare = { [host] in host.idle = .milliseconds(200) }
         await tick()
@@ -314,7 +326,7 @@ private final class CallCounter: @unchecked Sendable {
         let controller = makeController()
         host.idle = .zero
         let installs = CallCounter()
-        startAutomaticInstall(controller.driver, installs: installs)
+        await startAutomaticInstall(controller.driver, installs: installs)
         #expect(installs.count == 0)
 
         controller.attemptUpdate()
@@ -326,7 +338,7 @@ private final class CallCounter: @unchecked Sendable {
         let controller = makeController()
         host.blockers = blockers(risky: 1, commands: 0)
         let installs = CallCounter()
-        startAutomaticInstall(controller.driver, installs: installs)
+        await startAutomaticInstall(controller.driver, installs: installs)
 
         // The menu shows none of what is running, so it asks like any install the user starts.
         controller.attemptUpdate()
@@ -348,7 +360,7 @@ private final class CallCounter: @unchecked Sendable {
         let driver = makeDriver()
         let installs = CallCounter()
         host.blockers = blockers(risky: 1, commands: 0)
-        startAutomaticInstall(driver, installs: installs)
+        await startAutomaticInstall(driver, installs: installs)
 
         installing?.dismiss()
         #expect(installs.count == 0)
@@ -373,11 +385,11 @@ private final class CallCounter: @unchecked Sendable {
         #expect(installs.count == 1)
     }
 
-    @Test func updaterErrorWhileHeldEndsTheHoldWithoutInstalling() {
+    @Test func updaterErrorWhileHeldEndsTheHoldWithoutInstalling() async {
         let driver = makeDriver()
         let installs = CallCounter()
         host.blockers = blockers(risky: 1, commands: 0)
-        startAutomaticInstall(driver, installs: installs)
+        await startAutomaticInstall(driver, installs: installs)
 
         driver.showUpdaterError(NSError(domain: "test", code: 1), acknowledgement: {})
 
@@ -389,10 +401,10 @@ private final class CallCounter: @unchecked Sendable {
         }
     }
 
-    @Test func finishedUpdateCycleEndsTheHold() {
+    @Test func finishedUpdateCycleEndsTheHold() async {
         let driver = makeDriver()
         host.blockers = blockers(risky: 1, commands: 0)
-        startAutomaticInstall(driver, installs: CallCounter())
+        await startAutomaticInstall(driver, installs: CallCounter())
 
         driver.handleDidFinishUpdateCycle(.updates, error: nil)
 
@@ -410,7 +422,7 @@ private final class CallCounter: @unchecked Sendable {
         // automatic hold would wait for a quiet minute; this one relaunches).
         host.blockers = blockers(care: 1)
         host.idle = .zero
-        _ = driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 })
+        await requestInstall(driver, installs: installs)
         await settle { installs.count == 1 }
         #expect(!driver.relaunchGate.isWaiting)
     }
@@ -419,7 +431,7 @@ private final class CallCounter: @unchecked Sendable {
         let driver = makeDriver()
         let installs = CallCounter()
         host.blockers = blockers(risky: 1, commands: 0)
-        startAutomaticInstall(driver, installs: installs)
+        await startAutomaticInstall(driver, installs: installs)
 
         model.setState(.idle)
         host.blockers = .empty

@@ -25,12 +25,15 @@ extension UpdateDriver {
 
     /// An install the user asked for: relaunch now, unless something risky needs their say-so.
     private func relaunchOnRequest(install: @escaping () -> Void) {
-        let blockers = currentReadiness().blockers
-        if blockers.needsConfirmation {
-            log.append("install requested with \(blockers.riskyAgents.count) risky agent(s), \(blockers.runningCommandCount) command(s); asking")
-            holdRelaunch(mode: .askUser, install: install)
-        } else {
-            relaunchAfterPreparing(install: install)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let blockers = await self.currentReadiness().blockers
+            if blockers.needsConfirmation {
+                self.log.append("install requested with \(blockers.riskyAgents.count) risky agent(s), \(blockers.runningCommandCount) command(s); asking")
+                self.holdRelaunch(mode: .askUser, install: install)
+            } else {
+                self.relaunchAfterPreparing(install: install)
+            }
         }
     }
 
@@ -49,12 +52,12 @@ extension UpdateDriver {
         relaunchGate.cancel()
     }
 
-    private func currentReadiness() -> UpdateRelaunchGate.Readiness {
+    private func currentReadiness() async -> UpdateRelaunchGate.Readiness {
         guard let actionDelegate else {
             return .init(blockers: .empty, idle: .seconds(Int64.max))
         }
         return .init(
-            blockers: actionDelegate.updaterRelaunchBlockers(),
+            blockers: await actionDelegate.updaterRelaunchBlockers(),
             idle: actionDelegate.updaterTimeSinceLastUserInput()
         )
     }
@@ -79,7 +82,7 @@ extension UpdateDriver {
         relaunchGate.hold(
             mode: mode,
             readiness: { [weak self] in
-                self?.currentReadiness() ?? .init(blockers: .empty, idle: .zero)
+                await self?.currentReadiness() ?? .init(blockers: .empty, idle: .zero)
             },
             isShown: { [weak self] in
                 guard case .installing(let installing) = self?.model.state else { return false }

@@ -2554,21 +2554,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Remembers which agents the update relaunch is about to cut off mid-task.
-    func captureUpdateRelaunchMidTaskPanels() {
+    func captureUpdateRelaunchMidTaskPanels() async {
         updateRelaunchMidTaskCapture = (
-            updaterRelaunchBlockers().midTaskPanelIds,
+            await updaterRelaunchBlockers().midTaskPanelIds,
             ProcessInfo.processInfo.systemUptime
         )
     }
 
-    /// The recent pre-relaunch capture, or the current mid-task panels when there is none.
+    /// The recent pre-relaunch capture. Every update relaunch runs
+    /// ``updaterPrepareForRelaunch()`` first, so without a recent capture no panel is marked.
     private func takeUpdateRelaunchMidTaskPanelIds() -> Set<UUID> {
         defer { updateRelaunchMidTaskCapture = nil }
         if let capture = updateRelaunchMidTaskCapture,
            ProcessInfo.processInfo.systemUptime - capture.capturedAt <= UpdateRelaunchIndexCapture.lifetime {
             return capture.panelIds
         }
-        return updaterRelaunchBlockers().midTaskPanelIds
+        return []
     }
 
     func configure(
@@ -20483,7 +20484,7 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 
     func updaterPrepareForRelaunch() async {
         await prepareUpdateRelaunchIndexes()
-        captureUpdateRelaunchMidTaskPanels()
+        await captureUpdateRelaunchMidTaskPanels()
     }
 
     func updaterTimeSinceLastUserInput() -> Duration {
@@ -20504,7 +20505,7 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
         }
     }
 
-    func updaterRelaunchBlockers() -> UpdateRelaunchBlockers {
+    func updaterRelaunchBlockers() async -> UpdateRelaunchBlockers {
         var seen = Set<ObjectIdentifier>()
         let managers = mainWindowContexts.values.map { $0.tabManager }
             + [tabManager].compactMap { $0 }
@@ -20512,26 +20513,27 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
         let workspaces = managers
             .filter { seen.insert(ObjectIdentifier($0)).inserted }
             .flatMap(\.tabs)
-        var activity: [UpdateRelaunchPanelActivity] = []
+        var titles: [UUID: String] = [:]
+        var shellPanels: [UpdateRelaunchShellPanel] = []
         for workspace in workspaces {
+            titles[workspace.id] = workspace.title
             let isRemote = workspace.isRemoteWorkspace || workspace.isRemoteTmuxMirror
             for panelId in workspace.panels.keys {
-                activity.append(UpdateRelaunchPanelActivity(
+                shellPanels.append(UpdateRelaunchShellPanel(
                     panelId: panelId,
-                    location: workspace.title,
-                    agentLifecycles: workspace.agentLifecycleStatesByPanelId[panelId] ?? [:],
                     shellActivity: workspace.panelShellActivityStates[panelId],
                     isRemote: isRemote
                 ))
             }
             if let dock = workspace._dockSplit {
-                activity += dock.updateRelaunchPanelActivity(location: workspace.title, isRemote: isRemote)
+                shellPanels += dock.updateRelaunchShellPanels(isRemote: isRemote)
             }
         }
         for dock in existingWindowDocks {
-            activity += dock.updateRelaunchPanelActivity(location: "", isRemote: false)
+            shellPanels += dock.updateRelaunchShellPanels(isRemote: false)
         }
-        return Self.updateRelaunchBlockers(panels: activity)
+        let agents = await TerminalController.captureAgentActivity() ?? []
+        return Self.updateRelaunchBlockers(agents: agents, workspaceTitles: titles, shellPanels: shellPanels)
     }
 
     func attemptUpdate() {
@@ -20550,7 +20552,6 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     }
 }
 
-/// One terminal panel's agent and shell activity, as read by ``AppDelegate/updaterRelaunchBlockers()``.
 // MARK: - CmuxAppKitSupportUI seam conformance
 
 extension AppDelegate: WindowDecorating {}
