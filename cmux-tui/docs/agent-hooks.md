@@ -12,6 +12,22 @@ cmux agent hook install claude
 cmux agent hook status
 ```
 
+## Agents in a tmux session started elsewhere
+
+An agent can run in a tmux session whose server was started outside
+cmux-tui, for example by a launcher over SSH, and be viewed by running
+`tmux attach` in a cmux-tui terminal. Its panes have no `CMUX_TUI_HOOK`, so
+the installed hook commands fall back to the installed `cmux-tui-hook` helper
+whenever `TMUX` is set. On Linux the helper finds the tmux clients of the
+pane's session (or a session grouped with it), prefers the one whose current
+window shows the pane and then the most recently active one, and reads the
+session socket and terminal id from that client's environment. The event goes
+to that terminal, so its agent status appears where the session is attached.
+This takes precedence over the pane's own `CMUX_TUI_*` values, which come
+from whichever terminal started the tmux server. Without such a client the
+helper uses the pane's environment as before. Agents started before the
+hooks were installed or updated pick this up on their next start.
+
 ## Claude Code without an install
 
 Claude Code started in a cmux-tui terminal gets the session's hooks even when

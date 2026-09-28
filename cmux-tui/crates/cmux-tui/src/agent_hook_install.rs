@@ -1903,7 +1903,23 @@ fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String
     )
 }
 
+/// The installed hook command. It runs `$CMUX_TUI_HOOK`, which every cmux-tui
+/// terminal exports. An agent inside tmux may have been started by a tmux
+/// server that never ran in a cmux-tui terminal, so without that variable a
+/// tmux pane falls back to the installed helper, which routes the event to the
+/// cmux-tui terminal attached to the pane's tmux session. Anywhere else the
+/// command stays a process-free no-op.
 fn hook_command(provider: &str, event: &str) -> String {
+    format!(
+        "h=${{CMUX_TUI_HOOK:-${{TMUX:+${{XDG_DATA_HOME:-$HOME/.local/share}}/cmux-tui/bin/cmux-tui-hook}}}};\"${{h:-:}}\" {} {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
+        shell_quote(provider),
+        shell_quote(event),
+    )
+}
+
+/// The command shape before the tmux fallback. Its codex trust hashes stay
+/// cmux-owned so an upgrade replaces them instead of leaving them behind.
+fn legacy_hook_command(provider: &str, event: &str) -> String {
     format!(
         "\"${{CMUX_TUI_HOOK:-:}}\" {} {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
         shell_quote(provider),
@@ -2093,16 +2109,21 @@ fn codex_expected_trust_entries(
     Ok(entries)
 }
 
-/// Every trust hash the current installer shape can produce. Entries carrying
+/// Every trust hash the current and previous installer shapes can produce. Entries carrying
 /// one of these hashes are cmux-owned regardless of their positional key.
 fn codex_owned_trust_hashes() -> anyhow::Result<BTreeSet<String>> {
     CODEX_EVENTS
         .iter()
         .map(|event| {
             let label = codex_event_state_label(event)?;
-            Ok(codex_trust_hash(label, &hook_command("codex", event), codex_hook_timeout(event)))
+            let timeout = codex_hook_timeout(event);
+            Ok([
+                codex_trust_hash(label, &hook_command("codex", event), timeout),
+                codex_trust_hash(label, &legacy_hook_command("codex", event), timeout),
+            ])
         })
-        .collect()
+        .collect::<anyhow::Result<Vec<_>>>()
+        .map(|pairs| pairs.into_iter().flatten().collect())
 }
 
 /// Dotfile managers commonly symlink `config.toml`; the atomic rename must
@@ -3660,7 +3681,7 @@ esac
             serde_json::from_slice(&fs::read(context.home.join(".codex/hooks.json")).unwrap())
                 .unwrap();
         let command = root["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
-        assert!(command.len() <= 90, "hook command is {} bytes: {command}", command.len());
+        assert!(command.len() <= 170, "hook command is {} bytes: {command}", command.len());
         assert!(!command.contains("CMUX_TUI_SOCKET"));
         assert!(!hook_command("claude", "Stop").contains("GROK_HOOK_EVENT"));
 
@@ -3668,6 +3689,7 @@ esac
             .args(["-c", command])
             .env("CMUX_TUI_SOCKET", "/tmp/cmux-test.sock")
             .env_remove("CMUX_TUI_HOOK")
+            .env_remove("TMUX")
             .env("CAPTURE", &capture)
             .output()
             .unwrap();
@@ -3684,16 +3706,32 @@ esac
             .unwrap();
         assert!(output.status.success());
         assert_eq!(output.stdout, b"{}\n");
-        assert_eq!(fs::read_to_string(capture).unwrap(), "codex Stop\n");
+        assert_eq!(fs::read_to_string(&capture).unwrap(), "codex Stop\n");
+        fs::remove_file(&capture).unwrap();
+
+        // A tmux pane without the session's variables falls back to the
+        // installed helper, which routes through the attached tmux client.
+        let output = Command::new("/bin/sh")
+            .args(["-c", command])
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_TUI_HOOK")
+            .env("TMUX", "/tmp/tmux-test/default,1,0")
+            .env("XDG_DATA_HOME", &context.data_home)
+            .env("CAPTURE", &capture)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"{}\n");
+        assert_eq!(fs::read_to_string(&capture).unwrap(), "codex Stop\n");
     }
 
     #[test]
-    fn every_command_hook_fits_in_one_hundred_bytes() {
+    fn every_command_hook_fits_in_two_hundred_bytes() {
         for provider in PROVIDERS {
             for event in provider.events {
                 let command = hook_command(provider.id, event);
                 assert!(
-                    command.len() <= 100,
+                    command.len() <= 200,
                     "{} {event} hook command is {} bytes: {command}",
                     provider.id,
                     command.len()
