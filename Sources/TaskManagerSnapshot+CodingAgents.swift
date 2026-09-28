@@ -114,7 +114,12 @@ extension CmuxTaskManagerSnapshot {
     static func processIdentityDetail(_ processes: [[String: Any]]) -> String? {
         let identities = processes.compactMap { process -> String? in
             guard let pid = process["pid"] as? Int else { return nil }
-            let pidText = String(localized: "taskManager.row.pid", defaultValue: "PID \(pid)")
+            // String(format:) keeps the PID ungrouped ("61879", not "61,879")
+            // so it matches Activity Monitor's PID column.
+            let pidText = String(format: String(
+                localized: "taskManager.killProcess.target.pid",
+                defaultValue: "PID %lld"
+            ), Int64(pid))
             // The sampler writes "pid-<n>" when it can't read a name.
             guard let name = nonEmptyString(process["name"]), !name.hasPrefix("pid-") else { return pidText }
             return "\(pidText) (\(name))"
