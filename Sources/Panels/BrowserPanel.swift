@@ -4261,8 +4261,8 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         let nwEndpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: nwPort)
-        var socks = ProxyConfiguration(socksv5Proxy: nwEndpoint)
-        var connect = ProxyConfiguration(httpCONNECTProxy: nwEndpoint)
+        let socks = ProxyConfiguration(socksv5Proxy: nwEndpoint)
+        let connect = ProxyConfiguration(httpCONNECTProxy: nwEndpoint)
         let credential = endpoint.credential
         socks.applyCredential(username: credential.username, password: credential.password)
         connect.applyCredential(username: credential.username, password: credential.password)

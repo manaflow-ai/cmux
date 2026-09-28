@@ -257,7 +257,7 @@ struct RemoteDaemonProxySessionAuthenticationTests {
         kind: ProxyKind,
         applyCredential: Bool
     ) async throws -> (Data, URLResponse) {
-        var proxy = switch kind {
+        let proxy = switch kind {
         case .socks5: ProxyConfiguration(socksv5Proxy: harness.endpoint)
         case .httpConnect: ProxyConfiguration(httpCONNECTProxy: harness.endpoint)
         }
