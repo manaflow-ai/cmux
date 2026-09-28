@@ -68,6 +68,7 @@ PATH_OWNERS = {
     # than naming them in a `run:`, so every group observes an edit to them.
     ".github/workflows/ci-macos.yml": frozenset(GROUPS),
     ".github/workflows/ci-web.yml": frozenset(GROUPS),
+    ".github/workflows/ci-release.yml": frozenset(GROUPS),
     ".github/workflows/web-complexity.yml": frozenset(("ci",)),
     ".github/workflows/web-complexity-trusted.yml": frozenset(("ci",)),
     ".github/review-fabric-policy.json": frozenset(("preflight",)),

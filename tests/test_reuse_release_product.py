@@ -151,6 +151,12 @@ class ReleaseProductReuseTests(unittest.TestCase):
         self.assertTrue(result["hit"], result)
         self.assertEqual(result["outcome"], "exact_restore")
 
+    def test_release_workflow_job_name_restores_release_product(self):
+        # ci.yml's `release` job calls ci-release.yml.
+        self.api.job["name"] = "release / release-build"
+        result = self.restore()
+        self.assertTrue(result["hit"], result)
+
     def test_unrelated_reusable_job_name_cannot_authorize_release_product(self):
         self.api.job["name"] = "untrusted / release-build"
         result = self.restore()

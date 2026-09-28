@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CI_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
+CI_RELEASE_FILE="$ROOT_DIR/.github/workflows/ci-release.yml"
+CI_ENTRY_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 RELEASE_FILE="$ROOT_DIR/.github/workflows/release.yml"
 
 # nightly.yml is intentionally not covered here. It has its own helper-build
@@ -42,12 +44,12 @@ require_job_contains \
   "release must sign+notarize on the macOS 26 runner variable after importing the Developer ID intermediate chain"
 
 require_job_contains \
-  "$CI_FILE" \
+  "$CI_RELEASE_FILE" \
   "release-build" \
   'runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-26'\'' || (github.event_name == '\''pull_request'\'' && github.event.pull_request.head.repo.full_name != github.repository && '\''blacksmith-6vcpu-macos-26'\'' || vars.MACOS_RUNNER_26 || '\''blacksmith-6vcpu-macos-26'\'') }}' \
   "CI release-build must use GitHub-hosted macOS on forks and the macOS 26 runner variable upstream"
 
-for workflow in "$CI_FILE" "$RELEASE_FILE"; do
+for workflow in "$CI_RELEASE_FILE" "$RELEASE_FILE"; do
   if ! grep -Fq "CMUX_SKIP_ZIG_BUILD=1 xcodebuild" "$workflow"; then
     echo "FAIL: $(basename "$workflow") must skip the in-build Zig helper on macOS 26" >&2
     exit 1
@@ -138,13 +140,16 @@ if [[ "$swift_package_section" != *'[[ "$HELPER_SDK_VERSION" == 15.* ]]'* ]]; th
   exit 1
 fi
 
-release_build_section="$(job_section "$CI_FILE" "release-build")"
+release_build_section="$(job_section "$CI_RELEASE_FILE" "release-build")"
 if [[ "$release_build_section" != *"actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0"* ]]; then
   echo "FAIL: CI release-build must download the macOS 15-built Ghostty helper artifact" >&2
   exit 1
 fi
 
-if [[ "$release_build_section" != *"- swift-package-tests"* ]]; then
+# ci.yml calls ci-release.yml after the macOS workflow, whose outputs carry
+# the helper swift-package-tests built.
+release_call_section="$(job_section "$CI_ENTRY_FILE" "release")"
+if [[ "$release_call_section" != *"- macos"* || "$release_call_section" != *"needs.macos.outputs.ghostty_helper_sha256"* ]]; then
   echo "FAIL: CI release-build must wait for the helper-producing swift-package-tests lane" >&2
   exit 1
 fi

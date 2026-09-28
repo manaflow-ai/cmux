@@ -5,6 +5,7 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 MACOS = (ROOT / ".github/workflows/ci-macos.yml").read_text()
+RELEASE = (ROOT / ".github/workflows/ci-release.yml").read_text()
 GUARDS = (ROOT / ".github/workflows/ci-guards.yml").read_text()
 
 
@@ -20,7 +21,7 @@ def step(block: str, name: str) -> str:
     return match.group(0)
 
 
-release = job("release-build")
+release = job("release-build", RELEASE)
 package = job("swift-package-tests")
 admission = job("macos-compile-admission")
 guards = job("workflow-guard-tests", GUARDS)

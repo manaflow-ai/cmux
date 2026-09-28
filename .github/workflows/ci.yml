@@ -434,7 +434,8 @@ jobs:
                 .github/workflows/ci.yml \
                 .github/workflows/ci-guards.yml \
                 .github/workflows/ci-web.yml \
-                .github/workflows/ci-macos.yml
+                .github/workflows/ci-macos.yml \
+                .github/workflows/ci-release.yml
               do
                 mkdir -p "$trusted_root/$(dirname "$trusted_path")"
                 if [ -z "$trusted_base" ] || ! git show "$trusted_base:$trusted_path" > "$trusted_root/$trusted_path"; then
@@ -904,7 +905,7 @@ jobs:
               for name in base_jobs.keys() | head_jobs.keys()
               if base_jobs.get(name) != head_jobs.get(name)
           }
-          release_only_jobs = {"release-admission", "release-build", "macos-status"}
+          release_only_jobs = {"macos-status"}
           raise SystemExit(0 if changed and changed <= release_only_jobs else 1)
           PY
                   then
@@ -1341,6 +1342,31 @@ jobs:
     # ci-macos.yml's admission-placement and late-placement read the runners with it.
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+
+  # The unsigned Release app, reported on the pull request but not required:
+  # neither ci-status nor tests waits for it. It runs under the same
+  # conditions as when it lived in ci-macos.yml (a full suite whose router
+  # selected release_build, after compile admission, the package lane that
+  # builds its Ghostty helper, and linux-preflight pass). Main's full suite
+  # runs it on every run, so a Release break is red there too.
+  release:
+    needs:
+      - changes
+      - static-preflight
+      - linux-preflight
+      - macos
+    if: ${{ !cancelled() && needs.macos.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true' && needs.changes.outputs.release_build == 'true' }}
+    permissions:
+      actions: read
+      attestations: read
+      contents: read
+    uses: ./.github/workflows/ci-release.yml
+    with:
+      cache_backend: ${{ inputs.cache_backend }}
+      release_archs: ${{ needs.macos.outputs.release_archs }}
+      ghostty_helper_sha256: ${{ needs.macos.outputs.ghostty_helper_sha256 }}
+      ghostty_helper_toolchain_sha256: ${{ needs.macos.outputs.ghostty_helper_toolchain_sha256 }}
+      ghostty_helper_sdk: ${{ needs.macos.outputs.ghostty_helper_sdk }}
 
   tests:
     name: tests

@@ -15,6 +15,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 CI_MACOS_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
+CI_RELEASE_FILE="$ROOT_DIR/.github/workflows/ci-release.yml"
 CI_WEB_FILE="$ROOT_DIR/.github/workflows/ci-web.yml"
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
@@ -99,7 +100,7 @@ check_release_build_runner_disk_capacity() {
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && index($0, release_runner) { saw_release_runner=1 }
     END { exit !saw_release_runner }
-  ' "$CI_MACOS_FILE"; then
+  ' "$CI_RELEASE_FILE"; then
     echo "FAIL: release-build must run the disk-heavy universal build on the macOS 26 runner variable with the exact blacksmith-6vcpu-macos-26 fallback"
     exit 1
   fi
@@ -261,12 +262,12 @@ check_xcode_selection() {
 }
 
 check_release_build_signal() {
-  if ! grep -Fq './scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$CMUX_CUA_BINARY"' "$CI_MACOS_FILE"; then
+  if ! grep -Fq './scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$CMUX_CUA_BINARY"' "$CI_RELEASE_FILE"; then
     echo "FAIL: release-build must verify the Release app, CLI, and cmux-cua contain exactly the resolved architectures"
     exit 1
   fi
 
-  if ! grep -Fq './scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$CMUX_CUA_BINARY" "$HELPER_BINARY" "$TUI_CLIENT"' "$CI_MACOS_FILE"; then
+  if ! grep -Fq './scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$CMUX_CUA_BINARY" "$HELPER_BINARY" "$TUI_CLIENT"' "$CI_RELEASE_FILE"; then
     echo "FAIL: release-build must verify both bundled helpers contain exactly the producer-selected architectures"
     exit 1
   fi
@@ -287,7 +288,7 @@ check_release_build_disk_cleanup() {
     in_step && /cleanup-dev-builds\.sh/ { saw_tag_cleanup=1 }
 
     END { exit !(saw_step && saw_df && saw_workspace && !saw_direct_derived_data && !saw_tag_cleanup) }
-  ' "$CI_MACOS_FILE"; then
+  ' "$CI_RELEASE_FILE"; then
     echo "FAIL: release-build cleanup must stay limited to job-owned workspace paths"
     exit 1
   fi
@@ -345,7 +346,6 @@ check_release_helper_artifact_from_package_lane() {
     /^  release-build:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
-    in_job && /- swift-package-tests/ { saw_need=1 }
     in_job && /- name: Download Release Ghostty CLI helper/ { saw_download_step=1; next }
     in_job && /uses: actions\/download-artifact@/ { saw_download=1 }
     in_job && /name:[[:space:]]*cmux-ghostty-cli-helper/ { saw_artifact_name=1 }
@@ -353,9 +353,22 @@ check_release_helper_artifact_from_package_lane() {
     in_job && /\.\/scripts\/install-prebuilt-ghostty-cli-helper\.sh/ { saw_install=1 }
 
     END {
-      exit !(saw_need && saw_download_step && saw_download && saw_artifact_name && saw_install_step && saw_install)
+      exit !(saw_download_step && saw_download && saw_artifact_name && saw_install_step && saw_install)
     }
-  ' "$CI_MACOS_FILE"; then
+  ' "$CI_RELEASE_FILE"; then
+    echo "FAIL: release-build must depend on swift-package-tests, download the helper artifact, and install it into the app"
+    exit 1
+  fi
+
+  # ci.yml calls ci-release.yml after the macOS workflow and hands it the
+  # identity of the helper swift-package-tests built.
+  if ! awk '
+    /^  release:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /^      - macos$/ { saw_need=1 }
+    in_job && /needs\.macos\.outputs\.ghostty_helper_sha256/ { saw_output=1 }
+    END { exit !(saw_need && saw_output) }
+  ' "$CI_FILE"; then
     echo "FAIL: release-build must depend on swift-package-tests, download the helper artifact, and install it into the app"
     exit 1
   fi
@@ -1454,7 +1467,7 @@ check_owned_pools_route_through_picker
 check_macos_runner "$CI_MACOS_FILE" "app-host-unit-tests"
 check_macos_runner "$CI_MACOS_FILE" "macos-compile-admission"
 check_macos_runner "$CI_MACOS_FILE" "tests-build-and-lag"
-check_macos_runner "$CI_MACOS_FILE" "release-build"
+check_macos_runner "$CI_RELEASE_FILE" "release-build"
 check_release_build_runner_disk_capacity
 check_display_runner_identity_guard "$CI_MACOS_FILE" "tests-build-and-lag"
 

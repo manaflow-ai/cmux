@@ -27,6 +27,7 @@ CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "ci-guards.yml"
 WEB_WORKFLOW = ROOT / ".github" / "workflows" / "ci-web.yml"
 MACOS_WORKFLOW = ROOT / ".github" / "workflows" / "ci-macos.yml"
+RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "ci-release.yml"
 WEB_VALIDATION_WORKFLOW = ROOT / ".github" / "workflows" / "web-validation.yml"
 BROWSER_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-browser.yml"
 REMOTE_DAEMON_WORKFLOW = ROOT / ".github" / "workflows" / "remote-daemon.yml"
@@ -59,8 +60,6 @@ MACOS_JOBS = (
     "cli-product-tests",
     "swift-package-tests",
     "tests-build-and-lag",
-    "release-admission",
-    "release-build",
 )
 CI_STATUS_FALLBACK_WORKFLOW = ROOT / ".github" / "workflows" / "ci-status-fallback.yml"
 PERF_ACTIVATION_WORKFLOW = ROOT / ".github" / "workflows" / "perf-activation.yml"
@@ -624,23 +623,37 @@ def test_release_build_follows_the_other_areas_when_macos_is_skipped_or_forced()
     assert module.ChangeAreas.all().release_build is True
 
 
-def test_release_build_waits_for_linux_preflight_admission() -> None:
-    admission = workflow_job_block("release-admission", MACOS_WORKFLOW)
-    release = workflow_job_block("release-build", MACOS_WORKFLOW)
+def test_release_build_reports_without_gating_ci_status() -> None:
+    # release-build left the `macos` call ci-status and tests wait for. It
+    # runs under its old conditions: after the macOS workflow (compile
+    # admission and the package lane that builds its helper) and
+    # linux-preflight pass, on a full suite with release_build.
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    jobs = workflow["jobs"]
+    release = jobs["release"]
+    assert release["uses"] == "./.github/workflows/ci-release.yml"
+    assert set(release["needs"]) == {"changes", "static-preflight", "linux-preflight", "macos"}
+    for condition in (
+        "needs.macos.result == 'success'",
+        "needs.linux-preflight.result == 'success'",
+        "needs.changes.outputs.macos == 'true'",
+        "needs.changes.outputs.full_suite == 'true'",
+        "needs.changes.outputs.release_build == 'true'",
+    ):
+        assert condition in release["if"], condition
+    for name, job in jobs.items():
+        assert "release" not in job.get("needs", []) or name == "ci-timing", name
+    # The helper swift-package-tests builds reaches it through the call.
+    outputs = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))[True]["workflow_call"]["outputs"]
+    for name in ("release_archs", "ghostty_helper_sha256", "ghostty_helper_toolchain_sha256", "ghostty_helper_sdk"):
+        assert outputs[name]["value"] == f"${{{{ jobs.swift-package-tests.outputs.{name} }}}}", name
+        assert release["with"][name] == f"${{{{ needs.macos.outputs.{name} }}}}", name
     status = workflow_job_block("macos-status", MACOS_WORKFLOW)
-
-    assert (
-        "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
-        " || github.event_name == 'pull_request'"
-        " && github.event.pull_request.head.repo.full_name != github.repository"
-        " && 'blacksmith-4vcpu-ubuntu-2404'"
-        " || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
-    ) in admission
-    assert 'TARGET_JOB: "linux-preflight"' in admission
-    assert "actions/runs/{run_id}/jobs?filter=latest&per_page=100" in admission
-    assert "- release-admission" in release
-    assert "needs.release-admission.result == 'success'" in release
-    assert "- release-admission" in status
+    assert "release-build" not in status and "release-admission" not in status
+    assert "needs." not in workflow_job_block("release-build", RELEASE_WORKFLOW)
+    # Editing the Release workflow runs it, behind the macOS area.
+    actual = module.classify_files([".github/workflows/ci-release.yml"])
+    assert actual.macos is True and actual.release_build is True, actual
 
 
 def test_native_diff_sidecar_inputs_route_the_web_workflow_explicitly() -> None:
@@ -1737,12 +1750,12 @@ def test_macos_workflow_job_edits_select_release_only_for_release_jobs() -> None
         assert change_areas(real, edit_macos_job(real, job)) == mac_only, job
     # Admission builds the product the CLI lane restores, so it also runs that lane.
     assert change_areas(real, edit_macos_job(real, "macos-compile-admission")) == areas(macos=True, cli=True)
-    # swift-package-tests produces the helper release-build consumes through
-    # its outputs, and macos-status reports the Release verdict.
-    for job in ("release-admission", "release-build", "swift-package-tests", "macos-status"):
+    # swift-package-tests produces the helper release-build (ci-release.yml)
+    # consumes through the workflow's outputs, and macos-status reads the route.
+    for job in ("swift-package-tests", "macos-status"):
         assert change_areas(real, edit_macos_job(real, job)) == with_release, job
     assert change_areas(
-        real, edit_macos_job(edit_macos_job(real, "app-host-unit-tests"), "release-build"),
+        real, edit_macos_job(edit_macos_job(real, "app-host-unit-tests"), "swift-package-tests"),
     ) == with_release
     for head in (
         real.replace("\njobs:\n", "\nconcurrency: edited\njobs:\n", 1),
@@ -1761,7 +1774,7 @@ def test_macos_workflow_comment_edits_change_no_job() -> None:
     real = MACOS_WORKFLOW.read_text(encoding="utf-8")
     change_areas = module.macos_workflow_change_areas
     # The macOS area still runs the file; no job's own lane does.
-    for job in ("release-build", "cli-product-tests", "macos-compile-admission"):
+    for job in ("swift-package-tests", "cli-product-tests", "macos-compile-admission"):
         assert change_areas(real, edit_job(real, job)) == areas(macos=True), job
     in_preamble = real.replace("\njobs:\n", "\n# preamble comment\njobs:\n", 1)
     assert change_areas(real, in_preamble) == areas(macos=True)
@@ -1875,7 +1888,7 @@ def test_workflow_routes_macos_shard_edit_without_release_build() -> None:
     real = MACOS_WORKFLOW.read_text(encoding="utf-8")
     path = ".github/workflows/ci-macos.yml"
     shard = edit_macos_job(real, "app-host-unit-tests")
-    release = edit_macos_job(real, "release-build")
+    release = edit_macos_job(real, "swift-package-tests")
     # The normal router, and the trusted base router a policy edit selects.
     for policy_change in ([], ["scripts/ci/detect_ci_change_areas.py"]):
         for head, release_build in ((shard, "false"), (release, "true")):
@@ -2415,6 +2428,7 @@ def run_detect_step_for_paths(
             GUARD_WORKFLOW,
             WEB_WORKFLOW,
             MACOS_WORKFLOW,
+            RELEASE_WORKFLOW,
             ROOT / "scripts" / "ci" / "workloads" / "ci-guard.sh",
             # The package-test lane's own inputs, which the router reads to
             # decide whether that lane is worth a macOS runner.
@@ -3598,7 +3612,8 @@ def test_compile_admission_holds_every_product_consumer_behind_the_gate() -> Non
     # Every Mac job that runs the product needs admission, so a decline
     # skips it.
     jobs = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-    for key in ("app-host-unit-tests", "cli-product-tests", "tests-build-and-lag", "release-admission", "release-build"):
+    # release-build (ci-release.yml) waits for the whole macOS workflow.
+    for key in ("app-host-unit-tests", "cli-product-tests", "tests-build-and-lag"):
         assert "macos-compile-admission" in _job_needs(jobs, key), key
         assert "needs.macos-compile-admission.result == 'success'" in jobs[key]["if"], key
 
@@ -5440,8 +5455,9 @@ def test_the_unit_tier_is_routed_end_to_end() -> None:
     # The cheap tier runs the unit tests and nothing else.
     unit_gate = workflow_job_block("app-host-unit-tests", MACOS_WORKFLOW)
     assert "inputs.unit_suite == 'true'" in unit_gate
-    for job in ("tests-build-and-lag", "release-admission", "release-build"):
+    for job in ("tests-build-and-lag",):
         assert "inputs.unit_suite" not in workflow_job_block(job, MACOS_WORKFLOW), job
+    assert "unit_suite" not in workflow_job_block("release", CI_WORKFLOW)
 
 
 def test_a_unit_ci_run_still_requires_the_macos_workflow_to_pass() -> None:
@@ -6002,9 +6018,11 @@ def test_package_lane_routing_leaves_the_full_suite_jobs_alone() -> None:
     full_suite_only = {
         "app-host-unit-tests",
         "tests-build-and-lag",
-        "release-admission",
-        "release-build",
     }
+    # ci.yml's release call (ci-release.yml) is full-suite only too.
+    release_condition = workflow_job_block("release", CI_WORKFLOW)
+    assert "needs.changes.outputs.full_suite == 'true'" in release_condition
+    assert "swift_packages" not in release_condition
     for job in full_suite_only:
         block = workflow_job_block(job, MACOS_WORKFLOW)
         condition = next(line for line in block.splitlines() if line.strip().startswith("if:"))
@@ -6031,7 +6049,7 @@ def test_package_lane_routing_leaves_the_full_suite_jobs_alone() -> None:
 
 
 def test_routed_package_lane_skips_the_release_helper_build() -> None:
-    # release-admission and release-build only run under the full suite, so a
+    # release-build (ci-release.yml) only runs under the full suite, so a
     # routed-only pull request must not pay for zig plus the Ghostty CLI
     # helper to produce an artifact nothing will consume.
     block = workflow_job_block("swift-package-tests", MACOS_WORKFLOW)
@@ -6292,7 +6310,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     )
     assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in package_block
 
-    release_block = workflow_job_block("release-build", MACOS_WORKFLOW)
+    release_block = workflow_job_block("release-build", RELEASE_WORKFLOW)
     assert "CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}" in release_block
     assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in release_block
 
@@ -6301,7 +6319,7 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     workflow = MACOS_WORKFLOW.read_text(encoding="utf-8")
     runtime_block = workflow_job_block("tests-build-and-lag", MACOS_WORKFLOW)
     package_block = workflow_job_block("swift-package-tests", MACOS_WORKFLOW)
-    release_block = workflow_job_block("release-build", MACOS_WORKFLOW)
+    release_block = workflow_job_block("release-build", RELEASE_WORKFLOW)
 
     assert "vars.MACOS_RUNNER_DUAL_XCODE" in package_block
     assert "\n  ui-regressions:" not in workflow
@@ -6324,7 +6342,9 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     assert package_block.index("Select helper Xcode") < package_block.index("Build Release Ghostty CLI helper")
     assert package_block.index("Build Release Ghostty CLI helper") < package_block.index("Select Xcode")
     assert package_block.index("Upload Release Ghostty CLI helper") < package_block.index("Select Xcode")
-    assert "      - swift-package-tests" in release_block
+    # ci.yml's release call waits for the macOS workflow and passes the
+    # helper's identity through (test_release_build_reports_without_gating_ci_status).
+    assert "inputs.ghostty_helper_sha256" in release_block
     assert "Download Release Ghostty CLI helper" in release_block
     assert "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131" in release_block
     assert "Install Release helpers" in release_block

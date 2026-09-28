@@ -12,6 +12,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = yaml.safe_load((ROOT / '.github/workflows/ci-macos.yml').read_text())
+# release-build lives in its own workflow, called by ci.yml with the macOS
+# workflow's outputs (swift-package-tests' helper identity) as inputs.
+RELEASE_WORKFLOW = yaml.safe_load((ROOT / '.github/workflows/ci-release.yml').read_text())
 
 
 def expression(text, context):
@@ -133,7 +136,8 @@ chmod +x "$app/Contents/Resources/bin/cmux-tui"
         dest.chmod(0o755)
 
     def step(self, job, *, name=None, identifier=None):
-        matches = [s for s in WORKFLOW['jobs'][job]['steps']
+        workflow = RELEASE_WORKFLOW if job == 'release-build' else WORKFLOW
+        matches = [s for s in workflow['jobs'][job]['steps']
                    if (s.get('id') == identifier if identifier else name(s.get('name', '')))]
         self.assertEqual(len(matches), 1)
         return matches[0]
@@ -159,6 +163,8 @@ chmod +x "$app/Contents/Resources/bin/cmux-tui"
         self.run_step(self.step('swift-package-tests', identifier='ghostty-helper-identity'))
         outputs = {k: render(v, self.context) for k, v in WORKFLOW['jobs']['swift-package-tests'].get('outputs', {}).items()}
         self.context['needs']['swift-package-tests'] = {'outputs': outputs}
+        # ci.yml hands them to ci-release.yml as inputs of the same names.
+        self.context['inputs'].update(outputs)
         # Model a distinct consumer: producer step outputs are not in scope.
         self.context['steps'] = {}
 
@@ -189,6 +195,8 @@ chmod +x "$app/Contents/Resources/bin/cmux-tui"
     def test_missing_producer_policy_fails_closed(self):
         self.produce('arm64')
         self.context['needs']['swift-package-tests']['outputs'] = {}
+        for name in ('release_archs', 'ghostty_helper_sha256', 'ghostty_helper_toolchain_sha256', 'ghostty_helper_sdk'):
+            self.context['inputs'][name] = ''
         with self.assertRaises(AssertionError):
             self.consume()
         self.assertFalse(self.app.exists())

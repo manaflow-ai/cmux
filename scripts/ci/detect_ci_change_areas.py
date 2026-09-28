@@ -71,6 +71,8 @@ CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 GUARD_WORKFLOW_PATH = ".github/workflows/ci-guards.yml"
 WEB_WORKFLOW_PATH = ".github/workflows/ci-web.yml"
 MACOS_WORKFLOW_PATH = ".github/workflows/ci-macos.yml"
+# The Release build, called after ci-macos.yml and reported without gating ci-status.
+RELEASE_WORKFLOW_PATH = ".github/workflows/ci-release.yml"
 MACOS_XCODE_PROJECT_PATH = "cmux.xcodeproj/project.pbxproj"
 MACOS_PRODUCT_TARGET = "cmux"
 CLI_PRODUCT_TARGET = "cmux-cli"
@@ -319,6 +321,10 @@ _CALLED_WORKFLOW_AREAS = {
     WEB_WORKFLOW_PATH: ChangeAreas(
         macos=False, web=True, agent_session_web=True, cli=False,
         swift_packages=False, release_build=False,
+    ),
+    RELEASE_WORKFLOW_PATH: ChangeAreas(
+        macos=True, web=False, agent_session_web=False, cli=False,
+        swift_packages=False, release_build=True,
     ),
 }
 _JOB_CALL_RE = re.compile(
@@ -597,7 +603,7 @@ def _routed_job_areas(workflow: str, text: str, token: str) -> Optional[ChangeAr
             cli=bool(naming & MACOS_CLI_LANE_JOBS), swift_packages=False,
             release_build=bool(naming & _release_jobs(jobs)),
         )
-    if workflow == WEB_WORKFLOW_PATH:
+    if workflow in {WEB_WORKFLOW_PATH, RELEASE_WORKFLOW_PATH}:
         return _CALLED_WORKFLOW_AREAS[workflow]
     selected = NO_AREAS
     for name in naming:
@@ -783,7 +789,10 @@ def _load_macos_job_test_references(root: Path) -> Optional[tuple[frozenset[str]
         )
         if not indirect_guard_references:
             return None
-        for workflow_path in (CI_WORKFLOW_PATH, GUARD_WORKFLOW_PATH, WEB_WORKFLOW_PATH, MACOS_WORKFLOW_PATH):
+        for workflow_path in (CI_WORKFLOW_PATH, GUARD_WORKFLOW_PATH, WEB_WORKFLOW_PATH, MACOS_WORKFLOW_PATH, RELEASE_WORKFLOW_PATH):
+            # A tree from before the Release workflow split has none.
+            if workflow_path == RELEASE_WORKFLOW_PATH and not (root / workflow_path).exists():
+                continue
             references = macos_job_test_references(
                 (root / workflow_path).read_text(encoding="utf-8"),
                 indirect_guard_references,
@@ -1929,6 +1938,11 @@ def classify_files(paths: Iterable[str], *,
             # admission/restore contract. Exercise macOS admission/consumption,
             # but they cannot affect the web deployment or Release app bytes.
             macos = True
+            continue
+        if path == RELEASE_WORKFLOW_PATH:
+            # The Release build's own workflow: it runs behind the macOS area.
+            macos = True
+            release_build = True
             continue
         if path == MACOS_WORKFLOW_PATH:
             # A reusable macOS workflow edit exercises the Mac jobs it owns.
