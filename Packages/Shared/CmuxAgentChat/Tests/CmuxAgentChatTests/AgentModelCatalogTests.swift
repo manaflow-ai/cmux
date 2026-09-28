@@ -30,10 +30,24 @@ struct AgentModelCatalogTests {
         #expect(opus48.inputPerMTok == 5)
     }
 
-    @Test func nonClaudeAndLegacyIDsAreUnpriced() throws {
-        let legacy = try #require(catalog.info(forModelID: "claude-3-5-sonnet-20241022"))
-        #expect(legacy.displayName == "claude-3-5-sonnet-20241022")
+    /// A legacy id carries its version before its family name, and it is not
+    /// in the price table. It still has to read as a model name: the sidebar
+    /// appends the name to a status line that truncates at the tail, so a raw
+    /// id would push the context percentage and the cost out of the row.
+    @Test(arguments: [
+        ("claude-3-5-sonnet-20241022", "Sonnet 3.5"),
+        ("claude-3-7-sonnet-20250219", "Sonnet 3.7"),
+        ("us.anthropic.claude-3-7-sonnet-20250219-v1:0", "Sonnet 3.7"),
+        ("claude-3-opus-20240229", "Opus 3"),
+        ("claude-3-haiku-20240307", "Haiku 3"),
+    ])
+    func legacyIDsReadAsAModelName(modelID: String, displayName: String) throws {
+        let legacy = try #require(catalog.info(forModelID: modelID))
+        #expect(legacy.displayName == displayName)
         #expect(legacy.pricing == nil)
+    }
+
+    @Test func nonClaudeIDsAreUnpriced() throws {
         let codex = try #require(catalog.info(forModelID: "gpt-5-codex", reportedContextWindow: 272_000))
         #expect(codex.pricing == nil)
         #expect(codex.contextWindow == 272_000)

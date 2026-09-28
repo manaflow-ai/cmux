@@ -103,12 +103,22 @@ public struct AgentModelCatalog: Sendable {
         return parts.joined(separator: "-")
     }
 
-    /// `opus-4-8` → `Opus 4.8`. Returns `nil` for legacy ids such as
-    /// `3-5-sonnet` whose first component is not a family name.
+    /// `opus-4-8` → `Opus 4.8`, and the legacy order `3-5-sonnet` → `Sonnet
+    /// 3.5`. Current ids put the name first and the version after it; ids up
+    /// to Claude 3.7 put the version first. Both forms are named after the
+    /// first component that starts with a letter, with the numbers on either
+    /// side of it joined by dots. Returns `nil` only when no component starts
+    /// with a letter.
     static func claudeDisplayName(family: String) -> String? {
         let parts = family.split(separator: "-")
-        guard let name = parts.first, name.first?.isLetter == true else { return nil }
-        let version = parts.dropFirst().prefix { $0.allSatisfy(\.isNumber) }
+        guard let nameIndex = parts.firstIndex(where: { $0.first?.isLetter == true }) else {
+            return nil
+        }
+        let name = parts[nameIndex]
+        let leadingVersion = parts[..<nameIndex]
+        let trailingVersion = parts[parts.index(after: nameIndex)...]
+            .prefix { $0.allSatisfy(\.isNumber) }
+        let version = leadingVersion.isEmpty ? Array(trailingVersion) : Array(leadingVersion)
         let title = name.prefix(1).uppercased() + name.dropFirst()
         guard !version.isEmpty else { return title }
         return title + " " + version.joined(separator: ".")

@@ -148,15 +148,20 @@ struct SidebarAgentUsageTests {
             id == workspaceID ? metadata : nil
         }
 
-        // Off: the event is recorded but nothing is read or shown.
+        // Off: the event is recorded but nothing is read or shown. An empty
+        // `agentUsageByStatusKey` alone would also hold if the transcript were
+        // read and the result discarded, so assert no sample was even
+        // scheduled: with the setting off the feature must touch no file.
         coordinator.noteHookEvent(Self.event(.preToolUse, session: "A", workspace: workspaceID, transcript: path, at: 1))
         await coordinator.waitUntilIdle()
         #expect(metadata.agentUsageByStatusKey.isEmpty)
+        #expect(coordinator.scheduledFlushCount == 0)
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showAgentUsageKey)
         coordinator.settingsDidChange()
         await coordinator.waitUntilIdle()
         #expect(metadata.agentUsageByStatusKey["claude_code"]?.contextFraction == 0.2)
+        #expect(coordinator.scheduledFlushCount > 0)
 
         // Hiding metadata rows also stops (and clears) agent usage.
         defaults.set(false, forKey: SidebarCatalogSection().showCustomMetadata.userDefaultsKey)

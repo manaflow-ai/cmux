@@ -47,6 +47,16 @@ final class SidebarAgentUsageCoordinator {
     /// Records kept for idle sessions; the least recently active is dropped.
     static let maxTrackedSessions = 64
 
+    /// The sidebar settings keys ``isEnabled`` reads, built once.
+    private static let sidebarSection = SidebarCatalogSection()
+
+    /// How many samples have been scheduled since launch. The observable
+    /// consequence of usage being off is that nothing is read, and a test that
+    /// only checks the shown usage cannot tell "never scheduled" apart from
+    /// "read the transcript and then discarded the result". This counter lets a
+    /// test assert the first one, which is the property the feature rests on.
+    private(set) var scheduledFlushCount = 0
+
     private let sampler: AgentUsageSampler
     private let defaults: UserDefaults
     private let coalesceInterval: Duration
@@ -120,7 +130,9 @@ final class SidebarAgentUsageCoordinator {
     /// metadata rows, so hidden rows mean no reads.
     private static func isEnabled(defaults: UserDefaults) -> Bool {
         let settings = UserDefaultsSettingsClient(defaults: defaults)
-        let sidebar = SidebarCatalogSection()
+        // Declaring a catalog section builds every key in it, and this runs on
+        // every `UserDefaults` write anywhere in the app, so it is built once.
+        let sidebar = sidebarSection
         return settings.value(for: sidebar.showAgentUsage)
             && settings.value(for: sidebar.showCustomMetadata)
             && !settings.value(for: sidebar.hideAllDetails)
@@ -207,6 +219,7 @@ final class SidebarAgentUsageCoordinator {
     }
 
     private func scheduleFlush(sessionID: String) {
+        scheduledFlushCount += 1
         guard flushTasks[sessionID] == nil else {
             if readingSessionIDs.contains(sessionID) { dirtyWhileReading.insert(sessionID) }
             return
@@ -251,9 +264,14 @@ final class SidebarAgentUsageCoordinator {
     /// Shows the usage of the most recently active session of `row.source`
     /// in `row.workspaceID` (see the type documentation).
     private func publish(_ row: RowKey) {
-        let owner = sessions.values
-            .filter { $0.workspaceID == row.workspaceID && $0.source == row.source }
-            .max { $0.lastEventAt < $1.lastEventAt }
+        // Two panes of the same workspace can share a `lastEventAt`: hook
+        // events arrive in batches and `receivedAt` is not fine grained. The
+        // session id breaks the tie, so the row does not flip between two
+        // panes' numbers across refreshes that the user did not cause.
+        let owner = sessions
+            .filter { $0.value.workspaceID == row.workspaceID && $0.value.source == row.source }
+            .max { ($0.value.lastEventAt, $0.key) < ($1.value.lastEventAt, $1.key) }?
+            .value
         let usage = isEnabled ? owner?.snapshot.map(Self.sidebarUsage) : nil
         if usage == nil, !rowsShowingUsage.contains(row) { return }
         metadataLookup(row.workspaceID)?.updateAgentUsage(usage, forStatusKey: row.source.sidebarStatusKey)

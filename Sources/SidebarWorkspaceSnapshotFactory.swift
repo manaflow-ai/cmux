@@ -88,13 +88,16 @@ struct SidebarWorkspaceSnapshotFactory {
                     || workspace.remoteConnectionState == .disconnected),
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: workspace.latestConversationMessage,
+            // `SidebarAgentUsageFormatter()` reads `Locale.current`, so it is
+            // built only when usage is actually shown; this runs for every row
+            // on every sidebar rebuild.
             metadataEntries: detailVisibility.showsMetadata
-                ? SidebarAgentUsageFormatter().decorate(
-                    workspace.sidebarStatusEntriesInDisplayOrder(),
-                    usageByStatusKey: detailVisibility.showsAgentUsage
-                        ? workspace.sidebarMetadata.agentUsageByStatusKey
-                        : [:]
-                )
+                ? (detailVisibility.showsAgentUsage
+                    ? SidebarAgentUsageFormatter().decorate(
+                        workspace.sidebarStatusEntriesInDisplayOrder(),
+                        usageByStatusKey: workspace.sidebarMetadata.agentUsageByStatusKey
+                    )
+                    : workspace.sidebarStatusEntriesInDisplayOrder())
                 : [],
             metadataBlocks: detailVisibility.showsMetadata
                 ? workspace.sidebarMetadataBlocksInDisplayOrder()
