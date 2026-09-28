@@ -1687,7 +1687,6 @@ def choose(
     queue_rounds: str | None = None,
     ref: str = "",
     main_reserve: str | None = None,
-    gui_runners: bool = False,
 ) -> tuple[Choice, Mapping[str, Any] | None]:
     """The pool for this run and the snapshot it was read from (None when none was read).
 
@@ -1696,12 +1695,13 @@ def choose(
     machines back (see "Main's full suite" above); anything else keeps its route.
 
     `queue_rounds` is CI_PR_POOL_QUEUE_ROUNDS as settings() reads it; a fork
-    run reads the janitor's copy instead. `gui_runners` (the slots name gui
-    runners, main()) sets what a newer run that took an owned pool holds on
-    its root runners: with them only its admission, one root runner, since
-    its gui-token jobs take the gui label and its side lanes the side label
-    (root_held()); without them up to its whole marker peak, which a marker
-    does not split.
+    run reads the janitor's copy instead.
+
+    A newer run that took an owned pool whose gui label has a count in
+    `owned_slots` holds one of its root runners, its admission: its gui-token
+    jobs take the gui label (gui_runner(), root_held()) and its side lanes
+    hold none. On a pool without one it may hold its whole marker peak there,
+    which a marker does not split, so that is its root charge.
     """
     main = event == "workflow_dispatch" and ref == MAIN_REF
     if event != "pull_request" and not main:
@@ -1836,18 +1836,27 @@ def choose(
         # runner is idle; their later jobs are not charged (live_pools()).
         older = {label: max(0, count - recent.runs().get(label, 0)) for label, count in before.runs().items()}
         snapshot, owned_capacity = live_pools(snapshot, live_owned or {}, owned_capacity, older, live_online)
-    # With gui runners each newer run holds one root runner (its admission),
-    # not its whole peak: charging the peak left 0 of 15 root runners for a
-    # run while 3 newer runs held 3 (cmux run 36371179217, 2026-09-28). In
-    # the live window (above) the runs counted are the live ones; older
-    # runs' admissions show busy on the runners.
-    root_since = routed.runs() if gui_runners else None
+    # On a pool with gui runners each newer run holds one root runner (its
+    # admission), not its whole peak: charging the peak left 0 of 15 root
+    # runners for a run while 3 newer runs held 3 (cmux run 36371179217,
+    # 2026-09-28). With the runners read live, the runs counted are the live
+    # window's; older runs' admissions show busy on the runners, or queued
+    # through `older` (live_pools()).
+    gui_slots = {} if fork else slots(owned_slots, xcode_pins.get(PR_XCODE_VARIABLE))
+    runs = routed.runs()
+
+    def root_charge(machines: Mapping[str, int]) -> dict[str, int]:
+        return {label: runs.get(label, 0) if gui_slots.get(gui_label(label), 0) > 0 else count
+                for label, count in machines.items()}
+
+    root_since = root_charge(routed.owned)
+    root_now = root_charge(routed.owned if routed.owned_now is None else routed.owned_now)
     choice = decide(snapshot, limits, now=now, xcode_pins={} if fork else xcode_pins,
                     routed_since=routed.unknown, owned_since=routed.owned, ephemeral_since=routed.ephemeral,
                     auto_xcode=fork, owned_slots=owned_capacity, jobs=jobs,
                     split=(split or "").strip() == "1", shards=shards,
                     root_jobs=root_jobs, reserve=reserve, owned_now=routed.owned_now,
-                    root_since=root_since, root_now=root_since,
+                    root_since=root_since, root_now=root_now,
                     # Main only ever takes an owned pool; the replay still
                     # spreads newer runs over the whole order.
                     choose_from=tuple(label for label in limits.order if persistent(label)) if main else None)
@@ -2271,7 +2280,6 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         live_online=online,
         shards=sum(1 for key in plan.after if key.startswith("shard-")),
         queue_rounds=env.get("POOL_QUEUE_ROUNDS") or "",
-        gui_runners=gui_runners,
     )
     pr_xcode_app = env.get(PR_XCODE_VARIABLE)
     # Only a same-repository pull request (and main's dispatch) reads the slots;

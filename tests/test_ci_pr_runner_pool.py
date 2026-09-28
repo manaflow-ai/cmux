@@ -3434,18 +3434,20 @@ class LiveIdleRunners(unittest.TestCase):
         # newer run holds one root runner, its admission.
         routed = pool.Routed(unknown=2, owned={MINI: 32}, owned_now={MINI: 9}, owned_runs={MINI: 3},
                              live_now={MINI: 9}, live_runs={MINI: 3}, live_unknown=2)
-        kwargs = dict(machines=29, owned_slots=json.dumps({MINI: 29, ROOT_MINI: 19, GUI_MINI: 10}),
-                      jobs=10, root_jobs=1, queue_rounds="2", split="1", routed=routed,
+        kwargs = dict(machines=29, jobs=10, root_jobs=1, queue_rounds="2", split="1", routed=routed,
                       live_owned={MINI: 3, ROOT_MINI: 3}, live_online={MINI: 29, ROOT_MINI: 15})
-        fixed = owned_choice(fleet(busy=26), gui_runners=True, **kwargs)
+        fixed = owned_choice(fleet(busy=26), owned_slots=json.dumps({MINI: 29, ROOT_MINI: 19, GUI_MINI: 10}),
+                             **kwargs)
         self.assertEqual((fixed.runner, fixed.root_runner), (MINI, ROOT_MINI))
         self.assertGreaterEqual(fixed.root_budget, 1)
         # Its admission is placed owned.
         self.assertIn("admission", pool.place(pool.FULL_RUN, fixed.owned_budget, root_budget=fixed.root_budget,
                                               gui_runners=True)[0])
-        # Without gui runners a newer run's shards take root runners too: the whole peak is charged.
-        whole = owned_choice(fleet(busy=26), **kwargs)
-        self.assertEqual(whole.root_budget, 0)
+        # Without gui runners on std (another pool's gui count does not count), a newer
+        # run's shards take root runners too: its whole peak is charged.
+        whole = owned_choice(fleet(busy=26), owned_slots=json.dumps({MINI: 29, ROOT_MINI: 19, LIGHT: 4,
+                                                                     "glaeda-gui-light-xcode-26.6": 4}), **kwargs)
+        self.assertEqual((whole.runner, whole.root_runner, whole.root_budget), (MINI, ROOT_MINI, 0))
         self.assertIn("0 of 15 root runners free", whole.reason)
 
     def test_decide_charges_the_root_runners_newer_runs_hold(self):
