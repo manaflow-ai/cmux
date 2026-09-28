@@ -1893,13 +1893,20 @@ final class cmuxUITests: XCTestCase {
 
         let error = app.staticTexts["MobilePairingError"]
         XCTAssertTrue(error.waitForExistence(timeout: 4))
+        // Frames are in screen space, so also require both to sit inside the
+        // app window: an error scrolled off the top is not visible either.
+        let appFrame = app.windows.firstMatch.frame
         let visible = expectation(
             for: NSPredicate { _, _ in
-                error.exists && error.frame.maxY <= pairButton.frame.minY
+                error.exists
+                    && error.frame.intersects(appFrame)
+                    && pairButton.frame.intersects(appFrame)
+                    && error.frame.maxY <= pairButton.frame.minY
             },
             evaluatedWith: nil
         )
         wait(for: [visible], timeout: 4)
+        XCTAssertTrue(error.frame.intersects(appFrame))
         XCTAssertLessThanOrEqual(error.frame.maxY, pairButton.frame.minY)
     }
 
