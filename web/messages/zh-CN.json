@@ -1357,6 +1357,7 @@
           "warnBeforeQuit": "用于退出确认的旧布尔回退值。新配置请使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用标签关闭按钮关闭标签前显示确认。",
           "hideTabCloseButton": "在窗格标签栏中隐藏标签关闭按钮。",
+          "tabBarVisibility": "决定窗格何时绘制其标签栏。\"always\" 即使窗格只有一个标签也会绘制；\"multiple-tabs\" 在窗格只有一个标签时隐藏，开启第二个标签后绘制。极简模式（app.minimalMode）始终绘制，因为在该模式下顶部窗格的标签栏同时充当窗口标题栏。",
           "forkConversationDefaultDestination": "标签页上下文菜单中主要 Fork Conversation 操作的默认目标。子菜单仍会显示所有目标。",
           "globalFontMagnification": "按百分比缩放 cmux 自行绘制的所有内容：终端文本、标签页标题、侧边栏、设置、浮层和窗口边框。浏览器 surface 中的网页保持自身的大小。"
         },
@@ -1395,6 +1396,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "每个工作区只显示一行：标题前的单个彩色图标表示代理、未读和拉取请求状态，取代代理状态行（例如“运行中”或“需要输入”）、分支和目录行以及拉取请求行，这些详细信息移到图标的提示中。其他状态条目保留各自的行。",
+          "compactStatusIcons": "按状态替换 compactAgentStatus 字形的 SF Symbol 名称，例如 {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}。未设置的状态使用内置符号，无法显示的名称也会回退到内置符号。",
           "notificationMessageLineLimit": "每个工作区标题下方显示的最新通知的最大行数。",
           "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
         },
