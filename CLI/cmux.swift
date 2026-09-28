@@ -25316,36 +25316,24 @@ struct CMUXCLI {
         }
 
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        var watcherArguments = [
-            "--socket",
-            socketPath,
-            "__codex-teams-watch",
-            "--workspace-id",
-            rootWorkspaceId,
-            "--surface-id",
-            rootSurfaceId,
-            "--app-server-url",
-            appServerURL,
-            "--codex-path",
-            codexExecutableForShell,
-            "--launch-path",
-            codexTeamsSubagentLaunchPath(launcherEnvironment["PATH"]),
-            "--max-auto-depth",
-            String(Self.codexTeamsMaxAutoDepth)
-        ]
-        if let explicitPassword,
-           !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            watcherArguments.insert(contentsOf: ["--password", explicitPassword], at: 2)
-        }
-        if let rootPid = rootCodex?.processIdentifier {
-            watcherArguments += ["--owner-pid", String(rootPid)]
-        }
+        let watcherInvocation = CodexTeamsWatcherInvocation(
+            socketPath: socketPath,
+            workspaceID: rootWorkspaceId,
+            surfaceID: rootSurfaceId,
+            appServerURL: appServerURL,
+            codexPath: codexExecutableForShell,
+            launchPath: codexTeamsSubagentLaunchPath(launcherEnvironment["PATH"]),
+            maxAutoDepth: Self.codexTeamsMaxAutoDepth,
+            ownerPID: rootCodex?.processIdentifier,
+            socketPassword: explicitPassword,
+            environment: launcherEnvironment
+        )
         let watcherLifetime = appServer.takeWatcherLifetimeWriteHandle()
         do {
             watcher = try startCodexTeamsProcess(
                 executablePath: executablePath,
-                arguments: watcherArguments,
-                environment: launcherEnvironment,
+                arguments: watcherInvocation.arguments,
+                environment: watcherInvocation.environment,
                 logURL: watcherLogURL,
                 standardInput: watcherLifetime
             )

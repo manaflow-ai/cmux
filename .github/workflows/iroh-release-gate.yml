@@ -191,6 +191,10 @@ jobs:
           # broker; local mode only prevents reload.sh from looking for that
           # helper while constructing the tagged artifacts.
           CMUX_DEV_BACKEND_MODE: local
+          # The gate changes only the mobile transport. If the exact checkout
+          # has no cmux-tui artifact yet, use the newest older artifact with
+          # identical client inputs instead of failing before the app starts.
+          CMUX_TUI_CLIENT_MAX_FALLBACK: 5
         run: |
           set -euo pipefail
           case "${{ matrix.mode }}" in
