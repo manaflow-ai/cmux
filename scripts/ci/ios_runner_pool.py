@@ -456,11 +456,11 @@ class Placements:
     def off_fleet(self, run: Mapping[str, Any], now: dt.datetime) -> bool:
         """True when `run` certainly holds no owned machine: a re-run, or picked a while ago without a marker.
 
-        "A while ago" counts from when the run started a job, not from its
-        creation: a run still `queued` has not started its picker (a Linux
-        queue can hold it longer than the grace), and the picker job is the
-        run's first, with a 5-minute timeout. A run without run_started_at
-        counts from its creation.
+        "A while ago" assumes the picker finished within PLACEMENT_GRACE_MINUTES
+        of the run's creation. Neither the run's status nor run_started_at says
+        whether its picker has started (a run whose jobs wait on Blacksmith
+        reads `queued`, and run_started_at is its creation), so only the
+        run's jobs could; the live path reads them for runs younger than this.
         """
         attempt = run.get("run_attempt")
         if isinstance(attempt, int) and attempt > 1:
@@ -470,10 +470,7 @@ class Placements:
         created = str(run.get("created_at") or "")
         if not created or self.since is not None and created < self.since:
             return False
-        if run.get("status") == "queued":
-            return False
-        started = run.get("run_started_at") or created
-        age = pr_runner_pool.run_age_minutes({"created_at": started}, now)
+        age = pr_runner_pool.run_age_minutes(run, now)
         return age is not None and age >= PLACEMENT_GRACE_MINUTES
 
 
