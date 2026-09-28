@@ -37,6 +37,9 @@ final class BrowserHiddenWebViewMemoryBudgetCoordinator {
               policy.mode(defaults: policyDefaults) == .memoryBudget else { return 0 }
 
         let panels = browserPanels()
+        // Each sample runs on the main actor; with every pane on screen there
+        // is nothing to plan, so skip the per-pane checks and process reads.
+        guard panels.contains(where: { !$0.isWebViewVisibleInUI }) else { return 0 }
         let panes = panels.map { $0.hiddenMemoryBudgetPane(now: now, processIdentifier: processIdentifier) }
         let planner = BrowserHiddenWebViewMemoryBudgetPlanner(budgetMB: policy.memoryBudgetMB(defaults: policyDefaults))
         let plan = planner.plan(panes: panes, footprintBytes: footprintBytes)

@@ -292,7 +292,7 @@ extension BrowserPanel {
         // report from a replaced document must be ignored or it would repopulate
         // mediaPlaybackFrames for a page that is gone and block discard forever.
         let boundWebViewInstanceID = webViewInstanceID
-        let handler = BrowserMediaPlaybackMessageHandler { [weak self] report in
+        let handler = BrowserMediaPlaybackMessageHandler(webView: webView) { [weak self] report in
             self?.handleMediaPlaybackReport(report, fromWebViewInstanceID: boundWebViewInstanceID)
         }
         mediaPlaybackMessageHandler = handler

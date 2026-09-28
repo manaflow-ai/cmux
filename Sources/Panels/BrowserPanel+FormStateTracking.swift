@@ -13,7 +13,7 @@ extension BrowserPanel {
         // The handler outlives this web view generation on the old content
         // controller, so reports from a replaced web view are ignored.
         let boundWebViewInstanceID = webViewInstanceID
-        let handler = BrowserFormStateMessageHandler { [weak self] snapshot in
+        let handler = BrowserFormStateMessageHandler(webView: webView) { [weak self] snapshot in
             guard let self, boundWebViewInstanceID == self.webViewInstanceID else { return }
             let hadUnrestorableInput = self.pageRestoration.hasUnrestorableLiveInput
             self.pageRestoration.recordLiveFormState(snapshot)

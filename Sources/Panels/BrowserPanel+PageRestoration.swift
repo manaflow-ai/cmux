@@ -124,13 +124,18 @@ extension BrowserPanel {
         )
         if !restoreDiscardedPage(using: strategy, displayURL: url) {
             shouldRenderWebView = true
+            // A remote pane queues the load until its proxy is back, and the
+            // load's start clears any in-flight restore, so note the replay
+            // once the load has started.
             navigateWithoutInsecureHTTPPrompt(
                 to: url,
                 recordTypedNavigation: false,
                 preserveRestoredSessionHistory: true,
                 cachePolicy: cachePolicy
-            )
-            pageRestoration.noteRestoreStarted(.urlReplay)
+            ) { [weak self] navigation in
+                guard navigation != nil else { return }
+                self?.pageRestoration.noteRestoreStarted(.urlReplay)
+            }
         }
         if pageRestoration.discardedCapture != nil {
             showRestoreOverlay()
