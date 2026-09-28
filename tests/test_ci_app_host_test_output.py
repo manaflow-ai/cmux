@@ -77,6 +77,25 @@ class AppHostTestOutputTests(unittest.TestCase):
 
         self.assertFalse(passed)
 
+    def test_swift_testing_failure_is_not_masked_by_expected_xctest_failures(self) -> None:
+        passed, message = MODULE.classify(
+            "Executed 4 tests, with 1 failure (0 unexpected)\n"
+            "Test run with 3 tests in 1 suite failed after 0.1 seconds.\n"
+        )
+
+        self.assertFalse(passed)
+        self.assertIn("Swift Testing reported a failed test run", message)
+
+    def test_swift_testing_assertion_is_not_masked_by_expected_xctest_failures(self) -> None:
+        passed, message = MODULE.classify(
+            "Executed 4 tests, with 1 failure (0 unexpected)\n"
+            "Expectation failed: expected true\n"
+            "Test run with 3 tests in 1 suite passed after 0.1 seconds.\n"
+        )
+
+        self.assertFalse(passed)
+        self.assertIn("test assertion failure", message)
+
     def test_unexpected_failure_in_earlier_summary_is_not_masked(self) -> None:
         passed, message = MODULE.classify(
             "Executed 4 tests, with 1 failure (1 unexpected)\n"

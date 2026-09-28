@@ -50,6 +50,10 @@ _APP_HOST_SIGNAL_RE = re.compile(
     r"VTALRM|XCPU|XFSZ)\b)",
     re.IGNORECASE,
 )
+_SWIFT_ASSERTION_RE = re.compile(
+    r"(?:✘ Test .* recorded an issue|Expectation failed|XCTAssert.*failed)",
+    re.IGNORECASE,
+)
 _ASSERTION_RE = re.compile(
     r"(?:✘ Test .* recorded an issue|Expectation failed|"
     r"XCTAssert.*failed|Test run with .* failed|"
@@ -185,11 +189,13 @@ def classify(output: str) -> tuple[bool, str]:
     if unexpected:
         return False, f"{unexpected} unexpected failure(s) found across all XCTest summaries"
 
+    if any(match.group("result") == "failed" for match in swift_summaries):
+        return False, "Swift Testing reported a failed test run"
+    if _SWIFT_ASSERTION_RE.search(output):
+        return False, "test assertion failure found in app-host output"
     if any(int(match.group("failures")) for match in summaries):
         return False, "XCTest failures were reported, including ordinary assertion failures"
 
-    if any(match.group("result") == "failed" for match in swift_summaries):
-        return False, "Swift Testing reported a failed test run"
     if "Test run started." in output and not swift_summaries:
         return False, "Swift Testing started without a completed test-run summary"
 
