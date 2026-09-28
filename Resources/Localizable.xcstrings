@@ -29071,121 +29071,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not identify the new fork session, so this pane was not bound to the parent. Start the fork again from the parent pane."
+            "value": "cmux could not identify the new fork session. Start the fork again from the parent pane."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux は新しいフォーク セッションを特定できなかったため、このペインを親にバインドしませんでした。親ペインからもう一度フォークしてください。"
+            "value": "cmux は新しいフォーク セッションを特定できませんでした。親ペインからもう一度フォークしてください。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux konnte die neue Fork-Sitzung nicht erkennen. Dieses Pane wurde daher nicht an die übergeordnete Sitzung gebunden. Starten Sie den Fork erneut im übergeordneten Pane."
+            "value": "cmux konnte die neue Fork-Sitzung nicht erkennen. Starten Sie den Fork erneut im übergeordneten Pane."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux n’a pas pu identifier la nouvelle session forkée ; ce volet n’a donc pas été lié à la session parente. Relancez le fork depuis le volet parent."
+            "value": "cmux n’a pas pu identifier la nouvelle session forkée. Relancez le fork depuis le volet parent."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذر على cmux تحديد جلسة التفريع الجديدة، لذلك لم يربط هذا الجزء بالجلسة الأصلية. ابدأ التفريع مرة أخرى من الجزء الأصلي."
+            "value": "تعذر على cmux تحديد جلسة التفريع الجديدة. ابدأ التفريع مرة أخرى من الجزء الأصلي."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux no pudo identificar la nueva sesión bifurcada, por lo que este panel no se vinculó a la sesión principal. Inicia el fork de nuevo desde el panel principal."
+            "value": "cmux no pudo identificar la nueva sesión bifurcada. Inicia el fork de nuevo desde el panel principal."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 無法識別新的分支工作階段，因此此窗格未繫結至父工作階段。請從父窗格重新開始分支。"
+            "value": "cmux 無法識別新的分支工作階段。請從父窗格重新開始分支。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 无法识别新的分支会话，因此此窗格未绑定到父会话。请从父窗格重新开始分支。"
+            "value": "cmux 无法识别新的分支会话。请从父窗格重新开始分支。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 새 포크 세션을 식별하지 못해 이 패널을 부모 세션에 연결하지 않았습니다. 부모 패널에서 포크를 다시 시작하세요."
+            "value": "cmux가 새 포크 세션을 식별하지 못했습니다. 부모 패널에서 포크를 다시 시작하세요."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux nije mogao prepoznati novu sesiju račvanja, pa ovo okno nije povezano s nadređenom sesijom. Ponovo pokrenite račvanje iz nadređenog okna."
+            "value": "cmux nije mogao prepoznati novu sesiju račvanja. Ponovo pokrenite račvanje iz nadređenog okna."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux kunne ikke identificere den nye forgreningssession, så denne rude blev ikke bundet til forældresessionen. Start forgreningen igen fra forældreruden."
+            "value": "cmux kunne ikke identificere den nye forgreningssession. Start forgreningen igen fra forældreruden."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux non ha potuto identificare la nuova sessione fork, quindi questo riquadro non è stato collegato alla sessione principale. Avvia di nuovo il fork dal riquadro principale."
+            "value": "cmux non ha potuto identificare la nuova sessione fork. Avvia di nuovo il fork dal riquadro principale."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux មិនអាចកំណត់អត្តសញ្ញាណសម័យ fork ថ្មីបានទេ ដូច្នេះផ្ទាំងនេះមិនត្រូវបានភ្ជាប់ទៅសម័យមេឡើយ។ ចាប់ផ្ដើម fork ម្ដងទៀតពីផ្ទាំងមេ។"
+            "value": "cmux មិនអាចកំណត់អត្តសញ្ញាណសម័យ fork ថ្មីបានទេ។ ចាប់ផ្ដើម fork ម្ដងទៀតពីផ្ទាំងមេ។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux kunne ikke identifisere den nye forgreningsøkten, så denne ruten ble ikke bundet til den overordnede økten. Start forgreningen på nytt fra den overordnede ruten."
+            "value": "cmux kunne ikke identifisere den nye forgreningsøkten. Start forgreningen på nytt fra den overordnede ruten."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux nie mógł zidentyfikować nowej sesji forka, więc ten panel nie został powiązany z sesją nadrzędną. Uruchom fork ponownie z panelu nadrzędnego."
+            "value": "cmux nie mógł zidentyfikować nowej sesji forka. Uruchom fork ponownie z panelu nadrzędnego."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O cmux não conseguiu identificar a nova sessão bifurcada, então este painel não foi vinculado à sessão principal. Inicie o fork novamente no painel principal."
+            "value": "O cmux não conseguiu identificar a nova sessão bifurcada. Inicie o fork novamente no painel principal."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux не удалось определить новый сеанс форка, поэтому эта панель не была привязана к родительскому сеансу. Запустите форк снова из родительской панели."
+            "value": "cmux не удалось определить новый сеанс форка. Запустите форк снова из родительской панели."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ไม่สามารถระบุเซสชันที่แยกใหม่ได้ จึงไม่ได้ผูกบานหน้าต่างนี้กับเซสชันหลัก เริ่มการแยกอีกครั้งจากบานหน้าต่างหลัก"
+            "value": "cmux ไม่สามารถระบุเซสชันที่แยกใหม่ได้ เริ่มการแยกอีกครั้งจากบานหน้าต่างหลัก"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux yeni fork oturumunu belirleyemedi, bu nedenle bu panel üst oturuma bağlanmadı. Fork'u üst panelden yeniden başlatın."
+            "value": "cmux yeni fork oturumunu belirleyemedi. Fork'u üst panelden yeniden başlatın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux не вдалося визначити новий сеанс форка, тому цю панель не прив’язано до батьківського сеансу. Запустіть форк ще раз із батьківської панелі."
+            "value": "cmux не вдалося визначити новий сеанс форка. Запустіть форк ще раз із батьківської панелі."
           }
         }
       }

@@ -345,17 +345,21 @@ extension CMUXCLI {
             watcher.releaseClaim(for: child)
         }
 
-        _ = try? client.sendV2(method: "surface.resume.clear", params: [
+        let clearParams: [String: Any] = [
             "workspace_id": workspaceID,
             "surface_id": surfaceID,
             "checkpoint_id": parentSessionID,
             "source": "agent-hook",
             "agent_session_ended": true,
-        ])
+        ]
+        let didClearParent = (try? client.sendV2(method: "surface.resume.clear", params: clearParams))?["cleared"] as? Bool == true
+        if !didClearParent {
+            _ = try? client.sendV2(method: "surface.resume.clear", params: clearParams)
+        }
         let title = String(localized: "agent.codex.fork.notice.title", defaultValue: "Agent fork")
         let body = String(
             localized: "agent.codex.fork.notice.body",
-            defaultValue: "cmux could not identify the new fork session, so this pane was not bound to the parent. Start the fork again from the parent pane."
+            defaultValue: "cmux could not identify the new fork session. Start the fork again from the parent pane."
         )
         _ = try? client.sendV2(method: "notification.create_for_target", params: [
             "workspace_id": workspaceID,
