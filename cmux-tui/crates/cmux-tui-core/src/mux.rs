@@ -24017,12 +24017,23 @@ mod tests {
         assert_eq!(records[0].source, AgentSource::Hook);
         assert_eq!(records[0].session.as_deref(), Some("racing-hook"));
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
+        // The socket report commits its own revision only when it wins the
+        // race; a socket report that lands after the hook is retained by the
+        // hook-owned record without a new revision. Either way the hook's
+        // commit is the last batch.
         let batches = mux.resource_events_after(revision).unwrap().batches;
-        assert_eq!(batches.len(), 2);
-        assert_eq!(batches[0].revision, revision + 1);
-        assert_eq!(batches[1].revision, revision + 2);
-        assert_eq!(batches[1].changes[0]["value"]["source"], "hook");
-        assert_eq!(batches[1].changes[0]["value"]["state"], "blocked");
+        assert_eq!(
+            u64::try_from(batches.len()).unwrap(),
+            hook_commit.revision - revision,
+            "one batch per committed revision"
+        );
+        for (offset, batch) in batches.iter().enumerate() {
+            assert_eq!(batch.revision, revision + 1 + u64::try_from(offset).unwrap());
+        }
+        let last = batches.last().unwrap();
+        assert_eq!(last.revision, hook_commit.revision);
+        assert_eq!(last.changes[0]["value"]["source"], "hook");
+        assert_eq!(last.changes[0]["value"]["state"], "blocked");
     }
 
     #[test]
