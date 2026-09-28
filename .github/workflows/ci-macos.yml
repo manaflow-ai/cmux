@@ -1383,34 +1383,40 @@ jobs:
             "${CMUX_CI_CANONICAL_SRC:-/private/tmp/cmux-ci/src}/.ci-source-packages" "$PWD" "${CMUX_OWNED_PACKAGE_STORE:-}"
 
       # On an owned Mac the suites share its one console session with every
-      # other GUI job, so they need glaeda's gui token, which glaeda gives
-      # compile admission no share of at job start. This step takes it
+      # other GUI job, so they need glaeda's gui token, which glaeda never
+      # gives compile admission at job start. This step takes it
       # (glaeda-canonical-root take-gui) for the rest of the job, as
-      # test-e2e.yml's build does. take-gui gives way (exit 3) when the
-      # console is locked or a GUI job holding the token waits for this job's
-      # canonical root, and exits 1 when the token stays taken past the wait:
-      # the `app-host unit tests` worker then runs the suites, as it did for
-      # every owned admission before. Blacksmith has no helper, and a hook
-      # without take-gui (exit 2) is not an owned Mac this can wait on.
+      # test-e2e.yml's build does. When it cannot, the `app-host unit tests`
+      # worker runs the suites, as it did for every owned admission before:
+      # take-gui gave way (exit 3: the console is locked, or a GUI job holding
+      # the token waits for this job's canonical root), the token stayed taken
+      # past the wait (1), or the helper cannot take it here (2, which leaves
+      # this job without the token, unlike a GUI job). CI_PR_POOL_OWNED_GUI=0,
+      # which keeps GUI jobs off the owned Macs, sends them there too.
+      # Blacksmith has no helper and runs the suites here.
       - name: Take this Mac's gui token for the changed suites
         id: test-here
         if: ${{ inputs.unit_in_admission == 'true' }}
+        env:
+          POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
+          GLAEDA_CANONICAL_ROOT: /Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
         run: |
           set -uo pipefail
-          helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+          helper=$GLAEDA_CANONICAL_ROOT
           if [ -x "$helper" ]; then
-            # The step shell is bash -e, so capture the status instead of
-            # letting a give-way (exit 3) fail the job before it is read.
             status=0
-            "$helper" take-gui --wait 300 || status=$?
-            case "$status" in
-              0|2) ;;
-              *)
-                echo "::notice::The console session is busy (take-gui exited $status); the app-host unit tests worker runs the changed suites."
-                echo "tested=false" >> "$GITHUB_OUTPUT"
-                exit 0
-                ;;
-            esac
+            if [ "$POOL_OWNED_GUI" = 0 ]; then
+              status=off
+            else
+              # The step shell is bash -e, so capture the status instead of
+              # letting a give-way (exit 3) fail the job before it is read.
+              "$helper" take-gui --wait 240 || status=$?
+            fi
+            if [ "$status" != 0 ]; then
+              echo "::notice::No gui token for the changed suites here (take-gui: $status); the app-host unit tests worker runs them."
+              echo "tested=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
           echo "tested=true" >> "$GITHUB_OUTPUT"
 
