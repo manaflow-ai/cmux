@@ -4,7 +4,7 @@
       "socket": "workspace.create",
       "params": {
         "title": "Review docs",
-        "initial_input": "cp /bin/sleep /tmp/codex; /tmp/codex 900 & P=$!; sleep 1; printf 'set_agent_pid codex %s --tab=%s --panel=%s\\nset_status codex Running --tab=%s --panel=%s\\nset_agent_lifecycle codex running --tab=%s --panel=%s\\n' $P $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID | nc -U -w 2 $CMUX_SOCKET_PATH; clear\n",
+        "initial_input": "printf 'int main(void){sleep(900);return 0;}' > /tmp/fake-codex.c; cc -include unistd.h -o /tmp/codex /tmp/fake-codex.c; /tmp/codex 900 & P=$!; sleep 1; printf 'set_agent_pid codex %s --tab=%s --panel=%s\\nset_status codex Running --tab=%s --panel=%s\\nset_agent_lifecycle codex running --tab=%s --panel=%s\\n' $P $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID | nc -U -w 2 $CMUX_SOCKET_PATH\n",
         "focus": false
       },
       "save": "docs"
@@ -13,7 +13,7 @@
       "socket": "workspace.create",
       "params": {
         "title": "Fix the login flow",
-        "initial_input": "cp /bin/sleep /tmp/claude; /tmp/claude 900 & P=$!; sleep 1; printf 'set_agent_pid claude_code %s --tab=%s --panel=%s\\nset_status claude_code Idle --tab=%s --panel=%s\\nset_agent_lifecycle claude_code idle --tab=%s --panel=%s\\n' $P $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID | nc -U -w 2 $CMUX_SOCKET_PATH; clear\n",
+        "initial_input": "printf 'int main(void){sleep(900);return 0;}' > /tmp/fake-claude.c; cc -include unistd.h -o /tmp/claude /tmp/fake-claude.c; /tmp/claude 900 & P=$!; sleep 1; printf 'set_agent_pid claude_code %s --tab=%s --panel=%s\\nset_status claude_code Idle --tab=%s --panel=%s\\nset_agent_lifecycle claude_code idle --tab=%s --panel=%s\\n' $P $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID $CMUX_WORKSPACE_ID $CMUX_SURFACE_ID | nc -U -w 2 $CMUX_SOCKET_PATH\n",
         "focus": true
       },
       "save": "login"
@@ -28,7 +28,7 @@
       "save": "scratch"
     },
     {
-      "wait": 3
+      "wait": 8
     },
     {
       "shot": "workspaces"
