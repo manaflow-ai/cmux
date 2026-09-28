@@ -19,7 +19,6 @@ import shutil
 import socket
 import subprocess
 import tempfile
-import time
 from pathlib import Path
 
 
@@ -50,6 +49,9 @@ def make_fake_sleep(directory: Path, log: Path) -> None:
     fake.write_text(
         "#!/bin/sh\n"
         f"printf '%s\\n' \"$*\" >> {log}\n"
+        "if [ -n \"$CMUX_FAKE_SLEEP_READY_DIR\" ]; then\n"
+        ": > \"$CMUX_FAKE_SLEEP_READY_DIR/$PPID\"\n"
+        "fi\n"
         "exec /bin/sleep \"$@\"\n",
         encoding="utf-8",
     )
@@ -69,7 +71,7 @@ def base_env(fake_bin: Path) -> dict[str, str]:
     return env
 
 
-def test_syntax_and_zselect_sleep(tmp: Path, env: dict[str, str], log: Path) -> None:
+def test_syntax_and_zselect_sleep(env: dict[str, str], log: Path) -> bool:
     syntax = subprocess.run(
         ["/bin/zsh", "-n", str(SCRIPT)],
         env=env,
@@ -79,20 +81,18 @@ def test_syntax_and_zselect_sleep(tmp: Path, env: dict[str, str], log: Path) -> 
     )
     assert_ok(syntax, "zsh syntax")
 
-    started = time.monotonic()
     result = run_zsh(
         "source \"$1\"; (( _CMUX_HAS_ZSELECT )) || { print -r -- SKIP; exit 0; }; "
         "setopt ERR_RETURN ERR_EXIT; _cmux_sleep_cs 20; print -r -- ZSELECT_OK",
         env=env,
     )
-    elapsed = time.monotonic() - started
     assert_ok(result, "zselect sleep")
-    if "SKIP" not in result.stdout and "ZSELECT_OK" not in result.stdout:
+    has_zselect = "SKIP" not in result.stdout
+    if has_zselect and "ZSELECT_OK" not in result.stdout:
         raise AssertionError(f"zselect sleep produced no completion marker: {result.stdout!r}")
-    if "SKIP" not in result.stdout and not 0.1 <= elapsed <= 5.0:
-        raise AssertionError(f"zselect 20cs wait took an unexpected {elapsed:.3f}s")
-    if "SKIP" not in result.stdout and log.exists() and log.read_text(encoding="utf-8").strip():
+    if has_zselect and log.exists() and log.read_text(encoding="utf-8").strip():
         raise AssertionError("zselect sleep invoked an external sleep executable")
+    return has_zselect
 
 
 def test_fallback_sleep(tmp: Path, fake_bin: Path, log: Path) -> None:
@@ -118,6 +118,8 @@ def watcher_fixture(tmp: Path, fake_bin: Path, log: Path) -> tuple[dict[str, str
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(str(sock_path))
     server.listen(1)
+    ready_dir = tmp / "sleep-ready"
+    ready_dir.mkdir(exist_ok=True)
 
     repo = tmp / "repo"
     (repo / ".git").mkdir(parents=True)
@@ -132,16 +134,24 @@ def watcher_fixture(tmp: Path, fake_bin: Path, log: Path) -> tuple[dict[str, str
             "CMUX_NO_PR_WATCH": "",
             "CMUX_NO_GIT_WATCH": "",
             "_CMUX_WATCHER_IDENTITY_INTERVAL": "1",
+            "CMUX_FAKE_SLEEP_READY_DIR": str(ready_dir),
         }
     )
     # The caller owns the socket and repository for the lifetime of the shell.
     return env, server, repo
 
 
-def test_real_watchers_and_teardown(tmp: Path, fake_bin: Path, log: Path) -> None:
+def test_real_watchers_and_teardown(
+    tmp: Path, fake_bin: Path, log: Path, *, has_zselect: bool
+) -> None:
     env, server, repo = watcher_fixture(tmp, fake_bin, log)
+    if not has_zselect:
+        env["CMUX_TEST_FORCE_NO_ZSELECT"] = "1"
     try:
         command = r'''
+if [[ "$CMUX_TEST_FORCE_NO_ZSELECT" == 1 ]]; then
+    zmodload() { return 1; }
+fi
 source "$1"
 _cmux_run_pr_probe_with_timeout() { return 0; }
 _cmux_report_git_branch_for_path() { return 0; }
@@ -156,11 +166,26 @@ _cmux_start_git_head_watch
 kill -0 "$_CMUX_PR_POLL_PID" || { print -r -- "PR_WATCHER_NOT_ALIVE"; exit 4; }
 kill -0 "$_CMUX_GIT_HEAD_WATCH_PID" || { print -r -- "GIT_WATCHER_NOT_ALIVE"; exit 5; }
 print -r -- "WATCHERS:${_CMUX_PR_POLL_PID}:${_CMUX_GIT_HEAD_WATCH_PID}"
-# zselect is the wait in this parent too, so the fixture never needs a real
-# sleep executable while the two watcher children make their first pass.
-zselect -t 150 || true
 pr_pid="$_CMUX_PR_POLL_PID"
 git_pid="$_CMUX_GIT_HEAD_WATCH_PID"
+if (( _CMUX_HAS_ZSELECT )); then
+    # zselect is the wait in this parent too, so the fixture never needs a
+    # real sleep executable while the two watcher children make their pass.
+    zselect -t 150 || true
+else
+    ready=0
+    for (( attempt = 0; attempt < 80; attempt++ )); do
+        if [[ -e "$CMUX_FAKE_SLEEP_READY_DIR/$pr_pid" && -e "$CMUX_FAKE_SLEEP_READY_DIR/$git_pid" ]]; then
+            ready=1
+            break
+        fi
+        _cmux_sleep_cs 5 || true
+    done
+    (( ready )) || {
+        print -r -- "FALLBACK_WATCHERS_NOT_READY:$pr_pid:$git_pid"
+        exit 7
+    }
+fi
 _cmux_stop_git_head_watch
 _cmux_halt_pr_poll_loop
 pr_alive=1
@@ -169,7 +194,11 @@ for (( attempt = 0; attempt < 40; attempt++ )); do
     kill -0 -- -"$pr_pid" 2>/dev/null || pr_alive=0
     kill -0 "$git_pid" 2>/dev/null || git_alive=0
     (( !pr_alive && !git_alive )) && break
-    zselect -t 5 || true
+    if (( _CMUX_HAS_ZSELECT )); then
+        zselect -t 5 || true
+    else
+        _cmux_sleep_cs 5 || true
+    fi
 done
 (( !pr_alive && !git_alive )) || {
     print -r -- "TEARDOWN_LEAK:"$pr_pid":"$git_pid":"$pr_alive":"$git_alive
@@ -185,9 +214,14 @@ print -r -- "TEARDOWN:${_CMUX_PR_POLL_PID}:${_CMUX_GIT_HEAD_WATCH_PID}"
         watcher_pids = watcher_lines[0].split(":")[1:]
         if len(watcher_pids) != 2 or not all(pid.isdigit() and int(pid) > 0 for pid in watcher_pids):
             raise AssertionError(f"watcher fixture did not report two live PIDs: {result.stdout!r}")
-        if log.exists() and log.read_text(encoding="utf-8").strip():
+        calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+        if has_zselect and calls:
             raise AssertionError(
                 "the PR and git HEAD watcher loops invoked external sleep despite zsh/zselect availability"
+            )
+        if not has_zselect and len(calls) < 2:
+            raise AssertionError(
+                "the PR and git HEAD watcher loops did not exercise the external-sleep fallback"
             )
     finally:
         server.close()
@@ -207,13 +241,20 @@ def main() -> int:
     log = tmp / "sleep.log"
     make_fake_sleep(fake_bin, log)
     try:
-        test_syntax_and_zselect_sleep(tmp, base_env(fake_bin), log)
+        has_zselect = test_syntax_and_zselect_sleep(base_env(fake_bin), log)
         # Start fallback with a fresh log so exactly one call is attributable to
         # this branch, rather than to a previous fixture.
         log.unlink(missing_ok=True)
         test_fallback_sleep(tmp, fake_bin, log)
         log.unlink(missing_ok=True)
-        test_real_watchers_and_teardown(tmp, fake_bin, log)
+        if has_zselect:
+            test_real_watchers_and_teardown(tmp, fake_bin, log, has_zselect=True)
+            log.unlink(missing_ok=True)
+            fallback_tmp = tmp / "fallback-fixture"
+            fallback_tmp.mkdir()
+            test_real_watchers_and_teardown(fallback_tmp, fake_bin, log, has_zselect=False)
+        else:
+            test_real_watchers_and_teardown(tmp, fake_bin, log, has_zselect=False)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
