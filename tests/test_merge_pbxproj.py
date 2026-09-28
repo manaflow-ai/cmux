@@ -9,6 +9,7 @@ the normalizer rejects counts as a refusal rather than a result.
 """
 
 import hashlib
+import os
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DRIVER = ROOT / "scripts" / "merge-pbxproj.py"
+GIT_ENV = {
+    **os.environ,
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_AUTHOR_NAME": "Merge Test",
+    "GIT_AUTHOR_EMAIL": "merge@example.invalid",
+    "GIT_COMMITTER_NAME": "Merge Test",
+    "GIT_COMMITTER_EMAIL": "merge@example.invalid",
+}
 
 
 def uuid(seed):
@@ -207,11 +217,12 @@ def test_a_real_git_merge_leaves_markers_and_unmerged_stages():
         def git(*args, check=True):
             return subprocess.run(
                 ["git", *args], cwd=repo, capture_output=True, text=True, check=check,
+                env=GIT_ENV,
             )
 
-        git("init", "-q")
-        git("config", "user.name", "Merge Test")
-        git("config", "user.email", "merge@example.com")
+        git("init", "-q", "-b", "main")
+        git("config", "core.hooksPath", "/dev/null")
+        git("config", "commit.gpgSign", "false")
         git("config", "merge.pbxproj.driver",
             f"{sys.executable} {DRIVER} %O %A %B %P")
         (repo / ".gitattributes").write_text(
@@ -228,7 +239,7 @@ def test_a_real_git_merge_leaves_markers_and_unmerged_stages():
         git("switch", "-q", "theirs")
         project_path.write_text(project(["Alpha.swift"], settings="6.1"), encoding="utf-8")
         git("commit", "-qam", "theirs")
-        git("switch", "-q", "master")
+        git("switch", "-q", "main")
 
         merge = git("merge", "theirs", check=False)
         assert merge.returncode != 0
@@ -246,14 +257,27 @@ def test_a_union_the_normalizer_rejects_is_refused():
     takes theirs wholesale without ever seeing a conflict. Only the normalizer
     notices that what it took is not a project file. That is the case the
     second check exists for, and the assertion on %A is the point of it: a
-    refusal has to leave the working tree exactly as git handed it over.
+    refusal has to leave an explicit conflict in the working tree.
     """
     base = project(["Alpha.swift"])
     ours = project(["Alpha.swift"])
     code, merged, stderr = run(base, ours, "not a project")
     assert code == 1
-    assert merged == ours, "a rejected union must not leave a half-written project behind"
+    assert "<" * 32 in merged, "a rejected union must leave an explicit semantic conflict"
+    assert ours in merged and "not a project" in merged
     assert "normalizer rejected the union" in stderr, stderr
+
+
+def test_order_sensitive_insertions_are_refused():
+    """Distinct array entries are not a set when their execution order matters."""
+    base = project(["Alpha.swift"])
+    needle = "\t\t\tfiles = (\n"
+    ours = base.replace(needle, needle + f"\t\t\t\t{uuid('phase-a')} /* Generate Sources */,\n")
+    theirs = base.replace(needle, needle + f"\t\t\t\t{uuid('phase-b')} /* Lint Sources */,\n")
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 1
+    assert "<" * 32 in merged
+    assert "automatic union is limited to source-file project entries" in stderr
 
 
 def test_the_result_is_normalized():

@@ -26,6 +26,7 @@ Usage (git passes these): merge-pbxproj.py %O %A %B %P
 from __future__ import annotations
 
 import importlib.util
+import re
 import subprocess
 import sys
 import tempfile
@@ -34,10 +35,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 CATCH_UP = ROOT / "scripts" / "ci" / "catch_up_pr.py"
 NORMALIZER = ROOT / "scripts" / "normalize-pbxproj.py"
+SOURCE_ENTRY_RE = re.compile(
+    r"^\s*[0-9A-Za-z]+ /\* .* \*/ = \{isa = PBX(?:BuildFile|FileReference);.*\};\s*$|"
+    r"^\s*[0-9A-Za-z]+ /\* .+\.(?:swift|m|mm|c|cc|cpp|h|metal)(?: in Sources)? \*/,\s*$"
+)
 
 
 def load_mergers():
-    """The union and textual fallback used by PR catch-up."""
+    """The trusted merge helpers used by PR catch-up."""
     spec = importlib.util.spec_from_file_location("merge_pbxproj_catch_up", CATCH_UP)
     if spec is None or spec.loader is None:
         raise ImportError(f"cannot load {CATCH_UP}")
@@ -47,7 +52,42 @@ def load_mergers():
     # registered before it is executed or the decorator raises.
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
-    return module.union_pbxproj, module.merge_file
+    return module
+
+
+def source_entry_union(module, base: str, ours: str, theirs: str) -> str:
+    """Union only source-file entries, never order-sensitive project arrays."""
+    merged = module.union_pbxproj(base, ours, theirs)
+    for part in module.split_conflicts(module.merge_file(base, ours, theirs)):
+        if isinstance(part, str):
+            continue
+        ours_lines, base_lines, theirs_lines = part
+        for side in (ours_lines, theirs_lines):
+            slots = module.insertions(base_lines, side)
+            if slots is None or any(
+                line.strip() and SOURCE_ENTRY_RE.fullmatch(line) is None
+                for lines in slots for line in lines
+            ):
+                raise ValueError(
+                    "automatic union is limited to source-file project entries;"
+                    " order-sensitive or unknown insertions need a person"
+                )
+    return merged
+
+
+def conflict_text(module, base: str, ours: str, theirs: str) -> str:
+    """The ordinary diff3 conflict, or an explicit whole-file semantic conflict."""
+    merged = module.merge_file(base, ours, theirs)
+    marker = "<" * module.MARKER_SIZE
+    if marker in merged:
+        return merged
+    width = module.MARKER_SIZE
+    return (
+        f"{'<' * width} ours\n{ours.rstrip()}\n"
+        f"{'|' * width} base\n{base.rstrip()}\n"
+        f"{'=' * width}\n{theirs.rstrip()}\n"
+        f"{'>' * width} theirs\n"
+    )
 
 
 def normalized(text: str, name: str) -> str | None:
@@ -58,9 +98,8 @@ def normalized(text: str, name: str) -> str | None:
     a half-written project file behind.
     """
     if not NORMALIZER.exists():
-        # A worktree without the normalizer still gets the union; the pre-commit
-        # hook and CI check the file again before it can land.
-        return text
+        print(f"merge-pbxproj: {name}: normalizer is unavailable; falling back", file=sys.stderr)
+        return None
     with tempfile.TemporaryDirectory() as directory:
         scratch = Path(directory) / "project.pbxproj"
         scratch.write_text(text, encoding="utf-8")
@@ -86,21 +125,17 @@ def main(argv: list[str]) -> int:
     base_path, ours_path, theirs_path = (Path(p) for p in argv[1:4])
     name = argv[4] if len(argv) > 4 else str(ours_path)
     try:
-        union_pbxproj, merge_file = load_mergers()
+        module = load_mergers()
         base = base_path.read_text(encoding="utf-8")
         ours = ours_path.read_text(encoding="utf-8")
         theirs = theirs_path.read_text(encoding="utf-8")
-        merged = union_pbxproj(
-            base,
-            ours,
-            theirs,
-        )
+        merged = source_entry_union(module, base, ours, theirs)
     except ValueError as error:
         # A custom merge driver owns %A even when it returns failure: Git does
         # not rerun the built-in text merge for us. Leave the ordinary diff3
         # conflict there so a person cannot mistake an ours-only file for the
         # complete project and stage away the incoming change.
-        ours_path.write_text(merge_file(base, ours, theirs), encoding="utf-8")
+        ours_path.write_text(conflict_text(module, base, ours, theirs), encoding="utf-8")
         print(f"merge-pbxproj: {name}: {error}; falling back", file=sys.stderr)
         return 1
     except (OSError, ImportError, AttributeError, UnicodeDecodeError) as error:
@@ -108,6 +143,7 @@ def main(argv: list[str]) -> int:
         return 1
     settled = normalized(merged, name)
     if settled is None:
+        ours_path.write_text(conflict_text(module, base, ours, theirs), encoding="utf-8")
         return 1
     ours_path.write_text(settled, encoding="utf-8")
     return 0
