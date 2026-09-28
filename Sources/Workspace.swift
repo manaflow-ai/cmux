@@ -2882,6 +2882,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var activeMovingTabSplitFocusIntent: MovingTabSplitFocusIntent?
     var activeSplitSpaceDividerPosition: CGFloat?
     var splitSpaceAdmissionBypassDepth = 0
+#if DEBUG
+    var debugTerminalSplitPanelConstructionProbe: ((String?, String?) -> Void)?
+    var debugBrowserSplitPanelConstructionProbe: ((URL?) -> Void)?
+#endif
     private var debugStressPreloadSelectionDepth = 0
 
     /// Last terminal panel used as an inheritance source (typically last focused terminal).
@@ -9045,6 +9049,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 #endif
 
         // Create the new terminal panel.
+#if DEBUG
+        debugTerminalSplitPanelConstructionProbe?(startupCommand, initialInput)
+#endif
         let newPanel = TerminalPanel(
             id: newPanelID,
             workspaceId: id,
@@ -9738,6 +9745,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // No local browser surfaces in a remote tmux mirror workspace (it is a
         // 1:1 view of a tmux session). See ``newBrowserSurface(inPane:)``.
         if isRemoteTmuxMirror { return nil }
+
+        // Find the pane containing the source panel
+        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
+        var sourcePaneId: PaneID?
+        for paneId in bonsplitController.allPaneIds {
+            let tabs = bonsplitController.tabs(inPane: paneId)
+            if tabs.contains(where: { $0.id == sourceTabId }) {
+                sourcePaneId = paneId
+                break
+            }
+        }
+
+        guard let paneId = sourcePaneId,
+              admitsSplitSpacePreflight(
+                  splitting: paneId,
+                  orientation: orientation,
+                  dividerPosition: initialDividerPosition
+              ) else { return nil }
+
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         // Under an MDM-managed disable no path may create a browser panel,
         // including session restore (mirrors the Dock restore behavior).
@@ -9754,20 +9780,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             return nil
         }
 
-        // Find the pane containing the source panel
-        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
-        var sourcePaneId: PaneID?
-        for paneId in bonsplitController.allPaneIds {
-            let tabs = bonsplitController.tabs(inPane: paneId)
-            if tabs.contains(where: { $0.id == sourceTabId }) {
-                sourcePaneId = paneId
-                break
-            }
-        }
-
-        guard let paneId = sourcePaneId else { return nil }
-
         // Create browser panel
+#if DEBUG
+        debugBrowserSplitPanelConstructionProbe?(initialRequest?.url ?? url)
+#endif
         let browserPanel = BrowserPanel(
             workspaceId: id,
             profileID: resolvedNewBrowserProfileID(
@@ -10078,7 +10094,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
         }
 
-        guard let paneId = sourcePaneId else { return nil }
+        guard let paneId = sourcePaneId,
+              admitsSplitSpacePreflight(splitting: paneId, orientation: orientation) else { return nil }
 
         let markdownPanel = MarkdownPanel(
             workspaceId: id,
@@ -10283,7 +10300,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         insertFirst: Bool,
         filePath: String
     ) -> MarkdownPanel? {
-        guard !isRetiredFromOwningTabManager else { return nil }
+        guard !isRetiredFromOwningTabManager,
+              admitsSplitSpacePreflight(splitting: paneId, orientation: orientation) else { return nil }
         let markdownPanel = MarkdownPanel(
             workspaceId: id,
             filePath: filePath,
@@ -10664,7 +10682,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         insertFirst: Bool,
         filePath: String
     ) -> FilePreviewPanel? {
-        guard !isRetiredFromOwningTabManager else { return nil }
+        guard !isRetiredFromOwningTabManager,
+              admitsSplitSpacePreflight(splitting: paneId, orientation: orientation) else { return nil }
         let filePreviewPanel = FilePreviewPanel(
             workspaceId: id,
             filePath: filePath,
@@ -13092,7 +13111,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         remoteStartupCommand: String? = nil
     ) -> TerminalPanel? {
-        guard !isRetiredFromOwningTabManager else { return nil }
+        guard !isRetiredFromOwningTabManager,
+              admitsSplitSpacePreflight(splitting: paneId, orientation: orientation) else { return nil }
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
@@ -13106,6 +13126,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             inheritedConfig = template
         }
 
+#if DEBUG
+        debugTerminalSplitPanelConstructionProbe?(startupCommand, initialInput)
+#endif
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,

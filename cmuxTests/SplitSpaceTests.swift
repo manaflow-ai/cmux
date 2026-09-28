@@ -86,14 +86,24 @@ struct SplitSpaceTests {
         )
         let fileDropPane = try #require(fileDropWorkspace.bonsplitController.focusedPaneId)
         let fileDropPanelCount = fileDropWorkspace.panels.count
+#if DEBUG
+        var terminalConstructionRequests: [(command: String?, input: String?)] = []
+        fileDropWorkspace.debugTerminalSplitPanelConstructionProbe = { command, input in
+            terminalConstructionRequests.append((command, input))
+        }
+#endif
         #expect(fileDropWorkspace.splitPaneWithNewTerminal(
             targetPane: fileDropPane,
             orientation: .vertical,
             insertFirst: false,
             workingDirectory: nil,
-            initialInput: nil
+            initialInput: "must-not-run\n",
+            remoteStartupCommand: "must-not-start"
         ) == nil)
         #expect(fileDropWorkspace.panels.count == fileDropPanelCount)
+#if DEBUG
+        #expect(terminalConstructionRequests.isEmpty, "rejected split must not construct or start a terminal")
+#endif
 
         let browserWorkspace = Workspace()
         defer { browserWorkspace.teardownAllPanels() }
@@ -102,12 +112,22 @@ struct SplitSpaceTests {
         )
         let browserSource = try #require(browserWorkspace.focusedPanelId)
         let browserPanelCount = browserWorkspace.panels.count
+#if DEBUG
+        var browserNavigationRequests: [URL?] = []
+        browserWorkspace.debugBrowserSplitPanelConstructionProbe = { url in
+            browserNavigationRequests.append(url)
+        }
+#endif
         #expect(browserWorkspace.newBrowserSplit(
             from: browserSource,
             orientation: .horizontal,
+            url: URL(string: "https://must-not-navigate.invalid/"),
             allowsExternalBrowserFallback: false
         ) == nil)
         #expect(browserWorkspace.panels.count == browserPanelCount)
+#if DEBUG
+        #expect(browserNavigationRequests.isEmpty, "rejected split must not construct or navigate a browser")
+#endif
 
         let movingWorkspace = Workspace()
         defer { movingWorkspace.teardownAllPanels() }

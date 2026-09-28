@@ -67,11 +67,26 @@ extension Workspace {
     /// Only restoration and remote-layout projection transactions opt out.
     /// A refused split beeps, like Cmd+D with no room.
     func admitsBonsplitUISplit(of paneId: PaneID, orientation: SplitOrientation) -> Bool {
+        admitsSplitSpacePreflight(
+            splitting: paneId,
+            orientation: orientation,
+            dividerPosition: activeSplitSpaceDividerPosition
+        )
+    }
+
+    /// Cheap gate used before a split helper constructs a live panel. The
+    /// Bonsplit delegate repeats this check immediately before mutation as a
+    /// backstop against geometry changes between preflight and commit.
+    func admitsSplitSpacePreflight(
+        splitting paneId: PaneID,
+        orientation: SplitOrientation,
+        dividerPosition: CGFloat? = nil
+    ) -> Bool {
         guard splitSpaceAdmissionBypassDepth == 0,
               splitSpaceVerdict(
                   splitting: paneId,
                   orientation: orientation,
-                  dividerPosition: activeSplitSpaceDividerPosition
+                  dividerPosition: dividerPosition
               ) == .noSpace else { return true }
         NSSound.beep()
         return false

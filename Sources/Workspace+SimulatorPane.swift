@@ -121,7 +121,12 @@ extension Workspace {
               let sourceTabId = surfaceIdFromPanelId(panelId),
               let sourcePaneId = bonsplitController.allPaneIds.first(where: { paneId in
                   bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == sourceTabId })
-              }) else {
+              }),
+              admitsSplitSpacePreflight(
+                  splitting: sourcePaneId,
+                  orientation: orientation,
+                  dividerPosition: initialDividerPosition
+              ) else {
             return nil
         }
 
