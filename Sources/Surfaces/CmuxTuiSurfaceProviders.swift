@@ -453,7 +453,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // A snapshot with the exact installed cursor is a valid no-op only when
         // its revisioned graph and every pending receipt agree. This is important after a
         // rename: a delayed equal-cursor predecessor must not look current.
-        if let current = cloudState, current.cursor == incoming.cursor {
+        // Two missing cursors (a legacy daemon) carry no ordering at all, so
+        // they are not equal; the snapshot decision below handles them.
+        if let current = cloudState, let currentCursor = current.cursor, currentCursor == incoming.cursor {
             guard current.hasSameRevisionedContent(as: incoming), incomingPassesPendingRenameFence(incoming) else {
                 #if DEBUG
                 cmuxDebugLog("cloud.state.snapshotIgnored machine=\(machineID) reason=equal-cursor-conflict")
