@@ -985,7 +985,7 @@ class GhosttyApp {
             ) -> Bool,
             to: ghostty_runtime_read_clipboard_cb.self
         )
-        runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, _ in
+        runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, request in
             guard let content,
                   let callbackContext = GhosttyApp.callbackContext(from: userdata) else { return }
             // Libghostty invokes this synchronously from the main-actor
@@ -998,6 +998,7 @@ class GhosttyApp {
                 callbackContext.confirmClipboardRead(
                     String(cString: content),
                     stateAddress: UInt(bitPattern: state),
+                    isPasteRequest: request == GHOSTTY_CLIPBOARD_REQUEST_PASTE,
                     surfaceIdentity: surfaceIdentity
                 )
             }
@@ -5489,7 +5490,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 let (next, overflowed) = total.addingReportingOverflow(payloadBytes)
                 total = overflowed ? .max : next
             }
-        case .reject:
+        case .reject, .rejectOversizedImage:
             return 0
         }
     }
@@ -11177,7 +11178,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let imageTransferIndicatorView: NSVisualEffectView
     private let imageTransferIndicatorSpinner: NSProgressIndicator
     private let imageTransferCancelButton: NSButton
-    private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
+    private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlayRoot>?
     private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
     private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()
     private lazy var pasteFailureNoticePresenter = TerminalPasteFailureNoticePresenter()
@@ -11466,8 +11467,7 @@ final class GhosttySurfaceScrollView: NSView {
         inactiveOverlayView.isHidden = true
         addSubview(inactiveOverlayView)
         dropZoneOverlayView.wantsLayer = true
-        dropZoneOverlayView.layer?.backgroundColor = cmuxAccentNSColor().withAlphaComponent(0.25).cgColor
-        dropZoneOverlayView.layer?.borderColor = cmuxAccentNSColor().cgColor
+        applyAccentColor(AppDelegate.shared?.accentColor ?? CmuxAccentColor())
         dropZoneOverlayView.layer?.borderWidth = 2
         dropZoneOverlayView.layer?.cornerRadius = 8
         dropZoneOverlayView.isHidden = true
@@ -12482,7 +12482,7 @@ final class GhosttySurfaceScrollView: NSView {
     private func makeSearchOverlayRootView(
         terminalSurface: TerminalSurface,
         searchState: TerminalSurface.SearchState
-    ) -> SurfaceSearchOverlay {
+    ) -> SurfaceSearchOverlayRoot {
         SurfaceSearchOverlay(
             tabId: terminalSurface.tabId,
             surfaceId: terminalSurface.id,
@@ -12503,6 +12503,7 @@ final class GhosttySurfaceScrollView: NSView {
                 self?.moveFocus()
             }
         )
+        .cmuxAccentColorEnvironment()
     }
 
     private func findEditableSearchField(in view: NSView?) -> NSTextField? {
