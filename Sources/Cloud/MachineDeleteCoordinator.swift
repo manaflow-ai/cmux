@@ -27,7 +27,7 @@ final class MachineDeleteCoordinator {
         }
     }
 
-    /// Machines with a delete in flight, and confirmed deletions the fleet still lists.
+    /// Machines with a delete in flight, and this account's confirmed deletions.
     /// Reading it inside a view body or tracked closure observes changes.
     var hiddenMachineIDs: Set<String> { deletions.projection.hiddenMachineIDs }
 
@@ -58,13 +58,10 @@ final class MachineDeleteCoordinator {
     /// Destroys the machine for the `vm.destroy` socket method, which every
     /// entrypoint's `cmux vm rm` reaches. A repeated call joins the request in
     /// flight, and a confirmed deletion answers without another request.
-    /// - Parameter rawID: The machine identifier as the caller spelled it.
+    /// - Parameter machineID: The exact provider machine identifier.
     /// - Returns: True when the provider no longer knew the machine.
     /// - Throws: The provider's error; the machine is listed again.
-    func destroy(id rawID: String) async throws -> Bool {
-        // `cmux vm rm` passes the ID as typed; lists hide a machine by its listed spelling.
-        let machineID = SurfaceCatalog.shared.machines.keys.lazy.compactMap(\.cloudMachineID)
-            .first { $0.caseInsensitiveCompare(rawID) == .orderedSame } ?? rawID
+    func destroy(id machineID: String) async throws -> Bool {
         if hiddenMachineIDs.contains(machineID), !deletions.isPending(machineID) { return true }
         begin(machineID)
         if let request = requests[machineID] { return try await request.task.value }
@@ -99,16 +96,6 @@ final class MachineDeleteCoordinator {
     func launchEnded(_ machineID: String) {
         guard deletions.isPending(machineID), requests[machineID] == nil else { return }
         _ = deletions.finish(machineID, result: .failed)
-    }
-
-    /// Fences a fleet read. Call it immediately before the read starts.
-    func beginListing() -> CloudMachineDeletionListing {
-        deletions.beginListing()
-    }
-
-    /// Stops hiding confirmed deletions that a read started after confirmation omits.
-    func reconcile(_ listing: CloudMachineDeletionListing, machineIDs: Set<String>) {
-        deletions.reconcile(listing, machineIDs: machineIDs)
     }
 
     private func finish(_ machineID: String, result: CloudMachineDeletionResult, epoch: UInt64, token: UUID) {

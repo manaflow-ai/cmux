@@ -66,15 +66,10 @@ extension MachinesPanelViewModel {
         refreshTask = Task { [weak self] in
             // Only the last read in flight ends loading; a retired or chained one must not.
             defer { self?.clearListLoadingIfIdle() }
-            // A read that began before a delete was confirmed never shows the machine again.
-            let listing = MachineDeleteCoordinator.shared.beginListing()
             let result: Result<VMListPage, Error>
             do { result = .success(try await client.listPage()) }
             catch { result = .failure(error) }
             guard !Task.isCancelled, let self, generation == self.refreshGeneration else { return }
-            if case .success(let page) = result {
-                MachineDeleteCoordinator.shared.reconcile(listing, machineIDs: Set(page.vms.map(\.id)))
-            }
             self.applyRefreshResult(result, generation: generation, scope: scope)
             self.refreshTask = nil
             if self.refreshRequestedWhileLoading {

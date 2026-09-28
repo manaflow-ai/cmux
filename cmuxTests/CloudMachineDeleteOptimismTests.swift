@@ -35,7 +35,7 @@ struct CloudMachineDeleteOptimismTests {
         defer { fixture.close() }
         let machineID = try #require(fixture.machine.cloudMachineID)
         let shown = fixture.nodes()
-        let machineRow = try #require(CloudTreeNodeBuilder.flattened(shown).first(where: \.isMachineRow))
+        let machineRow = try #require(CloudTreeNodeBuilder.flattened(shown).first { $0.isMachineRow })
         let folder = try #require(CloudTreeNodeBuilder.flattened(shown).first { $0.id == fixture.folderID("ws_1") })
         let selected = try #require(folder.children.first).id
         let presentation = CloudTreeDeletionPresentation()
@@ -58,7 +58,7 @@ struct CloudMachineDeleteOptimismTests {
         defer { fixture.close() }
         let machineID = try #require(fixture.machine.cloudMachineID)
         let shown = fixture.nodes()
-        let machineRow = try #require(CloudTreeNodeBuilder.flattened(shown).first(where: \.isMachineRow))
+        let machineRow = try #require(CloudTreeNodeBuilder.flattened(shown).first { $0.isMachineRow })
         let presentation = CloudTreeDeletionPresentation()
         let pendingWorkspace = [fixture.machine: Set(["ws_1"])]
         let hidden = presentation.update(

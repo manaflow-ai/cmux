@@ -2,18 +2,16 @@ import Foundation
 import Observation
 
 /// Owns optimistic machine deletion: which machines every list hides while a
-/// destroy is in flight, and which confirmed deletions stay hidden until the
-/// fleet agrees.
+/// destroy is in flight, and which confirmed deletions stay hidden.
 ///
-/// Begin before starting I/O, then report the authoritative outcome. Take a
-/// listing fence before every fleet read and reconcile the result with it:
+/// Begin before starting I/O, then report the authoritative outcome. A confirmed
+/// deletion stays hidden until the account ends: provider machine IDs are never
+/// reused, and any list may still hold a read that started before confirmation.
 ///
 /// ```swift
 /// let deletions = CloudMachineDeletionCoordinator()
 /// guard deletions.begin("m1") else { return }  // false: already deleting
-/// let listing = deletions.beginListing()
-/// _ = deletions.finish("m1", result: .deleted)
-/// deletions.reconcile(listing, machineIDs: [])  // read began first: still hidden
+/// _ = deletions.finish("m1", result: .deleted)  // m1 stays hidden
 /// ```
 @MainActor
 @Observable
@@ -22,13 +20,12 @@ public final class CloudMachineDeletionCoordinator {
     public private(set) var projection = CloudMachineDeletionProjection()
 
     @ObservationIgnored private var entries: [String: Entry] = [:]
-    @ObservationIgnored private var listingGeneration: UInt64 = 0
 
     private enum Entry: Equatable {
         /// The destroy request has not reported an outcome.
         case pending
-        /// Confirmed gone; hidden until a read started after `generation` omits it.
-        case deleted(generation: UInt64)
+        /// Confirmed gone; hidden until the account ends.
+        case deleted
     }
 
     /// Creates an empty owner for one application session.
@@ -62,42 +59,13 @@ public final class CloudMachineDeletionCoordinator {
         guard entries[machineID] == .pending else { return .ignored }
         switch result {
         case .deleted, .notFound:
-            entries[machineID] = .deleted(generation: listingGeneration)
+            entries[machineID] = .deleted
             return .retired
         case .failed:
             entries[machineID] = nil
             projection.hiddenMachineIDs.remove(machineID)
             return .restored
         }
-    }
-
-    /// Fences a fleet read. Call it immediately before the read starts.
-    /// - Returns: The token to pass to ``reconcile(_:machineIDs:)`` with the result.
-    public func beginListing() -> CloudMachineDeletionListing {
-        listingGeneration &+= 1
-        return CloudMachineDeletionListing(generation: listingGeneration)
-    }
-
-    /// Stops hiding confirmed deletions that a sufficiently recent read omits.
-    ///
-    /// Pending deletions stay hidden whatever the read contains, and a read that
-    /// started before a confirmation cannot retire it, so neither a stale poll nor
-    /// a lagging backend can show a deleted machine again.
-    /// - Parameters:
-    ///   - listing: The fence taken when the read started.
-    ///   - machineIDs: Every machine the read returned.
-    /// - Returns: Whether the hidden set changed.
-    @discardableResult
-    public func reconcile(_ listing: CloudMachineDeletionListing, machineIDs: Set<String>) -> Bool {
-        let retired = entries.compactMap { id, entry -> String? in
-            guard case .deleted(let generation) = entry, listing.generation > generation,
-                  !machineIDs.contains(id) else { return nil }
-            return id
-        }
-        guard !retired.isEmpty else { return false }
-        for id in retired { entries[id] = nil }
-        projection.hiddenMachineIDs.subtract(retired)
-        return true
     }
 
     /// Forgets every deletion when the account or team changes. Outcomes that

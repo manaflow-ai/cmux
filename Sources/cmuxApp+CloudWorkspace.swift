@@ -33,12 +33,9 @@ extension cmuxApp {
                 guard let client = VMClient.shared else { throw VMClientError.notSignedIn }
                 // GET /api/vm returns the entire owned fleet; SurfaceCatalog may be cold
                 // or contain only providers discovered by an earlier background pass.
-                let deletions = MachineDeleteCoordinator.shared
-                let listing = deletions.beginListing()
                 let machineIDs = try await client.listPage().vms.map(\.id)
-                deletions.reconcile(listing, machineIDs: Set(machineIDs))
                 // A machine being deleted is never a workspace target.
-                let deleting = deletions.hiddenMachineIDs
+                let deleting = MachineDeleteCoordinator.shared.hiddenMachineIDs
                 return machineIDs.filter { !deleting.contains($0) }
             },
             createWorkspace: { request in

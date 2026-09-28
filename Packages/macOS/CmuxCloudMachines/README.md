@@ -89,11 +89,11 @@ and the CLI's idempotency store remain outside this package.
 `CloudMachineDeletionCoordinator` owns optimistic machine deletion. `begin` hides a
 machine from every list before the destroy request starts; a second `begin` for the
 same machine is a no-op. The destroy outcome retires the entry (deleted or 404) or
-restores the row (failure). Each fleet read takes a `beginListing()` fence before it
-starts and passes it to `reconcile`. A pending deletion stays hidden whatever a read
-returns. A confirmed one stays hidden until a read that started after confirmation
-omits it, so neither a stale poll nor a lagging backend resurrects the row.
-`endAccount()` forgets every entry without rollback. The app adapter owns the CLI,
+restores the row (failure). A pending deletion stays hidden whatever a fleet read
+returns. A confirmed one stays hidden until the account ends: provider machine IDs
+are never reused, and each list polls on its own schedule, so no single read proves
+that every list has dropped the machine. `endAccount()` forgets every entry without
+rollback. The app adapter owns the CLI,
 alerts, and closing workspaces, and calls the create owner's
 `retireCreates(producing:)` so a create for the same machine stops without a second
 destroy request:
@@ -102,12 +102,10 @@ destroy request:
 let deletions = CloudMachineDeletionCoordinator()
 guard deletions.begin("m1") else { return }       // hidden before any request
 _ = creates.retireCreates(producing: "m1")        // stop a pending create for m1
-let listing = deletions.beginListing()            // a poll starts mid-destroy
 switch deletions.finish("m1", result: .deleted) {
-case .retired: break                              // close local registrations
+case .retired: break                              // close local registrations; m1 stays hidden
 case .restored: break                             // row is listed again; alert
 case .ignored: break                              // duplicate, or the account ended
 }
-deletions.reconcile(listing, machineIDs: ["m1"])  // stale read: m1 stays hidden
-deletions.reconcile(deletions.beginListing(), machineIDs: [])  // hidden set is empty
+deletions.endAccount()                            // sign-out: hidden set is empty
 ```

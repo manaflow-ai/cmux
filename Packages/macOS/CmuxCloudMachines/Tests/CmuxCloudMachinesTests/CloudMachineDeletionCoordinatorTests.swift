@@ -27,32 +27,23 @@ struct CloudMachineDeletionCoordinatorTests {
         )
     }
 
-    @Test func pendingDeletionStaysHiddenAcrossEveryRefreshUntilItsOutcome() {
+    @Test func pendingDeletionStaysHiddenUntilItsOutcome() {
         let owner = CloudMachineDeletionCoordinator()
         #expect(owner.begin("doomed"))
         #expect(owner.projection.hiddenMachineIDs == ["doomed"])
         #expect(owner.isPending("doomed"))
-
-        // Polls that started before, during, and after the request never resurrect the row.
-        for fleet: Set<String> in [["doomed", "kept"], [], ["kept"], ["doomed"]] {
-            #expect(!owner.reconcile(owner.beginListing(), machineIDs: fleet))
-            #expect(owner.projection.hiddenMachineIDs == ["doomed"])
-        }
+        #expect(owner.finish("other", result: .failed) == .ignored, "an unrelated outcome changes nothing")
+        #expect(owner.projection.hiddenMachineIDs == ["doomed"])
     }
 
     @Test(arguments: [CloudMachineDeletionResult.deleted, .notFound])
     func confirmedDeletionStaysHiddenUntilTheAccountEnds(result: CloudMachineDeletionResult) {
         let owner = CloudMachineDeletionCoordinator()
         owner.begin("gone")
-        let startedBeforeConfirmation = owner.beginListing()
         #expect(owner.finish("gone", result: result) == .retired)
         #expect(!owner.isPending("gone"))
-        #expect(owner.projection.hiddenMachineIDs == ["gone"])
-
-        // One list's fresh read omits the machine while another list still shows an
-        // older read. Provider IDs are never reused, so no read may end the hiding.
-        _ = owner.reconcile(startedBeforeConfirmation, machineIDs: ["gone"])
-        _ = owner.reconcile(owner.beginListing(), machineIDs: [])
+        // One list's fresh read can omit the machine while another list still shows an
+        // older read. Provider IDs are never reused, so only the account's end unhides it.
         #expect(owner.projection.hiddenMachineIDs == ["gone"])
         #expect(!owner.begin("gone"))
 
@@ -143,7 +134,6 @@ struct CloudMachineDeletionCoordinatorTests {
         owner.begin("in-flight")
         owner.begin("confirmed")
         _ = owner.finish("confirmed", result: .deleted)
-        let oldListing = owner.beginListing()
 
         #expect(owner.endAccount())
         #expect(owner.projection.hiddenMachineIDs.isEmpty)
@@ -152,10 +142,11 @@ struct CloudMachineDeletionCoordinatorTests {
         #expect(owner.finish("in-flight", result: .deleted) == .ignored)
         #expect(owner.projection.hiddenMachineIDs.isEmpty)
 
-        // The next account starts clean, and the old account's read cannot retire its deletions.
+        // The next account starts clean and keeps its own confirmed deletions.
         #expect(owner.begin("next"))
+        #expect(owner.begin("confirmed"), "a departed account's deletion never blocks the next account")
         _ = owner.finish("next", result: .deleted)
-        #expect(!owner.reconcile(oldListing, machineIDs: []))
+        _ = owner.finish("confirmed", result: .failed)
         #expect(owner.projection.hiddenMachineIDs == ["next"])
     }
 }
