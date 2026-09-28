@@ -704,6 +704,10 @@ path = "tests/test_package_resolved_policy_remote_inputs.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_pr_media.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_perf_activation_scrollback_sizing.py"
 lane = "linux-guard"
 
