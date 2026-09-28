@@ -62,12 +62,16 @@ struct MachineDeleteCoordinatorTests {
             workspaceIDs: { steps.append("find \($0)"); return [workspaceID] },
             creates: creates,
             closeWorkspaces: { steps.append("close workspaces \($0) with \(creates.operations.count) creates") },
-            closePanes: { steps.append("close panes \($0)") }
+            closePanes: { steps.append("close panes \($0)") },
+            republishSocketReads: { steps.append("republish socket reads") }
         )
         // Closing a workspace first would cancel its create, whose receipt then
         // destroys the machine even when this delete fails. The create's card stays
-        // for the whole-workspace close.
-        #expect(steps == ["find m1", "close workspaces m1 with 0 creates", "close panes m1"])
+        // for the whole-workspace close. Socket reads, such as `cmux workspace list`
+        // while `cmux vm rm` waits, see the closes before the destroy request returns.
+        #expect(steps == [
+            "find m1", "close workspaces m1 with 0 creates", "close panes m1", "republish socket reads",
+        ])
         #expect(launches.cancellations == 1)
     }
 

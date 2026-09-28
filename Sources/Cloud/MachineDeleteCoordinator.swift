@@ -106,12 +106,14 @@ final class MachineDeleteCoordinator {
     ///     the shared create owner.
     ///   - closeWorkspaces: Closes the machine's local workspaces whole.
     ///   - closePanes: Closes the machine's URL-backed panes.
+    ///   - republishSocketReads: Refreshes what socket reads answer.
     static func detachLocalPresentations(
         of machineID: String,
         workspaceIDs: @MainActor (String) -> Set<UUID> = { AppDelegate.shared?.localWorkspaceIDs(forCloudVMID: $0) ?? [] },
         creates: MachineCreateCoordinator? = nil,
         closeWorkspaces: @MainActor (String) -> Void = { AppDelegate.shared?.closeLocalWorkspaces(forCloudVMID: $0) },
-        closePanes: @MainActor (String) -> Void = { SurfaceCatalog.shared.closeURLBackedPanes(on: .cloud($0)) }
+        closePanes: @MainActor (String) -> Void = { SurfaceCatalog.shared.closeURLBackedPanes(on: .cloud($0)) },
+        republishSocketReads: @MainActor () -> Void = {}
     ) {
         (creates ?? .shared).machineDeletionBegan(machineID, presentedIn: workspaceIDs(machineID))
         closeWorkspaces(machineID)
