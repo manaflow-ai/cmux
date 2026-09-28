@@ -1,4 +1,4 @@
-@testable import CmuxFoundation
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -17,7 +17,7 @@ struct ClaudeHookSessionLivenessTests {
     private struct Fixture {
         let root: URL
         let workspaceId = UUID()
-        let panelId = UUID()
+        var panelId = UUID()
         let sessionId = UUID().uuidString.lowercased()
         var transcriptPath: URL { root.appendingPathComponent("\(sessionId).jsonl") }
         var executablePath: String { root.appendingPathComponent("bin/claude").path }
@@ -70,7 +70,101 @@ struct ClaudeHookSessionLivenessTests {
         let entry = try #require(index.entry(workspaceId: fixture.workspaceId, panelId: fixture.panelId))
         #expect(entry.snapshot.kind == .claude)
         #expect(entry.snapshot.sessionId == fixture.sessionId)
+        #expect(entry.lifecycle == .idle)
         #expect(entry.processLiveness == .running)
+    }
+
+    @Test("A live idle Stop session survives the full snapshot and relaunch path")
+    func liveIdleClaudeSessionSurvivesSnapshotAndRelaunch() throws {
+        var fixture = try makeFixture(prefix: "cmux-claude-snapshot-restore")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let defaultsName = "cmux-claude-snapshot-restore-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let source = Workspace(id: fixture.workspaceId, agentSessionAutoResumeDefaults: defaults)
+        defer { source.teardownAllPanels() }
+        fixture.panelId = try #require(source.focusedPanelId)
+
+        let agentPID = 7_750
+        let identity = AgentPIDProcessIdentity(
+            pid: pid_t(agentPID),
+            startSeconds: 1_790_627_504,
+            startMicroseconds: 891_303
+        )
+        try writeHookRecord(fixture: fixture, identity: identity)
+        let reader = ExitingProcessCensusReader(
+            processes: [
+                .init(pid: 7_749, parentPID: 1, startSeconds: 1_790_627_000, scoped: true),
+                .init(
+                    pid: agentPID,
+                    parentPID: 7_749,
+                    startSeconds: identity.startSeconds,
+                    startMicroseconds: identity.startMicroseconds,
+                    scoped: true
+                ),
+                .init(pid: 7_752, parentPID: 1, startSeconds: 1_790_627_100, scoped: false),
+            ],
+            exitedPID: 7_752,
+            workspaceId: fixture.workspaceId,
+            panelId: fixture.panelId
+        )
+        let sampler = CmuxTopProcessSampler(reader: reader)
+        let processSnapshot = try sampler.enrich(sampler.capture(), fields: [.details, .scope]).snapshot
+        #expect(processSnapshot.enumerationIsComplete)
+        #expect(processSnapshot.process(pid: 7_752) == nil)
+        let index = SharedLiveAgentIndexLoader(
+            homeDirectory: fixture.root.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            processSnapshotProvider: { processSnapshot },
+            capturedAtProvider: { 1_790_627_600 },
+            processArgumentsProvider: { pid in
+                guard pid == agentPID else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: liveArguments(fixture: fixture),
+                    environment: liveEnvironment(fixture: fixture)
+                )
+            },
+            processIdentityProvider: { pid in pid == agentPID ? identity : nil }
+        ).loadSynchronously()
+        let entry = try #require(index.entry(workspaceId: fixture.workspaceId, panelId: fixture.panelId))
+        #expect(entry.lifecycle == .idle)
+        #expect(entry.processLiveness == .running)
+        let panelID = try #require(source.focusedPanelId)
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Claude Code",
+            kind: "claude",
+            command: "claude --resume \(fixture.sessionId)",
+            cwd: fixture.root.path,
+            checkpointId: fixture.sessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_790_627_600
+        )
+        #expect(source.setSurfaceResumeBinding(binding, panelId: panelID))
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: index,
+            surfaceResumeBindingIndex: .empty,
+            currentAgentProcessIdentity: { pid in pid == agentPID ? identity : nil },
+            agentProcessPresence: { pid in pid == agentPID ? .present : .absent }
+        )
+        let terminal = try #require(snapshot.panels.first?.terminal)
+        #expect(terminal.wasAgentRunning == true)
+        #expect(terminal.resumeBinding?.autoResume == true)
+        #expect(terminal.resumeBinding?.checkpointId == fixture.sessionId)
+
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: defaults,
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelID = try #require(restored.focusedPanelId)
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+        #expect(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        #expect(restoredPanel.surface.initialInput?.contains(fixture.sessionId) == true)
     }
 
     /// A busy Mac always has some process exiting between the PID listing and
