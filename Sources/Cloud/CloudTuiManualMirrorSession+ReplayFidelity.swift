@@ -20,6 +20,11 @@ extension CloudTuiManualMirrorSession {
         scheduleFidelityCheck()
     }
 
+    func replayDiscarded(token: UInt64) {
+        replayFidelity.replayDiscarded(token: token)
+        scheduleFidelityCheck()
+    }
+
     func localGridChanged(to sample: TerminalSurfaceRawSizingSample) {
         replayFidelity.localGridChanged(to: CloudTuiManualIOGrid(columns: sample.columns, rows: sample.rows))
         scheduleFidelityCheck()

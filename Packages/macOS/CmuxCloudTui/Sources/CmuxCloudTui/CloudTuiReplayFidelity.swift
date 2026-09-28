@@ -67,6 +67,16 @@ public struct CloudTuiReplayFidelity: Equatable, Sendable {
         repairs = 0
     }
 
+    /// Records that the replacement bytes were discarded before parsing (for
+    /// example, because the bounded pre-runtime output buffer overflowed).
+    /// The replay remains unfaithful and may be refetched once the local grid
+    /// is usable.
+    public mutating func replayDiscarded(token: UInt64) {
+        guard token == generation else { return }
+        replayParsePending = false
+        faithfulGrid = nil
+    }
+
     /// A local resize after a faithful parse moves or clamps its rows.
     public mutating func localGridChanged(to grid: CloudTuiManualIOGrid?) {
         localGridEpoch &+= 1

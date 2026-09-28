@@ -19,6 +19,13 @@ import CmuxCloudTui
         #expect(!fidelity.needsRepair(local: remote))
     }
 
+    @Test func discardedReplayCanBeRefetchedOnceTheGridMatches() {
+        var fidelity = CloudTuiReplayFidelity()
+        let token = fidelity.replayQueued(remote: remote, local: hidden)
+        fidelity.replayDiscarded(token: token)
+        #expect(fidelity.needsRepair(local: remote))
+    }
+
     @Test func replayParsedAtTheDaemonGridNeedsNoRepair() {
         var fidelity = CloudTuiReplayFidelity()
         let token = fidelity.replayQueued(remote: remote, local: remote)

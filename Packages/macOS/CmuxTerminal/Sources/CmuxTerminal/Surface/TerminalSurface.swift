@@ -20,6 +20,11 @@ internal import CMUXDebugLog
 /// stored properties are unannotated (the class itself is not `Sendable`, so
 /// they never cross an isolation boundary) which keeps the nonisolated
 /// `deinit` teardown path exactly as it was.
+struct TerminalSurfacePendingRemoteReplayCompletion: Sendable {
+    let applied: @MainActor @Sendable () -> Void
+    let discarded: @MainActor @Sendable () -> Void
+}
+
 public final class TerminalSurface: Identifiable, ObservableObject {
     static let committedTextInputChunkByteLimit = 96
 
@@ -254,7 +259,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// ``pendingRemoteOutput``. They must run after the buffered bytes have
     /// crossed the native output lane, otherwise replay-fidelity tracking can
     /// race runtime creation and trigger an unnecessary reconnect.
-    var pendingRemoteReplayCompletions: [@MainActor @Sendable () -> Void] = []
+    var pendingRemoteReplayCompletions: [TerminalSurfacePendingRemoteReplayCompletion] = []
     let maxPendingRemoteOutputBytes = 4 * 1_048_576
     /// FIFO native-output lane for the current runtime surface generation.
     var remoteOutputLane: TerminalSurfaceRemoteOutputLane

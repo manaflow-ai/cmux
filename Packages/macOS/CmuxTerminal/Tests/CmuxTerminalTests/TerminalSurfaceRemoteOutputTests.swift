@@ -44,6 +44,43 @@ private final class ReplayCompletionBox {
 @Suite(.serialized)
 struct TerminalSurfaceRemoteOutputTests {
     @Test
+    func bufferedReplayOverflowReportsDiscardedInsteadOfApplying() async {
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let runtimeSurfaceBits = UInt(bitPattern: runtimeSurface)
+        let fixture = await MainActor.run {
+            RemoteOutputFixture(surface: makeSurface(runtimeSurfaceBits: runtimeSurfaceBits))
+        }
+        let completion = await MainActor.run { ReplayCompletionBox() }
+        let discard = await MainActor.run { ReplayCompletionBox() }
+        defer {
+            runtimeSurface.deallocate()
+        }
+
+        await MainActor.run {
+            fixture.releaseSurface()
+            fixture.surface.processRemoteReplay(Data("replay".utf8), onApplied: {
+                completion.called = true
+            }, onDiscarded: {
+                discard.called = true
+            })
+            fixture.surface.processRemoteOutput(
+                Data(repeating: 0x41, count: fixture.surface.maxPendingRemoteOutputBytes)
+            )
+            #expect(discard.called)
+            #expect(!completion.called)
+
+            let oversized = Data(repeating: 0x42, count: fixture.surface.maxPendingRemoteOutputBytes + 1)
+            fixture.surface.processRemoteReplay(oversized, onApplied: {
+                completion.called = true
+            }, onDiscarded: {
+                discard.called = true
+            })
+            #expect(discard.called)
+            #expect(!completion.called)
+        }
+    }
+
+    @Test
     func bufferedReplayCompletionWaitsForRuntimeFlush() async {
         let initialRuntime = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         let replacementRuntime = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)

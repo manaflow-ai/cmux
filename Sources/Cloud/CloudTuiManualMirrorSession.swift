@@ -639,6 +639,8 @@ final class CloudTuiManualMirrorSession {
         surface.processRemoteReplay(replay) { [weak self, weak surface] in
             surface?.forceRefresh(reason: "cloud.replay.applied")
             self?.replayApplied(token: token)
+        } onDiscarded: { [weak self] in
+            self?.replayDiscarded(token: token)
         }
     }
 
