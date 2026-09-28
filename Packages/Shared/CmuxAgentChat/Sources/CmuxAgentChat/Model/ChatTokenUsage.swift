@@ -1,12 +1,5 @@
 import Foundation
 
-/// Adds two integer counts without allowing extreme input to trap.
-private func saturatedSum(_ lhs: Int, _ rhs: Int) -> Int {
-    let (sum, overflow) = lhs.addingReportingOverflow(rhs)
-    guard overflow else { return sum }
-    return lhs >= 0 ? Int.max : Int.min
-}
-
 /// Token counts for one or more agent API responses, normalized across
 /// providers.
 ///
@@ -72,8 +65,8 @@ public struct ChatTokenUsage: Sendable, Equatable {
 
     /// Every input token, cached or not.
     public var inputTokens: Int {
-        saturatedSum(
-            saturatedSum(freshInputTokens, cacheReadTokens),
+        Self.saturatedSum(
+            Self.saturatedSum(freshInputTokens, cacheReadTokens),
             cacheWriteTokens
         )
     }
@@ -83,7 +76,7 @@ public struct ChatTokenUsage: Sendable, Equatable {
     /// Deliberately excludes ``reasoningOutputTokens``, which is already
     /// inside ``outputTokens``.
     public var totalTokens: Int {
-        saturatedSum(inputTokens, outputTokens)
+        Self.saturatedSum(inputTokens, outputTokens)
     }
 
     /// Whether every count is zero.
@@ -99,11 +92,11 @@ public struct ChatTokenUsage: Sendable, Equatable {
     /// - Returns: The field-wise sum.
     public static func + (lhs: ChatTokenUsage, rhs: ChatTokenUsage) -> ChatTokenUsage {
         ChatTokenUsage(
-            freshInputTokens: saturatedSum(lhs.freshInputTokens, rhs.freshInputTokens),
-            cacheReadTokens: saturatedSum(lhs.cacheReadTokens, rhs.cacheReadTokens),
-            cacheWriteTokens: saturatedSum(lhs.cacheWriteTokens, rhs.cacheWriteTokens),
-            outputTokens: saturatedSum(lhs.outputTokens, rhs.outputTokens),
-            reasoningOutputTokens: saturatedSum(
+            freshInputTokens: Self.saturatedSum(lhs.freshInputTokens, rhs.freshInputTokens),
+            cacheReadTokens: Self.saturatedSum(lhs.cacheReadTokens, rhs.cacheReadTokens),
+            cacheWriteTokens: Self.saturatedSum(lhs.cacheWriteTokens, rhs.cacheWriteTokens),
+            outputTokens: Self.saturatedSum(lhs.outputTokens, rhs.outputTokens),
+            reasoningOutputTokens: Self.saturatedSum(
                 lhs.reasoningOutputTokens,
                 rhs.reasoningOutputTokens
             )
@@ -117,5 +110,16 @@ public struct ChatTokenUsage: Sendable, Equatable {
     ///   - rhs: The value to add.
     public static func += (lhs: inout ChatTokenUsage, rhs: ChatTokenUsage) {
         lhs = lhs + rhs
+    }
+
+    /// Adds two integer counts without allowing extreme input to trap.
+    ///
+    /// A transcript's counts come from a provider, so a corrupt or hostile line
+    /// can carry a value near `Int.max`. Saturating keeps one bad line from
+    /// taking down the accumulation of every good one.
+    static func saturatedSum(_ lhs: Int, _ rhs: Int) -> Int {
+        let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+        guard overflow else { return sum }
+        return lhs >= 0 ? Int.max : Int.min
     }
 }
