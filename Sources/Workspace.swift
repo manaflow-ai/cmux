@@ -1545,7 +1545,13 @@ extension Workspace {
         downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable: Bool = false
     ) -> SurfaceResumeBindingSnapshot? {
         let storedBinding = surfaceResumeBindingsByPanelId[panelId]
-        guard let surfaceResumeBindingIndex else {
+        // An unavailable index (the synchronous update-relaunch save, or the
+        // quit fallback after a timed-out fresh scan) carries no process
+        // evidence. Treat it like a missing index so the binding the last
+        // successful scan stored (tmux, SSH) is persisted instead of being
+        // read as an exited process. `reconcileSurfaceResumeBindings` already
+        // skips unavailable indexes for the same reason.
+        guard let surfaceResumeBindingIndex, surfaceResumeBindingIndex.isAvailable else {
             guard var storedBinding,
                   storedBinding.isProcessDetected,
                   downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable else {
