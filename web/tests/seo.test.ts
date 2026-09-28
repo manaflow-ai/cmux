@@ -464,6 +464,12 @@ describe("SEO metadata helpers", () => {
         ["/docs/keyboard-shortcuts", "keyboardShortcuts"],
         ["/docs/getting-started", "gettingStarted"],
         ["/docs/remote-tmux", "remoteTmux"],
+        ["/docs/cloud", "cloudOverview"],
+        ["/docs/cloud/machines", "cloudMachines"],
+        ["/docs/cloud/workspaces", "cloudWorkspaces"],
+        ["/docs/cloud/networking", "cloudNetworking"],
+        ["/docs/cloud/cli", "cloudCli"],
+        ["/docs/cloud/troubleshooting", "cloudTroubleshooting"],
       ] as const;
       for (const [path, pageKey] of auditedDocsPages) {
         if (pageKey === "remoteTmux" && locale !== "en" && locale !== "ja") {

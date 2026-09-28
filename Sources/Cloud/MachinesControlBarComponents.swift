@@ -1,3 +1,4 @@
+import CmuxAppKitSupportUI
 import CmuxCloud
 import AppKit
 import SwiftUI
@@ -116,12 +117,19 @@ struct MachinesChromeIconButton: View {
                     ProgressView()
                         .controlSize(.mini)
                 } else {
-                    CmuxSystemSymbolImage(
-                        systemName: symbolName,
-                        pointSize: 11,
-                        weight: .medium,
-                        tint: Color(nsColor: isHovered ? .labelColor : .secondaryLabelColor)
-                    )
+                    // The glyph draws into the whole button canvas, centered
+                    // by its visible pixels. Centering its layout box instead
+                    // leaves glyphs like `trash` a point low.
+                    CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
+                        source: symbolSource,
+                        size: NSSize(width: 22, height: 20),
+                        tintColor: isHovered ? .labelColor : .secondaryLabelColor,
+                        symbolWeight: .medium,
+                        fallbackSource: symbolSource,
+                        symbolPointSize: 11,
+                        centersVisibleContent: true
+                    ))
+                    .accessibilityHidden(true)
                 }
             }
             .frame(width: 22, height: 20)
@@ -136,5 +144,9 @@ struct MachinesChromeIconButton: View {
         .onHover { isHovered = $0 }
         .help(accessibilityLabel)
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var symbolSource: CmuxResolvedIconSource {
+        .systemSymbol(name: symbolName, accessibilityDescription: nil)
     }
 }

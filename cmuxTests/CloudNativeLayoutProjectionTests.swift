@@ -1,9 +1,11 @@
 import CMUXMobileCore
 import CMUXAuthCore
 import CmuxAuthRuntime
+import Bonsplit
 import CmuxCloud
 import CmuxCore
 import CmuxIrohTransport
+import CmuxMobileRPC
 import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
@@ -133,6 +135,447 @@ struct CloudNativeLayoutProjectionTests {
         if shouldClose {
             let mapping = [first.uuidString: remoteA]
             #expect(try viewer.deviceWorkspaceLayoutSnapshot()?.remappingSurfaceIDs(mapping).hasSameArrangement(as: source.layout) == true)
+        }
+    }
+
+    @Test("A device split adopts its reserved pane before projecting the new terminal")
+    func deviceSplitDoesNotPaintInTheFocusedPaneFirst() async throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let viewer = try #require(manager.selectedWorkspace)
+        let sourcePane = try #require(viewer.bonsplitController.allPaneIds.first)
+        let sourcePanel = try #require(viewer.focusedPanelId)
+        defer { viewer.teardownAllPanels(); manager.tabs = [] }
+
+        let machine = SurfaceMachineID.device(.init(deviceID: "split-owner", tag: "test"))
+        // The coordinator only accepts snapshots for UUID workspace identities.
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: UUID().uuidString, name: "Remote", index: 0, focused: true)
+        let remoteA = "remote-a"
+        let remoteB = "remote-b"
+        let live = LiveWorkspaceFixture(); live.register(viewer)
+        let catalog = SurfaceCatalog(live: live)
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
+        let resourceA = SurfaceResource(id: .init(machine: machine, kind: .terminal, key: remoteA),
+            title: remoteA, detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: remoteWorkspace,
+            remoteViews: [SurfaceRemoteView(tabID: remoteA, workspace: remoteWorkspace)], port: nil, url: nil)
+        let resourceB = SurfaceResource(id: .init(machine: machine, kind: .terminal, key: remoteB),
+            title: remoteB, detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: remoteWorkspace,
+            remoteViews: [SurfaceRemoteView(tabID: remoteB, workspace: remoteWorkspace)], port: nil, url: nil)
+        catalog.upsert(resourceA)
+        catalog.record(.init(resource: resourceA.id, workspaceID: viewer.id,
+            panelID: sourcePanel, remoteWorkspaceID: remoteWorkspace.id, remoteTabID: remoteA))
+
+        let requestID = UUID()
+        let reservation = try #require(viewer.reserveCloudTerminalPane(
+            machine: machine,
+            at: .split(workspaceID: viewer.id, paneID: sourcePane.id.uuidString, direction: .right),
+            focus: false,
+            sourcePlacement: CloudTerminalSourcePlacement(
+                machine: machine, resource: resourceA,
+                remoteWorkspaceID: remoteWorkspace.id, remoteTabID: remoteA
+            ),
+            requestID: requestID
+        ))
+        let reservedPane = try #require(viewer.paneId(forPanelId: reservation.panelID))
+        var requestedDestination: SurfaceDestination?
+        provider.materializeProjection = { [unowned provider] resource, view, destination in
+            requestedDestination = destination
+            return try Self.materializeDeviceTerminal(resource, view: view, at: destination, in: viewer,
+                adopting: provider.adoptions.last { $0.resource == resource.id }?.reservation)
+        }
+
+        let coordinator = DeviceWorkspaceLayoutCoordinator(machine: machine, catalog: catalog,
+            workspace: { $0 == viewer.id ? viewer : nil },
+            request: { _, _ in try JSONEncoder().encode(DeviceWorkspaceLayoutSnapshot(
+                workspaceID: remoteWorkspace.id,
+                layout: .pane(id: "source", surfaceIDs: [remoteA], selectedSurfaceID: remoteA),
+                revision: "before", sequence: 1
+            )) },
+            refresh: {}, isConnected: { true }, didAccept: {}, notificationCenter: NotificationCenter())
+        defer { coordinator.stop() }
+        // The create receipt binds the reservation before its snapshot is accepted.
+        catalog.upsert(resourceB)
+        #expect(coordinator.bindCreatedTerminal(requestID: requestID, remoteWorkspaceID: remoteWorkspace.id, resource: resourceB))
+        coordinator.accept(DeviceWorkspaceLayoutSnapshot(workspaceID: remoteWorkspace.id,
+            layout: .split(direction: .horizontal, ratio: 0.5,
+                first: .pane(id: "source", surfaceIDs: [remoteA], selectedSurfaceID: remoteA),
+                second: .pane(id: "new", surfaceIDs: [remoteB], selectedSurfaceID: remoteB)),
+            revision: "after", sequence: 2))
+        await coordinator.waitForIdle()
+
+        guard case .tab(let workspaceID, let paneID, let index) = requestedDestination else {
+            Issue.record("The authoritative split must project directly into a pane tab destination")
+            return
+        }
+        #expect(workspaceID == viewer.id)
+        #expect(paneID == reservedPane.id.uuidString,
+            "A remote split must adopt the empty pane created by Cmd-D/Cmd-Shift-D")
+        #expect(index == 0)
+        #expect(provider.adoptions.map(\.resource) == [resourceB.id])
+        #expect(provider.adoptions.first?.reservation === reservation)
+    }
+
+    @Test("Two outstanding device splits each adopt the pane reserved for their own terminal")
+    func concurrentDeviceSplitsAdoptTheirOwnPanes() async throws {
+        let fixture = try DeviceSplitFixture()
+        defer { fixture.tearDown() }
+        let (right, rightRequest) = try fixture.reserve(.right)
+        let (down, downRequest) = try fixture.reserve(.down)
+        let rightPane = try #require(fixture.viewer.paneId(forPanelId: right.panelID))
+        let downPane = try #require(fixture.viewer.paneId(forPanelId: down.panelID))
+        #expect(rightPane != downPane)
+
+        let coordinator = fixture.makeCoordinator()
+        defer { coordinator.stop() }
+        let terminalB = fixture.addTerminal("remote-b")
+        let terminalC = fixture.addTerminal("remote-c")
+        #expect(coordinator.bindCreatedTerminal(requestID: rightRequest, remoteWorkspaceID: fixture.remoteWorkspace.id, resource: terminalB))
+        #expect(coordinator.bindCreatedTerminal(requestID: downRequest, remoteWorkspaceID: fixture.remoteWorkspace.id, resource: terminalC))
+        coordinator.accept(fixture.snapshot(.split(direction: .horizontal, ratio: 0.5,
+            first: .split(direction: .vertical, ratio: 0.5,
+                first: fixture.sourceLayout,
+                second: .pane(id: "down", surfaceIDs: ["remote-c"], selectedSurfaceID: "remote-c")),
+            second: .pane(id: "right", surfaceIDs: ["remote-b"], selectedSurfaceID: "remote-b"))))
+        await coordinator.waitForIdle()
+
+        // Each terminal lands in the pane its own request reserved, whichever
+        // reservation the workspace happens to enumerate first.
+        #expect(fixture.destinationPanes[terminalB.id] == rightPane.id)
+        #expect(fixture.destinationPanes[terminalC.id] == downPane.id)
+        #expect(fixture.adoption(of: terminalB.id) === right)
+        #expect(fixture.adoption(of: terminalC.id) === down)
+    }
+
+    @Test("An unbound device reservation keeps its pane while its workspace keeps syncing, pending or failed",
+          arguments: [false, true])
+    func unboundDeviceReservationKeepsItsPane(creationFailed: Bool) async throws {
+        let fixture = try DeviceSplitFixture()
+        defer { fixture.tearDown() }
+        let (reservation, _) = try fixture.reserve(.right)
+        let reservedPane = try #require(fixture.viewer.paneId(forPanelId: reservation.panelID))
+        if creationFailed {
+            // A failed create keeps its pane and reservation for Reconnect.
+            fixture.viewer.failReservedCloudTerminalPane(reservation, error: CloudDiagnosticFailure.placement)
+            #expect(fixture.viewer.cloudPendingCreations[reservation.panelID] === reservation)
+        }
+        guard case .split(let reservedDirection, let reservedRatio, _, _)? = fixture.viewer.deviceWorkspaceLayoutSnapshot() else {
+            Issue.record("The reservation must split the source pane")
+            return
+        }
+
+        let coordinator = fixture.makeCoordinator()
+        defer { coordinator.stop() }
+        fixture.provider.onProjectionEnd = { coordinator.projectionDidEnd($0, reason: $1) }
+        let foreign = fixture.addTerminal("remote-foreign")
+        let foreignLayout: DeviceWorkspaceLayoutNode = .pane(id: "foreign", surfaceIDs: ["remote-foreign"], selectedSurfaceID: "remote-foreign")
+        coordinator.accept(fixture.snapshot(.split(direction: .vertical, ratio: 0.3,
+            first: fixture.sourceLayout, second: foreignLayout)))
+        await coordinator.waitForIdle()
+
+        // The only reservation never bound a create receipt, so the new
+        // terminal is projected without it and never aimed at its pane.
+        #expect(fixture.provider.adoptions.contains { $0.resource == foreign.id })
+        #expect(fixture.adoption(of: foreign.id) == nil)
+        #expect(fixture.destinationPanes[foreign.id] == nil)
+        let foreignPanel = try #require(fixture.projectedPanels[foreign.id])
+        #expect(fixture.viewer.paneId(forPanelId: foreignPanel) != reservedPane)
+
+        // The owner's arrangement still applies around the reserved pane,
+        // which stays alone beside the terminal it was split from.
+        let sourcePanel = try #require(fixture.projectedPanels[fixture.source.id])
+        let local = try #require(fixture.viewer.deviceWorkspaceLayoutSnapshot())
+        #expect(local.hasSameArrangement(as: .split(direction: .vertical, ratio: 0.3,
+            first: .split(direction: reservedDirection, ratio: reservedRatio,
+                first: .pane(id: "source", surfaceIDs: [sourcePanel.uuidString], selectedSurfaceID: nil),
+                second: .pane(id: "reserved", surfaceIDs: [reservation.panelID.uuidString], selectedSurfaceID: nil)),
+            second: .pane(id: "foreign", surfaceIDs: [foreignPanel.uuidString], selectedSurfaceID: nil))))
+
+        // A local gesture reaches the owner without the pane it does not know.
+        guard case .split(let direction, _, let first, let second) = local else {
+            Issue.record("The applied layout must keep the owner's split")
+            return
+        }
+        coordinator.nativeLayoutChanged(workspaceID: fixture.viewer.id,
+            capturedLayout: .split(direction: direction, ratio: 0.6, first: first, second: second))
+        await coordinator.waitForIdle()
+        let writes = try fixture.requests.filter { $0.method == "device.workspace.layout.apply" }.map { request in
+            try JSONDecoder().decode(DeviceWorkspaceLayoutNode.self,
+                from: JSONSerialization.data(withJSONObject: try #require(request.params["layout"])))
+        }
+        #expect(writes.count == 1)
+        #expect(writes.first?.hasSameArrangement(as: .split(direction: .vertical, ratio: 0.6,
+            first: fixture.sourceLayout, second: foreignLayout)) == true)
+
+        // Closing a mirrored pane still closes its terminal on the owner.
+        fixture.catalog.endProjections(panelID: foreignPanel, reason: .paneClosed)
+        #expect(fixture.viewer.closePanel(foreignPanel, force: true))
+        await coordinator.waitForIdle()
+        #expect(fixture.requests.filter { $0.method == "mobile.terminal.close" }
+            .compactMap { $0.params["surface_id"] as? String } == ["remote-foreign"])
+        #expect(fixture.viewer.cloudPendingCreations[reservation.panelID] === reservation)
+    }
+
+    @Test("A retried device create whose terminal is already mirrored keeps one pane and later layouts applying")
+    func retriedDeviceCreateReusesTheMirroredTerminal() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            let fixture = try DeviceSplitFixture(app: app)
+            let viewer = fixture.viewer
+            let store = viewer.cloudPaneCreationFailureStore
+            let coordinator = fixture.makeCoordinator()
+            fixture.provider.onProjectionEnd = { coordinator.projectionDidEnd($0, reason: $1) }
+            defer {
+                store.cancelAll()
+                coordinator.stop()
+                fixture.tearDown()
+                app.tearDown()
+            }
+            let requestID = store.beginRequest()
+            let (reservation, _) = try fixture.reserve(.right, requestID: requestID)
+            let created = fixture.addTerminal("remote-b")
+            var attempts = 0
+            viewer.runOptimisticCloudTerminalCreation(
+                reservation: reservation, requestID: requestID,
+                destination: .split(workspaceID: viewer.id, paneID: fixture.sourcePane.id.uuidString, direction: .right),
+                create: {
+                    attempts += 1
+                    // The owner created the terminal, but the first receipt was lost.
+                    guard attempts > 1 else { throw CloudDiagnosticFailure.network }
+                    // The owner answers the replayed request id with the same terminal.
+                    _ = coordinator.bindCreatedTerminal(requestID: requestID,
+                        remoteWorkspaceID: fixture.remoteWorkspace.id, resource: created)
+                    return created
+                },
+                onStart: {}, onFinish: {})
+            try await settled { viewer.cloudMaterializationFailures[reservation.panelID] != nil }
+
+            // Meanwhile the owner's layout already mirrors the terminal in a
+            // pane of its own, since the unbound reservation cannot lend its pane.
+            let newLayout: DeviceWorkspaceLayoutNode = .pane(id: "new", surfaceIDs: ["remote-b"], selectedSurfaceID: "remote-b")
+            coordinator.accept(fixture.snapshot(.split(direction: .horizontal, ratio: 0.5,
+                first: fixture.sourceLayout, second: newLayout)))
+            await coordinator.waitForIdle()
+            let mirrored = try #require(fixture.projectedPanels[created.id])
+            #expect(mirrored != reservation.panelID)
+
+            // Reconnect, pressed in the reserved pane, replays the create and
+            // gets the terminal already shown.
+            viewer.focusPanel(reservation.panelID)
+            #expect(viewer.focusedPanelId == reservation.panelID)
+            #expect(viewer.retryReservedCloudTerminalPane(surfaceId: reservation.panelID))
+            try await settled { viewer.cloudPendingCreations[reservation.panelID] == nil && !store.hasActiveRequests }
+            #expect(attempts == 2)
+            #expect(fixture.provider.adoptions.filter { $0.resource == created.id }.count == 1)
+            #expect(fixture.catalog.projections(of: created.id).filter { $0.workspaceID == viewer.id }.map(\.panelID) == [mirrored])
+            #expect(viewer.panels[reservation.panelID] == nil)
+            // Focus follows the terminal the user asked for, not a neighbor.
+            #expect(viewer.focusedPanelId == mirrored)
+
+            // The owner's next arrangement still applies to the one pane.
+            coordinator.accept(fixture.snapshot(.split(direction: .vertical, ratio: 0.4,
+                first: fixture.sourceLayout, second: newLayout)))
+            await coordinator.waitForIdle()
+            let sourcePanel = try #require(fixture.projectedPanels[fixture.source.id])
+            #expect(viewer.deviceWorkspaceLayoutSnapshot()?.hasSameArrangement(as: .split(direction: .vertical, ratio: 0.4,
+                first: .pane(id: "source", surfaceIDs: [sourcePanel.uuidString], selectedSurfaceID: nil),
+                second: .pane(id: "new", surfaceIDs: [mirrored.uuidString], selectedSurfaceID: nil))) == true)
+        }
+    }
+
+    @Test("Only the terminal bound to a device reservation adopts its pane and queued input")
+    func deviceReservationAdoptionRequiresItsBoundTerminal() throws {
+        let fixture = try DeviceSplitFixture()
+        defer { fixture.tearDown() }
+        let (reservation, requestID) = try fixture.reserve(.right)
+        let viewer = fixture.viewer
+        let remoteID = fixture.remoteWorkspace.id
+        let created = fixture.addTerminal("remote-b")
+        let foreign = fixture.addTerminal("remote-foreign")
+
+        #expect(viewer.adoptPendingDeviceTerminalPane(reservation, machine: fixture.machine,
+            remoteWorkspaceID: remoteID, resource: created) == nil,
+            "An unbound reservation must wait for its create receipt")
+        #expect(viewer.cloudPendingCreations[reservation.panelID] === reservation)
+
+        #expect(viewer.bindPendingDeviceTerminal(requestID: requestID, remoteWorkspaceID: remoteID, resource: created))
+        #expect(viewer.adoptPendingDeviceTerminalPane(reservation, machine: fixture.machine,
+            remoteWorkspaceID: remoteID, resource: foreign) == nil,
+            "A terminal the request did not create must not take the pane")
+        #expect(viewer.cloudPendingCreations[reservation.panelID] === reservation)
+
+        let adopted = try #require(viewer.adoptPendingDeviceTerminalPane(reservation, machine: fixture.machine,
+            remoteWorkspaceID: remoteID, resource: created))
+        #expect(adopted.workspaceID == viewer.id)
+        #expect(adopted.panelID == reservation.panelID)
+        #expect(viewer.cloudPendingCreations[reservation.panelID] == nil)
+    }
+
+    @Test(
+        "A device link routes each subscribed resize topic to its surface's mirror",
+        .timeLimit(.minutes(1)),
+        arguments: ["terminal.updated", "device.terminal.grid"]
+    )
+    func deviceLinkRoutesResizeEvents(topic: String) async throws {
+        let defaultsName = "DeviceLinkResize-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let record = DeviceDirectoryRecord(instance: .init(deviceID: "resize-owner", tag: "test"), deviceName: "Source",
+            platform: "mac", bundleID: nil, presenceState: .online, isPaired: false, lastSeenAt: nil, routes: [],
+            ownerUserID: "test", accountTrust: .sameAccount)
+        let link = DeviceLink(record: record, runtime: DeviceLinkRuntime(tokens: HiveAccountTokenSource(
+            auth: makeDeviceTestAuth(defaults: defaults),
+            identity: AuthenticatedSessionIdentity(generation: 0, accountID: "test"), teamID: nil
+        )), authorization: UnpairedDeviceLayoutSource())
+        defer { link.stop() }
+        #expect(DeviceLink.eventTopics.contains(topic))
+        let surfaceID = UUID()
+        var updates = link.terminalEvents.stream(surfaceID: surfaceID).makeAsyncIterator()
+        let payload = try JSONSerialization.data(withJSONObject: [
+            "surface_id": surfaceID.uuidString, "columns": 132, "rows": 40
+        ])
+        link.handle(MobileEventEnvelope(topic: topic, payloadJSON: payload, streamID: nil))
+        #expect(await updates.next() == .updated(columns: 132, rows: 40))
+    }
+
+    private func settled(_ condition: @MainActor () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !condition(), ContinuousClock.now < deadline { await Task.yield() }
+        try #require(condition())
+    }
+
+    /// Materializes a device terminal the way `DeviceSurfaceProvider` does. A
+    /// terminal bound to the adopted reservation takes the pane the workspace
+    /// already inserted; any other terminal gets a new manual-mirror pane at
+    /// the destination. `newTerminalSurface` would route to the machine
+    /// instead, because the pane's selected tab is Cloud-owned. The provider
+    /// falls back to a new pane when adoption fails; here every lent
+    /// reservation is bound to its terminal, so that fallback would only hide
+    /// a broken adoption.
+    private static func materializeDeviceTerminal(
+        _ resource: SurfaceResource, view: SurfaceRemoteView?, at destination: SurfaceDestination,
+        in viewer: Workspace, adopting reservation: CloudTerminalPaneReservation?
+    ) throws -> SurfaceProjection {
+        let panelID: UUID
+        if let reservation {
+            let remoteWorkspaceID = try #require(view?.workspace.id ?? resource.remoteWorkspace?.id)
+            panelID = try #require(viewer.adoptPendingDeviceTerminalPane(reservation, machine: resource.id.machine,
+                remoteWorkspaceID: remoteWorkspaceID, resource: resource)).panelID
+        } else {
+            let panel = try #require(viewer.makeRemoteTmuxPanePanel(onInput: { _ in }))
+            _ = try viewer.insertCloudManualMirrorPanel(panel, at: destination, focus: false, isLoading: false)
+            panelID = panel.id
+        }
+        return SurfaceProjection(resource: resource.id, workspaceID: viewer.id, panelID: panelID,
+            remoteWorkspaceID: view?.workspace.id, remoteTabID: view?.tabID)
+    }
+
+    /// One device-mirrored workspace whose only projected terminal is the split source.
+    @MainActor
+    private final class DeviceSplitFixture {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let viewer: Workspace
+        let sourcePane: PaneID
+        let machine = SurfaceMachineID.device(.init(deviceID: "split-owner", tag: "test"))
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: UUID().uuidString, name: "Remote", index: 0, focused: true)
+        let live = LiveWorkspaceFixture()
+        let catalog: SurfaceCatalog
+        let provider: CloudPlacementTestProvider
+        let source: SurfaceResource
+        let sourceLayout: DeviceWorkspaceLayoutNode = .pane(id: "source", surfaceIDs: ["remote-a"], selectedSurfaceID: "remote-a")
+        /// The pane each projection request targeted, before materialization.
+        private(set) var destinationPanes: [SurfaceResourceID: UUID] = [:]
+        private(set) var projectedPanels: [SurfaceResourceID: UUID] = [:]
+        private(set) var requests: [(method: String, params: [String: Any])] = []
+        private var sequence: UInt64 = 1
+
+        /// `app` runs the fixture on `SurfaceCatalog.shared`, which the optimistic
+        /// creation path projects through; otherwise it owns a private catalog.
+        init(app: VaultPaneAppFixture? = nil) throws {
+            viewer = try app?.workspace ?? #require(manager.selectedWorkspace)
+            sourcePane = try #require(viewer.bonsplitController.allPaneIds.first)
+            let sourcePanel = try #require(viewer.focusedPanelId)
+            live.register(viewer)
+            catalog = app == nil ? SurfaceCatalog(live: live) : .shared
+            provider = CloudPlacementTestProvider(machine: machine)
+            catalog.register(provider)
+            source = SurfaceResource(id: .init(machine: machine, kind: .terminal, key: "remote-a"),
+                title: "remote-a", detail: nil, lifecycle: .running, agent: nil,
+                remoteWorkspace: remoteWorkspace,
+                remoteViews: [SurfaceRemoteView(tabID: "remote-a", workspace: remoteWorkspace)], port: nil, url: nil)
+            catalog.upsert(source)
+            catalog.record(.init(resource: source.id, workspaceID: viewer.id,
+                panelID: sourcePanel, remoteWorkspaceID: remoteWorkspace.id, remoteTabID: "remote-a"))
+            projectedPanels[source.id] = sourcePanel
+            provider.materializeProjection = { [unowned self] resource, view, destination in
+                if case .tab(_, let paneID, _) = destination { self.destinationPanes[resource.id] = UUID(uuidString: paneID) }
+                let projection = try CloudNativeLayoutProjectionTests.materializeDeviceTerminal(
+                    resource, view: view, at: destination, in: self.viewer,
+                    adopting: self.provider.adoptions.last { $0.resource == resource.id }?.reservation)
+                self.projectedPanels[resource.id] = projection.panelID
+                return projection
+            }
+        }
+
+        func tearDown() {
+            if catalog === SurfaceCatalog.shared { catalog.unregister(machine: machine) }
+            viewer.teardownAllPanels()
+            manager.tabs = []
+        }
+
+        /// Reserves a split of the source pane the way Cmd-D/Cmd-Shift-D does.
+        func reserve(
+            _ direction: SurfaceSplitDirection, requestID: UUID = UUID()
+        ) throws -> (CloudTerminalPaneReservation, UUID) {
+            let reservation = try #require(viewer.reserveCloudTerminalPane(
+                machine: machine,
+                at: .split(workspaceID: viewer.id, paneID: sourcePane.id.uuidString, direction: direction),
+                focus: false,
+                sourcePlacement: CloudTerminalSourcePlacement(
+                    machine: machine, resource: source,
+                    remoteWorkspaceID: remoteWorkspace.id, remoteTabID: "remote-a"
+                ),
+                requestID: requestID
+            ))
+            return (reservation, requestID)
+        }
+
+        func addTerminal(_ key: String) -> SurfaceResource {
+            let resource = SurfaceResource(id: .init(machine: machine, kind: .terminal, key: key),
+                title: key, detail: nil, lifecycle: .running, agent: nil,
+                remoteWorkspace: remoteWorkspace,
+                remoteViews: [SurfaceRemoteView(tabID: key, workspace: remoteWorkspace)], port: nil, url: nil)
+            catalog.upsert(resource)
+            return resource
+        }
+
+        func makeCoordinator() -> DeviceWorkspaceLayoutCoordinator {
+            let remoteID = remoteWorkspace.id
+            let sourceLayout = sourceLayout
+            return DeviceWorkspaceLayoutCoordinator(machine: machine, catalog: catalog,
+                workspace: { [viewer] in $0 == viewer.id ? viewer : nil },
+                request: { [unowned self] method, params in
+                    self.requests.append((method, params))
+                    if method == "mobile.terminal.close" {
+                        return try JSONSerialization.data(withJSONObject: ["closed": true, "workspace_id": remoteID,
+                            "surface_id": params["surface_id"] as? String ?? ""])
+                    }
+                    // A stale reply leaves each accepted snapshot authoritative.
+                    return try JSONEncoder().encode(DeviceWorkspaceLayoutSnapshot(
+                        workspaceID: remoteID, layout: sourceLayout, revision: "before", sequence: 1))
+                },
+                refresh: {}, isConnected: { true }, didAccept: {}, notificationCenter: NotificationCenter())
+        }
+
+        func snapshot(_ layout: DeviceWorkspaceLayoutNode) -> DeviceWorkspaceLayoutSnapshot {
+            sequence += 1
+            return DeviceWorkspaceLayoutSnapshot(workspaceID: remoteWorkspace.id, layout: layout,
+                revision: "after-\(sequence)", sequence: sequence)
+        }
+
+        func adoption(of resource: SurfaceResourceID) -> CloudTerminalPaneReservation? {
+            provider.adoptions.first { $0.resource == resource }?.reservation
         }
     }
 
