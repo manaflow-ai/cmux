@@ -113,8 +113,11 @@ public extension [MobilePairedMacDirectAddress] {
     /// endpoints cannot pile up and crowd out the live one), a matching
     /// entry is re-enabled (an authorization naming a disabled endpoint must
     /// leave something dialable), and new endpoints are appended with the
-    /// given transport marker. Entries the user added by hand carry no
-    /// origin and are never touched; the display label carries no meaning.
+    /// given transport marker. Re-enabling applies to any matching entry,
+    /// hand-added or derived: the code names that exact endpoint, so the
+    /// scan is the user's explicit intent to dial it. Hand-added entries
+    /// (no ``MobilePairedMacDirectAddress/origin``) are exempt only from
+    /// the stale-entry removal above; the display label carries no meaning.
     func appendingTailscaleAddresses(
         from routes: [CmxAttachRoute],
         transport: String? = nil

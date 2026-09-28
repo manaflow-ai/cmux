@@ -265,6 +265,12 @@ extension MobileShellComposite {
                                 teamID: scope?.teamID
                             )
                         } catch {
+                            // The row stays pinned to Direct, which ignores
+                            // the grant stored below and has no verified
+                            // allowlist for a keyless Mac: the reconnect
+                            // would strand. Report persistence failure so
+                            // the flow does not dismiss as paired.
+                            accepted = false
                             pairedMacPersistenceLog.error(
                                 "pre-Iroh method reset failed: \(String(describing: error), privacy: .private)"
                             )
