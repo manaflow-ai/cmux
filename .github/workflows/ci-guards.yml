@@ -223,6 +223,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_merge_xcstrings.py
 
+      - name: Validate project.pbxproj merge driver
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_merge_pbxproj.py
+
 
       - name: "Validate Swift Testing #require is not nested"
         if: ${{ matrix.group == 'preflight' }}
