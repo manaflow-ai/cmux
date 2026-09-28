@@ -1853,6 +1853,14 @@ final class WindowTerminalPortal: NSObject {
         return boundAnchor === anchorView
     }
 
+#if DEBUG
+    func anchorSizeForUITest(withId hostedId: ObjectIdentifier) -> NSSize? {
+        guard let anchor = entriesByHostedId[hostedId]?.anchorView,
+              anchor.window === window else { return nil }
+        return effectiveAnchorFrameInWindow(for: anchor).size
+    }
+#endif
+
     func hostedViewNeedsPortalReattachForVisiblePresentation(withId hostedId: ObjectIdentifier) -> Bool {
         guard let entry = entriesByHostedId[hostedId], let hostedView = entry.hostedView, let anchor = entry.anchorView else { return true }
         return !entry.visibleInUI || anchor.window !== window || anchor.superview == nil || (installedReferenceView.map { !anchor.isDescendant(of: $0) } ?? false) || hostedView.superview !== hostView || hostedView.window !== window
@@ -3409,6 +3417,14 @@ enum TerminalWindowPortalRegistry {
         guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return false }
         return portal.isHostedViewBoundToAnchor(withId: hostedId, anchorView: anchorView)
     }
+#if DEBUG
+    /// Measures the layout anchor independently of the hosted terminal's frame.
+    static func anchorSizeForUITest(for hostedView: GhosttySurfaceScrollView) -> NSSize? {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return nil }
+        return portal.anchorSizeForUITest(withId: hostedId)
+    }
+#endif
     static func isHostedView(_ hostedView: GhosttySurfaceScrollView, boundTo anchorView: NSView) -> Bool {
         let hostedId = ObjectIdentifier(hostedView)
         guard let window = anchorView.window else { return false }

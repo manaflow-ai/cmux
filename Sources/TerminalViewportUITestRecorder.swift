@@ -108,9 +108,8 @@ final class TerminalViewportUITestRecorder {
         terminalPanel.hostedView.superview?.layoutSubtreeIfNeeded()
         terminalPanel.hostedView.layoutSubtreeIfNeeded()
         terminalPanel.surface.forceRefresh(reason: "uiTest.terminalViewport")
+        guard var viewportData = Self.hostedGeometry(terminalPanel: terminalPanel) else { return }
         didRecordReadyGeometry = true
-
-        var viewportData = Self.hostedGeometry(terminalPanel: terminalPanel)
         var recorderData: [String: String] = [
             "terminalViewportReady": "1",
             "terminalViewportWindowWidth": Self.format(window.frame.width),
@@ -197,8 +196,10 @@ final class TerminalViewportUITestRecorder {
         }
     }
 
-    private static func hostedGeometry(terminalPanel: TerminalPanel) -> [String: String] {
+    private static func hostedGeometry(terminalPanel: TerminalPanel) -> [String: String]? {
         let hostedView = terminalPanel.hostedView
+        guard let panelSize = TerminalWindowPortalRegistry.anchorSizeForUITest(for: hostedView),
+              panelSize.width > 0, panelSize.height > 0 else { return nil }
         let hostedFrame = hostedView.frame
         let hostedBounds = hostedView.bounds
         let hostedSuperviewBounds = hostedView.superview?.bounds ?? .zero
@@ -212,11 +213,10 @@ final class TerminalViewportUITestRecorder {
 
         return [
             "terminalViewportPanelId": terminalPanel.id.uuidString,
-            // The portal's superview spans the whole window. The terminal's
-            // bounds are the actual panel viewport and exclude the tab-bar
-            // lane that sits above it.
-            "terminalViewportPanelWidth": format(hostedBounds.width),
-            "terminalViewportPanelHeight": format(hostedBounds.height),
+            // The portal's superview spans the window. Measure the layout
+            // anchor independently so a wrongly sized terminal still fails.
+            "terminalViewportPanelWidth": format(panelSize.width),
+            "terminalViewportPanelHeight": format(panelSize.height),
             "terminalViewportHostedFrameMinX": format(hostedFrame.minX),
             "terminalViewportHostedFrameMinY": format(hostedFrame.minY),
             "terminalViewportHostedFrameMaxX": format(hostedFrame.maxX),
