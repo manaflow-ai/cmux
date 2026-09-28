@@ -129,6 +129,18 @@ jobs:
             -Dtest-filter="unfocused render pacer spaces unfocused frames" \
             --summary all
 
+      - name: Test Ghostty startup input bytes
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="parse: hex escapes are bytes" \
+            -Dtest-filter="cloneParsed restores Zig-escaped bytes" \
+            --summary all
+
       - name: Build GhosttyKit.xcframework
         if: steps.check-release.outputs.exists == 'false' || inputs.verify_build
         run: |

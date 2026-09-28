@@ -118,7 +118,6 @@ struct ClaudeHookSessionRecord: Codable {
         let notificationCorrelationKey: String?
         let createdAt: TimeInterval
         let requiresToolUseId: Bool
-
         init(
             command: String,
             toolUseId: String?,
@@ -1980,16 +1979,39 @@ final class ClaudeHookSessionStore {
             let existingHasArguments = !(record.launchCommand?.arguments.isEmpty ?? true)
             let incomingHasArguments = !launchCommand.arguments.isEmpty
             let incomingHasEnvironment = !(launchCommand.environment?.isEmpty ?? true)
+            let existingLaunchSource = normalizeOptional(record.launchCommand?.source)?.lowercased()
+            let existingHasArgvlessFallback = !existingHasArguments
+                && record.launchCommand?.isRejectedCapture != true
+                && (record.launchCommand?.rejectionReason == .argvUnavailable
+                    || existingLaunchSource == "environment"
+                    || existingLaunchSource == "default")
+            let incomingSource = normalizeOptional(launchCommand.source)?.lowercased()
+            let incomingRejectedCaptureCanReplaceExisting = incomingSource == "rejected"
+                && (launchCommand.rejectionReason == nil
+                    || launchCommand.rejectionReason == .sanitizerRejectedArgv
+                    || (!existingHasArguments && !existingHasArgvlessFallback))
+            let incomingDefaultCanFillMissingArgv = incomingSource == "default"
+                && !existingHasArguments
+                && normalizeOptional(record.launchCommand?.environment?["CODEX_HOME"]) == nil
+            let incomingEnvironmentCanFillMissingArgv = incomingSource != "rejected"
+                && incomingHasEnvironment
+                && !existingHasArguments
             // Persist an argv-bearing record always. Persist an argv-less, env-only record (the
             // CODEX_HOME / CLAUDE_CONFIG_DIR fallback for a plain agent whose launch argv couldn't be
             // captured) only when we don't already hold an argv-bearing one — so the durable store
             // keeps the non-default home for the fork/resume path without ever downgrading a richer
-            // earlier capture to an env-only stub.
+            // earlier capture to an env-only stub. A legacy source-only rejection and the sanitizer's
+            // explicit rejection retain their historical replacement behavior. A classified rejection
+            // may replace only a truly empty argv-less record, never a richer argv capture or an
+            // existing environment/default fallback that still provides durable restore evidence.
             // Every write path into this store lands here, so the external launcher is carried
             // across in one place: ancestor detection can miss on a later hook once the launcher
             // process has exited, and such a record must not overwrite the wrapper id the session
             // was captured with. #10494
-            if incomingHasArguments || normalizeOptional(launchCommand.source)?.lowercased() == "rejected" || (normalizeOptional(launchCommand.source)?.lowercased() == "default" && !existingHasArguments && normalizeOptional(record.launchCommand?.environment?["CODEX_HOME"]) == nil) || (incomingHasEnvironment && !existingHasArguments) {
+            if incomingHasArguments
+                || incomingRejectedCaptureCanReplaceExisting
+                || incomingDefaultCanFillMissingArgv
+                || incomingEnvironmentCanFillMissingArgv {
                 record.launchCommand = launchCommand.preservingExternalLauncher(
                     from: [record.launchCommand]
                 )
@@ -5112,6 +5134,16 @@ struct CMUXCLI {
         }
         if command == "open" { try runOpenCommand(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg, jsonOutput: jsonOutput, idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)); return }
         if command == "diff" { try runDiffCommand(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg, jsonOutput: jsonOutput, idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)); return }
+        if command == "session" {
+            try runSessionCommand(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg,
+                idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg),
+                windowOverride: windowId
+            )
+            return
+        }
         if command == "restore-session" {
             try runRestoreSession(
                 commandArgs: commandArgs,
@@ -5139,6 +5171,16 @@ struct CMUXCLI {
 
         if command == "themes" {
             try runThemes(
+                commandArgs: commandArgs,
+                jsonOutput: jsonOutput,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg
+            )
+            return
+        }
+
+        if command == "import" {
+            try runImport(
                 commandArgs: commandArgs,
                 jsonOutput: jsonOutput,
                 socketPath: resolvedSocketPath,
@@ -5217,6 +5259,14 @@ struct CMUXCLI {
            !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
         if command == "hooks" {
             if try runHooksNoSocketCommand(commandArgs: commandArgs) {
+                return
+            }
+            if commandArgs == ["claude", "spool-forwarder"] {
+                await runAgentHookSpoolForwarder(
+                    agent: "claude",
+                    socketPath: resolvedSocketPath,
+                    socketPassword: socketPasswordArg
+                )
                 return
             }
             if Self.hooksCommandNeedsCmuxTarget(commandArgs),
@@ -7482,19 +7532,37 @@ struct CMUXCLI {
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
-            let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-            let rawText = rem2.dropFirst(rem2.first == "--" ? 1 : 0).joined(separator: " ")
+            let (usesPaste, textArgs) = Self.splitSendPasteFlag(rem2)
+            let rawText = textArgs.dropFirst(textArgs.first == "--" ? 1 : 0).joined(separator: " ")
             guard !rawText.isEmpty else { throw CLIError(message: "send requires text") }
-            let text = unescapeSendText(rawText)
-            var params: [String: Any] = ["text": text]
-            let winId = try normalizeWindowHandle(windowRaw, client: client)
-            if let winId { params["window_id"] = winId }
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
-            if let wsId { params["workspace_id"] = wsId }
-            let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId)
-            if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.send_text", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
+            if usesPaste {
+                // Same path as `cmux paste`: the text goes out unchanged, so
+                // `\n`-style escapes are not rewritten.
+                try deliverTerminalPaste(
+                    text: rawText,
+                    command: "send",
+                    workspace: wsArg,
+                    surface: sfArg,
+                    windowRaw: windowRaw,
+                    submit: false,
+                    client: client,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
+            } else {
+                let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+                let text = unescapeSendText(rawText)
+                var params: [String: Any] = ["text": text]
+                let winId = try normalizeWindowHandle(windowRaw, client: client)
+                if let winId { params["window_id"] = winId }
+                let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
+                if let wsId { params["workspace_id"] = wsId }
+                let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId)
+                if let sfId { params["surface_id"] = sfId }
+                let payload = try client.sendV2(method: "surface.send_text", params: params)
+                printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
+                Self.printSendPasteHintIfNeeded(text)
+            }
 
         case "paste":
             try runPasteCommand(
@@ -7722,7 +7790,6 @@ struct CMUXCLI {
                 let payload = try client.sendV2(method: "notification.dismiss", params: ["all_read": true])
                 printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
             }
-
         case "mark-notification-read":
             let id = optionValue(commandArgs, name: "--id").map(normalizedNotificationIDArgument)
             let workspaceArg = optionValue(commandArgs, name: "--workspace")
@@ -7752,18 +7819,15 @@ struct CMUXCLI {
             }
             let payload = try client.sendV2(method: "notification.mark_read", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
-
         case "open-notification":
             guard let id = optionValue(commandArgs, name: "--id").map(normalizedNotificationIDArgument) else {
                 throw CLIError(message: String(localized: "cli.error.openNotificationRequiresId", defaultValue: "open-notification requires --id"))
             }
             let payload = try client.sendV2(method: "notification.open", params: ["id": id])
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
-
         case "jump-to-unread":
             let payload = try client.sendV2(method: "notification.jump_to_unread")
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
-
         case "clear-notifications":
             var socketCmd = "clear_notifications"
             let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
@@ -7804,7 +7868,6 @@ struct CMUXCLI {
             }
             let response = try sendV1Command(socketCmd, client: client)
             print(response)
-
         case "set-status":
             let response = try forwardSidebarMetadataCommand(
                 "set_status",
@@ -7813,7 +7876,8 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
-
+        case "report_pwd", "report_git_branch", "report_pr_action":
+            print(try forwardSidebarMetadataCommand(command, commandArgs: commandArgs, client: client, windowOverride: windowId))
         case "clear-status":
             let response = try forwardSidebarMetadataCommand(
                 "clear_status",
@@ -7822,7 +7886,6 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
-
         case "list-status":
             let response = try forwardSidebarMetadataCommand(
                 "list_status",
@@ -7831,7 +7894,6 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
-
         case "set-progress":
             let response = try forwardSidebarMetadataCommand(
                 "set_progress",
@@ -7840,7 +7902,6 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
-
         case "clear-progress":
             let response = try forwardSidebarMetadataCommand(
                 "clear_progress",
@@ -7849,7 +7910,6 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
-
         case "log":
             let response = try forwardSidebarMetadataCommand(
                 "log",
@@ -7858,7 +7918,6 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
-
         case "clear-log":
             let response = try forwardSidebarMetadataCommand(
                 "clear_log",
@@ -7867,7 +7926,6 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
-
         case "list-log":
             let response = try forwardSidebarMetadataCommand(
                 "list_log",
@@ -7876,7 +7934,6 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
-
         case "sidebar-state":
             let response = try forwardSidebarMetadataCommand(
                 "sidebar_state",
@@ -7885,14 +7942,12 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
-
         case "right-sidebar":
             try forwardRightSidebarCommand(
                 commandArgs: commandArgs,
                 client: client,
                 windowOverride: windowId
             )
-
         case "sidebar":
             try runSidebarCommand(
                 commandArgs: commandArgs,
@@ -7900,7 +7955,6 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 windowOverride: windowId
             )
-
         case "claude-hook":
             cliTelemetry.breadcrumb("claude-hook.dispatch")
             do {
@@ -8291,7 +8345,7 @@ struct CMUXCLI {
         }
 
         switch command {
-        case "themes", "setup-hooks", "uninstall-hooks":
+        case "themes", "import", "setup-hooks", "uninstall-hooks":
             return true
         case "codex":
             let subcommand = commandArgs.first?.lowercased()
@@ -11262,17 +11316,27 @@ struct CMUXCLI {
             }
 
         case "set-color":
-            let (hexOpt, rem0) = parseOption(rest, name: "--hex")
+            let (hexOpt, rem1) = parseOption(rest, name: "--hex")
+            // --color is an alias for --hex (mirrors the `custom_color`
+            // response field the RPC accepts under the `color` key).
+            // Always consume --color so it cannot be mistaken for the group id
+            // when both flags are passed; --hex wins.
+            let (colorOpt, rem0) = parseOption(rem1, name: "--color")
             params["group_id"] = try resolveGroupId(in: rem0)
-            // Treat --hex with no value (or `--hex ""`) as a clear.
-            params["hex"] = hexOpt ?? ""
+            // Treat --hex/--color with no value (or `""`) as a clear.
+            params["hex"] = hexOpt ?? colorOpt ?? ""
             let resp = try client.sendV2(method: "workspace.group.set_color", params: params)
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "set-icon":
-            let (symbolOpt, rem0) = parseOption(rest, name: "--symbol")
+            let (symbolOpt, rem1) = parseOption(rest, name: "--symbol")
+            // --icon is an alias for --symbol (mirrors the `icon_symbol`
+            // response field the RPC accepts under the `icon` key).
+            // Always consume --icon so it cannot be mistaken for the group id
+            // when both flags are passed; --symbol wins.
+            let (iconOpt, rem0) = parseOption(rem1, name: "--icon")
             params["group_id"] = try resolveGroupId(in: rem0)
-            params["symbol"] = symbolOpt ?? ""
+            params["symbol"] = symbolOpt ?? iconOpt ?? ""
             let resp = try client.sendV2(method: "workspace.group.set_icon", params: params)
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
@@ -18597,6 +18661,7 @@ struct CMUXCLI {
         case "fork":
             return forkSubcommandUsage()
         case "sessions", "session-debug": return sessionsUsage()
+        case "session": return sessionCommandUsage()
         case "feedback":
             return """
             Usage: cmux feedback
@@ -18636,7 +18701,7 @@ struct CMUXCLI {
                    cmux hooks feed --source <agent> [--event <event>]
 
             Manage and run cmux agent hooks without adding one top-level command per
-            agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
+            agent. Claude Code and Pi hooks are injected automatically by their cmux wrappers.
 
             Agents:
               codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
@@ -18697,6 +18762,47 @@ struct CMUXCLI {
               cmux themes set "Catppuccin Mocha"
               cmux themes set --light "Catppuccin Latte" --dark "Catppuccin Mocha"
               cmux themes clear
+            """
+        case "import":
+            return """
+            Usage: cmux import [<terminal>] [--dry-run] [--yes] [--path <file>]
+
+            Bring your look over from another terminal: font family and size, the 16
+            ANSI colors plus foreground, background, cursor and selection colors,
+            cursor style and blink, Option-as-Alt, padding, background opacity and
+            blur, and scrollback.
+
+            With no terminal, lists the terminals with settings on this Mac and, in a
+            TTY, asks which one to import. Ghostty needs no import: cmux already reads
+            ~/.config/ghostty/config.
+
+            Colors go into a generated Ghostty theme in cmux's themes folder, which is
+            then selected. Other settings go into cmux's own Ghostty config. Your
+            ~/.config/ghostty/config and the other terminal's files are never changed.
+            The command prints each line it will write, with the previous value, and
+            lists anything it could not import, then asks before writing. Without a
+            terminal to ask in (scripts, pipes) or with --json, it writes only when
+            --yes is passed.
+
+            Terminals:
+              iterm2      iTerm2 default profile
+              terminal    Terminal default profile
+              alacritty   alacritty.toml (or legacy alacritty.yml) and its imports
+              kitty       kitty.conf and its include files
+              wezterm     wezterm.lua, literal assignments only (Lua logic is skipped)
+              warp        a custom theme from ~/.warp/themes (colors only)
+
+            Flags:
+              --dry-run       Print the changes without writing anything
+              --yes, -y       Write without asking; required to write from scripts or with --json
+              --path <file>   Read this config file (or Warp theme) instead of the detected one
+              --json          Print the plan as JSON (writes only with --yes)
+
+            Examples:
+              cmux import
+              cmux import iterm2 --dry-run
+              cmux import kitty
+              cmux import warp --path ~/.warp/themes/solarized.yaml
             """
         case "claude-teams":
             return String(localized: "cli.claude-teams.usage", defaultValue: """
@@ -19956,20 +20062,7 @@ struct CMUXCLI {
         case "paste":
             return Self.pasteHelp
         case "send":
-            return """
-            Usage: cmux send [flags] [--] <text>
-
-            Send text to a terminal surface. Escape sequences: \\n and \\r send Enter, \\t sends Tab.
-
-            Flags:
-              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
-              --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)
-              --window <id|ref|index>      Window context for workspace/surface refs and indexes
-
-            Example:
-              cmux send "echo hello"
-              cmux send --surface surface:2 "ls -la\\n"
-            """
+            return Self.sendHelp
         case "send-key":
             return """
             Usage: cmux send-key [flags] [--] <key>
@@ -20116,6 +20209,7 @@ struct CMUXCLI {
             Flags:
               --icon <name>          Icon name (e.g. "sparkle", "hammer")
               --color <#hex>         Pill color (e.g. "#ff9500")
+                                     "#4C8DFF" draws as the cmux accent (app.accentColor)
               --priority <n>         Sort priority; higher appears first (default: 0)
               --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>      Window context for workspace refs and indexes
@@ -25557,6 +25651,75 @@ struct CMUXCLI {
             .appendingPathComponent("omo-config", isDirectory: true)
     }
 
+    /// Top-level names of the user's OpenCode config dir that are never linked
+    /// into the shadow dir:
+    /// - files cmux writes there itself;
+    /// - dirs OpenCode already scans in the user's real config dir, which would
+    ///   otherwise load twice (every plugin would register its hooks twice);
+    /// - files OpenCode writes into each config dir, which would otherwise be
+    ///   rewritten through the link (its npm install saves package-lock.json).
+    static let omoShadowUnlinkedConfigEntries: Set<String> = [
+        "opencode.json",
+        "opencode.jsonc",
+        "config.json",
+        "node_modules",
+        "package.json",
+        "package-lock.json",
+        "npm-shrinkwrap.json",
+        "bun.lock",
+        "bun.lockb",
+        ".gitignore",
+        "agent",
+        "agents",
+        "command",
+        "commands",
+        "mode",
+        "modes",
+        "plugin",
+        "plugins",
+        "tool",
+        "tools",
+        "skill",
+        "skills",
+        ".DS_Store"
+    ]
+
+    /// Links each entry of the user's OpenCode config dir into the shadow dir,
+    /// skipping `excluded` names. Existing links are repointed; real files
+    /// cmux created in the shadow dir are left alone. Best effort: a failure only
+    /// means that entry is missing under `cmux omo`, as before.
+    private func omoLinkEntries(of userDir: URL, into shadowDir: URL, excluding excluded: Set<String>) {
+        let fm = FileManager.default
+        // Drop links left from earlier runs whose user entry has since been
+        // removed or renamed, so the shadow dir never holds dangling links.
+        let userPrefix = userDir.path + "/"
+        for name in (try? fm.contentsOfDirectory(atPath: shadowDir.path)) ?? [] {
+            let shadowEntry = shadowDir.appendingPathComponent(name)
+            guard omoFileType(at: shadowEntry) == .typeSymbolicLink,
+                  let destination = try? fm.destinationOfSymbolicLink(atPath: shadowEntry.path),
+                  destination.hasPrefix(userPrefix),
+                  !fm.fileExists(atPath: destination)
+            else { continue }
+            try? fm.removeItem(at: shadowEntry)
+        }
+        guard let names = try? fm.contentsOfDirectory(atPath: userDir.path) else { return }
+        try? fm.createDirectory(at: shadowDir, withIntermediateDirectories: true, attributes: nil)
+        for name in names where !excluded.contains(name) {
+            let userEntry = userDir.appendingPathComponent(name)
+            let shadowEntry = shadowDir.appendingPathComponent(name)
+            switch omoFileType(at: shadowEntry) {
+            case nil:
+                break
+            case .typeSymbolicLink?:
+                if (try? fm.destinationOfSymbolicLink(atPath: shadowEntry.path)) == userEntry.path { continue }
+                try? fm.removeItem(at: shadowEntry)
+            default:
+                continue
+            }
+            try? fm.createSymbolicLink(at: shadowEntry, withDestinationURL: userEntry)
+        }
+    }
+
     private func omoFileType(at url: URL) -> FileAttributeType? {
         let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
         return attrs?[.type] as? FileAttributeType
@@ -25772,7 +25935,7 @@ struct CMUXCLI {
         }
         config["plugin"] = plugins
 
-        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         try output.write(to: shadowJsonURL, options: .atomic)
 
         // Symlink node_modules from the user's config dir so installed packages resolve
@@ -25790,6 +25953,11 @@ struct CMUXCLI {
         }
 
         try writeOpenCodeSessionPlugin(in: shadowDir)
+
+        // The shadow opencode.json resolves relative refs such as
+        // {file:./prompts/chief.md} against the shadow dir, so expose the files
+        // they name there.
+        omoLinkEntries(of: userDir, into: shadowDir, excluding: Self.omoShadowUnlinkedConfigEntries)
 
         // Copy oh-my-openagent plugin config (jsonc) if the user has one.
         // Keep legacy filenames visible in the shadow dir so existing setups still load.
@@ -25907,7 +26075,7 @@ struct CMUXCLI {
                attrs[.type] as? FileAttributeType == .typeSymbolicLink {
                 try? fm.removeItem(at: omoConfigURL)
             }
-            let output = try JSONSerialization.data(withJSONObject: omoConfig, options: [.prettyPrinted, .sortedKeys])
+            let output = try JSONSerialization.data(withJSONObject: omoConfig, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
             try output.write(to: omoConfigURL, options: .atomic)
         }
 
@@ -31084,6 +31252,10 @@ struct CMUXCLI {
         let message = messageCandidates.compactMap { $0 }.first
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         let normalizedMessage = message.map { normalizedSingleLine($0) } ?? ""
+        if def.name == "pi", signalParts.contains(where: { $0?.lowercased().contains("questionasked") == true }) {
+            let waitingBody = String(localized: "feed.status.needsInput", defaultValue: "Needs input")
+            return classifyAgentHookNotification(def: def, signal: signal, message: waitingBody, isFallback: false)
+        }
         if let hermesApprovalMessage = hermesAgentApprovalNotificationMessage(def: def, object: object) {
             return classifyAgentHookNotification(
                 def: def,
@@ -31359,7 +31531,7 @@ struct CMUXCLI {
         )
     }
 
-    private func agentNeedsInputStatusValue(for def: AgentHookDef) -> String {
+    func agentNeedsInputStatusValue(for def: AgentHookDef) -> String {
         if def.name == "amp" {
             return String(localized: "feed.status.needsInput", defaultValue: "Needs input")
         }
@@ -31814,11 +31986,17 @@ struct CMUXCLI {
         // the SAME argv are ordered inside AgentLaunchCaptureArgvVerdict.
         var cmuxCaptureRejectionReason: AgentLaunchCaptureRejectionReason?
         var processFallbackRejectionReason: AgentLaunchCaptureRejectionReason?
+        let rawEnvironmentArguments = env["CMUX_AGENT_LAUNCH_ARGV_B64"]
+        let hasEnvironmentArguments = normalizedHookValue(rawEnvironmentArguments) != nil
         let envArguments = envCaptureIsTrusted
-            ? decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
+            ? decodeNULSeparatedBase64(rawEnvironmentArguments)
             : nil
-        if !envCaptureIsTrusted, normalizedHookValue(env["CMUX_AGENT_LAUNCH_ARGV_B64"]) != nil {
+        if !envCaptureIsTrusted, hasEnvironmentArguments {
             cmuxCaptureRejectionReason = .launcherDoesNotDescribeKind
+        } else if envCaptureIsTrusted,
+                  hasEnvironmentArguments,
+                  envArguments == nil {
+            cmuxCaptureRejectionReason = .argvDecodeFailed
         }
         var processArguments: [String]?
         // A relayed hook runs on a different host than the agent, so its PID
@@ -31841,6 +32019,11 @@ struct CMUXCLI {
         }
         let arguments = envArguments ?? processArguments
         let launcher = envCaptureIsTrusted ? (envLauncher ?? fallbackKind) : fallbackKind
+        // A PID-only mismatch or shell-wrapper is diagnostic fallback evidence,
+        // not a rejected cmux launch capture: the hook's replay-safe environment
+        // or default verb remains valid. Only a positive cmux capture rejection
+        // quarantines the argv-less record.
+        let hasRejectedCandidate = cmuxCaptureRejectionReason?.isPositiveCaptureRejection == true
         let workingDirectory = (envCaptureIsTrusted ? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"]) : nil)
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])
@@ -31930,21 +32113,24 @@ struct CMUXCLI {
         // keeps the historical nil. This deliberately does NOT cover a captured-but-rejected argv (see
         // the sanitizer guard below), so non-restorable invocations stay non-resumable.
         func environmentOnlyRecord(
-            rejectionReason: AgentLaunchCaptureRejectionReason
+            rejectionReason: AgentLaunchCaptureRejectionReason,
+            hasRejectedCandidate: Bool
         ) -> AgentHookLaunchCommandRecord? {
             guard !environment.isEmpty else {
-                guard fallbackKind == "codex" else { return nil }
+                guard fallbackKind == "codex" || rejectionReason != .argvUnavailable else {
+                    return nil
+                }
                 return argvLessRecord(
                     executablePath: nil,
                     environment: nil,
-                    source: "default",
+                    source: hasRejectedCandidate ? "rejected" : "default",
                     rejectionReason: rejectionReason
                 )
             }
             return argvLessRecord(
                 executablePath: nil,
                 environment: environment,
-                source: "environment",
+                source: hasRejectedCandidate ? "rejected" : "environment",
                 rejectionReason: rejectionReason
             )
         }
@@ -31954,7 +32140,8 @@ struct CMUXCLI {
                 rejectionReason: AgentLaunchCaptureRejectionReason.recorded(
                     cmuxCapture: cmuxCaptureRejectionReason,
                     processFallback: processFallbackRejectionReason
-                )
+                ),
+                hasRejectedCandidate: hasRejectedCandidate
             )
         }
 
@@ -32198,13 +32385,14 @@ struct CMUXCLI {
         ) != .failed
     }
 
-    private func agentSurfaceResumeCommand(
+    func agentSurfaceResumeCommand(
         kind: String,
         sessionId: String,
         launchCommand: AgentHookLaunchCommandRecord?,
         workingDirectory: String?,
         environment: [String: String]?,
-        observedPermissionMode: String? = nil
+        observedPermissionMode: String? = nil,
+        launcherConfigurationDirectory: String? = nil
     ) -> String? {
         let normalizedSessionId = normalizedHookValue(sessionId)
         guard let normalizedSessionId else { return nil }
@@ -32243,7 +32431,7 @@ struct CMUXCLI {
         // A cmux-owned route already names its own launcher in argv[0]; only the bare agent argv
         // is wrapped.
         let externalLauncher = routesThroughOwnedLauncher ? nil : launchCommand?.externalLauncher.flatMap { launcherID in
-            externalAgentLaunchers(workingDirectory: resumeWorkingDirectory)
+            externalAgentLaunchers(workingDirectory: launcherConfigurationDirectory ?? resumeWorkingDirectory)
                 .resolvedLauncher(id: launcherID, kind: kind)
         }
         return agentSurfaceResumeShellCommand(
@@ -33107,7 +33295,7 @@ export default CMUXSessionRestore;
         var plugins = Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
         if shouldInstall, !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) { plugins.append(Self.openCodeSessionPluginConfigSpec) }
         config["plugin"] = plugins
-        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         if existingData == output { return false }
         try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         try output.write(to: configURL, options: .atomic)
@@ -36404,7 +36592,6 @@ export default CMUXSessionRestore;
                 )
                 return summary.status == .error ? summary : nil
             }()
-
             let rawCwd = hookCwd ?? mapped?.cwd
             let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: rawCwd)
             let cwd = preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped)
@@ -36451,7 +36638,17 @@ export default CMUXSessionRestore;
                 )
             let antigravityHasActiveBackgroundWork = hasActiveAntigravityBackgroundWork()
             var hasActiveBackgroundWork = antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork
-            let stopNotificationStatus: AgentHookNotificationStatus = (codexFailure == nil && antigravityFailure == nil) ? .idle : .error
+            let stopTerminationReason = input.rawObject.flatMap {
+                firstString(in: $0, keys: ["terminationReason", "reason", "type", "kind"])
+            }
+            let sameTurnNeedsInput = Self.stopPreservesNeedsInput(
+                mapped: mapped,
+                inputTurnID: input.turnId,
+                terminationReason: stopTerminationReason
+            )
+            let stopNotificationStatus: AgentHookNotificationStatus = codexFailure != nil || antigravityFailure != nil
+                ? .error
+                : (sameTurnNeedsInput ? .needsInput : .idle)
             var lifecycleAfterStop: AgentHibernationLifecycleState = {
                 if hasActiveBackgroundWork && stopNotificationStatus == .idle {
                     return .running
@@ -36616,7 +36813,6 @@ export default CMUXSessionRestore;
                     )
                 }
             }
-
             if def.name == "codex", codexLifecycle?.usesLegacyIdentity == true,
                !suppressCompletionNotification {
                 for priorTurnId in activePromptTurnIdsForStop
@@ -36637,14 +36833,13 @@ export default CMUXSessionRestore;
                     )
                 }
             }
-
             // The journal records the turn boundary unconditionally: the
             // reducer's per-session fold handles stale sessions (a newer
             // running session outranks this one) and subagent tagging keeps
             // nested sessions off the pane badge — no emit-side guessing.
             let stopHadFailure = codexFailure != nil || antigravityFailure != nil
             emitJournal(
-                stopHadFailure ? .errorReported : .turnCompleted,
+                stopHadFailure ? .errorReported : (sameTurnNeedsInput ? .questionRequested : .turnCompleted),
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 isSubagent: isNestedAgentSession,
@@ -36652,7 +36847,6 @@ export default CMUXSessionRestore;
                 detail: stopHadFailure ? body : nil,
                 responseTimeout: def.name == "cursor" ? cursorCriticalTimeout() : nil
             )
-
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 _ = try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
@@ -36696,7 +36890,6 @@ export default CMUXSessionRestore;
                     )
                 }
             }
-
             let notificationFingerprint = notificationDedupeFingerprint(
                 status: stopNotificationStatus,
                 category: stopNotificationStatus == .idle ? .turnComplete : .other,
@@ -36712,6 +36905,7 @@ export default CMUXSessionRestore;
             let shouldPublishStopNotification = lifecyclePublishesStopNotification
                 && def.publishesStopNotification
                 && !stopNotificationAlreadyRouted
+                && stopNotificationStatus != .needsInput
                 && (!hasActiveBackgroundWork || stopNotificationStatus == .error)
             let hasGrokTranscriptContext = def.name == "grok" && normalizedHookValue(cwd) != nil
             let shouldPublishGrokStopFallbackNotification = def.name == "grok"
@@ -36830,17 +37024,17 @@ export default CMUXSessionRestore;
                             client: client
                         )
                     }
+                } else if stopNotificationStatus == .needsInput {
+                    setAgentNeedsInputStatus(def: def, workspaceId: workspaceId, surfaceId: surfaceId, client: client)
                 } else {
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
                 }
             }
-
             if def.name == "cursor" {
                 cursorLifecycleLease?.release()
                 cursorLifecycleLease = nil
                 sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             }
-
             if def.name == "codex", !suppressVisibleMutations, !sessionId.isEmpty {
                 spawnDetachedCodexNativeTitleSync(
                     sessionId: sessionId,
@@ -36850,7 +37044,6 @@ export default CMUXSessionRestore;
                     telemetry: telemetry
                 )
             }
-
             // Opt-in auto-naming for generic-agent sessions: a detached pass so the
             // summarization subprocess never blocks this short sync hook.
             // Gate the fork on the live setting (one cheap socket probe) so a
@@ -36877,7 +37070,6 @@ export default CMUXSessionRestore;
                     telemetry: telemetry
                 )
             }
-
         case .shellObserved:
             // Cursor's sandboxed and malformed shell-start payloads are
             // intentionally telemetry-only. The defer above sends the
@@ -36904,6 +37096,7 @@ export default CMUXSessionRestore;
             resolveCursorShellHook(failed: true)
 
         case .approvalResponse:
+            let idleDialogResolution = (input.rawObject?["cmux_pi_idle_dialog"] as? Bool) == true
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 reportTargetResolutionFailure()
@@ -36945,21 +37138,23 @@ export default CMUXSessionRestore;
                     transcriptPath: localTranscriptPath(mapped: mapped),
                     pid: pid,
                     launchCommand: resumeLaunchCommand,
-                    agentLifecycle: .running,
-                    runtimeStatus: .running
+                    agentLifecycle: idleDialogResolution ? .idle : .running,
+                    runtimeStatus: idleDialogResolution ? .idle : .running
                 )
-                publishAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    kind: def.name,
-                    displayName: def.displayName,
-                    sessionId: sessionId,
-                    cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                    launchCommand: resumeLaunchCommand,
-                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                    telemetry: telemetry
-                )
+                if !idleDialogResolution {
+                    publishAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        kind: def.name,
+                        displayName: def.displayName,
+                        sessionId: sessionId,
+                        cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
+                        launchCommand: resumeLaunchCommand,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        telemetry: telemetry
+                    )
+                }
             }
             if !relayOrigin, let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
@@ -36967,23 +37162,27 @@ export default CMUXSessionRestore;
                     client: client
                 )
             }
-            // An approval response resumes the blocked turn: journal it as the
-            // turn running again.
+            // An approval response resumes a blocked turn. An idle Pi dialog
+            // resolves the temporary attention state back to Idle instead.
             emitJournal(
                 .attentionResolved,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 isSubagent: suppressVisibleMutations,
-                pendingWork: true,
-                declaredPhase: .running,
+                pendingWork: !idleDialogResolution,
+                declaredPhase: idleDialogResolution ? .idle : .running,
                 detail: "approval-response"
             )
             if !suppressVisibleMutations {
-                let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
-                _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
-                )
+                if idleDialogResolution {
+                    setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+                } else {
+                    let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+                    _ = try? sendV1Command(
+                        "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                }
             } else {
                 telemetry.breadcrumb("\(def.name)-hook.approval-response.nested-suppressed")
             }
@@ -41016,6 +41215,9 @@ export default CMUXSessionRestore;
             }
             let actionArgs = Array(rest.dropFirst())
             switch action {
+            case "extension-source" where def.name == "pi":
+                print(Self.piExtensionSource, terminator: "")
+                return true
             case "inject-args" where def.name == "codex":
                 // Hidden: emit the NUL-separated codex arg list the wrapper
                 // (Resources/bin/cmux-codex-wrapper) splices to inject cmux's
@@ -41049,6 +41251,7 @@ export default CMUXSessionRestore;
         if first == "feed" || first == "claude" { return true }
         guard let def = Self.agentDef(named: first) else { return false }
         let action = commandArgs.dropFirst().first?.lowercased()
+        if def.name == "pi", action == "extension-source" { return false }
         if def.name == "grok" {
             return false
         }
@@ -41204,13 +41407,9 @@ export default CMUXSessionRestore;
         let isUninstall = uninstall || args.contains("--uninstall")
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
-
         print("cmux hooks \(isUninstall ? "uninstall" : "setup"): \(verb) agent hooks")
-        if !isUninstall {
-            print("  (Claude Code hooks are injected automatically via the claude wrapper)")
-        }
+        if !isUninstall { print(String(localized: "cli.hooks.setup.wrapperNote", defaultValue: "  (Claude Code and Pi hooks are injected automatically via their cmux wrappers)")) }
         print("")
-
         var count = 0
         var skipped = 0
         var skippedNoBinary: [String] = []
@@ -41231,7 +41430,7 @@ export default CMUXSessionRestore;
             // On install, also skip agents whose binary isn't on PATH.
             // On uninstall, always proceed so stale configs can be
             // cleaned up regardless of whether the binary still exists.
-            if !isUninstall && !Self.isBinaryOnPath(def.binaryName) {
+            if !isUninstall && def.name != "pi" && !Self.isBinaryOnPath(def.binaryName) {
                 print("  \(def.name): skipped (binary not found on PATH)")
                 skipped += 1
                 skippedNoBinary.append(def.name)
