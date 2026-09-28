@@ -9,6 +9,39 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
+
+// These two fork-only PODs are intentionally prefixed and kept local to the
+// bridge. Some published GhosttyKit module caches contain the corresponding
+// symbols but were generated from a header that did not export their
+// declarations. The layouts are pinned by the fork's C API and are copied
+// without depending on a module-provided typedef or union member.
+typedef struct {
+    uint64_t event;
+    uint8_t source;
+    uint8_t reason;
+    uint8_t verdict;
+    uint8_t flags;
+    uint32_t seq;
+} cmux_external_hover_diag_entry_s;
+
+typedef struct {
+    uint64_t token_bits[4];
+    bool active;
+} cmux_external_link_hover_action_s;
+
+static inline bool cmux_ghostty_action_is_external_link_hover(ghostty_action_s action) {
+    // The fork appends this action after the stable selection-changed tag.
+    return (int)action.tag == (int)GHOSTTY_ACTION_SELECTION_CHANGED + 1;
+}
+
+static inline cmux_external_link_hover_action_s cmux_ghostty_action_external_link_hover(
+    ghostty_action_s action
+) {
+    cmux_external_link_hover_action_s result = {0};
+    memcpy(&result, &action.action, sizeof(result));
+    return result;
+}
 
 bool ghostty_surface_read_text_physical_rows(
     ghostty_surface_t,
@@ -33,5 +66,11 @@ bool ghostty_surface_set_external_link_hover(
 void ghostty_surface_clear_external_link_hover(
     ghostty_surface_t,
     const uint64_t token_bits[4]);
+
+size_t ghostty_surface_drain_external_hover_diagnostics(
+    ghostty_surface_t,
+    cmux_external_hover_diag_entry_s* out_entries,
+    size_t out_capacity,
+    uint64_t* out_dropped_count_cumulative);
 
 #endif

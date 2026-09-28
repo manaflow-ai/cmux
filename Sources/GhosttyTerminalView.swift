@@ -299,8 +299,8 @@ class GhosttyApp {
         capacity: Int = 64
     ) -> (entries: [ExternalHoverDiagEntryValue], droppedCountCumulative: UInt64) {
         guard capacity > 0 else { return (entries: [], droppedCountCumulative: 0) }
-        var buffer = [ghostty_external_hover_diag_entry_s](
-            repeating: ghostty_external_hover_diag_entry_s(), count: capacity
+        var buffer = [cmux_external_hover_diag_entry_s](
+            repeating: cmux_external_hover_diag_entry_s(), count: capacity
         )
         var droppedCountCumulative: UInt64 = 0
         let count: Int = buffer.withUnsafeMutableBufferPointer { buffer in
@@ -3531,14 +3531,14 @@ class GhosttyApp {
                 terminalSurface.hostedView.setPasswordInputActive(echoDisabled)
             }
             return true
-        case GHOSTTY_ACTION_EXTERNAL_LINK_HOVER:
+        case _ where cmux_ghostty_action_is_external_link_hover(action):
             // cmux fork: (B) ExternalHover — the ack for a prior
             // `ghostty_surface_set_external_link_hover` call. Answered
             // synchronously, on whichever thread this callback fired on:
             // no `DispatchQueue.main.async`/`Task { @MainActor in }` hop
             // before `receiveTransition` (review Blocking 1/5) — its
             // return value is the ack reducer's `performAction` verbatim.
-            let hoverAction = action.action.external_link_hover
+            let hoverAction = cmux_ghostty_action_external_link_hover(action)
             // (C) diagnostics — #8810 426ms-delay investigation
             // (diagnostics-only, no behavior change): the exact moment
             // Ghostty's renderer thread reached Swift via `performAction`
