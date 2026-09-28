@@ -63,7 +63,14 @@ import Testing
         return context.makeImage()!
     }
 
-    private static func pixel(_ image: CGImage, x: Int, y: Int) -> (r: Int, g: Int, b: Int)? {
+    /// Tuples are not `Equatable`, and the caption test compares pixels.
+    private struct Pixel: Equatable {
+        let r: Int
+        let g: Int
+        let b: Int
+    }
+
+    private static func pixel(_ image: CGImage, x: Int, y: Int) -> Pixel? {
         var bytes = [UInt8](repeating: 0, count: 4)
         guard let context = CGContext(
             data: &bytes,
@@ -79,7 +86,7 @@ import Testing
         }
         context.draw(image, in: CGRect(x: -x, y: -(image.height - 1 - y), width: image.width, height: image.height))
         // 32BGRA little endian: bytes are B, G, R, then the skipped alpha.
-        return (r: Int(bytes[2]), g: Int(bytes[1]), b: Int(bytes[0]))
+        return Pixel(r: Int(bytes[2]), g: Int(bytes[1]), b: Int(bytes[0]))
     }
 
     private static func geometry(params: [String: Any] = [:], width: Int, height: Int) throws
