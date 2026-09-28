@@ -205,6 +205,33 @@ struct WorktreeSeedPlannerTests {
         ])
     }
 
+    @Test func shadowsAndNegationsNameTheOperativeRetainedRoot() {
+        let repository = WorktreeSeedFakeRepository([
+            "root/", "root/sub/", "root/sub/secret",
+        ])
+        let plan = plan(
+            "link root\ncopy root/sub\n!root/sub/secret\n",
+            repository
+        )
+
+        #expect(plan.entries.map(\.relativePath) == ["root"])
+        #expect(plan.entries.map(\.action) == [.link])
+        #expect(plan.shadowed == [
+            WorktreeSeedShadow(
+                relativePath: "root/sub",
+                coveredBy: "root",
+                coveringAction: .link
+            ),
+        ])
+        #expect(plan.ineffectiveNegations == [
+            WorktreeSeedShadow(
+                relativePath: "root/sub/secret",
+                coveredBy: "root",
+                coveringAction: .link
+            ),
+        ])
+    }
+
     @Test func aSymlinkOutOfTheRepositoryIsRefused() {
         let repository = WorktreeSeedFakeRepository([".env", "shared/"], escaping: ["shared"])
         let plan = plan(".env\nshared\n", repository)

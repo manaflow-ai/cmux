@@ -99,9 +99,10 @@ public struct WorktreeSeedPlanner: Sendable {
             )
         }
 
+        var retained: [String: WorktreeSeedEntry] = [:]
         for path in selected.keys.sorted() {
             guard let entry = selected[path] else { continue }
-            if let ancestor = nearestSelectedAncestor(of: path, in: selected) {
+            if let ancestor = nearestSelectedAncestor(of: path, in: retained) {
                 plan.shadowed.append(
                     WorktreeSeedShadow(
                         relativePath: path,
@@ -111,13 +112,14 @@ public struct WorktreeSeedPlanner: Sendable {
                 )
                 continue
             }
+            retained[path] = entry
             plan.entries.append(entry)
         }
 
         for pattern in file.patterns where pattern.isNegated {
             for path in (matchesByLine[pattern.line] ?? [:]).keys.sorted() {
                 guard selected[path] == nil else { continue }
-                guard let ancestor = nearestSelectedAncestor(of: path, in: selected) else { continue }
+                guard let ancestor = nearestSelectedAncestor(of: path, in: retained) else { continue }
                 plan.ineffectiveNegations.append(
                     WorktreeSeedShadow(
                         relativePath: path,
