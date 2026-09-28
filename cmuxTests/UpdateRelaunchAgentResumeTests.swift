@@ -289,6 +289,109 @@ struct UpdateRelaunchAgentResumeTests {
         #expect(capture.take(now: 101) == nil)
     }
 
+    /// An agent the update relaunch cut off mid-task is saved marked, and only that save marks it.
+    @Test("The update relaunch save marks only mid-task agents to continue")
+    func updateRelaunchSaveMarksMidTaskAgents() throws {
+        let nudges = UpdateRelaunchContinuationNudges.shared
+        let previousMidTask = nudges.midTaskPanelIds
+        defer { nudges.midTaskPanelIds = previousMidTask }
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        try #require(workspace.setSurfaceResumeBinding(Self.continuationBinding, panelId: panelId))
+
+        func savedTerminal() throws -> (terminal: SessionTerminalPanelSnapshot?, json: String) {
+            let data = try JSONEncoder().encode(workspace.sessionSnapshot(includeScrollback: false))
+            let persisted = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data)
+            return (
+                persisted.panels.first(where: { $0.id == panelId })?.terminal,
+                String(decoding: data, as: UTF8.self)
+            )
+        }
+
+        nudges.midTaskPanelIds = [panelId]
+        #expect(try savedTerminal().terminal?.resumeWithContinuation == true)
+
+        // An idle agent at the relaunch, and every ordinary save, leave the field out, so
+        // snapshots from builds without it decode the same way.
+        nudges.midTaskPanelIds = [UUID()]
+        let idle = try savedTerminal()
+        #expect(idle.terminal?.resumeWithContinuation == nil)
+        #expect(!idle.json.contains("resumeWithContinuation"))
+        nudges.midTaskPanelIds = []
+        #expect(try savedTerminal().terminal?.resumeWithContinuation == nil)
+    }
+
+    /// The relaunched app resumes a marked agent with the continuation prompt, once; an unmarked
+    /// agent resumes plainly.
+    @Test("A marked agent resumes with the continuation prompt once")
+    func markedAgentResumesWithContinuationPromptOnce() throws {
+        let suiteName = "cmux-update-relaunch-continuation-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let nudges = UpdateRelaunchContinuationNudges.shared
+
+        func restoredRecord(marked: Bool) throws -> (record: ControlSurfaceRestoreRecord, panelId: UUID) {
+            let source = Workspace()
+            let sourcePanelId = try #require(source.focusedPanelId)
+            try #require(source.setSurfaceResumeBinding(Self.continuationBinding, panelId: sourcePanelId))
+            var saved = try JSONDecoder().decode(
+                SessionWorkspaceSnapshot.self,
+                from: JSONEncoder().encode(source.sessionSnapshot(includeScrollback: false))
+            )
+            source.teardownAllPanels()
+            let index = try #require(saved.panels.firstIndex(where: { $0.id == sourcePanelId }))
+            saved.panels[index].terminal?.wasAgentRunning = true
+            saved.panels[index].terminal?.resumeWithContinuation = marked ? true : nil
+
+            let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+            defer { restored.teardownAllPanels() }
+            let panelId = try #require(restored.restoreSessionSnapshot(saved)[sourcePanelId])
+            let record = try #require(TerminalController.shared.controlSurfaceRestoreRecord(
+                target: .workspace(tabManager: tabManager, workspace: restored, surfaceID: panelId),
+                binding: restored.surfaceResumeBinding(panelId: panelId)
+            ))
+            return (record, panelId)
+        }
+
+        let marked = try restoredRecord(marked: true)
+        defer { nudges.consume(panelId: marked.panelId) }
+        #expect(marked.record.continuationPrompt == UpdateRelaunchContinuationNudges.prompt)
+        let request = try Self.restoreRequest(from: marked.record)
+        let invocation = try #require(Self.planner.invocation(
+            for: request,
+            ambientEnvironment: Self.ambientEnvironment
+        ))
+        #expect(invocation.arguments == [
+            "claude", "--resume", Self.continuationBinding.checkpointId ?? "",
+            UpdateRelaunchContinuationNudges.prompt,
+        ])
+
+        // The admitted resume consumes the nudge, so a later restore resumes plainly.
+        nudges.consume(panelId: marked.panelId)
+        #expect(nudges.prompt(forPanel: marked.panelId) == nil)
+
+        #expect(try restoredRecord(marked: false).record.continuationPrompt == nil)
+    }
+
+    private static let continuationBinding = SurfaceResumeBindingSnapshot(
+        kind: "claude",
+        command: "claude --resume 0198f073-0a5b-7000-8000-00000000a0c1",
+        cwd: workingDirectory,
+        checkpointId: "0198f073-0a5b-7000-8000-00000000a0c1",
+        source: "agent-hook",
+        launchCommand: AgentLaunchCommandSnapshot(
+            executablePath: "/opt/homebrew/bin/claude",
+            arguments: ["claude"],
+            workingDirectory: workingDirectory,
+            capturedAt: 1,
+            source: "hook"
+        ),
+        autoResume: true
+    )
+
     /// Mirrors the `cmux restore` CLI mapping from a socket restore record to
     /// the planner request.
     private static func restoreRequest(from record: ControlSurfaceRestoreRecord) throws -> AgentRestoreRequest {
@@ -314,7 +417,8 @@ struct UpdateRelaunchAgentResumeTests {
             },
             preparedArguments: record.preparedArguments,
             preparedArgumentsWorkingDirectory: record.preparedArgumentsWorkingDirectory,
-            observedPermissionMode: record.permissionMode
+            observedPermissionMode: record.permissionMode,
+            continuationPrompt: record.continuationPrompt
         )
     }
 }

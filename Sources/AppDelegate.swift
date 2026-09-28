@@ -1343,6 +1343,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Fresh resume indexes captured by `updaterPrepareForRelaunch()` just before an update
     /// relaunch, for the synchronous relaunch save.
     var updateRelaunchIndexCapture = UpdateRelaunchIndexCapture()
+    /// Panels whose agent was mid-task when `updaterPrepareForRelaunch()` ran, with the uptime
+    /// they were captured at. The relaunch save marks them to continue after the relaunch.
+    var updateRelaunchMidTaskCapture: (panelIds: Set<UUID>, capturedAt: TimeInterval)?
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
@@ -2514,6 +2517,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
         mainWindowLifecycleCoordinator.cancelAllWindowlessRouteFreezeTasks()
+        // Stays set for the terminate-path save that follows; the app is going away.
+        UpdateRelaunchContinuationNudges.shared.midTaskPanelIds = takeUpdateRelaunchMidTaskPanelIds()
         if let prepared = updateRelaunchIndexCapture.take(now: ProcessInfo.processInfo.systemUptime) {
             _ = saveSessionSnapshot(
                 includeScrollback: true,
@@ -2542,6 +2547,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         updateRelaunchIndexCapture.store(indexes, capturedAt: ProcessInfo.processInfo.systemUptime)
+    }
+
+    /// Remembers which agents the update relaunch is about to cut off mid-task.
+    func captureUpdateRelaunchMidTaskPanels() {
+        updateRelaunchMidTaskCapture = (
+            updaterRelaunchBlockers().midTaskPanelIds,
+            ProcessInfo.processInfo.systemUptime
+        )
+    }
+
+    /// The recent pre-relaunch capture, or the current mid-task panels when there is none.
+    private func takeUpdateRelaunchMidTaskPanelIds() -> Set<UUID> {
+        defer { updateRelaunchMidTaskCapture = nil }
+        if let capture = updateRelaunchMidTaskCapture,
+           ProcessInfo.processInfo.systemUptime - capture.capturedAt <= UpdateRelaunchIndexCapture.lifetime {
+            return capture.panelIds
+        }
+        return updaterRelaunchBlockers().midTaskPanelIds
     }
 
     func configure(
@@ -20447,6 +20470,7 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 
     func updaterPrepareForRelaunch() async {
         await prepareUpdateRelaunchIndexes()
+        captureUpdateRelaunchMidTaskPanels()
     }
 
     func updaterTimeSinceLastUserInput() -> Duration {
