@@ -46,6 +46,8 @@ struct CloudSidebarNativeDropTests {
         let info = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero,
                                             sequenceNumber: session.draggingSequenceNumber)
         #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
+        let host = try #require(fixture.window.contentView?.superview)
+        #expect(host.subviews.compactMap { $0 as? FileDropHintBadgeView }.isEmpty)
         #expect(coordinator.outlineView(outline, acceptDrop: info, item: parent, childIndex: 0))
         #expect(parent.children.map(\.id) == Array(ids.reversed()))
         #expect(fixture.provider.moved.isEmpty && fixture.provider.projected.isEmpty)
@@ -142,6 +144,56 @@ struct CloudSidebarNativeDropTests {
         #expect(!line.isHidden)
         fixture.window.contentView = nil
         #expect(line.isHidden)
+    }
+
+    @Test("Stale validation leaves the current reorder indicator intact")
+    func staleValidationKeepsCurrentIndicator() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let coordinator = fixture.coordinator
+        coordinator.apply(nodes: fixture.nodes())
+        let outline = try #require(coordinator.outlineView)
+        let parent = try #require(CloudSidebarOrganizationTree(nodes: coordinator.nodes).parent(of: fixture.folderID("ws_1")))
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        #expect(board.writeObjects([try #require(coordinator.outlineView(outline, pasteboardWriterForItem: parent.children[1]))]))
+        let old = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero, sequenceNumber: 1)
+        let current = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero, sequenceNumber: 2)
+        #expect(coordinator.outlineView(outline, validateDrop: old, proposedItem: parent, proposedChildIndex: 0) == .move)
+        #expect(coordinator.outlineView(outline, validateDrop: current, proposedItem: parent, proposedChildIndex: 0) == .move)
+        let line = try #require(outline.subviews.first { $0.identifier?.rawValue == "sidebarReorderIndicator" })
+        #expect(!line.isHidden)
+        #expect(coordinator.outlineView(outline, validateDrop: old, proposedItem: nil, proposedChildIndex: 0).isEmpty)
+        #expect(!line.isHidden)
+        #expect(coordinator.outlineView(outline, validateDrop: current, proposedItem: nil, proposedChildIndex: 0).isEmpty)
+        #expect(line.isHidden)
+        let host = try #require(fixture.window.contentView?.superview)
+        #expect(host.subviews.compactMap { $0 as? FileDropHintBadgeView }.isEmpty)
+    }
+
+    @Test("Final ownership rejection clears a previously valid sidebar reorder")
+    func rejectedAcceptanceClearsIndicator() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let coordinator = fixture.coordinator
+        coordinator.apply(nodes: fixture.nodes())
+        let outline = try #require(coordinator.outlineView)
+        let parent = try #require(CloudSidebarOrganizationTree(nodes: coordinator.nodes).parent(of: fixture.folderID("ws_1")))
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        #expect(board.writeObjects([try #require(coordinator.outlineView(outline, pasteboardWriterForItem: parent.children[1]))]))
+        let info = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero)
+        #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
+        let line = try #require(outline.subviews.first { $0.identifier?.rawValue == "sidebarReorderIndicator" })
+        #expect(!line.isHidden)
+        let organization = fixture.catalog.sidebarOrganization.state
+        // The final gate must reject an invalidated pane capability before any
+        // sidebar mutation, even if a prior hover admitted the row's reorder.
+        board.setString("invalidated", forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+        #expect(!coordinator.outlineView(outline, acceptDrop: info, item: parent, childIndex: 0))
+        #expect(line.isHidden)
+        #expect(fixture.catalog.sidebarOrganization.state == organization)
+        #expect(fixture.provider.moved.isEmpty && fixture.provider.projected.isEmpty)
     }
 
     @Test("Folder writers do not depend on projected resources or a pane registry")
