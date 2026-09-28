@@ -142,12 +142,18 @@ function observedDestroyCleanupSingleStep(
     ? sql`jsonb_build_object('modelPlane', true)`
     : sql`jsonb_build_object('homeVolume', ${cleanup}->'homeVolume')`;
 }
-export type VmObservedDestroyCleanup = {
-  /** Model-plane revocation is idempotent and remains pending until acknowledged. */
-  readonly modelPlane: true;
-  /** Present only for a home volume owned exclusively by this machine. */
-  readonly homeVolume?: string;
-};
+export type VmObservedDestroyCleanup =
+  | {
+    /** Model-plane revocation is idempotent and remains pending until acknowledged. */
+    readonly modelPlane: true;
+    /** Present only for a home volume owned exclusively by this machine. */
+    readonly homeVolume?: string;
+  }
+  | {
+    readonly modelPlane?: never;
+    /** Present only for a home volume owned exclusively by this machine. */
+    readonly homeVolume: string;
+  };
 export type VmObservedDestroyCleanupStep = keyof VmObservedDestroyCleanup;
 export type VmObservedDestroyCleanupCandidate = Pick<
   CloudVmRow,
@@ -623,7 +629,10 @@ export type VmRepositoryShape = {
     readonly providerVmId: string;
     readonly provider?: ProviderId;
   }) => Effect.Effect<CloudVmRow | null, VmDatabaseError>;
-  readonly markDestroyed: (id: string) => Effect.Effect<void, VmDatabaseError>;
+  readonly markDestroyed: (
+    id: string,
+    cleanup?: VmObservedDestroyCleanup,
+  ) => Effect.Effect<void, VmDatabaseError>;
   readonly recordLease: (input: {
     readonly vmId: string;
     readonly userId: string;
@@ -3589,7 +3598,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       return vm ?? null;
     }),
 
-  markDestroyed: (id) =>
+  markDestroyed: (id, cleanup) =>
     dbEffect("markDestroyed", async () => {
       const db = cloudDb();
       await db
@@ -3598,6 +3607,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           status: "destroyed",
           destroyedAt: new Date(),
           updatedAt: new Date(),
+          ...(cleanup
+            ? {
+              providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+                || ${JSON.stringify({ [OBSERVED_DESTROY_CLEANUP_METADATA_KEY]: cleanup })}::jsonb`,
+            }
+            : {}),
         })
         .where(eq(cloudVms.id, id));
     }),

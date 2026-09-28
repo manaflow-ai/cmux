@@ -25,6 +25,7 @@ import {
   type CloudVmBaseRow,
   type CloudVmSessionRow,
   type CloudVmRow,
+  type VmObservedDestroyCleanup,
   type VmRepositoryShape,
   vmRepositoryLiveShape,
 } from "../services/vms/repository";
@@ -6118,6 +6119,34 @@ describe("VM Effect workflows", () => {
     expect(drained.hasCleanup).toBe(false);
   });
 
+  dbTest("explicit destroy stores failed cleanup atomically with the terminal row", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const vmId = "00000000-0000-4000-8000-000000000174";
+    await sql`
+      insert into cloud_vms (
+        id, user_id, provider, provider_vm_id, image_id, status, provider_metadata
+      ) values (
+        ${vmId}, 'user-explicit-cleanup-db', 'freestyle',
+        'provider-explicit-cleanup-db', 'snapshot-test', 'running', '{}'::jsonb
+      )
+    `;
+
+    await Effect.runPromise(vmRepositoryLiveShape.markDestroyed(vmId, {
+      homeVolume: "legacy-explicit-home-volume",
+    }));
+
+    const [terminal] = await sql<{ status: string; cleanup: Record<string, unknown> }[]>`
+      select status,
+        provider_metadata->${OBSERVED_DESTROY_CLEANUP_METADATA_KEY} as cleanup
+      from cloud_vms where id = ${vmId}
+    `;
+    expect(terminal).toEqual({
+      status: "destroyed",
+      cleanup: { homeVolume: "legacy-explicit-home-volume" },
+    });
+  });
+
   dbTest("reconciles cleanup transferred out of a deleted account-owned VM row", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_observed_destroy_cleanups, cloud_vms restart identity cascade`;
@@ -7641,6 +7670,10 @@ function testWorkflowRepo(input: {
   ) => Effect.Effect<boolean, VmDatabaseError>;
   readonly markDestroyed?: VmRepositoryShape["markDestroyed"];
   readonly destroyedIds?: string[];
+  readonly destroyedCleanups?: Array<{
+    readonly id: string;
+    readonly cleanup: VmObservedDestroyCleanup | undefined;
+  }>;
 }): VmRepositoryShape {
   return {
     listUserVms: () => Effect.succeed([]),
@@ -7678,9 +7711,10 @@ function testWorkflowRepo(input: {
       ),
     pendingSnapshotDeletions: () => Effect.succeed([]),
     hasOwnedSnapshot: () => Effect.succeed(false),
-    markDestroyed: input.markDestroyed ?? ((id) =>
+    markDestroyed: input.markDestroyed ?? ((id, cleanup) =>
       Effect.sync(() => {
         input.destroyedIds?.push(id);
+        input.destroyedCleanups?.push({ id, cleanup });
       })),
     recordLease: (lease) =>
       Effect.sync(() => {
@@ -7986,21 +8020,61 @@ describe("destroyVm home volume cleanup", () => {
     });
     const usageEvents: RecordedUsageEvent[] = [];
     const destroyedIds: string[] = [];
-    const repo = testWorkflowRepo({ vm, usageEvents, destroyedIds });
+    const destroyedCleanups: Array<{
+      id: string;
+      cleanup: VmObservedDestroyCleanup | undefined;
+    }> = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, destroyedIds, destroyedCleanups });
     const provider = destroyGateway({
       deleteHomeVolume: () =>
         Effect.fail(providerOperationError("deleteHomeVolume", "volume still attached")),
     });
 
     await Effect.runPromise(
-      destroyVm({ userId, providerVmId: "noble-wren" }).pipe(Effect.provide(workflowLayer(repo, provider))),
+      destroyVm({
+        userId,
+        providerVmId: "noble-wren",
+        modelPlane: { revoke: async () => { throw new Error("coderouter unavailable"); } },
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
     expect(destroyedIds).toEqual([vm.id]);
+    expect(destroyedCleanups).toEqual([{
+      id: vm.id,
+      cleanup: { modelPlane: true, homeVolume: volume },
+    }]);
     const leakEvent = usageEvents.find((event) => event.eventType === "vm.home_volume.delete_failed");
     expect(leakEvent?.metadata).toEqual({ homeVolume: volume, message: "volume still attached" });
     const destroyedEvent = usageEvents.find((event) => event.eventType === "vm.destroyed");
     expect(destroyedEvent?.metadata).toEqual({ source: "user_request", homeVolume: volume, homeVolumeDeleted: false });
+  });
+
+  test("persists per-machine volume cleanup when the provider cannot delete volumes", async () => {
+    const userId = "user-volume-unsupported";
+    const volume = "cmux-home-abcdef123456-noble-wren";
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000173",
+      userId,
+      provider: "freestyle",
+      providerVmId: "noble-wren",
+      status: "running",
+      providerMetadata: { homeVolume: volume, homeVolumePerMachine: true },
+    });
+    const destroyedCleanups: Array<{
+      id: string;
+      cleanup: VmObservedDestroyCleanup | undefined;
+    }> = [];
+    const repo = testWorkflowRepo({ vm, destroyedCleanups });
+    const provider = { ...destroyGateway(), deleteHomeVolume: undefined };
+
+    await Effect.runPromise(
+      destroyVm({ userId, providerVmId: "noble-wren" }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(destroyedCleanups).toEqual([{
+      id: vm.id,
+      cleanup: { homeVolume: volume },
+    }]);
   });
 
   test("still deletes the volume and finalizes the row when afterProviderDestroy throws", async () => {

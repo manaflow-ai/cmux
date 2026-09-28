@@ -1254,9 +1254,9 @@ function provisionModelPlane(
 }
 
 /**
- * Best-effort token revocation for create rollback and explicit destroy paths.
- * Provider-observed terminal transitions use attemptModelPlaneRevoke plus the
- * durable cleanup marker instead, so a failure there remains retryable.
+ * Best-effort token revocation for create rollback paths. Terminal destroy
+ * transitions use attemptModelPlaneRevoke plus the durable cleanup marker
+ * instead, so a failure there remains retryable.
  */
 function revokeModelPlane(
   modelPlane: VmModelPlaneRevoker | undefined,
@@ -3329,7 +3329,9 @@ export function destroyVm(input: {
       }),
     );
     const destroyedProviderVmId = vm.providerVmId ?? input.providerVmId;
-    yield* revokeModelPlane(input.modelPlane, vm.id);
+    const modelPlaneRevoked = input.modelPlane
+      ? yield* attemptModelPlaneRevoke(input.modelPlane, vm.id)
+      : true;
     // This callback is advisory progress reporting. A failure must not skip
     // the mandatory volume cleanup or DB finalization now that the provider
     // machine is gone. Keep the failure observable in the usage ledger, but
@@ -3387,7 +3389,13 @@ export function destroyVm(input: {
     // The provider-side machine is gone at this point, so a lost DB write would
     // leave a ghost row counting against the active-VM limit. Retry the write;
     // the provider-status reconciler is the backstop if it still fails.
-    yield* repo.markDestroyed(vm.id).pipe(Effect.retry({ times: 2 }));
+    const pendingHomeVolume = homeVolume && !homeVolumeDeleted ? homeVolume : undefined;
+    const cleanup: VmObservedDestroyCleanup | undefined = !modelPlaneRevoked
+      ? { modelPlane: true, ...(pendingHomeVolume ? { homeVolume: pendingHomeVolume } : {}) }
+      : pendingHomeVolume
+        ? { homeVolume: pendingHomeVolume }
+        : undefined;
+    yield* repo.markDestroyed(vm.id, cleanup).pipe(Effect.retry({ times: 2 }));
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
