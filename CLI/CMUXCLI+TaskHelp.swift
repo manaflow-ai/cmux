@@ -287,7 +287,7 @@ extension CMUXCLI {
         return """
         guide | --skill
         welcome
-        docs [settings|shortcuts|api|browser|agents|dock|sidebars]
+        docs [settings|shortcuts|api|browser|capture|agents|dock|sidebars]
         settings [open [target]|path|docs|<target>]
         config <doctor|check|validate|path|paths|docs|documentation|reload>
         shortcuts

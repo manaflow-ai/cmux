@@ -152,6 +152,10 @@ class CaptureSkillTests(unittest.TestCase):
         self.assertIn("Self.recordUsageLine", inspect_help)
         self.assertIn("Self.shotUsageLine", inspect_help)
 
+        customize_help = source[source.index("private var customizeCommandsHelp"):]
+        customize_help = customize_help[:customize_help.index("private var automationCommandsHelp")]
+        self.assertIn("docs [settings|shortcuts|api|browser|capture|agents|dock|sidebars]", customize_help)
+
     def test_skill_points_at_its_reference(self) -> None:
         self.assertIn("references/commands.md", SKILL.read_text(encoding="utf-8"))
 
