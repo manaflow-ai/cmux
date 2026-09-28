@@ -1265,6 +1265,7 @@ function finishBaseCreate(
     const creditReservation = yield* reserveCreateCredit(billing, repo, {
       ...input,
       idempotencyKey,
+      baseGeneration: { baseId: create.base.id, generation: create.generation.generation },
     }, create.vm);
     yield* recordCreateRequestedEvents(repo, {
       ...input,
@@ -4279,9 +4280,42 @@ function reserveCreateCredit(
     readonly imageVersion?: string | null;
     readonly idempotencyKey?: string;
     readonly timing?: VmTimingSink;
+    /**
+     * Set by the Base flow. createVm and forkVm own a plain row, so failing it
+     * is the whole rollback. A Base row is also claimed by a base and a
+     * generation, and only markBaseCreateFailed releases those; marking it with
+     * the ad-hoc path leaves the base "resetting" and its generation
+     * "creating".
+     *
+     * Reset then 409s forever, because beginBaseReset refuses to start while an
+     * operation is in flight. Open does not: it has no such guard and the
+     * ad-hoc-failed row is not the active one, so it quietly allocates a new
+     * generation on a new provider machine and orphans the working one as
+     * retained. That still counts against maxActiveVms, so a user at their
+     * machine limit is stuck until they delete one by hand.
+     *
+     * The abandonment sweeper cannot recover either shape, because it matches
+     * only provisioning rows with no failure code, and the ad-hoc mark sets
+     * both.
+     */
+    readonly baseGeneration?: {
+      readonly baseId: string;
+      readonly generation: number;
+    };
   },
   vm: CloudVmRow,
 ) {
+  const markCreateFailed = (code: string, message: string) =>
+    input.baseGeneration
+      ? repo.markBaseCreateFailed({
+        baseId: input.baseGeneration.baseId,
+        generation: input.baseGeneration.generation,
+        vmId: vm.id,
+        userId: input.userId,
+        code,
+        message,
+      })
+      : repo.markCreateFailed({ id: vm.id, code, message });
   return measureVmEffect(
     input.timing,
     "billing",
@@ -4318,13 +4352,12 @@ function reserveCreateCredit(
       }).pipe(
         Effect.tapError((err) =>
           Effect.all([
-            recordCreateFailureAfterMark(repo, repo.markCreateFailed({
-              id: vm.id,
-              code: isVmCreateCreditsInsufficientError(err)
+            recordCreateFailureAfterMark(repo, markCreateFailed(
+              isVmCreateCreditsInsufficientError(err)
                 ? "billing_credits_insufficient"
                 : "billing_reserve_failed",
-              message: errorMessage(err),
-            }), {
+              errorMessage(err),
+            ), {
               userId: input.userId,
               billingTeamId: input.billingTeamId,
               billingPlanId: input.billingPlanId,

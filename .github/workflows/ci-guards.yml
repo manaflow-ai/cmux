@@ -348,6 +348,10 @@ jobs:
           if [[ "${{ matrix.group }}" == "release-tooling" ]]; then
             packages+=(bashlex==0.18)
           fi
+          # tests/test_ci_pr_media.py renders PR media with the pr-media.yml Pillow.
+          if [[ "${{ matrix.group }}" == "app-host-execution" ]]; then
+            packages+=(pillow==11.3.0)
+          fi
           "$RUNNER_TEMP/workflow-guard-venv/bin/python" -m pip install \
             --disable-pip-version-check \
             --no-input \
