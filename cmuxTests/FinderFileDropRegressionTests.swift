@@ -52,12 +52,12 @@ final class FinderFileDropRegressionTests: XCTestCase {
             ),
             "Internal file-preview drags still need the shared pane drop destination so they can split or insert like Finder files"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
                 pasteboardTypes: [.fileURL, DragOverlayRoutingPolicy.bonsplitTabTransferType],
                 hasLocalDraggingSource: true
             ),
-            "Bonsplit tab drags use the same pane drop destination while tab-bar hit testing still defers to Bonsplit"
+            "Tab transfers that are not file previews are pane moves, not file drops, so the file overlay leaves them to the pane drop target"
         )
         XCTAssertTrue(
             DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(

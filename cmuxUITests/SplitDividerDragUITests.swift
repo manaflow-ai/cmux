@@ -214,7 +214,7 @@ final class SplitDividerDragUITests: SettingsUITestCase {
         try assertTabDragOntoPaneEdgeSplits(rightSidebarMode: nil)
     }
 
-    /// Leo's report: with the right sidebar's Cloud panel open, a pane tab
+    /// Reported regression: with the right sidebar's Cloud panel open, a pane tab
     /// dropped on a pane edge did not split, in a local workspace.
     func testDraggingPaneTabOntoPaneEdgeSplitsWithCloudPanelOpen() throws {
         try assertTabDragOntoPaneEdgeSplits(rightSidebarMode: "machines")
