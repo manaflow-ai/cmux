@@ -201,6 +201,14 @@ export type VmRepositoryShape = {
     readonly tunnelPurpose: "terminal" | "browser";
   }) => Effect.Effect<CloudVmTunnelRow | null, VmDatabaseError>;
   readonly listUserTunnels?: (userId: string) => Effect.Effect<CloudVmTunnelRow[], VmDatabaseError>;
+  /**
+   * Tunnel rows for provider tunnel ids, revoked or not. Ids with no row are
+   * absent: the provider account may hold tunnels this database never issued.
+   */
+  readonly findTunnelsByProviderTunnelIds?: (
+    provider: ProviderId,
+    providerTunnelIds: readonly string[],
+  ) => Effect.Effect<Array<Pick<CloudVmTunnelRow, "providerTunnelId" | "userId" | "revokedAt">>, VmDatabaseError>;
   readonly insertTunnel?: (input: {
     readonly userId: string;
     readonly networkId: string;
@@ -414,6 +422,15 @@ export type VmRepositoryShape = {
     /** Unique generation returned by reserveVmResize. */
     readonly operationId: string;
   }) => Effect.Effect<void, VmDatabaseError>;
+  /**
+   * Teams with at least one live machine billed to them, one row per team and
+   * provider, in (team, provider) order for keyset paging. Personal billing is
+   * excluded; personal machines never join a team network.
+   */
+  readonly listActiveTeamVmOwners?: (input: {
+    readonly limit: number;
+    readonly after?: { readonly teamId: string; readonly provider: ProviderId };
+  }) => Effect.Effect<Array<{ teamId: string; provider: ProviderId }>, VmDatabaseError>;
   readonly reconciliationCandidates: (input: {
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
@@ -1378,6 +1395,23 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .from(cloudVmTunnels)
         .where(and(eq(cloudVmTunnels.userId, userId), isNull(cloudVmTunnels.revokedAt)))
         .orderBy(desc(cloudVmTunnels.createdAt));
+    }),
+
+  findTunnelsByProviderTunnelIds: (provider, providerTunnelIds) =>
+    dbEffect("findTunnelsByProviderTunnelIds", async () => {
+      if (providerTunnelIds.length === 0) return [];
+      const db = cloudDb();
+      return await db
+        .select({
+          providerTunnelId: cloudVmTunnels.providerTunnelId,
+          userId: cloudVmTunnels.userId,
+          revokedAt: cloudVmTunnels.revokedAt,
+        })
+        .from(cloudVmTunnels)
+        .where(and(
+          eq(cloudVmTunnels.provider, provider),
+          inArray(cloudVmTunnels.providerTunnelId, [...providerTunnelIds]),
+        ));
     }),
 
   insertTunnel: (input) =>
@@ -2639,6 +2673,24 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             sql`${cloudVms.providerMetadata}->${sql.raw(`'${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY}'`)}->>'operationId' = ${operationId}`,
           ));
       });
+    }),
+
+  listActiveTeamVmOwners: (input) =>
+    dbEffect("listActiveTeamVmOwners", async () => {
+      const db = cloudDb();
+      return await db
+        .selectDistinct({ teamId: sql<string>`${cloudVms.billingTeamId}`, provider: cloudVms.provider })
+        .from(cloudVms)
+        .where(and(
+          isNotNull(cloudVms.billingTeamId),
+          ne(cloudVms.billingTeamId, cloudVms.userId),
+          ne(cloudVms.status, "destroyed"),
+          input.after
+            ? sql`(${cloudVms.billingTeamId}, ${cloudVms.provider}) > (${input.after.teamId}, ${input.after.provider})`
+            : undefined,
+        ))
+        .orderBy(asc(cloudVms.billingTeamId), asc(cloudVms.provider))
+        .limit(input.limit);
     }),
 
   reconciliationCandidates: (input) =>

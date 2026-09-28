@@ -91,6 +91,17 @@ export const navItems: NavEntry[] = [
   { titleKey: "notifications", href: "/docs/notifications" },
   { titleKey: "ssh", href: "/docs/ssh" },
   { titleKey: "ios", href: "/docs/ios" },
+  {
+    sectionKey: "cloudSection",
+    children: [
+      { titleKey: "cloudOverview", href: "/docs/cloud" },
+      { titleKey: "cloudMachines", href: "/docs/cloud/machines" },
+      { titleKey: "cloudWorkspaces", href: "/docs/cloud/workspaces" },
+      { titleKey: "cloudNetworking", href: "/docs/cloud/networking" },
+      { titleKey: "cloudCli", href: "/docs/cloud/cli" },
+      { titleKey: "cloudTroubleshooting", href: "/docs/cloud/troubleshooting" },
+    ],
+  },
   { titleKey: "remoteTmux", href: "/docs/remote-tmux", locales: remoteTmuxDocsLocales },
   {
     titleKey: "managedPolicies",

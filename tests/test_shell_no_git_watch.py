@@ -98,11 +98,15 @@ _cmux_clear_pr_for_panel
 cd "$HOME"
 _test_prompt
 _cmux_report_git_branch_for_path "$PWD"
-for file in "$CMUX_TEST_CACHE.branch" "$CMUX_TEST_CACHE.repo" \
-    "$CMUX_TEST_CACHE.result" "$CMUX_TEST_CACHE.timestamp" \
-    "$CMUX_TEST_CACHE.no-pr-branch" "$CMUX_TEST_FORCE"; do
-    [[ -e "$file" ]] && _cmux_send CACHE_REMAINS
-done
+# Bash no longer writes PR caches (#15075) and leaves files from older
+# integrations alone instead of checking for them at every prompt.
+if [[ -n "${ZSH_VERSION:-}" ]]; then
+    for file in "$CMUX_TEST_CACHE.branch" "$CMUX_TEST_CACHE.repo" \
+        "$CMUX_TEST_CACHE.result" "$CMUX_TEST_CACHE.timestamp" \
+        "$CMUX_TEST_CACHE.no-pr-branch" "$CMUX_TEST_FORCE"; do
+        [[ -e "$file" ]] && _cmux_send CACHE_REMAINS
+    done
+fi
 [[ -n "$_CMUX_GIT_ACTIVE_PWD_FILE" ]] && _cmux_send ACTIVE_PWD_CREATED
 [[ -n "$_CMUX_GIT_JOB_PID" ]] && _cmux_send GIT_JOB_STARTED
 [[ -n "$_CMUX_GIT_HEAD_PATH$_CMUX_GIT_HEAD_SIGNATURE" ]] && _cmux_send HEAD_TRACKED
@@ -174,9 +178,10 @@ _cmux_report_git_branch_for_path "$PWD"
                 # group so the PR-loop group kill cannot touch the test runner.
                 jobs = {}
                 try:
-                    names = ["_CMUX_GIT_JOB_PID", "_CMUX_PR_POLL_PID"]
+                    names = ["_CMUX_GIT_JOB_PID"]
                     if shell == "zsh":
-                        names.append("_CMUX_GIT_HEAD_WATCH_PID")
+                        # Bash has no HEAD watcher, and #15075 removed its PR poller.
+                        names += ["_CMUX_PR_POLL_PID", "_CMUX_GIT_HEAD_WATCH_PID"]
                     for name in names:
                         jobs[name] = subprocess.Popen(["/bin/sleep", "60"], start_new_session=True)
                     # Observe only prompt-time shutdown. zsh's normal exit hook
