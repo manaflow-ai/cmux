@@ -18,14 +18,18 @@ class BrowserFixtureSocketTestCase: XCTestCase {
     private(set) var socketPath = ""
     private var diagnosticsPath = ""
     private var launchTag = ""
-    private var usesNetcatTransport = false
     private(set) var app: XCUIApplication?
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
-        usesNetcatTransport = false
-        socketPath = "/tmp/cmux-debug-\(UUID().uuidString).sock"
+        // The sandboxed runner cannot connect to a socket under /tmp even
+        // when the app's own readiness probe succeeds. Both processes can
+        // reach the runner's temporary directory; keep the name within the
+        // Unix socket's 104-byte path limit.
+        socketPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("b\(UUID().uuidString.prefix(6)).sock").path
+        XCTAssertLessThan(socketPath.utf8.count, 104)
         diagnosticsPath = "/tmp/cmux-ui-test-browser-fixtures-\(UUID().uuidString).json"
         launchTag = "ui-tests-browser-\(UUID().uuidString.prefix(8))"
         try? FileManager.default.removeItem(atPath: socketPath)
@@ -104,9 +108,6 @@ class BrowserFixtureSocketTestCase: XCTestCase {
             "method": method,
             "params": params,
         ]
-        if usesNetcatTransport {
-            return controlSocketJSONViaNetcat(request, socketPath: socketPath, responseTimeout: responseTimeout)
-        }
         return ControlSocketClient(path: socketPath, responseTimeout: responseTimeout).sendJSON(request)
     }
 
@@ -288,14 +289,6 @@ class BrowserFixtureSocketTestCase: XCTestCase {
                     guard FileManager.default.fileExists(atPath: candidate) else { continue }
                     if ControlSocketClient(path: candidate, responseTimeout: 1.0).sendLine("ping") == "PONG" {
                         self.socketPath = candidate
-                        self.usesNetcatTransport = false
-                        return true
-                    }
-                    // Select a working transport with a read-only probe. Do
-                    // not replay mutations after an ambiguous missing response.
-                    if self.controlSocketCommandViaNetcat("ping", socketPath: candidate) == "PONG" {
-                        self.socketPath = candidate
-                        self.usesNetcatTransport = true
                         return true
                     }
                 }
