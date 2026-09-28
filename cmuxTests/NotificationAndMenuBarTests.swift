@@ -1698,6 +1698,57 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertEqual(try focusedTerminalNotificationSoundEffect(soundWhenFocused: true), true)
     }
 
+    /// A banner scheduled for a background pane can reach `willPresent` after
+    /// the user focused that pane; it must present without sound by default.
+    func testPendingBannerForNowFocusedPanePresentsQuietlyByDefault() throws {
+        XCTAssertEqual(try pendingBannerKeepsSoundQuiet(soundWhenFocused: nil), [true, false])
+    }
+
+    func testPendingBannerForNowFocusedPaneKeepsSoundWhenOptedIn() throws {
+        XCTAssertEqual(try pendingBannerKeepsSoundQuiet(soundWhenFocused: true), [false, false])
+    }
+
+    /// Returns `keepsPresentedNotificationQuiet` for a banner that targets the
+    /// focused pane, then for the same banner once the app loses focus.
+    private func pendingBannerKeepsSoundQuiet(soundWhenFocused: Bool?) throws -> [Bool] {
+        let appDelegate = try XCTUnwrap(AppDelegate.shared, "AppDelegate.shared must be set for this test")
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let defaults = UserDefaults.standard
+        let soundWhenFocusedKey = "notificationSoundWhenFocused"
+
+        let originalTabManager = appDelegate.tabManager
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let originalSoundWhenFocused = defaults.object(forKey: soundWhenFocusedKey)
+        appDelegate.tabManager = manager
+        if let soundWhenFocused {
+            defaults.set(soundWhenFocused, forKey: soundWhenFocusedKey)
+        } else {
+            defaults.removeObject(forKey: soundWhenFocusedKey)
+        }
+        defer {
+            appDelegate.tabManager = originalTabManager
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let originalSoundWhenFocused {
+                defaults.set(originalSoundWhenFocused, forKey: soundWhenFocusedKey)
+            } else {
+                defaults.removeObject(forKey: soundWhenFocusedKey)
+            }
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let userInfo: [AnyHashable: Any] = [
+            "tabId": workspace.id.uuidString,
+            "surfaceId": terminalPanel.id.uuidString,
+        ]
+        AppFocusState.overrideIsFocused = true
+        let focused = store.keepsPresentedNotificationQuiet(userInfo: userInfo)
+        AppFocusState.overrideIsFocused = false
+        let unfocused = store.keepsPresentedNotificationQuiet(userInfo: userInfo)
+        return [focused, unfocused]
+    }
+
     /// Posts one notification to the focused terminal pane and returns the
     /// `sound` effect its suppressed local feedback receives.
     private func focusedTerminalNotificationSoundEffect(soundWhenFocused: Bool?) throws -> Bool? {

@@ -18358,7 +18358,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         Task { @MainActor [weak self] in
-            let options = self?.notificationDelivery.presentationOptions(for: notification) ?? []
+            guard let self else {
+                completionHandler([])
+                return
+            }
+            let keepsSoundQuiet = self.notificationStore?.keepsPresentedNotificationQuiet(
+                userInfo: notification.request.content.userInfo
+            ) ?? false
+            let options = self.notificationDelivery.presentationOptions(
+                for: notification,
+                keepsSoundQuiet: keepsSoundQuiet
+            )
             completionHandler(options)
         }
     }

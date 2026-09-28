@@ -1646,6 +1646,18 @@ final class TerminalNotificationStore: ObservableObject {
         )
     }
 
+    /// A banner scheduled while its pane was in the background can reach
+    /// `willPresent` after the user focused that pane. It then presents without
+    /// sound, like a notification that arrives while the pane is focused.
+    func keepsPresentedNotificationQuiet(userInfo: [AnyHashable: Any]) -> Bool {
+        guard !NotificationSoundSettings.soundWhenFocused(),
+              let tabId = (userInfo["tabId"] as? String).flatMap(UUID.init(uuidString:)) else {
+            return false
+        }
+        let surfaceId = (userInfo["surfaceId"] as? String).flatMap(UUID.init(uuidString:))
+        return shouldSuppressExternalDelivery(tabId: tabId, surfaceId: surfaceId)
+    }
+
     private func shouldSuppressExternalDelivery(tabId: UUID, surfaceId: UUID?) -> Bool {
         let focusState = notificationFocusState(tabId: tabId, surfaceId: surfaceId)
         return focusState.isAppFocused
