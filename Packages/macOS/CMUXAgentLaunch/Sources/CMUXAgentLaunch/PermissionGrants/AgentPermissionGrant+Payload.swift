@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 extension AgentPermissionGrant {
     /// The JSON-compatible form the `permissions.list` socket method returns.

@@ -64,7 +64,14 @@ public struct AgentPermissionRequest: Sendable, Equatable {
 ///   tool, and a file rule without a path is invalid.
 /// - `WebFetch(domain:d)` matches http and https URLs whose host is `d` or
 ///   ends in `.d`, after rejecting authorities with `\`, `@`, `%` or spaces.
-public enum AgentPermissionRuleMatcher {
+public struct AgentPermissionRuleMatcher: Sendable {
+    /// The home directory `~` rules and protected home paths resolve against.
+    public var home: String
+
+    public init(home: String = NSHomeDirectory()) {
+        self.home = home
+    }
+
     private static let editTools: Set<String> = ["Edit", "MultiEdit", "Write", "NotebookEdit"]
     private static let readTools: Set<String> = ["Read", "Grep", "Glob", "LS"]
     /// Tools whose prompt needs the user's answer, never a permission.
@@ -103,15 +110,15 @@ public enum AgentPermissionRuleMatcher {
 
     /// Whether `rule` is one this matcher understands. Requests and loaded
     /// grants carrying anything else are rejected.
-    public static func isValid(_ rule: String) -> Bool {
-        parse(rule) != nil
+    public func isValid(_ rule: String) -> Bool {
+        Self.parse(rule, home: home) != nil
     }
 
-    public static func allows(
-        rule: String,
-        request: AgentPermissionRequest,
-        home: String = NSHomeDirectory()
-    ) -> Bool {
+    public func allows(rule: String, request: AgentPermissionRequest) -> Bool {
+        Self.allows(rule: rule, request: request, home: home)
+    }
+
+    private static func allows(rule: String, request: AgentPermissionRequest, home: String) -> Bool {
         guard let parsed = parse(rule, home: home) else { return false }
         switch parsed {
         case .bash(let spec):
@@ -155,7 +162,11 @@ public enum AgentPermissionRuleMatcher {
     ///   of home, or a protected path.
     /// - WebFetch: no domain, or a domain without a dot.
     /// - Invalid rules count as broad.
-    public static func isBroad(_ rule: String, home: String = NSHomeDirectory()) -> Bool {
+    public func isBroad(_ rule: String) -> Bool {
+        Self.isBroad(rule, home: home)
+    }
+
+    private static func isBroad(_ rule: String, home: String) -> Bool {
         guard let parsed = parse(rule, home: home) else { return true }
         switch parsed {
         case .bash(.any):
@@ -177,7 +188,7 @@ public enum AgentPermissionRuleMatcher {
         }
     }
 
-    static func parse(_ rule: String, home: String = NSHomeDirectory()) -> Rule? {
+    static func parse(_ rule: String, home: String) -> Rule? {
         guard !rule.isEmpty, rule.count <= AgentPermissionGrantProposal.maximumRuleLength,
               !AgentPermissionText.containsInvisibleOrControl(rule),
               rule == rule.trimmingCharacters(in: .whitespaces) else { return nil }

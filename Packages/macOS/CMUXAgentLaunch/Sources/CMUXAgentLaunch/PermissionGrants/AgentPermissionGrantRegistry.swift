@@ -8,13 +8,19 @@ public import Foundation
 /// It also admits one approval request at a time.
 public final class AgentPermissionGrantRegistry: @unchecked Sendable {
     private let store: AgentPermissionGrantStore
+    private let matcher: AgentPermissionRuleMatcher
     private let lock = NSLock()
     private var grants: [AgentPermissionGrant]
     private var approvalPending = false
 
-    public init(store: AgentPermissionGrantStore, now: Date = Date()) {
+    public init(
+        store: AgentPermissionGrantStore,
+        matcher: AgentPermissionRuleMatcher = AgentPermissionRuleMatcher(),
+        now: Date = Date()
+    ) {
         self.store = store
-        self.grants = store.grants(now: now)
+        self.matcher = matcher
+        self.grants = store.grants(matcher: matcher, now: now)
     }
 
     /// Active grants, oldest first.
@@ -46,17 +52,12 @@ public final class AgentPermissionGrantRegistry: @unchecked Sendable {
 
     /// Whether an active grant allows `request` from `sessionID`. A match
     /// counts one use against the first grant that covers it.
-    public func answer(
-        _ request: AgentPermissionRequest,
-        sessionID: String?,
-        now: Date = Date(),
-        home: String = NSHomeDirectory()
-    ) -> Bool {
+    public func answer(_ request: AgentPermissionRequest, sessionID: String?, now: Date = Date()) -> Bool {
         lock.withLock {
             guard !AgentPermissionRuleMatcher.userAnswerTools.contains(request.toolName),
                   let index = grants.firstIndex(where: { grant in
                       grant.covers(sessionID: sessionID, cwd: request.cwd, now: now)
-                          && grant.rules.contains { AgentPermissionRuleMatcher.allows(rule: $0, request: request, home: home) }
+                          && grant.rules.contains { matcher.allows(rule: $0, request: request) }
                   }) else {
                 return false
             }
@@ -66,6 +67,13 @@ public final class AgentPermissionGrantRegistry: @unchecked Sendable {
             try? store.save(grants.filter { !$0.isExpired(at: now) })
             return true
         }
+    }
+
+    /// The `permissions.match` answer for parameters from
+    /// ``AgentPermissionRequest/claudeMatchParams(hookPayload:)``.
+    public func answer(matchParams params: [String: Any], now: Date = Date()) -> Bool {
+        guard let request = AgentPermissionRequest(claudeHookPayload: params) else { return false }
+        return answer(request, sessionID: params["session_id"] as? String, now: now)
     }
 
     /// Claims the single approval slot.

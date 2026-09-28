@@ -48,17 +48,17 @@ struct AgentPermissionGrantHardeningTests {
 
     @Test(arguments: ["Write", "MultiEdit", "NotebookEdit", "Edit", "Grep", "Glob", "LS", "Read"])
     func fileToolRuleWithoutAPathNeverMatchesAndIsRejected(tool: String) {
-        #expect(!Matcher.allows(rule: tool, request: fileRequest(tool, "/etc/hosts")))
+        #expect(!Matcher().allows(rule: tool, request: fileRequest(tool, "/etc/hosts")))
         #expect(parse([tool]) == .failure(.invalidRule(tool)))
     }
 
     @Test func writeAndGrepRulesUseEditAndReadPathSemantics() throws {
         let sandbox = try Sandbox()
         let inside = sandbox.path("a.swift")
-        #expect(Matcher.allows(rule: "Write(/\(sandbox.root.path)/**)", request: fileRequest("Edit", inside)))
-        #expect(!Matcher.allows(rule: "Write(/\(sandbox.root.path)/**)", request: fileRequest("Write", "/etc/hosts")))
-        #expect(Matcher.allows(rule: "Grep(/\(sandbox.root.path)/**)", request: fileRequest("Read", inside)))
-        #expect(!Matcher.allows(rule: "Grep(/\(sandbox.root.path)/**)", request: fileRequest("Edit", inside)))
+        #expect(Matcher().allows(rule: "Write(/\(sandbox.root.path)/**)", request: fileRequest("Edit", inside)))
+        #expect(!Matcher().allows(rule: "Write(/\(sandbox.root.path)/**)", request: fileRequest("Write", "/etc/hosts")))
+        #expect(Matcher().allows(rule: "Grep(/\(sandbox.root.path)/**)", request: fileRequest("Read", inside)))
+        #expect(!Matcher().allows(rule: "Grep(/\(sandbox.root.path)/**)", request: fileRequest("Edit", inside)))
     }
 
     // MARK: Paths
@@ -69,22 +69,22 @@ struct AgentPermissionGrantHardeningTests {
         try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(atPath: sandbox.path("link"), withDestinationPath: nested.path)
         // Lexically `/repo/x`; the kernel resolves it to `outside/x`.
-        #expect(!Matcher.allows(rule: sandbox.rule, request: fileRequest("Edit", sandbox.path("link/../x"))))
-        #expect(!Matcher.allows(rule: sandbox.rule, request: fileRequest("Edit", sandbox.path("sub/../a.swift"))))
+        #expect(!Matcher().allows(rule: sandbox.rule, request: fileRequest("Edit", sandbox.path("link/../x"))))
+        #expect(!Matcher().allows(rule: sandbox.rule, request: fileRequest("Edit", sandbox.path("sub/../a.swift"))))
     }
 
     @Test func symlinkComponentUnderTheRootNeverMatches() throws {
         let sandbox = try Sandbox()
         try FileManager.default.createSymbolicLink(atPath: sandbox.path("inner"), withDestinationPath: sandbox.root.path)
-        #expect(!Matcher.allows(rule: sandbox.rule, request: fileRequest("Edit", sandbox.path("inner/a.swift"))))
-        #expect(Matcher.allows(rule: sandbox.rule, request: fileRequest("Edit", sandbox.path("real/a.swift"))))
+        #expect(!Matcher().allows(rule: sandbox.rule, request: fileRequest("Edit", sandbox.path("inner/a.swift"))))
+        #expect(Matcher().allows(rule: sandbox.rule, request: fileRequest("Edit", sandbox.path("real/a.swift"))))
     }
 
     @Test func danglingSymlinkLeafNeverMatches() throws {
         let sandbox = try Sandbox()
         let target = sandbox.outside.appendingPathComponent("not-yet-created").path
         try FileManager.default.createSymbolicLink(atPath: sandbox.path("leaf"), withDestinationPath: target)
-        #expect(!Matcher.allows(rule: sandbox.rule, request: fileRequest("Write", sandbox.path("leaf"))))
+        #expect(!Matcher().allows(rule: sandbox.rule, request: fileRequest("Write", sandbox.path("leaf"))))
     }
 
     @Test(arguments: [
@@ -93,8 +93,8 @@ struct AgentPermissionGrantHardeningTests {
     ])
     func protectedPathsNeverMatch(relative: String) throws {
         let sandbox = try Sandbox()
-        #expect(!Matcher.allows(rule: sandbox.rule, request: fileRequest("Edit", sandbox.path(relative))))
-        #expect(!Matcher.allows(rule: "Read(/\(sandbox.root.path)/**)", request: fileRequest("Read", sandbox.path(relative))))
+        #expect(!Matcher().allows(rule: sandbox.rule, request: fileRequest("Edit", sandbox.path(relative))))
+        #expect(!Matcher().allows(rule: "Read(/\(sandbox.root.path)/**)", request: fileRequest("Read", sandbox.path(relative))))
     }
 
     @Test(arguments: [
@@ -103,8 +103,8 @@ struct AgentPermissionGrantHardeningTests {
     ])
     func protectedHomePathsNeverMatch(relative: String) {
         let home = NSHomeDirectory()
-        #expect(!Matcher.allows(rule: "Read(~/**)", request: fileRequest("Read", home + "/" + relative)))
-        #expect(!Matcher.allows(rule: "Edit(//\(home.dropFirst())/**)", request: fileRequest("Edit", home + "/" + relative)))
+        #expect(!Matcher().allows(rule: "Read(~/**)", request: fileRequest("Read", home + "/" + relative)))
+        #expect(!Matcher().allows(rule: "Edit(//\(home.dropFirst())/**)", request: fileRequest("Edit", home + "/" + relative)))
     }
 
     @Test func globWithAnAbsoluteOrParentPatternNeverMatches() throws {
@@ -113,10 +113,10 @@ struct AgentPermissionGrantHardeningTests {
         func glob(_ pattern: String) -> AgentPermissionRequest {
             AgentPermissionRequest(toolName: "Glob", pattern: pattern, cwd: sandbox.root.path)
         }
-        #expect(Matcher.allows(rule: rule, request: glob("**/*.swift")))
-        #expect(!Matcher.allows(rule: rule, request: glob("/etc/*")))
-        #expect(!Matcher.allows(rule: rule, request: glob("../outside/*")))
-        #expect(!Matcher.allows(rule: rule, request: glob("~/.ssh/*")))
+        #expect(Matcher().allows(rule: rule, request: glob("**/*.swift")))
+        #expect(!Matcher().allows(rule: rule, request: glob("/etc/*")))
+        #expect(!Matcher().allows(rule: rule, request: glob("../outside/*")))
+        #expect(!Matcher().allows(rule: rule, request: glob("~/.ssh/*")))
     }
 
     // MARK: Bash
@@ -127,22 +127,22 @@ struct AgentPermissionGrantHardeningTests {
         "FOO=1 ls", "=ls", "ls =ls",
     ])
     func shellWordsOutsideTheAllowlistNeverMatch(command: String) {
-        #expect(!Matcher.allows(rule: "Bash(ls:*)", request: bash(command)), "\(command)")
+        #expect(!Matcher().allows(rule: "Bash(ls:*)", request: bash(command)), "\(command)")
     }
 
     @Test func gitConfigInjectionIsBroadAndUnquotedAliasesNeverMatch() {
-        #expect(!Matcher.allows(rule: "Bash(git:*)", request: bash("git -c alias.x='!sh' x")))
-        #expect(Matcher.isBroad("Bash(git:*)"))
-        #expect(Matcher.isBroad("Bash(git *)"))
-        #expect(Matcher.isBroad("Bash(git status:*)"))
-        #expect(!Matcher.isBroad("Bash(git status)"))
+        #expect(!Matcher().allows(rule: "Bash(git:*)", request: bash("git -c alias.x='!sh' x")))
+        #expect(Matcher().isBroad("Bash(git:*)"))
+        #expect(Matcher().isBroad("Bash(git *)"))
+        #expect(Matcher().isBroad("Bash(git status:*)"))
+        #expect(!Matcher().isBroad("Bash(git status)"))
     }
 
     @Test func prefixRulesCompareWholeWords() {
-        #expect(Matcher.allows(rule: "Bash(gh pr view:*)", request: bash("gh  pr view 12")))
-        #expect(Matcher.allows(rule: "Bash(git commit -m:*)", request: bash("git commit -m 'fix the thing'")))
-        #expect(!Matcher.allows(rule: "Bash(gh pr:*)", request: bash("gh prx view")))
-        #expect(!Matcher.allows(rule: "Bash(ls:*)", request: bash("/bin/ls")))
+        #expect(Matcher().allows(rule: "Bash(gh pr view:*)", request: bash("gh  pr view 12")))
+        #expect(Matcher().allows(rule: "Bash(git commit -m:*)", request: bash("git commit -m 'fix the thing'")))
+        #expect(!Matcher().allows(rule: "Bash(gh pr:*)", request: bash("gh prx view")))
+        #expect(!Matcher().allows(rule: "Bash(ls:*)", request: bash("/bin/ls")))
     }
 
     @Test(arguments: [
@@ -151,7 +151,7 @@ struct AgentPermissionGrantHardeningTests {
         "Bash(*)", "Bash", "Bash( :*)",
     ])
     func shellsInterpretersAndWrappersAreBroad(rule: String) {
-        #expect(Matcher.isBroad(rule), "\(rule)")
+        #expect(Matcher().isBroad(rule), "\(rule)")
     }
 
     // MARK: Path breadth
@@ -159,7 +159,7 @@ struct AgentPermissionGrantHardeningTests {
     @Test(arguments: ["Edit(//./**)", "Edit(//Users/**)", "Read(//**)", "Edit(~/**)", "Edit(~)",
                       "Edit(~/.ssh/**)", "Read(~/Library/**)", "Edit(~/.claude/**)", "Edit(~/.zshrc)"])
     func rootsAtOrAboveHomeOrProtectedAreBroad(rule: String) {
-        #expect(Matcher.isBroad(rule), "\(rule)")
+        #expect(Matcher().isBroad(rule), "\(rule)")
     }
 
     @Test(arguments: ["Edit(//a/../b/**)", "Edit(~/../x/**)", "Edit(src/**)", "Edit(//a/*.swift)"])
@@ -176,17 +176,17 @@ struct AgentPermissionGrantHardeningTests {
     ])
     func webFetchAuthorityTricksNeverMatch(url: String) {
         let request = AgentPermissionRequest(toolName: "WebFetch", url: url)
-        #expect(!Matcher.allows(rule: "WebFetch(domain:example.com)", request: request), "\(url)")
+        #expect(!Matcher().allows(rule: "WebFetch(domain:example.com)", request: request), "\(url)")
     }
 
     @Test func webFetchMatchesHostAndSubdomainsOnly() {
         func fetch(_ url: String) -> AgentPermissionRequest { AgentPermissionRequest(toolName: "WebFetch", url: url) }
-        #expect(Matcher.allows(rule: "WebFetch(domain:example.com)", request: fetch("https://Docs.Example.com:443/a?b")))
-        #expect(Matcher.allows(rule: "WebFetch(domain:example.com)", request: fetch("http://example.com")))
-        #expect(!Matcher.allows(rule: "WebFetch(domain:example.com)", request: fetch("https://badexample.com/")))
-        #expect(Matcher.isBroad("WebFetch(domain:com)"))
-        #expect(Matcher.isBroad("WebFetch"))
-        #expect(!Matcher.isBroad("WebFetch(domain:example.com)"))
+        #expect(Matcher().allows(rule: "WebFetch(domain:example.com)", request: fetch("https://Docs.Example.com:443/a?b")))
+        #expect(Matcher().allows(rule: "WebFetch(domain:example.com)", request: fetch("http://example.com")))
+        #expect(!Matcher().allows(rule: "WebFetch(domain:example.com)", request: fetch("https://badexample.com/")))
+        #expect(Matcher().isBroad("WebFetch(domain:com)"))
+        #expect(Matcher().isBroad("WebFetch"))
+        #expect(!Matcher().isBroad("WebFetch(domain:example.com)"))
         #expect(parse(["WebFetch(domain:exa_mple.com)"]) == .failure(.invalidRule("WebFetch(domain:exa_mple.com)")))
     }
 

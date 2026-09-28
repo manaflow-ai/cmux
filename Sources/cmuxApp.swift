@@ -1729,6 +1729,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.sidebarFooterIconBalanceDebug",
     "cmux.cloudPaneCreationFailure.card",
     "cmux.sudo.approval",
+    "cmux.agentPermissions.approval",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut

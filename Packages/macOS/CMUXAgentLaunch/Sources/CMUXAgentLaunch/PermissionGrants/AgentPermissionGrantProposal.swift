@@ -53,7 +53,10 @@ public struct AgentPermissionGrantProposal: Sendable, Equatable {
     /// scope needs a `session_id`; a project scope needs an absolute `root`
     /// naming an existing directory other than `/`, which is stored
     /// canonicalized.
-    public static func parse(params: [String: Any]) -> Result<Self, ValidationError> {
+    public static func parse(
+        params: [String: Any],
+        matcher: AgentPermissionRuleMatcher = AgentPermissionRuleMatcher()
+    ) -> Result<Self, ValidationError> {
         guard let rawRules = params["rules"] as? [Any], !rawRules.isEmpty else {
             return .failure(.missingRules)
         }
@@ -62,11 +65,11 @@ public struct AgentPermissionGrantProposal: Sendable, Equatable {
             guard let text = raw as? String else { return .failure(.invalidRule(String(describing: raw))) }
             let rule = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !AgentPermissionText.containsInvisibleOrControl(text),
-                  AgentPermissionRuleMatcher.isValid(rule) else {
+                  matcher.isValid(rule) else {
                 return .failure(.invalidRule(text))
             }
             if !rules.contains(where: { $0.rule == rule }) {
-                rules.append(Rule(rule: rule, isBroad: AgentPermissionRuleMatcher.isBroad(rule)))
+                rules.append(Rule(rule: rule, isBroad: matcher.isBroad(rule)))
             }
         }
         guard rules.count <= maximumRuleCount else { return .failure(.tooManyRules) }
@@ -95,12 +98,12 @@ public struct AgentPermissionGrantProposal: Sendable, Equatable {
             return .failure(.invalidScope)
         }
 
-        var expiresIn = AgentPermissionGrantDuration.defaultSeconds
+        var expiresIn = AgentPermissionGrant.defaultDurationSeconds
         if let raw = params["expires_in_seconds"] {
             guard let seconds = (raw as? NSNumber)?.doubleValue ?? (raw as? String).flatMap(Double.init),
                   seconds.isFinite,
-                  seconds >= AgentPermissionGrantDuration.minimumSeconds,
-                  seconds <= AgentPermissionGrantDuration.maximumSeconds else {
+                  seconds >= AgentPermissionGrant.minimumDurationSeconds,
+                  seconds <= AgentPermissionGrant.maximumDurationSeconds else {
                 return .failure(.invalidExpiry)
             }
             expiresIn = seconds.rounded()

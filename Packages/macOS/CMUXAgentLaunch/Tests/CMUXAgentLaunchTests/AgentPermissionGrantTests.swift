@@ -9,18 +9,18 @@ struct AgentPermissionRuleMatcherTests {
     }
 
     @Test func shellPrefixRulesMatchOnlySingleSimpleCommands() {
-        #expect(AgentPermissionRuleMatcher.allows(rule: "Bash(git:*)", request: bash("git status")))
-        #expect(AgentPermissionRuleMatcher.allows(rule: "Bash(git:*)", request: bash("git")))
-        #expect(AgentPermissionRuleMatcher.allows(rule: "Bash(gh pr view *)", request: bash("gh pr view 12 --json state")))
-        #expect(!AgentPermissionRuleMatcher.allows(rule: "Bash(git:*)", request: bash("gitk")))
-        #expect(!AgentPermissionRuleMatcher.allows(rule: "Bash(gh pr view *)", request: bash("gh pr merge 12")))
+        #expect(AgentPermissionRuleMatcher().allows(rule: "Bash(git:*)", request: bash("git status")))
+        #expect(AgentPermissionRuleMatcher().allows(rule: "Bash(git:*)", request: bash("git")))
+        #expect(AgentPermissionRuleMatcher().allows(rule: "Bash(gh pr view *)", request: bash("gh pr view 12 --json state")))
+        #expect(!AgentPermissionRuleMatcher().allows(rule: "Bash(git:*)", request: bash("gitk")))
+        #expect(!AgentPermissionRuleMatcher().allows(rule: "Bash(gh pr view *)", request: bash("gh pr merge 12")))
         for chained in ["git status; rm -rf ~", "git log && curl x", "git log | sh", "git $(whoami)",
                         "git `id`", "git log > out", "git log &", "git log\nrm x", "git log \\\n; rm"] {
-            #expect(!AgentPermissionRuleMatcher.allows(rule: "Bash(git:*)", request: bash(chained)), "\(chained)")
+            #expect(!AgentPermissionRuleMatcher().allows(rule: "Bash(git:*)", request: bash(chained)), "\(chained)")
         }
-        #expect(AgentPermissionRuleMatcher.allows(rule: "Bash(make test)", request: bash("make test")))
-        #expect(!AgentPermissionRuleMatcher.allows(rule: "Bash(make test)", request: bash("make test-all")))
-        #expect(!AgentPermissionRuleMatcher.allows(rule: "Bash(git:*)", request: AgentPermissionRequest(toolName: "Read")))
+        #expect(AgentPermissionRuleMatcher().allows(rule: "Bash(make test)", request: bash("make test")))
+        #expect(!AgentPermissionRuleMatcher().allows(rule: "Bash(make test)", request: bash("make test-all")))
+        #expect(!AgentPermissionRuleMatcher().allows(rule: "Bash(git:*)", request: AgentPermissionRequest(toolName: "Read")))
     }
 
     @Test func pathRulesMatchCanonicalAbsolutePaths() throws {
@@ -32,35 +32,35 @@ struct AgentPermissionRuleMatcherTests {
         func edit(_ path: String, tool: String = "Edit") -> AgentPermissionRequest {
             AgentPermissionRequest(toolName: tool, filePath: path, cwd: root.path)
         }
-        #expect(AgentPermissionRuleMatcher.allows(rule: rule, request: edit(root.appendingPathComponent("src/a.swift").path)))
-        #expect(AgentPermissionRuleMatcher.allows(rule: rule, request: edit(root.appendingPathComponent("new/b.swift").path, tool: "Write")))
-        #expect(AgentPermissionRuleMatcher.allows(rule: rule, request: edit("src/relative.swift")))
-        #expect(!AgentPermissionRuleMatcher.allows(rule: rule, request: edit(root.appendingPathComponent("../escape.swift").path)))
-        #expect(!AgentPermissionRuleMatcher.allows(rule: rule, request: edit(root.path + "-sibling/x")))
-        #expect(!AgentPermissionRuleMatcher.allows(rule: rule, request: edit(root.appendingPathComponent("src/a.swift").path, tool: "Bash")))
+        #expect(AgentPermissionRuleMatcher().allows(rule: rule, request: edit(root.appendingPathComponent("src/a.swift").path)))
+        #expect(AgentPermissionRuleMatcher().allows(rule: rule, request: edit(root.appendingPathComponent("new/b.swift").path, tool: "Write")))
+        #expect(AgentPermissionRuleMatcher().allows(rule: rule, request: edit("src/relative.swift")))
+        #expect(!AgentPermissionRuleMatcher().allows(rule: rule, request: edit(root.appendingPathComponent("../escape.swift").path)))
+        #expect(!AgentPermissionRuleMatcher().allows(rule: rule, request: edit(root.path + "-sibling/x")))
+        #expect(!AgentPermissionRuleMatcher().allows(rule: rule, request: edit(root.appendingPathComponent("src/a.swift").path, tool: "Bash")))
         // Relative rule paths depend on Claude's settings-file location; never matched.
-        #expect(!AgentPermissionRuleMatcher.allows(rule: "Edit(src/**)", request: edit("src/a.swift")))
+        #expect(!AgentPermissionRuleMatcher().allows(rule: "Edit(src/**)", request: edit("src/a.swift")))
     }
 
     @Test func otherRuleForms() {
         let fetch = AgentPermissionRequest(toolName: "WebFetch", url: "https://api.github.com/repos")
-        #expect(AgentPermissionRuleMatcher.allows(rule: "WebFetch(domain:github.com)", request: fetch))
-        #expect(!AgentPermissionRuleMatcher.allows(rule: "WebFetch(domain:hub.com)", request: fetch))
-        #expect(AgentPermissionRuleMatcher.allows(rule: "mcp__cmux", request: AgentPermissionRequest(toolName: "mcp__cmux__notify")))
-        #expect(!AgentPermissionRuleMatcher.allows(rule: "mcp__cmux", request: AgentPermissionRequest(toolName: "mcp__cmuxx__notify")))
-        #expect(AgentPermissionRuleMatcher.allows(rule: "WebSearch", request: AgentPermissionRequest(toolName: "WebSearch")))
-        #expect(!AgentPermissionRuleMatcher.allows(rule: "Bash(git:*", request: AgentPermissionRequest(toolName: "Bash", command: "git")))
+        #expect(AgentPermissionRuleMatcher().allows(rule: "WebFetch(domain:github.com)", request: fetch))
+        #expect(!AgentPermissionRuleMatcher().allows(rule: "WebFetch(domain:hub.com)", request: fetch))
+        #expect(AgentPermissionRuleMatcher().allows(rule: "mcp__cmux", request: AgentPermissionRequest(toolName: "mcp__cmux__notify")))
+        #expect(!AgentPermissionRuleMatcher().allows(rule: "mcp__cmux", request: AgentPermissionRequest(toolName: "mcp__cmuxx__notify")))
+        #expect(AgentPermissionRuleMatcher().allows(rule: "WebSearch", request: AgentPermissionRequest(toolName: "WebSearch")))
+        #expect(!AgentPermissionRuleMatcher().allows(rule: "Bash(git:*", request: AgentPermissionRequest(toolName: "Bash", command: "git")))
     }
 
     @Test func broadRulesAreFlagged() {
-        #expect(AgentPermissionRuleMatcher.isBroad("Bash"))
-        #expect(AgentPermissionRuleMatcher.isBroad("Bash(*)"))
-        #expect(AgentPermissionRuleMatcher.isBroad("Bash(sudo:*)"))
-        #expect(AgentPermissionRuleMatcher.isBroad("Edit(//**)"))
-        #expect(AgentPermissionRuleMatcher.isBroad("Edit(~/**)"))
-        #expect(AgentPermissionRuleMatcher.isBroad("WebFetch"))
-        #expect(!AgentPermissionRuleMatcher.isBroad("Bash(git status)"))
-        #expect(!AgentPermissionRuleMatcher.isBroad("Edit(~/Projects/app/**)"))
+        #expect(AgentPermissionRuleMatcher().isBroad("Bash"))
+        #expect(AgentPermissionRuleMatcher().isBroad("Bash(*)"))
+        #expect(AgentPermissionRuleMatcher().isBroad("Bash(sudo:*)"))
+        #expect(AgentPermissionRuleMatcher().isBroad("Edit(//**)"))
+        #expect(AgentPermissionRuleMatcher().isBroad("Edit(~/**)"))
+        #expect(AgentPermissionRuleMatcher().isBroad("WebFetch"))
+        #expect(!AgentPermissionRuleMatcher().isBroad("Bash(git status)"))
+        #expect(!AgentPermissionRuleMatcher().isBroad("Edit(~/Projects/app/**)"))
     }
 
     @Test func requestFromClaudeHookPayload() throws {

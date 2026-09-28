@@ -29,7 +29,7 @@ extension CMUXCLI {
     ) -> String? {
         guard source == "claude", hookEventName == "PermissionRequest",
               let socketPath,
-              let params = AgentPermissionHookAutoAnswer.matchParams(claudeHookPayload: payload) else {
+              let params = AgentPermissionRequest.claudeMatchParams(hookPayload: payload) else {
             return nil
         }
         // A dedicated connection, so a late reply can't be read as the
@@ -52,7 +52,7 @@ extension CMUXCLI {
                 responseTimeout: Self.agentPermissionMatchTimeout,
                 deadline: deadline
             )
-            return AgentPermissionHookAutoAnswer.output(forMatchResult: result)
+            return AgentPermissionRequest.claudeHookOutput(forMatchResult: result)
         } catch {
             return nil
         }
@@ -264,7 +264,7 @@ extension CMUXCLI {
             if let value = env[variable], UUID(uuidString: value) != nil { params[key] = value }
         }
         if let expires {
-            guard let seconds = AgentPermissionGrantDuration.seconds(from: expires) else {
+            guard let seconds = AgentPermissionGrant.durationSeconds(from: expires) else {
                 throw CLIError(message: String(
                     localized: "cli.permissions.error.invalidExpires",
                     defaultValue: "--expires takes a duration like 30m, 2h, or 7d"

@@ -5,7 +5,7 @@ public import Foundation
 /// Only the app reads and writes it, through
 /// ``AgentPermissionGrantRegistry``; hooks ask the app over the socket
 /// instead. The file is untrusted on load: grants that fail
-/// ``AgentPermissionGrant/isLoadable(now:)`` (no expiry, an expiry past the
+/// ``AgentPermissionGrant/isLoadable(matcher:now:)`` (no expiry, an expiry past the
 /// longest duration, invalid rules or scope) are dropped.
 public struct AgentPermissionGrantStore: Sendable {
     public let fileURL: URL
@@ -43,12 +43,15 @@ public struct AgentPermissionGrantStore: Sendable {
     }
 
     /// The loadable grants on disk, oldest first.
-    public func grants(now: Date = Date()) -> [AgentPermissionGrant] {
+    public func grants(
+        matcher: AgentPermissionRuleMatcher = AgentPermissionRuleMatcher(),
+        now: Date = Date()
+    ) -> [AgentPermissionGrant] {
         guard let data = try? Data(contentsOf: fileURL) else { return [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let loaded = (try? decoder.decode(LoadedFile.self, from: data).grants) ?? []
-        return loaded.compactMap(\.grant).filter { $0.isLoadable(now: now) }
+        return loaded.compactMap(\.grant).filter { $0.isLoadable(matcher: matcher, now: now) }
     }
 
     /// Replaces the file with `grants`, owner-only.

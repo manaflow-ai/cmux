@@ -22,7 +22,7 @@ public struct AgentPermissionGrant: Codable, Sendable, Equatable, Identifiable {
     /// Why the grant was requested, shown in the approval dialog and audit list.
     public var reason: String?
     public var grantedAt: Date
-    /// Every grant expires; see ``AgentPermissionGrantDuration``.
+    /// Every grant expires; see ``defaultDurationSeconds``.
     public var expiresAt: Date
     /// How many permission requests this grant has answered.
     public var useCount: Int
@@ -67,11 +67,11 @@ public struct AgentPermissionGrant: Codable, Sendable, Equatable, Identifiable {
     /// Whether a grant read back from disk is one the app could have
     /// created: unexpired, within the longest duration, with valid rules and
     /// scope. Anything else was hand-written and is dropped.
-    func isLoadable(now: Date) -> Bool {
+    func isLoadable(matcher: AgentPermissionRuleMatcher, now: Date) -> Bool {
         guard !isExpired(at: now),
-              expiresAt <= now.addingTimeInterval(AgentPermissionGrantDuration.maximumSeconds),
+              expiresAt <= now.addingTimeInterval(Self.maximumDurationSeconds),
               !rules.isEmpty, rules.count <= AgentPermissionGrantProposal.maximumRuleCount,
-              rules.allSatisfy(AgentPermissionRuleMatcher.isValid),
+              rules.allSatisfy(matcher.isValid),
               reason.map({ AgentPermissionText.sanitizedReason($0) == $0 }) ?? true else {
             return false
         }

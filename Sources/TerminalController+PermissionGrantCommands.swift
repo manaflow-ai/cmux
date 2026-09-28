@@ -30,10 +30,7 @@ extension TerminalController {
 
     /// Allow or no match for one pending tool call. A match counts a use.
     nonisolated func v2PermissionsMatch(params: [String: Any]) -> V2CallResult {
-        .ok(["allow": AgentPermissionHookAutoAnswer.answer(
-            matchParams: params,
-            registry: Self.permissionGrantRegistry
-        )])
+        .ok(["allow": Self.permissionGrantRegistry.answer(matchParams: params)])
     }
 
     // MARK: permissions.request
