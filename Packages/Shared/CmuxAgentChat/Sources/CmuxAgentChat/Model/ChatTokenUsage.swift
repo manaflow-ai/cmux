@@ -65,7 +65,10 @@ public struct ChatTokenUsage: Sendable, Equatable {
 
     /// Every input token, cached or not.
     public var inputTokens: Int {
-        freshInputTokens + cacheReadTokens + cacheWriteTokens
+        Self.saturatedSum(
+            Self.saturatedSum(freshInputTokens, cacheReadTokens),
+            cacheWriteTokens
+        )
     }
 
     /// Every token, input and output.
@@ -73,7 +76,7 @@ public struct ChatTokenUsage: Sendable, Equatable {
     /// Deliberately excludes ``reasoningOutputTokens``, which is already
     /// inside ``outputTokens``.
     public var totalTokens: Int {
-        inputTokens + outputTokens
+        Self.saturatedSum(inputTokens, outputTokens)
     }
 
     /// Whether every count is zero.
@@ -89,11 +92,14 @@ public struct ChatTokenUsage: Sendable, Equatable {
     /// - Returns: The field-wise sum.
     public static func + (lhs: ChatTokenUsage, rhs: ChatTokenUsage) -> ChatTokenUsage {
         ChatTokenUsage(
-            freshInputTokens: lhs.freshInputTokens + rhs.freshInputTokens,
-            cacheReadTokens: lhs.cacheReadTokens + rhs.cacheReadTokens,
-            cacheWriteTokens: lhs.cacheWriteTokens + rhs.cacheWriteTokens,
-            outputTokens: lhs.outputTokens + rhs.outputTokens,
-            reasoningOutputTokens: lhs.reasoningOutputTokens + rhs.reasoningOutputTokens
+            freshInputTokens: saturatedSum(lhs.freshInputTokens, rhs.freshInputTokens),
+            cacheReadTokens: saturatedSum(lhs.cacheReadTokens, rhs.cacheReadTokens),
+            cacheWriteTokens: saturatedSum(lhs.cacheWriteTokens, rhs.cacheWriteTokens),
+            outputTokens: saturatedSum(lhs.outputTokens, rhs.outputTokens),
+            reasoningOutputTokens: saturatedSum(
+                lhs.reasoningOutputTokens,
+                rhs.reasoningOutputTokens
+            )
         )
     }
 
@@ -105,205 +111,11 @@ public struct ChatTokenUsage: Sendable, Equatable {
     public static func += (lhs: inout ChatTokenUsage, rhs: ChatTokenUsage) {
         lhs = lhs + rhs
     }
-}
 
-/// How much of a provider's usage allowance a session has consumed.
-///
-/// Codex writes this into its rollout on every token count. Claude Code
-/// does not put limit state in its transcript at all, so this stays `nil`
-/// for Claude sessions; the absence is the honest answer rather than a
-/// zero.
-public struct ChatUsageRateLimit: Sendable, Equatable {
-    /// One rolling allowance window.
-    public struct Window: Sendable, Equatable {
-        /// Percentage of the window's allowance used, 0 to 100.
-        public var usedPercent: Double
-
-        /// Length of the rolling window in minutes.
-        public var windowMinutes: Int?
-
-        /// When the window resets, when the provider says.
-        public var resetsAt: Date?
-
-        /// Creates a window reading.
-        ///
-        /// - Parameters:
-        ///   - usedPercent: Percentage of the allowance used.
-        ///   - windowMinutes: Window length in minutes.
-        ///   - resetsAt: When the window resets.
-        public init(usedPercent: Double, windowMinutes: Int? = nil, resetsAt: Date? = nil) {
-            self.usedPercent = usedPercent
-            self.windowMinutes = windowMinutes
-            self.resetsAt = resetsAt
-        }
-    }
-
-    /// The short window, the one that throttles a burst of work.
-    public var primary: Window
-
-    /// The long window, when the provider reports one.
-    ///
-    /// Codex sends two windows: a roughly five-hour `primary` and a weekly
-    /// `secondary`. The weekly one is usually what actually stops a day of
-    /// work, and it is the one a session hits without warning, so dropping
-    /// it would hide the limit that matters.
-    public var secondary: Window?
-
-    /// Whether the provider says a spend control has already cut the
-    /// session off.
-    public var spendControlReached: Bool
-
-    /// Percentage of the ``primary`` window's allowance used.
-    public var usedPercent: Double {
-        get { primary.usedPercent }
-        set { primary.usedPercent = newValue }
-    }
-
-    /// Length of the ``primary`` window in minutes.
-    public var windowMinutes: Int? {
-        get { primary.windowMinutes }
-        set { primary.windowMinutes = newValue }
-    }
-
-    /// When the ``primary`` window resets.
-    public var resetsAt: Date? {
-        get { primary.resetsAt }
-        set { primary.resetsAt = newValue }
-    }
-
-    /// Whichever reported window is closest to its limit.
-    ///
-    /// This is what a caller showing one number should show. Picking the
-    /// primary window instead reads "12% used" on a session that is at 96%
-    /// of its weekly allowance.
-    public var tightestWindow: Window {
-        guard let secondary, secondary.usedPercent > primary.usedPercent else {
-            return primary
-        }
-        return secondary
-    }
-
-    /// Creates a rate limit reading from its windows.
-    ///
-    /// - Parameters:
-    ///   - primary: The short window.
-    ///   - secondary: The long window, when reported.
-    ///   - spendControlReached: Whether a spend control has cut the session off.
-    public init(primary: Window, secondary: Window? = nil, spendControlReached: Bool = false) {
-        self.primary = primary
-        self.secondary = secondary
-        self.spendControlReached = spendControlReached
-    }
-
-    /// Creates a rate limit reading with only a primary window.
-    ///
-    /// - Parameters:
-    ///   - usedPercent: Percentage of the allowance used.
-    ///   - windowMinutes: Window length in minutes.
-    ///   - resetsAt: When the window resets.
-    public init(usedPercent: Double, windowMinutes: Int? = nil, resetsAt: Date? = nil) {
-        self.init(
-            primary: Window(
-                usedPercent: usedPercent,
-                windowMinutes: windowMinutes,
-                resetsAt: resetsAt
-            )
-        )
-    }
-}
-
-/// Everything one transcript says about what it spent.
-///
-/// Carries no prices. Converting tokens to money needs a per-model price
-/// table, an answer for subscription plans where per-token prices do not
-/// apply, and a decision about how stale a bundled table may get. Those
-/// are product decisions, so this type stops at counts and leaves them to
-/// the caller.
-public struct ChatUsageTotals: Sendable, Equatable {
-    /// Usage summed over every distinct API response in the transcript.
-    public var usage: ChatTokenUsage
-
-    /// Usage split by the model that produced it.
-    ///
-    /// Keyed by the provider's own model identifier. A session that
-    /// switched models mid-run has an entry per model.
-    public var usageByModel: [String: ChatTokenUsage]
-
-    /// Distinct API responses counted.
-    public var responses: Int
-
-    /// Repeated reports of a response that was already counted.
-    ///
-    /// Non-zero is normal, not a warning: both providers repeat usage by
-    /// design. A caller that wants to prove deduplication is working can
-    /// watch this climb. A repeat is usually dropped, but a Claude repeat
-    /// carrying larger counts than the copy already counted replaces it,
-    /// because a streaming response's early lines carry placeholder
-    /// output counts. Either way it counts here.
-    public var duplicateReports: Int
-
-    /// Usage blocks skipped because they carried no response identity.
-    ///
-    /// These are not counted, so a non-zero value means the total is an
-    /// undercount. That is the deliberate direction to be wrong in: without
-    /// an identity there is no way to tell a fresh response from the same
-    /// one reported again, and counting it risks the large overstatement
-    /// deduplication exists to prevent.
-    ///
-    /// Also counts a usage block that carries no count field this parser
-    /// recognizes, which is the one format change it can notice. In
-    /// practice both stay zero. It is not a general format alarm: a
-    /// provider that renames only *some* count keys, or adds a new kind of
-    /// token, leaves this at zero and quietly undercounts.
-    public var unidentifiedReports: Int
-
-    /// Tokens currently occupying the context window, when the provider
-    /// reports it.
-    public var contextTokens: Int?
-
-    /// The model's context window size, when the provider reports it.
-    public var contextWindowTokens: Int?
-
-    /// The provider's usage allowance state, when it reports it.
-    public var rateLimit: ChatUsageRateLimit?
-
-    /// Creates a usage summary.
-    ///
-    /// - Parameters:
-    ///   - usage: Usage over every distinct response.
-    ///   - usageByModel: Usage split by model identifier.
-    ///   - responses: Distinct responses counted.
-    ///   - duplicateReports: Repeated reports skipped.
-    ///   - unidentifiedReports: Usage blocks skipped for lack of an identity.
-    ///   - contextTokens: Tokens currently in the context window.
-    ///   - contextWindowTokens: The context window size.
-    ///   - rateLimit: The provider's allowance state.
-    public init(
-        usage: ChatTokenUsage = ChatTokenUsage(),
-        usageByModel: [String: ChatTokenUsage] = [:],
-        responses: Int = 0,
-        duplicateReports: Int = 0,
-        unidentifiedReports: Int = 0,
-        contextTokens: Int? = nil,
-        contextWindowTokens: Int? = nil,
-        rateLimit: ChatUsageRateLimit? = nil
-    ) {
-        self.usage = usage
-        self.usageByModel = usageByModel
-        self.responses = responses
-        self.duplicateReports = duplicateReports
-        self.unidentifiedReports = unidentifiedReports
-        self.contextTokens = contextTokens
-        self.contextWindowTokens = contextWindowTokens
-        self.rateLimit = rateLimit
-    }
-
-    /// The share of the context window in use, 0 to 1, when both the
-    /// occupancy and the window size are known.
-    public var contextUsedFraction: Double? {
-        guard let contextTokens, let contextWindowTokens, contextWindowTokens > 0 else {
-            return nil
-        }
-        return Double(contextTokens) / Double(contextWindowTokens)
+    /// Adds two integer counts without allowing extreme input to trap.
+    private static func saturatedSum(_ lhs: Int, _ rhs: Int) -> Int {
+        let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+        guard overflow else { return sum }
+        return lhs >= 0 ? Int.max : Int.min
     }
 }

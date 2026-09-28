@@ -11,7 +11,7 @@ import Testing
 /// arithmetic.
 @Suite("ChatUsageAccumulator")
 struct ChatUsageAccumulatorTests {
-    private static let recentResponseLimit = 4_096
+    private static let recentResponseLimit = ChatUsageAccumulator.recentResponseIdentityLimit
 
     // MARK: - Fixtures
 
@@ -832,6 +832,7 @@ struct ChatUsageAccumulatorTests {
         #expect(primaryOnly.secondary == nil)
         let source: ChatUsageAccumulator.CodexSource = .usageRecords
         #expect(source == .usageRecords)
+        #expect(source == ChatUsageCodexSource.usageRecords)
     }
 
     @Test("Claude transcripts carry no allowance state, so it stays absent")
@@ -1016,5 +1017,28 @@ struct ChatUsageAccumulatorTests {
         #expect(usage.cacheWriteTokens == Int.max)
         #expect(usage.outputTokens == Int.max)
         #expect(usage.totalTokens == Int.max)
+    }
+
+    @Test("recent identity collections stay at their configured capacity")
+    func recentIdentityCollectionsStayBoundedAtScale() {
+        let capacity = 128
+        var set = RecentIDSet<Int>(capacity: capacity)
+        var map = RecentIDMap<Int, Int>(capacity: capacity)
+        for identity in 0..<100_000 {
+            _ = set.insert(identity)
+            map.setValue(identity, forKey: identity)
+        }
+
+        #expect(set.count == capacity)
+        #expect(map.count == capacity)
+        #expect(map.value(forKey: 0) == nil)
+        #expect(map.value(forKey: 99_999) == 99_999)
+
+        let oldestWasEvicted = set.insert(0)
+        map.setValue(0, forKey: 0)
+        #expect(oldestWasEvicted)
+        #expect(set.count == capacity)
+        #expect(map.count == capacity)
+        #expect(map.value(forKey: 0) == 0)
     }
 }

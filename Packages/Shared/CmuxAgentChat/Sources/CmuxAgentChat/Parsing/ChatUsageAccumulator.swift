@@ -36,9 +36,9 @@ import Foundation
 /// `token_count` event carries `total_token_usage`, which is a running
 /// total, beside `last_token_usage`, which is the most recent call.
 /// Summing every cumulative report grows quadratically and sails past the
-/// context window. So the accumulator picks one source per transcript:
-/// `token_usage_record` when the file has any, otherwise the cumulative
-/// events.
+/// context window. So the accumulator uses per-response records once they
+/// appear and cumulative events as the fallback before that. A cumulative-
+/// only prefix remains as an unattributed baseline when records begin.
 ///
 /// The cumulative fallback is not simply the largest value reported.
 /// `total_token_usage` counts from the start of a *thread*, and a rollout
@@ -54,19 +54,15 @@ import Foundation
 /// (subagent) lines. A subagent's tokens are spent tokens. They are hidden
 /// from the conversation view, not from the bill.
 public struct ChatUsageAccumulator: Sendable {
-    /// Which Codex record type a transcript's accounting came from.
+    /// The established nested spelling for ``ChatUsageCodexSource``.
+    public typealias CodexSource = ChatUsageCodexSource
+
+    /// Number of recent response identities retained for deduplication.
     ///
-    /// Recorded so a caller can tell a precise per-response total from the
-    /// coarser cumulative fallback, which cannot be split by model.
-    public enum CodexSource: Sendable, Equatable {
-        /// No Codex usage seen yet.
-        case none
-        /// Per-response `token_usage_record` lines, the precise source.
-        case usageRecords
-        /// The cumulative `total_token_usage` from `token_count` events,
-        /// used when the transcript predates `token_usage_record`.
-        case cumulativeEvents
-    }
+    /// Both providers repeat identities locally. Four thousand entries leave
+    /// ample room for those clusters while bounding a long-lived tailer's
+    /// memory use.
+    static let recentResponseIdentityLimit = 4_096
 
     /// Claude's model name for a message it produced without an API call.
     ///
@@ -97,22 +93,25 @@ public struct ChatUsageAccumulator: Sendable {
         var model: String?
     }
 
-    // Claude accounting, keyed by response identity, holding the largest
-    // report seen for each identity.
-    private var claudeCountedResponses: [String: ClaudeResponse] = [:]
+    // Claude accounting keeps the largest report for each recent identity.
+    private var claudeCountedResponses: RecentIDMap<String, ClaudeResponse>
+    private var claudeResponseCount = 0
     private var claudeUsage = ChatTokenUsage()
     private var claudeUsageByModel: [String: ChatTokenUsage] = [:]
 
-    // Codex per-response accounting, keyed by response id.
-    private var codexCountedResponses: Set<String> = []
+    // Codex per-response accounting, keyed by a bounded response-id window.
+    private var codexCountedResponses: RecentIDSet<String>
+    private var codexResponseCount = 0
     private var codexRecordUsage = ChatTokenUsage()
     private var codexRecordUsageByModel: [String: ChatTokenUsage] = [:]
 
-    // Codex cumulative fallback, used only when no record lines appear.
-    // `banked` holds the finished monotone runs, `current` the one still
-    // climbing.
+    // `banked` holds finished monotone cumulative runs and `current` the run
+    // still climbing. They continue updating in record mode so resets remain
+    // part of the provisional pre-record baseline.
     private var codexCumulativeBanked = ChatTokenUsage()
     private var codexCumulativeCurrent: ChatTokenUsage?
+    private var codexCumulativeBaseline = ChatTokenUsage()
+    private var codexRecordUsageSinceTransition = ChatTokenUsage()
 
     private var duplicateReports = 0
     private var unidentifiedReports = 0
@@ -122,7 +121,11 @@ public struct ChatUsageAccumulator: Sendable {
     private var rateLimit: ChatUsageRateLimit?
 
     /// Creates an empty accumulator.
-    public init() {}
+    public init() {
+        let limit = Self.recentResponseIdentityLimit
+        claudeCountedResponses = RecentIDMap(capacity: limit)
+        codexCountedResponses = RecentIDSet(capacity: limit)
+    }
 
     /// Which Codex source the current totals came from.
     public private(set) var codexSource: CodexSource = .none
@@ -131,14 +134,15 @@ public struct ChatUsageAccumulator: Sendable {
     public var totals: ChatUsageTotals {
         var usage = claudeUsage
         var byModel = claudeUsageByModel
-        var responses = claudeCountedResponses.count
+        var responses = claudeResponseCount
 
         switch codexSource {
         case .none:
             break
         case .usageRecords:
+            usage += codexCumulativeBaseline
             usage += codexRecordUsage
-            responses += codexCountedResponses.count
+            responses = Self.saturatedSum(responses, codexResponseCount)
             for (model, modelUsage) in codexRecordUsageByModel {
                 byModel[model, default: ChatTokenUsage()] += modelUsage
             }
@@ -215,13 +219,13 @@ public struct ChatUsageAccumulator: Sendable {
         // is the smaller and more visible error: `unidentifiedReports`
         // shows it happened.
         guard let messageID = message["id"]?.string, !messageID.isEmpty else {
-            unidentifiedReports += 1
+            Self.incrementSaturating(&unidentifiedReports)
             return
         }
         // Same for a block with no count key this parser knows: it cannot
         // be read, and counting a zero for it would hide that.
         guard Self.hasRecognizedCount(usageValue, keys: Self.claudeCountKeys) else {
-            unidentifiedReports += 1
+            Self.incrementSaturating(&unidentifiedReports)
             return
         }
 
@@ -240,8 +244,12 @@ public struct ChatUsageAccumulator: Sendable {
         // `requestId` is part of the identity on purpose: a retried request
         // reuses the message id, and the retry is a second billed response.
         let key = "\(root["requestId"]?.string ?? "-")|\(messageID)"
-        guard let counted = claudeCountedResponses[key] else {
-            claudeCountedResponses[key] = ClaudeResponse(usage: usage, model: model)
+        guard let counted = claudeCountedResponses.value(forKey: key) else {
+            claudeCountedResponses.setValue(
+                ClaudeResponse(usage: usage, model: model),
+                forKey: key
+            )
+            Self.incrementSaturating(&claudeResponseCount)
             claudeUsage += usage
             addToClaudeModel(model, usage)
             return
@@ -251,9 +259,12 @@ public struct ChatUsageAccumulator: Sendable {
         // early lines carry a placeholder output count and the last line
         // carries the finished one, so the largest report wins and a tie
         // keeps the copy already counted.
-        duplicateReports += 1
-        guard usage.totalTokens > counted.usage.totalTokens else { return }
-        claudeCountedResponses[key] = ClaudeResponse(usage: usage, model: model)
+        Self.incrementSaturating(&duplicateReports)
+        guard Self.isLargerClaudeReport(usage, than: counted.usage) else { return }
+        claudeCountedResponses.setValue(
+            ClaudeResponse(usage: usage, model: model),
+            forKey: key
+        )
         claudeUsage += Self.difference(usage, counted.usage)
         if counted.model == model {
             addToClaudeModel(model, Self.difference(usage, counted.usage))
@@ -300,25 +311,31 @@ public struct ChatUsageAccumulator: Sendable {
     private mutating func ingestCodexUsageRecord(_ payload: TranscriptJSONValue) {
         guard let usageValue = payload["usage"], usageValue.object != nil else { return }
         guard let responseID = payload["response_id"]?.string, !responseID.isEmpty else {
-            unidentifiedReports += 1
+            Self.incrementSaturating(&unidentifiedReports)
             return
         }
         // Checked before the source flips: a record whose counts cannot be
         // read must not take over from the cumulative events and report a
         // session that spent nothing.
         guard Self.hasRecognizedCount(usageValue, keys: Self.codexCountKeys) else {
-            unidentifiedReports += 1
+            Self.incrementSaturating(&unidentifiedReports)
             return
         }
-        guard codexCountedResponses.insert(responseID).inserted else {
-            duplicateReports += 1
+        guard codexCountedResponses.insert(responseID) else {
+            Self.incrementSaturating(&duplicateReports)
             return
         }
-        // Records are the precise source, so they take over from any
-        // cumulative figure already read from events.
+        if codexSource != .usageRecords {
+            codexCumulativeBaseline = codexCumulativeTotal
+            codexRecordUsageSinceTransition = ChatTokenUsage()
+        }
+        // Records are precise from this point forward. Any cumulative prefix
+        // remains as an unattributed baseline and later events reconcile it.
         codexSource = .usageRecords
+        Self.incrementSaturating(&codexResponseCount)
         let usage = codexUsage(from: usageValue)
         codexRecordUsage += usage
+        codexRecordUsageSinceTransition += usage
         // No model yet means no `turn_context` has been seen, so there is
         // nothing to attribute this to. The tokens still count in the
         // total; only the split loses them.
@@ -362,14 +379,15 @@ public struct ChatUsageAccumulator: Sendable {
 
     /// Folds one cumulative report into the monotone-run total.
     ///
-    /// Only used when the transcript has no per-response records.
+    /// In record mode the same stream recomputes the provisional baseline by
+    /// removing records counted since the source transition. Continuing to
+    /// bank drops is what preserves thread resets after records begin.
     private mutating func readCodexCumulative(_ info: TranscriptJSONValue) {
-        guard codexSource != .usageRecords,
-              let cumulative = info["total_token_usage"],
+        guard let cumulative = info["total_token_usage"],
               cumulative.object != nil
         else { return }
         guard Self.hasRecognizedCount(cumulative, keys: Self.codexCountKeys) else {
-            unidentifiedReports += 1
+            Self.incrementSaturating(&unidentifiedReports)
             return
         }
         let usage = codexUsage(from: cumulative)
@@ -378,7 +396,17 @@ public struct ChatUsageAccumulator: Sendable {
         // transcript is accounted for when nothing has been read.
         guard !usage.isEmpty else { return }
 
-        defer { codexSource = .cumulativeEvents }
+        let usingRecords = codexSource == .usageRecords
+        defer {
+            if usingRecords {
+                codexCumulativeBaseline = Self.clampedDifference(
+                    codexCumulativeTotal,
+                    codexRecordUsageSinceTransition
+                )
+            } else {
+                codexSource = .cumulativeEvents
+            }
+        }
         guard let current = codexCumulativeCurrent else {
             codexCumulativeCurrent = usage
             return
@@ -386,7 +414,7 @@ public struct ChatUsageAccumulator: Sendable {
         if usage.totalTokens > current.totalTokens {
             codexCumulativeCurrent = usage
         } else if usage.totalTokens == current.totalTokens {
-            duplicateReports += 1
+            Self.incrementSaturating(&duplicateReports)
         } else {
             // A running total never shrinks, so a smaller value is a new
             // thread counting from zero: bank the run that just ended.
@@ -448,8 +476,9 @@ public struct ChatUsageAccumulator: Sendable {
         let input = nonNegative(value["input_tokens"]?.int)
         let cacheRead = nonNegative(value["cached_input_tokens"]?.int)
         let cacheWrite = nonNegative(value["cache_write_input_tokens"]?.int)
+        let cachedInput = Self.saturatedSum(cacheRead, cacheWrite)
         return ChatTokenUsage(
-            freshInputTokens: max(0, input - cacheRead - cacheWrite),
+            freshInputTokens: input > cachedInput ? input - cachedInput : 0,
             cacheReadTokens: cacheRead,
             cacheWriteTokens: cacheWrite,
             outputTokens: nonNegative(value["output_tokens"]?.int),
@@ -473,6 +502,59 @@ public struct ChatUsageAccumulator: Sendable {
             outputTokens: lhs.outputTokens - rhs.outputTokens,
             reasoningOutputTokens: lhs.reasoningOutputTokens - rhs.reasoningOutputTokens
         )
+    }
+
+    /// Whether a streamed Claude report is a later, larger version.
+    ///
+    /// Saturated totals can tie at `Int.max`, so a component-wise increase is
+    /// also accepted when no component shrinks.
+    private static func isLargerClaudeReport(
+        _ candidate: ChatTokenUsage,
+        than existing: ChatTokenUsage
+    ) -> Bool {
+        if candidate.totalTokens != existing.totalTokens {
+            return candidate.totalTokens > existing.totalTokens
+        }
+        let comparisons = [
+            (candidate.freshInputTokens, existing.freshInputTokens),
+            (candidate.cacheReadTokens, existing.cacheReadTokens),
+            (candidate.cacheWriteTokens, existing.cacheWriteTokens),
+            (candidate.outputTokens, existing.outputTokens),
+            (candidate.reasoningOutputTokens, existing.reasoningOutputTokens),
+        ]
+        return comparisons.allSatisfy { $0.0 >= $0.1 }
+            && comparisons.contains { $0.0 > $0.1 }
+    }
+
+    /// Field-wise subtraction clamped at zero for cumulative reconciliation.
+    private static func clampedDifference(
+        _ lhs: ChatTokenUsage,
+        _ rhs: ChatTokenUsage
+    ) -> ChatTokenUsage {
+        ChatTokenUsage(
+            freshInputTokens: clampedDifference(lhs.freshInputTokens, rhs.freshInputTokens),
+            cacheReadTokens: clampedDifference(lhs.cacheReadTokens, rhs.cacheReadTokens),
+            cacheWriteTokens: clampedDifference(lhs.cacheWriteTokens, rhs.cacheWriteTokens),
+            outputTokens: clampedDifference(lhs.outputTokens, rhs.outputTokens),
+            reasoningOutputTokens: clampedDifference(
+                lhs.reasoningOutputTokens,
+                rhs.reasoningOutputTokens
+            )
+        )
+    }
+
+    private static func clampedDifference(_ lhs: Int, _ rhs: Int) -> Int {
+        lhs > rhs ? lhs - rhs : 0
+    }
+
+    private static func saturatedSum(_ lhs: Int, _ rhs: Int) -> Int {
+        let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+        guard overflow else { return sum }
+        return lhs >= 0 ? Int.max : Int.min
+    }
+
+    private static func incrementSaturating(_ value: inout Int) {
+        if value < Int.max { value += 1 }
     }
 
     private func nonNegative(_ value: Int?) -> Int {
