@@ -238,12 +238,24 @@ class AdmittedBuildTests(StubbedTest):
         self.assertFalse([call for call in stub.calls if "workflows/ci.yml/runs" in call])
 
     def test_a_rerun_attempt_uses_the_fingerprint_changes_published_earlier(self) -> None:
-        stub = self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": [
-            {"name": "build-inputs-old-1"}, {"name": "build-inputs-new-2"}]},
-            "repos/o/r/actions/workflows/ci.yml/runs": {"workflow_runs": []}})
-        media.admitted_build_run("o/r", {"id": 9, "head_branch": "t"}, "3")
-        self.assertTrue([call for call in stub.calls if "workflows/ci.yml/runs" in call])
-        self.assertFalse([call for call in stub.calls if "build-inputs-old" in call])
+        self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": [
+            {"name": "build-inputs-new-2"}, {"name": "build-inputs-old-1"}, {"name": "build-inputs-later-4"}]}})
+        asked = []
+        import types
+        finder = types.ModuleType("find_admitted_build")
+        finder.admitted_run = lambda _read, _repo, _branch, fingerprint, _run: asked.append(fingerprint)
+
+        class Loader:
+            @staticmethod
+            def exec_module(module):
+                module.admitted_run = finder.admitted_run
+
+        from unittest import mock
+        with mock.patch.object(importlib.util, "spec_from_file_location", lambda *_: types.SimpleNamespace(
+                                   name="find_admitted_build", loader=Loader)), \
+                mock.patch.object(importlib.util, "module_from_spec", lambda _spec: types.ModuleType("f")):
+            media.admitted_build_run("o/r", {"id": 9, "head_branch": "t"}, "3")
+        self.assertEqual(asked, ["new"])
 
     def test_an_api_error_in_the_lookup_is_unknown(self) -> None:
         def refuse():
