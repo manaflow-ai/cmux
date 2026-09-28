@@ -15,6 +15,7 @@ private final class MockFileExplorerProvider: FileExplorerProvider {
     var listings: [String: Result<[FileExplorerEntry], Error>] = [:]
     var listCallCount = 0
     var listCallPaths: [String] = []
+    var completedListCallPaths: [String] = []
     /// Optional delay (seconds) before returning results
     var delay: TimeInterval = 0
 
@@ -30,6 +31,8 @@ private final class MockFileExplorerProvider: FileExplorerProvider {
         if delay > 0 {
             try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
         }
+
+        completedListCallPaths.append(path)
 
         guard isAvailable else {
             throw FileExplorerError.providerUnavailable
@@ -235,6 +238,44 @@ struct FileExplorerStoreTests {
                 store.selectedPath == "\(rootPath)/README.md" &&
                 store.selectedPaths == ["\(rootPath)/README.md"]
         }
+    }
+
+    @Test
+    func reloadIgnoresAnInFlightSilentPrefetchFromThePreviousTree() async throws {
+        let rootPath = "/tmp/project"
+        let sourcePath = "\(rootPath)/Sources"
+        let provider = MockFileExplorerProvider()
+        provider.listings[rootPath] = .success([
+            FileExplorerEntry(name: "Sources", path: sourcePath, isDirectory: true),
+            FileExplorerEntry(name: "README.md", path: "\(rootPath)/README.md", isDirectory: false),
+        ])
+        provider.listings[sourcePath] = .success([
+            FileExplorerEntry(name: "Generated.swift", path: "\(sourcePath)/Generated.swift", isDirectory: false),
+        ])
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath(rootPath)
+        try await waitFor("root nodes loaded") { store.rootNodes.count == 2 }
+
+        let sourceNode = try #require(store.rootNodes.first)
+        provider.delay = 0.3
+        store.prefetchChildren(for: sourceNode)
+        try await waitFor("silent prefetch started") {
+            provider.listCallPaths.contains(sourcePath)
+        }
+
+        store.setExcludePatterns(["Sources"])
+        try await waitFor("filtered root reloaded") {
+            store.rootNodes.map(\.path) == ["\(rootPath)/README.md"] &&
+                provider.completedListCallPaths.filter { $0 == rootPath }.count >= 2
+        }
+        try await waitFor("silent prefetch completed") {
+            provider.completedListCallPaths.contains(sourcePath)
+        }
+
+        #expect(sourceNode.children == nil)
+        #expect(store.rootNodes.map(\.path) == ["\(rootPath)/README.md"])
     }
 
     @Test
