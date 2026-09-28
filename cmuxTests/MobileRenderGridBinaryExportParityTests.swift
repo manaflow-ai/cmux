@@ -21,15 +21,14 @@ struct MobileRenderGridBinaryExportParityTests {
         let terminal = try ScrollbackTestTerminal()
         defer { terminal.close() }
         try await terminal.launch()
-        try terminal.output(
-            "\u{1b}c"
-                + (1...60).map { "history \($0)\r\n" }.joined()
-                + "\u{1b}[1;31mbold red\u{1b}[0m \u{1b}[38;5;214mpalette\u{1b}[0m "
-                + "\u{1b}[38;2;18;52;86;48;2;200;100;50mrgb\u{1b}[0m\r\n"
-                + "\u{1b}[3;4;9mitalic under strike\u{1b}[0m 界 🌍 e\u{301}\r\n"
-                + "\u{1b}]10;#123456\u{1b}\\\u{1b}]12;#ABCDEF\u{1b}\\"
-                + "\u{1b}[?2004h\u{1b}[?1h\u{1b}[5 q"
-        )
+        let history: String = (1...60).map { "history \($0)\r\n" }.joined()
+        let colors: String = "\u{1b}[1;31mbold red\u{1b}[0m \u{1b}[38;5;214mpalette\u{1b}[0m "
+            + "\u{1b}[38;2;18;52;86;48;2;200;100;50mrgb\u{1b}[0m\r\n"
+        let attributes: String = "\u{1b}[3;4;9mitalic under strike\u{1b}[0m 界 🌍 e\u{301}\r\n"
+        let overrides: String = "\u{1b}]10;#123456\u{1b}\\\u{1b}]12;#ABCDEF\u{1b}\\"
+        let modes: String = "\u{1b}[?2004h\u{1b}[?1h\u{1b}[5 q"
+        let parts: [String] = ["\u{1b}c", history, colors, attributes, overrides, modes]
+        try terminal.output(parts.joined())
         let runtime = try #require(terminal.surface.surface)
         let surfaceID = terminal.surface.id.uuidString
         for includeTheme in [false, true] {
