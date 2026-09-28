@@ -90,8 +90,17 @@ struct AgentJournalUserInterruptTests {
             reducer.apply(next, to: &state)
         }
 
+        let boundary = state.userInterruptSessionBoundary(
+            surfaceId: surface,
+            agentKey: "claude_code"
+        )
         let drafts = state.userInterruptDrafts(
-            surfaceId: surface, workspaceId: workspace, agentKey: "claude_code", source: "claude")
+            surfaceId: surface,
+            workspaceId: workspace,
+            agentKey: "claude_code",
+            source: "claude",
+            sessionBoundary: boundary
+        )
         #expect(drafts.map(\.sessionId) == [nil, "running"])
         #expect(drafts.map(\.occurredAtMs) == [1_002, 1_001])
         #expect(drafts.allSatisfy { $0.validationProblem() == nil })
@@ -122,11 +131,16 @@ struct AgentJournalUserInterruptTests {
         )
         reducer.apply(started, to: &state)
 
+        let boundary = state.userInterruptSessionBoundary(
+            surfaceId: surface,
+            agentKey: "claude_code"
+        )
         let interrupts = state.userInterruptDrafts(
             surfaceId: surface,
             workspaceId: workspace,
             agentKey: "claude_code",
-            source: "claude"
+            source: "claude",
+            sessionBoundary: boundary
         )
         #expect(interrupts.count == 1)
         let interrupt = try #require(interrupts.first)

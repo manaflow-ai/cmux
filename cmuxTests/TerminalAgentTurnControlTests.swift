@@ -117,25 +117,22 @@ struct AgentTurnInterruptTargetTests {
         try append(draft(id: "pre-tool-use", occurredAtMs: 1_001, nativeEvent: "PreToolUse"))
         gate.continuation.yield(())
         gate.continuation.finish()
+        await center.waitForPendingOperationsForTesting()
 
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(10))
-        var events: [AgentJournalEvent] = []
-        while !events.contains(where: {
-            $0.draft.nativeEvent == AgentJournalEventDraft.userInterruptNativeEvent
-        }) && clock.now < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-            let store = try AgentJournalStore(databaseURL: url)
-            events = try store.events(afterSequence: 0, limit: 10)
-            store.close()
+        let store = try AgentJournalStore(databaseURL: url)
+        let events = try store.events(afterSequence: 0, limit: 10)
+        store.close()
+        #expect(events.map(\.draft.nativeEvent) == ["UserPromptSubmit", "PreToolUse"])
+
+        let reducer = AgentLifecycleReducer()
+        var state = AgentLifecycleReducerState()
+        for event in events {
+            reducer.apply(event, to: &state)
         }
-
-        #expect(events.map(\.draft.nativeEvent) == [
-            "UserPromptSubmit",
-            "PreToolUse",
-            AgentJournalEventDraft.userInterruptNativeEvent,
-        ])
-        #expect(events.last?.draft.occurredAtMs == 1_001)
+        #expect(
+            state.combinedPhase(surfaceId: surface.uuidString, agentKey: "claude_code") == .running,
+            "PreToolUse advanced the captured session, so the interrupt must not overwrite it idle"
+        )
     }
 
     @Test func onlyClaudeSettlesItsTurnInTheJournal() {
