@@ -52,6 +52,7 @@ const sectionOrder = [
   "markdown",
   "fileEditor",
   "fileExplorer",
+  "fileBrowser",
   "shortcuts",
 ] as const;
 
@@ -116,6 +117,11 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   // "fileExplorer": {
   //   // ${t("exampleFileExplorerDoubleClickAction")}
   //   "doubleClickAction": "preview"
+  // },
+
+  // "fileBrowser": {
+  //   // ${t("exampleFileBrowserExclude")}
+  //   "exclude": [".git", "node_modules", "**/*.pyc"]
   // },
 
   // "automation": {

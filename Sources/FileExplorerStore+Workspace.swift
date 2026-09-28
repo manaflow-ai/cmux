@@ -3,6 +3,10 @@ import Foundation
 extension FileExplorerStore {
     /// Shared by the right sidebar and tool panes; owns Cloud observation and retry.
     func syncWorkspaceRoot(from workspace: Workspace) {
+        let configStore = workspace.owningTabManager.flatMap {
+            AppDelegate.shared?.mainWindowContext(for: $0)?.cmuxConfigStore
+        }
+        bindConfigStore(configStore)
         if workspaceRootObservation?.workspace !== workspace {
             workspaceRootObservation?.stop()
             workspaceRootObservation = FileExplorerWorkspaceObservation(
