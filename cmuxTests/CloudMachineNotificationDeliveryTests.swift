@@ -17,6 +17,7 @@ struct CloudMachineNotificationDeliveryTests {
     private struct Harness {
         let store: TerminalNotificationStore
         let workspace: Workspace
+        let appDelegate: AppDelegate
         let restore: @MainActor () -> Void
     }
 
@@ -42,7 +43,7 @@ struct CloudMachineNotificationDeliveryTests {
         AppFocusState.overrideIsFocused = false
 
         let workspace = manager.addWorkspace(select: true)
-        return Harness(store: store, workspace: workspace) {
+        return Harness(store: store, workspace: workspace, appDelegate: appDelegate) {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
             }
