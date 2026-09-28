@@ -12,7 +12,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dogfood" / "fuzz"))
 
-from cmuxfuzz import actions, oracles, triage  # noqa: E402
+from cmuxfuzz import actions, oracles, runner, triage  # noqa: E402
+from cmuxfuzz.app import LaunchError  # noqa: E402
 from cmuxfuzz.minimize import ddmin  # noqa: E402
 from cmuxfuzz.signature import Signature, hang_signature, normalize  # noqa: E402
 
@@ -144,6 +145,26 @@ class SignatureTest(unittest.TestCase):
         ])
         sig = hang_signature(sample)
         self.assertIn("Workspace.layoutPanes()", sig.title)
+
+
+class LaunchFailureTest(unittest.TestCase):
+    def test_a_build_that_cannot_start_ends_the_run(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            fuzzer = runner.Fuzzer(app=Path(tmp) / "x.app", out=Path(tmp) / "out", seed=1,
+                                   area_weights={}, use_pointer=False, log=lambda _: None)
+            calls = []
+
+            def refuse(workdir):
+                calls.append(workdir)
+                raise LaunchError("dyld: Symbol not found")
+
+            fuzzer.new_session = refuse
+            fuzzer._cleanup = lambda: None
+            summary = fuzzer.fuzz(1.0)
+        self.assertEqual(len(calls), runner.MAX_LAUNCH_FAILURES)
+        self.assertEqual(summary["findings"], [])
+        self.assertIn("Symbol not found", summary["launch_failed"])
 
 
 class IssueTextTest(unittest.TestCase):

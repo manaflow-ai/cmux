@@ -24,6 +24,7 @@ SETTLE_S = 0.25
 CONFIRM_S = 1.5  # a layout problem must still be there after this long
 HEAVY_EVERY = 10  # counters, hang files, memory
 FRAMES_KEPT = 8
+MAX_LAUNCH_FAILURES = 3  # in a row: the build cannot start here, so stop rather than spin
 MEMORY_WARMUP_STEPS = 60
 MEMORY_LIMIT_MB = 3000
 
@@ -396,6 +397,7 @@ class Fuzzer:
         rng = random.Random(self.seed)
         summary = {"seed": self.seed, "sessions": 0, "steps": 0, "findings": [], "stopped": False}
         seen: set[str] = set()
+        launch_failures = 0
         try:
             while (time.monotonic() < deadline and len(summary["findings"]) < max_findings
                    and not self.stopping):
@@ -410,10 +412,19 @@ class Fuzzer:
                 result = self._run_session(workdir, planned, deadline)
                 summary["steps"] += len(result.steps)
                 if result.failure is None:
+                    launch_failures = 0
                     continue
                 sig = result.failure.signature
                 self.log(f"failure at step {result.failed_step}: {sig.title} [{sig.digest}]")
-                if sig.digest in seen or sig.kind == "launch":  # a launch failure is the machine's, not a bug
+                if sig.kind == "launch":  # a launch failure is the build's or the machine's, not a bug
+                    launch_failures += 1
+                    if launch_failures >= MAX_LAUNCH_FAILURES:
+                        summary["launch_failed"] = result.failure.detail[-2000:]
+                        self.log(f"the app failed to start {launch_failures} times in a row; giving up")
+                        break
+                    continue
+                launch_failures = 0
+                if sig.digest in seen:
                     continue
                 seen.add(sig.digest)
                 finding = self._capture(workdir, session_seed, planned, result, minimize_minutes)

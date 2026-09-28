@@ -78,6 +78,11 @@ class AppSession:
         (path / ".hushlogin").write_text("")
         return path
 
+    def _output_tail(self, limit: int = 1500) -> str:
+        with _suppress():
+            return (self.workdir / "app-stdout.log").read_text(errors="replace")[-limit:].strip()
+        return ""
+
     def launch(self, *, timeout: float = 60.0) -> None:
         """Start the app as our own child, in our process group: whatever stops this fuzzer (a job
         preempting it kills the group) stops the app with it, and nothing is left on the console."""
@@ -88,6 +93,10 @@ class AppSession:
             self.debug_log.unlink()
         env = {k: v for k, v in os.environ.items() if not k.startswith(("CMUX_", "GHOSTTY_", "XCODE_"))}
         env.update(self.env())
+        # A dev build's dylib carries an absolute rpath to the DerivedData it was built in, ahead of
+        # @executable_path/../Frameworks. A staged copy outlives that directory, and a later compile
+        # there leaves mismatched frameworks dyld would load first; prefer the ones the app shipped with.
+        env["DYLD_FRAMEWORK_PATH"] = str(self.executable.parent.parent / "Frameworks")
         output = open(self.workdir / "app-stdout.log", "ab")
         try:
             self._proc = subprocess.Popen([str(self.executable)], env=env, cwd=str(self.sandbox), stdin=subprocess.DEVNULL,
@@ -99,7 +108,8 @@ class AppSession:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if self._proc.poll() is not None:
-                raise LaunchError(f"{self.app.name} exited with {self._proc.returncode} while starting")
+                raise LaunchError(f"{self.app.name} exited with {self._proc.returncode} while starting: "
+                                  f"{self._output_tail()}")
             if self.sock.ready():
                 break
             time.sleep(0.25)
