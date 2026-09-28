@@ -2461,6 +2461,7 @@ pub unsafe extern "C" fn cmux_terminal_client_connect_trusted_route(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 unsafe fn connect_route_from_ffi(
     route: *const c_char,
     state_dir: *const c_char,
@@ -2838,6 +2839,11 @@ pub unsafe extern "C" fn cmux_terminal_client_create_terminal(
 }
 
 /// Lists the daemon's remote workspaces as returned by `workspace.list`.
+///
+/// # Safety
+///
+/// `client` must be a live handle. `error_buffer` follows the connect buffer
+/// contract.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_terminal_client_list_workspaces(
     client: *mut CmuxTerminalClient,
@@ -2870,6 +2876,11 @@ pub unsafe extern "C" fn cmux_terminal_client_list_workspaces(
 
 /// Creates a remote workspace. The optional name is sent as the workspace
 /// title; the daemon owns the workspace identity and root path.
+///
+/// # Safety
+///
+/// `client` must be a live handle. `name` may be NULL. `error_buffer` follows
+/// the connect buffer contract.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_terminal_client_create_workspace(
     client: *mut CmuxTerminalClient,
