@@ -102,6 +102,10 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// The pairing code carried no route kind this device build can dial (for
     /// example an iroh-only ticket on a build without the iroh transport).
     case noSupportedRoute
+    /// The pairing's method is Direct but its address allowlist has no enabled
+    /// entry, so there is nothing to dial. Direct fails closed by design; the
+    /// copy must name this Computer's address list, not pairing codes.
+    case directAddressesUnavailable
     /// Two cancellation-ignoring route cleanups are still alive. Retrying in
     /// this process cannot start another transport without exceeding the cap.
     case routeCleanupBlocked
@@ -144,7 +148,7 @@ extension MobilePairingFailureCategory: DiagnosticFailureProviding {
         case .invalidCode, .unrecognizedVersion:
             .protocolViolation
         case .loopbackRejected, .unsupportedRoute, .noSupportedRoute,
-             .macUpdateRequired, .macAppVersionTooOld:
+             .directAddressesUnavailable, .macUpdateRequired, .macAppVersionTooOld:
             .unsupportedRoute
         case .routeCleanupBlocked:
             .endpointUnavailable
@@ -184,6 +188,7 @@ extension MobilePairingFailureCategory {
         case .macAppVersionTooOld: return "mac_app_version_too_old"
         case .unsupportedRoute: return "unsupported_route"
         case .noSupportedRoute: return "no_supported_route"
+        case .directAddressesUnavailable: return "direct_addresses_unavailable"
         case .routeCleanupBlocked: return "route_cleanup_blocked"
         case .connectAttemptGated: return "connect_attempt_gated"
         case .cancelled: return "cancelled"
@@ -422,6 +427,11 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.unsupportedRoute",
                 defaultValue: "This pairing code is not supported."
             )
+        case .directAddressesUnavailable:
+            return L10n.string(
+                "mobile.pairing.directAddressesUnavailable",
+                defaultValue: "Direct is selected for this computer, but no address is enabled."
+            )
         case .routeCleanupBlocked:
             return L10n.string(
                 "mobile.pairing.routeCleanupBlocked",
@@ -518,6 +528,11 @@ extension MobilePairingFailureCategory {
             return L10n.string(
                 "mobile.pairing.guidance.rescanFresh",
                 defaultValue: "Open Mobile Pairing on the Mac and scan a fresh QR, or enter the Mac's numeric Tailscale IP and port."
+            )
+        case .directAddressesUnavailable:
+            return L10n.string(
+                "mobile.pairing.guidance.directAddressesUnavailable",
+                defaultValue: "Add or enable an address in this Computer's settings, or switch its Connection Method to Iroh."
             )
         case .unrecognizedVersion:
             guard buildType.usesInternalBuildVocabulary else {

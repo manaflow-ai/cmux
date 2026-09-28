@@ -10257,10 +10257,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         guard directOnlyDialCandidates?.isEmpty != true,
               let firstRoute = supportedRoutes.first else {
-            // No route kind this build can dial: set the specific category;
-            // the caller records the matching analytics reason from it.
-            connectionError = MobilePairingFailureCategory.noSupportedRoute.message
-            connectionErrorGuidance = MobilePairingFailureCategory.noSupportedRoute.guidance
+            // Nothing to dial: either the pinned Direct allowlist is empty
+            // (the user must enable an address or change the method) or no
+            // route kind this build can dial remains. Set the specific
+            // category; the caller records the matching analytics reason.
+            let category: MobilePairingFailureCategory =
+                directOnlyDialCandidates?.isEmpty == true
+                    ? .directAddressesUnavailable
+                    : .noSupportedRoute
+            connectionError = category.message
+            connectionErrorGuidance = category.guidance
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             diagnosticLog?.record(DiagnosticEvent(
@@ -10269,7 +10275,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 b: DiagnosticFailureKind.unsupportedRoute.rawValue
             ))
             clearRemoteConnectionContext()
-            return .noSupportedRoute
+            return category
         }
         let foregroundReservation = ForegroundConnectionAttemptReservation(
             id: generation,

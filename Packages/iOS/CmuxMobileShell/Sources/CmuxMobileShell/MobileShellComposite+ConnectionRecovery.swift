@@ -881,7 +881,9 @@ extension MobileShellComposite {
             methodPinnedCandidates = nil
         }
         if let methodPinnedCandidates, methodPinnedCandidates.isEmpty {
-            applyOperationalError(MobileShellConnectionError.insecureManualRoute)
+            // Direct fails closed, but the copy must send the user to this
+            // Computer's address list, not to the pairing-code errors.
+            applyPairingFailure(.directAddressesUnavailable, phase: "reconnect")
             return .failed(.unsupportedRoute)
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
@@ -932,7 +934,8 @@ extension MobileShellComposite {
                     ifStillCurrent: ifStillCurrent
                 )
                 guard ifStillCurrent?() ?? true else { return .superseded }
-                if noThrowFailure == .noSupportedRoute {
+                if noThrowFailure == .noSupportedRoute
+                    || noThrowFailure == .directAddressesUnavailable {
                     outcome = .failed(.unsupportedRoute)
                 }
             } catch {

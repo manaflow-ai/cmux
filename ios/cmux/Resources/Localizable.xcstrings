@@ -23132,6 +23132,65 @@
         }
       }
     },
+    "mobile.pairing.directAddressesUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct is selected for this computer, but no address is enabled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータではダイレクトが選択されていますが、有効なアドレスがありません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für diesen Computer ist Direkt ausgewählt, aber es ist keine Adresse aktiviert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct est sélectionné pour cet ordinateur, mais aucune adresse n'est activée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تحديد “مباشر” لهذا الكمبيوتر، ولكن لم يتم تمكين أي عنوان."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Directo está seleccionado para esta computadora, pero no hay ninguna dirección habilitada."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此電腦已選擇「直接的」，但未啟用任何位址。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此计算机已选择“直接的”，但未启用任何地址。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 컴퓨터에는 직접이 선택되어 있지만 활성화된 주소가 없습니다."
+          }
+        }
+      }
+    },
     "mobile.pairing.dnsFailedFormat": {
       "extractionState": "manual",
       "localizations": {
@@ -24072,6 +24131,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "이 iPhone에서 cmux를 강제 종료했다가 다시 연 다음 다시 연결하세요. 이 메시지가 반환되면 Mac에서 cmux를 다시 시작하세요."
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.directAddressesUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add or enable an address in this Computer's settings, or switch its Connection Method to Iroh."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータの設定でアドレスを追加または有効化するか、接続方法を Iroh に切り替えてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fügen Sie in den Einstellungen dieses Computers eine Adresse hinzu oder aktivieren Sie eine, oder stellen Sie die Verbindungsmethode auf Iroh um."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez ou activez une adresse dans les réglages de cet ordinateur, ou passez sa méthode de connexion sur Iroh."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أضف عنوانًا أو قم بتمكينه في إعدادات هذا الكمبيوتر، أو بدّل طريقة الاتصال إلى Iroh."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrega o habilita una dirección en los ajustes de esta computadora, o cambia su método de conexión a Iroh."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此電腦的設定中新增或啟用位址，或將其連接方式切換為 Iroh。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此计算机的设置中添加或启用地址，或将其连接方式切换为 Iroh。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 컴퓨터의 설정에서 주소를 추가하거나 활성화하거나, 연결 방법을 Iroh로 전환하세요."
           }
         }
       }
