@@ -924,6 +924,8 @@ struct ContentView: View {
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
     @State private var sidebarDragStartWidth: CGFloat?
+    /// The side panel kept when only one fits (SidePanelWidthFit): the one shown last.
+    @State private var preferredSidePanel: SidePanelWidthFit.Panel = .left
     // Non-observed: flush pacing must not invalidate the view.
     @State private var selectedTabIds: Set<UUID> = []
     @State private var mountedWorkspaceIds: [UUID] = []
@@ -1301,7 +1303,7 @@ struct ContentView: View {
                     let startWidth = fileExplorerDragStartWidth ?? fileExplorerWidth
                     let nextWidth = Self.clampedRightSidebarWidth(
                         startWidth - translation,
-                        availableWidth: availableWidth,
+                        availableWidth: resolvedRightSidebarAvailableWidth(availableWidth),
                         configuredMaximumWidth: rightSidebarConfiguredMaximumWidth
                     )
                     withTransaction(Transaction(animation: nil)) {
@@ -1323,7 +1325,13 @@ struct ContentView: View {
             ?? NSApp.keyWindow?.contentView?.bounds.width
             ?? NSApp.keyWindow?.contentLayoutRect.width
         if let resolvedAvailableWidth, resolvedAvailableWidth > 0 {
-            return max(minimumSidebarWidth, resolvedAvailableWidth * Self.maximumSidebarWidthRatio)
+            // Never wider than what leaves the terminal its minimum next to the right sidebar.
+            let widthLeftByRightSidebar = resolvedAvailableWidth - rightSidebarWidth
+                - SidePanelWidthFit.minimumTerminalWidth
+            return max(
+                minimumSidebarWidth,
+                min(resolvedAvailableWidth * Self.maximumSidebarWidthRatio, widthLeftByRightSidebar)
+            )
         }
 
         let fallbackScreenWidth = NSApp.keyWindow?.screen?.frame.width
@@ -1389,7 +1397,15 @@ struct ContentView: View {
         )
     }
 
+    /// The width the right sidebar and the terminal share: the window minus the
+    /// left sidebar, so a wide right sidebar cannot squeeze the terminal the left
+    /// sidebar already narrowed.
     private func resolvedRightSidebarAvailableWidth(_ availableWidth: CGFloat? = nil) -> CGFloat {
+        let windowWidth = resolvedWindowContentWidth(availableWidth)
+        return windowWidth - (sidebarState.isVisible ? sidebarWidth : 0)
+    }
+
+    private func resolvedWindowContentWidth(_ availableWidth: CGFloat? = nil) -> CGFloat {
         if let availableWidth {
             return availableWidth
         }
@@ -1429,13 +1445,64 @@ struct ContentView: View {
         )
     }
 
+    /// A hidden right sidebar keeps its width; it is clamped when it shows again.
     private func clampRightSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
+        guard rightSidebarVisible else { return }
         let nextWidth = normalizedRightSidebarWidth(fileExplorerWidth, availableWidth: availableWidth)
         guard abs(nextWidth - fileExplorerWidth) > 0.5 else { return }
         withTransaction(Transaction(animation: nil)) {
             fileExplorerWidth = nextWidth
         }
         fileExplorerState.width = nextWidth
+    }
+
+    private var currentSidePanelFit: SidePanelWidthFit {
+        SidePanelWidthFit(
+            isLeftVisible: sidebarState.isVisible,
+            isRightVisible: fileExplorerState.isVisible,
+            isLeftAutoCollapsed: sidebarState.isAutoCollapsed,
+            isRightAutoCollapsed: fileExplorerState.isAutoCollapsed,
+            preferredPanel: preferredSidePanel
+        )
+    }
+
+    private func applySidePanelFit(_ next: SidePanelWidthFit) {
+        guard next != currentSidePanelFit else { return }
+        preferredSidePanel = next.preferredPanel
+        // The flags first: FileExplorerState persists `isVisible || isAutoCollapsed`.
+        sidebarState.isAutoCollapsed = next.isLeftAutoCollapsed
+        fileExplorerState.isAutoCollapsed = next.isRightAutoCollapsed
+        withTransaction(Transaction(animation: nil)) {
+            if fileExplorerState.isVisible != next.isRightVisible {
+                fileExplorerState.isVisible = next.isRightVisible
+            }
+            sidebarState.setVisible(next.isLeftVisible)
+        }
+    }
+
+    /// Collapses side panels the window is too narrow for, and brings back ones it
+    /// collapsed earlier once they fit again, so the terminal keeps
+    /// `SidePanelWidthFit.minimumTerminalWidth`. Runs after the left width clamp
+    /// and before the right one, so a right sidebar about to collapse keeps its width.
+    private func fitSidePanelsToWindow(availableWidth: CGFloat? = nil) {
+        let windowWidth = resolvedWindowContentWidth(availableWidth)
+        applySidePanelFit(currentSidePanelFit.fitting(
+            windowWidth: windowWidth,
+            leftWidth: sidebarWidth,
+            rightWidth: normalizedRightSidebarWidth(fileExplorerWidth, availableWidth: windowWidth)
+        ))
+    }
+
+    /// A panel that just became visible keeps its place; the other one collapses
+    /// if both do not fit.
+    private func makeRoomForShownSidePanel(_ panel: SidePanelWidthFit.Panel) {
+        let windowWidth = resolvedWindowContentWidth()
+        applySidePanelFit(currentSidePanelFit.showing(
+            panel,
+            windowWidth: windowWidth,
+            leftWidth: sidebarWidth,
+            rightWidth: normalizedRightSidebarWidth(fileExplorerWidth, availableWidth: windowWidth)
+        ))
     }
 
     private func activateSidebarResizerCursor() {
@@ -3341,6 +3408,7 @@ struct ContentView: View {
                   window === observedWindow else { return }
             let availableWidth = window.contentView?.bounds.width ?? window.contentLayoutRect.width
             clampSidebarWidthIfNeeded(availableWidth: availableWidth)
+            fitSidePanelsToWindow(availableWidth: availableWidth)
             clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
             updateSidebarResizerBandState()
         })
@@ -3399,6 +3467,14 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: sidebarState.isVisible) { _, isVisible in
+            if isVisible {
+                makeRoomForShownSidePanel(.left)
+            }
+            clampRightSidebarWidthIfNeeded()
+            if !isVisible {
+                // A right sidebar collapsed for lack of room may fit again.
+                fitSidePanelsToWindow()
+            }
             setMinimalModeSidebarTitlebarControlsAvailable(isVisible, in: observedWindow)
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
@@ -3409,6 +3485,13 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: fileExplorerState.isVisible) { isVisible in
+            if isVisible {
+                makeRoomForShownSidePanel(.right)
+                clampRightSidebarWidthIfNeeded()
+            } else {
+                // A left sidebar collapsed for lack of room may fit again.
+                fitSidePanelsToWindow()
+            }
             if !isVisible {
                 _ = AppDelegate.shared?.restoreTerminalFocusAfterRightSidebarHidden(in: observedWindow)
             }
@@ -3515,6 +3598,7 @@ struct ContentView: View {
                 isFullScreen = window.styleMask.contains(.fullScreen)
                 let availableWidth = window.contentView?.bounds.width ?? window.contentLayoutRect.width
                 clampSidebarWidthIfNeeded(availableWidth: availableWidth)
+                fitSidePanelsToWindow(availableWidth: availableWidth)
                 clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
                 syncCommandPaletteDebugStateForObservedWindow()
                 installSidebarResizerPointerMonitorIfNeeded()
