@@ -19,11 +19,14 @@ struct BrowserLocalFileEncodingPolicyTests {
         let descriptionURL = directory.appendingPathComponent("description.html")
         try Data("<meta name=\"description\" content=\"charset appears in this description\">산책".utf8)
             .write(to: descriptionURL)
+        let commentedDeclarationURL = directory.appendingPathComponent("commented-declaration.html")
+        try Data("<!-- <meta charset=\"windows-1252\"> -->산책".utf8).write(to: commentedDeclarationURL)
 
         #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: utf8URL) == "UTF-8")
         #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: legacyURL) == nil)
         #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: declaredURL) == nil)
         #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: descriptionURL) == "UTF-8")
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: commentedDeclarationURL) == "UTF-8")
         #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: URL(string: "https://example.com")!) == nil)
     }
 }

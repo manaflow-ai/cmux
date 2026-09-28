@@ -84,19 +84,20 @@ public final class BrowserLocalFileEncodingPolicy {
 
     /// Finds HTML meta elements whose parsed attributes declare a character set.
     nonisolated private static func containsHTMLCharsetDeclaration(in text: String) -> Bool {
-        var searchStart = text.startIndex
-        while searchStart < text.endIndex,
-              let metaStart = text.range(of: "<meta", range: searchStart..<text.endIndex) {
+        let uncommentedText = removingHTMLComments(from: text)
+        var searchStart = uncommentedText.startIndex
+        while searchStart < uncommentedText.endIndex,
+              let metaStart = uncommentedText.range(of: "<meta", range: searchStart..<uncommentedText.endIndex) {
             let afterName = metaStart.upperBound
-            if afterName < text.endIndex,
-               !text[afterName].isWhitespace,
-               text[afterName] != "/",
-               text[afterName] != ">" {
+            if afterName < uncommentedText.endIndex,
+               !uncommentedText[afterName].isWhitespace,
+               uncommentedText[afterName] != "/",
+               uncommentedText[afterName] != ">" {
                 searchStart = afterName
                 continue
             }
-            guard let tagEnd = text[afterName...].firstIndex(of: ">") else { break }
-            let attributes = htmlAttributes(in: text[afterName..<tagEnd])
+            guard let tagEnd = uncommentedText[afterName...].firstIndex(of: ">") else { break }
+            let attributes = htmlAttributes(in: uncommentedText[afterName..<tagEnd])
             if let charset = attributes["charset"], !charset.isEmpty {
                 return true
             }
@@ -108,6 +109,23 @@ public final class BrowserLocalFileEncodingPolicy {
             searchStart = text.index(after: tagEnd)
         }
         return false
+    }
+
+    /// Removes HTML comments before inspecting metadata so commented-out
+    /// declarations do not affect the document's encoding decision.
+    nonisolated private static func removingHTMLComments(from text: String) -> String {
+        var result = String()
+        result.reserveCapacity(text.utf8.count)
+        var cursor = text.startIndex
+        while let commentStart = text.range(of: "<!--", range: cursor..<text.endIndex) {
+            result.append(contentsOf: text[cursor..<commentStart.lowerBound])
+            guard let commentEnd = text.range(of: "-->", range: commentStart.upperBound..<text.endIndex) else {
+                return result
+            }
+            cursor = commentEnd.upperBound
+        }
+        result.append(contentsOf: text[cursor...])
+        return result
     }
 
     /// Parses the ASCII attribute grammar used by an HTML meta element.
