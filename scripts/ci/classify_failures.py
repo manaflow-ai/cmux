@@ -25,10 +25,13 @@ disk, or a script that spells a signature it never prints, does not count.
 
 `act` writes the verdicts to the job summary and to one bot comment on the
 pull request, edited in place, and re-runs the failed jobs when every failed
-job is machine. GitHub's attempt counter bounds that: only a failed attempt 1
-is re-run (its attempt 2 goes back to the owned labels like attempt 1), or a
-later attempt a person started (this re-run then goes to Blacksmith), only
-while it is still the run's latest attempt, the pull request is open and its head has not moved. owned_pool_rescue.py may re-run a refused
+job is machine. GitHub's attempt counter bounds that: a failed attempt 1 or
+2 is re-run, up to LAST_OWNED_ATTEMPT (attempt 2 goes back to the owned
+labels like attempt 1, and a mini that is online but broken may fail it
+again; attempt 3 goes to Blacksmith, which ends it), or a later attempt a
+person started (this re-run then goes to Blacksmith), only while it is still
+the run's latest attempt, the pull request is open and its head has not
+moved. owned_pool_rescue.py may re-run a refused
 job first; the attempt check then skips, and GitHub refuses a second re-run of
 a run in progress. A cancelled run is reported, never re-run: the rescue
 cancels a stuck run before its own full re-run, and a re-run of failed jobs
@@ -59,6 +62,7 @@ from guard_attribution import (  # noqa: E402
     upsert_comment,
 )
 import ui_tests_dispatch  # noqa: E402
+from pr_runner_pool import LAST_OWNED_ATTEMPT  # noqa: E402
 
 MACHINE, CODE, DERIVED, UNKNOWN = "machine", "code", "derived", "unknown"
 MARKER = "<!-- cmux-ci-failure-attribution -->"
@@ -281,9 +285,11 @@ def rerun_decision(report: Mapping, latest: Mapping) -> tuple[bool, str]:
         return False, "Every failure is a machine failure; a cancelled run is not re-run automatically."
     if int(latest.get("run_attempt") or 0) != report["attempt"] or latest.get("status") != "completed":
         return False, "Every failure is a machine failure; the run has been re-run already."
-    # Attempt 1, whose re-run (attempt 2) goes back to the minis, or a later attempt a person started, whose
-    # re-run by this bot takes Blacksmith (pr_runner_pool.host_fault_retry()), which ends it.
-    if report["attempt"] != 1 and str((latest.get("triggering_actor") or {}).get("login") or "") == BOT:
+    # Attempt 1, whose re-run (attempt 2) goes back to the minis; attempt 2, which an online but broken mini
+    # (a full disk, a failed product restore) may have failed again, whose re-run (attempt 3) takes Blacksmith;
+    # or a later attempt a person started, whose re-run by this bot takes Blacksmith
+    # (pr_runner_pool.host_fault_retry()). Blacksmith ends the chain.
+    if report["attempt"] > LAST_OWNED_ATTEMPT and str((latest.get("triggering_actor") or {}).get("login") or "") == BOT:
         return False, (f"Every failure is a machine failure, but attempt {report['attempt']} was already an "
                        "automatic re-run. Re-run it by hand if it should go again.")
     return True, (f"Every failure is a machine failure: re-ran the failed jobs as attempt {report['attempt'] + 1} "

@@ -758,6 +758,40 @@ class Rescuing(unittest.TestCase):
         outcome, _ = self.follow_attempt_2(api, clock, full_rerun=False)
         self.assertEqual(outcome, "stopped: no job of this attempt asked for a persistent pool")
 
+    def test_a_re_run_of_a_failed_owned_admission_waits_for_its_shards(self):
+        # The bot's attempt 2 re-runs a failed admission on the root label. Past the refusal window every owned
+        # job counts as accepted, but this attempt's shards exist only after its admission: the watch goes on
+        # and rescues a shard stuck on the owned label.
+        clock = Clock()
+        root = "glaeda-root-std-xcode-26.6"
+
+        def rerun_jobs(seconds):
+            admission = job(rescue.ADMISSION_JOB, labels=[root], created=0, runner="mini-1",
+                            status="completed" if seconds >= 900 else "in_progress")
+            admission.update(started_at=stamp(5))
+            found = [admission]
+            if seconds >= 900:
+                late = job(rescue.LATE_JOB, created=900, status="completed" if seconds >= 920 else "queued")
+                late.update(started_at=stamp(901), conclusion="success" if seconds >= 920 else None)
+                found.append(late)
+            if seconds >= 930:
+                found.append(job("macos / app-host shard 1", labels=[MINI], created=930))
+            return found + [job("linux-preflight", status="in_progress", labels=["blacksmith-4vcpu-ubuntu-2404"])]
+
+        api = FakeAPI(clock, persistent_run(), marker=lambda name: True, rerun_jobs=rerun_jobs)
+        outcome, log = self.follow_attempt_2(api, clock, full_rerun=False)
+        self.assertEqual(outcome, "done")
+        self.assertNotIn("the fleet accepted the retry", log)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertIn(f"queued on {MINI}", log)
+        # A failed-only re-run whose admission passed in attempt 1 still stops once the fleet accepted it.
+        clock = Clock()
+        shard = job("macos / app-host shard 1", labels=[MINI], created=0, runner="mini-1", status="in_progress")
+        shard.update(started_at=stamp(5))
+        api = FakeAPI(clock, persistent_run(), rerun_jobs=lambda seconds: [shard])
+        outcome, _ = self.follow_attempt_2(api, clock, full_rerun=False)
+        self.assertEqual(outcome, "stopped: the fleet accepted the retry")
+
     def test_a_re_run_gets_the_queue_allowance_of_attempt_1(self):
         # A re-run of failed jobs queues on the owned labels like attempt 1's jobs, so a job waiting within the
         # rounds is left where it is.

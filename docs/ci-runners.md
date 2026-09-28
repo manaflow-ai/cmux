@@ -445,8 +445,10 @@ for attempt 1's jobs on the minis, while the minis ran about half busy. Now:
   `runs-on` sends to `retry_runner`
   (`github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]'`),
   so a host fault costs two re-runs at most. The failure attribution re-runs
-  only attempt 1 or a person's attempt, so a second machine failure on
-  attempt 2 is left for a person.
+  a machine-failed attempt 1 or 2 (`LAST_OWNED_ATTEMPT`), or a person's
+  attempt, so a mini that is online but broken (a full disk, a failed product
+  restore) and fails attempt 2 again sends it to Blacksmith as attempt 3,
+  which ends the chain.
 
 Anyone else's re-run of a pull request follows a code or test failure and
 goes back to the owned labels on any attempt, and the sweeper watches it the

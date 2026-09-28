@@ -941,9 +941,11 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
             if not look.waiting:
                 interval = IDLE_POLL_SECONDS
                 owned = [job for job in jobs if job_pool(job)]
-                # A full re-run's shards exist only after its admission, so
-                # its watch goes on until the run finishes.
-                if (target.attempt > 1 and not target.full_rerun and owned
+                # A re-run that runs its own admission (a full one, or a re-run
+                # of a failed admission) makes its shards only after that
+                # admission, so its watch goes on until the run finishes.
+                own_admission = any(job.get("name") == ADMISSION_JOB and not carried(job) for job in jobs)
+                if (target.attempt > 1 and not target.full_rerun and not own_admission and owned
                         and all(accepted(job, seen_at) for job in owned)):
                     # The fleet took the retry; later attempts never come back to it.
                     return "stop", "the fleet accepted the retry"
