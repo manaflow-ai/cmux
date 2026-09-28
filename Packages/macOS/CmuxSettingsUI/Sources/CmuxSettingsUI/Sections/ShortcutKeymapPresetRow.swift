@@ -15,6 +15,7 @@ struct ShortcutKeymapPresetRow: View {
     let proposals: ShortcutKeymapProposalInbox?
     @State private var proposedPreset: ShortcutKeymapPreset?
     @State private var isApplying = false
+    @State private var isChooserPresented = false
 
     private var snapshot: ShortcutBindingsSnapshot {
         ShortcutBindingsSnapshot(
@@ -48,36 +49,64 @@ struct ShortcutKeymapPresetRow: View {
                     localized: "settings.shortcuts.baseKeymap.subtitle",
                     defaultValue: "Start from another terminal's shortcuts. Only the differences are written to cmux.json; choose cmux to remove them."
                 ),
-                controlWidth: 220
+                controlWidth: 300
             ) {
-                Picker(
+                HStack(spacing: 7) {
+                    Picker(
                     String(localized: "settings.shortcuts.baseKeymap", defaultValue: "Base Keymap"),
-                    selection: Binding(
-                        get: { proposedPreset ?? activePreset },
-                        set: { preset in
-                            if let preset { propose(preset) }
+                        selection: Binding(
+                            get: { proposedPreset ?? activePreset },
+                            set: { preset in
+                                if let preset { propose(preset) }
+                            }
+                        )
+                    ) {
+                        ForEach(ShortcutKeymapPreset.allCases, id: \.self) { preset in
+                            Text(preset.displayName).tag(Optional(preset))
                         }
-                    )
-                ) {
-                    ForEach(ShortcutKeymapPreset.allCases, id: \.self) { preset in
-                        Text(preset.displayName).tag(Optional(preset))
+                        if proposedPreset == nil, activePreset == nil {
+                            Text(String(localized: "settings.shortcuts.baseKeymap.custom", defaultValue: "Custom"))
+                                .tag(ShortcutKeymapPreset?.none)
+                        }
                     }
-                    if proposedPreset == nil, activePreset == nil {
-                        Text(String(localized: "settings.shortcuts.baseKeymap.custom", defaultValue: "Custom"))
-                            .tag(ShortcutKeymapPreset?.none)
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .disabled(isApplying)
+                    .accessibilityIdentifier("SettingsKeyboardShortcutsBaseKeymapPicker")
+                    // The chooser compares the styles side by side, which the
+                    // menu picker cannot do. It is the same question new
+                    // installs get asked on first launch.
+                    Button(String(
+                        localized: "settings.shortcuts.baseKeymap.compare",
+                        defaultValue: "Compare…"
+                    )) {
+                        isChooserPresented = true
                     }
+                    .controlSize(.small)
+                    .disabled(isApplying)
+                    .accessibilityIdentifier("SettingsKeyboardShortcutsBaseKeymapCompare")
                 }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .disabled(isApplying)
-                .accessibilityIdentifier("SettingsKeyboardShortcutsBaseKeymapPicker")
             }
             if let proposedPlan {
                 preview(proposedPlan)
             }
         }
-        .onAppear { takeProposal() }
+        .onAppear {
+            takeProposal()
+            takeChooserRequest()
+        }
         .onChange(of: proposals?.preset) { _, _ in takeProposal() }
+        .onChange(of: proposals?.isChooserRequested) { _, _ in takeChooserRequest() }
+        .sheet(isPresented: $isChooserPresented) {
+            ShortcutKeymapChooserView(
+                initialPreset: activePreset ?? .cmux,
+                currentPreset: activePreset,
+                onApply: { preset in
+                    await applyFromChooser(preset)
+                },
+                onKeepCurrent: { isChooserPresented = false }
+            )
+        }
     }
 
     @ViewBuilder
@@ -138,6 +167,39 @@ struct ShortcutKeymapPresetRow: View {
         guard let proposals, let preset = proposals.preset else { return }
         proposals.preset = nil
         proposedPreset = preset
+    }
+
+    private func takeChooserRequest() {
+        guard let proposals, proposals.isChooserRequested else { return }
+        proposals.isChooserRequested = false
+        isChooserPresented = true
+    }
+
+    /// Applies a preset picked in the chooser, then closes it.
+    ///
+    /// The chooser writes directly rather than handing back a preview, because
+    /// it already showed what each style does before the choice was made.
+    private func applyFromChooser(_ preset: ShortcutKeymapPreset) async {
+        guard model.hasLoadedBindings else {
+            isChooserPresented = false
+            return
+        }
+        let freshPlan = plan(for: preset)
+        guard !freshPlan.isEmpty else {
+            isChooserPresented = false
+            return
+        }
+        do {
+            try await model.jsonStore.applyShortcutKeymap(
+                freshPlan,
+                bindingsID: model.catalog.shortcuts.bindings.id
+            )
+            model.onShortcutsChanged()
+        } catch {
+            model.errorLog.record(error, keyID: model.catalog.shortcuts.bindings.id)
+        }
+        proposedPreset = nil
+        isChooserPresented = false
     }
 
     /// Plans again from the bindings as they are now, so edits made while the

@@ -226,6 +226,25 @@ final class CmuxSettingsFileStore {
         (primaryPath as NSString).abbreviatingWithTildeInPath
     }
 
+    /// What cmux found the first time it needed the config file.
+    ///
+    /// The store creates the config file during init, so file existence cannot
+    /// tell a fresh install from an old one by the time the UI runs. This
+    /// records the answer at the only moment it is knowable, which is what the
+    /// first-run base keymap chooser gates on.
+    enum PrimaryTemplateBootstrap: Sendable, Equatable {
+        /// The config file was already on disk when cmux started.
+        case existingFile
+        /// cmux created it from a legacy settings.json, so this machine ran
+        /// cmux before.
+        case createdFromLegacy
+        /// cmux created it from the built-in template: a fresh install.
+        case createdFresh
+    }
+
+    /// How the config file came to exist. See ``PrimaryTemplateBootstrap``.
+    private(set) var primaryTemplateBootstrap: PrimaryTemplateBootstrap = .existingFile
+
     private func bootstrapPrimaryTemplateIfNeeded() {
         guard !fileManager.fileExists(atPath: primaryPath) else { return }
 
@@ -238,7 +257,9 @@ final class CmuxSettingsFileStore {
                 withIntermediateDirectories: true,
                 attributes: [.posixPermissions: 0o755]
             )
-            let template = legacySettingsDataForBootstrap() ?? Data(Self.defaultTemplate().utf8)
+            let legacy = legacySettingsDataForBootstrap()
+            primaryTemplateBootstrap = legacy == nil ? .createdFresh : .createdFromLegacy
+            let template = legacy ?? Data(Self.defaultTemplate().utf8)
             let contents = Self.materializeBootstrapSocketPolicy(
                 in: template,
                 imported: importedManagedDefaults[SocketControlSettings.appStorageKey],

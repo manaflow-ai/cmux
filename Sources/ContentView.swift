@@ -1008,6 +1008,7 @@ struct ContentView: View {
     @State private var commandPaletteResultsRevision: UInt64 = 0
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
     @State private var isFeedbackComposerPresented = false
+    @State private var isKeymapChooserPresented = false
     @AppStorage(AppCatalogSection().renameSelectsExistingName.userDefaultsKey)
     private var commandPaletteRenameSelectAllOnFocus = AppCatalogSection().renameSelectsExistingName.defaultValue
     @AppStorage(AppCatalogSection().commandPaletteSearchesAllSurfaces.userDefaultsKey)
@@ -3454,6 +3455,27 @@ struct ContentView: View {
         view = AnyView(view.ignoresSafeArea().overlay(WindowContentOverlayBrowserHost()))
         view = AnyView(view.sheet(isPresented: $isFeedbackComposerPresented) {
             SidebarFeedbackComposerSheet()
+        })
+
+        // A fresh install is asked once which shortcut style it wants, the way
+        // a game asks WASD or arrow keys. Everyone else reaches the same
+        // chooser from Settings or the Command Palette.
+        view = AnyView(view.sheet(isPresented: $isKeymapChooserPresented) {
+            ShortcutKeymapChooserView(
+                onApply: { preset in
+                    await Self.applyKeymapChooserChoice(preset)
+                    isKeymapChooserPresented = false
+                },
+                onKeepCurrent: {
+                    Self.recordKeymapChooserAnswered()
+                    isKeymapChooserPresented = false
+                }
+            )
+        })
+
+        view = AnyView(view.onAppear {
+            guard Self.claimKeymapChooserPresentation() else { return }
+            isKeymapChooserPresented = true
         })
 
         view = AnyView(view.onDisappear {
