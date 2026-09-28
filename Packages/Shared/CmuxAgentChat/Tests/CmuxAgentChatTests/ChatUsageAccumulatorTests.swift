@@ -178,18 +178,31 @@ struct ChatUsageAccumulatorTests {
     }
 
     private func codexCompactedLine() -> String {
-        Self.json([
+        return Self.json([
             "type": "compacted", "ordinal": 31,
             "timestamp": "2026-09-28T07:37:47.600Z",
             "payload": ["message": "history replaced"],
         ])
     }
 
-    private func codexSessionMetaLine(model: String, sessionID: String = "session-1") -> String {
-        Self.json([
+    private func codexSessionMetaLine(
+        model: String,
+        sessionID: String = "session-1",
+        inheritedHistory: Bool = false
+    ) -> String {
+        var payload: [String: Any] = ["id": sessionID, "model": model]
+        if inheritedHistory {
+            payload["thread_source"] = "subagent"
+            payload["source"] = [
+                "subagent": [
+                    "thread_spawn": ["parent_thread_id": "parent-thread", "depth": 1],
+                ],
+            ]
+        }
+        return Self.json([
             "type": "session_meta", "ordinal": 0,
             "timestamp": "2026-09-28T07:35:00.000Z",
-            "payload": ["id": sessionID, "model": model],
+            "payload": payload,
         ])
     }
 
@@ -270,6 +283,47 @@ struct ChatUsageAccumulatorTests {
         // Reasoning is a breakdown of output, never an addend.
         #expect(totals.usage.outputTokens == 340)
         #expect(totals.usage.totalTokens == totals.usage.inputTokens + 340)
+    }
+
+    @Test("provider model names are aggregated into a bounded number of rows")
+    func modelUsageRowsAreBounded() {
+        let reports = ChatUsageAccumulator.usageModelBucketLimit + 20
+
+        var claude = ChatUsageAccumulator()
+        claude.ingest(claudeLines: (0..<reports).map { index in
+            claudeLine(
+                uuid: "claude-\(index)",
+                messageID: "msg-\(index)",
+                model: "claude-model-\(index)",
+                input: 1,
+                cacheRead: 0,
+                cacheWrite: 0,
+                output: 0
+            )
+        })
+        #expect(claude.totals.usageByModel.count == ChatUsageAccumulator.usageModelBucketLimit)
+        #expect(claude.totals.usageByModel.values.map(\.totalTokens).reduce(0, +) == reports)
+
+        var codex = ChatUsageAccumulator()
+        for index in 0..<reports {
+            codex.ingest(codexLines: [
+                codexTurnContextLine(
+                    model: "codex-model-\(index)",
+                    turnID: "turn-\(index)",
+                    threadID: "thread-\(index)"
+                ),
+                codexRecordLine(
+                    responseID: "response-\(index)",
+                    input: 1,
+                    cached: 0,
+                    output: 0,
+                    threadID: "thread-\(index)",
+                    turnID: "turn-\(index)"
+                ),
+            ])
+        }
+        #expect(codex.totals.usageByModel.count == ChatUsageAccumulator.usageModelBucketLimit)
+        #expect(codex.totals.usageByModel.values.map(\.totalTokens).reduce(0, +) == reports)
     }
 
     @Test("a Claude usage block with no message id is skipped, not guessed")
@@ -713,10 +767,11 @@ struct ChatUsageAccumulatorTests {
         #expect(!totals.cumulativeUsageIsAmbiguous)
     }
 
-    @Test("compacted cumulative usage is discarded when records begin")
+    @Test("inherited compacted cumulative usage is discarded when records begin")
     func codexCompactedCumulativePrefixIsDiscardedForRecords() {
         var accumulator = ChatUsageAccumulator()
         accumulator.ingest(codexLines: [
+            codexSessionMetaLine(model: "", inheritedHistory: true),
             codexTokenCountLine(
                 cumulativeInput: 100, cumulativeOutput: 0,
                 lastInput: 100, lastOutput: 0
@@ -746,6 +801,7 @@ struct ChatUsageAccumulatorTests {
     func codexInheritedPreRecordThreadTotalIsDiscarded() {
         var accumulator = ChatUsageAccumulator()
         accumulator.ingest(codexLines: [
+            codexSessionMetaLine(model: "", inheritedHistory: true),
             codexTokenCountLine(
                 cumulativeInput: 1_086_500_386, cumulativeOutput: 3_819_683,
                 lastInput: 25_589, lastOutput: 51
@@ -790,39 +846,40 @@ struct ChatUsageAccumulatorTests {
         let totals = accumulator.totals
         #expect(accumulator.codexSource == .usageRecords)
         #expect(totals.responses == 3)
-        #expect(totals.usage.totalTokens == 90)
+        #expect(totals.usage.totalTokens == 190)
 
         // Re-reading remains idempotent: post-transition cumulative events
         // are ignored and duplicate records do not change either component.
         var replayed = ChatUsageAccumulator()
         replayed.ingest(codexLines: lines)
         replayed.ingest(codexLines: lines)
-        #expect(replayed.totals.usage.totalTokens == 90)
+        #expect(replayed.totals.usage.totalTokens == 190)
         #expect(replayed.totals.responses == 3)
     }
 
-    @Test("an event before the first record is replaced by precise records")
-    func codexEventBeforeFirstRecordIsDiscarded() {
+    @Test("same-rollout cumulative usage before record support stays counted")
+    func codexSameRolloutCumulativePrefixIsRetained() {
         var accumulator = ChatUsageAccumulator()
         accumulator.ingest(codexLines: [
+            codexSessionMetaLine(model: "gpt-6-astra"),
             codexTokenCountLine(
                 cumulativeInput: 100, cumulativeOutput: 0,
                 lastInput: 100, lastOutput: 0
             ),
-            codexRecordLine(responseID: "resp-1", input: 100, cached: 0, output: 0),
+            codexRecordLine(responseID: "resp-1", input: 20, cached: 0, output: 0),
         ])
 
-        #expect(accumulator.totals.usage.totalTokens == 100)
+        #expect(accumulator.totals.usage.totalTokens == 120)
 
         accumulator.ingest(codexLines: [
             codexTokenCountLine(
-                cumulativeInput: 200, cumulativeOutput: 0,
-                lastInput: 100, lastOutput: 0
+                cumulativeInput: 150, cumulativeOutput: 0,
+                lastInput: 30, lastOutput: 0
             ),
-            codexRecordLine(responseID: "resp-2", input: 100, cached: 0, output: 0),
+            codexRecordLine(responseID: "resp-2", input: 30, cached: 0, output: 0),
         ])
 
-        #expect(accumulator.totals.usage.totalTokens == 200)
+        #expect(accumulator.totals.usage.totalTokens == 150)
         #expect(accumulator.totals.responses == 2)
     }
 
@@ -851,7 +908,7 @@ struct ChatUsageAccumulatorTests {
         let totals = accumulator.totals
         #expect(accumulator.codexSource == .usageRecords)
         #expect(totals.responses == 2)
-        #expect(totals.usage.totalTokens == 50)
+        #expect(totals.usage.totalTokens == 150)
     }
 
     @Test("an explicit cumulative zero banks the current run without activating an empty stream")

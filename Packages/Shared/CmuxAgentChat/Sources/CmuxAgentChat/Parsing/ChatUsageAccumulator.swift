@@ -38,8 +38,9 @@ import Foundation
 /// Summing every cumulative report grows quadratically and sails past the
 /// context window. So the accumulator uses per-response records once they
 /// appear and cumulative events only as the fallback before that. A preceding
-/// cumulative snapshot can be inherited from a parent thread, so it is
-/// discarded rather than added to precise records.
+/// cumulative snapshot from the same user rollout remains as a pre-record
+/// prefix, while session metadata that identifies inherited subagent history
+/// causes that prefix to be discarded rather than charging the parent again.
 ///
 /// The cumulative fallback is split only at an explicit thread/session
 /// identity change or provider zero-reset. A `compacted` event changes visible
@@ -62,6 +63,11 @@ public struct ChatUsageAccumulator: Sendable {
     /// ample room for those clusters while bounding a long-lived tailer's
     /// memory use.
     static let recentResponseIdentityLimit = 4_096
+
+    /// Maximum distinct model rows retained by one long-lived tailer.
+    static let usageModelBucketLimit = 64
+    private static let usageModelNameLengthLimit = 256
+    private static let overflowModelBucket = "<other models>"
 
     /// Claude's model name for a message it produced without an API call.
     ///
@@ -106,6 +112,7 @@ public struct ChatUsageAccumulator: Sendable {
     private var codexModelByThread: RecentIDMap<String, String>
     private var codexResponseCount = 0
     private var codexRecordUsage = ChatTokenUsage()
+    private var codexRecordPrefixUsage = ChatTokenUsage()
     private var codexRecordUsageByModel: [String: ChatTokenUsage] = [:]
 
     // `banked` holds finished monotone cumulative runs and `current` the run
@@ -119,6 +126,7 @@ public struct ChatUsageAccumulator: Sendable {
     private var codexSessionModel: String?
     private var codexSessionID: String?
     private var codexThreadID: String?
+    private var codexTranscriptInheritsHistory = false
     private var contextWindowTokens: Int?
     private var rateLimit: ChatUsageRateLimit?
 
@@ -144,7 +152,7 @@ public struct ChatUsageAccumulator: Sendable {
         case .none:
             break
         case .usageRecords:
-            usage += codexRecordUsage
+            usage += codexRecordPrefixUsage + codexRecordUsage
             responses = ChatTokenUsage.saturatedSum(responses, codexResponseCount)
             for (model, modelUsage) in codexRecordUsageByModel {
                 byModel[model, default: ChatTokenUsage()] += modelUsage
@@ -283,7 +291,8 @@ public struct ChatUsageAccumulator: Sendable {
     /// Adds usage to one model's row, when the model is known.
     private mutating func addToClaudeModel(_ model: String?, _ usage: ChatTokenUsage) {
         guard let model else { return }
-        claudeUsageByModel[model, default: ChatTokenUsage()] += usage
+        let bucket = Self.usageModelBucket(for: model, in: claudeUsageByModel)
+        claudeUsageByModel[bucket, default: ChatTokenUsage()] += usage
     }
 
     /// Ingests one Codex rollout line.
@@ -323,6 +332,13 @@ public struct ChatUsageAccumulator: Sendable {
     }
 
     private mutating func ingestCodexSessionMetadata(_ payload: TranscriptJSONValue) {
+        if payload["thread_source"]?.string == "subagent"
+            || payload["thread_source"]?.string == "memory_consolidation"
+            || payload["source"]?["subagent"]?.object != nil
+            || payload["source"]?["internal"]?.string == "memory_consolidation"
+        {
+            codexTranscriptInheritsHistory = true
+        }
         observeCodexSessionID(payload["id"]?.string)
         observeCodexThreadID(payload["thread_id"]?.string)
         guard let model = payload["model"]?.string, !model.isEmpty else { return }
@@ -349,11 +365,15 @@ public struct ChatUsageAccumulator: Sendable {
             Self.incrementSaturating(&duplicateReports)
             return
         }
-        // Records are precise from this point forward. Discard the cumulative
-        // prefix: delegated/forked rollouts can open with a parent thread's
-        // lifetime total, so adding it to this transcript's records would
-        // charge the parent again in every child. Later cumulative snapshots
-        // cannot identify which records they include and are ignored too.
+        // Records are precise from this point forward. Preserve a cumulative
+        // prefix written by this user rollout before record support appeared,
+        // but never charge inherited subagent history to every child. Later
+        // cumulative snapshots include the records and are ignored.
+        if codexSource != .usageRecords {
+            codexRecordPrefixUsage = codexTranscriptInheritsHistory
+                ? ChatTokenUsage()
+                : codexCumulativeTotal
+        }
         codexSource = .usageRecords
         cumulativeUsageIsAmbiguous = false
         Self.incrementSaturating(&codexResponseCount)
@@ -363,8 +383,19 @@ public struct ChatUsageAccumulator: Sendable {
         // must not steal a delayed record from an earlier turn. Only an
         // explicitly declared session model is a safe identity-free fallback.
         if let model = codexModel(for: payload) {
-            codexRecordUsageByModel[model, default: ChatTokenUsage()] += usage
+            let bucket = Self.usageModelBucket(for: model, in: codexRecordUsageByModel)
+            codexRecordUsageByModel[bucket, default: ChatTokenUsage()] += usage
         }
+    }
+
+    private static func usageModelBucket(
+        for model: String,
+        in usageByModel: [String: ChatTokenUsage]
+    ) -> String {
+        guard model.count <= usageModelNameLengthLimit else { return overflowModelBucket }
+        if usageByModel[model] != nil { return model }
+        // Reserve the final row for every later or oversized provider value.
+        return usageByModel.count < usageModelBucketLimit - 1 ? model : overflowModelBucket
     }
 
     private func codexModel(for payload: TranscriptJSONValue) -> String? {
