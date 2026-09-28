@@ -113,6 +113,26 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
     }
 
+    func testInternalTabTransferWithFilePromiseTypesIsNotAFileDrop() {
+        // SwiftUI item-provider drags (right-sidebar tools) publish file-promise
+        // types next to the tab transfer. They must split the pane, not insert text.
+        let types: [NSPasteboard.PasteboardType] = [
+            PasteboardFileURLReader.promisedFileURLPasteboardType,
+            DragOverlayRoutingPolicy.bonsplitTabTransferType,
+        ]
+        XCTAssertFalse(DragOverlayRoutingPolicy.hasFileDropPayload(types))
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+                pasteboardTypes: types,
+                modifierFlags: [],
+                defaultBehavior: .text
+            )
+        )
+        XCTAssertTrue(DragOverlayRoutingPolicy.hasFileDropPayload([
+            PasteboardFileURLReader.promisedFileURLPasteboardType,
+        ]))
+    }
+
     func testPreviewDefaultMakesShiftRouteFileDropToTextDestination() {
         XCTAssertFalse(
             DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(

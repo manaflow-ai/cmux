@@ -208,6 +208,160 @@ final class SplitDividerDragUITests: SettingsUITestCase {
         )
     }
 
+    // MARK: - Drag to split
+
+    func testDraggingPaneTabOntoPaneEdgeSplits() throws {
+        try assertTabDragOntoPaneEdgeSplits(rightSidebarMode: nil)
+    }
+
+    /// Leo's report: with the right sidebar's Cloud panel open, a pane tab
+    /// dropped on a pane edge did not split, in a local workspace.
+    func testDraggingPaneTabOntoPaneEdgeSplitsWithCloudPanelOpen() throws {
+        try assertTabDragOntoPaneEdgeSplits(rightSidebarMode: "machines")
+    }
+
+    func testDraggingSidebarToolOntoPaneEdgeCreatesSplit() throws {
+        try assertSidebarToolDragSplits(rightSidebarMode: "files")
+    }
+
+    func testDraggingSidebarToolOntoPaneEdgeCreatesSplitWithCloudPanelOpen() throws {
+        try assertSidebarToolDragSplits(rightSidebarMode: "machines")
+    }
+
+    /// Two tabs, Alpha and Beta (selected), in one pane. Dropping Beta on the
+    /// pane's right edge must leave Alpha's pane with one tab and two
+    /// terminals side by side.
+    private func assertTabDragOntoPaneEdgeSplits(rightSidebarMode: String?) throws {
+        let session = try launchTabDragSetup(rightSidebarMode: rightSidebarMode)
+        let app = session.app
+        defer { session.finish() }
+        let window = app.windows.firstMatch
+        let betaTab = app.buttons[session.ready["betaTitle"] ?? "UITest Beta"]
+        XCTAssertTrue(betaTab.waitForExistence(timeout: 5), "Expected the beta tab")
+        var terminal: XCUIElement?
+        XCTAssertTrue(
+            poll(timeout: 10) {
+                terminal = visibleTerminals(in: app).max { $0.frame.width < $1.frame.width }
+                return terminal != nil
+            },
+            "Expected the workspace terminal; textViews=\(terminalFrames(in: app))"
+        )
+        guard let terminal else { return }
+        let before = terminal.frame
+        attach(window.screenshot(), name: "01 before tab drag to pane edge")
+
+        let source = betaTab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let target = point(in: window, x: before.maxX - 24, y: before.midY)
+        source.press(forDuration: 0.3, thenDragTo: target)
+
+        let split = poll(timeout: 6) {
+            loadJSON(atPath: session.dataPath)["trackedPaneTabCount"] == "1"
+                && sideBySideTerminals(in: app) != nil
+        }
+        attach(window.screenshot(), name: "02 after tab drag to pane edge")
+        session.attachDragLog(to: self)
+        XCTAssertTrue(
+            split,
+            "Expected dropping the Beta tab on the pane's right edge to split the pane. " +
+                "tabs=\(loadJSON(atPath: session.dataPath)["trackedPaneTabTitles"] ?? "") " +
+                "terminals=\(terminalFrames(in: app))"
+        )
+    }
+
+    /// Dragging a right sidebar tool (its mode bar button) onto a pane's edge
+    /// opens the tool as a split beside that pane.
+    private func assertSidebarToolDragSplits(rightSidebarMode: String) throws {
+        let session = try launchTabDragSetup(rightSidebarMode: rightSidebarMode)
+        let app = session.app
+        defer { session.finish() }
+        let window = app.windows.firstMatch
+        let tool = app.descendants(matching: .any)["RightSidebarModeButton.find"]
+        XCTAssertTrue(tool.waitForExistence(timeout: 10), "Expected the Find mode button in the right sidebar")
+        var terminal: XCUIElement?
+        XCTAssertTrue(
+            poll(timeout: 10) {
+                terminal = visibleTerminals(in: app).max { $0.frame.width < $1.frame.width }
+                return terminal != nil
+            },
+            "Expected the workspace terminal; textViews=\(terminalFrames(in: app))"
+        )
+        guard let terminal else { return }
+        let before = terminal.frame
+        attach(window.screenshot(), name: "01 before sidebar tool drag")
+
+        let source = tool.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let target = point(in: window, x: before.maxX - 24, y: before.midY)
+        source.press(forDuration: 0.3, thenDragTo: target)
+
+        let split = poll(timeout: 6) { terminal.frame.width < before.width * 0.75 }
+        attach(window.screenshot(), name: "02 after sidebar tool drag")
+        session.attachDragLog(to: self)
+        XCTAssertTrue(
+            split,
+            "Expected dropping the Find tool on the pane's right edge to split it. " +
+                "before=\(before) after=\(terminal.frame)"
+        )
+    }
+
+    private struct TabDragSession {
+        let app: XCUIApplication
+        let dataPath: String
+        let logPath: String
+        let ready: [String: String]
+
+        func finish() {
+            app.terminate()
+            try? FileManager.default.removeItem(atPath: dataPath)
+            try? FileManager.default.removeItem(atPath: logPath)
+        }
+
+        func attachDragLog(to test: XCTestCase) {
+            let log = ((try? String(contentsOfFile: logPath, encoding: .utf8)) ?? "")
+                .split(separator: "\n")
+                .filter { line in
+                    ["drag", "drop", "Drag", "Drop", "route", "portal", "rightSidebar", "hitTest"]
+                        .contains { line.contains($0) }
+                }
+                .suffix(150)
+                .joined(separator: "\n")
+            let attachment = XCTAttachment(string: log)
+            attachment.name = "app drag log"
+            attachment.lifetime = .keepAlways
+            test.add(attachment)
+        }
+    }
+
+    private func launchTabDragSetup(rightSidebarMode: String?) throws -> TabDragSession {
+        let id = UUID().uuidString
+        let dataPath = "/tmp/cmux-ui-test-split-drag-\(id).json"
+        let logPath = "/tmp/cmux-ui-test-split-drag-\(id).log"
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchArguments += settingsLaunchArguments
+        app.launchArguments += ["-workspacePresentationMode", "standard"]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_TAG"] = "ui-split-drag-\(id.prefix(8))"
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
+        app.launchEnvironment["CMUX_DEBUG_LOG"] = logPath
+        if let rightSidebarMode {
+            app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
+            app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_RIGHT_SIDEBAR_MODE"] = rightSidebarMode
+        }
+        launchAndActivate(app)
+        var ready: [String: String] = [:]
+        XCTAssertTrue(
+            poll(timeout: 25) {
+                ready = loadJSON(atPath: dataPath)
+                return ready["ready"] == "1"
+            },
+            "Timed out waiting for the tab-drag setup. data=\(ready)"
+        )
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+        }
+        return TabDragSession(app: app, dataPath: dataPath, logPath: logPath, ready: ready)
+    }
+
     // MARK: - Helpers
 
     private func launchSplitApp() -> XCUIApplication {

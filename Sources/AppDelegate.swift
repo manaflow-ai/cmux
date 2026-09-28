@@ -12566,7 +12566,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     self.writeBonsplitTabDragUITestData(["setupError": "Missing right sidebar state"])
                     return
                 }
-                fileExplorerState.mode = .files
+                fileExplorerState.mode = env["CMUX_UI_TEST_BONSPLIT_RIGHT_SIDEBAR_MODE"]
+                    .flatMap(RightSidebarMode.init(rawValue:)) ?? .files
                 fileExplorerState.setVisible(true)
             }
             self.writeBonsplitTabDragUITestData([

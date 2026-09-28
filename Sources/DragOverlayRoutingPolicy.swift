@@ -236,8 +236,13 @@ enum DragOverlayRoutingPolicy {
         PasteboardFileURLReader.hasFileURLType(pasteboardTypes ?? [])
     }
 
+    /// A file drop is a Finder-style file URL or an internal file-preview drag.
+    /// Other internal tab transfers are never file drops: SwiftUI item-provider
+    /// drags, such as a right-sidebar tool, also publish file-promise types, and
+    /// treating those as files would insert text instead of splitting the pane.
     static func hasFileDropPayload(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        hasFileURL(pasteboardTypes) || hasFilePreviewTransfer(pasteboardTypes)
+        if hasFilePreviewTransfer(pasteboardTypes) { return true }
+        return hasFileURL(pasteboardTypes) && !hasBonsplitTabTransfer(pasteboardTypes)
     }
 
     /// Returns whether a file drop payload is live rather than residual.
