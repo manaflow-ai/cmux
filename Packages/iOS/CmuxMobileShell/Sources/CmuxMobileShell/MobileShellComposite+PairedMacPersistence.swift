@@ -172,25 +172,6 @@ extension MobileShellComposite {
                         now: Date()
                     )
                 }
-                // Durable fallback for the scanned authorization: when the
-                // Direct-address conversion cannot complete, the grant keeps
-                // the pairing reconnectable through the Iroh compatibility
-                // path instead of connecting once and then stranding it.
-                let persistScannedGrant: () async -> Void = {
-                    do {
-                        try await pairedMacStore.authorizeUserTailscaleRoutes(
-                            macDeviceID: ticket.macDeviceID,
-                            instanceTag: instanceTag,
-                            stackUserID: stackUserID,
-                            teamID: scope?.teamID,
-                            routes: userAuthorizedTailscaleRoutes
-                        )
-                    } catch {
-                        pairedMacPersistenceLog.error(
-                            "fallback tailscale grant persist failed: \(String(describing: error), privacy: .private)"
-                        )
-                    }
-                }
                 if !userAuthorizedTailscaleRoutes.isEmpty,
                    ticket.routes.contains(where: { $0.kind == .iroh }) {
                     // The code named the Mac's device key: its Tailscale
@@ -234,10 +215,16 @@ extension MobileShellComposite {
                                 teamID: scope?.teamID
                             )
                         } catch {
+                            // The scanned authorization could not be saved,
+                            // and a keyed pairing can never dial a legacy
+                            // grant (its stored Iroh route disables the
+                            // compatibility path; Direct ignores grants), so
+                            // there is no durable fallback. Report failure so
+                            // the flow does not dismiss as paired.
+                            accepted = false
                             pairedMacPersistenceLog.error(
                                 "direct address conversion persist failed: \(String(describing: error), privacy: .private)"
                             )
-                            await persistScannedGrant()
                             self.recordAppEvent(
                                 .pairedMacStoreWriteFailed,
                                 correlationID: ticket.macDeviceID,
@@ -246,10 +233,16 @@ extension MobileShellComposite {
                             )
                         }
                     } else {
+                        accepted = false
                         pairedMacPersistenceLog.error(
                             "direct address conversion skipped: row not found after upsert"
                         )
-                        await persistScannedGrant()
+                        self.recordAppEvent(
+                            .pairedMacStoreWriteFailed,
+                            correlationID: ticket.macDeviceID,
+                            startedAt: startedAt,
+                            failure: .unknown
+                        )
                     }
                 } else if !userAuthorizedTailscaleRoutes.isEmpty {
                     // A pre-Iroh Mac has no device key to verify, so Direct

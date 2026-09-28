@@ -40,7 +40,15 @@ extension MobilePairedMacStore {
             throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
         }
         var rows: [Row] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
+        while true {
+            let step = sqlite3_step(statement)
+            if step == SQLITE_DONE { break }
+            // An iteration error must fail the migration transaction (and
+            // retry on the next open), not silently commit v13 with some
+            // 'tailscale' rows left unconverted.
+            guard step == SQLITE_ROW else {
+                throw MobilePairedMacStoreError.stepFailed(step, lastErrorMessage())
+            }
             guard let macDeviceID = Self.readNullableText(statement, column: 0),
                   let ownerKey = Self.readNullableText(statement, column: 1) else { continue }
             rows.append(Row(
@@ -94,6 +102,9 @@ extension MobilePairedMacStore {
 
 }
 
+/// Reconciliation of the pairing-code-derived Direct addresses against a
+/// freshly authorized route set, shared by the v13 migration and the live
+/// pairing-code conversion.
 public extension [MobilePairedMacDirectAddress] {
     /// Reconciles the pairing-code-derived subset (entries whose ``origin``
     /// is ``MobilePairedMacDirectAddress/pairingCodeOrigin``) against a
