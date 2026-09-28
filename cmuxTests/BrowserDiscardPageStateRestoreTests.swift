@@ -160,6 +160,47 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
     }
 
+    /// Stop keeps a shown pane from reloading, but a WebContent process that
+    /// dies while hidden leaves no live page for Stop to keep.
+    func testHiddenTerminationAfterStopRestoresPageStateOnReveal() throws {
+        let (panel, pageA, pageB) = try loadScrolledFormPage()
+        defer { panel.close() }
+
+        panel.stopLoading()
+        panel.noteWebViewVisibility(false, reason: "test.hidden")
+        let terminatedWebView = try terminateWebContent(of: panel)
+        terminatedWebView.removeFromSuperview()
+
+        panel.noteWebViewVisibility(true, reason: "test.visible")
+        XCTAssertFalse(panel.hasRecoverableWebContentTermination)
+        XCTAssertFalse(panel.webView === terminatedWebView)
+        host(panel.webView)
+        assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
+    }
+
+    /// A back/forward cache return keeps the typed input on screen, but its
+    /// commit clears the pane's copy, so the page must report it again.
+    func testBackForwardCacheReturnReportsTypedInputAgain() throws {
+        let (panel, _, _) = try loadScrolledFormPage()
+        defer { panel.close() }
+        XCTAssertNotNil(panel.pageRestoration.liveFormState)
+
+        _ = evaluate(
+            "window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })); true",
+            in: panel.webView
+        )
+        panel.pageRestoration.noteDocumentCommitted(isDiscardRestoreCommit: false)
+        XCTAssertNil(panel.pageRestoration.liveFormState)
+
+        _ = evaluate(
+            "window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })); true",
+            in: panel.webView
+        )
+        waitUntil("typed input reported again") {
+            panel.pageRestoration.liveFormState?.isEmpty == false
+        }
+    }
+
     /// Loads page A, then a scrolled page B with typed form input, and returns
     /// the hosted panel showing B.
     private func loadScrolledFormPage() throws -> (panel: BrowserPanel, pageA: URL, pageB: URL) {

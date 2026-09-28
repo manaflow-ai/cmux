@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxBrowser
 import WebKit
 import XCTest
@@ -108,6 +109,45 @@ final class BrowserHiddenWebViewMemoryBudgetCoordinatorTests: XCTestCase {
         XCTAssertEqual(second.webViewLifecycleState, .liveHidden)
     }
 
+    /// Dock panes hold web content like workspace panes, so the budget and the
+    /// memory-pressure responder must weigh them too.
+    func testLiveBrowserPanelsIncludeDockPanes() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let workspace = manager.addWorkspace(select: true)
+        let workspaceDock = try XCTUnwrap(workspace.dockSplit)
+        let workspaceDockBrowser = try workspaceDock.seedBrowserPanelForBudgetTest(
+            BrowserPanel(
+                workspaceId: workspaceDock.workspaceId,
+                initialURL: try XCTUnwrap(URL(string: "https://example.com/workspace-dock")),
+                renderInitialNavigation: false
+            )
+        )
+        let windowDock = appDelegate.windowDock(forWindowId: windowId)
+        let windowDockBrowser = try windowDock.seedBrowserPanelForBudgetTest(
+            BrowserPanel(
+                workspaceId: windowDock.workspaceId,
+                initialURL: try XCTUnwrap(URL(string: "https://example.com/window-dock")),
+                renderInitialNavigation: false
+            )
+        )
+
+        let live = appDelegate.allLiveBrowserPanels().map(ObjectIdentifier.init)
+        XCTAssertTrue(live.contains(ObjectIdentifier(workspaceDockBrowser)), "Workspace Dock browser must count")
+        XCTAssertTrue(live.contains(ObjectIdentifier(windowDockBrowser)), "Window Dock browser must count")
+        XCTAssertEqual(live.count, Set(live).count, "Each panel counts once")
+    }
+
     /// Reports a distinct fake process of 200 MB for each loaded panel, so two
     /// hidden panels hold more than the 256 MB budget and one fits.
     private func makeCoordinator(panels: [BrowserPanel]) -> BrowserHiddenWebViewMemoryBudgetCoordinator {
@@ -150,5 +190,23 @@ final class BrowserHiddenWebViewMemoryBudgetCoordinatorTests: XCTestCase {
         }
         continueAfterFailure = false
         XCTFail("Timed out waiting for \(description)", file: file, line: line)
+    }
+}
+
+private extension DockSplitStore {
+    func seedBrowserPanelForBudgetTest(_ panel: BrowserPanel) throws -> BrowserPanel {
+        let pane = try XCTUnwrap(bonsplitController.allPaneIds.first)
+        panels[panel.id] = panel
+        let tabId = try XCTUnwrap(
+            bonsplitController.createTab(
+                title: panel.displayTitle,
+                icon: panel.displayIcon,
+                kind: "browser",
+                isDirty: panel.isDirty,
+                inPane: pane
+            )
+        )
+        bindSurface(tabId, toPanelId: panel.id)
+        return panel
     }
 }

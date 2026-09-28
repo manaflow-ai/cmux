@@ -69,6 +69,13 @@ public final class BrowserPageRestorationState {
         liveContainsFormSubmission = true
     }
 
+    /// Call for every navigation request allowed in this web view.
+    public func noteNavigationRequest(isMainFrame: Bool, isFormSubmission: Bool) {
+        if isMainFrame, isFormSubmission {
+            noteMainFrameFormSubmission()
+        }
+    }
+
     // MARK: Hidden snapshot
 
     /// Starts a snapshot for a pane that was just hidden and returns the

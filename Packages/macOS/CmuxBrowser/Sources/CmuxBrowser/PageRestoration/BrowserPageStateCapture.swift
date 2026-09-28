@@ -31,6 +31,9 @@ public struct BrowserPageStateCapture: Equatable, Sendable {
     /// Whether any entry came from a form submission. WebKit serializes POST
     /// bodies into session state, so such state never reaches disk.
     public var containsFormSubmission: Bool
+    /// Whether the current entry, or one of its frames, came from a form
+    /// submission, so assigning the state would submit the form again.
+    public var documentHasFormSubmission: Bool
 
     public init(
         interactionState: Data?,
@@ -40,7 +43,8 @@ public struct BrowserPageStateCapture: Equatable, Sendable {
         snapshot: BrowserPageSnapshotImage? = nil,
         snapshotToken: UUID? = nil,
         coversNavigationHistory: Bool,
-        containsFormSubmission: Bool
+        containsFormSubmission: Bool,
+        documentHasFormSubmission: Bool = false
     ) {
         self.interactionState = interactionState
         self.documentURL = documentURL
@@ -50,6 +54,7 @@ public struct BrowserPageStateCapture: Equatable, Sendable {
         self.snapshotToken = snapshotToken
         self.coversNavigationHistory = coversNavigationHistory
         self.containsFormSubmission = containsFormSubmission
+        self.documentHasFormSubmission = documentHasFormSubmission
     }
 
     /// Session state that may be written to the session file, or nil when it

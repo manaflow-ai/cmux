@@ -51,6 +51,28 @@ struct BrowserDiscardRestoreStrategyTests {
         )
     }
 
+    /// Assigning session state for a page shown as a form submission result
+    /// makes WebKit send the form again, so such a page loads by URL.
+    @Test("A capture whose page came from a form submission replays the URL")
+    func replaysFormSubmissionDocument() {
+        let submitted = BrowserPageStateCapture(
+            interactionState: state,
+            documentURL: pageURL,
+            anchorURL: pageURL,
+            coversNavigationHistory: true,
+            containsFormSubmission: true,
+            documentHasFormSubmission: true
+        )
+        #expect(BrowserDiscardRestoreStrategy.resolve(restoreURL: pageURL, capture: submitted) == .replayURL(pageURL))
+
+        var earlierSubmission = submitted
+        earlierSubmission.documentHasFormSubmission = false
+        #expect(
+            BrowserDiscardRestoreStrategy.resolve(restoreURL: pageURL, capture: earlierSubmission)
+                == .restoreInteractionState(state)
+        )
+    }
+
     @Test(
         "Reload, remote proxy, cloud routing, crash recovery and insecure HTTP replay the URL",
         arguments: [

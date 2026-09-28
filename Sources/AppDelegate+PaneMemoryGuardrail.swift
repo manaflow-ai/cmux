@@ -62,16 +62,21 @@ extension AppDelegate {
             AgentHibernationController.shared.clearAggregateMemoryPressureConfirmations()
         }
         let browserMemoryBudget = BrowserHiddenWebViewMemoryBudgetCoordinator { [weak self] in
-            (self?.paneMemoryGuardrailTabManagers() ?? []).flatMap { manager in
-                manager.tabs.flatMap { workspace in
-                    workspace.panels.values.compactMap { $0 as? BrowserPanel }
-                }
-            }
+            self?.allLiveBrowserPanels() ?? []
         }
         monitor.onSampleApplied = { sampledAt in
             browserMemoryBudget.enforceBudget(now: sampledAt)
         }
         monitor.start()
+    }
+
+    /// Every live browser panel the memory budget weighs.
+    func allLiveBrowserPanels() -> [BrowserPanel] {
+        paneMemoryGuardrailTabManagers().flatMap { manager in
+            manager.tabs.flatMap { workspace in
+                workspace.panels.values.compactMap { $0 as? BrowserPanel }
+            }
+        }
     }
 
     private func paneMemoryGuardrailTabManagers() -> [TabManager] {
