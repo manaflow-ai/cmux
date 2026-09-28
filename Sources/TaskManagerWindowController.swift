@@ -195,6 +195,17 @@ final class CmuxTaskManagerModel {
         flashSelection(workspaceId: workspaceId, surfaceId: terminalSurfaceId)
     }
 
+    /// Closes an agent's terminal through the same confirmation path as the
+    /// sidebar's Close Surface action, so a running agent still prompts.
+    func closeTerminal(for row: CmuxTaskManagerRow) {
+        guard row.canCloseTerminal,
+              let workspaceId = row.workspaceId,
+              let terminalSurfaceId = row.terminalSurfaceId,
+              let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
+        manager.closePanelWithConfirmation(tabId: workspaceId, surfaceId: terminalSurfaceId)
+        refresh(force: true)
+    }
+
     func killProcess(for row: CmuxTaskManagerRow) {
         let processIds = row.killableProcessIds
         guard !processIds.isEmpty else { return }

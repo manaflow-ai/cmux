@@ -11,12 +11,16 @@ extension TerminalController {
         let identifyPayload = v2Identify(params: [:])
         let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
         var windowNodes: [[String: Any]] = []
+        var agentPanels: [[String: Any]] = []
 
         if let app = AppDelegate.shared {
             let summaries = app.listMainWindowSummaries()
 
             for (windowIndex, summary) in summaries.enumerated() {
                 guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+                for workspace in manager.tabs {
+                    agentPanels.append(contentsOf: workspace.taskManagerAgentPanelPayloads())
+                }
                 let workspaceNodes = manager.tabs.enumerated().map { workspaceIndex, workspace in
                     v2TopWorkspaceNode(
                         workspace: workspace,
@@ -43,6 +47,7 @@ extension TerminalController {
         var result = JSONValue.object(payload).foundationObject as? [String: Any] ?? [:]
         result["active"] = focused.isEmpty ? (NSNull() as Any) : focused
         result["caller"] = NSNull()
+        result["agent_panels"] = agentPanels
         return result
     }
 

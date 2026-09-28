@@ -31,7 +31,7 @@ extension ContentView {
                 commandId: "palette.openTaskManager",
                 title: constant(String(localized: "taskManager.title", defaultValue: "Task Manager")),
                 subtitle: constant(String(localized: "command.closeWindow.subtitle", defaultValue: "Window")),
-                keywords: ["task", "manager", "process", "cpu", "memory", "kill"]
+                keywords: ["task", "manager", "process", "processes", "activity", "monitor", "top", "agents", "cpu", "memory", "kill"]
             ),
             CommandPaletteCommandContribution(
                 commandId: "palette.sleepyMode",
