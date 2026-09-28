@@ -148,6 +148,12 @@ final class MobileSSHTmuxControlClient {
         }
     }
 
+    /// Test seam: resolves after the read pump ended, which is after
+    /// ``finish()`` ran and every close handler fired.
+    func awaitPumpEndForTesting() async {
+        await pump?.value
+    }
+
     // MARK: Commands
 
     /// Sends command lines in one write, registering a reply handler for each.

@@ -13,7 +13,8 @@ import Foundation
 @MainActor
 final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminalCreating, MobileSSHTopologyReporting,
     MobileSSHCurrentDirectoryProviding {
-    private let connection: SSHConnection
+    /// `nil` only in tests, which install scripted control clients.
+    private let connection: SSHConnection?
     /// Absolute path found by ``probe(on:)``; login PATH may omit Homebrew.
     let tmuxPath: String
     /// A private tmux server (`tmux -L <name>`); `nil` is the user's default
@@ -21,15 +22,20 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     let socketName: String?
     private var controls: [String: MobileSSHTmuxControlClient] = [:]
     private var opening: [String: Task<MobileSSHTmuxControlClient, any Error>] = [:]
-    /// The one stale-grouped-session collection per connection, run before
+    /// The one stale-grouped-session collection per tmux server, run before
     /// the first listing or attach.
     private var collection: Task<Void, Never>?
     var onTopologyChange: (@MainActor () -> Void)?
+    /// Whether the SSH transport is still open. A control client that ends
+    /// while this is true means the tmux server (or the grouped session)
+    /// ended, not the connection. Settable as a test seam.
+    var hostConnectionIsOpen: () -> Bool
 
-    init(connection: SSHConnection, tmuxPath: String, socketName: String? = nil) {
+    init(connection: SSHConnection?, tmuxPath: String, socketName: String? = nil) {
         self.connection = connection
         self.tmuxPath = tmuxPath
         self.socketName = socketName
+        hostConnectionIsOpen = { connection?.isOpen ?? false }
     }
 
     /// Finds tmux on the server, checking common install locations the
@@ -63,7 +69,8 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
         if let collection { return await collection.value }
         let task = Task { @MainActor [connection, tmux] in
             let format = "#{session_attached}:#{session_name}".posixShellSingleQuoted
-            guard let result = try? await connection.exec("\(tmux) list-sessions -F \(format) 2>/dev/null"),
+            guard let connection,
+                  let result = try? await connection.exec("\(tmux) list-sessions -F \(format) 2>/dev/null"),
                   result.exitStatus == 0 else { return } // no server running
             let stale = Self.staleGroupedSessions(result.stdoutString)
             guard !stale.isEmpty else { return }
@@ -173,6 +180,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     }
 
     func listWorkspaces() async throws -> [MobileSSHWorkspace] {
+        guard let connection else { return [] }
         await collectStaleGroupedSessions()
         let result = try await connection.exec("\(tmux) list-panes -a -F \(Self.listFormat.posixShellSingleQuoted) 2>/dev/null")
         guard result.exitStatus == 0 else { return [] } // no server running = no sessions
@@ -191,7 +199,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
 
     func closeWorkspace(id: String) async throws {
         if let control = controls.removeValue(forKey: id) { await control.close() }
-        _ = try await connection.exec("\(tmux) kill-session -t \(("=" + id).posixShellSingleQuoted)")
+        _ = try await connection?.exec("\(tmux) kill-session -t \(("=" + id).posixShellSingleQuoted)")
     }
 
     /// Opens a tmux window (without switching the session's current window,
@@ -222,7 +230,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
 
     /// The pane's working directory (`#{pane_current_path}`).
     func currentDirectory(terminalID: String) async -> String? {
-        guard let (_, pane) = Self.parseTerminalID(terminalID),
+        guard let (_, pane) = Self.parseTerminalID(terminalID), let connection,
               let result = try? await connection.exec("\(tmux) display-message -p -t %\(pane) '#{pane_current_path}'"),
               result.exitStatus == 0 else { return nil }
         let path = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -234,6 +242,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     /// older tmux.
     @discardableResult
     private func runStartingShell(_ verb: String, _ arguments: String) async throws -> String {
+        guard let connection else { throw SSHConnectionError.closed }
         let withEnv = try await connection.exec("\(tmux) \(verb) -d -e COLORTERM=truecolor \(arguments)")
         if withEnv.exitStatus == 0 { return withEnv.stdoutString }
         let result = try await connection.exec("\(tmux) \(verb) -d \(arguments)")
@@ -268,21 +277,32 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     private func control(session: String) async throws -> MobileSSHTmuxControlClient {
         if let control = controls[session], !control.isClosed { return control }
         if let task = opening[session] { return try await task.value }
+        guard let connection else { throw SSHConnectionError.closed }
         let task = Task { @MainActor in
             await self.collectStaleGroupedSessions()
-            return try await MobileSSHTmuxControlClient.open(connection: self.connection, tmux: self.tmux, session: session)
+            return try await MobileSSHTmuxControlClient.open(connection: connection, tmux: self.tmux, session: session)
         }
         opening[session] = task
         defer { opening[session] = nil }
         let control = try await task.value
+        adopt(control, session: session)
+        return control
+    }
+
+    /// Wires a session's control client into the provider. Internal so
+    /// tests can install a client over a scripted transport.
+    func adopt(_ control: MobileSSHTmuxControlClient, session: String) {
         control.onTopologyChange = { [weak self] in self?.onTopologyChange?() }
         control.onClose = { [weak self, weak control] in
             guard let self, let control, self.controls[session] === control else { return }
             self.controls[session] = nil
         }
         controls[session] = control
-        return control
     }
+
+    /// Test seam: whether the per-server grouped-session collection pass is
+    /// cached. It must be forgotten when the server dies under the phone.
+    var hasCachedCollectionPassForTesting: Bool { collection != nil }
 
     /// The last pane of a session detached: close its control client and
     /// grouped session before returning, so a disconnect that follows
