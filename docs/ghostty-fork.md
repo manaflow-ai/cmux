@@ -835,7 +835,12 @@ mobile producer skips JSON on both sides. `buildRenderGridJson` now delegates
 to `buildRenderGrid` with an encoding flag, and theme JSON writing moved into
 `writeRenderGridConfigThemeObject` / `writeRenderGridEffectiveThemeObject`,
 shared by both encodings. If upstream changes the render-grid capture, keep
-`writeRenderGridBinary` field-for-field in step with the Swift decoder. The line's earlier swap-chain
+`writeRenderGridBinary` field-for-field in step with the Swift decoder.
+Hosted [run 36424864550](https://github.com/manaflow-ai/cmux/actions/runs/36424864550)
+published
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-72ff13a93034eb47766a0f9f6555545457f53a0c-crashsubdir-cmux-crash-sentry-off-noi18n-v2;
+SHA-256 `6b09bb4a03058233bcd0da261a222379329d83793ff4fcf24c9f77c6c15332f7` is
+pinned in `scripts/ghosttykit-checksums.txt`. The line's earlier swap-chain
 rotation commit (`d2fc392de`, the iOS frozen-presents root-cause fix) was
 independently landed on `main` as the byte-identical serial frame-lease
 rotation (https://github.com/manaflow-ai/ghostty/pull/145); the merge keeps
