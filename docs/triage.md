@@ -54,6 +54,17 @@ on it, so the rules leave those alone and mark `needs-triage` instead.
 [`.github/labels.json`](../.github/labels.json) carries a one-line description
 of each, which is what shows in the GitHub label picker.
 
+### The dropdown on the issue form
+
+Both issue forms ask "Which part of cmux is this about?" with the area labels as
+options. An answer there is used as-is and nothing else is consulted, because
+picking off a list of the real labels is better evidence than any regex over
+prose. "Not sure" is a normal answer and falls through to the rules below.
+
+This is the only way body text can decide an area. Scoring deliberately ignores
+body-only evidence, so without reading the form the dropdown would have no
+effect at all.
+
 ### Naming the area yourself
 
 A title that opens with an area's own name is taken at its word, ahead of

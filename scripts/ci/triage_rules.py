@@ -155,6 +155,9 @@ AREA_RULES: list[tuple[str, re.Pattern[str]]] = [
     ("area: build-and-ci", re.compile(r"\b(\bci\b|github actions?|workflow (?:file|run|fail)|runner(?:s)?|xcodebuild|swiftpm|spm\b|derived ?data|build (?:fail|break|graph|time)|test (?:lane|harness|flake|infra)|flaky test|merge queue|main (?:is |was )?(?:red|uncompilable|broken)|uncompilable|nightly (?:publish|failure|build)|linker|submodule)\b", re.I)),
 ]
 
+# Every area label the rules can produce, for validating what a form reports.
+AREA_NAMES = frozenset(area for area, _pattern in AREA_RULES)
+
 BODY_WEIGHT_CHARS = 1200
 TITLE_WEIGHT = 3
 BODY_WEIGHT = 1
@@ -354,6 +357,42 @@ DECLARED_RULES: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 
+# The issue forms ask this, and GitHub renders the answer as the next line.
+FORM_AREA_HEADING = re.compile(r"^#+\s*Which part of cmux is this about\?\s*$", re.I | re.M)
+# What GitHub writes for an optional field nobody filled in.
+FORM_NO_ANSWER = {"", "not sure", "_no response_", "none"}
+
+
+def form_area(body: str) -> str | None:
+    """The area the reporter picked from the issue form's dropdown.
+
+    This outranks every inference below it: the reporter chose from a list of
+    the actual area labels, which is better evidence than any regex over their
+    prose. It is also the only reason the dropdown is worth having, since body
+    text alone never carries an area (see `pick_areas`).
+
+    Returns None when the field is absent, skipped, or set to "Not sure", which
+    is the common case: most issues do not come from the form at all.
+    """
+    heading = FORM_AREA_HEADING.search(body or "")
+    if not heading:
+        return None
+    for line in body[heading.end() :].splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            # The next question already, so this one was left blank.
+            return None
+        # Options read `sidebar` or `remote (cmux ssh, tunnels)`. Take the label.
+        answer = line.split("(")[0].strip().lower()
+        if answer in FORM_NO_ANSWER:
+            return None
+        candidate = f"{AREA_PREFIX}{answer}"
+        return candidate if candidate in AREA_NAMES else None
+    return None
+
+
 def declared_area(title: str, *, prefix_only: bool = False) -> str | None:
     """The area the title names up front, if it names exactly one.
 
@@ -393,14 +432,23 @@ def declared_area(title: str, *, prefix_only: bool = False) -> str | None:
     return hits.pop() if len(hits) == 1 else None
 
 
-def pick_areas(scores: dict[str, int], *, limit: int = 2, title: str = "") -> list[str]:
+def pick_areas(
+    scores: dict[str, int],
+    *,
+    limit: int = 2,
+    title: str = "",
+    reported: str | None = None,
+) -> list[str]:
     """Take the top area, plus a second only when it ties the top.
 
     A guess that is wrong costs more than no guess: a wrong `area:` label sends
-    the issue to a person who then has to hand it back. The exception is a
-    title that declares its own area, which beats the words scattered through
-    the rest of it.
+    the issue to a person who then has to hand it back. Two things outrank the
+    guessing: an area the reporter picked on the issue form (`reported`), and a
+    title that declares its own area.
     """
+    if reported:
+        # The reporter picked this off a list of the real labels. Done.
+        return [reported]
     explicit = declared_area(title, prefix_only=True)
     if explicit:
         return [explicit]
@@ -429,7 +477,10 @@ def classify(title: str, body: str, labels: Iterable[object] = ()) -> Classifica
     body = body or ""
     result = Classification()
 
-    result.areas = pick_areas(score_areas(title, body), title=title)
+    reported = form_area(body)
+    result.areas = pick_areas(score_areas(title, body), title=title, reported=reported)
+    if reported:
+        result.notes.append(f"area from the issue form: the reporter picked {reported}")
 
     if is_bug(title, body, labels):
         severity, reason = severity_for(title, body)

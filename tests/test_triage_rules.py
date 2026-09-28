@@ -113,6 +113,67 @@ class AreaTests(unittest.TestCase):
         self.assertTrue(result.needs_triage or result.areas)
 
 
+def form_body(answer: str, *, before: str = "Something is wrong.") -> str:
+    """An issue body the way GitHub renders the bug form."""
+    return (
+        f"### What happened?\n\n{before}\n\n"
+        f"### Which part of cmux is this about?\n\n{answer}\n\n"
+        "### Additional context\n\n_No response_"
+    )
+
+
+class FormAreaTests(unittest.TestCase):
+    """The dropdown on the issue forms is the reporter answering directly."""
+
+    def test_the_reporters_answer_wins_over_scoring(self):
+        # Body-only evidence never carries an area on its own, which is why the
+        # form has to be read rather than left to the regexes.
+        title = "Wrong item highlighted after reorder"
+        body = form_body("sidebar")
+        self.assertLess(max(RULES.score_areas(title, body).values()), RULES.TITLE_WEIGHT)
+        result = RULES.classify(title, body)
+        self.assertEqual(result.areas, ["area: sidebar"])
+        self.assertFalse(result.needs_triage)
+
+    def test_the_answer_outranks_a_conflicting_title(self):
+        result = RULES.classify("Sidebar shows the wrong item", form_body("workspaces"))
+        self.assertEqual(result.areas, ["area: workspaces"])
+
+    def test_option_parentheses_do_not_leak_into_the_area(self):
+        # `remote (cmux ssh, tunnels, relays)` also matches the cli and cloud
+        # patterns. The reporter picked remote, so remote is what it gets.
+        result = RULES.classify("Nothing works", form_body("remote (cmux ssh, tunnels, relays)"))
+        self.assertEqual(result.areas, ["area: remote"])
+
+    def test_the_answer_is_explained_in_the_notes(self):
+        result = RULES.classify("Nothing works", form_body("docs"))
+        self.assertTrue(any("issue form" in note for note in result.notes))
+
+    def test_not_sure_falls_back_to_the_rules(self):
+        result = RULES.classify("Sidebar shows the wrong item", form_body("Not sure"))
+        self.assertEqual(result.areas, ["area: sidebar"])
+
+    def test_skipped_field_falls_back_to_the_rules(self):
+        for answer in ("_No response_", ""):
+            with self.subTest(answer=answer):
+                result = RULES.classify("Sidebar shows the wrong item", form_body(answer))
+                self.assertEqual(result.areas, ["area: sidebar"])
+
+    def test_an_area_the_rules_do_not_have_is_ignored(self):
+        self.assertIsNone(RULES.form_area(form_body("quantum-tunnelling")))
+
+    def test_a_body_with_no_form_is_left_alone(self):
+        self.assertIsNone(RULES.form_area("Plain issue text, no form, mentions the sidebar."))
+
+    def test_every_dropdown_option_maps_to_a_label(self):
+        # The forms live in the other pull request, so this asserts the contract
+        # they have to satisfy: the text before the first parenthesis is a label.
+        for area in RULES.AREA_NAMES:
+            slug = area.removeprefix(RULES.AREA_PREFIX)
+            with self.subTest(area=area):
+                self.assertEqual(RULES.form_area(form_body(f"{slug} (some hint)")), area)
+
+
 class DeclaredAreaTests(unittest.TestCase):
     """A title that names its own area up front beats scoring the rest of it."""
 
