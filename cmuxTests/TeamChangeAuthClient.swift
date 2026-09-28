@@ -10,6 +10,7 @@ actor TeamChangeAuthClient: AuthClient {
         CMUXAuthTeam(id: "team-b", displayName: "Team B"),
     ]
     private(set) var createCount = 0
+    private(set) var selectCount = 0
     private var holdsNextCreate = false
     private var holdsNextSelect = false
     private var heldCreate: CheckedContinuation<Void, Never>?
@@ -42,6 +43,7 @@ actor TeamChangeAuthClient: AuthClient {
     }
 
     func setSelectedTeam(id: String?) async throws {
+        selectCount += 1
         if holdsNextSelect {
             holdsNextSelect = false
             await withCheckedContinuation { heldSelect = $0 }

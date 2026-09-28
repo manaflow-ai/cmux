@@ -23,9 +23,11 @@ struct HostAccountFlowTeamChangeTests {
         let create = Task { try await flow.createTeam(displayName: "New Team") }
         try await waitUntil { await client.isHoldingCreate }
 
-        await #expect(throws: (any Error).self) {
+        await #expect(throws: TeamChangeInProgressError()) {
             try await flow.selectTeam(id: "team-b")
         }
+        #expect(await client.selectCount == 0)
+        #expect(flow.selectedTeamID == "team-a")
         #expect(flow.confirmedTeamID == "team-a")
 
         await client.releaseCreate()
@@ -41,7 +43,7 @@ struct HostAccountFlowTeamChangeTests {
         let select = Task { try await flow.selectTeam(id: "team-b") }
         try await waitUntil { await client.isHoldingSelect }
 
-        await #expect(throws: (any Error).self) {
+        await #expect(throws: TeamChangeInProgressError()) {
             _ = try await flow.createTeam(displayName: "New Team")
         }
         #expect(await client.createCount == 0)
@@ -58,7 +60,7 @@ struct HostAccountFlowTeamChangeTests {
         let first = Task { try await flow.createTeam(displayName: "First Team") }
         try await waitUntil { await client.isHoldingCreate }
 
-        await #expect(throws: (any Error).self) {
+        await #expect(throws: TeamChangeInProgressError()) {
             _ = try await flow.createTeam(displayName: "Second Team")
         }
         #expect(await client.createCount == 1)
@@ -67,6 +69,24 @@ struct HostAccountFlowTeamChangeTests {
         let created = try await first.value
         #expect(created.id == "team-new-1")
         #expect(flow.confirmedTeamID == "team-new-1")
+    }
+
+    /// Only a create holds other changes; a later switch still replaces a
+    /// pending one, and the superseded switch fails.
+    @Test func switchDuringPendingSwitchReplacesIt() async throws {
+        let client = TeamChangeAuthClient()
+        let flow = try await makeFlow(client: client)
+        await client.holdNextSelect()
+        let first = Task { try await flow.selectTeam(id: "team-b") }
+        try await waitUntil { await client.isHoldingSelect }
+        #expect(flow.selectedTeamID == "team-b")
+
+        try await flow.selectTeam(id: "team-a")
+        await client.releaseSelect()
+        await #expect(throws: AuthError.unauthorized) { try await first.value }
+        #expect(flow.selectedTeamID == "team-a")
+        #expect(flow.confirmedTeamID == "team-a")
+        #expect(await client.selectCount == 2)
     }
 
     private func makeFlow(client: TeamChangeAuthClient) async throws -> HostAccountFlow {
