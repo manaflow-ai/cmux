@@ -1020,7 +1020,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
         defer {
             panel.hostedView.removeFromSuperview()
-            panel.surface.teardownSurface()
+            panel.surface.teardownHostedSurfaceForTesting()
             window.orderOut(nil)
         }
 
@@ -1134,7 +1134,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     func testColdSocketInputQueuesInsteadOfDroppingWhenRuntimeSurfaceIsMissing() {
         let panel = TerminalPanel(workspaceId: UUID())
 
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         XCTAssertNil(panel.surface.surface)
         panel.surface.sendInput("touch /tmp/cmux-cold-send\n")
 
@@ -1150,7 +1150,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     func testColdSocketInputRejectsOversizedQueueInsteadOfDroppingExistingInput() {
         let panel = TerminalPanel(workspaceId: UUID())
 
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         XCTAssertTrue(panel.surface.sendInput("echo keep-me\n"))
 
         let oversizedInput = String(repeating: "x", count: 1_100_000)
@@ -1167,7 +1167,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     func testColdSocketInputQueuesBackspaceControlCharacterAsKeyEvent() {
         let panel = TerminalPanel(workspaceId: UUID())
 
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         XCTAssertTrue(panel.surface.sendInput("abc\u{08}"))
 
         let pending = panel.surface.debugPendingSocketInputForTesting()
@@ -1181,7 +1181,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     func testColdSocketInputQueuesReturnAsCommittedTextInputInsteadOfPasteOrKeyEvent() {
         let panel = TerminalPanel(workspaceId: UUID())
 
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         XCTAssertTrue(panel.surface.sendInput("printf 'ok\\n'\n"))
 
         let pending = panel.surface.debugPendingSocketInputForTesting()
@@ -1207,7 +1207,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     func testColdSocketInputQueuesOSC11AsRawTerminalBytes() {
         let panel = TerminalPanel(workspaceId: UUID())
 
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         let osc11 = "\u{1B}]11;#341c1c\u{1B}\\"
         XCTAssertTrue(panel.surface.sendInput(osc11))
 
@@ -1238,7 +1238,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     func testColdSocketInputChunksLongCommittedTextInput() {
         let panel = TerminalPanel(workspaceId: UUID())
 
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         let command = "printf '" + String(repeating: "x", count: 360) + "'\n"
         XCTAssertTrue(panel.surface.sendInput(command))
 
@@ -1260,7 +1260,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
         XCTAssertTrue(panel.surface.debugHasHeadlessStartupWindowForTesting())
 
-        panel.surface.teardownSurface()
+        panel.surface.teardownHostedSurfaceForTesting()
 
         XCTAssertFalse(
             panel.surface.debugHasHeadlessStartupWindowForTesting(),
@@ -1271,7 +1271,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     func testClosedSurfaceRejectsColdSocketInputInsteadOfQueueingIt() {
         let panel = TerminalPanel(workspaceId: UUID())
 
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         panel.surface.beginPortalCloseLifecycle(reason: "test.closed")
 
         XCTAssertFalse(panel.surface.sendInput("echo should-not-queue\n"))
@@ -1297,7 +1297,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         // A recognized-but-undeliverable key returns `.surfaceUnavailable` on a closed
         // surface, whereas an unrecognized key returns `.unknownKey`.
         let panel = TerminalPanel(workspaceId: UUID())
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         panel.surface.beginPortalCloseLifecycle(reason: "test.closed")
 
         XCTAssertEqual(
@@ -1338,7 +1338,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         XCTAssertNil(panel.surface.surface)
 
         let response = TerminalController.shared.handleSocketLine(
@@ -1368,7 +1368,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         panel.surface.beginPortalCloseLifecycle(reason: "test.mobile.closed")
 
         let response = await TerminalController.shared.mobileHostHandleRPC(
@@ -1688,7 +1688,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             return
         }
         defer {
-            terminalPanel.surface.teardownSurface()
+            terminalPanel.surface.teardownHostedSurfaceForTesting()
         }
 
         XCTAssertFalse(
@@ -3176,6 +3176,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         }
 
         let hostedView = terminalPanel.hostedView
+        defer { manager.closeWorkspacesForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -3246,6 +3247,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         }
 
         let hostedView = terminalPanel.hostedView
+        defer { manager.closeWorkspacesForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -3295,6 +3297,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             workingDirectory: nil
         )
         let hostedView = surface.hostedView
+        defer { surface.releaseHostedSurfaceForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -3318,7 +3321,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "Expected runtime surface before simulating the detach race"
         )
 
-        surface.releaseSurfaceForTesting()
+        surface.releaseHostedSurfaceForTesting()
         XCTAssertNil(surface.surface, "Expected runtime surface to be released for the regression setup")
 
         hostedView.removeFromSuperview()
@@ -3358,6 +3361,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             workingDirectory: nil
         )
         let hostedView = surface.hostedView
+        defer { surface.releaseHostedSurfaceForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -3387,7 +3391,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "Focused terminal should start with desired Ghostty focus"
         )
 
-        surface.releaseSurfaceForTesting()
+        surface.releaseHostedSurfaceForTesting()
         XCTAssertNil(surface.surface, "Expected runtime surface to be released for the regression setup")
 
         hostedView.removeFromSuperview()
@@ -3446,6 +3450,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             workingDirectory: nil
         )
         let hostedView = surface.hostedView
+        defer { surface.releaseHostedSurfaceForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -3468,6 +3473,9 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "Expected runtime surface before simulating close lifecycle teardown"
         )
 
+        // teardownSurface frees through the coordinator; kill the shell first
+        // so that free does not wait out Ghostty's SIGHUP grace.
+        surface.killShellProcessesForTesting()
         surface.beginPortalCloseLifecycle(reason: "test.close")
         surface.teardownSurface()
         XCTAssertNil(surface.surface, "Teardown should release the runtime surface")
@@ -3507,6 +3515,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             workingDirectory: nil
         )
         let hostedView = surface.hostedView
+        defer { surface.releaseHostedSurfaceForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -3599,6 +3608,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             workingDirectory: nil
         )
         let hostedView = surface.hostedView
+        defer { surface.releaseHostedSurfaceForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -3697,6 +3707,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             workingDirectory: nil
         )
         let hostedView = surface.hostedView
+        defer { surface.releaseHostedSurfaceForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -4176,7 +4187,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     override func tearDown() {
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
         for surface in surfacesToRelease.reversed() {
-            surface.releaseSurfaceForTesting()
+            surface.releaseHostedSurfaceForTesting()
         }
         surfacesToRelease.removeAll()
         super.tearDown()
@@ -4224,7 +4235,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             for surface in surfaces {
                 surface.hostedView.removeFromSuperview()
                 if !didTeardown {
-                    surface.teardownSurface()
+                    surface.teardownHostedSurfaceForTesting()
                 }
             }
             window.orderOut(nil)
@@ -4434,7 +4445,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         for surface in surfaces {
             surface.hostedView.removeFromSuperview()
-            surface.teardownSurface()
+            surface.teardownHostedSurfaceForTesting()
         }
         didTeardown = true
         XCTAssertTrue(surfaces.allSatisfy { $0.surface == nil && !$0.isRendererRealized })
@@ -5453,7 +5464,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
         hostedView.reconcileGeometryNow()
-        surface.releaseSurfaceForTesting()
+        surface.releaseHostedSurfaceForTesting()
         XCTAssertNil(surface.surface, "Surface should be nil after test release helper")
 
         hostedView.reconcileGeometryNow()
@@ -5485,7 +5496,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
 
-        surface?.releaseSurfaceForTesting()
+        surface?.releaseHostedSurfaceForTesting()
         surface = nil
         waitUntil(description: "terminal surface to deallocate after search overlay mount") {
             weakSurface == nil
@@ -5597,6 +5608,48 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     static var suiteBaselineWindowNumbers: Set<Int>?
     static var suiteBaselinePortalCount = 0
     static var suiteBaselineRuntimeSurfaceCount = 0
+    static var suiteBaselinePendingTeardownIds: Set<UUID>?
+
+    static func describePendingTeardowns(_ pending: [UUID: String]) -> String {
+        pending
+            .sorted { $0.key.uuidString < $1.key.uuidString }
+            .map { "\($0.key.uuidString.prefix(8)) (\($0.value))" }
+            .joined(separator: ", ")
+    }
+
+    // XCTest runs this before the synchronous setUp(). Native frees an
+    // earlier suite left in flight belong to that suite, not this one. Wait
+    // for them to drain before the first test, bounded past Ghostty's 12 s
+    // SIGHUP grace plus its 3 s SIGKILL grace, and record an issue naming
+    // them so the leak stays visible. Whatever is still pending becomes the
+    // baseline the last-slot leak check compares identities against.
+    override func setUp() async throws {
+        executionTimeAllowance = 60
+        try await super.setUp()
+        guard Self.suiteBaselinePendingTeardownIds == nil else { return }
+        let teardown = GhosttyApp.terminalSurfaceRuntimeDependencies.runtimeTeardown
+        let clock = ContinuousClock()
+        let started = clock.now
+        let deadline = started.advanced(by: .seconds(16))
+        let initiallyPending = await teardown.debugPendingTeardownReasonsById
+        var pending = initiallyPending
+        while !pending.isEmpty, clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+            pending = await teardown.debugPendingTeardownReasonsById
+        }
+        let waited = clock.now - started
+        Self.suiteBaselinePendingTeardownIds = Set(pending.keys)
+        if waited > .seconds(2) || !pending.isEmpty {
+            let still = pending.isEmpty ? "" : "; still pending: " + Self.describePendingTeardowns(pending)
+            record(XCTIssue(
+                type: .assertionFailure,
+                compactDescription: "Earlier suites left native surface free(s) in flight: "
+                    + Self.describePendingTeardowns(initiallyPending)
+                    + "; waited \(waited) for them to drain\(still). "
+                    + "Release test surfaces synchronously instead of dropping them."
+            ))
+        }
+    }
 
     override func setUp() {
         super.setUp()
@@ -5634,8 +5687,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         // background coordinator, and a shell still writing output would keep
         // the io threads (and the tee callback) running into the next test.
         for surface in trackedSurfaces.reversed() {
-            killShellProcesses(of: surface)
-            surface.releaseSurfaceForTesting()
+            surface.releaseHostedSurfaceForTesting()
         }
         trackedSurfaces.removeAll()
 
@@ -6619,11 +6671,13 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         let pendingTeardowns = await GhosttyApp
             .terminalSurfaceRuntimeDependencies
             .runtimeTeardown
-            .debugPendingTeardownCount
-        XCTAssertEqual(
-            pendingTeardowns,
-            0,
-            "Earlier tests left \(pendingTeardowns) native surface free(s) in flight; "
+            .debugPendingTeardownReasonsById
+        let baselinePendingTeardownIds = Self.suiteBaselinePendingTeardownIds ?? []
+        let newPendingTeardowns = pendingTeardowns.filter { !baselinePendingTeardownIds.contains($0.key) }
+        XCTAssertTrue(
+            newPendingTeardowns.isEmpty,
+            "This suite's tests left \(newPendingTeardowns.count) native surface free(s) in flight: "
+                + Self.describePendingTeardowns(newPendingTeardowns) + "; "
                 + "release test surfaces synchronously instead of dropping them"
         )
     }

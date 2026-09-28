@@ -17,3 +17,4 @@
 - [Public CLI](../spec/cli.md): noun-first commands, selectors, and [tmux-style shorthands](../spec/cli.md#shorthands).
 - [SDK contract](../spec/bindings.md): handwritten facades and generated raw layers.
 - [Browser panes](browser-panes.md): CDP-backed browser tabs, rendering, input, profiles, and current limitations.
+- [Agent hooks](agent-hooks.md): hook install, and how Claude Code in a terminal gets the session's hooks through a `PATH` shim.

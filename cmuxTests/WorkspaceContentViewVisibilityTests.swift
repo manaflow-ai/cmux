@@ -264,7 +264,14 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(counts.contentViewBody > 0)
         #expect(counts.workspaceContentBody > 0)
         #expect(counts.verticalTabsSidebarBody > 0)
-        try await Self.requireSettledChromeBodies(for: window, counts: counts)
+        // Setup work keeps publishing after the first render: the selected
+        // workspace's directory reaches the file explorer a few runloop turns
+        // later, and that store change re-evaluates ContentView. On a loaded
+        // runner it landed inside the toggle's window (PR run 36016958288 logged
+        // "ContentView: _fileExplorerStore changed."), so measure only once the
+        // window has gone quiet.
+        let settled = await Self.waitForQuietChromeBodies(counts: counts, window: window)
+        try #require(settled, "The window must stop re-evaluating chrome bodies before the toggle is measured")
         counts.reset()
         counts.isMeasuringInvalidations = true
         defer { counts.isMeasuringInvalidations = false }
@@ -359,7 +366,14 @@ final class WorkspaceContentViewVisibilityTests {
             window.close()
         }
 
-        try await Self.requireSettledChromeBodies(for: window, counts: counts)
+        await Self.drainMainRunLoop(for: window)
+        // Same settling as the minimal-mode test: the selected workspace's
+        // directory reaches the file explorer a few runloop turns after the
+        // first render, and that store change re-evaluates ContentView and
+        // WorkspaceContentView. Main runs 36106360658 and 36114055694 logged
+        // "ContentView: _fileExplorerStore changed." inside the unread window.
+        let settled = await Self.waitForQuietChromeBodies(counts: counts, window: window)
+        try #require(settled, "The window must stop re-evaluating chrome bodies before the unread change is measured")
         let workspaceCell = try #require(
             window.contentView.flatMap { root in
                 Self.descendants(of: root)
@@ -549,9 +563,13 @@ final class WorkspaceContentViewVisibilityTests {
 #endif
     }
 
-    /// Excludes delayed file-explorer setup publications from both invalidation measurements.
+    /// Drains until three consecutive drains re-evaluate no chrome body, so a
+    /// measurement only counts what the change under test invalidates.
     @MainActor
-    private static func requireSettledChromeBodies(for window: NSWindow, counts: MinimalModeBodyProbeCounts) async throws {
+    private static func waitForQuietChromeBodies(
+        counts: MinimalModeBodyProbeCounts,
+        window: NSWindow
+    ) async -> Bool {
         var quietRounds = 0
         for _ in 0..<100 where quietRounds < 3 {
             counts.reset()
@@ -561,7 +579,7 @@ final class WorkspaceContentViewVisibilityTests {
                 && counts.verticalTabsSidebarBody == 0
             quietRounds = settled ? quietRounds + 1 : 0
         }
-        try #require(quietRounds >= 3, "The window must stop re-evaluating chrome bodies before a mutation is measured")
+        return quietRounds >= 3
     }
 
     @MainActor

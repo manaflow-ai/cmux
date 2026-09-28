@@ -81,6 +81,8 @@ fi
 
 ## Preset templates
 
+Settings > Keyboard Shortcuts > Base Keymap (also "Base Keymap: ..." in the Command Palette) ships cmux, iTerm2, Terminal.app, and tmux-style presets. It previews the change, then writes only the overrides that differ from cmux defaults, keeps bindings the user set by hand (in `cmux.json` or legacy Settings UserDefaults), and lists macOS shortcut conflicts. Detection is stateless: a binding typed by hand that equals a preset's value for that action is treated as the preset's, so switching presets (including back to cmux) replaces or removes it. Point users there for those styles; use the templates below for the others.
+
 Apply action by action, never by overwriting the whole `shortcuts.bindings` object.
 
 ### Tmux Prefix
