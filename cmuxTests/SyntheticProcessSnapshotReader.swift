@@ -129,4 +129,7 @@ final class SyntheticProcessSnapshotReader: CmuxTopProcessReading, Sendable {
             return value.replacedPID != pid && key.startSeconds == 100
         }
     }
+
+    /// The synthetic census has no exited processes: a replaced PID is live.
+    func processHasExited(pid: Int) -> Bool { false }
 }

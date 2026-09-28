@@ -1899,6 +1899,7 @@ private struct HermesFixtureProcessReader: CmuxTopProcessReading {
     func processPath(pid: Int) -> String? { nil }
     func scope(for pid: Int, key: CmuxTopProcessScopeCacheKey) -> CmuxTopProcessScope? { nil }
     func matches(pid: Int, key: CmuxTopProcessScopeCacheKey) -> Bool { false }
+    func processHasExited(pid: Int) -> Bool { false }
 }
 
 private enum HermesFirstClassTestError: Error {
