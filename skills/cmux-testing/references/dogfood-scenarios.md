@@ -64,6 +64,11 @@ changes no app code gets no new build, so no media, and
 (a drag, a recording from a fleet dogfood), upload it with `scripts/pr-media.py`;
 the workflow uploads through the same tool.
 
+`pr-media-prune.yml` keeps the branch small: weekly it drops the folders of
+pull requests closed over 30 days ago and squashes the branch to one commit,
+so images in those old comments stop loading. It is a dry run unless
+dispatched with `-f apply=true` or `CI_PR_MEDIA_PRUNE_APPLY` is 1.
+
 Give every new tour a `paths` list of `fnmatch` globs (`*` crosses
 directories), for example `"paths": ["Sources/*Browser*", "Packages/macOS/CmuxBrowser/*"]`.
 The test reads only `steps` and `launch`, so `paths` changes nothing about a run.
