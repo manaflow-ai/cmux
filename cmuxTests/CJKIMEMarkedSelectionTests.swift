@@ -570,6 +570,10 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             XCTAssertFalse(try suppresses(flags: flags))
         }
         XCTAssertFalse(try suppresses(repeated: false))
+        // AppKit can deliver an ordinary printable character through
+        // insertText while processing a repeated keyDown. That text is the
+        // repeat fallback the setting must suppress for the accent menu.
+        XCTAssertTrue(try suppresses(committed: ["a"]))
         XCTAssertFalse(try suppresses(committed: ["á"]))
         XCTAssertFalse(try suppresses(marked: "に"))
         XCTAssertFalse(try suppresses("1"))
