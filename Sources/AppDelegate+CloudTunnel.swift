@@ -13,13 +13,21 @@ import AppKit
 extension AppDelegate {
     /// Opens Cloud VPN setup as a pane in its own workspace, or focuses the one
     /// already open. Ports and Settings both call this; only the pane's
-    /// controls activate the VPN.
+    /// controls activate the VPN. Settings passes `bringWindowForward` because
+    /// it runs in its own window.
     @MainActor
     @discardableResult
-    func openCloudVPNSetup(preferredWindow: NSWindow? = nil) -> CloudVPNSetupPanel? {
+    func openCloudVPNSetup(preferredWindow: NSWindow? = nil, bringWindowForward: Bool = false) -> CloudVPNSetupPanel? {
         guard !ManagedDevicePolicy().isEnforced(.disableCloud),
               let manager = synchronizeActiveMainWindowContext(preferredWindow: preferredWindow) else {
             return nil
+        }
+        if bringWindowForward {
+            guard let context = mainWindowContext(for: manager),
+                  let window = resolvedWindow(for: context),
+                  focusWindowForAppActivation(window, reason: .workspaceCreation) else {
+                return nil
+            }
         }
         for workspace in manager.tabs {
             guard let panel = workspace.panels.values.lazy.compactMap({ $0 as? CloudVPNSetupPanel }).first else {

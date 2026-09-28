@@ -34,6 +34,6 @@ extension HostSettingsActions {
     }
 
     func openCloudVPNSetup() {
-        AppDelegate.shared?.openCloudVPNSetup()
+        AppDelegate.shared?.openCloudVPNSetup(bringWindowForward: true)
     }
 }

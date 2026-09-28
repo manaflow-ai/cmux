@@ -2,7 +2,7 @@ import CmuxCloud
 import SwiftUI
 
 /// Hosts ``CloudVPNSetupView`` inside a workspace pane and observes VPN state
-/// only while the pane is on screen.
+/// only while the pane's view is mounted.
 struct CloudVPNSetupPanelView: View {
     let model: CloudVPNSetupModel
     let appearance: PanelAppearance
