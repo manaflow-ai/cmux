@@ -739,6 +739,7 @@ struct ChatUsageAccumulatorTests {
         #expect(accumulator.codexSource == .usageRecords)
         #expect(totals.responses == 1)
         #expect(totals.usage.totalTokens == 20)
+        #expect(!totals.cumulativeUsageIsAmbiguous)
     }
 
     @Test("an inherited pre-record thread total is not charged to the child transcript")

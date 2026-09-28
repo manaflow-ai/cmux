@@ -355,6 +355,7 @@ public struct ChatUsageAccumulator: Sendable {
         // charge the parent again in every child. Later cumulative snapshots
         // cannot identify which records they include and are ignored too.
         codexSource = .usageRecords
+        cumulativeUsageIsAmbiguous = false
         Self.incrementSaturating(&codexResponseCount)
         let usage = codexUsage(from: usageValue)
         codexRecordUsage += usage
