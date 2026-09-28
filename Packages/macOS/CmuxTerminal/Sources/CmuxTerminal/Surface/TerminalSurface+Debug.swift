@@ -124,6 +124,16 @@ extension TerminalSurface {
         needsConfirmCloseOverrideForTesting = value
     }
 
+    /// Pins whether the current renderer has presented a frame (test hook).
+    /// Clearing the in-flight probe drops a late acknowledgement, so the
+    /// warm/cold reveal policy sees exactly the state a test chose instead of
+    /// whatever the GPU managed to present before the test hid the portal.
+    @MainActor
+    public func setRendererPresentedFrameForTesting(_ presented: Bool) {
+        rendererPresentationState.inFlightToken = nil
+        rendererPresentationState.didPresentFrame = presented
+    }
+
     /// How many runtime-surface create attempts ran (test hook).
     @MainActor
     public func debugRuntimeSurfaceCreateAttemptCountForTesting() -> Int {
@@ -221,7 +231,7 @@ extension TerminalSurface {
 
     /// Test-only helper to install a runtime surface pointer directly.
     ///
-    /// Most package tests pass a pointer serviced by `GhosttyRuntimeTestStubs`,
+    /// Most package tests pass a pointer serviced by `CmuxTerminalGhosttyRuntimeTestStubs`,
     /// so the native callback wiring remains enabled by default. App-host
     /// XCTest fixtures link the real GhosttyKit and sometimes use a synthetic
     /// pointer only to exercise Swift teardown ownership; those callers must

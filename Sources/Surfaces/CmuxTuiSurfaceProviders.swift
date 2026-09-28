@@ -1,12 +1,17 @@
+import CmuxAuthRuntime
+import CmuxCloud
+import CmuxCloudTui
 import CmuxCore
 import CmuxFoundation
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 /// One cloud machine's resources: its cmux-tui terminals (over the headless link), its
 /// noVNC screen, and its forwarded ports. Terminals live in the machine's cmux-tui
 /// session, so a local pane closing never touches them (only local browser preparation is cancelled).
 @MainActor
 final class CmuxTuiSurfaceProvider: SurfaceProvider {
+    let fileAccessTeamScope: AuthenticatedTeamScope?
     let machineID: String
     var machine: SurfaceMachineID { summary.machine }
     private(set) var info: SurfaceMachineInfo
@@ -21,6 +26,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// change, not a daemon state; it re-runs the fold so rows that had no
     /// local target get delivered.
     var notificationPlacementObserver: NSObjectProtocol?
+    /// The agent sessions this machine's roster last replayed into the local
+    /// hook queue, so repeated snapshots do not replay the same session.
+    var agentHookMirror = CloudVMAgentHookMirror()
     let links: any RemoteTuiLinkManaging
     unowned let catalog: SurfaceCatalog
     /// Loopback forwards into this machine's private address over the hub; nil
@@ -114,6 +122,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     var pendingRemoteRenames: [PendingRemoteRenameKey: PendingRemoteRename] = [:]
     init(
         summary: RemoteTuiMachine,
+        fileAccessTeamScope: AuthenticatedTeamScope? = nil,
         links: any RemoteTuiLinkManaging,
         catalog: SurfaceCatalog,
         portForwards: CloudHubPortForwarder? = nil,
@@ -122,6 +131,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         displayCoordinator: CloudDisplayCoordinator? = nil,
         browserPolicy: @escaping @MainActor () -> BrowserURLAllowlistPolicy = { BrowserURLAllowlistPolicy() }
     ) {
+        self.fileAccessTeamScope = fileAccessTeamScope
         machineID = summary.id
         self.attachmentClock = attachmentClock
         self.summary = summary
@@ -136,14 +146,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.browserPolicy = browserPolicy
         info = Self.info(from: summary, linkState: summary.status == "running" ? .connecting : .asleep, linkError: nil, stats: nil)
         installNotificationSync()
-    }
-    var isAwake: Bool { summary.status == "running" }
-    var providerID: String { summary.provider }
-    /// Port rows are openable only when the machine advertises a preview
-    /// capability or has the private route used by Freestyle.
-    var capabilities: VMCapabilities { summary.capabilities }
-    var supportsPortPreviews: Bool {
-        capabilities.ports || summary.preferredPrivateAddress != nil
     }
     func update(summary: VMSummary) {
         guard let current = catalog.provider(for: machine), ObjectIdentifier(current) == ObjectIdentifier(self) else { return }
@@ -215,7 +217,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         remoteTerminalProjectionTasks.removeAll()
         pendingRemoteCreations.removeAll()
         pendingRemoteRenames.removeAll()
-        acceptedCloudGenerations.removeAll()
+        acceptedCloudGenerations.removeAll(); catalog.notifyChange(for: machine)
     }
     /// One refresh pass. Sleeping machines retain their graph without being woken.
     func performRefresh(force: Bool) async -> Bool {
@@ -1270,16 +1272,16 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// Turn a VM-local browser URL into the same URL on the VM private address.
     /// Path, query, fragment, scheme, and port stay unchanged.
-    nonisolated static func privateBrowserURL(_ raw: String, privateAddress: String) -> String? {
+    nonisolated static func privateBrowserURL(_ raw: String, privateAddress: String, allowLoopback: Bool = false) -> String? {
         guard let parts = URLComponents(string: raw),
               RemoteLoopbackProxyAlias.isLoopbackHost(parts.host ?? "") else { return nil }
-        return CloudPortRoutePlan.privateURL(raw, address: privateAddress)?.absoluteString
+        return CloudPortRoutePolicy().privateURL(raw, address: privateAddress, allowLoopback: allowLoopback)?.absoluteString
     }
 
     /// Shared Cloud terminal-link conversion for Workspace and Dock containers.
     nonisolated static func cloudTerminalLinkTarget(url: URL, resource: SurfaceResource, privateAddress: String) -> CloudTerminalLinkTarget? {
-        guard resource.kind == .terminal, resource.machine.cloudMachineID != nil,
-              let rewritten = privateBrowserURL(url.absoluteString, privateAddress: privateAddress),
+        guard resource.kind == .terminal, resource.machine.tuiMachineID != nil,
+              let rewritten = privateBrowserURL(url.absoluteString, privateAddress: privateAddress, allowLoopback: resource.machine.isSSH),
               let privateURL = URL(string: rewritten) else { return nil }
         return CloudTerminalLinkTarget(url: privateURL)
     }
@@ -1302,7 +1304,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                     port: port
                 )
             } else if let raw = resource.url {
-                updated.url = privateBrowserURL(raw, privateAddress: privateAddress)
+                updated.url = privateBrowserURL(raw, privateAddress: privateAddress, allowLoopback: resource.machine.isSSH)
             }
         case .terminal:
             break
@@ -1527,6 +1529,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             await self.refreshCurrentGraph(force: false)
         }
     }
+    func projectionsRestored() { reprojectRestoredPanes(generation: lifecycleGeneration) }
     private func reprojectRestoredPanes(generation: UInt64) {
         guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
         reprojectRestoredBrowserPanes(generation: generation)

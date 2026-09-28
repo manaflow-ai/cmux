@@ -7,7 +7,8 @@ public enum JSONConfigMutationError: LocalizedError, Sendable {
     /// configured symlink now resolves to a different file. The JSON values
     /// stay local to the caller for a preview; they are not in the message.
     case undoConflict(path: String, expected: Data?, current: Data?, restore: Data?)
-    /// The canonical global schema rejected the complete candidate.
+    /// The change would add issues the canonical global schema rejects. Only
+    /// the issues the change introduces are listed.
     case invalidCandidate([CmuxConfigSemanticIssue])
 
     /// Localized recovery guidance that never includes config values.

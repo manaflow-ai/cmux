@@ -1,5 +1,12 @@
 import { expect, test } from "bun:test";
-import { acceptsCwdHarnessResponse, type CwdHarnessRequest } from "../src/session";
+import {
+  acceptsCwdHarnessResponse,
+  harnessSnapshotForCwdCheck,
+  helloHarnessSnapshot,
+  visibleWorkflowHarnesses,
+  type CwdHarnessRequest,
+  type HarnessRecommendation,
+} from "../src/session";
 
 const request = (requestId: string, cwd: string, connectionEpoch = 1): CwdHarnessRequest => ({
   requestId,
@@ -26,4 +33,29 @@ test("does not accept a response from a previous websocket connection", () => {
 
   expect(acceptsCwdHarnessResponse(active, { requestId: "a-1", cwd: "/repo/a", connectionEpoch: 1 })).toBe(false);
   expect(acceptsCwdHarnessResponse(active, { requestId: "a-1", cwd: "/repo/a", connectionEpoch: 2 })).toBe(true);
+});
+
+const workflow = (id: string): HarnessRecommendation => ({
+  id,
+  label: id,
+  installed: true,
+  priority: 0,
+  triggers: [],
+  reason: { id: "installed" },
+  kind: "workflow",
+});
+
+test("shows hello harnesses for the default cwd while its cwd check is in flight", () => {
+  const hello = helloHarnessSnapshot({ defaultCwd: "/repo/default", harnesses: [workflow("oh-my-pi")] });
+  const checking = harnessSnapshotForCwdCheck(hello, "/repo/default");
+
+  expect(visibleWorkflowHarnesses(checking, "/repo/default").map((h) => h.id)).toEqual(["oh-my-pi"]);
+});
+
+test("hides hello harnesses once the composer checks a different cwd", () => {
+  const hello = helloHarnessSnapshot({ defaultCwd: "/repo/default", harnesses: [workflow("oh-my-pi")] });
+  const checking = harnessSnapshotForCwdCheck(hello, "/repo/other");
+
+  expect(visibleWorkflowHarnesses(checking, "/repo/other")).toEqual([]);
+  expect(visibleWorkflowHarnesses(hello, "/repo/other")).toEqual([]);
 });

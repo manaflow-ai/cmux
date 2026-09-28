@@ -2,73 +2,82 @@
   "en": {
     "busy": "Another config edit is in progress. Retry your change.",
     "sourceChanged": "The config changed while this edit was prepared. Review it and retry.",
-    "undoConflict": "Undo preserved a newer choice. Review this setting before changing it:",
+    "undoConflict": "Undo kept a newer choice for this setting. Review it before changing it again.",
     "invalidCandidate": "The proposed config is invalid. No changes were saved.",
     "receiptInvalid": "This undo receipt cannot be used. Check its format, location, and private file permissions.",
+    "receiptExists": "An undo receipt already exists at this path. Choose a new receipt path. No changes were saved.",
     "unsafeLock": "The config writer lock is unsafe. Check its owner and file type."
   },
   "ja": {
     "busy": "別の設定編集が進行中です。変更を再試行してください。",
     "sourceChanged": "編集の準備中に設定が変更されました。確認して再試行してください。",
-    "undoConflict": "取り消しでは新しい選択を保持しました。変更する前にこの設定を確認してください：",
+    "undoConflict": "取り消しでは、この設定の新しい選択を保持しました。もう一度変更する前に確認してください。",
     "invalidCandidate": "変更後の設定が無効です。変更は保存されませんでした。",
     "receiptInvalid": "この取り消し記録は使用できません。形式、保存場所、および非公開ファイルのアクセス権を確認してください。",
+    "receiptExists": "このパスには既に取り消し記録があります。新しい記録のパスを選択してください。変更は保存されませんでした。",
     "unsafeLock": "設定の書き込みロックが安全ではありません。所有者とファイルの種類を確認してください。"
   },
   "de": {
     "busy": "Eine andere Konfigurationsänderung läuft. Versuchen Sie es erneut.",
     "sourceChanged": "Die Konfiguration wurde während der Vorbereitung geändert. Prüfen Sie sie und versuchen Sie es erneut.",
-    "undoConflict": "Die neuere Auswahl wurde beim Rückgängigmachen beibehalten. Prüfen Sie diese Einstellung vor einer Änderung:",
+    "undoConflict": "Beim Rückgängigmachen wurde eine neuere Auswahl für diese Einstellung beibehalten. Prüfen Sie sie, bevor Sie sie erneut ändern.",
     "invalidCandidate": "Die vorgeschlagene Konfiguration ist ungültig. Es wurden keine Änderungen gespeichert.",
     "receiptInvalid": "Dieser Rückgängig-Beleg kann nicht verwendet werden. Prüfen Sie Format, Speicherort und private Dateiberechtigungen.",
+    "receiptExists": "An diesem Pfad existiert bereits ein Rückgängig-Beleg. Wählen Sie einen neuen Pfad für den Beleg. Es wurden keine Änderungen gespeichert.",
     "unsafeLock": "Die Konfigurationssperre ist unsicher. Prüfen Sie Eigentümer und Dateityp."
   },
   "fr": {
     "busy": "Une autre modification de la configuration est en cours. Réessayez.",
     "sourceChanged": "La configuration a changé pendant la préparation. Vérifiez-la et réessayez.",
-    "undoConflict": "L’annulation a conservé un choix plus récent. Vérifiez ce réglage avant de le modifier :",
+    "undoConflict": "L’annulation a conservé un choix plus récent pour ce réglage. Vérifiez-le avant de le modifier à nouveau.",
     "invalidCandidate": "La configuration proposée est invalide. Aucune modification n’a été enregistrée.",
     "receiptInvalid": "Ce reçu d’annulation est inutilisable. Vérifiez son format, son emplacement et ses autorisations privées.",
+    "receiptExists": "Un reçu d’annulation existe déjà à cet emplacement. Choisissez un nouveau chemin pour le reçu. Aucune modification n’a été enregistrée.",
     "unsafeLock": "Le verrou de configuration n’est pas sûr. Vérifiez son propriétaire et son type de fichier."
   },
   "es": {
     "busy": "Hay otra edición de la configuración en curso. Vuelve a intentarlo.",
     "sourceChanged": "La configuración cambió mientras se preparaba esta edición. Revísala y vuelve a intentarlo.",
-    "undoConflict": "Se conservó una elección más reciente al deshacer. Revisa este ajuste antes de cambiarlo:",
+    "undoConflict": "Al deshacer se conservó una elección más reciente para este ajuste. Revísalo antes de volver a cambiarlo.",
     "invalidCandidate": "La configuración propuesta no es válida. No se guardó ningún cambio.",
     "receiptInvalid": "No se puede usar este recibo de deshacer. Comprueba su formato, ubicación y permisos privados.",
+    "receiptExists": "Ya existe un recibo de deshacer en esta ruta. Elige una ruta nueva para el recibo. No se guardó ningún cambio.",
     "unsafeLock": "El bloqueo de configuración no es seguro. Comprueba su propietario y tipo de archivo."
   },
   "ar": {
     "busy": "يجري تعديل آخر للإعدادات. أعد محاولة التغيير.",
     "sourceChanged": "تغيرت الإعدادات أثناء تحضير هذا التعديل. راجعها وأعد المحاولة.",
-    "undoConflict": "احتفظ التراجع باختيار أحدث. راجع هذا الإعداد قبل تغييره:",
+    "undoConflict": "احتفظ التراجع باختيار أحدث لهذا الإعداد. راجعه قبل تغييره مرة أخرى.",
     "invalidCandidate": "الإعدادات المقترحة غير صالحة. لم تُحفظ أي تغييرات.",
     "receiptInvalid": "لا يمكن استخدام سجل التراجع هذا. تحقق من تنسيقه وموقعه وأذونات الملف الخاص.",
+    "receiptExists": "يوجد سجل تراجع بالفعل في هذا المسار. اختر مسارًا جديدًا للسجل. لم تُحفظ أي تغييرات.",
     "unsafeLock": "قفل كتابة الإعدادات غير آمن. تحقق من مالكه ونوع الملف."
   },
   "zh-Hans": {
     "busy": "另一项配置编辑正在进行。请重试更改。",
     "sourceChanged": "准备此次编辑期间配置已更改。请检查后重试。",
-    "undoConflict": "撤销操作保留了较新的选择。更改前请检查此设置：",
+    "undoConflict": "撤销操作保留了此设置较新的选择。再次更改前请先检查。",
     "invalidCandidate": "建议的配置无效。未保存任何更改。",
     "receiptInvalid": "无法使用此撤销记录。请检查其格式、位置和私有文件权限。",
+    "receiptExists": "此路径已存在撤销记录。请选择新的记录路径。未保存任何更改。",
     "unsafeLock": "配置写入锁不安全。请检查其所有者和文件类型。"
   },
   "zh-Hant": {
     "busy": "另一項設定編輯正在進行。請重試變更。",
     "sourceChanged": "準備此次編輯期間設定已變更。請檢查後重試。",
-    "undoConflict": "復原操作保留了較新的選擇。變更前請檢查此設定：",
+    "undoConflict": "復原操作保留了此設定較新的選擇。再次變更前請先檢查。",
     "invalidCandidate": "建議的設定無效。未儲存任何變更。",
     "receiptInvalid": "無法使用此復原記錄。請檢查其格式、位置和私人檔案權限。",
+    "receiptExists": "此路徑已存在復原記錄。請選擇新的記錄路徑。未儲存任何變更。",
     "unsafeLock": "設定寫入鎖不安全。請檢查其擁有者和檔案類型。"
   },
   "ko": {
     "busy": "다른 설정 편집이 진행 중입니다. 변경을 다시 시도하세요.",
     "sourceChanged": "편집을 준비하는 동안 설정이 변경되었습니다. 검토 후 다시 시도하세요.",
-    "undoConflict": "실행 취소 시 더 최근의 선택을 유지했습니다. 변경하기 전에 이 설정을 검토하세요:",
+    "undoConflict": "실행 취소 시 이 설정의 더 최근 선택을 유지했습니다. 다시 변경하기 전에 검토하세요.",
     "invalidCandidate": "제안된 설정이 유효하지 않습니다. 변경 사항이 저장되지 않았습니다.",
     "receiptInvalid": "이 실행 취소 기록을 사용할 수 없습니다. 형식, 위치 및 비공개 파일 권한을 확인하세요.",
+    "receiptExists": "이 경로에 실행 취소 기록이 이미 있습니다. 새 기록 경로를 선택하세요. 변경 사항이 저장되지 않았습니다.",
     "unsafeLock": "설정 쓰기 잠금이 안전하지 않습니다. 소유자와 파일 형식을 확인하세요."
   }
 }

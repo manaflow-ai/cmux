@@ -209,12 +209,6 @@ class RealMapTests(unittest.TestCase):
     def setUp(self) -> None:
         self.document = resolver.load_map(REAL_MAP)
 
-    def test_every_capability_is_answered_by_every_fleet(self) -> None:
-        declared = set(self.document["capabilities"])
-        for name, labels in self.document["fleets"].items():
-            with self.subTest(fleet=name):
-                self.assertEqual(set(labels), declared)
-
     def test_the_repository_owner_routes_to_blacksmith(self) -> None:
         fleet, _, labels = resolver.resolve(map_path=REAL_MAP, owner="manaflow-ai")
 

@@ -1,7 +1,9 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import SwiftUI
 /// The Cloud catalog outline: local workspaces, then machine workspaces and resources. Rows are pure
 /// display (`CloudTreeRowContentView`); the coordinator owns selection,
@@ -29,23 +31,18 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
     var source: CloudTreeMachineSource = .cloud
     var devicesSection: CloudTreeDevicesSection = .init()
+    /// Shows the Cloud Machines header's New Machine "+".
+    var canCreateCloudMachine: Bool = false
     var reveal: CloudTreeRevealRequest? = nil
+    var nodeBuilder: ((CloudTreeBuildInputs) -> [CloudTreeNode])? = nil
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
-    /// A terminal rename needs a stable daemon tab placement. A terminal row
-    /// with only a legacy workspace hint is not enough, because the same
-    /// terminal can have zero or many tab placements.
-    static func canRenameTerminal(
-        resource: SurfaceResource,
-        remoteView: SurfaceRemoteView?
-    ) -> Bool {
-        remoteView != nil || resource.remoteViews?.isEmpty == false
-    }
     func makeCoordinator() -> Coordinator {
         Coordinator(
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organization: organizationStore,
+            buildNodes: nodeBuilder,
             tabDragTransferRegistry: { [tabDragTransferRegistry] in
                 tabDragTransferRegistry ?? AppDelegate.shared?.tabDragTransferRegistry
             }
@@ -63,15 +60,15 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         context.coordinator.onDragStateChange = onDragStateChange
         context.coordinator.pendingWorkspaceDeletions = snapshot.pendingWorkspaceDeletions ?? [:]
         context.coordinator.apply(style: style)
-        context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
+        context.coordinator.update(inputs: CloudTreeBuildInputs(
             machines: machines,
             pendingCreates: pendingCreates, adoptedOperationIDs: adoptedOperationIDs,
             snapshot: snapshot,
             localWorkspaces: localWorkspaces,
             unreadTerminalIDs: unreadTerminalIDs,
-            pinnedMachineIDs: Set(machines.filter(\.isPinned).map(\.id)),
             source: source,
-            devicesSection: devicesSection
+            devicesSection: devicesSection,
+            canCreateCloudMachine: canCreateCloudMachine
         ))
         context.coordinator.reveal(reveal)
     }
@@ -81,6 +78,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var machineActions: MachineRowActions
         var nodeActions: CloudTreeNodeActions
         let expansionStore: CloudTreeExpansionStore
+        let nodeCache: CloudTreeNodeCache
         private(set) var style: CloudTreeStyle = CloudTreeStyleStore.current
         private let tabDragTransferRegistry: @MainActor () -> TabDragTransferRegistry?
         private var organizationObserver: NSObjectProtocol?
@@ -95,7 +93,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var pendingWorkspaceDeletions: [SurfaceMachineID: Set<String>] = [:]
         private let deletionPresentation = CloudTreeDeletionPresentation()
         private var lastRevealToken: UUID?
-        private var isUpdatingProgrammatically = false
+        private(set) var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
         // NSDraggingItem retains the writer for the live native session. A weak
         // coordinator edge prevents a retained writer/container cycle.
@@ -119,11 +117,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             nodeActions: CloudTreeNodeActions,
             expansionStore: CloudTreeExpansionStore,
             organization: CloudSidebarOrganizationStore? = nil,
+            buildNodes: ((CloudTreeBuildInputs) -> [CloudTreeNode])? = nil,
             tabDragTransferRegistry: @escaping @MainActor () -> TabDragTransferRegistry?
         ) {
             self.machineActions = machineActions
             self.nodeActions = nodeActions
             self.expansionStore = expansionStore
+            self.nodeCache = CloudTreeNodeCache(buildNodes: buildNodes)
             self.organization = organization ?? CloudSidebarOrganizationStore()
             self.tabDragTransferRegistry = tabDragTransferRegistry
             super.init()
@@ -404,7 +404,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             if case .devicesEmpty(let section) = node.kind {
                 let cell = (outlineView.makeView(withIdentifier: CloudTreeDevicesEmptyCell.identifier, owner: nil) as? CloudTreeDevicesEmptyCell)
                     ?? CloudTreeDevicesEmptyCell(frame: .zero)
-                cell.configure(section: section, actions: nodeActions, style: style)
+                cell.configure(section: section, actions: nodeActions, style: style, level: outlineView.level(forItem: node))
                 return cell
             }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)
@@ -415,7 +415,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
-            CloudTreeRowView()
+            CloudTreeRowView.reusable(in: outlineView)
         }
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
@@ -431,17 +431,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             selectedNodeID = outlineView.selectedRow >= 0
                 ? (outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode)?.id
                 : nil
-        }
-
-        func outlineViewItemDidExpand(_ notification: Notification) {
-            guard !isUpdatingProgrammatically, let node = notification.userInfo?["NSObject"] as? CloudTreeNode else { return }
-            expansionStore.setExpanded(true, node: node)
-            if node.kind.refreshesOnExpansion { nodeActions.refreshMachine(node.machine) }
-        }
-
-        func outlineViewItemDidCollapse(_ notification: Notification) {
-            guard !isUpdatingProgrammatically, let node = notification.userInfo?["NSObject"] as? CloudTreeNode else { return }
-            expansionStore.setExpanded(false, node: node)
         }
 
         // MARK: Opening

@@ -50,18 +50,28 @@ LOOKUP_ATTEMPTS = 3
 ARTIFACTS_PER_PAGE = 100
 MAX_CANDIDATES = 6
 
-# Producer events permitted for each consumer event. Pull-request consumers are
-# further restricted to the same pull request; merge groups may adopt an exact
-# product from either an in-repository PR or an earlier merge-group run.
+# Producer events permitted for each consumer event. A pull request consumer
+# may adopt an earlier run of the same pull request, or a product a push to main
+# compiled; merge groups may adopt an exact product from either an
+# in-repository PR or an earlier merge-group run.
+#
+# The main push producer is seed-derived-data.yml, which builds main on the
+# pool, Xcode and canonical paths pull request admission uses. A pull request
+# that changes no product input then adopts its base's product instead of
+# compiling it again. Only reviewed main code ran that build, so it is at least
+# as trusted as the same-repository pull request that adopts it. `push` is not a
+# consumer event, so nothing a pull request compiled can reach main.
 #
 # A dispatch consumer is at least as trusted as a merge group, because starting
-# one requires write access, so it may adopt any exact product CI compiled as
-# well as the ones earlier dispatches of its own lane compiled. Nothing adopts a
-# dispatch product in the other direction: CI's trust surface is unchanged.
+# one requires write access, so it may adopt any exact product CI compiled,
+# including main's seeder product, as well as the ones earlier dispatches of
+# its own lane compiled. A dispatch of a main commit that no pull request
+# compiled then adopts the seeder's product. Nothing adopts a dispatch product
+# in the other direction: CI's trust surface is unchanged.
 PERMITTED_PRODUCERS = {
-    "pull_request": {"pull_request"},
+    "pull_request": {"pull_request", "push"},
     "merge_group": {"pull_request", "merge_group"},
-    "workflow_dispatch": {"pull_request", "merge_group", "workflow_dispatch"},
+    "workflow_dispatch": {"pull_request", "merge_group", "workflow_dispatch", "push"},
 }
 
 # The workflow each event is trusted to run from, keyed by event so a future
@@ -71,6 +81,13 @@ TRUSTED_WORKFLOWS = {
     "pull_request": ".github/workflows/ci.yml",
     "merge_group": ".github/workflows/ci.yml",
     "workflow_dispatch": ".github/workflows/test-e2e.yml",
+    "push": ".github/workflows/seed-derived-data.yml",
+}
+
+# The branch a run of that event must have run on. A push to any other branch
+# runs whatever that branch's copy of the workflow says, so only main is trusted.
+TRUSTED_BRANCHES = {
+    "push": "main",
 }
 
 # The job, and the step inside it, that must have compiled a product before that
@@ -82,7 +99,62 @@ COMPILE_JOBS = {
     ".github/workflows/test-e2e.yml": (
         "build", "Build the app-host and UI test product",
     ),
+    ".github/workflows/seed-derived-data.yml": (
+        "seed", "Build",
+    ),
 }
+
+
+def names_compile_job(name: object, compile_name: str) -> bool:
+    """Whether a listed job is COMPILE_JOBS' job, through a reusable workflow
+    ("<caller> / <name>") or a matrix ("<name> (<values>)")."""
+    last = str(name or "").rsplit(" / ", 1)[-1]
+    return last == compile_name or last.startswith(f"{compile_name} (")
+
+
+# ci-macos.yml's compile admission ends with this step, which fails the job
+# when the caller's fast Linux gate declined. It runs only after every earlier
+# step succeeded, so a job that failed there built and published its product.
+GATE_DECLINE_STEP = "Hold consumers behind the fast Linux gate"
+
+
+# test-e2e.yml's build job uploads its product with one of these steps: the
+# first before it runs the tests on the same runner, the second after them on
+# an owned Mac. Once either has succeeded the product is complete, so a later
+# dispatch may adopt it while those tests still run, or after they fail.
+PUBLISH_STEPS = {
+    ".github/workflows/test-e2e.yml": (
+        "Upload the compiled test product",
+        "Upload the compiled test product after the tests",
+    ),
+}
+
+
+def compile_job_admitted(job: object, publish_step: str | tuple[str, ...] | None = None) -> bool:
+    """Whether a compile job produced its product: its `publish_step` (or
+    any of several) succeeded, or it completed and succeeded, or it failed only because the
+    fast Linux gate declined its consumers."""
+    if not isinstance(job, dict):
+        return False
+    steps = job.get("steps")
+    publish_steps = (publish_step,) if isinstance(publish_step, str) else (publish_step or ())
+    if publish_steps and isinstance(steps, list) and any(
+        isinstance(step, dict)
+        and step.get("name") in publish_steps
+        and step.get("conclusion") == "success"
+        for step in steps
+    ):
+        return True
+    if job.get("status", "completed") != "completed":
+        return False
+    if job.get("conclusion") == "success":
+        return True
+    return job.get("conclusion") == "failure" and isinstance(steps, list) and any(
+        isinstance(step, dict)
+        and step.get("name") == GATE_DECLINE_STEP
+        and step.get("conclusion") == "failure"
+        for step in steps
+    )
 
 
 # Build controls the product contract hashes. Only non-secret values belong
@@ -164,6 +236,67 @@ def contract(derived=None):
     return value
 
 
+# glaeda's canonical-root helper on an owned Mac (glaeda-cmux-runner). A job
+# holds one canonical root; `take ROOT --switch` moves it to another, waiting
+# for ROOT while it still holds its own, so a timeout leaves it where it was.
+ROOT_HELPER = Path("/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root")
+ROOT_SWITCH_WAIT_S = 120
+# Root 1. CANONICAL_DERIVED_DATA follows the job's own root instead.
+FIRST_ROOT = Path("/private/tmp/cmux-ci")
+DERIVED_NAME = "derived-data-compile-admission"
+CAS_NAME = "compile-admission-cas"
+
+
+def canonical_roots():
+    """This Mac's canonical roots: /private/tmp/cmux-ci, then every
+    /private/tmp/cmux-ci-<n> a job has used. The helper refuses a root the Mac
+    does not have, so a stray directory is only a wasted lookup."""
+    base = FIRST_ROOT
+    numbered = [path for path in base.parent.glob(base.name + "-*")
+                if re.fullmatch(re.escape(base.name) + r"-[0-9]+", path.name) and path.is_dir()]
+    return [base] + sorted(numbered, key=lambda path: int(path.name.rsplit("-", 1)[1]))
+
+
+def at_root(value, root):
+    """The same product compiled at another canonical root."""
+    return {**value, "build_location": str((root / DERIVED_NAME).resolve())}
+
+
+def switch_root(root):
+    """Move this job to `root` and give it an empty DerivedData there.
+
+    A product's test binaries carry #filePath strings under the root that
+    compiled it, which relocation cannot edit, so a product from another root
+    runs only from that root. The helper points $GITHUB_ENV's
+    CMUX_CI_CANONICAL_ROOT at it; the DerivedData and cache paths follow here.
+    """
+    try:
+        result = subprocess.run(
+            [str(ROOT_HELPER), "take", str(root), "--switch", "--wait", str(ROOT_SWITCH_WAIT_S)],
+            text=True, capture_output=True, timeout=ROOT_SWITCH_WAIT_S + 60)
+    except (OSError, subprocess.SubprocessError) as error:
+        print(f"Could not move this job to {root} ({error}); compiling here.")
+        return None
+    if result.returncode != 0:
+        print(f"Could not move this job to {root} (take exited {result.returncode}): "
+              f"{result.stderr.strip()[-300:]}; compiling here.")
+        return None
+    # The job is at `root` from here: its paths follow it first, and it is
+    # reported moved even when the directories cannot be emptied, so nothing
+    # cleans the root it released, which another job may hold by now.
+    derived, cache = root / DERIVED_NAME, root / CAS_NAME
+    with open(os.environ["GITHUB_ENV"], "a") as env:
+        env.write(f"CMUX_DERIVED_DATA_PATH={derived}\nCMUX_E2E_COMPILATION_CACHE={cache}\n")
+    for path in (derived, cache):
+        try:
+            shutil.rmtree(path, ignore_errors=True)
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            print(f"Could not empty {path} ({error}).")
+    print(f"Moved this job to {root}, where the product was compiled.")
+    return derived
+
+
 def portable_contract(value):
     """The same product compiled at the canonical root, which runs on any pool."""
     return {**value, "build_location": str(CANONICAL_DERIVED_DATA.resolve())}
@@ -179,8 +312,12 @@ def github_product_identity(api, revision):
     if cache is None:
         cache = {}
         setattr(api, "_product_identity_cache", cache)
-    if revision in cache:
-        return cache[revision]
+    # One revision has one identity per product profile. The consumer's own
+    # profile is what we recompute under, so an app-host consumer comparing
+    # against a cli producer's receipt sees a mismatch and declines it.
+    cache_key = (revision, product_inputs.resolve_profile())
+    if cache_key in cache:
+        return cache[cache_key]
 
     commit = api.get(f"git/commits/{revision}")
     tree_sha = commit["tree"]["sha"]
@@ -215,7 +352,7 @@ def github_product_identity(api, revision):
         workflow,
         e2e_workflow,
     )
-    cache[revision] = value
+    cache[cache_key] = value
     return value
 
 
@@ -332,12 +469,14 @@ def attested_producer_revision(api, run, revision, product_inputs):
 
 
 def trusted_ci_run(run, repository):
-    """Require the event's own trusted workflow and an in-repository source."""
+    """Require the event's own trusted workflow, branch and an in-repository source."""
     head_repository = run.get("head_repository")
     event = run.get("event")
     return (
-        event in PERMITTED_PRODUCERS
+        event in TRUSTED_WORKFLOWS
         and run.get("path") == TRUSTED_WORKFLOWS[event]
+        and (event not in TRUSTED_BRANCHES
+             or run.get("head_branch") == TRUSTED_BRANCHES[event])
         and isinstance(head_repository, dict)
         and str(head_repository.get("full_name", "")).casefold() == repository.casefold()
     )
@@ -348,8 +487,15 @@ def permitted_pair(producer, consumer, repository):
     if not trusted_ci_run(producer, repository) or not trusted_ci_run(consumer, repository):
         return False
     consumer_event = consumer["event"]
+    if consumer_event not in PERMITTED_PRODUCERS:
+        return False
     if producer["event"] not in PERMITTED_PRODUCERS[consumer_event]:
         return False
+    if producer["event"] == "push":
+        # A main push compiled its own head, which `select` re-fingerprints
+        # against these product inputs before download. No pull request
+        # number applies to it.
+        return True
     if consumer_event == "pull_request":
         producer_prs = pull_request_numbers(producer)
         consumer_prs = pull_request_numbers(consumer)
@@ -389,7 +535,9 @@ def load_consumer(api, value, current_run, current_attempt, current_revision, re
         if str(run.get("run_attempt")) != str(current_attempt):
             record_reason(reasons, "consumer_attempt_mismatch")
             return None
-        if not trusted_ci_run(run, api.repository):
+        # A trusted producer event is not necessarily a consumer: a main push
+        # never adopts a product.
+        if run.get("event") not in PERMITTED_PRODUCERS or not trusted_ci_run(run, api.repository):
             record_reason(reasons, "consumer_untrusted")
             return None
         # A dispatch takes the revision under test as a workflow input, so its
@@ -517,8 +665,9 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
                 # the base, which this listing does not name, so its head alone
                 # can differ while the merge it sealed matches exactly. Its
                 # sealed merge is re-fingerprinted from GitHub after download,
-                # in `attested_producer_revision`; every other producer
-                # compiled its head and is rejected here, before download.
+                # in `attested_producer_revision`; every other producer,
+                # including a main push, compiled its head and is rejected
+                # here, before download.
                 record_reason(reasons, "producer_product_inputs_mismatch")
                 continue
             jobs = []
@@ -531,16 +680,19 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
                 jobs.extend(batch)
                 if len(batch) < 100:
                     break
-            # The compile job must finish successfully; unrelated producer tests
-            # may still be running because no test result is reused here.
+            # The compile job must finish successfully, be declined by the
+            # fast Linux gate after publishing, or (test-e2e.yml) have
+            # published before running its tests; unrelated producer tests may
+            # still be running because no test result is reused here.
             # A reusable workflow reports "<caller job> / <job name>", so this
             # is "macos / macOS compile admission" when ci.yml reaches the job
             # through ci-macos.yml. Match the final segment.
+            # A matrix job adds " (<values>)", as seed-derived-data.yml's
+            # "seed (<pool>)" does.
             compile_name, compile_step = COMPILE_JOBS[run["path"]]
             compile_job = next((job for job in jobs
-                                if str(job.get("name") or "").rsplit(" / ", 1)[-1] == compile_name
-                                and job.get("status") == "completed"
-                                and job.get("conclusion") == "success"), None)
+                                if names_compile_job(job.get("name"), compile_name)
+                                and compile_job_admitted(job, PUBLISH_STEPS.get(run["path"]))), None)
             if compile_job is None:
                 record_reason(reasons, "producer_compile_unsuccessful")
                 continue
@@ -803,8 +955,14 @@ def upstream_compile_seconds(upstream):
     return upstream["metrics"]["compile_seconds_avoided"]
 
 
-def restore(api, value, derived, current_run, current_identity, current_attempt="1", report=None):
-    """Restore in staging; a miss never leaves partial products in DerivedData."""
+def restore(api, value, derived, current_run, current_identity, current_attempt="1", report=None,
+            claim=None):
+    """Restore in staging; a miss never leaves partial products in DerivedData.
+
+    `claim`, when given, runs once a downloaded product has passed every check
+    and returns the DerivedData to restore it into, or None when this job
+    cannot use it after all (switch_root). The product is then a miss.
+    """
     reuse_started = time.monotonic()
     reasons = []
     consumer = load_consumer(
@@ -872,6 +1030,12 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
                 record_reason(reasons, "product_provenance_invalid")
                 continue
 
+            if claim is not None:
+                claimed = claim()
+                if claimed is None:
+                    record_reason(reasons, "root_unavailable")
+                    break
+                derived, claim = claimed, None
             # After relocation starts, any failure must abort to main's cleanup.
             destination = derived / "Build/Products"
             if destination.exists():
@@ -968,7 +1132,11 @@ def main():
             "restore_seconds": None,
             "total_reuse_seconds": None,
             "macos_runner_minutes_saved": None,
+            # Set when the product came from another root (switch_root).
+            "product_key": "",
         }
+        # A DerivedData this job moved to (switch_root), cleaned like its own.
+        switched = []
         try:
             if value is None:
                 report["miss_reasons"] = "fingerprint_unavailable"
@@ -976,11 +1144,29 @@ def main():
                 api = GitHub(os.environ["GITHUB_REPOSITORY"])
                 # A product this job would compile, then the same product
                 # compiled at the canonical root, which this job can also run.
-                wanted = [value]
-                if portable_contract(value) != value:
-                    wanted.append(portable_contract(value))
+                # An owned Mac (CMUX_REUSE_SWITCH_ROOTS) has several roots
+                # instead, and takes a product from any of them by moving to
+                # its root first (switch_root).
+                wanted = [(value, None)]
+                here = derived.resolve().parent
+
+                def moved(target):
+                    # From here the job is at the other root, hit or not, and
+                    # packaging seals whatever it builds under that root's key.
+                    if target is not None:
+                        switched.append(target)
+                        report["product_key"] = key(at_root(value, target.parent))
+                    return target
+
+                if (os.environ.get("CMUX_REUSE_SWITCH_ROOTS") == "1" and ROOT_HELPER.exists()
+                        and derived.name == DERIVED_NAME):
+                    wanted += [(at_root(value, root), root) for root in canonical_roots()
+                               if root.resolve() != here]
+                elif portable_contract(value) != value:
+                    wanted.append((portable_contract(value), None))
                 reasons = []
-                for candidate in wanted:
+                for candidate, root in wanted:
+                    extra = {} if root is None else {"claim": lambda root=root: moved(switch_root(root))}
                     hit = restore(
                         api,
                         candidate,
@@ -989,6 +1175,7 @@ def main():
                         products.identity(),
                         os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
                         report,
+                        **extra,
                     )
                     reasons.extend(r for r in report["miss_reasons"].split(",")
                                    if r and r not in reasons)
@@ -1002,7 +1189,10 @@ def main():
             print("Compiled-product reuse unavailable; compiling normally.")
             report["reason"] = "fallback"
             report["miss_reasons"] = "reuse_api_or_validation_error"
-            shutil.rmtree(derived, ignore_errors=True)
+            # Only the root this job holds: after a switch, the one it left
+            # is another job's to use.
+            for target in (switched or [derived]):
+                shutil.rmtree(target, ignore_errors=True)
         with open(os.environ["GITHUB_OUTPUT"], "a") as out:
             out.write(f"hit={'true' if hit else 'false'}\n")
             for name, item in report.items():

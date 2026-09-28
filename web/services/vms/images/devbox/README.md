@@ -295,9 +295,12 @@ unit with `CMUX_TUI_REMOTE_WS_BIND=[::]:1337` (the driver reaches the daemon
 at the VM's IPv6 address, so the listener must be dual-stack), reads the
 platform instance id from the metadata service, wipes the remote identity
 when the machine is a clone, and starts the daemon. The driver runs no
-bootstrap at create; it heals pin drift and a missing listener on attach
-(`web/services/vms/drivers/cmuxTuiDaemon.ts`). The container Dockerfile still
-ships only the supervisor and waits for a driver install.
+bootstrap at create and no guest work on attach, so nothing on a running
+machine changes its cmux-tui: upgrade running machines with
+`bun scripts/upgrade-fleet-cmux-tui.ts` and the in-place guest script
+`scripts/cloud-vm/cmux-tui-upgrade.sh`, under the compatibility rules in
+docs/cloud-guest-upgrades.md. The container Dockerfile still ships only the
+supervisor and waits for a driver install.
 
 Shells spawned by the daemon get the bash devshell (ble.sh ghost text,
 half-life prompt, seeded history) through the `/etc/bash.bashrc` chain.

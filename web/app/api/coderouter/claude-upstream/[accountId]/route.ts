@@ -1,6 +1,7 @@
 import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 // One Claude upstream account: rename or enable/disable (PATCH), remove
-// (DELETE). Both need `manageAccounts` on the team.
+// (DELETE). Both need `manageAccounts`, which every team member has; a
+// member reaches shared accounts and their own private imports only.
 import {
   isClaudeAccountId,
   parseClaudeAccountPatch,

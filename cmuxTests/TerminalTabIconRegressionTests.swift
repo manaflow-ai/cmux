@@ -8,9 +8,9 @@ import Testing
 @testable import cmux
 #endif
 
-// Whether a terminal tab shows an agent's mark is a design choice; these tests
-// do not encode it. They pin #7822: once no agent runs in the panel, the tab
-// must not keep an agent mark.
+// A terminal tab shows an agent's mark only while that agent runs in the panel
+// (#13299). These tests pin #7822, that the mark goes once the agent does, and
+// that a mark never comes from anything but a running agent.
 @Suite(.serialized)
 struct TerminalTabIconRegressionTests {
     @MainActor
@@ -43,6 +43,21 @@ struct TerminalTabIconRegressionTests {
         try expectNoAgentMark(workspace: workspace, panel: panel, tabId: tabId)
     }
 
+    // #13299: a tab whose title merely looks like an agent command gets no
+    // agent mark. Only a detected agent process or a running restored agent
+    // names the tab.
+    @MainActor
+    @Test func agentLookingTitleGetsNoAgentMark() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
+
+        workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
+        #expect(workspace.updatePanelTitle(panelId: panel.id, title: "codex --yolo"))
+
+        try expectNoAgentMark(workspace: workspace, panel: panel, tabId: tabId)
+    }
+
     @MainActor
     @Test func restoredAgentThatQuitToTheShellLeavesNoAgentMark() throws {
         let workspace = Workspace()
@@ -59,15 +74,38 @@ struct TerminalTabIconRegressionTests {
         )
         workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
         #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == .autoResumeCommandRunning)
-        // Whatever the tab shows while the agent runs is out of scope; make
-        // sure any mark it would get has been applied before the agent quits.
-        workspace.syncTerminalTabAgentIconAsset(forPanelId: panel.id)
+        // The resumed agent marks the tab, so the check below cannot pass
+        // just because no mark was ever applied.
+        let runningTab = try #require(workspace.bonsplitController.tab(tabId))
+        #expect(runningTab.iconAsset == "AgentIcons/Codex")
 
         // The agent quits and the shell prompt returns.
         workspace.updatePanelShellActivityState(panelId: panel.id, state: .promptIdle)
         #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == .completedAgentExit)
 
         try expectNoAgentMark(workspace: workspace, panel: panel, tabId: tabId)
+    }
+
+    // A restored tab that has not resumed its agent yet shows no agent mark:
+    // after a relaunch, a tab waiting to auto-resume or offering a manual
+    // resume looks like a plain terminal until the agent command runs.
+    @MainActor
+    @Test func restoredAgentThatHasNotResumedGetsNoAgentMark() throws {
+        for state: Workspace.RestoredAgentResumeState in [.awaitingAutoResumeCommand, .manualResumeAvailable] {
+            let workspace = Workspace()
+            let panel = try #require(workspace.focusedTerminalPanel)
+            let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
+
+            workspace.restoredAgentLifecycle.setSnapshot(
+                restoredAgentSnapshot(kind: .codex),
+                panelId: panel.id
+            )
+            workspace.restoredAgentLifecycle.setResumeState(state, panelId: panel.id)
+            workspace.syncTerminalTabAgentIconAsset(forPanelId: panel.id)
+            #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == state)
+
+            try expectNoAgentMark(workspace: workspace, panel: panel, tabId: tabId)
+        }
     }
 
     @MainActor

@@ -45,7 +45,7 @@ public struct CodexWriterLockInspector: Sendable {
             guard fstat(coordination, &file) == 0, file.st_mode & S_IFMT == S_IFREG else {
                 return result(.unavailable)
             }
-            guard flock(coordination, LOCK_EX | LOCK_NB) == 0 else {
+            guard flock(coordination, LOCK_SH | LOCK_NB) == 0 else {
                 return result(errno == EWOULDBLOCK ? .changing : .unavailable)
             }
             var current = stat()
@@ -67,7 +67,8 @@ public struct CodexWriterLockInspector: Sendable {
         guard fstat(fd, &file) == 0, file.st_mode & S_IFMT == S_IFREG else {
             return result(.unavailable)
         }
-        let status = flock(fd, LOCK_EX | LOCK_NB)
+        // Probes can coexist; both remain incompatible with Codex's exclusive writer.
+        let status = flock(fd, LOCK_SH | LOCK_NB)
         let error = errno
         // Closing our own descriptor releases only the probe's acquisition.
         var current = stat()

@@ -18,13 +18,13 @@ The required checks on `main` (ruleset "main: block force-push or delete") are `
 
 **a. Experimental or canary workflows that have never succeeded, or have no consumer**
 
-- `persistent-macos-compile.yml` (teamleaderleo, #13383, added 09-21): a pilot producer that has never run. It runs only when `vars.CI_PERSISTENT_MAC_COMPILE` is set and the `cmux-persistent-compile` runner group is enrolled.
+- `persistent-macos-compile.yml` (teamleaderleo, #13383, added 09-21): a pilot producer that never ran. Removed with its router when the pilot was retired; owned minis will serve pull requests through the pool picker (`scripts/ci/pr_runner_pool.py` `POOLS`) instead.
 - `ci-artifact-canary.yml` (teamleaderleo, #13268, added 09-20): an R2 transport canary. Its one dispatch failed in the measurement step. It is the pre-rollout check for `vars.CI_ARTIFACT_R2_URL`, which is not set.
 - Workflows that exist only on branches still appear in the Actions list: 15 `incremental-*` / `incgen-*` / `xcode-incremental-*` canaries (09-21 experiment branches, mostly failed), 7 `zz-13474-*` workflows, `verify-13450`, `verify-issue-13489`, `transport-v3`, `test-remote-connections` (29 of 36 runs cancelled) and `zz-mobile-terminal-package-boundary-benchmark`. None of them is on `main`. The entries disappear once their branches are deleted.
 
 **b. Nearly all runs skipped (the trigger is broader than the job condition)**
 
-- `persistent-macos-router.yml` (teamleaderleo): 6,887 of 6,927 runs skipped and none succeeded. It creates one run for every CI run and exits on the unset pilot variable. `workflow_run` has no narrower filter that fits the cohort selector, so the choice is to keep the pilot or remove it.
+- `persistent-macos-router.yml` (teamleaderleo): 6,887 of 6,927 runs skipped and none succeeded. It created one run for every CI run and exited on the unset pilot variable. Removed with the pilot.
 - `claude.yml` (lawrencecchen): 9,780 of 10,239 skipped and 7 successful. It fires on every issue comment, review and review comment, and the job filters for an `@claude` mention.
 - `indexnow.yml` (lawrencecchen): 804 of 1,199 skipped. It fires on every `deployment_status`, and the job keeps only production successes.
 - `merge-group-fail-fast.yml` (teamleaderleo): 11,324 skipped runs before #13476 fixed its trigger at 09-22 00:04 UTC, and none since.
@@ -51,7 +51,7 @@ Sorted by estimated runner minutes. Trigger abbreviations: pr = pull_request, pr
 | `web-complexity-trusted.yml` | pr_target merge_group push (paths) | gh-ubuntu | 13,693 | 5,490 / 179 / 0 / 8,023 | 18,747 | 2026-09-22 | lawrencecchen #11944 | Leo 2026-09-19 | REQUIRED: Web complexity; 2 wf refs; 6 docs/tests |  |
 | `nightly.yml` | push schedule dispatch | blacksmith/warp/macos | 489 | 150 / 39 / 0 / 300 | 14,637 | 2026-09-22 | lawrencecchen (direct push)  | Lawrence Chen 2026-09-21 | 7 wf refs; 23 docs/tests |  |
 | `ios-testflight.yml` | schedule dispatch | blacksmith/warp/macos | 507 | 231 / 251 / 0 / 25 | 13,771 | 2026-09-22 | lawrencecchen #5448 | Abdulaziz Albahar 2026-09-21 | 11 docs/tests | **c** overlaps ios-appstore-upload; 50% fail |
-| `cli-pipe-regressions.yml` | call dispatch | warp/macos | 2,432 | 1,500 / 228 / 0 / 588 | 7,710 | 2026-09-22 | austinywang #12503 | Leo 2026-09-22 | REQUIRED: ci-status (reusable); called by ci; 3 docs/tests |  |
+| `cli-pipe-regressions.yml` | call dispatch | warp/macos | 2,432 | 1,500 / 228 / 0 / 588 | 7,710 | 2026-09-22 | austinywang #12503 | Leo 2026-09-22 | REQUIRED: ci-status (reusable); called by ci; 3 docs/tests | removed: its CLI tests run in compile admission's CLI smoke step |
 | `cmux-tui-sdks.yml` | push pr dispatch (paths) | blacksmith | 453 | 235 / 82 / 0 / 132 | 7,271 | 2026-09-22 | lawrencecchen #9215 | Lawrence Chen 2026-09-16 | 1 docs/tests |  |
 | `test-e2e.yml` | dispatch | blacksmith/warp/macos | 959 | 270 / 531 / 0 / 158 | 6,730 | 2026-09-22 | lawrencecchen #778 | Leo 2026-09-21 | 6 docs/tests | 55% fail |
 | `cmux-tui.yml` | dispatch | blacksmith/macos/gh-ubuntu | 114 | 37 / 47 / 0 / 30 | 5,696 | 2026-09-22 | lawrencecchen #7710 | Austin Wang 2026-09-12 | 1 wf refs; 5 docs/tests |  |
@@ -124,9 +124,9 @@ Sorted by estimated runner minutes. Trigger abbreviations: pr = pull_request, pr
 | `sdk-bootstrap-crates.yml` | repo_dispatch | blacksmith | 0 | 0 / 0 / 0 / 0 | 0 | 2026-08-17 | lawrencecchen #9376 | Lawrence Chen 2026-08-05 | 1 wf refs; 2 docs/tests |  |
 | `sdk-release-cut.yml` | repo_dispatch | blacksmith | 0 | 0 / 0 / 0 / 0 | 0 | never | lawrencecchen #9376 | Lawrence Chen 2026-08-03 | 2 wf refs; 4 docs/tests |  |
 | `sdk-publish-python.yml` | call dispatch | blacksmith | 0 | 0 / 0 / 0 / 0 | 0 | 2026-07-28 | lawrencecchen #7601 | Lawrence Chen 2026-08-03 | called by cmux-tui-sdks, sdk-release-cut; 1 docs/tests |  |
-| `persistent-macos-compile.yml` | dispatch | blacksmith | 0 | 0 / 0 / 0 / 0 | 0 | never | teamleaderleo #13383 | Leo 2026-09-21 | 5 docs/tests | **a** pilot producer, never ran |
+| `persistent-macos-compile.yml` | dispatch | blacksmith | 0 | 0 / 0 / 0 / 0 | 0 | never | teamleaderleo #13383 | Leo 2026-09-21 | 5 docs/tests | **a** pilot producer, never ran; removed |
 | `ci-macos-compat.yml` | dispatch | dynamic:${{ matrix.o | 0 | 0 / 0 / 0 / 0 | 0 | 2026-08-13 | lawrencecchen #769 | Leo 2026-09-20 | 1 docs/tests | stale: last success 08-13; actionlint label error |
-| `persistent-macos-router.yml` | wf_run | blacksmith | 6,927 | 0 / 0 / 6,887 / 39 | 0 | never | teamleaderleo #13383 | Leo 2026-09-21 | 1 wf refs; 4 docs/tests | **b** 6,887/6,927 skipped, 0 success (pilot var unset) |
+| `persistent-macos-router.yml` | wf_run | blacksmith | 6,927 | 0 / 0 / 6,887 / 39 | 0 | never | teamleaderleo #13383 | Leo 2026-09-21 | 1 wf refs; 4 docs/tests | **b** 6,887/6,927 skipped, 0 success (pilot var unset); removed |
 | `ios-streamed-validate.yml` | dispatch | blacksmith | 0 | 0 / 0 / 0 / 0 | 0 | 2026-07-04 | lawrencecchen #6697 | Leo 2026-09-19 | none | stale: last success 07-04 |
 | `ci-guards.yml` | call | blacksmith | 0 | 0 / 0 / 0 / 0 | 0 | never | teamleaderleo #13378 | Leo 2026-09-21 | REQUIRED: ci-status (reusable); called by ci; 15 docs/tests |  |
 | `docs-deploy-reusable.yml` | call | dynamic:${{ vars.LIN | 0 | 0 / 0 / 0 / 0 | 0 | never | lawrencecchen #7871 | Lawrence Chen 2026-07-17 | called by docs-channels; 1 docs/tests |  |
