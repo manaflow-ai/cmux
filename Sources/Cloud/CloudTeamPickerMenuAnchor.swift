@@ -40,15 +40,14 @@ struct CloudTeamPickerMenuAnchor: NSViewRepresentable {
 /// Owns the menu's tracking session. `popUp` runs a modal event loop, so it is
 /// never entered from a SwiftUI update pass: programmatic requests hop to the
 /// next main-queue turn and wait until the trigger has a window and a size.
+/// A request made while the trigger is disabled is dropped, as a click would be.
 final class CloudTeamPickerMenuAnchorView: NSView {
     var makeMenu: (@MainActor () -> NSMenu)?
     var onWillPresent: (@MainActor () -> Void)?
     var onOpen: (@MainActor () -> Void)?
     var onDismiss: (@MainActor () -> Void)?
     var isRightToLeft = false
-    var isEnabled = true {
-        didSet { if isEnabled, !oldValue { presentIfRequested() } }
-    }
+    var isEnabled = true
 
     private(set) var trackingMenu: NSMenu?
     private var isPresentationRequested = false
@@ -105,8 +104,13 @@ final class CloudTeamPickerMenuAnchorView: NSView {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.isPresentationScheduled = false
-            guard self.isPresentationRequested, self.window != nil,
-                  !self.bounds.isEmpty, self.isEnabled else { return }
+            guard self.isPresentationRequested else { return }
+            guard self.isEnabled else {
+                self.isPresentationRequested = false
+                self.onDismiss?()
+                return
+            }
+            guard self.window != nil, !self.bounds.isEmpty else { return }
             self.present()
         }
     }
