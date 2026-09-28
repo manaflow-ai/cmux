@@ -1,0 +1,35 @@
+import Foundation
+
+/// Pure state for checking that an agent woken from hibernation came back.
+///
+/// The owner feeds it the signals it sees for one pane: the wake itself, an
+/// agent hook reporting for the pane, the resume command returning to the
+/// shell prompt, and the verification deadline.
+enum AgentWakeVerificationState: Equatable, Sendable {
+    case pending
+    case succeeded
+    case failed(AgentWakeFailureReason)
+
+    enum Event: Equatable, Sendable {
+        /// A wake (or a retry) typed the resume command into the pane.
+        case started
+        /// An agent hook reported a PID or a lifecycle state for the pane.
+        case agentReported
+        /// The resume command ended and the shell prompt came back.
+        case commandEnded
+        /// The verification deadline passed. `hasLiveProcess` says whether a
+        /// live agent process was found for the pane, which counts as success
+        /// for agents without hooks.
+        case deadline(hasLiveProcess: Bool)
+    }
+
+    func applying(_ event: Event) -> AgentWakeVerificationState {
+        // Stub: always stays where it is.
+        self
+    }
+
+    var failureReason: AgentWakeFailureReason? {
+        if case .failed(let reason) = self { return reason }
+        return nil
+    }
+}
