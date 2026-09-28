@@ -10,9 +10,10 @@ run-name: "${{ github.event_name == 'workflow_dispatch' && format('PR media for 
 # CI run attempt and returns at once for anything but a same-repository pull
 # request whose CI ran the dogfood build job (app pull requests; docs or web
 # only changes skip it). Each tour is a DogfoodScenarioUITests dispatch of
-# test-e2e.yml with --adopt-only: it is dispatched only when it can load the
-# app and UI test bundle the pull request's CI compiled, and fails rather than
-# compiling one of its own if that reuse still misses.
+# test-e2e.yml, first with --adopt-only so it loads the app and UI test bundle
+# the pull request's CI compiled. When CI's build is on a pool the tour's
+# runner cannot load, or CI reused main's build, an app pull request compiles
+# its head once for one tour (pr_media.py tour()).
 #
 # A pull_request run takes ci.yml from the pull request, so PR CI holds no
 # actions or contents write token. This workflow, and the scripts it runs,
@@ -34,7 +35,7 @@ on:
         default: false
         type: boolean
       allow_compile:
-        description: Compile the app when CI left no product a UI run can load (costs a full macOS build)
+        description: Compile the app for the tour straight away instead of first trying CI's build
         required: false
         default: false
         type: boolean
@@ -62,6 +63,8 @@ jobs:
       head_sha: ${{ steps.plan.outputs.head_sha }}
       build_sha: ${{ steps.plan.outputs.build_sha }}
       merge_sha: ${{ steps.plan.outputs.merge_sha }}
+      compile: ${{ steps.plan.outputs.compile }}
+      compile_tour: ${{ steps.plan.outputs.compile_tour }}
       tours: ${{ steps.plan.outputs.tours }}
       run: ${{ steps.plan.outputs.run }}
     steps:
@@ -110,8 +113,9 @@ jobs:
     if: ${{ needs.plan.outputs.run != '' && needs.plan.outputs.run != '[]' }}
     runs-on: ubuntu-24.04 # github-hosted-required: holds actions write and mostly waits for the tour run
     # A tour dispatch can wait up to 50 minutes for the compile it adopts,
-    # then up to 90 for the run (pr_media.RUN_WAIT_SECONDS).
-    timeout-minutes: 150
+    # then up to 90 for the run (pr_media.RUN_WAIT_SECONDS), and when that
+    # build does not load, up to 90 more for a run that compiles its own.
+    timeout-minutes: 300
     # A newer push to the same pull request replaces this tour's media.
     concurrency:
       group: pr-media-${{ needs.plan.outputs.pr }}-${{ matrix.tour }}
@@ -119,6 +123,8 @@ jobs:
     permissions:
       actions: write
       contents: read
+      # pr_media.head_moved re-reads the pull request once the read token expires.
+      pull-requests: read
     strategy:
       fail-fast: false
       matrix:
@@ -182,7 +188,11 @@ jobs:
           # for BUILD_SHA, which differs when this push changed no app input.
           BUILD_SHA: ${{ needs.plan.outputs.build_sha }}
           TOUR: ${{ matrix.tour }}
-          ALLOW_COMPILE: ${{ inputs.allow_compile && '--allow-compile' || '' }}
+          # An app pull request compiles once when no CI build loads on the
+          # tour's runner (pr_media.py COMPILE_FALLBACK).
+          COMPILE: ${{ inputs.allow_compile && 'now' || needs.plan.outputs.compile || 'never' }}
+          COMPILE_TOUR: ${{ needs.plan.outputs.compile_tour }}
+          PR: ${{ needs.plan.outputs.pr }}
           # A job token cannot list repository variables (HTTP 403), so the
           # dispatcher reads its routing inputs from these instead.
           CMUX_MACOS_RUNNER_TESTS: ${{ vars.MACOS_RUNNER_TESTS }}
@@ -198,7 +208,7 @@ jobs:
         # not pass it on, so the dispatched run would outlive this one.
         run: >-
           exec "$RUNNER_TEMP/venv/bin/python" scripts/ci/pr_media.py tour
-          --name "$TOUR" --scenario "$RUNNER_TEMP/tour.json" --out "$RUNNER_TEMP/media/$TOUR" $ALLOW_COMPILE
+          --name "$TOUR" --scenario "$RUNNER_TEMP/tour.json" --out "$RUNNER_TEMP/media/$TOUR" --compile "$COMPILE"
 
       - name: Keep the tour's media for the publish job
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
