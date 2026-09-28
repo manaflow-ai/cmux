@@ -88,7 +88,7 @@ final class FeedWaiterRegistry: Sendable {
                     groups[registration.requestID] = group
                 }
             }
-            return nil
+            return decisionToApply
         }
         return decisionToApply
     }
