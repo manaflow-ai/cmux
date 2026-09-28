@@ -102,17 +102,18 @@ final class MachineDeleteCoordinator {
     /// - Parameters:
     ///   - machineID: The exact provider machine identifier.
     ///   - workspaceIDs: Finds the machine's local workspaces.
-    ///   - creates: Stops the machine's creates, given those workspaces.
+    ///   - creates: Stops the machine's creates, given those workspaces; nil uses
+    ///     the shared create owner.
     ///   - closeWorkspaces: Closes the machine's local workspaces whole.
     ///   - closePanes: Closes the machine's URL-backed panes.
     static func detachLocalPresentations(
         of machineID: String,
         workspaceIDs: @MainActor (String) -> Set<UUID> = { AppDelegate.shared?.localWorkspaceIDs(forCloudVMID: $0) ?? [] },
-        creates: MachineCreateCoordinator = .shared,
+        creates: MachineCreateCoordinator? = nil,
         closeWorkspaces: @MainActor (String) -> Void = { AppDelegate.shared?.closeLocalWorkspaces(forCloudVMID: $0) },
         closePanes: @MainActor (String) -> Void = { SurfaceCatalog.shared.closeURLBackedPanes(on: .cloud($0)) }
     ) {
-        creates.machineDeletionBegan(machineID, presentedIn: workspaceIDs(machineID))
+        (creates ?? .shared).machineDeletionBegan(machineID, presentedIn: workspaceIDs(machineID))
         closeWorkspaces(machineID)
         closePanes(machineID)
     }
