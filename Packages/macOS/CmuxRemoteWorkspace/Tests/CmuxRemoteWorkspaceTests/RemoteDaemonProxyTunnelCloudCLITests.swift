@@ -27,6 +27,11 @@ private final class RecordingLocalSocketServer: @unchecked Sendable {
         guard fd >= 0 else {
             throw NSError(domain: "RecordingLocalSocketServer", code: Int(errno))
         }
+        // Set on the listener so every accepted socket inherits it. Setting it
+        // after accept fails with EINVAL once the client has already closed,
+        // and the reply write would then raise SIGPIPE in the test process.
+        var noSigPipe: Int32 = 1
+        _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let pathBytes = Array(path.utf8CString)

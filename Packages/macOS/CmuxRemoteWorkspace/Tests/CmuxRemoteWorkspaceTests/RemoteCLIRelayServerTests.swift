@@ -63,6 +63,13 @@ private final class FakeUnixSocketServer: @unchecked Sendable {
         guard fd >= 0 else {
             throw NSError(domain: "FakeUnixSocketServer", code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "socket() failed errno=\(errno)"])
         }
+        // Set on the listener so every accepted socket inherits it. Setting it
+        // after accept fails with EINVAL once the client has already closed,
+        // and the response write would then raise SIGPIPE in the test process.
+        var noSigPipe: Int32 = 1
+        withUnsafePointer(to: &noSigPipe) { pointer in
+            _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, pointer, socklen_t(MemoryLayout<Int32>.size))
+        }
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let pathBytes = Array(path.utf8CString)
