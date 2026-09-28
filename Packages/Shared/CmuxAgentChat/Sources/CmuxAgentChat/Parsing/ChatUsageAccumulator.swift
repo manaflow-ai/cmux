@@ -580,7 +580,9 @@ public struct ChatUsageAccumulator: Sendable {
         }
         if usage == current {
             Self.incrementSaturating(&duplicateReports)
-        } else if usage.totalTokens > current.totalTokens {
+        } else if usage.totalTokens > current.totalTokens,
+                  Self.isComponentwiseNondecreasing(usage, from: current)
+        {
             codexCumulativeCurrent = usage
         } else {
             // Without a structured boundary this could be either a provider
@@ -656,7 +658,9 @@ public struct ChatUsageAccumulator: Sendable {
             codexCumulativeReplaceableTail = replaceableTail
             return
         }
-        if delta.totalTokens > current.totalTokens {
+        if delta.totalTokens > current.totalTokens,
+           Self.isComponentwiseNondecreasing(delta, from: current)
+        {
             codexCumulativeCurrent = delta
             codexCumulativeReplaceableTail = replaceableTail
         } else if delta == current {
@@ -770,6 +774,22 @@ public struct ChatUsageAccumulator: Sendable {
               total.reasoningOutputTokens >= value.reasoningOutputTokens
         else { return nil }
         return difference(total, value)
+    }
+
+    /// Whether every cumulative component is at least its prior value.
+    ///
+    /// A larger aggregate is not enough to establish a monotone provider
+    /// counter: one component can reset while another grows past it. Treat
+    /// that shape as an ambiguous correction or unmarked run boundary.
+    private static func isComponentwiseNondecreasing(
+        _ candidate: ChatTokenUsage,
+        from previous: ChatTokenUsage
+    ) -> Bool {
+        candidate.freshInputTokens >= previous.freshInputTokens
+            && candidate.cacheReadTokens >= previous.cacheReadTokens
+            && candidate.cacheWriteTokens >= previous.cacheWriteTokens
+            && candidate.outputTokens >= previous.outputTokens
+            && candidate.reasoningOutputTokens >= previous.reasoningOutputTokens
     }
 
     /// Returns a provider identity only while its retained UTF-8 storage is bounded.

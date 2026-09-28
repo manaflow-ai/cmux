@@ -1347,6 +1347,51 @@ struct ChatUsageAccumulatorTests {
         #expect(totals.cumulativeUsageIsAmbiguous)
     }
 
+    @Test("a higher cumulative total with a reset component is ambiguous")
+    func codexHigherTotalComponentResetIsAmbiguous() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexTokenCountLine(
+                cumulativeInput: 80, cumulativeOutput: 20,
+                lastInput: 80, lastOutput: 20
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 120, cumulativeOutput: 0,
+                lastInput: 120, lastOutput: 0
+            ),
+        ])
+
+        let totals = accumulator.totals
+        #expect(totals.usage.freshInputTokens == 120)
+        #expect(totals.usage.outputTokens == 0)
+        #expect(totals.cumulativeUsageIsAmbiguous)
+    }
+
+    @Test("inherited cumulative growth with a reset component is ambiguous")
+    func codexInheritedHigherTotalComponentResetIsAmbiguous() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexSessionMetaLine(model: "", inheritedHistory: true),
+            codexTokenCountLine(
+                cumulativeInput: 1_000, cumulativeOutput: 0,
+                lastInput: 0, lastOutput: 0
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 1_080, cumulativeOutput: 20,
+                lastInput: 80, lastOutput: 20
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 1_120, cumulativeOutput: 0,
+                lastInput: 120, lastOutput: 0
+            ),
+        ])
+
+        let totals = accumulator.totals
+        #expect(totals.usage.freshInputTokens == 120)
+        #expect(totals.usage.outputTokens == 0)
+        #expect(totals.cumulativeUsageIsAmbiguous)
+    }
+
     @Test("a preserved ambiguous cumulative prefix stays ambiguous in record mode")
     func codexAmbiguousCumulativePrefixRemainsAmbiguousWithRecords() {
         var accumulator = ChatUsageAccumulator()
