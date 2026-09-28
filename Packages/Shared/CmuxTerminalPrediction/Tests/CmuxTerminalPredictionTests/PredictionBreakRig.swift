@@ -210,7 +210,7 @@ struct PredictionBreakRig {
                 switch key {
                 case .character(let byte): engine.typed(printableASCII: byte, at: now)
                 case .backspace: engine.typedBackspace(at: now)
-                case .killLine, .killWord: engine.typed(printableASCII: nil, at: now)
+                case .killLine, .killWord: engine.typedLineErase(at: now)
                 case .paste: engine.sentUntrackedInput(at: now)
                 }
                 trace.append("\(time / 1000)ms type \(key) -> overlay \(engine.glyphs.map { "\($0.character)@\($0.offset)" })")
