@@ -440,6 +440,42 @@ describe("codex responses proxy session routing", () => {
     });
   }
 
+  test("closes a discarded 401 body when the refresh exhausts the header budget", async () => {
+    let cancelled = 0;
+    let logicalNow = 0;
+    const rejected = new ReadableStream<Uint8Array>({
+      cancel() { cancelled += 1; },
+    });
+    const boundedProxy = createCodexResponsesProxy({
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+      select: async () => ({
+        id: "acct-1",
+        provider: "codex" as const,
+        vaultRevision: 1,
+        credentialExpiresAt: null,
+        sticky: false,
+      }),
+      credential: async ({ accountId, force }) => {
+        // The forced refresh uses up the rest of the request's header budget.
+        if (force) logicalNow += 1_000;
+        return testCredential(accountId);
+      },
+      cooldown: async () => {},
+    }, {
+      fetch: (async () => new Response(rejected, { status: 401 })) as typeof fetch,
+      now: () => logicalNow,
+      upstreamHeadersBudgetMs: 200,
+      upstreamHeadersTimeoutMs: 120,
+    });
+    try {
+      const response = await boundedProxy(responsesRequest());
+      expect(response.status).not.toBe(200);
+      expect(cancelled).toBe(1);
+    } finally {
+      if (!rejected.locked) await rejected.cancel().catch(() => undefined);
+    }
+  });
+
   test("keeps the final rejection body readable when no retry succeeds", async () => {
     let calls = 0;
     const retryingProxy = capacityProxy((async () => {
