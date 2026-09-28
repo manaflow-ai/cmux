@@ -53,6 +53,63 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
     }
 
     func testDiscardedPaneRestoresHistoryScrollAndTypedInput() throws {
+        let (panel, pageA, pageB) = try loadScrolledFormPage()
+        defer { panel.close() }
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden")
+        let discardedWebView = panel.webView
+        XCTAssertTrue(panel.discardHiddenWebViewForSystemMemoryPressure())
+        XCTAssertFalse(panel.webView === discardedWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .discarded)
+        discardedWebView.removeFromSuperview()
+
+        host(panel.webView)
+        panel.noteWebViewVisibility(true, reason: "test.visible")
+        assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
+    }
+
+    /// A WebContent process that dies while its pane is hidden must not cost
+    /// the page: the pane restores its last session state when shown, instead
+    /// of waiting behind the manual Reload overlay and reloading the URL.
+    func testHiddenWebContentTerminationRestoresPageStateOnReveal() throws {
+        let (panel, pageA, pageB) = try loadScrolledFormPage()
+        defer { panel.close() }
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden")
+        let terminatedWebView = try terminateWebContent(of: panel)
+        terminatedWebView.removeFromSuperview()
+
+        panel.noteWebViewVisibility(true, reason: "test.visible")
+        XCTAssertFalse(panel.hasRecoverableWebContentTermination)
+        XCTAssertFalse(panel.webView === terminatedWebView)
+        host(panel.webView)
+        assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
+    }
+
+    /// A load that had not committed when the process died is not what the
+    /// user was looking at, so it must not turn the restore into a reload.
+    func testHiddenTerminationDuringUnfinishedLoadRestoresCommittedPage() throws {
+        let (panel, pageA, pageB) = try loadScrolledFormPage()
+        defer { panel.close() }
+        let pageC = fixtureDirectory.appendingPathComponent("c.html")
+        try "<html><head><title>C</title></head><body>C</body></html>"
+            .write(to: pageC, atomically: true, encoding: .utf8)
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden")
+        panel.navigationDelegate?.recordAttemptedRequest(URLRequest(url: pageC))
+        panel.isMainFrameProvisionalNavigationActive = true
+        let terminatedWebView = try terminateWebContent(of: panel)
+        terminatedWebView.removeFromSuperview()
+
+        panel.noteWebViewVisibility(true, reason: "test.visible")
+        XCTAssertFalse(panel.hasRecoverableWebContentTermination)
+        host(panel.webView)
+        assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
+    }
+
+    /// Loads page A, then a scrolled page B with typed form input, and returns
+    /// the hosted panel showing B.
+    private func loadScrolledFormPage() throws -> (panel: BrowserPanel, pageA: URL, pageB: URL) {
         let pageA = fixtureDirectory.appendingPathComponent("a.html")
         let pageB = fixtureDirectory.appendingPathComponent("b.html")
         try "<html><head><title>A</title></head><body>A</body></html>"
@@ -66,7 +123,6 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         """.write(to: pageB, atomically: true, encoding: .utf8)
 
         let panel = BrowserPanel(workspaceId: UUID(), initialURL: pageA, isRemoteWorkspace: false)
-        defer { panel.close() }
         host(panel.webView)
         waitForPage(panel, url: pageA)
 
@@ -94,28 +150,41 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         }
         // Let passive page-state observers deliver their script messages.
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        return (panel, pageA, pageB)
+    }
 
-        panel.noteWebViewVisibility(false, reason: "test.hidden")
-        let discardedWebView = panel.webView
-        XCTAssertTrue(panel.discardHiddenWebViewForSystemMemoryPressure())
-        XCTAssertFalse(panel.webView === discardedWebView)
-        XCTAssertEqual(panel.webViewLifecycleState, .discarded)
-        discardedWebView.removeFromSuperview()
+    /// Delivers WebKit's process termination callback for the panel's web
+    /// view, which the panel must keep until a later recovery replaces it.
+    private func terminateWebContent(of panel: BrowserPanel) throws -> WKWebView {
+        let webView = panel.webView
+        let delegate = try XCTUnwrap(webView.navigationDelegate as? BrowserNavigationDelegate)
+        delegate.webViewWebContentProcessDidTerminate(webView)
+        XCTAssertTrue(panel.hasRecoverableWebContentTermination)
+        XCTAssertTrue(panel.webView === webView)
+        return webView
+    }
 
-        host(panel.webView)
-        panel.noteWebViewVisibility(true, reason: "test.visible")
-        waitForPage(panel, url: pageB, timeout: 10)
+    private func assertRestoredPageState(
+        _ panel: BrowserPanel,
+        pageA: URL,
+        pageB: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        waitForPage(panel, url: pageB, timeout: 10, file: file, line: line)
 
         XCTAssertEqual(
             panel.webView.backForwardList.backItem?.url.standardizedFileURL,
             pageA.standardizedFileURL,
-            "Restore must bring back the native WebKit back/forward list"
+            "Restore must bring back the native WebKit back/forward list",
+            file: file,
+            line: line
         )
-        XCTAssertTrue(panel.webView.canGoBack)
-        waitUntil("scroll position restored", timeout: 10) {
+        XCTAssertTrue(panel.webView.canGoBack, file: file, line: line)
+        waitUntil("scroll position restored", timeout: 10, file: file, line: line) {
             (self.evaluate("window.scrollY", in: panel.webView) as? Double) == 1500
         }
-        waitUntil("typed input restored", timeout: 10) {
+        waitUntil("typed input restored", timeout: 10, file: file, line: line) {
             (self.evaluate(
                 "document.getElementById('name').value + '|' + document.getElementById('notes').value",
                 in: panel.webView
