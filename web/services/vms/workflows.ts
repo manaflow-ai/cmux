@@ -4312,9 +4312,11 @@ function reserveCreateCredit(
     /**
      * Set by the Base flow. createVm and forkVm own a plain row, so failing it
      * is the whole rollback. A Base row is also claimed by a base and a
-     * generation, and only markBaseCreateFailed releases those; marking it with
-     * the ad-hoc path leaves the base "resetting" and its generation
-     * "creating".
+     * generation, and markBaseCreateFailed is the mark on this path that
+     * releases those; marking it with the ad-hoc path leaves the base
+     * "resetting" and its generation "creating". (markCreateAbandoned and
+     * resolveCreateCleanup also call restoreBaseAfterCreateFailure, but neither
+     * is reachable from here once the row carries a failure code.)
      *
      * Reset then 409s forever, because beginBaseReset refuses to start while an
      * operation is in flight. Open does not: it has no such guard and the
