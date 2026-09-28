@@ -241,10 +241,12 @@ struct CloudCreateMachineSheet: View {
                             .accessibilityIdentifier("CloudCreateMachineFailure")
                     }
                 } footer: {
-                    Text(L10n.string(
-                        "mobile.cloud.create.wait",
-                        defaultValue: "Provisioning can take a few minutes. You can leave this screen and check the machine list later."
-                    ))
+                    if controller.isCreatingMachine {
+                        Text(L10n.string(
+                            "mobile.cloud.create.wait",
+                            defaultValue: "Creating your machine. This takes a moment."
+                        ))
+                    }
                 }
             }
             .navigationTitle(L10n.string("mobile.cloud.create.title", defaultValue: "New cloud machine"))
