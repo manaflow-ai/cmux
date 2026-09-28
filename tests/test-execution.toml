@@ -292,6 +292,10 @@ path = "tests/test_shell_no_git_watch.py"
 lane = "macos-shell"
 
 [[test]]
+path = "tests/test_workspace_initial_command_shim_root_owner.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_claude_hook_stop_last_assistant.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
@@ -1395,4 +1399,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_config_schema_embed.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ui_tests_dispatch.py"
 lane = "linux-guard"
