@@ -16,15 +16,22 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "cmuxUITests/DogfoodScenarioUITests.swift"
+REQUEST = ROOT / ("Packages/macOS/CmuxFoundation/Sources/CmuxFoundation"
+                  "/WindowRecording/WindowRecordingRequest.swift")
 REFERENCE = ROOT / "skills/cmux-testing/references/dogfood-scenarios.md"
 SCENARIOS = sorted((ROOT / "dogfood/scenarios").glob("*.json"))
 
 
-def swift_string_set(source: str, declaration: str) -> set[str]:
-    """The string literals of a Swift `let name: ... = [ ... ]` declaration."""
+def swift_declaration_body(source: str, declaration: str) -> str:
+    """The bracketed body of a Swift `let name: ... = [ ... ]` declaration."""
     match = re.search(re.escape(declaration) + r"\s*=\s*\[(.*?)\]", source, re.DOTALL)
     assert match, f"{declaration} is no longer declared the way this test reads it"
-    return set(re.findall(r'"([^"]+)"', match.group(1)))
+    return match.group(1)
+
+
+def swift_string_set(source: str, declaration: str) -> set[str]:
+    """The string literals of a Swift `let name: ... = [ ... ]` declaration."""
+    return set(re.findall(r'"([^"]+)"', swift_declaration_body(source, declaration)))
 
 
 class DecoderFacts:
@@ -34,8 +41,7 @@ class DecoderFacts:
     # keys, which are the odd entries of the flattened literal list.
     record_option_pairs = re.findall(
         r'"([A-Za-z_]+)":\s*"([a-z_]+)"',
-        re.search(r"private static let recordOptions: \[String: String\] = \[(.*?)\]",
-                  source, re.DOTALL).group(1),
+        swift_declaration_body(source, "private static let recordOptions: [String: String]"),
     )
     record_options = {tour for tour, _ in record_option_pairs}
 
@@ -60,6 +66,20 @@ class ReferenceTests(unittest.TestCase):
         text = REFERENCE.read_text()
         for option in sorted(DecoderFacts.record_options):
             self.assertIn(f"`{option}`", text, f"{option} is accepted but not documented")
+
+    def test_every_recording_option_names_a_parameter_the_app_reads(self):
+        """The socket side of the map, which the reference cannot vouch for.
+
+        A tour option is only useful if the name it is translated into is one
+        `WindowRecordingRequest.make` looks up, and a typo there is silent: an
+        unknown key is simply ignored, so the recording runs with the default
+        and the tour passes while doing the wrong thing.
+        """
+        request = REQUEST.read_text()
+        read = set(re.findall(r'params\["([a-z_]+)"\]', request))
+        for tour, socket in sorted(DecoderFacts.record_option_pairs):
+            self.assertIn(socket, read,
+                          f"{tour} is sent as {socket!r}, which {REQUEST.name} never reads")
 
 
 class ScenarioTests(unittest.TestCase):
@@ -94,6 +114,11 @@ def check_steps(steps: list, inside_record: bool) -> None:
                 f"{', '.join(sorted(DecoderFacts.kinds))}"
             )
         kind = kinds.pop()
+        if kind == "note" and not inside_record:
+            raise AssertionError(
+                f"step {index} captions a clip outside a record; a note belongs "
+                "among a record's own steps"
+            )
         if kind != "record":
             continue
         if inside_record:

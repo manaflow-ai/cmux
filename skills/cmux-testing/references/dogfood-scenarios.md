@@ -76,18 +76,28 @@ them:
 ]}
 ```
 
-- Options: `format` (`mp4` or `gif`), `fps`, `maxSeconds`, `scale`, `maxWidth`,
-  `region` (`"x,y,w,h"` in window points), `captions` and `label`. They are the
-  flags of `cmux record start` and the app owns their limits, so an out of range
-  value is refused by name. An unknown option is a typo and fails the step.
+- Options, with the default for `mp4` then `gif`: `format` (`mp4`), `fps` (12, 8;
+  1 to 30), `maxSeconds` (15 both; 0.5 to 120), `scale` (1.0, 0.5; 0.1 to 1.0),
+  `maxWidth` (none, 960; 64 to 4096), `region` (`"x,y,w,h"` in window points),
+  `captions` (true) and `label`. They are the flags of `cmux record start` and the
+  app owns the limits, so an out of range value is refused with a message naming
+  the socket field rather than the tour spelling: `maxSeconds: 300` comes back as
+  "max_seconds must be between 0.5 and 120". An unknown option is a typo and fails
+  the step.
 - A `gif` at `fps` 8 and `scale` 0.5 is the one to paste into a PR; an `mp4` is
   sharper and needs a click to play. `scripts/pr-media.py` uploads either and
   converts an mp4 to a gif on the way.
 - Nested steps behave as they do at the top level, including `shot`, and a nested
   failure still lets the rest run so the recording is always stopped and the clip
   of the failure survives. Nested steps are numbered `03.1`, `03.2` in `steps.log`.
+- A `record` needs at least one nested step and may not contain another `record`,
+  since the app records one window at a time. Both are refused by
+  `tests/test_dogfood_scenarios.py` before CI runs anything.
+- A recording never gates what it records: on a machine that cannot capture at
+  all, the start failure is recorded and the nested steps still run, unrecorded.
 - `note` draws a caption into the clip. It is worth one before each thing you
-  want a reviewer to notice, because a clip has no step list beside it.
+  want a reviewer to notice, because a clip has no step list beside it. It only
+  means anything among a record's own steps, so it is refused anywhere else.
 - The clip lands in `attachments/` next to the trees and socket replies, named
   after the step and the tour's name for it.
 - The app records only its own windows, one at a time, and stops by itself at
