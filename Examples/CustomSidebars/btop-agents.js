@@ -28,8 +28,9 @@ const STATE = {
 const RANK = { needs_input: 4, working: 3, idle: 2, ended: 1, none: 0 };
 const SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 // Graph gradient, bottom dot row to top (btop's cpu box, in system colors).
-const ROW_HEAT = ["green", "green", "yellow", "orange"];
-const TOP_HEAT = ["teal", "teal", "green", "green", "yellow", "yellow", "orange", "red"];
+// No yellow: system yellow braille dots wash out on a light sidebar.
+const ROW_HEAT = ["green", "green", "orange", "orange"];
+const TOP_HEAT = ["teal", "teal", "green", "green", "green", "orange", "orange", "red"];
 const FLOOR = "quaternary"; // the dotted baseline under an idle graph
 const PR_COLOR = { open: "green", merged: "purple", closed: "red" };
 
