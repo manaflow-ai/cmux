@@ -21,6 +21,13 @@ extension MobileShellComposite {
         return await remoteClient?.transportContinuityID()
     }
 
+    /// Reconnects the current paired Mac through the same bounded retry path
+    /// used by the shell's manual reconnect action. Pairing state is retained.
+    public func recoverIrohSoakConnection() async -> Bool {
+        disconnectLiveConnection()
+        return await retryActiveMacReconnect(stackUserID: nil, force: true)
+    }
+
     /// Executes one deterministic usage step through the same actions as the app UI.
     /// - Parameters:
     ///   - cycle: Zero-based workload cycle; selects one of four fixed steps.

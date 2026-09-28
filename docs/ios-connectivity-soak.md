@@ -148,3 +148,10 @@ than reattaching and rehydrating up to 4,000 history rows for every marker.
 Switching surfaces and explicit reconnects replace the consumer. Unexpected
 ownership loss or stream termination still fails the run. The initial UI launch
 and workspace-open measurements continue to use real rendered app surfaces.
+
+Stress permits one bounded reconnect and terminal retry after a
+`terminalRoundTripFailed` event. The evidence records every such event under
+`recoverableFailures`, and the monitor keeps the check failed while preserving
+the rest of the hour's workload. A failed reconnect or a second terminal
+failure stops the run and reports that primary failure without cascading
+coverage noise.

@@ -234,6 +234,10 @@ final class MobileIrohReleaseGateRunner {
                                 terminalSession: terminalSession,
                                 includeForcedReconnect: false
                             )
+                        },
+                        recovery: {
+                            terminalSession.reset()
+                            return await store.recoverIrohSoakConnection()
                         }
                     )
                     guard configuration.scenario == .relayRollover else {

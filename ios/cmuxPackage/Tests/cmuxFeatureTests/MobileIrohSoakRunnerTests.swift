@@ -67,14 +67,41 @@ struct MobileIrohSoakRunnerTests {
         #expect(runner.evidence.currentOperation != "complete")
     }
 
-    @Test func failedTerminalIsNotCounted() async {
+    @Test func recoverableTerminalFailureReconnectsAndContinues() async throws {
         let runner = MobileIrohSoakRunner(profile: .stress, durationSeconds: 0, minimumCycles: 1)
+        var probeAttempts = 0
+        var recoveryAttempts = 0
+        _ = try await runner.run(marker: "test", connection: { relay }, probe: { _ in
+            probeAttempts += 1
+            if probeAttempts == 1 {
+                throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
+            }
+            return probe
+        }, stress: { _, _ in [:] }, recovery: {
+            recoveryAttempts += 1
+            return true
+        })
+        #expect(probeAttempts == 3)
+        #expect(recoveryAttempts == 1)
+        #expect(runner.evidence.completedCycles == 1)
+        #expect(runner.evidence.recoverableFailures == ["terminalRoundTripFailed": 1])
+        #expect(runner.evidence.operationCounts["terminal_round_trip"] == 1)
+    }
+
+    @Test func repeatedTerminalFailureStopsAfterOneRecovery() async {
+        let runner = MobileIrohSoakRunner(profile: .stress, durationSeconds: 0, minimumCycles: 1)
+        var recoveryAttempts = 0
         await #expect(throws: MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed) {
             try await runner.run(marker: "test", connection: { relay }, probe: { _ in
                 throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
-            }, stress: { _, _ in Issue.record("usage continued after failure"); return [:] })
+            }, stress: { _, _ in Issue.record("usage continued after failure"); return [:] }, recovery: {
+                recoveryAttempts += 1
+                return true
+            })
         }
+        #expect(recoveryAttempts == 1)
         #expect(runner.evidence.completedCycles == 0)
+        #expect(runner.evidence.recoverableFailures == ["terminalRoundTripFailed": 2])
         #expect(runner.evidence.operationCounts.isEmpty)
     }
 
