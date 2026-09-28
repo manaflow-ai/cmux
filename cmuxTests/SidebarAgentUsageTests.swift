@@ -41,13 +41,14 @@ struct SidebarAgentUsageTests {
         workspace: UUID,
         transcript: String?,
         at seconds: TimeInterval,
-        source: String = "claude"
+        source: String = "claude",
+        workspaceIdPadding: String = ""
     ) -> WorkstreamEvent {
         WorkstreamEvent(
             sessionId: session,
             hookEventName: name,
             source: source,
-            workspaceId: workspace.uuidString,
+            workspaceId: workspace.uuidString + workspaceIdPadding,
             transcriptPath: transcript,
             receivedAt: Date(timeIntervalSince1970: seconds)
         )
@@ -161,5 +162,35 @@ struct SidebarAgentUsageTests {
         defaults.set(false, forKey: SidebarCatalogSection().showCustomMetadata.userDefaultsKey)
         coordinator.settingsDidChange()
         #expect(metadata.agentUsageByStatusKey.isEmpty)
+    }
+
+    @Test func resumingTheSameTranscriptKeepsUsageAndPaddedWorkspaceIdsResolve() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("usage-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = try Self.claudeTranscript(contextTokens: 100_000, in: directory, name: "a")
+        let workspaceID = UUID()
+        let metadata = WorkspaceSidebarMetadataModel(limitProvider: UnlimitedSidebarLog())
+        let coordinator = SidebarAgentUsageCoordinator(
+            defaults: Self.makeDefaults(enabled: true),
+            coalesceInterval: .zero
+        ) { id in id == workspaceID ? metadata : nil }
+        func shownFraction() -> Double? { metadata.agentUsageByStatusKey["claude_code"]?.contextFraction }
+
+        coordinator.noteHookEvent(Self.event(.preToolUse, session: "A", workspace: workspaceID, transcript: path, at: 1, workspaceIdPadding: "\n"))
+        await coordinator.waitUntilIdle()
+        #expect(shownFraction() == 0.1)
+
+        // A SessionStart for the same transcript (resume, compaction) does not blank the row.
+        coordinator.noteHookEvent(Self.event(.sessionStart, session: "A", workspace: workspaceID, transcript: path, at: 2))
+        #expect(shownFraction() == 0.1)
+        await coordinator.waitUntilIdle()
+        #expect(shownFraction() == 0.1)
+
+        // End then resume with the same id and transcript: the forget is ordered before the new read.
+        coordinator.noteHookEvent(Self.event(.sessionEnd, session: "A", workspace: workspaceID, transcript: path, at: 3))
+        coordinator.noteHookEvent(Self.event(.sessionStart, session: "A", workspace: workspaceID, transcript: path, at: 4))
+        await coordinator.waitUntilIdle()
+        #expect(shownFraction() == 0.1)
     }
 }

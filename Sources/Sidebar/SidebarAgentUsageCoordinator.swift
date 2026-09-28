@@ -60,8 +60,9 @@ final class SidebarAgentUsageCoordinator {
     private var epochCounter: UInt64 = 0
     private var lastKnownEnabled: Bool
     private var observationTasks: [Task<Void, Never>] = []
-    /// The sampler reset issued by the last disable; flushes wait for it so
-    /// a quick off→on cannot have its fresh read discarded by a late reset.
+    /// The last sampler reset (disable) or forget (session end), chained in
+    /// issue order; flushes wait for it so a quick off→on or a resumed
+    /// session cannot have its fresh read discarded by a late reset/forget.
     private var resetTask: Task<Void, Never>?
 
     /// Creates a coordinator.
@@ -144,7 +145,9 @@ final class SidebarAgentUsageCoordinator {
     /// - Parameter event: The hook event as accepted by the feed pipeline.
     func noteHookEvent(_ event: WorkstreamEvent) {
         guard let source = AgentUsageSource(hookSource: event.source),
-              let workspaceID = event.workspaceId.flatMap(UUID.init(uuidString:)) else { return }
+              let workspaceID = event.workspaceId
+                .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+                .flatMap(UUID.init(uuidString:)) else { return }
         let sessionID = event.sessionId
         if event.hookEventName == .sessionEnd {
             endSession(sessionID)
@@ -158,17 +161,22 @@ final class SidebarAgentUsageCoordinator {
             epoch: 0,
             snapshot: nil
         )
-        if event.hookEventName == .sessionStart || sessions[sessionID] == nil {
-            // A new or resumed run must not show the previous run's numbers.
+        let isNewSession = sessions[sessionID] == nil
+        let newTranscriptPath = event.transcriptPath.flatMap { $0.isEmpty ? nil : $0 }
+        let transcriptChanged = newTranscriptPath != nil && newTranscriptPath != record.transcriptPath
+        if event.hookEventName == .sessionStart || isNewSession || transcriptChanged {
+            // Discard any in-flight read. Usage is cumulative per transcript,
+            // so a SessionStart for the same transcript (resume, compaction)
+            // keeps what is shown; only a different transcript clears it.
             epochCounter &+= 1
             record.epoch = epochCounter
-            record.snapshot = nil
+            if isNewSession || transcriptChanged { record.snapshot = nil }
         }
         let previousWorkspaceID = record.workspaceID
         record.workspaceID = workspaceID
         record.lastEventAt = max(record.lastEventAt, event.receivedAt)
-        if let path = event.transcriptPath, !path.isEmpty {
-            record.transcriptPath = path
+        if let newTranscriptPath {
+            record.transcriptPath = newTranscriptPath
         }
         sessions[sessionID] = record
         evictIfNeeded()
@@ -188,7 +196,12 @@ final class SidebarAgentUsageCoordinator {
         guard let record = sessions.removeValue(forKey: sessionID) else { return }
         if let path = record.transcriptPath {
             // Also discards a sample of this transcript that is still running.
-            Task { [sampler] in await sampler.forget(transcriptPath: path) }
+            // Chained so a resumed session's first flush waits for it.
+            let previous = resetTask
+            resetTask = Task { [sampler] in
+                await previous?.value
+                await sampler.forget(transcriptPath: path)
+            }
         }
         publish(RowKey(workspaceID: record.workspaceID, source: record.source))
     }

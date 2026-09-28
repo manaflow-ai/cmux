@@ -34,7 +34,7 @@ public struct SidebarSection: View {
     @State var showAgentUsage: DefaultsValueModel<Bool>
     @State var loadingSpinnerPosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
-    @State private var showMetadata: DefaultsValueModel<Bool>
+    @State var showMetadata: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
