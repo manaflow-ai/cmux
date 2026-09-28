@@ -171,6 +171,30 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         #expect(CmuxTuiRemoteRouting.vmAgentRequestsHelp([agent, "--timeout", "30", "--help"]))
         #expect(CmuxTuiRemoteRouting.vmAgentRequestsHelp([agent, "--wait", "-h"]))
     }
+
+    /// `--focus` takes an optional value only when the next token is exactly a
+    /// boolean word, so a prompt after a bare `--focus` stays the prompt.
+    @Test(arguments: ["claude", "codex", "opencode", "pi"])
+    func focusFlagsStayVMOptions(agent: String) {
+        #expect(
+            CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "--focus", "true", "fix it"])
+                == ["--agent", agent, "--focus", "true", "--", "fix it"]
+        )
+        #expect(
+            CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "--focus", "fix it"])
+                == ["--agent", agent, "--focus", "--", "fix it"]
+        )
+        #expect(
+            CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "--focus=no", "--no-focus", "fix it"])
+                == ["--agent", agent, "--focus=no", "--no-focus", "--", "fix it"]
+        )
+    }
+
+    @Test func focusFlagValueAcceptsOnlyBooleanWords() {
+        for token in ["true", "TRUE", "1", "yes"] { #expect(CmuxTuiRemoteRouting.focusFlagValue(token) == true) }
+        for token in ["false", "0", "No"] { #expect(CmuxTuiRemoteRouting.focusFlagValue(token) == false) }
+        for token in ["", "fix", "truely", "on"] { #expect(CmuxTuiRemoteRouting.focusFlagValue(token) == nil) }
+    }
 }
 
 // `cmux coderouter <status|machines|claude>` drives the app's `coderouter.*`
@@ -652,6 +676,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(
             CMUXCLI.vmAgentAliasArgs(["codex", "--", "exec", "summarize"]),
             ["--agent", "codex", "--", "exec", "summarize"]
+        )
+        // Focus flags belong to `vm agent`, not to the agent's prompt.
+        XCTAssertEqual(
+            CMUXCLI.vmAgentAliasArgs(["claude", "--no-focus", "reply exactly pong"]),
+            ["--agent", "claude", "--no-focus", "--", "reply exactly pong"]
         )
     }
 
