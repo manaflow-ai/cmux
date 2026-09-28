@@ -11,6 +11,7 @@ the normalizer rejects counts as a refusal rather than a result.
 import hashlib
 import importlib.util
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -259,6 +260,39 @@ def test_both_sides_change_the_same_setting_falls_back_to_git():
     assert code == 1, "a real disagreement must not be resolved silently"
     assert "SWIFT_VERSION = 6.0" in merged, "ours must be left untouched for git"
     assert "merge-pbxproj" in stderr, stderr
+
+
+
+def test_git_merge_leaves_conflict_markers_and_unmerged_stages():
+    """A failing custom driver must write conflict output itself; Git will not."""
+    with tempfile.TemporaryDirectory() as directory:
+        repo = Path(directory)
+        def git(*args):
+            return subprocess.run(["git", "-C", str(repo), "-c", "core.hooksPath=/dev/null",
+                                   *args], capture_output=True, text=True)
+        assert git("init", "-b", "ours").returncode == 0
+        git("config", "user.name", "Merge Test")
+        git("config", "user.email", "merge@example.invalid")
+        git("config", "merge.pbxproj.driver",
+            f"{shlex.quote(sys.executable)} {shlex.quote(str(DRIVER))} %O %A %B %P")
+        path = repo / "project.pbxproj"
+        (repo / ".gitattributes").write_text("project.pbxproj merge=pbxproj\n")
+        path.write_text(project(["Alpha.swift"], settings="5.0"))
+        git("add", ".")
+        assert git("commit", "-m", "base").returncode == 0
+        git("branch", "theirs")
+        path.write_text(project(["Alpha.swift"], settings="6.0"))
+        git("commit", "-am", "ours")
+        git("checkout", "theirs")
+        path.write_text(project(["Alpha.swift"], settings="6.1"))
+        git("commit", "-am", "theirs")
+        git("checkout", "ours")
+        result = git("merge", "theirs")
+        assert result.returncode != 0, result.stdout
+        assert len(git("ls-files", "--unmerged").stdout.splitlines()) == 3
+        merged = path.read_text()
+        assert "<<<<<<<" in merged and "=======" in merged and ">>>>>>>" in merged, merged
+        assert "SWIFT_VERSION = 6.0" in merged and "SWIFT_VERSION = 6.1" in merged
 
 
 def test_a_side_carrying_conflict_markers_is_refused():
