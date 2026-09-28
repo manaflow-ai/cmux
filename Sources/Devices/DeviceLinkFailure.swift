@@ -130,7 +130,7 @@ struct DeviceLinkFailure: Equatable, Sendable {
         case .unavailable:
             return DeviceLinkFailure(kind: .transient, code: "peer-unavailable", message: String(localized: "devices.link.error.peerUnavailable", defaultValue: "This Mac is not accepting connections right now."))
         case .notDiscoverable:
-            return DeviceLinkFailure(kind: .hostDenied, code: "peer-not-discoverable", message: String(localized: "devices.link.error.notDiscoverable", defaultValue: "This Mac isn’t discoverable. On that Mac, turn on “Make this Mac discoverable” in Settings › Computers."))
+            return DeviceLinkFailure(kind: .hostDenied, code: "peer-not-discoverable", message: String(localized: "devices.link.error.notDiscoverable", defaultValue: "This Mac isn’t discoverable. On that Mac, turn on “Make this Mac discoverable” in Settings › Devices."))
         case .revoked:
             return DeviceLinkFailure(kind: .identity, code: "peer-revoked", message: String(localized: "devices.link.error.peerRevoked", defaultValue: "Access between these Macs was revoked. Sign in again on both Macs to restore it."))
         case .identityMismatch:
