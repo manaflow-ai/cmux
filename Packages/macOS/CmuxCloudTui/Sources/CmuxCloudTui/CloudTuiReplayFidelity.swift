@@ -21,11 +21,12 @@ public struct CloudTuiReplayFidelity: Equatable, Sendable {
     public private(set) var repairs = 0
     public let repairLimit: Int
     private var generation: UInt64 = 0
-    /// Changes on every local sizing callback, including an away-and-back
-    /// change that returns to the same dimensions before replay parsing ends.
+    /// Changes with terminal dimensions, including an away-and-back change
+    /// that returns to the same dimensions before replay parsing ends.
     /// The replay lane is asynchronous, so dimensions alone cannot establish
     /// that the bytes were parsed without an intervening resize.
     private var localGridEpoch: UInt64 = 0
+    private var observedLocalGrid: CloudTuiManualIOGrid?
     private var queuedGrid: CloudTuiManualIOGrid?
     private var queuedLocalGridEpoch: UInt64?
     private var replayParsePending = false
@@ -41,6 +42,7 @@ public struct CloudTuiReplayFidelity: Equatable, Sendable {
         remote: CloudTuiManualIOGrid?,
         local: CloudTuiManualIOGrid?
     ) -> UInt64 {
+        localGridChanged(to: local)
         generation &+= 1
         remoteGrid = remote
         faithfulGrid = nil
@@ -79,6 +81,8 @@ public struct CloudTuiReplayFidelity: Equatable, Sendable {
 
     /// A local resize after a faithful parse moves or clamps its rows.
     public mutating func localGridChanged(to grid: CloudTuiManualIOGrid?) {
+        guard grid != observedLocalGrid else { return }
+        observedLocalGrid = grid
         localGridEpoch &+= 1
         if grid != faithfulGrid { faithfulGrid = nil }
     }
