@@ -19,13 +19,65 @@ struct CloudPrivateRouteSelectionTests {
         #expect(!CloudMachineLinkManager.browserProxyNeedsTrustedListenerPreparation(deviceFingerprint: "stored-device"))
     }
 
-    private func manager() -> CloudMachineLinkManager {
+    private final class RefreshState: @unchecked Sendable {
+        var routes: [String] = ["192.0.2.0/24"]
+        var refreshes = 0
+    }
+
+    private func manager(hub: CloudWireGuardHub? = nil) -> CloudMachineLinkManager {
         CloudMachineLinkManager(
             paths: CloudTuiClientPaths(home: URL(fileURLWithPath: "/tmp/cmux-route-\(UUID().uuidString)")),
             clientURL: nil,
-            hub: nil,
+            hub: hub,
             hostThemeColors: { nil }
         )
+    }
+
+    private func refreshableHub(state: RefreshState, routesAfterRefresh: [String]) -> CloudWireGuardHub {
+        let spawner = CloudWireGuardHubTests.FakeSpawner()
+        return CloudWireGuardHub(configuration: .init(
+            enroll: { .init(configPath: "/tmp/private-route.conf", routes: state.routes) },
+            refreshEnrollment: {
+                state.refreshes += 1
+                state.routes = routesAfterRefresh
+                return .init(configPath: "/tmp/private-route.conf", routes: state.routes)
+            },
+            clientURL: URL(fileURLWithPath: "/usr/bin/true"),
+            socketURL: URL(fileURLWithPath: "/tmp/private-route-hub-\(UUID().uuidString).sock"),
+            spawner: spawner,
+            waitUntilReady: { _ in },
+            sleep: { try await Task.sleep(for: $0) },
+            restartBackoff: [],
+            idleGrace: .seconds(3600)
+        ))
+    }
+
+    @Test("refreshes hub routes before selecting a newly added team address")
+    func refreshesForNewTeamAddress() async throws {
+        let state = RefreshState()
+        let hub = refreshableHub(state: state, routesAfterRefresh: ["10.20.0.0/24"])
+        let route = try await manager(hub: hub).resolvedPrivateRoute(
+            machineID: "vm-team",
+            through: .init(socketPath: "/unused", routes: ["192.0.2.0/24"]),
+            addresses: ["10.20.0.2"]
+        )
+        #expect(route == "ws://10.20.0.2:1337/v1/link")
+        #expect(state.refreshes == 1)
+        await hub.stop()
+    }
+
+    @Test("still rejects an address that remains outside refreshed routes")
+    func rejectsAfterUnsuccessfulRefresh() async {
+        let state = RefreshState()
+        let hub = refreshableHub(state: state, routesAfterRefresh: ["192.0.2.0/24"])
+        await #expect(throws: CloudMachineLinkManager.ManagerError.self) {
+            try await manager(hub: hub).resolvedPrivateRoute(
+                machineID: "vm-team",
+                through: .init(socketPath: "/unused", routes: ["192.0.2.0/24"]),
+                addresses: ["10.20.0.2"]
+            )
+        }
+        await hub.stop()
     }
 
     @Test func freshIPv6OnlyAddressReplacesAnOlderIPv4Route() async throws {
