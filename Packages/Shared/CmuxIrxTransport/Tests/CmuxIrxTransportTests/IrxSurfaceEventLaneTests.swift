@@ -487,16 +487,50 @@ struct IrxSurfaceEventLanesTests {
         await lanes.closeAll()
     }
 
-    @Test func laneCountIsBoundedByEvictingTheLeastRecentlyUsedLane() async throws {
+    @Test func laneLimitRefusesANewSurfaceInsteadOfEvictingAnother() async throws {
         let opener = FakeLaneOpener()
         let lanes = makeLanes(opener, configuration: .init(maximumLaneCount: 2))
         try await lanes.send(frame("1"), surfaceID: "one", generation: 0)
         try await lanes.send(frame("2"), surfaceID: "two", generation: 0)
-        try await lanes.send(frame("1b"), surfaceID: "one", generation: 0)
-        try await lanes.send(frame("3"), surfaceID: "three", generation: 0)
-        #expect(await lanes.openSurfaceIDs() == ["one", "three"])
-        let evicted = try #require(await opener.writers(surfaceID: "two").first)
-        #expect(try await waitUntil { await evicted.finished })
+        await #expect(throws: IrxSurfaceEventLanes.LaneError.laneLimit) {
+            try await lanes.send(frame("3"), surfaceID: "three", generation: 0)
+        }
+        #expect(await lanes.openSurfaceIDs() == ["one", "two"])
+        #expect(await opener.writers(surfaceID: "three").isEmpty)
+        let kept = try #require(await opener.writers(surfaceID: "one").first)
+        #expect(await !kept.finished)
+    }
+
+    @Test func releaseResetsTheLaneAndRefusesOlderGenerations() async throws {
+        let opener = FakeLaneOpener()
+        let lanes = makeLanes(opener)
+        try await lanes.send(frame("1"), surfaceID: "S", generation: 0)
+        let released = try #require(await opener.writers(surfaceID: "s").first)
+        await lanes.release(surfaceID: "S", belowGeneration: 1)
+        #expect(await lanes.openSurfaceIDs().isEmpty)
+        #expect(try await waitUntil {
+            await released.resetCodes == [IrxSurfaceEventLanes.releasedResetCode]
+        })
+        // A frame dequeued before the release must not reopen a stream.
+        await #expect(throws: IrxSurfaceEventLanes.LaneError.released) {
+            try await lanes.send(frame("stale"), surfaceID: "s", generation: 0)
+        }
+        #expect(await opener.writers(surfaceID: "s").count == 1)
+        // Focusing the surface again opens a fresh stream at the new generation.
+        try await lanes.send(frame("full"), surfaceID: "s", generation: 1)
+        let writers = await opener.writers(surfaceID: "s")
+        #expect(writers.count == 2)
+        #expect(await writers[1].written == [frame("full")])
+    }
+
+    @Test func releaseLeavesANewerGenerationLaneOpen() async throws {
+        let opener = FakeLaneOpener()
+        let lanes = makeLanes(opener)
+        try await lanes.send(frame("1"), surfaceID: "s", generation: 2)
+        await lanes.release(surfaceID: "s", belowGeneration: 1)
+        #expect(await lanes.openSurfaceIDs() == ["s"])
+        let writer = try #require(await opener.writers(surfaceID: "s").first)
+        #expect(await writer.resetCodes.isEmpty)
     }
 
     /// Streams still waiting for credit count toward the lane limit. Without

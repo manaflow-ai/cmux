@@ -2448,10 +2448,12 @@ actor MobileHostConnection {
             eventQueue.enableSurfaceLanes(
                 limit: independentEventWriter.maximumSurfaceEventLaneCount
             )
-            let focusedSurfaceKey = lastInteractiveSurfaceKey
+            if let lastInteractiveSurfaceKey {
+                focusSurfaceLane(lastInteractiveSurfaceKey, writer: independentEventWriter)
+            }
             await independentEventWriter.setSurfaceEventLanesEnabled(true)
-            if let focusedSurfaceKey {
-                await independentEventWriter.noteInteractiveSurface(focusedSurfaceKey)
+            await independentEventWriter.setInteractiveSurfaceHandler { [weak self] surfaceKey in
+                await self?.noteInteractiveSurface(surfaceKey)
             }
         } else {
             let resync = eventQueue.disableSurfaceLanes()
@@ -2464,11 +2466,33 @@ actor MobileHostConnection {
         }
     }
 
-    private func noteInteractiveSurface(_ surfaceKey: String) {
+    /// The user is interacting with this surface: input arrived for it, or
+    /// the phone opened its input lane on mount. It takes the connection's
+    /// surface lane; the surface it replaces is released.
+    func noteInteractiveSurface(_ rawSurfaceKey: String) {
+        let surfaceKey = MobileHostConnectionEventQueue.canonicalSurfaceKey(rawSurfaceKey)
         guard !surfaceKey.isEmpty, lastInteractiveSurfaceKey != surfaceKey else { return }
         lastInteractiveSurfaceKey = surfaceKey
         guard surfaceEventLanesActive, let independentEventWriter else { return }
-        Task { await independentEventWriter.noteInteractiveSurface(surfaceKey) }
+        focusSurfaceLane(surfaceKey, writer: independentEventWriter)
+    }
+
+    private func focusSurfaceLane(
+        _ surfaceKey: String,
+        writer: any MobileHostIndependentEventWriting
+    ) {
+        let released = eventQueue.focusSurfaceLane(surfaceKey)
+        if !released.isEmpty {
+            // The released surface continues on the shared lane from a full
+            // frame; its old stream's backlog is dropped.
+            MobileTerminalRenderObserver.requestRenderGridFullResync(
+                surfaceIDStrings: Set(released.keys)
+            )
+        }
+        Task {
+            if !released.isEmpty { await writer.releaseSurfaceLanes(released) }
+            await writer.noteInteractiveSurface(surfaceKey)
+        }
     }
 
     /// Writes one serialized frame until the transport completes or fails.

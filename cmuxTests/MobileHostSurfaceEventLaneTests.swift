@@ -39,16 +39,18 @@ struct MobileHostSurfaceEventLaneTests {
             )
         )
 
-        // Surface A's replay is stuck in flight: the phone has not granted
-        // stream credit for its bytes yet.
+        // The user types on surface B, so it holds the surface lane. Surface
+        // A's output rides the shared lane and is stuck in flight there: the
+        // phone has not granted stream credit for its bytes yet.
+        await session.noteInteractiveSurface("surface-b")
         #expect(await session.sendEvent(
             topic: "terminal.render_grid",
             payload: ["surface_id": "surface-a", "full": true, "rows": ["replay"]]
         ))
         #expect(await writer.waitUntilStalled())
 
-        // The user types on surface B. Its echo must reach the wire now, not
-        // after surface A's replay drains.
+        // Surface B's echo must reach the wire now, not after surface A's
+        // replay drains.
         #expect(await session.sendEvent(
             topic: "terminal.render_grid",
             payload: ["surface_id": "surface-b", "full": true, "rows": ["echo"]]
@@ -80,6 +82,7 @@ struct MobileHostSurfaceEventLaneTests {
             let result = await session.debugHandleSubscriptionRPCForTesting(
                 MobileHostRPCRequest(id: "s", method: "mobile.events.subscribe", params: params, auth: nil)
             )
+            await session.noteInteractiveSurface("surface-a")
             guard case let .ok(payload)? = result,
                   let acknowledgement = payload as? [String: Any] else {
                 Issue.record("Expected a subscribe acknowledgement")
@@ -124,6 +127,7 @@ struct MobileHostSurfaceEventLaneTests {
                 auth: nil
             )
         )
+        await session.noteInteractiveSurface("surface-a")
         #expect(await session.sendEvent(
             topic: "terminal.render_grid",
             payload: ["surface_id": "surface-a", "full": true]
@@ -152,10 +156,59 @@ struct MobileHostSurfaceEventLaneTests {
         await session.close(reason: "test complete")
     }
 
+    /// Opening the input lane on mount reaches the writer, not the connection.
+    /// The report must still move the connection's surface lane, and moving it
+    /// must reset the old surface's stream.
+    @Test func inputLaneFocusMovesTheSurfaceLaneAndReleasesTheOldStream() async throws {
+        let writer = RecordingSurfaceLaneEventWriter(focusedLaneCount: 1)
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: RecordingMobileHostByteTransport(),
+            independentEventWriter: writer,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        _ = await session.debugHandleSubscriptionRPCForTesting(
+            MobileHostRPCRequest(
+                id: "s",
+                method: "mobile.events.subscribe",
+                params: [
+                    "stream_id": "events",
+                    "topics": ["terminal.render_grid"],
+                    "event_transport": "iroh_server_events_v1",
+                    "surface_event_lanes": "v1",
+                ],
+                auth: nil
+            )
+        )
+        #expect(await writer.waitForInteractiveSurfaceHandler())
+        await writer.reportFromInputLane("SURFACE-A")
+        #expect(await session.sendEvent(
+            topic: "terminal.render_grid",
+            payload: ["surface_id": "surface-a", "full": true]
+        ))
+        #expect(await writer.waitForWrites(1))
+        #expect(await writer.writes() == [.surface("surface-a", generation: 0)])
+
+        await writer.reportFromInputLane("surface-b")
+        #expect(await writer.waitForReleases(1))
+        #expect(await writer.releases() == [["surface-a": 1]])
+        #expect(await session.sendEvent(
+            topic: "terminal.render_grid",
+            payload: ["surface_id": "surface-a", "full": true]
+        ))
+        #expect(await writer.waitForWrites(2))
+        #expect(await writer.writes().last == .shared)
+        await session.close(reason: "test complete")
+    }
+
     @Test func surfaceLaneFallbackToControlRebasesEachSurfaceWithAFullFrame() {
         let queue = MobileHostConnectionEventQueue()
         queue.updateSubscribedTopics(["terminal.render_grid"])
         queue.enableSurfaceLanes(limit: 4)
+        #expect(queue.focusSurfaceLane("s").isEmpty)
         let full = queue.enqueue(
             topic: "terminal.render_grid", coalesceKey: "s", isFullRenderGridFrame: true, frame: Data([1])
         )
@@ -189,6 +242,7 @@ struct MobileHostSurfaceEventLaneTests {
         // Lanes are negotiated mid-chain: a delta may not follow its base
         // onto a different stream, where it could overtake it.
         queue.enableSurfaceLanes(limit: 4)
+        _ = queue.focusSurfaceLane("s")
         let crossing = queue.enqueue(
             topic: "terminal.render_grid", coalesceKey: "s", isFullRenderGridFrame: false, frame: Data([2])
         )
@@ -205,23 +259,77 @@ struct MobileHostSurfaceEventLaneTests {
         #expect(!next.startDrain)
     }
 
-    @Test func eachSurfaceLaneDrainsIndependentlyAndOverflowRidesTheSharedLane() {
+    @Test func focusedSurfacesDrainIndependentlyAndOthersRideTheSharedLane() {
         let queue = MobileHostConnectionEventQueue()
         queue.updateSubscribedTopics(["terminal.render_grid", "workspace.updated"])
         queue.enableSurfaceLanes(limit: 2)
+        _ = queue.focusSurfaceLane("a")
+        _ = queue.focusSurfaceLane("b")
         let a = queue.enqueue(topic: "terminal.render_grid", coalesceKey: "a", isFullRenderGridFrame: true, frame: Data([1]))
         let b = queue.enqueue(topic: "terminal.render_grid", coalesceKey: "b", isFullRenderGridFrame: true, frame: Data([2]))
         let c = queue.enqueue(topic: "terminal.render_grid", coalesceKey: "c", isFullRenderGridFrame: true, frame: Data([3]))
         let shared = queue.enqueue(topic: "workspace.updated", coalesceKey: nil, isFullRenderGridFrame: false, frame: Data([4]))
         #expect(a.startDrain && a.drainLane == .surface("a"))
         #expect(b.startDrain && b.drainLane == .surface("b"))
-        // Both surface lanes are busy, so the bounded third surface shares.
+        // The user never focused surface c, so it shares.
         #expect(c.startDrain && c.drainLane == .shared)
         #expect(!shared.startDrain)
         #expect(queue.dequeue(lane: .surface("b"))?.frame == Data([2]))
         #expect(queue.dequeue(lane: .shared)?.frame == Data([3]))
         #expect(queue.dequeue(lane: .shared)?.frame == Data([4]))
         #expect(queue.dequeue(lane: .surface("a"))?.frame == Data([1]))
+    }
+
+    @Test func focusingAnotherSurfaceReleasesTheOldLaneAndDropsItsBacklog() {
+        let queue = MobileHostConnectionEventQueue()
+        queue.updateSubscribedTopics(["terminal.render_grid"])
+        queue.enableSurfaceLanes(limit: 1)
+        let surfaceID = "A1B2C3D4-0000-0000-0000-000000000001"
+        // Focus arrives in the phone's spelling; frames in the Mac's.
+        #expect(queue.focusSurfaceLane(surfaceID.lowercased()).isEmpty)
+        let full = queue.enqueue(
+            topic: "terminal.render_grid", coalesceKey: surfaceID, isFullRenderGridFrame: true, frame: Data([1])
+        )
+        #expect(full.drainLane == .surface(surfaceID))
+        #expect(queue.focusSurfaceLane(surfaceID).isEmpty)
+        let backlog = queue.enqueue(
+            topic: "terminal.render_grid", coalesceKey: surfaceID, isFullRenderGridFrame: false, frame: Data([2])
+        )
+        #expect(backlog.admitted)
+
+        #expect(queue.focusSurfaceLane("b") == [surfaceID: 1])
+        #expect(queue.surfaceLaneGeneration(surfaceID: surfaceID) == 1)
+        #expect(queue.dequeue(lane: .surface(surfaceID)) == nil)
+        // The released surface continues on the shared lane from a full frame.
+        #expect(!queue.enqueue(
+            topic: "terminal.render_grid", coalesceKey: surfaceID, isFullRenderGridFrame: false, frame: Data([3])
+        ).admitted)
+        let rebase = queue.enqueue(
+            topic: "terminal.render_grid", coalesceKey: surfaceID, isFullRenderGridFrame: true, frame: Data([4])
+        )
+        #expect(rebase.admitted && rebase.drainLane == .shared)
+    }
+
+    @Test func thirtyActiveSurfacesNeverTakeTheFocusedSurfacesLane() {
+        let queue = MobileHostConnectionEventQueue()
+        queue.updateSubscribedTopics(["terminal.render_grid"])
+        queue.enableSurfaceLanes(limit: 1)
+        _ = queue.focusSurfaceLane("s0")
+        var surfaceLanesUsed = Set<String>()
+        for _ in 0..<3 {
+            for index in 0..<30 {
+                let result = queue.enqueue(
+                    topic: "terminal.render_grid", coalesceKey: "s\(index)", isFullRenderGridFrame: true, frame: Data([1])
+                )
+                if case .surface(let laneSurfaceID) = result.drainLane {
+                    surfaceLanesUsed.insert(laneSurfaceID)
+                }
+                _ = queue.dequeue(lane: result.drainLane)
+                _ = queue.finishDrain(lane: result.drainLane)
+            }
+        }
+        #expect(surfaceLanesUsed == ["s0"])
+        #expect(queue.surfaceLaneGeneration(surfaceID: "s0") == 0)
     }
 
     /// Terminals printing in the background must not take surface lanes from
@@ -255,6 +363,7 @@ struct MobileHostSurfaceEventLaneTests {
         let queue = MobileHostConnectionEventQueue()
         queue.updateSubscribedTopics(["terminal.render_grid"])
         queue.enableSurfaceLanes(limit: 4)
+        _ = queue.focusSurfaceLane("s")
         for attempt in 0..<MobileHostConnectionEventQueue.maximumSurfaceLaneFailureCount {
             let generation = queue.surfaceLaneGeneration(surfaceID: "s")
             #expect(generation == UInt64(attempt))
@@ -282,12 +391,46 @@ actor RecordingSurfaceLaneEventWriter: MobileHostIndependentEventWriting {
         case surface(String, generation: UInt64)
     }
 
-    nonisolated let maximumSurfaceEventLaneCount = 16
+    nonisolated let maximumSurfaceEventLaneCount: Int
     private var failFirstSurfaceWrite: Bool
     private var recorded: [Write] = []
+    private var recordedReleases: [[String: UInt64]] = []
+    private var interactiveSurfaceHandler: (@Sendable (String) async -> Void)?
 
-    init(failFirstSurfaceWrite: Bool = false) {
+    init(failFirstSurfaceWrite: Bool = false, focusedLaneCount: Int = 16) {
         self.failFirstSurfaceWrite = failFirstSurfaceWrite
+        maximumSurfaceEventLaneCount = focusedLaneCount
+    }
+
+    func releaseSurfaceLanes(_ generationsBySurfaceID: [String: UInt64]) async {
+        recordedReleases.append(generationsBySurfaceID)
+    }
+
+    func setInteractiveSurfaceHandler(_ handler: (@Sendable (String) async -> Void)?) async {
+        interactiveSurfaceHandler = handler
+    }
+
+    /// Input arriving on an input lane, which reaches the writer directly.
+    func reportFromInputLane(_ surfaceID: String) async {
+        await interactiveSurfaceHandler?(surfaceID)
+    }
+
+    func releases() -> [[String: UInt64]] { recordedReleases }
+
+    func waitForInteractiveSurfaceHandler() async -> Bool {
+        for _ in 0..<2_000 {
+            if interactiveSurfaceHandler != nil { return true }
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        return false
+    }
+
+    func waitForReleases(_ count: Int) async -> Bool {
+        for _ in 0..<2_000 {
+            if recordedReleases.count >= count { return true }
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        return false
     }
 
     func probe(_: Data) async -> Bool { true }
