@@ -1,6 +1,478 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "browser.omnibar.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Address and search bar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adress- und Suchleiste"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre d’adresse et de recherche"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط العنوان والبحث"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de direcciones y búsqueda"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網址與搜尋列"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "地址和搜索栏"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "주소 및 검색 막대"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドレスと検索バー"
+          }
+        }
+      }
+    },
+    "projectPanel.reload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload Project"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekt neu laden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recharger le projet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تحميل المشروع"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recargar proyecto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新載入專案"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新加载项目"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트 다시 불러오기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトを再読み込み"
+          }
+        }
+      }
+    },
+    "projectPanel.reloadErrors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload returned errors: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Neuladen sind Fehler aufgetreten: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le rechargement a renvoyé des erreurs : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعادت إعادة التحميل أخطاء: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La recarga devolvió errores: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新載入時發生錯誤：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新加载时出现错误：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 불러오기 중 오류 발생: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再読み込みでエラーが発生しました: %@"
+          }
+        }
+      }
+    },
+    "projectPanel.dismissReloadErrors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss Errors"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehler ausblenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignorer les erreurs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجاهل الأخطاء"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descartar errores"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉錯誤"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭错误"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오류 닫기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラーを閉じる"
+          }
+        }
+      }
+    },
+    "projectPanel.scheme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheme"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schéma"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المخطط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esquema"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方案"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方案"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스킴"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキーム"
+          }
+        }
+      }
+    },
+    "projectPanel.configuration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuration"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfiguration"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuration de build"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التكوين"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuración"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組態"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구성"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "構成"
+          }
+        }
+      }
+    },
+    "projectPanel.loadingFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wird geladen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement de %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ تحميل %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargando %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在載入 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在加载 %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 불러오는 중"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を読み込み中"
+          }
+        }
+      }
+    },
+    "projectPanel.failedFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehlgeschlagen: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失败：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실패: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗: %@"
+          }
+        }
+      }
+    },
     "settings.automation.rules.createFailed.title": {
       "extractionState": "manual",
       "localizations": {
@@ -175827,6 +176299,71 @@
         }
       }
     },
+    "dialog.close.dontAskAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t ask again"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تسأل مرة أخرى"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht mehr fragen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No volver a preguntar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne plus demander"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今後確認しない"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 묻지 않기"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Більше не запитувати"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不再询问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不再詢問"
+          }
+        }
+      }
+    },
     "dialog.closeAnchor.message.lone": {
       "extractionState": "manual",
       "localizations": {
@@ -227515,6 +228052,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "가격 인하"
+          }
+        }
+      }
+    },
+    "globalSearch.kind.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طرفية"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
           }
         }
       }
@@ -290419,6 +291015,596 @@
         }
       }
     },
+    "settings.app.accentColor": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون التمييز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boja naglaska"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accentfarve"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akzentfarbe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accent Color"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color de acento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur d’accentuation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore di evidenziazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセントカラー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "강조 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aksentfarge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolor akcentu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor de destaque"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет акцента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีเน้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vurgu Rengi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колір акценту"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "强调色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強調色"
+          }
+        }
+      }
+    },
+    "settings.app.accentColor.cmux": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أزرق cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux plava"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-blå"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Blau"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Blue"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Azul de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bleu cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blu cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブルー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 파란색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-blå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niebieski cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Azul do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Синий cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีน้ำเงิน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Mavisi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Синій cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 蓝"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 藍"
+          }
+        }
+      }
+    },
+    "settings.app.accentColor.subtitle": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون مساحة العمل المحددة وحلقة التنبيه وحالة الوكيل وإبرازات cmux الأخرى. يتبع خيار النظام لون التمييز في macOS."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boja odabranog radnog prostora, prstena pažnje, statusa agenta i ostalih cmux istaknutih elemenata. Sistem prati boju naglaska macOS-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farve for det valgte arbejdsområde, opmærksomhedsringen, agentstatus og andre cmux-fremhævninger. System følger macOS-accentfarven."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farbe des ausgewählten Workspace, des Aufmerksamkeitsrings, des Agentenstatus und anderer cmux-Hervorhebungen. „Systemfarbe“ folgt der macOS-Akzentfarbe."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color of the selected workspace, attention ring, agent status, and other cmux highlights. System follows the macOS accent color."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color del espacio de trabajo seleccionado, el anillo de atención, el estado del agente y otros resaltados de cmux. Sistema sigue el color de acento de macOS."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur de l’espace de travail sélectionné, de l’anneau d’attention, de l’état de l’agent et des autres mises en évidence de cmux. Système suit la couleur d’accentuation de macOS."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore dell’area di lavoro selezionata, dell’anello di attenzione, dello stato dell’agente e degli altri elementi evidenziati di cmux. Sistema segue il colore di evidenziazione di macOS."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中のワークスペース、注意リング、エージェントの状態など、cmux のハイライトの色です。「システム」は macOS のアクセントカラーに従います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 워크스페이스, 주의 링, 에이전트 상태 등 cmux 강조 표시의 색상입니다. 시스템은 macOS 강조 색상을 따릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farge for det valgte arbeidsområdet, oppmerksomhetsringen, agentstatus og andre cmux-uthevinger. System følger macOS-aksentfargen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolor wybranego obszaru roboczego, pierścienia uwagi, stanu agenta i innych wyróżnień cmux. Systemowy podąża za kolorem akcentu macOS."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor do espaço de trabalho selecionado, do anel de atenção, do status do agente e de outros destaques do cmux. Sistema segue a cor de destaque do macOS."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет выбранного рабочего пространства, кольца внимания, статуса агента и других выделений cmux. «Системный» следует цвету акцента macOS."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีของพื้นที่ทำงานที่เลือก วงแจ้งเตือน สถานะเอเจนต์ และไฮไลต์อื่นๆ ของ cmux ตัวเลือกระบบจะใช้สีเน้นของ macOS"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçili çalışma alanı, dikkat halkası, ajan durumu ve diğer cmux vurgularının rengi. Sistem, macOS vurgu rengini izler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колір вибраного робочого простору, кільця уваги, статусу агента та інших виділень cmux. «Системний» використовує колір акценту macOS."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选工作区、提醒环、代理状态和其他 cmux 高亮的颜色。“系统”跟随 macOS 强调色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所選工作區、提醒環、代理狀態和其他 cmux 醒目提示的顏色。「系統」跟隨 macOS 強調色。"
+          }
+        }
+      }
+    },
+    "settings.app.accentColor.system": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemfarbe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системний"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統"
+          }
+        }
+      }
+    },
+    "settings.app.accentColor.systemToggle": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون التمييز للنظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistemska boja naglaska"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemets accentfarve"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System-Akzentfarbe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System Accent Color"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color de acento del sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur d’accentuation du système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore di evidenziazione di sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システムのアクセントカラー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 강조 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemets aksentfarge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemowy kolor akcentu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor de destaque do sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системный цвет акцента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีเน้นของระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem Vurgu Rengi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системний колір акценту"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统强调色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統強調色"
+          }
+        }
+      }
+    },
     "settings.app.appearance": {
       "extractionState": "manual",
       "localizations": {
@@ -299670,360 +300856,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "在側邊欄顯示進度"
-          }
-        }
-      }
-    },
-    "settings.app.showAgentUsage": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عرض استخدام الوكيل في الشريط الجانبي"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent-Nutzung in der Seitenleiste anzeigen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Agent Usage in Sidebar"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar el uso del agente en la barra lateral"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher l’utilisation des agents dans la barre latérale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーにエージェントの使用状況を表示"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바에 에이전트 사용량 표시"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在侧边栏显示代理用量"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在側邊欄顯示代理用量"
-          }
-        }
-      }
-    },
-    "settings.app.showAgentUsage.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يُلحق النموذج ونسبة نافذة السياق المستخدمة بإدخالات حالة Claude Code وCodex، بالإضافة إلى تكلفة API تقديرية لـ Claude Code. التكلفة تقدير مبني على أسعار API المعلنة، وليست فاتورة اشتراكك."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hängt Modell und belegtes Kontextfenster an die Statuseinträge von Claude Code und Codex an, für Claude Code zusätzlich die geschätzten API-Kosten. Die Kosten sind eine Schätzung nach API-Listenpreisen, nicht deine Abo-Rechnung."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Append the model and context window used to Claude Code and Codex status entries, plus an estimated API cost for Claude Code. The cost is an API list-price estimate, not your subscription bill."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Añade el modelo y la ventana de contexto usada a las entradas de estado de Claude Code y Codex, además de un coste estimado de la API para Claude Code. El coste es una estimación según los precios de lista de la API, no la factura de tu suscripción."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajoute le modèle et la part de la fenêtre de contexte utilisée aux entrées d’état de Claude Code et Codex, ainsi qu’un coût API estimé pour Claude Code. Le coût est une estimation d’après les tarifs API publics, pas votre facture d’abonnement."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code と Codex のステータス項目にモデルと使用中のコンテキストウィンドウを追加し、Claude Code には推定 API コストも表示します。コストは API の定価に基づく推定値で、サブスクリプションの請求額ではありません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code 및 Codex 상태 항목에 모델과 사용 중인 컨텍스트 창을 덧붙이고, Claude Code에는 예상 API 비용도 표시합니다. 비용은 API 정가 기준의 추정치이며 구독 요금이 아닙니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在 Claude Code 和 Codex 的状态条目后附加模型和已用的上下文窗口，并为 Claude Code 附加估算的 API 费用。费用是根据 API 公开价格估算的，并非你的订阅账单。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在 Claude Code 與 Codex 的狀態項目後附加模型與已用的上下文視窗，並為 Claude Code 附加估算的 API 費用。費用是依 API 公開價格估算，並非你的訂閱帳單。"
-          }
-        }
-      }
-    },
-    "settings.search.alias.setting.app.show-agent-usage": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex وكيل استخدام نموذج نافذة السياق رموز نسبة تكلفة سعر تقدير الشريط الجانبي"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex Agent Nutzung Modell Kontextfenster Token Prozent Kosten Preis Schätzung Seitenleiste"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex agente uso modelo ventana de contexto tokens porcentaje coste precio estimación barra lateral"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex agent utilisation modèle fenêtre de contexte jetons pourcentage coût prix estimation barre latérale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex エージェント 使用状況 モデル コンテキストウィンドウ トークン パーセント コスト 料金 推定 サイドバー"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex 에이전트 사용량 모델 컨텍스트 창 토큰 퍼센트 비용 가격 추정 사이드바"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex 代理 用量 模型 上下文窗口 令牌 百分比 费用 价格 估算 侧边栏"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex 代理 用量 模型 上下文視窗 權杖 百分比 費用 價格 估算 側邊欄"
-          }
-        }
-      }
-    },
-    "sidebar.agentUsage.estimatedCost": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حوالي %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ca. %@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "~%@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "aprox. %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "env. %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "約%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "약 %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "约 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "約 %@"
-          }
-        }
-      }
-    },
-    "sidebar.agentUsage.estimatedCostAtLeast": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حوالي %@+"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ca. %@+"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "~%@+"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "aprox. %@+"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "env. %@+"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "約%@+"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "약 %@+"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "约 %@+"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "約 %@+"
-          }
-        }
-      }
-    },
-    "sidebar.agentUsage.costHelp": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "التكلفة تقدير مبني على أسعار API المعلنة، وليست فاتورة اشتراكك."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Kosten sind eine Schätzung nach API-Listenpreisen, nicht deine Abo-Rechnung."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cost is an API list-price estimate, not your subscription bill."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El coste es una estimación según los precios de lista de la API, no la factura de tu suscripción."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le coût est une estimation d’après les tarifs API publics, pas votre facture d’abonnement."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コストは API の定価に基づく推定値で、サブスクリプションの請求額ではありません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "비용은 API 정가 기준의 추정치이며 구독 요금이 아닙니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "费用是根据 API 公开价格估算的，并非你的订阅账单。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "費用是依 API 公開價格估算，並非你的訂閱帳單。"
           }
         }
       }
@@ -343397,6 +344229,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "app.appIcon dock icon application icon app switcher alternate icon app.appIcon dock icon application app switcher alternate 應用程式 一般 偏好設定 行為 選單列 狀態 側邊欄 圖示"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.accent-color": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue لون التمييز أزرق النظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue boja naglaska plava sistem"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue accentfarve blå system"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue Akzentfarbe blau System"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue color de acento azul sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue couleur d’accentuation bleu système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue colore di evidenziazione blu sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue アクセントカラー 青 システム"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue 강조 색상 파란색 시스템"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue aksentfarge blå system"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue kolor akcentu niebieski systemowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue cor de destaque azul sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue цвет акцента синий системный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue สีเน้น สีน้ำเงิน ระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue vurgu rengi mavi sistem"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue колір акценту синій системний"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue 强调色 蓝色 系统"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue 強調色 藍色 系統"
           }
         }
       }
@@ -546452,65 +547402,6 @@
         }
       }
     },
-    "globalSearch.kind.terminal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナル"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "터미널"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "طرفية"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "終端"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "终端"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal"
-          }
-        }
-      }
-    },
     "terminal.passwordInput.indicator": {
       "extractionState": "manual",
       "localizations": {
@@ -547274,1251 +548165,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@：文字過大；經 JSON 跳脫後的上限為 %@ MiB"
-          }
-        }
-      }
-    },
-    "browser.omnibar.accessibilityLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Address and search bar"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Adress- und Suchleiste"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Barre d’adresse et de recherche"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "شريط العنوان والبحث"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Barra de direcciones y búsqueda"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "網址與搜尋列"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "地址和搜索栏"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "주소 및 검색 막대"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アドレスと検索バー"
-          }
-        }
-      }
-    },
-    "projectPanel.reload": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reload Project"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Projekt neu laden"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recharger le projet"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إعادة تحميل المشروع"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recargar proyecto"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新載入專案"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新加载项目"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "프로젝트 다시 불러오기"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プロジェクトを再読み込み"
-          }
-        }
-      }
-    },
-    "projectPanel.reloadErrors": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reload returned errors: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Beim Neuladen sind Fehler aufgetreten: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le rechargement a renvoyé des erreurs : %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أعادت إعادة التحميل أخطاء: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La recarga devolvió errores: %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新載入時發生錯誤：%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新加载时出现错误：%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다시 불러오기 중 오류 발생: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再読み込みでエラーが発生しました: %@"
-          }
-        }
-      }
-    },
-    "projectPanel.dismissReloadErrors": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dismiss Errors"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fehler ausblenden"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ignorer les erreurs"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تجاهل الأخطاء"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Descartar errores"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關閉錯誤"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭错误"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오류 닫기"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エラーを閉じる"
-          }
-        }
-      }
-    },
-    "projectPanel.scheme": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scheme"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Schema"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Schéma"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "المخطط"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esquema"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "方案"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "方案"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "스킴"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "スキーム"
-          }
-        }
-      }
-    },
-    "projectPanel.configuration": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configuration"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Konfiguration"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configuration de build"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "التكوين"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configuración"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "組態"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "配置"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "구성"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "構成"
-          }
-        }
-      }
-    },
-    "projectPanel.loadingFormat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Loading %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ wird geladen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chargement de %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ تحميل %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cargando %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在載入 %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在加载 %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 불러오는 중"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ を読み込み中"
-          }
-        }
-      }
-    },
-    "projectPanel.failedFormat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Failed: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fehlgeschlagen: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Échec : %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فشل: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Error: %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "失敗：%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "失败：%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "실패: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "失敗: %@"
-          }
-        }
-      }
-    },
-    "dialog.close.dontAskAgain": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Don’t ask again"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا تسأل مرة أخرى"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nicht mehr fragen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No volver a preguntar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ne plus demander"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "今後確認しない"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다시 묻지 않기"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Більше не запитувати"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不再询问"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不再詢問"
-          }
-        }
-      }
-    },
-    "settings.app.accentColor": {
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لون التمييز"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Boja naglaska"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Accentfarve"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Akzentfarbe"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Accent Color"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Color de acento"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couleur d’accentuation"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Colore di evidenziazione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アクセントカラー"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "강조 색상"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aksentfarge"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kolor akcentu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cor de destaque"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Цвет акцента"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สีเน้น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vurgu Rengi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Колір акценту"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "强调色"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "強調色"
-          }
-        }
-      }
-    },
-    "settings.app.accentColor.cmux": {
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أزرق cmux"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux plava"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-blå"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-Blau"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Blue"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Azul de cmux"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bleu cmux"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Blu cmux"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux ブルー"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 파란색"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-blå"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Niebieski cmux"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Azul do cmux"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Синий cmux"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สีน้ำเงิน cmux"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Mavisi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Синій cmux"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 蓝"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 藍"
-          }
-        }
-      }
-    },
-    "settings.app.accentColor.subtitle": {
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لون مساحة العمل المحددة وحلقة التنبيه وحالة الوكيل وإبرازات cmux الأخرى. يتبع خيار النظام لون التمييز في macOS."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Boja odabranog radnog prostora, prstena pažnje, statusa agenta i ostalih cmux istaknutih elemenata. Sistem prati boju naglaska macOS-a."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Farve for det valgte arbejdsområde, opmærksomhedsringen, agentstatus og andre cmux-fremhævninger. System følger macOS-accentfarven."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Farbe des ausgewählten Workspace, des Aufmerksamkeitsrings, des Agentenstatus und anderer cmux-Hervorhebungen. „Systemfarbe“ folgt der macOS-Akzentfarbe."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Color of the selected workspace, attention ring, agent status, and other cmux highlights. System follows the macOS accent color."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Color del espacio de trabajo seleccionado, el anillo de atención, el estado del agente y otros resaltados de cmux. Sistema sigue el color de acento de macOS."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couleur de l’espace de travail sélectionné, de l’anneau d’attention, de l’état de l’agent et des autres mises en évidence de cmux. Système suit la couleur d’accentuation de macOS."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Colore dell’area di lavoro selezionata, dell’anello di attenzione, dello stato dell’agente e degli altri elementi evidenziati di cmux. Sistema segue il colore di evidenziazione di macOS."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選択中のワークスペース、注意リング、エージェントの状態など、cmux のハイライトの色です。「システム」は macOS のアクセントカラーに従います。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "선택한 워크스페이스, 주의 링, 에이전트 상태 등 cmux 강조 표시의 색상입니다. 시스템은 macOS 강조 색상을 따릅니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Farge for det valgte arbeidsområdet, oppmerksomhetsringen, agentstatus og andre cmux-uthevinger. System følger macOS-aksentfargen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kolor wybranego obszaru roboczego, pierścienia uwagi, stanu agenta i innych wyróżnień cmux. Systemowy podąża za kolorem akcentu macOS."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cor do espaço de trabalho selecionado, do anel de atenção, do status do agente e de outros destaques do cmux. Sistema segue a cor de destaque do macOS."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Цвет выбранного рабочего пространства, кольца внимания, статуса агента и других выделений cmux. «Системный» следует цвету акцента macOS."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สีของพื้นที่ทำงานที่เลือก วงแจ้งเตือน สถานะเอเจนต์ และไฮไลต์อื่นๆ ของ cmux ตัวเลือกระบบจะใช้สีเน้นของ macOS"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seçili çalışma alanı, dikkat halkası, ajan durumu ve diğer cmux vurgularının rengi. Sistem, macOS vurgu rengini izler."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Колір вибраного робочого простору, кільця уваги, статусу агента та інших виділень cmux. «Системний» використовує колір акценту macOS."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "所选工作区、提醒环、代理状态和其他 cmux 高亮的颜色。“系统”跟随 macOS 强调色。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "所選工作區、提醒環、代理狀態和其他 cmux 醒目提示的顏色。「系統」跟隨 macOS 強調色。"
-          }
-        }
-      }
-    },
-    "settings.app.accentColor.system": {
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "النظام"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistem"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "System"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Systemfarbe"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "System"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistema"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Système"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistema"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "システム"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "시스템"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "System"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Systemowy"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistema"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Системный"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ระบบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistem"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Системний"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "系统"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "系統"
-          }
-        }
-      }
-    },
-    "settings.app.accentColor.systemToggle": {
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لون التمييز للنظام"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistemska boja naglaska"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Systemets accentfarve"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "System-Akzentfarbe"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "System Accent Color"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Color de acento del sistema"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couleur d’accentuation du système"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Colore di evidenziazione di sistema"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "システムのアクセントカラー"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "시스템 강조 색상"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Systemets aksentfarge"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Systemowy kolor akcentu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cor de destaque do sistema"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Системный цвет акцента"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สีเน้นของระบบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistem Vurgu Rengi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Системний колір акценту"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "系统强调色"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "系統強調色"
-          }
-        }
-      }
-    },
-    "settings.search.alias.setting.app.accent-color": {
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue لون التمييز أزرق النظام"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue boja naglaska plava sistem"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue accentfarve blå system"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue Akzentfarbe blau System"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue color de acento azul sistema"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue couleur d’accentuation bleu système"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue colore di evidenziazione blu sistema"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue アクセントカラー 青 システム"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue 강조 색상 파란색 시스템"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue aksentfarge blå system"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue kolor akcentu niebieski systemowy"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue cor de destaque azul sistema"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue цвет акцента синий системный"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue สีเน้น สีน้ำเงิน ระบบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue vurgu rengi mavi sistem"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue колір акценту синій системний"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue 强调色 蓝色 系统"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue 強調色 藍色 系統"
           }
         }
       }
@@ -566504,6 +566150,360 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Термінал ще не запущено. Спробуйте ще раз за кілька секунд."
+          }
+        }
+      }
+    },
+    "settings.app.showAgentUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض استخدام الوكيل في الشريط الجانبي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Nutzung in der Seitenleiste anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Agent Usage in Sidebar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar el uso del agente en la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’utilisation des agents dans la barre latérale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーにエージェントの使用状況を表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에 에이전트 사용량 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在侧边栏显示代理用量"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在側邊欄顯示代理用量"
+          }
+        }
+      }
+    },
+    "settings.app.showAgentUsage.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُلحق النموذج ونسبة نافذة السياق المستخدمة بإدخالات حالة Claude Code وCodex، بالإضافة إلى تكلفة API تقديرية لـ Claude Code. التكلفة تقدير مبني على أسعار API المعلنة، وليست فاتورة اشتراكك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hängt Modell und belegtes Kontextfenster an die Statuseinträge von Claude Code und Codex an, für Claude Code zusätzlich die geschätzten API-Kosten. Die Kosten sind eine Schätzung nach API-Listenpreisen, nicht deine Abo-Rechnung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Append the model and context window used to Claude Code and Codex status entries, plus an estimated API cost for Claude Code. The cost is an API list-price estimate, not your subscription bill."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade el modelo y la ventana de contexto usada a las entradas de estado de Claude Code y Codex, además de un coste estimado de la API para Claude Code. El coste es una estimación según los precios de lista de la API, no la factura de tu suscripción."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoute le modèle et la part de la fenêtre de contexte utilisée aux entrées d’état de Claude Code et Codex, ainsi qu’un coût API estimé pour Claude Code. Le coût est une estimation d’après les tarifs API publics, pas votre facture d’abonnement."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code と Codex のステータス項目にモデルと使用中のコンテキストウィンドウを追加し、Claude Code には推定 API コストも表示します。コストは API の定価に基づく推定値で、サブスクリプションの請求額ではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 및 Codex 상태 항목에 모델과 사용 중인 컨텍스트 창을 덧붙이고, Claude Code에는 예상 API 비용도 표시합니다. 비용은 API 정가 기준의 추정치이며 구독 요금이 아닙니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Claude Code 和 Codex 的状态条目后附加模型和已用的上下文窗口，并为 Claude Code 附加估算的 API 费用。费用是根据 API 公开价格估算的，并非你的订阅账单。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Claude Code 與 Codex 的狀態項目後附加模型與已用的上下文視窗，並為 Claude Code 附加估算的 API 費用。費用是依 API 公開價格估算，並非你的訂閱帳單。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.show-agent-usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex وكيل استخدام نموذج نافذة السياق رموز نسبة تكلفة سعر تقدير الشريط الجانبي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex Agent Nutzung Modell Kontextfenster Token Prozent Kosten Preis Schätzung Seitenleiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex agente uso modelo ventana de contexto tokens porcentaje coste precio estimación barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex agent utilisation modèle fenêtre de contexte jetons pourcentage coût prix estimation barre latérale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex エージェント 使用状況 モデル コンテキストウィンドウ トークン パーセント コスト 料金 推定 サイドバー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex 에이전트 사용량 모델 컨텍스트 창 토큰 퍼센트 비용 가격 추정 사이드바"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex 代理 用量 模型 上下文窗口 令牌 百分比 费用 价格 估算 侧边栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex 代理 用量 模型 上下文視窗 權杖 百分比 費用 價格 估算 側邊欄"
+          }
+        }
+      }
+    },
+    "sidebar.agentUsage.estimatedCost": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حوالي %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ca. %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~%@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aprox. %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "env. %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "약 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "约 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約 %@"
+          }
+        }
+      }
+    },
+    "sidebar.agentUsage.estimatedCostAtLeast": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حوالي %@+"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ca. %@+"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~%@+"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aprox. %@+"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "env. %@+"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約%@+"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "약 %@+"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "约 %@+"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約 %@+"
+          }
+        }
+      }
+    },
+    "sidebar.agentUsage.costHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التكلفة تقدير مبني على أسعار API المعلنة، وليست فاتورة اشتراكك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Kosten sind eine Schätzung nach API-Listenpreisen, nicht deine Abo-Rechnung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cost is an API list-price estimate, not your subscription bill."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El coste es una estimación según los precios de lista de la API, no la factura de tu suscripción."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le coût est une estimation d’après les tarifs API publics, pas votre facture d’abonnement."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コストは API の定価に基づく推定値で、サブスクリプションの請求額ではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비용은 API 정가 기준의 추정치이며 구독 요금이 아닙니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "费用是根据 API 公开价格估算的，并非你的订阅账单。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "費用是依 API 公開價格估算，並非你的訂閱帳單。"
           }
         }
       }
