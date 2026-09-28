@@ -139,10 +139,14 @@ final class SplitDividerDragUITests: SettingsUITestCase {
         if cloudWorkspace {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_CLOUD_WORKSPACE"] = "1"
         }
+        // The app's drag log explains a drag that never started.
+        let logPath = "/tmp/cmux-ui-test-split-drag-log-\(UUID().uuidString).log"
+        app.launchEnvironment["CMUX_DEBUG_LOG"] = logPath
         launchAndActivate(app)
         defer {
             app.terminate()
             try? FileManager.default.removeItem(atPath: dataPath)
+            try? FileManager.default.removeItem(atPath: logPath)
         }
 
         var ready: [String: String] = [:]
@@ -187,10 +191,20 @@ final class SplitDividerDragUITests: SettingsUITestCase {
             loadJSON(atPath: dataPath)["trackedPaneTabTitles"] == "\(betaTitle)|\(alphaTitle)"
         }
         attach(window.screenshot(), name: "02 after tab drag")
+        let dragLog = ((try? String(contentsOfFile: logPath, encoding: .utf8)) ?? "")
+            .split(separator: "\n")
+            .filter { $0.contains("drag") || $0.contains("tab.") || $0.contains("Drag") }
+            .suffix(80)
+            .joined(separator: "\n")
+        let logAttachment = XCTAttachment(string: dragLog)
+        logAttachment.name = "app drag log"
+        logAttachment.lifetime = .keepAlways
+        add(logAttachment)
         XCTAssertTrue(
             reordered,
             "Expected the tab drag to reorder the pane's tabs to Beta|Alpha. " +
-                "data=\(loadJSON(atPath: dataPath)) alpha=\(alphaTab.frame) beta=\(betaTab.frame)"
+                "order=\(loadJSON(atPath: dataPath)["trackedPaneTabTitles"] ?? "") " +
+                "alpha=\(alphaTab.frame) beta=\(betaTab.frame)\nDRAGLOG:\n\(dragLog)"
         )
     }
 
