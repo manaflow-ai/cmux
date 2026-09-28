@@ -75,11 +75,14 @@ public struct SurfaceAgentBadge: Hashable, Codable, Sendable {
     public var source: String?
     /// The adapter identity, separate from report provenance (`hook`, `socket`, or `plugin`).
     public var agent: String? = nil
+    /// The agent's own session id (`extra.agent_session_id`), when reported.
+    public var agentSessionID: String? = nil
 
-    public init(state: String, source: String? = nil, agent: String? = nil) {
+    public init(state: String, source: String? = nil, agent: String? = nil, agentSessionID: String? = nil) {
         self.state = state
         self.source = source
         self.agent = agent
+        self.agentSessionID = agentSessionID
     }
 }
 

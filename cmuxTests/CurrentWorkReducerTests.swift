@@ -134,6 +134,20 @@ struct CurrentWorkReducerTests {
         #expect(item.omitted["projections"] == 3)
     }
 
+    @Test("A remote agent badge reports its adapter, session and needs-input state")
+    func remoteAgentBadge() throws {
+        var input = fixture(machine: .cloud("test-machine"))
+        input.export.catalog.resources[0].agent = SurfaceAgentBadge(
+            state: "blocked", source: "hook", agent: "claude", agentSessionID: "claude-session-a"
+        )
+        let item = try #require(CurrentWorkReducer().reduce(input).items.first)
+        let agent = try #require(item.agents.first)
+        #expect(agent.kind == "claude")
+        #expect(agent.sessionID == "claude-session-a")
+        #expect(agent.state == "needs_input")
+        #expect(item.attention.contains { $0.kind == "needs_input" && $0.scope == "agent" })
+    }
+
     @Test("Oversized identifiers fail encoding rather than being silently changed")
     func encodedByteLimit() throws {
         var input = fixture()

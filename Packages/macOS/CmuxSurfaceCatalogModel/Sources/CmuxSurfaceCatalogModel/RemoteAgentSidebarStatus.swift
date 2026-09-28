@@ -42,18 +42,11 @@ public struct RemoteAgentSidebarStatus: Hashable, Sendable {
         key.hasPrefix(statusKeyPrefix)
     }
 
-    /// The adapter identity (`claude`, `codex`, ...), never report provenance.
+    /// The sidebar slot name for the badge's adapter; Claude keeps its local `claude_code` key.
     static func agentKey(for badge: SurfaceAgentBadge) -> String {
-        let provenance: Set<String> = ["hook", "socket", "detected", "plugin", "unknown"]
-        let identity = [badge.agent, badge.source]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            .first { !$0.isEmpty && !provenance.contains($0) }
-        switch identity {
-        case "claude", "claude-code", "claude_code": return "claude_code"
-        case let identity?:
-            let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
-            let bounded = String(identity.unicodeScalars.filter(allowed.contains).prefix(64))
-            return bounded.isEmpty ? "agent" : bounded
+        switch badge.agentIdentity {
+        case "claude": return "claude_code"
+        case let identity?: return identity
         case nil: return "agent"
         }
     }

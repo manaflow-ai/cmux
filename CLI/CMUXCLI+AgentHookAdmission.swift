@@ -795,6 +795,17 @@ extension CMUXCLI {
         guard let rawObject = parsed.rawObject else { return fallback }
         let toolName = firstString(in: rawObject, keys: ["tool_name", "toolName"])
         setBoundedString("tool_name", value: toolName, maximumLength: 80)
+        // Pairs a PostToolUse with its PreToolUse in the app's activity tracker.
+        setBoundedString(
+            "tool_use_id",
+            value: firstString(in: rawObject, keys: ["tool_use_id", "toolUseId"]),
+            maximumLength: 80
+        )
+        setBoundedString(
+            "agent_id",
+            value: firstString(in: rawObject, keys: ["agent_id", "agentId"]),
+            maximumLength: 80
+        )
         setBoundedString(
             "hook_event_name",
             value: firstString(

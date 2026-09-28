@@ -61,7 +61,7 @@ struct CurrentWorkReducer {
                 }
             }
             if let badge = resource.agent, agents.isEmpty {
-                agents.append(.init(sessionID: nil, kind: badge.source, state: bounded(badge.state), hasHookLifecycleState: false,
+                agents.append(.init(sessionID: badge.agentSessionID, kind: badge.agentIdentity, state: bounded(badge.sessionState), hasHookLifecycleState: false,
                                     version: nil, lastActivityAt: nil, evidence: .init(owner: "SurfaceCatalog", reference: resource.id.rawValue, observedAt: observedAt)))
             }
             let boundedAgents = Array(agents.prefix(8))

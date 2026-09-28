@@ -560,7 +560,7 @@ public struct CmuxTuiSnapshotParser: Sendable {
                     lifecycle: SurfaceLifecycle(rawValue: terminal.lifecycle)
                         ?? (terminal.running == true ? .running : .exited),
                     agent: state.lookupIndex.agent(terminalID: terminal.id).map {
-                        SurfaceAgentBadge(state: $0.state, source: $0.source, agent: $0.agent)
+                        SurfaceAgentBadge(state: $0.state, source: $0.source, agent: $0.agent, agentSessionID: $0.agentSessionID)
                     },
                     remoteWorkspace: nil,
                     port: nil,
@@ -1474,7 +1474,8 @@ public struct CmuxTuiSnapshotParser: Sendable {
                 agent: (agent["extra"] as? [String: Any])?["agent"] as? String
                     ?? (agent["agent"] as? String)
                     ?? (agent["agent_type"] as? String)
-                    ?? (agent["provider"] as? String)
+                    ?? (agent["provider"] as? String),
+                agentSessionID: agentSessionID(from: agent)
             )
         }
 

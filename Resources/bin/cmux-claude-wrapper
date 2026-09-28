@@ -1936,9 +1936,11 @@ CMUX_CLAUDE_QUEUED_HOOK_COMMAND
     direct_cli='\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\"'
 
     local q_prefix='{"hooks":[{"command":"' q_suffix='","timeout":5,"type":"command"}],"matcher":"'
+    local qa_prefix='{"hooks":[{"async":true,"command":"'
     local notification="${queued//@SUBCOMMAND@/notification}"
     local push_notification="${queued//@SUBCOMMAND@/push-notification}"
     local pre_tool_use="${queued//@SUBCOMMAND@/pre-tool-use}"
+    local post_tool_use="${queued//@SUBCOMMAND@/post-tool-use}"
     local session_end="${queued//@SUBCOMMAND@/session-end}"
     local session_start="${queued//@SUBCOMMAND@/session-start}"
     local stop="${queued//@SUBCOMMAND@/stop}"
@@ -1948,11 +1950,13 @@ CMUX_CLAUDE_QUEUED_HOOK_COMMAND
     cmux_claude_standard_hook_settings_value='{"hooks":{'
     cmux_claude_standard_hook_settings_value+='"Notification":['"$q_prefix$notification$q_suffix"'"}],'
     cmux_claude_standard_hook_settings_value+='"PermissionRequest":[{"hooks":[{"command":"'"$direct_cli"' hooks feed --source claude","timeout":125,"type":"command"}],"matcher":""}],'
-    cmux_claude_standard_hook_settings_value+='"PostToolUse":['"$q_prefix$push_notification$q_suffix"'PushNotification"}],'
+    cmux_claude_standard_hook_settings_value+='"PostToolUse":['"$q_prefix$push_notification$q_suffix"'PushNotification"},'"$qa_prefix$post_tool_use$q_suffix"'"}],'
+    cmux_claude_standard_hook_settings_value+='"PostToolUseFailure":['"$qa_prefix$post_tool_use$q_suffix"'"}],'
     cmux_claude_standard_hook_settings_value+='"PreToolUse":[{"hooks":[{"command":"'"$direct_cli"' hooks claude cron-create-guard","timeout":5,"type":"command"}],"matcher":"CronCreate"},'"$q_prefix$pre_tool_use$q_suffix"'"}],'
     cmux_claude_standard_hook_settings_value+='"SessionEnd":['"$q_prefix$session_end$q_suffix"'"}],'
     cmux_claude_standard_hook_settings_value+='"SessionStart":['"$q_prefix$session_start$q_suffix"'"}],'
     cmux_claude_standard_hook_settings_value+='"Stop":['"$q_prefix$stop$q_suffix"'"},'"$q_prefix$feed$q_suffix"'"},{"hooks":[{"async":true,"command":"'"$direct_cli"' hooks claude auto-name","timeout":120,"type":"command"}],"matcher":""}],'
+    cmux_claude_standard_hook_settings_value+='"StopFailure":['"$q_prefix$stop$q_suffix"'"}],'
     cmux_claude_standard_hook_settings_value+='"SubagentStop":['"$q_prefix$feed$q_suffix"'"}],'
     cmux_claude_standard_hook_settings_value+='"UserPromptSubmit":['"$q_prefix$prompt_submit$q_suffix"'"}]'
     cmux_claude_standard_hook_settings_value+='},"preferredNotifChannel":"notifications_disabled"}'
@@ -2033,6 +2037,8 @@ catch (_) { process.exit(1); }
 # Generated settings also set preferredNotifChannel to disable Claude Code's OSC/terminal notification
 #   channel inside cmux so hooks are the only notification source.
 # - SessionStart/Stop/Notification: existing lifecycle hooks
+# - StopFailure: a turn that died on an API error (usage limit, dropped
+#   connection) shows the error instead of staying "Running"
 # - SessionEnd: cleanup when Claude exits (covers Ctrl+C where Stop doesn't fire)
 # - UserPromptSubmit: clears "Needs input" and sets "Running" on new prompt
 # - PreToolUse: rejects unsupported durable cron requests synchronously, then
@@ -2049,6 +2055,9 @@ catch (_) { process.exit(1); }
 #   bridge is the only way its message reaches the user inside cmux. ASYNC;
 #   the handler mirrors the tool's own sent/skipped decision via
 #   tool_response.localSent.
+# - PostToolUse (every tool) and PostToolUseFailure: queued and ASYNC; close
+#   the call its PreToolUse opened so `agent.list` can tell a running tool
+#   from a finished, failed or interrupted one.
 # - PermissionRequest: cmux hooks feed. SYNC with a 125s timeout.
 #   This is Claude Code's native blocking decision hook. Outside
 #   bypassPermissions it covers permissions, ExitPlanMode, and AskUserQuestion

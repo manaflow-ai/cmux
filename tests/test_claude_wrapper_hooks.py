@@ -93,7 +93,7 @@ def generated_claude_hook_settings() -> str:
             hook["async"] = True
         return {"matcher": matcher, "hooks": [hook]}
 
-    def queued(subcommand: str, *, matcher: str = "") -> dict:
+    def queued(subcommand: str, *, matcher: str = "", asynchronous: bool = False) -> dict:
         return direct(
             spool_producer_command(
                 "claude",
@@ -102,6 +102,7 @@ def generated_claude_hook_settings() -> str:
             ),
             5,
             matcher=matcher,
+            asynchronous=asynchronous,
         )
 
     hooks = {
@@ -111,6 +112,7 @@ def generated_claude_hook_settings() -> str:
             queued("feed"),
             direct(f"{direct_cli} hooks claude auto-name", 120, asynchronous=True),
         ],
+        "StopFailure": [queued("stop")],
         "SubagentStop": [queued("feed")],
         "SessionEnd": [queued("session-end")],
         "Notification": [queued("notification")],
@@ -119,7 +121,11 @@ def generated_claude_hook_settings() -> str:
             direct(f"{direct_cli} hooks claude cron-create-guard", 5, matcher="CronCreate"),
             queued("pre-tool-use"),
         ],
-        "PostToolUse": [queued("push-notification", matcher="PushNotification")],
+        "PostToolUse": [
+            queued("push-notification", matcher="PushNotification"),
+            queued("post-tool-use", asynchronous=True),
+        ],
+        "PostToolUseFailure": [queued("post-tool-use", asynchronous=True)],
         "PermissionRequest": [direct(f"{direct_cli} hooks feed --source claude", 125)],
     }
     return json.dumps(
@@ -720,7 +726,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         failures,
     )
     hooks = settings.get("hooks", {})
-    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest"}
+    expected_hooks = {"SessionStart", "Stop", "StopFailure", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest"}
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
     for hook_name, expected_subcommand in {
         "SessionStart": "session-start",
@@ -1149,8 +1155,8 @@ def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> Non
         failures,
     )
     expected_hooks = {
-        "SessionStart", "Stop", "SubagentStop", "SessionEnd",
-        "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest",
+        "SessionStart", "Stop", "StopFailure", "SubagentStop", "SessionEnd",
+        "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest",
     }
     expect(
         set(settings.get("hooks", {}).keys()) == expected_hooks,

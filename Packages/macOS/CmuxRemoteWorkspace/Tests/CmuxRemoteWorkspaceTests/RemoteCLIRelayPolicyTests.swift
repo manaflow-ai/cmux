@@ -173,6 +173,14 @@ struct RemoteCLIRelayPolicyTests {
         )
     }
 
+    /// `agent.list` returns local process argv and every local agent pane, so a
+    /// remote workspace must never discover or call it.
+    @Test("agent.list has no relay contract")
+    func agentListHasNoRelayContract() {
+        #expect(RemoteRelayRoutingSchema().parameters(for: "agent.list") == nil)
+        #expect(RemoteRelayCommandPolicy().permittedMethods(from: ["agent.list"]).isEmpty)
+    }
+
     @Test("workspace.reorder is denied through a relay", arguments: [
         #"{"id":"p5r","method":"workspace.reorder","params":{"workspace_id":"1EA7D9C4-0000-4000-8000-00000000A001","index":0}}"#,
         #"{"id":"p5r","method":"workspace.reorder","params":{"workspace_id":"1EA7D9C4-0000-4000-8000-00000000A001","before_workspace_id":"1EA7D9C4-0000-4000-8000-00000000A002"}}"#,
