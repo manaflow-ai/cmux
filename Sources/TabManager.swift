@@ -757,6 +757,7 @@ class TabManager: ObservableObject {
                 self?.sidebarMetadataSettingsDidChange()
                 self?.focusHistoryScopeSettingsDidChange()
                 self?.refreshTabCloseButtonVisibility()
+                self?.refreshTabBarVisibility()
                 self?.refreshWindowTitle()
             }
         })
@@ -1964,6 +1965,11 @@ class TabManager: ObservableObject {
 
     func moveTabToTopForNotification(_ tabId: UUID) {
         workspaceReordering.moveTabToTopForNotification(tabId)
+    }
+
+    /// Whether a notification bump would leave this workspace where it is.
+    func isAtTopOfUnpinnedTier(_ tabId: UUID) -> Bool {
+        workspaceReordering.isAtTopOfUnpinnedTier(tabId)
     }
 
     @discardableResult
@@ -4420,6 +4426,18 @@ class TabManager: ObservableObject {
         }
     }
 
+    /// Re-applies `app.tabBarVisibility` to every live split controller:
+    /// workspace panes, per-workspace Docks, and window-scope Docks.
+    func refreshTabBarVisibility() {
+        for workspace in tabs {
+            workspace.refreshTabBarVisibility()
+            workspace._dockSplit?.refreshTabBarVisibility()
+        }
+        for dockStore in liveWindowDockStores {
+            dockStore.refreshTabBarVisibility()
+        }
+    }
+
     func applySurfaceTabBarButtons(
         _ buttons: [CmuxSurfaceTabBarButton],
         sourcePath: String?,
@@ -6492,6 +6510,7 @@ extension TabManager {
         hasher.combine(launchCommand.arguments)
         hashOptionalString(launchCommand.workingDirectory, into: &hasher)
         hashOptionalString(launchCommand.verificationHome, into: &hasher)
+        hasher.combine(launchCommand.launcherPrefix)
         if let environment = launchCommand.environment {
             hasher.combine(true)
             hasher.combine(environment.count)
