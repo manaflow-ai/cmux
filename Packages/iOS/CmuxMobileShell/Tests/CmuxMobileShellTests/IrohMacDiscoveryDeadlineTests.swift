@@ -25,11 +25,14 @@ struct IrohMacDiscoveryDeadlineTests {
         try await fixture.save(dead, active: true)
         try await fixture.save(live, active: false)
 
+        let result = ReconnectResult()
         let reconnect = Task { @MainActor in
-            await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+            result.value = await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1")
         }
+        // The dead Mac holds its first request under its own deadline.
         let deadDialHasDeadline = try await pollUntil {
-            fixture.macDialDeadlines.pendingCount >= 1
+            await deadRouter.heldRequestCount() == 1
+                && fixture.macDialDeadlines.pendingCount >= 1
         }
         // Only the dead Mac's deadline passes. The live Mac must connect
         // before its own deadline and before the attempt deadline.
@@ -39,14 +42,19 @@ struct IrohMacDiscoveryDeadlineTests {
                 && fixture.shell.foregroundMacDeviceID == live.deviceID
         }
         let armedDialDeadlines = fixture.macDialDeadlines.armedCount
+        // A connected attempt returns on its own; only a starved attempt
+        // needs its attempt deadline expired to finish.
+        let reconnectReturned = try await pollUntil { result.value != nil }
         fixture.reconnectDeadlines.expirePending()
         await deadRouter.releaseAllHeld()
+        await reconnect.value
 
         #expect(deadDialHasDeadline, "the dead Mac must dial under its own deadline")
         #expect(liveConnected, "the live Mac must connect once the dead Mac's deadline expires")
         #expect(armedDialDeadlines >= 2, "the live Mac must dial under its own deadline")
         #expect(fixture.factory.attemptedRouteIDs().first == dead.routes[0].id)
-        #expect(await reconnect.value)
+        #expect(reconnectReturned, "the attempt must finish without its attempt deadline")
+        #expect(result.value == true)
         #expect(fixture.shell.foregroundMacDeviceID == live.deviceID)
     }
 
@@ -74,8 +82,9 @@ struct IrohMacDiscoveryDeadlineTests {
             await router.delayHostStatusRequest(number: 1)
         }
 
+        let result = ReconnectResult()
         let reconnect = Task { @MainActor in
-            await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+            result.value = await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1")
         }
         let windowHasDeadlines = try await pollUntil {
             for router in stalledRouters where await router.heldRequestCount() != 1 {
@@ -90,20 +99,28 @@ struct IrohMacDiscoveryDeadlineTests {
             fixture.shell.connectionState == .connected
                 && fixture.shell.foregroundMacDeviceID == live.deviceID
         }
+        let reconnectReturned = try await pollUntil { result.value != nil }
         fixture.reconnectDeadlines.expirePending()
         for router in stalledRouters {
             await router.releaseAllHeld()
         }
+        await reconnect.value
 
         #expect(windowHasDeadlines, "every stalled discovered dial must run under its own deadline")
         #expect(!liveDialedWhileWindowFull)
         #expect(liveConnected, "expired dials must free their slots for the live Mac")
-        #expect(await reconnect.value)
+        #expect(reconnectReturned, "the attempt must finish without its attempt deadline")
+        #expect(result.value == true)
         #expect(fixture.shell.foregroundMacDeviceID == live.deviceID)
     }
 }
 
 private let macDialFixedNow = Date(timeIntervalSince1970: 1_700_000_000)
+
+@MainActor
+private final class ReconnectResult {
+    var value: Bool?
+}
 
 func macDialCandidate(
     deviceID: String,
