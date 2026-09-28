@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxCommandPalette
@@ -26,7 +27,7 @@ struct WindowOverlayChromeTests {
         defer { browser.tearDown() }
 
         for _ in 0..<3 {
-            let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+            let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
             browser.bind(webView: webView, to: anchor, visibleInUI: true)
             content.layoutSubtreeIfNeeded()
             browser.synchronizeWebViewForAnchor(anchor)
@@ -110,11 +111,15 @@ struct WindowOverlayChromeTests {
         let browserAnchor = try #require(find("overlay.browser", in: content))
         let terminalAnchor = try #require(find("overlay.terminal", in: content))
         let glassEffect = WindowGlassEffect()
-        if useGlass {
+        // With the host's Reduce Transparency on, the app resolves the opaque
+        // window fill whatever the glass settings say, so the terminal mount
+        // removes any glass root. Install the root the app itself would keep.
+        let installsGlass = useGlass && !DisplayAccessibilityOptions.current.reduceTransparency
+        if installsGlass {
             glassEffect.apply(to: window)
         }
         let windowRoot = try #require(window.contentView)
-        if useGlass && glassEffect.isAvailable {
+        if installsGlass && glassEffect.isAvailable {
             #expect(windowRoot !== content)
             #expect(glassEffect.originalContentView(for: window) === content)
         } else {
@@ -123,7 +128,7 @@ struct WindowOverlayChromeTests {
         let browser = WindowBrowserPortal(window: window)
         let terminal = WindowTerminalPortal(window: window)
         defer { browser.tearDown(); terminal.tearDown() }
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let terminalView = GhosttySurfaceScrollView(surfaceView: GhosttyNSView(frame: .zero))
         browser.bind(webView: webView, to: browserAnchor, visibleInUI: true)
         terminal.bind(hostedView: terminalView, to: terminalAnchor, visibleInUI: true)

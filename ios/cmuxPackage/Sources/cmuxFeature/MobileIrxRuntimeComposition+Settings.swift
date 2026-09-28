@@ -10,6 +10,7 @@ extension MobileIrxRuntimeComposition {
         let directory = await currentDirectory()
         let currentRelay = await endpointSupervisor?.homeRelayURL()
         let paths = await localPathSnapshot()
+        let selectedPath = await selectedTransportPath()
         let directIsBound = await directEndpointSupervisor?.boundEndpoint() != nil
         let status: CmxIrohSettingsSnapshot.RuntimeStatus
         if activeScope == nil { status = .inactive }
@@ -17,6 +18,7 @@ extension MobileIrxRuntimeComposition {
         else { status = .starting }
         guard (try? await assertScope(scope, epoch: currentEpoch)) != nil else { return .unavailable }
         return CmxIrohSettingsSnapshot(runtimeStatus: status,
+            selectedTransportPath: selectedPath,
             preference: .automatic, pathPreference: forceRelayOnly ? .relayOnly : .automatic,
             managedRelays: (cache?.relayCredentials ?? []).map {
                 .init(id: $0.relayURL, provider: "cmux", region: "", url: $0.relayURL, isSelected: $0.relayURL == currentRelay)
@@ -32,6 +34,25 @@ extension MobileIrxRuntimeComposition {
     }
 
     public func settingsUpdates() -> AsyncStream<Void> { changes() }
+
+    /// Reports the path used by an admitted Mac session. The endpoint
+    /// supervisor owns the local iOS endpoint, while the peer engine owns the
+    /// connection that carries application traffic. Looking at the peer
+    /// session avoids reporting "unavailable" while relay traffic is already
+    /// flowing.
+    private func selectedTransportPath() async -> CmxIrohSelectedTransportPath {
+        for engine in enginesByPeer.values {
+            guard let session = await engine.currentSession() else { continue }
+            let description = session.connection.selectedPathDescription()
+            if description.hasPrefix("relay:") {
+                return .managedRelay(provider: "cmux", region: "")
+            }
+            if description.hasPrefix("direct:") {
+                return .direct
+            }
+        }
+        return .unavailable
+    }
     public func refreshSettingsSnapshot() async {
         await invalidateDiscoverySnapshot()
         publish()

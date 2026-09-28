@@ -21,7 +21,7 @@ struct SettingsTaxonomyTests {
         #expect(SettingsTaxonomyGroup.sidebarAndDock.sections == [.sidebarAppearance, .customSidebars])
         #expect(SettingsTaxonomyGroup.agentsAndAutomation.sections == [.automation, .computerUse])
         #expect(SettingsTaxonomyGroup.browserAndFiles.sections == [.browser, .browserImport])
-        #expect(SettingsTaxonomyGroup.remoteAndDevices.sections == [.computers, .mobile, .cloudMachines, .networking])
+        #expect(SettingsTaxonomyGroup.remoteAndDevices.sections == [.mobile, .cloudMachines, .computers, .networking])
         #expect(
             SettingsTaxonomyGroup.keyboardAndAdvanced.sections
                 == [.globalHotkey, .keyboardShortcuts, .betaFeatures, .settingsJSON, .reset]
@@ -36,10 +36,7 @@ struct SettingsTaxonomyTests {
 
         // Search keeps its original declaration order and stable IDs.
         // Taxonomy is only the empty-query browse presentation.
-        #expect(
-            sectionEntries.map(\.id)
-                == SettingsSectionID.allCases.map { "section:\($0.rawValue)" }
-        )
+        #expect(sectionEntries.map(\.id) == SettingsSectionID.allCases.map { "section:\($0.rawValue)" })
 
         for section in SettingsTaxonomyGroup.sectionsInDisplayOrder {
             let entryID = "section:\(section.rawValue)"

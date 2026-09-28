@@ -85,6 +85,8 @@ PAID_OVERFLOW_GATE_PREFIX = re.compile(
 GATE_EXEMPT_REPORTING_READS = {
     ("ci-health-report.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "reports each runner variable's value; gating would report empty",
+    ("ci-repo-variables.yml", "CMUX_CI_RUNNER_VARIABLES"):
+        "validates each runner variable's value; gating would validate empty",
 }
 
 

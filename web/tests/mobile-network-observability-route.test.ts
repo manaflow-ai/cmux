@@ -287,6 +287,52 @@ describe("iOS mobile network observability route", () => {
     });
   });
 
+  test("accepts per-hop stage histograms and pacer counters when present", async () => {
+    const event = terminalWindow();
+    const properties = event.properties as Record<string, unknown>;
+    const counts = JSON.stringify([0, 0, 0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    Object.assign(properties, {
+      histogram_version: 1,
+      input_to_output_histogram: counts,
+      input_to_visible_histogram: counts,
+      render_histogram: counts,
+      uplink_histogram: counts,
+      uplink_p50_ms: 128,
+      uplink_p95_ms: 128,
+      uplink_p99_ms: 128,
+      pacer_period_histogram: counts,
+      pacer_sample_count: 3,
+      pacer_emitted_count: 33,
+      pacer_coalesced_count: 48,
+      pacer_shed_count: 1,
+      pacer_period_max_ms: 135,
+    });
+    const response = await POST(outcomeRequest([event]));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, accepted: 1 });
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      histograms: { uplink: counts, pacer_period: counts },
+      stageMetrics: { uplink_p95_ms: 128, pacer_coalesced_count: 48, pacer_period_max_ms: 135 },
+    });
+  });
+
+  test("rejects a malformed per-hop stage histogram", async () => {
+    const event = terminalWindow();
+    const counts = JSON.stringify(Array(17).fill(0));
+    Object.assign(event.properties as Record<string, unknown>, {
+      histogram_version: 1,
+      input_to_output_histogram: counts,
+      input_to_visible_histogram: counts,
+      render_histogram: counts,
+      downlink_histogram: "[1,2]",
+    });
+    const response = await POST(outcomeRequest([event]));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "invalid_outcome" });
+  });
+
   test("accepts a terminal anomaly as a failure signal", async () => {
     const response = await POST(outcomeRequest([{
       event: "ios_terminal_latency_anomaly",

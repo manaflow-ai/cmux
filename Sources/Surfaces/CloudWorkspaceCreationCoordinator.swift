@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -204,8 +205,11 @@ final class CloudWorkspaceCreationCoordinator {
             operation.provider.discardMaterialization(opened.projection)
             throw error
         }
-        host.complete(reservation, projection: opened.projection)
+        // A provider may create a different pane instead of adopting the reservation.
+        // Commit before its native teardown reports projectionDidEnd, so retiring
+        // the placeholder cannot cancel and delete the accepted remote workspace.
         finish(operation, catalog: catalog)
+        host.complete(reservation, projection: opened.projection)
         return (receipt.workspace, terminal, (reservation.workspaceID, [opened.projection]))
     }
 

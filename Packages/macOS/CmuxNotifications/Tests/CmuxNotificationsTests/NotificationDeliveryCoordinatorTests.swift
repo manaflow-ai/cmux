@@ -157,6 +157,12 @@ private final class FakeFeedReplying: NotificationFeedReplying {
     func permissionCapabilities(requestId: String) -> NotificationFeedPermissionCapabilities? {
         capabilitiesByRequestId[requestId]
     }
+
+    private(set) var openedWorkstreamIds: [String] = []
+
+    func openWorkstream(workstreamId: String) {
+        openedWorkstreamIds.append(workstreamId)
+    }
 }
 
 @MainActor
@@ -359,6 +365,70 @@ struct NotificationDeliveryCoordinatorTests {
         ))
 
         #expect(activation.activationCount == 1)
+    }
+
+    @Test("Feed permission banner click opens the agent's workstream", arguments: [
+        "CMUXFeedPermissionOnceAlways",
+        "CMUXFeedExitPlan",
+        "CMUXFeedQuestion",
+        "CMUXFeedQuestion.req-3",
+    ])
+    func feedDefaultOpensWorkstream(categoryIdentifier: String) {
+        let activation = FakeApplicationActivation()
+        let feed = FakeFeedReplying()
+        let terminal = FakeTerminalNavigation()
+        let coordinator = makeCoordinator(
+            terminalNavigation: terminal,
+            feedReplying: feed,
+            applicationActivation: activation
+        )
+
+        coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: categoryIdentifier,
+            actionIdentifier: UNNotificationDefaultActionIdentifier,
+            requestIdentifier: "feed.req-3",
+            userInfo: ["requestId": "req-3", "workstreamId": "session-3"]
+        ))
+
+        #expect(activation.activationCount == 1)
+        #expect(feed.openedWorkstreamIds == ["session-3"])
+        #expect(feed.replies.isEmpty)
+        #expect(terminal.opens.isEmpty)
+    }
+
+    @Test("Feed banner click without a workstream only activates the app")
+    func feedDefaultWithoutWorkstreamActivatesOnly() {
+        let activation = FakeApplicationActivation()
+        let feed = FakeFeedReplying()
+        let coordinator = makeCoordinator(feedReplying: feed, applicationActivation: activation)
+
+        coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: "CMUXFeedPermission",
+            actionIdentifier: UNNotificationDefaultActionIdentifier,
+            requestIdentifier: "feed.req-4",
+            userInfo: ["requestId": "req-4"]
+        ))
+
+        #expect(activation.activationCount == 1)
+        #expect(feed.openedWorkstreamIds.isEmpty)
+    }
+
+    @Test("Feed banner dismiss neither activates the app nor opens the workstream")
+    func feedDismissDoesNotActivate() {
+        let activation = FakeApplicationActivation()
+        let feed = FakeFeedReplying()
+        let coordinator = makeCoordinator(feedReplying: feed, applicationActivation: activation)
+
+        coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: "CMUXFeedPermission",
+            actionIdentifier: UNNotificationDismissActionIdentifier,
+            requestIdentifier: "feed.req-5",
+            userInfo: ["requestId": "req-5", "workstreamId": "session-5"]
+        ))
+
+        #expect(activation.activationCount == 0)
+        #expect(feed.openedWorkstreamIds.isEmpty)
+        #expect(feed.replies.isEmpty)
     }
 
     @Test("exit-plan revise sends manual mode with trimmed feedback")

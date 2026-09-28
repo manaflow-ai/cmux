@@ -1,4 +1,9 @@
-import { authenticateRequestRouteToken, ROUTE_TOKEN_HEADER, VM_ID_HEADER } from "../../../../services/coderouter/routeTokenAuth";
+import {
+  authenticateRequestRouteToken,
+  ROUTE_TOKEN_HEADER,
+  VM_AUTHORIZATION_HEADER,
+  VM_ID_HEADER,
+} from "../../../../services/coderouter/routeTokenAuth";
 import {
   browserMutationOriginAllowed,
   jsonResponse,
@@ -109,9 +114,14 @@ export async function PATCH(request: Request): Promise<Response> {
 
 export async function organizationsGet(request: Request,
   listTeams: (user: AuthedUser) => ReturnType<typeof authorizedSubrouterTeams> | Promise<ReturnType<typeof authorizedSubrouterTeams>>,
+  authenticate: typeof authenticateRequestRouteToken = authenticateRequestRouteToken,
 ): Promise<Response> {
-  if (request.headers.has(VM_ID_HEADER) || request.headers.has(ROUTE_TOKEN_HEADER)) {
-    const auth = await authenticateRequestRouteToken(request);
+  if (
+    request.headers.has(VM_AUTHORIZATION_HEADER) ||
+    request.headers.has(VM_ID_HEADER) ||
+    request.headers.has(ROUTE_TOKEN_HEADER)
+  ) {
+    const auth = await authenticate(request);
     if (!auth.ok) return jsonResponse({ error: auth.reason }, 401);
     if (!auth.identity.vmId || auth.identity.machine === "chatmux") return jsonResponse({ error: "vm_bound_token_required" }, 403);
     return jsonResponse({ selectedTeamId: auth.identity.teamId, fixed: true,

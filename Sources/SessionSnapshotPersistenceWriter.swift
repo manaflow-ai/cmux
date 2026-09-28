@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import CmuxWorkspaces
 
@@ -47,9 +48,12 @@ struct SessionSnapshotPersistenceWriter: @unchecked Sendable {
         // Persistence can outlive its main-actor owner; retain only the Sendable
         // store and defaults so finishing a write cannot destroy AppDelegate on this queue.
         let writeBlock = { [store, defaults] in
+            // Autosave runs every few seconds. Only write defaults that changed:
+            // each set/remove posts didChangeNotification even when it is a no-op,
+            // waking every defaults observer and SwiftUI's @AppStorage lock.
             Self.removeLegacyPersistedWindowGeometry(defaults: defaults)
             if let persistedGeometryData {
-                defaults.set(
+                defaults.setIfChanged(
                     persistedGeometryData,
                     forKey: Self.persistedWindowGeometryDefaultsKey
                 )
@@ -84,11 +88,11 @@ struct SessionSnapshotPersistenceWriter: @unchecked Sendable {
         "cmux.session.crashOnlyPrimarySnapshotRemoval.v1"
 
     static func removeLegacyPersistedWindowGeometry(defaults: UserDefaults = .standard) {
-        legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObject(forKey: $0) }
+        legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObjectIfPresent(forKey: $0) }
     }
 
     static func markCrashOnlyPrimarySnapshotRemoval(defaults: UserDefaults = .standard) {
-        defaults.set(true, forKey: crashOnlyPrimarySnapshotRemovalDefaultsKey)
+        defaults.setIfChanged(true, forKey: crashOnlyPrimarySnapshotRemovalDefaultsKey)
     }
 
     static func hasCrashOnlyPrimarySnapshotRemovalMarker(defaults: UserDefaults = .standard) -> Bool {
@@ -96,6 +100,7 @@ struct SessionSnapshotPersistenceWriter: @unchecked Sendable {
     }
 
     static func clearCrashOnlyPrimarySnapshotRemovalMarker(defaults: UserDefaults = .standard) {
-        defaults.removeObject(forKey: crashOnlyPrimarySnapshotRemovalDefaultsKey)
+        // Called on every autosave write; skip the no-op removal notification.
+        defaults.removeObjectIfPresent(forKey: crashOnlyPrimarySnapshotRemovalDefaultsKey)
     }
 }

@@ -1423,6 +1423,25 @@ impl HookFence {
     }
 }
 
+/// Longest hook session id published for resume. Claude session ids are
+/// UUIDs; longer values are dropped rather than truncated into a wrong id.
+const MAX_PUBLISHED_AGENT_SESSION_ID_BYTES: usize = 256;
+
+/// The hook session id a client may use to resume the agent, or `None` for
+/// the local generation token that session-less adapters receive and for ids
+/// that are too long or contain anything beyond `[A-Za-z0-9._:-]`. Hook
+/// payloads can come from remote hosts, and clients pass the id to a resume
+/// command.
+fn published_agent_session_id(terminal_id: &TerminalPublicId, session_id: &str) -> Option<String> {
+    let portable = !session_id.is_empty()
+        && session_id.len() <= MAX_PUBLISHED_AGENT_SESSION_ID_BYTES
+        && session_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'));
+    (portable && !session_id.starts_with(&format!("legacy:{terminal_id}:")))
+        .then(|| session_id.to_owned())
+}
+
 /// Session-less adapters get a local generation token. The journal sequence
 /// is durable and strictly increasing, so a new legacy lifecycle cannot reuse
 /// the previous fence identity after restart.
@@ -1486,6 +1505,10 @@ struct TerminalAgentRecord {
     source: AgentSource,
     session: Option<String>,
     agent: Option<String>,
+    /// The agent's own session id from its hook stream (Claude's
+    /// `session_id`), published as `extra.agent_session_id` so clients can
+    /// resume it. Absent for agents without a native hook session.
+    agent_session_id: Option<String>,
     updated_at_ms: u64,
 }
 
@@ -2469,6 +2492,7 @@ pub struct Mux {
     terminal_adoptions: Mutex<HashSet<String>>,
     terminal_exit_detaches: Arc<TerminalExitDetachTracker>,
     terminal_adoption_insert_failures: AtomicU64,
+    template_completion_failures: AtomicU64,
     server_lifecycle_ready: AtomicBool,
     shutting_down: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
@@ -2871,6 +2895,12 @@ impl Mux {
                     .and_then(|value| value.parse().ok())
                     .unwrap_or(0),
             ),
+            template_completion_failures: AtomicU64::new(
+                std::env::var("CMUX_TUI_TEST_TEMPLATE_COMPLETION_FAILURES")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(0),
+            ),
             server_lifecycle_ready: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
@@ -3212,6 +3242,9 @@ impl Mux {
             None => Vec::new(),
         };
         let mut handled_terminals = HashSet::new();
+        // At most one warm snapshot host becomes the first terminal of a
+        // fresh registry (SurfaceOptions::adopt_template_terminal).
+        let mut template_claimed = false;
         // Sidecars are host-owned write-ahead completion records. Reconcile
         // them before live discovery records so a daemon crash after host
         // completion cannot collapse the exact status into "host missing".
@@ -3258,13 +3291,24 @@ impl Mux {
             }
             let mut terminal =
                 self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?;
+            if terminal.is_none()
+                && !template_claimed
+                && options.adopt_template_terminal
+                && !record.workspace_key.is_empty()
+                && self.state.lock().unwrap().workspaces.is_empty()
+                && terminal_host_record_liveness(&record_path, &record)
+                    == TerminalHostLiveness::Live
+            {
+                terminal = Some(self.claim_template_terminal(&options, &record)?);
+                template_claimed = true;
+            }
             if terminal.is_none() {
                 // One-release migration path for hosts launched before SQLite
                 // became placement authority. Never trust the JSON hint when
                 // its workspace no longer exists.
-                let can_import = !record.workspace_key.is_empty()
+                let workspace_exists = !record.workspace_key.is_empty()
                     && self.state.lock().unwrap().workspace_by_key(&record.workspace_key).is_some();
-                if can_import {
+                if workspace_exists {
                     let imported = RegistryTerminal {
                         terminal_id: terminal_id.clone(),
                         workspace_key: record.workspace_key.clone(),
@@ -3425,6 +3469,7 @@ impl Mux {
                 }
                 continue;
             }
+            self.ensure_template_adoption_completed(&terminal_id);
             handled_terminals.insert(terminal_id);
             self.reap_if_dead(&surface);
         }
@@ -3450,6 +3495,155 @@ impl Mux {
                 &options,
             )?;
         }
+        Ok(())
+    }
+
+    /// Complete an adopted template terminal (complete_template_adoption),
+    /// retrying in the background until it succeeds or the daemon shuts down.
+    /// Adoption itself has already committed, so a failure here must neither
+    /// abort startup nor leave the terminal without its public placement and
+    /// binding.
+    #[cfg(unix)]
+    fn ensure_template_adoption_completed(self: &Arc<Self>, terminal_id: &str) {
+        let Err(error) = self.complete_template_adoption(terminal_id) else {
+            return;
+        };
+        eprintln!("cmux-tui: template terminal {terminal_id} not published yet: {error:#}");
+        let mux = Arc::clone(self);
+        let terminal_id = terminal_id.to_string();
+        let spawned = std::thread::Builder::new()
+            .name(format!("template-complete-{terminal_id}"))
+            .spawn(move || {
+                let mut delay = Duration::from_millis(100);
+                loop {
+                    std::thread::sleep(delay);
+                    if mux.shutting_down.load(Ordering::Acquire) {
+                        break;
+                    }
+                    match mux.complete_template_adoption(&terminal_id) {
+                        Ok(()) => break,
+                        Err(error) => {
+                            eprintln!(
+                                "cmux-tui: template terminal {terminal_id} not published yet: \
+                                 {error:#}"
+                            );
+                            delay = (delay * 2).min(Duration::from_secs(5));
+                        }
+                    }
+                }
+            });
+        if let Err(error) = spawned {
+            eprintln!("cmux-tui: could not schedule template completion: {error}");
+        }
+    }
+
+    /// Finish a template terminal once its host is adopted, on the startup
+    /// pass or the asynchronous retry: commit its new placement to the public
+    /// topology, then tell the template shell its new identity. The binding is
+    /// written only after the commit, so the first `terminal.list` after it
+    /// appears includes the terminal it names.
+    #[cfg(unix)]
+    fn complete_template_adoption(&self, terminal_id: &str) -> anyhow::Result<()> {
+        let is_template = self
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_record(terminal_id)?
+            .is_some_and(|terminal| is_template_terminal(&terminal));
+        if !is_template {
+            return Ok(());
+        }
+        anyhow::ensure!(
+            !self.consume_template_completion_failure(),
+            "injected template completion failure"
+        );
+        self.commit_ordinary_full_resource_projection(
+            "terminal.adopt-template",
+            serde_json::json!({}),
+        )?;
+        let bound_file = self.surface_options.lock().unwrap().template_bound_file.clone();
+        if let Some(path) = bound_file {
+            self.publish_template_binding(terminal_id, &path)?;
+        }
+        Ok(())
+    }
+
+    /// Claim a Cloud snapshot's warm terminal host as the first terminal of
+    /// this fresh registry (SurfaceOptions::adopt_template_terminal). The
+    /// host's workspace is recreated under its recorded key and named from
+    /// the options; the durable row is marked as a template terminal so
+    /// finish_terminal_adoption gives it a new placement with fresh public
+    /// ids. The ordinary adoption handshake follows.
+    #[cfg(unix)]
+    fn claim_template_terminal(
+        &self,
+        options: &SurfaceOptions,
+        record: &crate::terminal_host_runtime::TerminalHostRecord,
+    ) -> anyhow::Result<RegistryTerminal> {
+        self.create_empty_workspace(
+            options.template_workspace_name.clone(),
+            Some(record.workspace_key.clone()),
+            None,
+        )?;
+        let claimed = RegistryTerminal {
+            terminal_id: record.terminal_id.clone(),
+            workspace_key: record.workspace_key.clone(),
+            incarnation: None,
+            lifecycle: TerminalLifecycle::Launching,
+            launch_spec: template_terminal_launch_spec(),
+            exit: None,
+            on_exit: TerminalOnExit::Close,
+        };
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let revision = commit_terminal_transition(
+            &mut registry,
+            "terminal-template-claimed",
+            "claim-template-terminal",
+            &claimed,
+        )?;
+        self.emit_terminal_registry_changed(&registry, revision);
+        Ok(claimed)
+    }
+
+    /// Tell the warm template shell its new identity. The shell was spawned
+    /// by the snapshot builder's daemon, so its CMUX_TUI_SESSION_ID and
+    /// CMUX_TUI_TERMINAL_ID name the builder's session and terminal. Its
+    /// first prompt waits for this file and re-exports both before any user
+    /// command (or agent hook) runs. Written only after the adoption above
+    /// committed, and atomically, so its presence means the clone is bound.
+    #[cfg(unix)]
+    fn publish_template_binding(&self, terminal_id: &str, path: &Path) -> anyhow::Result<()> {
+        let session_id = self.session_public_id();
+        let terminal_public_id = {
+            let state = self.state.lock().unwrap();
+            state
+                .surfaces
+                .iter()
+                .find(|(_, surface)| {
+                    surface
+                        .terminal_host_identity()
+                        .is_some_and(|identity| identity.terminal_id == terminal_id)
+                })
+                .and_then(|(surface_id, _)| state.resource_indexes.content_ids.get(surface_id))
+                .and_then(|content| match content {
+                    ContentPublicId::Terminal(id) => Some(id.clone()),
+                    _ => None,
+                })
+        };
+        // Adoption may have fallen back to the asynchronous retry loop; the
+        // shell's bounded wait then clears the builder's values instead.
+        let Some(terminal_public_id) = terminal_public_id else { return Ok(()) };
+        let contents = format!(
+            "CMUX_TUI_SESSION_ID={}\nCMUX_TUI_TERMINAL_ID={}\n",
+            session_id.as_str(),
+            terminal_public_id.as_str()
+        );
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let temporary = path.with_extension("tmp");
+        std::fs::write(&temporary, contents)?;
+        std::fs::rename(&temporary, path)?;
         Ok(())
     }
 
@@ -3543,7 +3737,18 @@ impl Mux {
         let has_restored_placements = restored_public_id.as_ref().is_some_and(|public_id| {
             !state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).is_empty()
         });
-        if has_restored_placements || surface.resource_identity().is_none() {
+        if is_template_terminal(&terminal) && !has_restored_placements {
+            // Cloud snapshot template, first adoption: its builder's placement
+            // was wiped with the builder's registry, so it gets a new one here.
+            // The template marker stays on the durable row, so a later daemon
+            // start (crash, in-place upgrade) finds the placement this one
+            // committed and restores it below instead of placing it twice.
+            self.place_adopted_terminal_in_new_screen(
+                &mut state,
+                &terminal.workspace_key,
+                surface,
+            )?;
+        } else if has_restored_placements || surface.resource_identity().is_none() {
             anyhow::ensure!(
                 !self.consume_terminal_adoption_insert_failure(),
                 "injected terminal adoption topology failure"
@@ -3553,42 +3758,11 @@ impl Mux {
             // One-release import path for a host that predates public content
             // identities. Give it a real initial placement so the normal
             // resource projection can persist its generated identities.
-            let workspace_index = state
-                .workspaces
-                .iter()
-                .position(|workspace| workspace.key == terminal.workspace_key)
-                .ok_or_else(|| anyhow::anyhow!("terminal workspace disappeared during adoption"))?;
-            let (pane_id, pane) = self.make_pane(surface.id)?;
-            let screen_id = self.next_id();
-            let screen_public_id = ScreenPublicId::random()?;
-            anyhow::ensure!(
-                !self.consume_terminal_adoption_insert_failure(),
-                "injected terminal adoption topology failure"
-            );
-            insert_surface_checked(&mut state, surface)?;
-            {
-                let workspace = &mut state.workspaces[workspace_index];
-                workspace.screens.push(Screen {
-                    id: screen_id,
-                    public_id: screen_public_id,
-                    name: None,
-                    root: Node::Leaf(pane_id),
-                    active_pane: pane_id,
-                    zoomed_pane: None,
-                    zellij_auto_layout: Some(vec![pane_id]),
-                    viewport_splits: Default::default(),
-                    viewport_base_width: None,
-                    layout_columns: Vec::new(),
-                    layout_revision: 0,
-                    layout_undo: Default::default(),
-                });
-                workspace.active_screen = workspace.screens.len() - 1;
-            }
-            // Adoption materializes a live pane without stealing focus, but it
-            // must still advance the pane-set revision used by frontend focus
-            // history pruning.
-            state.insert_pane(pane);
-            state.rebuild_resource_indexes();
+            self.place_adopted_terminal_in_new_screen(
+                &mut state,
+                &terminal.workspace_key,
+                surface,
+            )?;
         }
 
         let revision = match commit_terminal_lifecycle(
@@ -3616,6 +3790,62 @@ impl Mux {
             self.reconcile_agent_roster_projections_for_terminal(&terminal_id);
         }
         Ok(())
+    }
+
+    /// Give an adopted terminal host a new screen and pane in the workspace
+    /// with `workspace_key`, without stealing focus. The resource projection
+    /// then generates and persists its public ids.
+    #[cfg(unix)]
+    fn place_adopted_terminal_in_new_screen(
+        &self,
+        state: &mut State,
+        workspace_key: &str,
+        surface: Arc<Surface>,
+    ) -> anyhow::Result<()> {
+        let workspace_index = state
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.key == workspace_key)
+            .ok_or_else(|| anyhow::anyhow!("terminal workspace disappeared during adoption"))?;
+        let (pane_id, pane) = self.make_pane(surface.id)?;
+        let screen_id = self.next_id();
+        let screen_public_id = ScreenPublicId::random()?;
+        anyhow::ensure!(
+            !self.consume_terminal_adoption_insert_failure(),
+            "injected terminal adoption topology failure"
+        );
+        insert_surface_checked(state, surface)?;
+        {
+            let workspace = &mut state.workspaces[workspace_index];
+            workspace.screens.push(Screen {
+                id: screen_id,
+                public_id: screen_public_id,
+                name: None,
+                root: Node::Leaf(pane_id),
+                active_pane: pane_id,
+                zoomed_pane: None,
+                zellij_auto_layout: Some(vec![pane_id]),
+                viewport_splits: Default::default(),
+                viewport_base_width: None,
+                layout_columns: Vec::new(),
+                layout_revision: 0,
+                layout_undo: Default::default(),
+            });
+            workspace.active_screen = workspace.screens.len() - 1;
+        }
+        // Adoption materializes a live pane without stealing focus, but it
+        // must still advance the pane-set revision used by frontend focus
+        // history pruning.
+        state.insert_pane(pane);
+        state.rebuild_resource_indexes();
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn consume_template_completion_failure(&self) -> bool {
+        self.template_completion_failures
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| remaining.checked_sub(1))
+            .is_ok()
     }
 
     #[cfg(unix)]
@@ -3774,6 +4004,7 @@ impl Mux {
                             )
                             .is_ok()
                         {
+                            mux.ensure_template_adoption_completed(&terminal_id);
                             mux.reap_if_dead(&surface);
                             break;
                         }
@@ -10249,6 +10480,9 @@ impl Mux {
         result.map(|(commit, _)| commit)
     }
 
+    /// Commit one agent report as the terminal's durable projection and
+    /// publish its upsert or delete. Hook reports carry the agent's native
+    /// session id into `extra.agent_session_id`.
     #[allow(clippy::too_many_arguments)]
     fn commit_agent_report(
         &self,
@@ -10385,6 +10619,21 @@ impl Mux {
             }) || durable_stronger.is_some());
         let agent_adapter = agent_adapter
             .or_else(|| records.get(&terminal_id).and_then(|record| record.agent.clone()));
+        // Only hook-owned records carry the native session id: the journal
+        // or restart state for this report, else the live fence it continues.
+        let hook_session_id = if source == AgentSource::Hook {
+            effective_hook_state.map(|state| state.agent_session_id.clone()).or_else(|| {
+                sequence_guard
+                    .as_ref()
+                    .and_then(|guard| guard.get(&terminal_id))
+                    .filter(|fence| !fence.ended)
+                    .map(|fence| fence.session_id.clone())
+            })
+        } else {
+            None
+        };
+        let agent_session_id = hook_session_id
+            .and_then(|session_id| published_agent_session_id(&terminal_id, &session_id));
         let record = match records.get(&terminal_id) {
             Some(existing) if socket_report_ignored => existing.clone(),
             None if socket_report_ignored => match durable_stronger {
@@ -10399,6 +10648,7 @@ impl Mux {
                     },
                     session: existing.source_session,
                     agent: existing.agent,
+                    agent_session_id: existing.agent_session_id,
                     updated_at_ms: existing.updated_at_ms,
                 },
                 None => TerminalAgentRecord {
@@ -10406,6 +10656,7 @@ impl Mux {
                     source,
                     session: source_session,
                     agent: agent_adapter,
+                    agent_session_id,
                     updated_at_ms: now,
                 },
             },
@@ -10414,6 +10665,7 @@ impl Mux {
                 source,
                 session: source_session,
                 agent: agent_adapter,
+                agent_session_id,
                 updated_at_ms: now,
             },
         };
@@ -10427,6 +10679,10 @@ impl Mux {
         let agent_id =
             AgentPublicId::parse(format!("agent_{payload}")).map_err(anyhow::Error::new)?;
         let session_id = registry.session_id().clone();
+        let extra = crate::workspace_registry::agent_projection_extra(
+            record.agent.as_deref(),
+            record.agent_session_id.as_deref(),
+        );
         let value = serde_json::json!({
             "id":agent_id,
             "session_id":session_id,
@@ -10435,7 +10691,7 @@ impl Mux {
             "source":record.source.as_str(),
             "updated_at_ms":record.updated_at_ms.to_string(),
             "source_session":persisted_source_session.as_deref().or(record.session.as_deref()),
-            "extra":{"agent":record.agent},
+            "extra":extra,
         });
         let mut public_value = value.clone();
         public_value["source_session"] = serde_json::json!(record.session.as_deref());
@@ -17210,6 +17466,16 @@ fn restore_focus_identity(state: &mut State, focus: Option<FocusIdentity>) {
     }
 }
 
+/// Launch spec of a Cloud snapshot's warm terminal host claimed by a fresh
+/// registry (Mux::claim_template_terminal).
+fn template_terminal_launch_spec() -> Value {
+    serde_json::json!({"template_terminal": true})
+}
+
+fn is_template_terminal(terminal: &RegistryTerminal) -> bool {
+    terminal.launch_spec == template_terminal_launch_spec()
+}
+
 fn commit_terminal_transition(
     registry: &mut WorkspaceRegistry,
     event_kind: &str,
@@ -23874,6 +24140,233 @@ mod tests {
             mux.agent_hook_fences.lock().unwrap().get(&terminal_id).map(|fence| fence.sequence),
             Some(1)
         );
+    }
+
+    /// Agent changes published after `revision`, in commit order.
+    fn agent_changes_after(mux: &Mux, revision: u64) -> Vec<Value> {
+        mux.resource_events_after(revision)
+            .unwrap()
+            .batches
+            .into_iter()
+            .flat_map(|batch| batch.changes.as_array().cloned().unwrap_or_default())
+            .filter(|change| change["resource"] == "agent")
+            .collect()
+    }
+
+    /// A Claude hook journal event for `terminal_id` with the given native
+    /// payload.
+    fn claude_hook(
+        terminal_id: &TerminalPublicId,
+        event: &str,
+        native: Value,
+    ) -> crate::JournalIngress {
+        crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal_id.to_string()),
+            native,
+        )
+        .unwrap()
+    }
+
+    /// The published session id tracks the hook session through start, turn,
+    /// a retained socket report, end (delete), and a new session.
+    #[test]
+    fn agent_session_id_follows_the_hook_session_on_the_agent_roster() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let append = |event: &str, key: &str, native: Value| {
+            mux.append_journal_ingress(&claude_hook(&terminal_id, event, native), "test", key)
+                .unwrap();
+        };
+        let snapshot_agents =
+            || crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"].clone();
+
+        let revision = mux.with_state(|state| state.resource_revision);
+        append("SessionStart", "hook-1", serde_json::json!({"session_id":"claude-session-1"}));
+        let agents = snapshot_agents();
+        assert_eq!(agents.as_array().unwrap().len(), 1);
+        assert_eq!(agents[0]["extra"]["agent"], "claude");
+        assert_eq!(agents[0]["extra"]["agent_session_id"], "claude-session-1");
+        let changes = agent_changes_after(&mux, revision);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0]["kind"], "upsert");
+        assert_eq!(changes[0]["value"]["extra"]["agent_session_id"], "claude-session-1");
+
+        // A later turn in the same session keeps the id.
+        let revision = mux.with_state(|state| state.resource_revision);
+        append("UserPromptSubmit", "hook-2", serde_json::json!({"session_id":"claude-session-1"}));
+        let changes = agent_changes_after(&mux, revision);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0]["value"]["state"], "working");
+        assert_eq!(changes[0]["value"]["extra"]["agent_session_id"], "claude-session-1");
+
+        // A socket report retained by the hook-owned record keeps the id.
+        mux.report_agent(surface.id, AgentState::Idle, AgentSource::Socket, None).unwrap();
+        assert_eq!(snapshot_agents()[0]["extra"]["agent_session_id"], "claude-session-1");
+
+        // SessionEnd still deletes the agent.
+        let revision = mux.with_state(|state| state.resource_revision);
+        append("SessionEnd", "hook-3", serde_json::json!({"session_id":"claude-session-1"}));
+        let changes = agent_changes_after(&mux, revision);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0]["kind"], "delete");
+        assert_eq!(snapshot_agents(), serde_json::json!([]));
+
+        // A new session on the terminal (`/clear`, resume) publishes its id.
+        let revision = mux.with_state(|state| state.resource_revision);
+        append("SessionStart", "hook-4", serde_json::json!({"session_id":"claude-session-2"}));
+        let changes = agent_changes_after(&mux, revision);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0]["kind"], "upsert");
+        assert_eq!(changes[0]["value"]["extra"]["agent_session_id"], "claude-session-2");
+        assert_eq!(snapshot_agents()[0]["extra"]["agent_session_id"], "claude-session-2");
+    }
+
+    /// Detected, socket, and session-less hook agents publish no session id.
+    #[test]
+    fn agent_session_id_is_absent_without_a_hook_session() {
+        let mux = test_mux();
+        let snapshot_agent = |terminal_id: &TerminalPublicId| {
+            crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|agent| agent["terminal_id"] == terminal_id.as_str())
+                .cloned()
+                .unwrap()
+        };
+
+        for source in [AgentSource::Detected, AgentSource::Socket] {
+            let surface = mux.new_workspace(None, None).unwrap();
+            let terminal_id = surface.terminal_public_id().cloned().unwrap();
+            let revision = mux.with_state(|state| state.resource_revision);
+            mux.report_agent(surface.id, AgentState::Working, source, Some("pid:1".into()))
+                .unwrap();
+            let changes = agent_changes_after(&mux, revision);
+            assert_eq!(changes[0]["kind"], "upsert");
+            assert_eq!(changes[0]["value"]["extra"].get("agent_session_id"), None);
+            assert_eq!(snapshot_agent(&terminal_id)["extra"].get("agent_session_id"), None);
+        }
+
+        // A session-less hook gets a local generation token, which is not a
+        // resumable agent session id.
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let revision = mux.with_state(|state| state.resource_revision);
+        mux.append_journal_ingress(
+            &claude_hook(&terminal_id, "SessionStart", serde_json::json!({})),
+            "test",
+            "legacy-hook-1",
+        )
+        .unwrap();
+        let changes = agent_changes_after(&mux, revision);
+        assert_eq!(changes[0]["value"]["source"], "hook");
+        assert_eq!(changes[0]["value"]["extra"].get("agent_session_id"), None);
+        assert_eq!(snapshot_agent(&terminal_id)["extra"].get("agent_session_id"), None);
+
+        // Ids that are too long or not portable are withheld, but the hook
+        // still drives the agent state.
+        let oversized = "a".repeat(257);
+        let unportable = ["x; rm -rf ~", "$(id)", "a b", oversized.as_str()];
+        for (index, session_id) in unportable.iter().enumerate() {
+            let surface = mux.new_workspace(None, None).unwrap();
+            let terminal_id = surface.terminal_public_id().cloned().unwrap();
+            let revision = mux.with_state(|state| state.resource_revision);
+            mux.append_journal_ingress(
+                &claude_hook(
+                    &terminal_id,
+                    "SessionStart",
+                    serde_json::json!({"session_id": session_id}),
+                ),
+                "test",
+                &format!("unportable-hook-{index}"),
+            )
+            .unwrap();
+            let changes = agent_changes_after(&mux, revision);
+            assert_eq!(changes[0]["kind"], "upsert", "{session_id}");
+            assert_eq!(changes[0]["value"]["source"], "hook", "{session_id}");
+            assert_eq!(changes[0]["value"]["extra"].get("agent_session_id"), None, "{session_id}");
+        }
+        assert_eq!(
+            published_agent_session_id(&terminal_id, &"a".repeat(256)),
+            Some("a".repeat(256))
+        );
+        assert_eq!(
+            published_agent_session_id(&terminal_id, "0f8c2a4e-1b3d-4c5e-9f7a-2b4c6d8e0a1b"),
+            Some("0f8c2a4e-1b3d-4c5e-9f7a-2b4c6d8e0a1b".into())
+        );
+    }
+
+    /// The session id persists with the projection across a registry reopen.
+    #[test]
+    fn agent_session_id_survives_restart() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-agent-session-id-{}", WorkspacePublicId::random().unwrap()));
+        let session = "agent-session-id";
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let mux = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let created = public_request(
+            &mux,
+            "agent-session-create",
+            "workspace.create",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("agent-session-create"),
+        );
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        mux.append_journal_ingress(
+            &claude_hook(
+                &terminal_id,
+                "SessionStart",
+                serde_json::json!({"session_id":"claude-durable"}),
+            ),
+            "test",
+            "durable-hook-1",
+        )
+        .unwrap();
+        let before = crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"].clone();
+        assert_eq!(before[0]["extra"]["agent_session_id"], "claude-durable");
+        mux.shutdown();
+        drop(mux);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let reopened = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let after =
+            crate::resource_api::public_session_snapshot(&reopened).unwrap()["agents"].clone();
+        assert_eq!(after, before);
+        let listed = public_request(
+            &reopened,
+            "agents",
+            "agent.list",
+            serde_json::json!({"machine":"current","session":"current"}),
+            None,
+        );
+        assert_eq!(listed["result"], before);
+
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

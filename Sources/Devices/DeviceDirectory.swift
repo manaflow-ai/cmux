@@ -1,3 +1,4 @@
+import CmuxCloud
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
@@ -8,9 +9,10 @@ import OSLog
 
 nonisolated private let deviceDirectoryLog = Logger(subsystem: "dev.cmux", category: "device-directory")
 
-/// The account's other Macs, merged from the pairing store (local-first), the
-/// durable device registry, and the live presence stream, excluding this exact
-/// app instance. Bound to one account generation and team scope: the registry
+/// The account's discoverable Macs, authorized by the Mac directory and enriched
+/// with saved pairings, registry metadata, and live presence. An unavailable
+/// discovery client never makes those secondary sources authoritative.
+/// Bound to one account generation and team scope: the registry
 /// rebuilds it when either changes, and every token it uses fails closed after.
 ///
 /// Liveness is push: one presence WebSocket subscription (snapshot first, then
@@ -38,6 +40,9 @@ final class DeviceDirectory {
     private(set) var registryError: String?
     private(set) var hasLoadedRegistry = false
     private(set) var isRefreshingRegistry = false
+    /// The revision of the v2 directory the last registry read observed; the
+    /// provider registry retries host refusals when it advances.
+    private(set) var directoryStamp: DeviceDirectoryStamp?
 
     /// Notifications describe the whole UI snapshot, not only its rows. A
     /// status transition is observable even when the directory stays empty.
@@ -47,6 +52,7 @@ final class DeviceDirectory {
         let registryError: String?
         let hasLoadedRegistry: Bool
         let isRefreshingRegistry: Bool
+        let directoryStamp: DeviceDirectoryStamp?
     }
 
     private var lastPublishedState: PublishedState?
@@ -161,6 +167,7 @@ final class DeviceDirectory {
         records = []
         hasLoadedRegistry = false
         registryError = nil
+        directoryStamp = nil
         notifyChanged()
     }
 
@@ -199,13 +206,15 @@ final class DeviceDirectory {
             if let automaticClient = self.automaticClient {
                 do {
                     let bindings = try await automaticClient.discoverMacs()
+                    let stamp = await automaticClient.directoryStamp()
                     guard !Task.isCancelled else { return }
                     self.authenticatedMacs = bindings
+                    self.directoryStamp = stamp
                     self.registryError = nil
                 } catch {
                     guard !Task.isCancelled else { return }
-                    // An outage retains the last rows; per-session leases still
-                    // reject stale or revoked peers before any application I/O.
+                    // An outage retains the last authenticated rows; per-session
+                    // leases reject stale or revoked peers before application I/O.
                 }
             }
             self.hasLoadedRegistry = true
@@ -321,6 +330,7 @@ final class DeviceDirectory {
         let merged = DeviceDirectoryMerge.merge(DeviceDirectoryMerge.Input(
             registry: registryDevices,
             authenticatedMacs: authenticatedMacs,
+            requiresAuthenticatedDiscovery: true,
             presence: presenceInstances,
             presenceLive: presenceState == .live,
             owners: owners,
@@ -341,7 +351,8 @@ final class DeviceDirectory {
             presenceState: presenceState,
             registryError: registryError,
             hasLoadedRegistry: hasLoadedRegistry,
-            isRefreshingRegistry: isRefreshingRegistry
+            isRefreshingRegistry: isRefreshingRegistry,
+            directoryStamp: directoryStamp
         )
         guard state != lastPublishedState else { return }
         lastPublishedState = state

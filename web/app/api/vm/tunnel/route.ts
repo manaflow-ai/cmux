@@ -95,6 +95,7 @@ export async function POST(request: Request): Promise<Response> {
         stackSessionId: login.id,
         sessionIssuedAt: login.issuedAt,
         clientPublicKey,
+        teamIds: user.teamIds,
       }), { request });
       if (!enrolled.ok) return enrolled.response;
       const tunnel = enrolled.value;
@@ -155,6 +156,7 @@ export async function GET(request: Request): Promise<Response> {
         provider: provider.id,
         deviceFingerprint,
         tunnelPurpose: parseTunnelPurpose(url.searchParams.get("tunnelPurpose")) ?? "browser",
+        teamIds: user.teamIds,
       }), { request });
       if (!tunnel.ok) return tunnel.response;
       return jsonResponse(tunnelPayload(tunnel.value));
@@ -287,6 +289,7 @@ function tunnelPayload(tunnel: VmTunnelDescriptor) {
     routes: [...tunnel.routes],
     address: { ipv4: tunnel.addressV4, ipv6: tunnel.addressV6 },
     network: tunnel.network,
+    networks: tunnel.networks,
     created: tunnel.created,
     rotated: tunnel.rotated,
   };
