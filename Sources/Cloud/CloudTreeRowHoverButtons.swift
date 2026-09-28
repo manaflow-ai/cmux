@@ -25,12 +25,23 @@ struct CloudTreeRowHoverButtons: View {
                     .frame(width: 22, height: 20)
                     .contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton)
+            // A plain button menu keeps the label's 22×20 frame as the control,
+            // matching the Cloud Machines "+" in size and hit area; the
+            // borderless style shrinks it to the symbol.
+            .menuStyle(.button)
+            .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
             .help(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
             .accessibilityLabel(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
             .accessibilityIdentifier("DevicesOptionsMenu")
+        case .cloudMachinesSection(let canCreateMachine):
+            if canCreateMachine {
+                plus(String(localized: "machines.new", defaultValue: "New Machine")) {
+                    nodeActions.newMachine()
+                }
+                .accessibilityIdentifier("CloudMachinesNewMachineButton")
+            }
         case .machine(let machine, _):
             MachinesChromeIconButton(
                 symbolName: "trash",
@@ -110,8 +121,10 @@ struct CloudTreeRowHoverButtons: View {
     /// True when this row kind renders any hover button at all.
     static func hasButtons(for kind: CloudTreeNode.Kind) -> Bool {
         switch kind {
-        case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .devicesSection, .cloudMachinesSection:
+        case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .devicesSection:
             return true
+        case .cloudMachinesSection(let canCreateMachine):
+            return canCreateMachine
         case .pendingMachine:
             return true
         case .device(let row):

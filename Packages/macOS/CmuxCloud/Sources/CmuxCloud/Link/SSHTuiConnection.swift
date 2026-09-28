@@ -1,6 +1,7 @@
 import CmuxCloudTui
 import CmuxCore
 import CmuxFoundation
+import CmuxSettings
 import CryptoKit
 import Foundation
 
@@ -13,6 +14,16 @@ public struct SSHTuiConnection: Sendable {
     }
 
     public let configuration: WorkspaceRemoteConfiguration
+
+    /// Coding agents whose cmux-tui hooks the host installs on each attach, so
+    /// their state reaches the sidebar. Not part of the link identity.
+    public var agentHookProviders: [String] = []
+
+    /// The providers whose Settings > Integrations hook toggle is on.
+    public static func agentHookProviders(defaults: UserDefaults) -> [String] {
+        let settings = AgentIntegrationSettingsStore(defaults: defaults)
+        return (settings.claudeCodeHooksEnabled ? ["claude"] : []) + (settings.codexHooksEnabled ? ["codex"] : [])
+    }
 
     /// Includes the SSH account and configuration so aliases with different routes never share a link.
     public var id: String { "ssh:" + identityDigest }
@@ -44,12 +55,25 @@ public struct SSHTuiConnection: Sendable {
                          "-o", "RemoteCommand=none", "-o", "RequestTTY=no"]
         if let port = configuration.port { arguments += ["-p", String(port)] }
         if let identity = configuration.identityFile { arguments += ["-i", identity] }
-        for option in configuration.sshOptions { arguments += ["-o", option] }
+        for option in sshOptions { arguments += ["-o", option] }
         return arguments
+    }
+
+    /// The caller's options plus cmux's shared ControlMaster, as 0.64.25's
+    /// connection broker used for every connect. Snapshots drop control
+    /// options, so without this a restored carrier opens its own connection,
+    /// which batch mode can't log in on a password-only host.
+    private var sshOptions: [String] {
+        SSHConnectionSharingOptions().mergingDefaults(into: configuration.sshOptions)
     }
 
     /// The daemon owns the login shell and therefore keeps it alive when SSH disconnects.
     public var shellCommand: [String] {
+        if let restored = configuration.restoredSSHSession,
+           restored.sshSessionOwner == nil,
+           let sessionName = configuration.terminalProfile.tmuxSessionName {
+            return RemoteTmuxCommandBuilder(arguments: ["attach-session", "-t", "=\(sessionName)"]).remoteCommandArguments
+        }
         if !configuration.terminalProfile.remoteCommandArguments.isEmpty {
             return configuration.terminalProfile.remoteCommandArguments
         }
@@ -70,13 +94,16 @@ public struct SSHTuiConnection: Sendable {
         var sshArguments = ["-o", "BatchMode=yes", "-o", "RequestTTY=no", "-o", "RemoteCommand=none"]
         if let port = configuration.port { sshArguments += ["-p", String(port)] }
         if let identity = configuration.identityFile { sshArguments += ["-i", identity] }
-        for option in configuration.sshOptions { sshArguments += ["-o", option] }
+        for option in sshOptions { sshArguments += ["-o", option] }
         // The carrier is a headless exec channel that reconnects for its whole
         // lifetime. Batch mode turns a prompt it cannot answer into OpenSSH's
         // own failure. Interactive authentication and host-key prompts precede
         // this launch (SSHTuiPreflight), and verification stays OpenSSH's.
         for argument in sshArguments { arguments += ["--ssh-arg", argument] }
         arguments += ["--device-name", deviceName]
+        if !agentHookProviders.isEmpty {
+            arguments += ["--agent-hooks", agentHookProviders.joined(separator: ",")]
+        }
         return arguments
     }
 

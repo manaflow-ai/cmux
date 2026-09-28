@@ -52,17 +52,13 @@ public final class AgentRestoreLaunchLease {
         throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
     }
 
-    /// Waits in the kernel for the preceding managed launch to release ownership.
+    /// Identifies a live agent after ``tryAcquire()`` reports contention.
     ///
-    /// This synchronous boundary is for the restoring CLI process, never the app.
-    /// No timer, PID guess, file deletion, or signal to the other owner is involved.
-    /// - Throws: A POSIX error if acquisition is interrupted or fails.
-    public func acquireAfterOwnerExit() throws {
-        while flock(descriptor, LOCK_EX) != 0 {
-            guard errno == EINTR else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-            }
-        }
+    /// Nil means a launch is still handing off or its watcher cannot be verified.
+    /// Neither permits another launch. Stable and nightly use the same watcher contract.
+    /// This is diagnostic evidence only; the kernel lock remains authoritative.
+    public var liveOwnerProcessID: Int32? {
+        AgentRestoreLeaseOwner().liveProcessID(descriptor: descriptor)
     }
 
     /// The descriptor on which a spawned exit watcher receives the lease.
@@ -171,7 +167,7 @@ public final class AgentRestoreLaunchLease {
         return true
     }
 
-    /// Releases this descriptor. The inode remains so queued contenders cannot split ownership.
+    /// Releases this descriptor. The inode remains so contenders cannot split ownership.
     public func release() {
         guard descriptor >= 0 else { return }
         Darwin.close(descriptor)

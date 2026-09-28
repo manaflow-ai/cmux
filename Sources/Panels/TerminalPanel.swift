@@ -660,6 +660,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         isClosingPanel = true
+        GlobalSearchCoordinator.shared.purgePanel(id: id)
         AgentHibernationController.shared.discardTrackingStateForClosedPanel(
             workspaceId: workspaceId,
             panelId: id
@@ -758,6 +759,14 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     private func resumeForExplicitInputIfNeeded() {
+        guard isAgentHibernated else { return }
+        _ = requestAgentHibernationResume(focus: false)
+    }
+
+    /// A viewer attaching from another device is visiting this terminal, the
+    /// same as selecting its tab here. Resume a hibernated agent so the attach
+    /// mirrors a live runtime instead of a torn-down surface.
+    func resumeAgentHibernationForRemoteAttach() {
         guard isAgentHibernated else { return }
         _ = requestAgentHibernationResume(focus: false)
     }

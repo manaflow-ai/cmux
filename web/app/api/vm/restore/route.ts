@@ -1,4 +1,5 @@
 import { unauthorized, verifyRequest, type AuthedUser } from "../../../../services/vms/auth";
+import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../services/vms/teamDirectory";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
 import { defaultProviderId, vmCapabilitiesFor } from "../../../../services/vms/drivers";
 import { isVmCreateDisabledError } from "../../../../services/vms/errors";
@@ -119,6 +120,7 @@ export async function POST(request: Request): Promise<Response> {
         snapshotId,
         idempotencyKey,
         // The restored machine is a new row: it gets its own token and edge rule.
+        teamDirectory: vmClientRoutesTeamNetworks(request) ? vmTeamDirectory() : undefined,
         modelPlane: vmModelPlaneGatewayFor({
           teamId: entitlements.billingTeamId,
           stackUserId: user.id,

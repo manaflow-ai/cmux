@@ -9,7 +9,8 @@
     seed_derived_data.py prefetch STORE REVISION
     seed_derived_data.py keep DERIVED_DATA KEY [PREFIX]
 
-nightly.yml `refresh-test-compilation-cache` already compiles main cold on the
+nightly.yml `refresh-test-compilation-cache` (scheduled while CI_PR_POOL_OWNED
+is not 1, or a seed_only dispatch) compiles main cold on the
 runner, Xcode and canonical paths that ci-macos.yml compile admission uses.
 `record` writes the content digest and modification time of every file in the
 canonical source tree into that DerivedData before the build, and `prune`
@@ -73,6 +74,7 @@ but never replace it.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import os
 from pathlib import Path
@@ -87,6 +89,7 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import apfs_clone  # noqa: E402
 import e2e_warm_derived_data as warm  # noqa: E402
 
 MANIFEST = "cmux-seed-input-mtimes.json"
@@ -252,13 +255,21 @@ def locate(prefix: str, revision: str) -> tuple[str, int | None]:
     the nearest of another width, whose extra module work is still far less
     than a cold build.
     """
-    revisions = lineage(revision)
+    found = nearest_of_any_width(prefix, lineage(revision))
+    if found:
+        return found
+    return scoped(prefix) + revision, None
+
+
+def nearest_of_any_width(prefix: str, revisions: list[str]) -> tuple[str, int] | None:
+    """The nearest seed of this width over REVISIONS, else the nearest of the
+    first SEEDED_JOB_WIDTHS width that has one. PREFIX is unscoped."""
     own = swift_jobs()
     for jobs in (own, *(width for width in SEEDED_JOB_WIDTHS if width != own)):
         found = nearest(scoped(prefix, jobs), revisions)
         if found:
             return found
-    return scoped(prefix, own) + revision, None
+    return None
 
 
 def beside(derived: Path, suffix: str) -> Path:
@@ -312,10 +323,23 @@ def cached(key: str) -> Path | None:
     return copy if (copy / MANIFEST).is_file() else None
 
 
+def clear_tree(path: Path) -> None:
+    """Remove PATH or fail. A leftover would make the clone fail and the `cp -cR`
+    fallback copy into PATH/<name>, or through PATH when it is a symlink."""
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path, ignore_errors=True)
+    if path.exists() or path.is_symlink():
+        raise OSError(errno.EEXIST, "could not clear", str(path))
+
+
 def clone_tree(source: Path, destination: Path) -> None:
     """An APFS clone of a directory tree, falling back to a copy."""
-    shutil.rmtree(destination, ignore_errors=True)
+    clear_tree(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if apfs_clone.clone_directory(source, destination):
+        return
     if subprocess.run(["cp", "-cR", str(source), str(destination)], capture_output=True).returncode != 0:
         shutil.rmtree(destination, ignore_errors=True)
         shutil.copytree(source, destination, symlinks=True)
@@ -425,7 +449,7 @@ def record_source(store: Path, prefix: str) -> None:
 
 
 def prefetch(store: Path, revision: str) -> dict[str, object]:
-    """Download REVISION's nearest seed of this width into STORE/seeds, unless it is there."""
+    """Download the seed `adopt` would pick for REVISION into STORE/seeds, unless it is there."""
     try:
         source = json.loads((store / SEED_SOURCE).read_text())
     except (OSError, ValueError):
@@ -439,9 +463,11 @@ def prefetch(store: Path, revision: str) -> dict[str, object]:
             os.environ.setdefault(name, value)
     cache = store / "seeds"
     os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
-    found = nearest(scoped(prefix), lineage(revision))
+    # The key `adopt` would pick (locate): this width's nearest seed, else another width's. A Mac of a
+    # width nothing seeds at (the 10-core light minis) otherwise never prefetched at all.
+    found = nearest_of_any_width(prefix, lineage(revision))
     if found is None:
-        return {"fetched": "false", "reason": "no seed of this width in REVISION's history"}
+        return {"fetched": "false", "reason": "no seed of any seeded width in REVISION's history"}
     key, distance = found
     if cached(key):
         # Nothing new lands, but a job may have filled the disk since: prune.

@@ -190,6 +190,14 @@ enum AppSettingsFileMapping {
             defaultsKey: app.warnBeforeClosingTabXButton.userDefaultsKey
         ),
         .init(
+            jsonKey: "warnBeforeClosingWorkspace",
+            defaultsKey: app.warnBeforeClosingWorkspace.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "warnBeforeClosingWindow",
+            defaultsKey: app.warnBeforeClosingWindow.userDefaultsKey
+        ),
+        .init(
             jsonKey: "hideTabCloseButton",
             defaultsKey: app.hideTabCloseButton.userDefaultsKey
         ),
@@ -217,6 +225,10 @@ enum NotificationSettingsFileMapping {
         .init(jsonKey: "showInMenuBar", defaultsKey: MenuBarExtraSettings.showInMenuBarKey),
         .init(jsonKey: "unreadPaneRing", defaultsKey: NotificationPaneRingSettings.enabledKey),
         .init(jsonKey: "paneFlash", defaultsKey: NotificationPaneFlashSettings.enabledKey),
+        .init(
+            jsonKey: "soundWhenFocused",
+            defaultsKey: notifications.soundWhenFocused.userDefaultsKey
+        ),
         .init(
             jsonKey: "suppressOnlyFocusedSurface",
             defaultsKey: notifications.suppressOnlyFocusedSurface.userDefaultsKey
@@ -257,6 +269,26 @@ enum TerminalSettingsFileMapping {
             jsonKey: "copyOnSelect",
             defaultsKey: TerminalCopyOnSelectSettings.copyOnSelectKey,
             invalidPath: "terminal.copyOnSelect"
+        ),
+        .init(
+            jsonKey: "reflowHardWrapOnCopy",
+            defaultsKey: terminal.reflowHardWrapOnCopy.userDefaultsKey,
+            invalidPath: terminal.reflowHardWrapOnCopy.id
+        ),
+        .init(
+            jsonKey: "confirmUnsafePaste",
+            defaultsKey: terminal.confirmUnsafePaste.userDefaultsKey,
+            invalidPath: terminal.confirmUnsafePaste.id
+        ),
+        .init(
+            jsonKey: "showPasswordInputIndicator",
+            defaultsKey: terminal.showPasswordInputIndicator.userDefaultsKey,
+            invalidPath: terminal.showPasswordInputIndicator.id
+        ),
+        .init(
+            jsonKey: "showPasswordInputDots",
+            defaultsKey: terminal.showPasswordInputDots.userDefaultsKey,
+            invalidPath: terminal.showPasswordInputDots.id
         ),
         .init(
             jsonKey: "autoResumeAgentSessions",
@@ -362,6 +394,7 @@ enum AutomationSettingsFileMapping {
 
     static let booleanSettings: [SettingsFileBooleanMapping] = [
         .init(jsonKey: "claudeCodeIntegration", defaultsKey: automation.claudeCodeIntegration.userDefaultsKey),
+        .init(jsonKey: "piIntegration", defaultsKey: automation.piIntegration.userDefaultsKey),
         .init(
             jsonKey: "suppressSubagentNotifications",
             defaultsKey: automation.suppressSubagentNotifications.userDefaultsKey
