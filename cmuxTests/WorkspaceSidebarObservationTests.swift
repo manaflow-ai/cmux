@@ -517,13 +517,16 @@ struct WorkspaceSidebarObservationTests {
     }
 
     @Test func agentLastReplyLabelShowsTheTimeTodayAndTheDateOtherwise() {
-        let now = Date()
-        let today = SidebarStatusEntry.lastReplyLabel(now, now: now)
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let sameDay = now.addingTimeInterval(-60)
+        let today = SidebarStatusEntry.lastReplyLabel(sameDay, now: now)
         let earlier = SidebarStatusEntry.lastReplyLabel(now.addingTimeInterval(-3 * 86_400), now: now)
-        #expect(today.contains(now.formatted(date: .omitted, time: .shortened)))
+        #expect(today.contains(sameDay.formatted(date: .omitted, time: .shortened)))
         #expect(earlier.count > today.count)
-        let entry = SidebarStatusEntry(key: "claude_code", value: "Running", lastReplyAt: now)
-        #expect(entry.sidebarRowText == "Running · \(today)")
+        // A reply long before any real "now" always renders with its date.
+        let longAgo = Date(timeIntervalSince1970: 1_000_000_000)
+        let entry = SidebarStatusEntry(key: "claude_code", value: "Running", lastReplyAt: longAgo)
+        #expect(entry.sidebarRowText == "Running · \(SidebarStatusEntry.lastReplyLabel(longAgo, now: now))")
         #expect(SidebarStatusEntry(key: "claude_code", value: "Running").sidebarRowText == "Running")
     }
 }
