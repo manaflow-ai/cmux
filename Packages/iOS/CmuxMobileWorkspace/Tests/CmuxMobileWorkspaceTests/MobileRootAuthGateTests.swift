@@ -51,6 +51,9 @@ import Testing
     }
 
     @Test func signInOwnsScreenWhileSignedOut() {
+        // Every user signs in before using the app: the removed signed-out
+        // SSH shell no longer bypasses this gate (saved SSH computers or
+        // not), so an unauthenticated launch always lands on sign-in.
         #expect(MobileRootAuthGate.shouldShowSignIn(
             stackAuthenticated: false,
             attachTicketAuthenticated: false,
