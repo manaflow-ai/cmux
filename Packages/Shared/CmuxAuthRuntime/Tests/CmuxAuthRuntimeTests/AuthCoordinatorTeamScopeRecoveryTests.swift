@@ -216,4 +216,50 @@ import Testing
         #expect(coordinator.authenticatedTeamScope != nil)
         #expect(coordinator.hasPendingTeamScopeRecovery == false)
     }
+
+    @Test func successfulHostRecoveryClearsPendingBackoffImmediately() async {
+        let clock = ManualTestClock()
+        let client = FakeAuthClient(access: "access", refresh: "refresh", user: Self.user)
+        await client.setTeams([Self.team])
+        await client.setThrowOnListTeams(URLError(.notConnectedToInternet))
+        let coordinator = makeCoordinator(client: client, clock: clock)
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+        #expect(coordinator.hasPendingTeamScopeRecovery)
+
+        await client.setThrowOnListTeams(nil)
+        await coordinator.recoverTeamScopeIfNeeded()
+
+        #expect(coordinator.authenticatedTeamScope?.teamID == Self.team.id)
+        #expect(coordinator.hasPendingTeamScopeRecovery == false)
+        coordinator.clearAuthState()
+    }
+
+    @Test func newSignInStartsRecoveryAtTheInitialDelay() async throws {
+        let watchdog = failAfterDeadline(.seconds(5)) { "new sign-in inherited the previous session's recovery backoff" }
+        defer { watchdog.cancel() }
+        let clock = ManualTestClock()
+        let client = FakeAuthClient(access: "access", refresh: "refresh", user: Self.user)
+        await client.setTeams([Self.team])
+        await client.setThrowOnListTeams(URLError(.notConnectedToInternet))
+        let coordinator = makeCoordinator(client: client, clock: clock)
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+
+        // Leave the old session parked at the maximum 60-second delay.
+        for attempt in 0..<5 {
+            await clock.waitUntilSleeper(dueWithin: Self.backoffWindow)
+            clock.advance(by: AuthCoordinator.teamScopeRecoveryDelay(afterAttempt: attempt))
+        }
+        await clock.waitUntilSleeper(dueWithin: Self.backoffWindow)
+        try await coordinator.signInWithGitHub()
+        #expect(coordinator.authenticatedTeamScope == nil)
+        await client.setThrowOnListTeams(nil)
+        await clock.waitUntilSleeper(dueWithin: Self.backoffWindow)
+        clock.advance(by: AuthCoordinator.teamScopeRecoveryDelay(afterAttempt: 0))
+
+        let scope = await awaitTeamScope(coordinator)
+        #expect(scope?.teamID == Self.team.id)
+        coordinator.clearAuthState()
+    }
 }
