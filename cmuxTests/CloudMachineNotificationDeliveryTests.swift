@@ -39,9 +39,11 @@ struct CloudMachineNotificationDeliveryTests {
         }
         AppFocusState.overrideIsFocused = false
 
-        // Unselected: a selected workspace mounts its terminal in the app-host
-        // window, and that mount's focus and read handling can dismiss a
-        // notification whose hooks are still resolving.
+        // This suite only exercises delivery ownership, not selection. Avoid
+        // the queued selection side effect, which dismisses focused-panel
+        // notifications after the fixture starts. A selected workspace mounts
+        // its terminal in the app-host window and can dismiss notifications
+        // while their hooks are still resolving.
         let workspace = manager.addWorkspace(select: false)
         return Harness(store: store, workspace: workspace) {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
@@ -69,6 +71,21 @@ struct CloudMachineNotificationDeliveryTests {
         while ContinuousClock.now < deadline {
             if let contents = try? String(contentsOf: url, encoding: .utf8) {
                 return contents
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return nil
+    }
+
+    private func waitForNotification(
+        titled title: String,
+        in store: TerminalNotificationStore,
+        timeout: Duration = .seconds(2)
+    ) async throws -> TerminalNotification? {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if let notification = store.notifications.first(where: { $0.title == title }) {
+                return notification
             }
             try await Task.sleep(for: .milliseconds(20))
         }
@@ -154,13 +171,14 @@ struct CloudMachineNotificationDeliveryTests {
             subtitle: "vivid-newt",
             origin: .cloudVM(machineID: "vivid-newt")
         )
+        let notification = try await waitForNotification(titled: "from the machine", in: harness.store)
         harness.store.readTargetObserver = previousObserver
         #expect(
             harness.store.notifications.map(\.title) == ["from the machine"],
             "read targets during hook resolution: \(readTargets)"
         )
-        #expect(harness.store.notifications.first?.origin == .cloudVM(machineID: "vivid-newt"))
-        #expect(harness.store.notifications.first?.subtitle == "vivid-newt")
+        #expect(notification?.origin == .cloudVM(machineID: "vivid-newt"))
+        #expect(notification?.subtitle == "vivid-newt")
         #expect(
             !FileManager.default.fileExists(atPath: marker.path),
             "a project cmux.json next to the local pane's cwd must never run for a machine's text"
