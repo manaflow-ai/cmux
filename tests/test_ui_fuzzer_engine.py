@@ -220,7 +220,7 @@ class LaunchFailureTest(unittest.TestCase):
 
 
 class RegressionsCommandTest(unittest.TestCase):
-    def run_regressions(self, steps: list) -> tuple[int, str]:
+    def run_regressions(self, steps: list, planned: int | None = None) -> tuple[int, str]:
         import argparse
         import contextlib
         import io
@@ -234,7 +234,8 @@ class RegressionsCommandTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             repros = Path(directory) / "regressions"
             repros.mkdir()
-            (repros / "a.json").write_text(json.dumps({"steps": [{"do": "split"}]}))
+            count = len(steps) if planned is None else planned
+            (repros / "a.json").write_text(json.dumps({"steps": [{"do": "split"}] * count}))
             args = argparse.Namespace(app="/x.app", out=str(Path(directory) / "out"), no_pointer=True)
             output = io.StringIO()
             with mock.patch.object(cli, "REGRESSIONS", repros), \
@@ -246,11 +247,16 @@ class RegressionsCommandTest(unittest.TestCase):
         self.assertEqual(self.run_regressions(["ok", "skip", "ok"]), (0, "ok a.json\n"))
 
     def test_a_step_the_app_refused_fails_instead_of_passing_silently(self) -> None:
-        for outcome in ("error", "timeout", "internal-error"):
+        for outcome in ("error", "timeout", "io-error", "internal-error"):
             with self.subTest(outcome=outcome):
                 status, output = self.run_regressions(["ok", outcome])
                 self.assertEqual(status, 1)
                 self.assertIn(f"FAIL a.json: step 2 ended {outcome}", output)
+
+    def test_a_repro_that_stopped_early_fails(self) -> None:
+        status, output = self.run_regressions(["ok"], planned=3)
+        self.assertEqual(status, 1)
+        self.assertIn("FAIL a.json: stopped after step 1 of 3", output)
 
 
 class IssueTextTest(unittest.TestCase):

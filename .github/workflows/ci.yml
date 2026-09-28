@@ -1568,7 +1568,9 @@ jobs:
   # that touches what the UI fuzzer's checked-in repros exercise (the sidebar,
   # splits and panes, the main window's size, the fuzzer) also asks for
   # cmuxUITests/FuzzRegressions, which replays them against the same app
-  # (choose_ci_suite.fuzz_regression_selectors). The run
+  # (choose_ci_suite.fuzz_regression_selectors).
+  #
+  # The test run
   # adopts the app-host product this run compiles for the merge, waiting for
   # it, so this costs a test run, not a second compile, and routes to an owned
   # Mac (e2e_runner_pool.py). It waits for the admission gate: the gate holds

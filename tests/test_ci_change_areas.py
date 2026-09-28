@@ -4453,21 +4453,13 @@ def test_a_cmux_ui_tests_diff_runs_its_classes_without_a_label() -> None:
 
 def test_a_diff_the_fuzz_repros_exercise_asks_for_their_replays() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
-    from choose_ci_suite import MAX_UI_SELECTORS, changed_ui_selectors, fuzz_regression_selectors
+    from choose_ci_suite import changed_ui_selectors, fuzz_regression_selectors
     from ui_tests_dispatch import FUZZ_REGRESSIONS_SELECTOR
 
     assert fuzz_regression_selectors(["Sources/Sidebar/SidebarState.swift"]) == [FUZZ_REGRESSIONS_SELECTOR]
     assert fuzz_regression_selectors(["dogfood/fuzz/regressions/x.json", "README.md"]) == [FUZZ_REGRESSIONS_SELECTOR]
     assert fuzz_regression_selectors(["Sources/Workspace.swift", "README.md"]) == []
     assert fuzz_regression_selectors(None) == []
-    with tempfile.TemporaryDirectory() as temp:
-        root = Path(temp)
-        (root / "cmuxUITests").mkdir()
-        many = "".join(f"class C{index}UITests: XCTestCase {{}}\n" for index in range(MAX_UI_SELECTORS))
-        (root / "cmuxUITests/Many.swift").write_text(many)
-        # The replays count toward one focused run's limit.
-        assert len(changed_ui_selectors(root, ["cmuxUITests/Many.swift"])) == MAX_UI_SELECTORS
-        assert changed_ui_selectors(root, ["cmuxUITests/Many.swift"], reserve=[FUZZ_REGRESSIONS_SELECTOR]) is None
 
     script = ROOT / "scripts/ci/choose_ci_suite.py"
     with tempfile.TemporaryDirectory() as directory:
@@ -4507,6 +4499,25 @@ def test_a_diff_the_fuzz_repros_exercise_asks_for_their_replays() -> None:
         values = outputs(f"{helper}\nSources/Sidebar/SidebarState.swift\n")
         assert values["ui_selectors"] == FUZZ_REGRESSIONS_SELECTOR
         assert values["coverage_gap"] == "true"
+
+    # Classes that fill one focused run keep it: the replay gives way, and no gap opens.
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        (root / "cmuxUITests").mkdir()
+        names = [f"SidebarWorkspaceReorderRows{index}UITests" for index in range(6)]  # 287 characters; 315 with the replay
+        (root / "cmuxUITests/Many.swift").write_text("".join(f"class {name}: XCTestCase {{}}\n" for name in names))
+        changed = root / "changed.txt"
+        changed.write_text("cmuxUITests/Many.swift\nSources/Sidebar/SidebarState.swift\n")
+        event = root / "event.json"
+        event.write_text(json.dumps({"repository": {"full_name": "manaflow-ai/cmux"},
+                                     "pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}, "labels": []}}))
+        run = subprocess.run(
+            [sys.executable, str(script), "--event-name", "pull_request", "--pull-request-policy", "compile-only",
+             "--event-path", str(event), "--files-from", str(changed), "--root", str(root)],
+            capture_output=True, text=True, check=True)
+        values = dict(line.split("=", 1) for line in run.stdout.splitlines() if "=" in line)
+        assert values["ui_selectors"] == " ".join(f"cmuxUITests/{name}" for name in names)
+        assert values["coverage_gap"] == "false"
 
 
 def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:

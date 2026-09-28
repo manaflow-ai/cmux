@@ -549,7 +549,7 @@ def ui_class_graph(root: Path) -> dict[str, str]:
     return parents
 
 
-def changed_ui_selectors(root: Path, paths: Iterable[str] | None, reserve: Iterable[str] = ()) -> list[str] | None:
+def changed_ui_selectors(root: Path, paths: Iterable[str] | None) -> list[str] | None:
     """The UI test classes a cmuxUITests/ diff changes, as test-e2e selectors.
 
     A test class is one that inherits XCTestCase, directly or through a base
@@ -558,10 +558,8 @@ def changed_ui_selectors(root: Path, paths: Iterable[str] | None, reserve: Itera
     those instead, since it holds no test of its own to run. A deleted file
     adds nothing. None when a changed file selects no test class (a helper or
     a resource), or when the selection is more than one focused run takes:
-    no focused run judges those. `reserve` names selectors the same run also
-    takes, which count toward its limits.
+    no focused run judges those.
     """
-    reserve = list(reserve)
     changed = [path.strip() for path in paths or () if path.strip().startswith(UNJUDGED_BY_ANY_PR_JOB_PREFIXES)]
     if not changed:
         return []
@@ -600,9 +598,13 @@ def changed_ui_selectors(root: Path, paths: Iterable[str] | None, reserve: Itera
         for name in tests:
             if f"cmuxUITests/{name}" not in selectors:
                 selectors.append(f"cmuxUITests/{name}")
-    if len(selectors) + len(reserve) > MAX_UI_SELECTORS or len(",".join(selectors + reserve)) > MAX_UI_FILTER_LENGTH:
+    if not fits_one_ui_run(selectors):
         return None
     return selectors
+
+
+def fits_one_ui_run(selectors: list[str]) -> bool:
+    return len(selectors) <= MAX_UI_SELECTORS and len(",".join(selectors)) <= MAX_UI_FILTER_LENGTH
 
 
 def coverage_gap(
@@ -697,14 +699,19 @@ def main(argv: list[str]) -> int:
     unit = layout or wants_unit_suite(args.event_name, args.pull_request_policy, labels, paths)
     opted_out = SUITE_OPT_OUT_LABEL in {label.strip() for label in labels or ()}
     ui_run = args.event_name == "pull_request" and not opted_out
-    # A fork's `ui-tests` job refuses to run anything, so a fork gets no replays
-    # it could not run; its own UI test classes still close a gap only there.
-    fuzz = fuzz_regression_selectors(paths) if ui_run and args.event_path and same_repository_from_event(
-        args.event_path) else []
-    class_selectors = changed_ui_selectors(args.root, paths, reserve=fuzz) if ui_run else []
+    class_selectors = changed_ui_selectors(args.root, paths) if ui_run else []
     # Only the changed classes judge a cmuxUITests/ diff; the replays never do.
     gap = coverage_gap(args.event_name, full, paths, labels, unit_suite=unit, ui_suite=bool(class_selectors))
-    ui_selectors = (class_selectors or []) + fuzz
+    # A fork's `ui-tests` job refuses to run anything, so a fork gets no replay.
+    same_repository = bool(args.event_path) and same_repository_from_event(args.event_path)
+    fuzz = fuzz_regression_selectors(paths) if ui_run and same_repository else []
+    ui_selectors = class_selectors or []
+    if fuzz and not fits_one_ui_run(ui_selectors + fuzz):
+        # The classes judge the diff; the replay is extra and gives way.
+        print(f"note: {len(ui_selectors)} UI test classes fill one focused run; not adding {fuzz[0]}.",
+              file=sys.stderr)
+        fuzz = []
+    ui_selectors = ui_selectors + fuzz
     # Only a unit run the diff asked for narrows. `full-ci` and `unit-ci` are
     # explicit requests for every suite, and a shard layout change needs every
     # suite in its new order.
