@@ -89,7 +89,7 @@ public final class AgentMessageStore: @unchecked Sendable {
     /// Validates and stores a new queued message.
     @discardableResult
     public func append(_ draft: AgentMessageDraft) throws -> AgentMessage {
-        let draft = try AgentMessageValidation.validated(draft)
+        let draft = try draft.validated()
         let message: AgentMessage
         lock.lock()
         let id = makeId()

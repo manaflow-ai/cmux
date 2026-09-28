@@ -127,7 +127,7 @@ public enum AgentMessageValidationError: Error, Equatable, Sendable {
     case missingRecipient
 }
 
-public enum AgentMessageValidation {
+extension AgentMessageDraft {
     /// Largest accepted body, in UTF-8 bytes.
     public static let maximumBodyBytes = 32 * 1024
     /// Longest accepted sender name, in characters.
@@ -137,26 +137,26 @@ public enum AgentMessageValidation {
 
     /// Returns the draft with its sender name trimmed and defaulted, or throws
     /// when it cannot be stored.
-    public static func validated(_ draft: AgentMessageDraft) throws -> AgentMessageDraft {
-        var draft = draft
+    public func validated() throws -> AgentMessageDraft {
+        var draft = self
         guard !draft.recipientSurfaceId.isEmpty else {
             throw AgentMessageValidationError.missingRecipient
         }
         guard !draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AgentMessageValidationError.emptyBody
         }
-        guard draft.body.utf8.count <= maximumBodyBytes else {
-            throw AgentMessageValidationError.bodyTooLarge(limit: maximumBodyBytes)
+        guard draft.body.utf8.count <= Self.maximumBodyBytes else {
+            throw AgentMessageValidationError.bodyTooLarge(limit: Self.maximumBodyBytes)
         }
-        guard !containsForbiddenControlCharacter(draft.body, allowLineBreaks: true) else {
+        guard !Self.containsForbiddenControlCharacter(draft.body, allowLineBreaks: true) else {
             throw AgentMessageValidationError.controlCharacterInBody
         }
         let name = draft.senderName.trimmingCharacters(in: .whitespaces)
         if name.isEmpty {
-            draft.senderName = defaultSenderName
+            draft.senderName = Self.defaultSenderName
         } else {
-            guard name.count <= maximumSenderNameLength,
-                  !containsForbiddenControlCharacter(name, allowLineBreaks: false) else {
+            guard name.count <= Self.maximumSenderNameLength,
+                  !Self.containsForbiddenControlCharacter(name, allowLineBreaks: false) else {
                 throw AgentMessageValidationError.invalidSenderName
             }
             draft.senderName = name
@@ -166,7 +166,7 @@ public enum AgentMessageValidation {
 
     /// True when `text` holds a C0 control (other than newline and tab when
     /// `allowLineBreaks`), DEL, or a C1 control.
-    public static func containsForbiddenControlCharacter(_ text: String, allowLineBreaks: Bool) -> Bool {
+    static func containsForbiddenControlCharacter(_ text: String, allowLineBreaks: Bool) -> Bool {
         text.unicodeScalars.contains { scalar in
             switch scalar.value {
             case 0x0A, 0x09:

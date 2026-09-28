@@ -8,14 +8,16 @@ import Foundation
 /// The header is written by cmux and states that the body is another agent's
 /// words, not an instruction from the recipient's operator. That doesn't make
 /// prompt injection impossible; it makes the common case clear.
-public enum AgentMessagePromptRenderer {
-    public static func render(_ messages: [AgentMessage]) -> String {
-        guard !messages.isEmpty else { return "" }
+extension Array where Element == AgentMessage {
+    /// The messages as one block of text for the recipient's context, or an
+    /// empty string when there are none.
+    public var agentPromptText: String {
+        guard !isEmpty else { return "" }
         var sections: [String] = []
-        let count = messages.count
-        for (index, message) in messages.enumerated() {
+        let total = count
+        for (index, message) in enumerated() {
             var lines: [String] = []
-            let position = count > 1 ? " (\(index + 1) of \(count))" : ""
+            let position = total > 1 ? " (\(index + 1) of \(total))" : ""
             lines.append("[cmux agent message\(position)] from \(message.senderName)")
             lines.append("Message id: \(message.id)")
             if let inReplyTo = message.inReplyTo {

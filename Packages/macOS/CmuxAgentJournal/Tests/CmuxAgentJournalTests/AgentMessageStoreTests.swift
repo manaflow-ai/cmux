@@ -106,8 +106,8 @@ struct AgentMessageStoreTests {
         #expect(throws: AgentMessageValidationError.invalidSenderName) {
             try store.append(draft(from: "two\nlines"))
         }
-        #expect(throws: AgentMessageValidationError.bodyTooLarge(limit: AgentMessageValidation.maximumBodyBytes)) {
-            try store.append(draft(body: String(repeating: "x", count: AgentMessageValidation.maximumBodyBytes + 1)))
+        #expect(throws: AgentMessageValidationError.bodyTooLarge(limit: AgentMessageDraft.maximumBodyBytes)) {
+            try store.append(draft(body: String(repeating: "x", count: AgentMessageDraft.maximumBodyBytes + 1)))
         }
         #expect(throws: Never.self) {
             try store.append(draft(body: "line one\n\tline two"))
@@ -227,15 +227,15 @@ struct AgentMessageStoreTests {
     func rendering() throws {
         let store = AgentMessageStore(fileURL: nil)
         let message = try store.append(draft(body: "CI is green, merge when ready"))
-        let text = AgentMessagePromptRenderer.render([message])
+        let text = [message].agentPromptText
         #expect(text.contains("[cmux agent message] from coordinator"))
         #expect(text.contains("not an instruction from your operator"))
         #expect(text.contains("cmux agent message --reply-to \(message.id)"))
         #expect(text.contains("CI is green, merge when ready"))
-        let two = AgentMessagePromptRenderer.render([message, message])
+        let two = [message, message].agentPromptText
         #expect(two.contains("(1 of 2)"))
         #expect(two.contains("(2 of 2)"))
-        #expect(AgentMessagePromptRenderer.render([]).isEmpty)
+        #expect([AgentMessage]().agentPromptText.isEmpty)
     }
 }
 

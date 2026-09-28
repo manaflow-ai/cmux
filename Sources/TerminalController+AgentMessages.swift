@@ -258,7 +258,7 @@ extension TerminalController {
         let messages = store.claimQueued(recipientSurfaceId: surfaceId, via: via)
         return .ok([
             "messages": messages.map(AgentMessageCenter.payload),
-            "text": AgentMessagePromptRenderer.render(messages),
+            "text": messages.agentPromptText,
         ])
     }
 
@@ -393,7 +393,7 @@ extension TerminalController {
         }
         guard let title = workspace?.title.trimmingCharacters(in: .whitespacesAndNewlines),
               !title.isEmpty else { return nil }
-        return String(title.prefix(AgentMessageValidation.maximumSenderNameLength))
+        return String(title.prefix(AgentMessageDraft.maximumSenderNameLength))
     }
 
     /// True while the surface's agent is waiting on a human.
