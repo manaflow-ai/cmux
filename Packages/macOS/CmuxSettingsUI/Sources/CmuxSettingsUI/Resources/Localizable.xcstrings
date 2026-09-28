@@ -7101,6 +7101,124 @@
           }
         }
       }
+    },
+    "settings.app.twoLineWorkspaceTitles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Two Lines for Workspace Titles"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح بسطرين لعناوين مساحات العمل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwei Zeilen für Arbeitsbereichstitel zulassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir dos líneas en los títulos de espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser deux lignes pour les titres d'espace de travail"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名を2行まで表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 제목에 두 줄 허용"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许工作区标题显示两行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許工作區標題顯示兩行"
+          }
+        }
+      }
+    },
+    "settings.app.twoLineWorkspaceTitles.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gives a long workspace title a second line before it is shortened."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمنح عنوان مساحة العمل الطويل سطرًا ثانيًا قبل اختصاره."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gibt einem langen Arbeitsbereichstitel eine zweite Zeile, bevor er gekürzt wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Da una segunda línea a un título largo de espacio de trabajo antes de acortarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Donne une deuxième ligne à un titre d'espace de travail long avant de le raccourcir."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長いワークスペース名を短縮する前に2行目を使います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "긴 작업 공간 제목이 줄어들기 전에 두 번째 줄을 사용합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让过长的工作区标题在被缩短前多一行显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓過長的工作區標題在被縮短前多一行顯示。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

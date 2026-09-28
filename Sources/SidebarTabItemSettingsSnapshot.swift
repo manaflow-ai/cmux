@@ -8,6 +8,7 @@ import Foundation
 struct SidebarTabItemSettingsSnapshot: Equatable {
     let hidesAllDetails: Bool
     let wrapsWorkspaceTitles: Bool
+    let usesTwoLineWorkspaceTitles: Bool
     let showsWorkspaceDescription: Bool
     let workspaceDescriptionColorHex: String?
     let sidebarShortcutHintXOffset: Double
@@ -66,6 +67,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         )
         hidesAllDetails = settings.value(for: sidebar.hideAllDetails)
         wrapsWorkspaceTitles = settings.value(for: sidebar.wrapWorkspaceTitles)
+        usesTwoLineWorkspaceTitles = settings.value(for: sidebar.twoLineWorkspaceTitles)
         let detailVisibility = SidebarWorkspaceDetailVisibility(
             showWorkspaceDescription: settings.value(for: sidebar.showWorkspaceDescription),
             showNotificationMessage: settings.value(for: sidebar.showNotificationMessage),

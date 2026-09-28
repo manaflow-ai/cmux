@@ -118,6 +118,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.showProgress` | boolean | `true` | Show progress indicators. |
 | `sidebar.showCustomMetadata` | boolean | `true` | Show custom metadata pills. |
 | `sidebar.wrapWorkspaceTitles` | boolean | `false` | Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line. |
+| `sidebar.twoLineWorkspaceTitles` | boolean | `false` | Allow a workspace title in the sidebar a second line before it is truncated, instead of showing it in full like wrapWorkspaceTitles. |
 | `sidebar.beta` | object | — | Experimental sidebar features. |
 | `sidebar.notificationMessageLineLimit` | integer | `12` | Maximum lines shown for the latest notification below each workspace title. |
 | `sidebar.watchGitStatus` | boolean | `true` | Watch repository files for sidebar branch and pull request metadata without polling git. |

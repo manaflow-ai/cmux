@@ -449,7 +449,7 @@ struct SidebarAppKitRowCellTests {
             return try #require(titleView.font)
         }
 
-        let size = Self.makeModel().scaled(12.5)
+        let size = Self.makeModel().scaled(SidebarRowTitleMetrics.fontSize)
         #expect(try titleFont(Self.makeModel()) == NSFont.systemFont(ofSize: size, weight: .regular))
         #expect(try titleFont(Self.makeModel(isActive: true)) == NSFont.systemFont(ofSize: size, weight: .semibold))
         #expect(try titleFont(Self.makeModel(isMultiSelected: true)) == NSFont.systemFont(ofSize: size, weight: .semibold))
@@ -473,11 +473,119 @@ struct SidebarAppKitRowCellTests {
             return try #require(titleView.font)
         }
 
-        let resting = NSFont.systemFont(ofSize: model.scaled(12.5), weight: .regular)
+        let resting = NSFont.systemFont(ofSize: model.scaled(SidebarRowTitleMetrics.fontSize), weight: .regular)
         #expect(try titleFont() == resting)
         cell.showOptimisticSelectionHighlight()
         #expect(cell.hasOptimisticSelectionForTesting)
         #expect(try titleFont() == resting)
+    }
+
+    private static func titleView(
+        in cell: SidebarWorkspaceRowTableCellView,
+        model: SidebarWorkspaceRowModel
+    ) throws -> SidebarRowTextView {
+        try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowTextView }
+                .first { !$0.isHidden && $0.stringValue == model.snapshot.title }
+        )
+    }
+
+    /// A one-line title keeps its start and its distinctive tail: the middle of
+    /// a title is the least useful part of it to read, and the tail carries the
+    /// host in names like `cmux-remote-status @host`.
+    @Test
+    func singleLineTitleTruncatesInTheMiddle() throws {
+        let model = Self.makeModel()
+        let cell = Self.configuredCell(model: model)
+        let titleView = try Self.titleView(in: cell, model: model)
+
+        #expect(titleView.maximumNumberOfLines == 1)
+        #expect(titleView.lineBreakMode == .byTruncatingMiddle)
+    }
+
+    /// `sidebar.twoLineWorkspaceTitles` is the middle ground between one line
+    /// and showing a title in full. A two-line title has to end in an ellipsis,
+    /// so it truncates rather than wrapping without a mark.
+    @Test
+    func twoLineTitleSettingGivesTheTitleASecondLine() throws {
+        let defaults = Self.makeDefaults()
+        defaults.set(true, forKey: "sidebarTwoLineWorkspaceTitles")
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        #expect(settings.usesTwoLineWorkspaceTitles)
+        #expect(Self.makeSwiftUIRow(settings: settings).settings.usesTwoLineWorkspaceTitles)
+
+        let model = Self.makeModel(settings: settings)
+        let cell = Self.configuredCell(model: model)
+        let titleView = try Self.titleView(in: cell, model: model)
+
+        #expect(titleView.maximumNumberOfLines == 2)
+        #expect(titleView.lineBreakMode == .byTruncatingTail)
+    }
+
+    /// Wrapping still wins when it is on: the setting that shows a title in
+    /// full is not overridden by the two-line setting.
+    @Test
+    func wrappingTitlesOutranksTheTwoLineSetting() throws {
+        let defaults = Self.makeDefaults()
+        defaults.set(true, forKey: "sidebarTwoLineWorkspaceTitles")
+        defaults.set(true, forKey: SidebarWorkspaceTitleWrapSettings.key)
+        let model = Self.makeModel(settings: SidebarTabItemSettingsSnapshot(defaults: defaults))
+        let cell = Self.configuredCell(model: model)
+        let titleView = try Self.titleView(in: cell, model: model)
+
+        #expect(titleView.maximumNumberOfLines == SidebarRowTitleMetrics.maxWrappedLines)
+        #expect(titleView.lineBreakMode == .byWordWrapping)
+    }
+
+    /// The close button is revealed on hover, so a row the pointer is not on
+    /// spends that column on its title instead of leaving it blank. The reveal
+    /// insets the title, which is safe because a single line's height does not
+    /// depend on its width.
+    @Test
+    func closeButtonColumnIsOnlyHeldOpenWhileItShows() throws {
+        let width: CGFloat = 240
+        let model = Self.makeModel(canClose: true)
+        let cell = Self.configuredCell(model: model)
+        let window = Self.layoutCell(cell, model: model, width: width)
+        defer { window.close() }
+        let titleView = try Self.titleView(in: cell, model: model)
+        let contentTrailing = width
+            - SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
+            - SidebarWorkspaceListMetrics.rowContentHorizontalPadding
+
+        #expect(titleView.frame.maxX == contentTrailing)
+
+        cell.enforcePointerHovering(true)
+        cell.layoutContent(model: model, width: width, apply: true)
+
+        #expect(titleView.frame.maxX == contentTrailing - 24)
+        #expect(!cell.closeButtonPaintForTesting.isHidden)
+    }
+
+    /// A wrapped title's height DOES depend on its width, so hovering such a
+    /// row must not change the width its height was measured at.
+    @Test
+    func wrappedTitleKeepsTheCloseButtonColumnReserved() throws {
+        let width: CGFloat = 240
+        let defaults = Self.makeDefaults()
+        defaults.set(true, forKey: SidebarWorkspaceTitleWrapSettings.key)
+        let model = Self.makeModel(canClose: true, settings: SidebarTabItemSettingsSnapshot(defaults: defaults))
+        let cell = Self.configuredCell(model: model)
+        let window = Self.layoutCell(cell, model: model, width: width)
+        defer { window.close() }
+        let titleView = try Self.titleView(in: cell, model: model)
+        let reserved = width
+            - SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
+            - SidebarWorkspaceListMetrics.rowContentHorizontalPadding
+            - 24
+
+        #expect(titleView.frame.maxX == reserved)
+
+        cell.enforcePointerHovering(true)
+        cell.layoutContent(model: model, width: width, apply: true)
+
+        #expect(titleView.frame.maxX == reserved)
     }
 
     @Test

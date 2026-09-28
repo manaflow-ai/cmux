@@ -351119,6 +351119,131 @@
         }
       }
     },
+    "settings.search.alias.setting.app.two-line-workspace-titles": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten مساحة العمل عنوان سطران السطر الثاني اختصار الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten radni prostor naslov dva reda drugi red skraćivanje bočna traka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten arbejdsområde titel to linjer anden linje forkort sidepanel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten arbeitsbereich titel zwei zeilen zweite zeile kürzen seitenleiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten espacio de trabajo título dos líneas segunda línea acortar barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten espace de travail titre deux lignes deuxième ligne raccourcir barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten spazio di lavoro titolo due righe seconda riga abbreviare barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten ワークスペース タイトル 2行 2行目 短縮 サイドバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten កន្លែងធ្វើការ ចំណងជើង ពីរបន្ទាត់ បន្ទាត់ទីពីរ បង្រួញ របារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten 워크스페이스 제목 두 줄 둘째 줄 축약 사이드바"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten arbeidsområde tittel to linjer andre linje forkort sidepanel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten obszar roboczy tytuł dwie linie druga linia skracanie pasek boczny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten espaço de trabalho título duas linhas segunda linha encurtar barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten рабочая область название две строки вторая строка сокращение боковая панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten เวิร์กสเปซ ชื่อ สองบรรทัด บรรทัดที่สอง ย่อ แถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten çalışma alanı başlık iki satır ikinci satır kısalt kenar çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten робоча область назва два рядки другий рядок скорочення бічна панель"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten 工作区 标题 两行 第二行 缩短 边栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.twoLineWorkspaceTitles workspace title two lines second line truncate shorten 工作區 標題 兩行 第二行 縮短 側邊欄"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.app.wrap-workspace-titles": {
       "extractionState": "manual",
       "localizations": {

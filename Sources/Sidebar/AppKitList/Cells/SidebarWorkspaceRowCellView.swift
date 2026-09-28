@@ -166,7 +166,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private func titleFont(paintedWith painted: SidebarWorkspaceRowModel) -> NSFont {
         let measured = model ?? painted
         return .systemFont(
-            ofSize: measured.scaled(12.5),
+            ofSize: measured.scaled(SidebarRowTitleMetrics.fontSize),
             weight: Self.titleWeight(for: measured).appKitWeight
         )
     }
@@ -621,9 +621,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
         reconcileStatusPopover(model: model, showsAnchor: showsStatusGlyph)
 
-        let titleLineLimit = settings.wrapsWorkspaceTitles ? 8 : 1
+        let titleLineLimit = SidebarRowTitleMetrics.lineLimit(
+            wrapsTitles: settings.wrapsWorkspaceTitles,
+            usesTwoLines: settings.usesTwoLineWorkspaceTitles
+        )
         titleView.maximumNumberOfLines = titleLineLimit
-        titleView.lineBreakMode = titleLineLimit == 1 ? .byTruncatingTail : .byWordWrapping
+        titleView.lineBreakMode = SidebarRowTitleMetrics.appKitLineBreakMode(lineLimit: titleLineLimit)
         let boundedTitle = snapshot.title.sidebarBoundedDisplayString(
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: 2048
@@ -1275,7 +1278,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         var x = leading
         let badgeSide = 16 * model.fontScale
         let spinnerSide = max(10, 12 * model.fontScale)
-        let firstLineCenter = model.scaled(12.5) * 0.6 + y
+        let firstLineCenter = model.scaled(SidebarRowTitleMetrics.fontSize) * 0.6 + y
 
         func place(_ view: NSView, size: NSSize, centerY: CGFloat) {
             guard apply else { return }
@@ -1323,7 +1326,19 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         // Trailing slot
         let closeHit = max(16, 16 * model.fontScale)
         let closeWidth = max(16, closeHit)
-        let trailingSlotActive = !trailingBadge.isHidden || (trailingSpinner?.isHidden == false) || model.canCloseWorkspace
+        let trailingStatusVisible = !trailingBadge.isHidden || (trailingSpinner?.isHidden == false)
+        // A row that merely CAN be closed no longer reserves the close button's
+        // width: the button is hover-revealed, so on every other row that
+        // reservation was 24pt of blank trailing space paid for by the title.
+        //
+        // The reveal insets the title instead of overlaying it, which is safe
+        // for a single line because a single line's height does not depend on
+        // its width. A wrapped title does, and hover must not restate a row's
+        // height, so those keep the reservation whenever the button can appear.
+        let titleWrapsToMultipleLines = titleView.maximumNumberOfLines != 1
+        let trailingSlotActive = trailingStatusVisible
+            || showsCloseNow
+            || (titleWrapsToMultipleLines && model.canCloseWorkspace)
         let titleMaxX = trailingSlotActive ? (trailing - closeWidth - titleRowSpacing) : trailing
         let titleWidth = max(10, titleMaxX - x)
         let renameField = renameSession?.field

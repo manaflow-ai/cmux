@@ -15882,7 +15882,6 @@ struct TabItemView: View, Equatable {
     @State private var renameDraft = ""
     @State private var renameBaselineHadUserCustomTitle = false
 
-    private static let maxWrappedTitleLines = 8
     private static let maxDisplayedTitleCharacters = 2048
 
     var workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot { snapshot.workspace }
@@ -16205,7 +16204,10 @@ struct TabItemView: View, Equatable {
                 : SidebarMarkdownRenderer(markdown: display).plainText
         }
         let detailVisibility = visibleAuxiliaryDetails
-        let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1
+        let titleLineLimit = SidebarRowTitleMetrics.lineLimit(
+            wrapsTitles: settings.wrapsWorkspaceTitles,
+            usesTwoLines: settings.usesTwoLineWorkspaceTitles
+        )
         let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
@@ -16213,7 +16215,7 @@ struct TabItemView: View, Equatable {
         let scaledUnreadBadgeSize = 16 * fontScale
         let scaledLoadingSpinnerSize = max(10, 12 * fontScale)
         let titleFirstLineCenter = GlobalFontMagnification.scaledSize(
-            scaledFontSize(12.5),
+            scaledFontSize(SidebarRowTitleMetrics.fontSize),
             percent: globalFontMagnificationPercent
         ) * 0.6
         let todoControlsEnabled = WorkspaceTodoFeature.isEnabled
@@ -16289,7 +16291,7 @@ struct TabItemView: View, Equatable {
                 if isEditing {
                     SidebarInlineRenameField(
                         initialText: renameDraft,
-                        fontSize: GlobalFontMagnification.scaledSize(scaledFontSize(12.5), percent: globalFontMagnificationPercent),
+                        fontSize: GlobalFontMagnification.scaledSize(scaledFontSize(SidebarRowTitleMetrics.fontSize), percent: globalFontMagnificationPercent),
                         fontWeight: titleTextWeight.appKitWeight,
                         textColor: selectedWorkspaceForegroundNSColor(opacity: 1.0),
                         accessibilityLabel: String(
@@ -16318,18 +16320,26 @@ struct TabItemView: View, Equatable {
                     .layoutPriority(1)
                 } else {
                     Text(displayedTitle)
-                        .font(magnifiedFont(scaledFontSize(12.5), weight: titleFontWeight))
+                        .font(magnifiedFont(scaledFontSize(SidebarRowTitleMetrics.fontSize), weight: titleFontWeight))
                         .foregroundColor(activePrimaryTextColor)
                         .opacity(workspaceSnapshot.isMuted ? 0.6 : 1)
                         .lineLimit(titleLineLimit)
-                        .truncationMode(.tail)
+                        .truncationMode(SidebarRowTitleMetrics.swiftUITruncationMode(lineLimit: titleLineLimit))
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .alignmentGuide(.sidebarTitleFirstLineCenter) { _ in titleFirstLineCenter }
                         .layoutPriority(1)
                 }
 
-                if trailingStatusActive || canCloseWorkspace {
+                // Matches the AppKit rows: the hover-revealed close button no
+                // longer holds a column open on rows that are not hovered, so a
+                // resting title gets that width. Wrapped titles keep the
+                // reservation, since changing their width on hover would change
+                // their line count and the row's height.
+                let reservesTrailingSlot = trailingStatusActive
+                    || showCloseButton
+                    || (titleLineLimit != 1 && canCloseWorkspace)
+                if reservesTrailingSlot {
                     SidebarWorkspaceTrailingStatusSlot(showsSpinner: spinnerOnTrailing, showsBadge: badgeOnTrailing, unreadCount: unreadCount, side: scaledUnreadBadgeSize, width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, badgeFont: badgeFont, badgeFillColor: activeUnreadBadgeFillColor, badgeTextColor: activeUnreadBadgeTextColor, spinnerColor: spinnerColor, spinnerTooltip: spinnerTooltip, canCloseWorkspace: canCloseWorkspace, showsCloseButton: showCloseButton, closeButtonTooltip: closeButtonTooltip, closeButtonColor: activeSecondaryColor(0.7), closeButtonFontSize: scaledFontSize(9), closeAction: actions.closeWorkspace)
                 }
             }
