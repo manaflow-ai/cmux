@@ -20,6 +20,20 @@ struct MachineListStatusPresentation {
             }
         }
 
+        /// The toolbar has one line beside the status text, so it takes the
+        /// verb alone. The notice and the empty state keep the full `title`.
+        var shortTitle: String {
+            switch self {
+            case .retry:
+                // Already one word.
+                return title
+            case .signInAgain:
+                return String(localized: "machines.sessionRejected.signInAgain.short", defaultValue: "Sign In")
+            case .upgrade:
+                return String(localized: "machines.requiresPro.upgrade.short", defaultValue: "Upgrade")
+            }
+        }
+
         var accessibilityIdentifier: String {
             switch self {
             case .retry: return "CloudMachinesUnavailableRetryButton"
@@ -36,6 +50,10 @@ struct MachineListStatusPresentation {
     let action: Action?
     /// Failures tint orange; waiting and reconnecting stay neutral.
     let isFailure: Bool
+    /// The one-line form for the toolbar, where cached machines are still on
+    /// screen. It names the same cause as `title`, so a 401 and a 402 do not
+    /// both read "unavailable" with no way to act. nil keeps the plain title.
+    let staleTitle: String?
 
     init(_ status: MachineListStatus) {
         switch status {
@@ -47,12 +65,14 @@ struct MachineListStatusPresentation {
             subtitle = String(localized: "machines.offline.subtitle", defaultValue: "Cloud machines load when this Mac is back online.")
             action = nil
             isFailure = false
+            staleTitle = String(localized: "machines.offline.stale", defaultValue: "Offline \u{2014} showing last known")
         case .reconnecting:
             symbolName = nil
             title = String(localized: "machines.reconnecting.title", defaultValue: "Reconnecting to Cloud…")
             subtitle = nil
             action = nil
             isFailure = false
+            staleTitle = nil
         case .failed(.unreachable):
             // Only the machine-list read failed: say that, not "Cloud is down".
             symbolName = "exclamationmark.icloud"
@@ -63,6 +83,7 @@ struct MachineListStatusPresentation {
             )
             action = .retry
             isFailure = true
+            staleTitle = String(localized: "machines.listUnavailable.stale", defaultValue: "Machine list unavailable \u{2014} showing last known")
         case .failed(.sessionRejected):
             // HTTP 401: retrying can never fix it, so route to a fresh sign-in.
             symbolName = "person.crop.circle.badge.exclamationmark"
@@ -73,6 +94,7 @@ struct MachineListStatusPresentation {
             )
             action = .signInAgain
             isFailure = true
+            staleTitle = String(localized: "machines.sessionRejected.stale", defaultValue: "Sign-in needs a refresh, showing last known")
         case .failed(.requiresPro):
             // HTTP 402: the fix is an upgrade, not a retry and not a sign-in.
             symbolName = "sparkles"
@@ -83,6 +105,7 @@ struct MachineListStatusPresentation {
             )
             action = .upgrade
             isFailure = true
+            staleTitle = String(localized: "machines.requiresPro.stale", defaultValue: "Cloud machines need cmux Pro, showing last known")
         }
     }
 }
@@ -179,32 +202,30 @@ struct MachinesListStatusToolbarRow: View {
     let perform: (MachineListStatusPresentation.Action) -> Void
 
     var body: some View {
-        switch status {
-        case .reconnecting:
-            HStack(spacing: 5) {
+        let presentation = MachineListStatusPresentation(status)
+        // Only a failure is orange, carries the raw error on hover, and can be
+        // dismissed. Waiting and reconnecting stay quiet.
+        let failure = presentation.isFailure ? error : nil
+        HStack(spacing: 5) {
+            if let symbolName = presentation.symbolName {
+                Image(systemName: symbolName)
+                    .font(.system(size: 10, weight: .semibold))
+            } else {
                 ProgressView().controlSize(.mini)
-                label(MachineListStatusPresentation(status).title)
             }
-            .foregroundColor(.secondary)
-        case .waitingForNetwork:
-            HStack(spacing: 5) {
-                Image(systemName: "wifi.slash")
-                    .font(.system(size: 10, weight: .semibold))
-                label(String(localized: "machines.offline.stale", defaultValue: "Offline \u{2014} showing last known"))
+            label(presentation.staleTitle ?? presentation.title)
+            if let action = presentation.action {
+                Button(action.shortTitle) { perform(action) }
+                    .buttonStyle(.link)
+                    .cmuxFont(size: 11)
+                    .accessibilityIdentifier(action.accessibilityIdentifier)
             }
-            .foregroundColor(.secondary)
-        case .failed:
-            HStack(spacing: 5) {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 10, weight: .semibold))
-                label(String(localized: "machines.listUnavailable.stale", defaultValue: "Machine list unavailable \u{2014} showing last known"))
-            }
-            .foregroundColor(.orange.opacity(0.9))
-            .help(error ?? "")
-            .cloudErrorCopyMenu(error)
-            if let error {
-                CloudBannerDismissButton { onDismiss(error) }
-            }
+        }
+        .foregroundColor(presentation.isFailure ? .orange.opacity(0.9) : .secondary)
+        .help(failure ?? "")
+        .cloudErrorCopyMenu(failure)
+        if let failure {
+            CloudBannerDismissButton { onDismiss(failure) }
         }
     }
 
