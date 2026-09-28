@@ -10,7 +10,12 @@ public struct WindowRecordingLabel: Sendable, Equatable {
 
     public let value: String
 
-    public init(_ input: String) {
+    /// - Parameters:
+    ///   - input: the caller's label, which may be empty or unusable.
+    ///   - fallback: what a label that sanitizes away entirely becomes, so a
+    ///     still is not filed under the word "recording". An empty input still
+    ///     gives an empty label: the naming helper leaves that component out.
+    public init(_ input: String, fallback: String = "recording") {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             value = ""
@@ -26,7 +31,7 @@ public struct WindowRecordingLabel: Sendable, Equatable {
         let cleaned = String(scalars)
             .trimmingCharacters(in: CharacterSet(charactersIn: "-_."))
         guard !cleaned.isEmpty else {
-            value = "recording"
+            value = fallback
             return
         }
 

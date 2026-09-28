@@ -143,33 +143,53 @@ public struct WindowRecordingRequest: Equatable, Sendable {
     /// Absent keys take the format's defaults, so `{}` is a complete request:
     /// a 15 second mp4 of the selected window.
     public static func make(params: [String: Any]) throws -> WindowRecordingRequest {
+        // The format is decoded first and outside the translating `do`, because
+        // two of this type's failures name the format the path was checked
+        // against, so there is no honest message to build without it.
         let format = try decodeFormat(params["format"])
-        let framesPerSecond = try decodeInt(
+        do {
+            return try makeDecoded(params: params, format: format)
+        } catch let failure as WindowCaptureValueFailure {
+            throw Failure(failure, format: format)
+        }
+    }
+
+    private static func makeDecoded(
+        params: [String: Any],
+        format: Format
+    ) throws -> WindowRecordingRequest {
+        let framesPerSecond = try WindowCaptureValueDecoding.int(
             params["fps"],
             field: "fps",
             range: WindowRecordingLimits.framesPerSecond
         )
-        let maximumSeconds = try decodeDouble(
+        let maximumSeconds = try WindowCaptureValueDecoding.double(
             params["max_seconds"],
             field: "max_seconds",
             range: WindowRecordingLimits.seconds
         )
-        let scale = try decodeDouble(
+        let scale = try WindowCaptureValueDecoding.double(
             params["scale"],
             field: "scale",
             range: WindowRecordingLimits.scale
         )
-        let maximumWidth = try decodeInt(
+        let maximumWidth = try WindowCaptureValueDecoding.int(
             params["max_width"],
             field: "max_width",
             range: WindowRecordingLimits.maximumWidth
         )
-        let target = try decodeTarget(params["region"])
-        let outputPath = try decodeOutputPath(params["out"], format: format)
+        let region = try WindowCaptureValueDecoding.region(
+            params["region"],
+            minimumExtent: WindowRecordingLimits.minimumRegionExtent
+        )
+        let outputPath = try WindowCaptureValueDecoding.outputPath(
+            params["out"],
+            extensions: [format.rawValue]
+        )
 
         return WindowRecordingRequest(
-            target: target,
-            windowHandle: (params["window"] as? String)?.trimmedNonEmpty,
+            target: region.map { Target.region($0) } ?? .window,
+            windowHandle: WindowCaptureValueDecoding.trimmedNonEmpty(params["window"]),
             format: format,
             framesPerSecond: framesPerSecond,
             maximumSeconds: maximumSeconds ?? 15,
@@ -177,126 +197,37 @@ public struct WindowRecordingRequest: Equatable, Sendable {
             maximumWidth: maximumWidth.map { Optional($0) },
             label: WindowRecordingLabel(params["label"] as? String ?? "").value,
             outputPath: outputPath,
-            drawsCaptions: decodeBool(params["captions"]) ?? true
+            drawsCaptions: WindowCaptureValueDecoding.bool(params["captions"]) ?? true
         )
     }
 
     private static func decodeFormat(_ value: Any?) throws -> Format {
-        guard let raw = (value as? String)?.trimmedNonEmpty else { return .mp4 }
+        guard let raw = WindowCaptureValueDecoding.trimmedNonEmpty(value) else { return .mp4 }
         guard let format = Format(rawValue: raw.lowercased()) else {
             throw Failure.unknownFormat(raw)
         }
         return format
     }
-
-    private static func decodeTarget(_ value: Any?) throws -> Target {
-        guard let value else { return .window }
-        let region: WindowRecordingRegion
-        if let text = value as? String {
-            guard let parsed = WindowRecordingRegion(commaSeparated: text) else {
-                throw Failure.malformedRegion(text)
-            }
-            region = parsed
-        } else if let numbers = value as? [Any] {
-            let doubles = numbers.compactMap { numericValue($0) }
-            guard doubles.count == 4 else {
-                throw Failure.malformedRegion(String(describing: value))
-            }
-            region = WindowRecordingRegion(
-                x: doubles[0],
-                y: doubles[1],
-                width: doubles[2],
-                height: doubles[3]
-            )
-        } else {
-            throw Failure.malformedRegion(String(describing: value))
-        }
-        guard region.isFinite else {
-            throw Failure.malformedRegion(String(describing: value))
-        }
-        guard region.width >= WindowRecordingLimits.minimumRegionExtent,
-              region.height >= WindowRecordingLimits.minimumRegionExtent else {
-            throw Failure.regionTooSmall
-        }
-        return .region(region)
-    }
-
-    private static func decodeOutputPath(_ value: Any?, format: Format) throws -> String? {
-        guard let path = (value as? String)?.trimmedNonEmpty else { return nil }
-        guard path.hasPrefix("/") else {
-            throw Failure.outputPathNotAbsolute(path)
-        }
-        guard path.lowercased().hasSuffix(".\(format.rawValue)") else {
-            throw Failure.outputExtensionMismatch(path: path, format: format)
-        }
-        return path
-    }
-
-    private static func decodeInt(
-        _ value: Any?,
-        field: String,
-        range: ClosedRange<Int>
-    ) throws -> Int? {
-        guard let value else { return nil }
-        guard let number = numericValue(value), number.isFinite else {
-            throw Failure.notANumber(field: field)
-        }
-        // `Int(exactly:)` rather than `Int(_:)`: converting a value past Int's
-        // range traps, and "--fps 1e30" is something a caller can type.
-        guard let rounded = Int(exactly: number.rounded()), range.contains(rounded) else {
-            throw Failure.outOfRange(
-                field: field,
-                message: "must be between \(range.lowerBound) and \(range.upperBound)"
-            )
-        }
-        return rounded
-    }
-
-    private static func decodeDouble(
-        _ value: Any?,
-        field: String,
-        range: ClosedRange<Double>
-    ) throws -> Double? {
-        guard let value else { return nil }
-        guard let number = numericValue(value), number.isFinite else {
-            throw Failure.notANumber(field: field)
-        }
-        guard range.contains(number) else {
-            throw Failure.outOfRange(
-                field: field,
-                message: "must be between \(Self.trim(range.lowerBound)) and \(Self.trim(range.upperBound))"
-            )
-        }
-        return number
-    }
-
-    private static func decodeBool(_ value: Any?) -> Bool? {
-        if let flag = value as? Bool { return flag }
-        guard let text = (value as? String)?.trimmedNonEmpty?.lowercased() else { return nil }
-        switch text {
-        case "true", "yes", "1": return true
-        case "false", "no", "0": return false
-        default: return nil
-        }
-    }
-
-    private static func numericValue(_ value: Any) -> Double? {
-        if let number = value as? Double { return number }
-        if let number = value as? Int { return Double(number) }
-        if let number = value as? NSNumber { return number.doubleValue }
-        if let text = value as? String { return Double(text.trimmingCharacters(in: .whitespaces)) }
-        return nil
-    }
-
-    private static func trim(_ value: Double) -> String {
-        value == value.rounded() ? String(Int(value)) : String(value)
-    }
 }
 
-private extension String {
-    /// Nil for a blank value, so an empty socket string means "not supplied".
-    var trimmedNonEmpty: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+private extension WindowRecordingRequest.Failure {
+    /// Restates a shared decoding failure in this request's own terms, so the
+    /// messages the socket returns stay the ones `window.record.start` has
+    /// always returned.
+    init(_ failure: WindowCaptureValueFailure, format: WindowRecordingRequest.Format) {
+        switch failure {
+        case let .notANumber(field):
+            self = .notANumber(field: field)
+        case let .outOfRange(field, message):
+            self = .outOfRange(field: field, message: message)
+        case let .malformedRegion(value):
+            self = .malformedRegion(value)
+        case .regionTooSmall:
+            self = .regionTooSmall
+        case let .outputPathNotAbsolute(path):
+            self = .outputPathNotAbsolute(path)
+        case let .outputExtensionMismatch(path):
+            self = .outputExtensionMismatch(path: path, format: format)
+        }
     }
 }

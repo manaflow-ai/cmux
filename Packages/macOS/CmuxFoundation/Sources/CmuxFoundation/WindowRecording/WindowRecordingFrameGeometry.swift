@@ -51,6 +51,45 @@ public struct WindowRecordingFrameGeometry: Equatable, Sendable {
         pointPixelScale: Double,
         request: WindowRecordingRequest
     ) throws -> WindowRecordingFrameGeometry {
+        try plan(
+            windowPixelWidth: windowPixelWidth,
+            windowPixelHeight: windowPixelHeight,
+            pointPixelScale: pointPixelScale,
+            region: {
+                if case let .region(region) = request.target { return region }
+                return nil
+            }(),
+            scale: request.scale,
+            maximumWidth: request.maximumWidth,
+            widthQuantum: request.format == .mp4 ? 2 : 1
+        )
+    }
+
+    /// Plans the geometry for one captured image.
+    ///
+    /// A still shares this with a recording so that `cmux shot --region` and
+    /// `cmux record --region` crop the same pixels for the same numbers.
+    ///
+    /// - Parameters:
+    ///   - windowPixelWidth: width of the captured window image, in pixels.
+    ///   - windowPixelHeight: height of the captured window image, in pixels.
+    ///   - pointPixelScale: pixels per point of the captured image, so a region
+    ///     given in window points lands on the right pixels on a Retina display.
+    ///   - region: the rectangle to crop to, in window points, or nil for the
+    ///     whole window.
+    ///   - scale: output size as a fraction of the cropped size.
+    ///   - maximumWidth: cap on the output width in pixels, applied after `scale`.
+    ///   - widthQuantum: the multiple both output dimensions are rounded down to.
+    ///     H.264 wants 2; a still or a gif wants 1.
+    public static func plan(
+        windowPixelWidth: Int,
+        windowPixelHeight: Int,
+        pointPixelScale: Double,
+        region: WindowRecordingRegion?,
+        scale: Double,
+        maximumWidth: Int?,
+        widthQuantum: Int
+    ) throws -> WindowRecordingFrameGeometry {
         guard windowPixelWidth > 0, windowPixelHeight > 0 else {
             throw Failure.emptyWindow
         }
@@ -61,7 +100,7 @@ public struct WindowRecordingFrameGeometry: Equatable, Sendable {
         var cropWidth = windowPixelWidth
         var cropHeight = windowPixelHeight
 
-        if case let .region(region) = request.target {
+        if let region {
             let left = Int((region.x * pixelScale).rounded(.down))
             let top = Int((region.y * pixelScale).rounded(.down))
             let right = Int(((region.x + region.width) * pixelScale).rounded(.up))
@@ -75,15 +114,15 @@ public struct WindowRecordingFrameGeometry: Equatable, Sendable {
             }
         }
 
-        var outputWidth = Double(cropWidth) * request.scale
-        var outputHeight = Double(cropHeight) * request.scale
-        if let maximumWidth = request.maximumWidth, outputWidth > Double(maximumWidth) {
+        var outputWidth = Double(cropWidth) * scale
+        var outputHeight = Double(cropHeight) * scale
+        if let maximumWidth, outputWidth > Double(maximumWidth) {
             let shrink = Double(maximumWidth) / outputWidth
             outputWidth *= shrink
             outputHeight *= shrink
         }
 
-        let quantum = request.format == .mp4 ? 2 : 1
+        let quantum = max(1, widthQuantum)
         return WindowRecordingFrameGeometry(
             cropX: cropX,
             cropY: cropY,

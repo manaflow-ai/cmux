@@ -136,4 +136,67 @@ import Testing
         #expect(continued.outputWidth == opening.outputWidth)
         #expect(continued.outputHeight == opening.outputHeight)
     }
+
+    @Test func aStillAndAClipCropTheSameRegionToTheSamePixels() throws {
+        // `cmux shot --region` and `cmux record --region` share this planner so
+        // the same four numbers cannot mean two rectangles.
+        let region = WindowRecordingRegion(x: 10, y: 20, width: 301, height: 200)
+        let clip = try WindowRecordingFrameGeometry.plan(
+            windowPixelWidth: 2000,
+            windowPixelHeight: 1600,
+            pointPixelScale: 2,
+            request: try WindowRecordingRequest.make(params: [
+                "format": "gif",
+                "region": "10,20,301,200",
+                "scale": 1,
+            ])
+        )
+        let still = try WindowRecordingFrameGeometry.plan(
+            windowPixelWidth: 2000,
+            windowPixelHeight: 1600,
+            pointPixelScale: 2,
+            region: region,
+            scale: 1,
+            maximumWidth: nil,
+            widthQuantum: 1
+        )
+
+        #expect(still.cropX == clip.cropX)
+        #expect(still.cropY == clip.cropY)
+        #expect(still.cropWidth == clip.cropWidth)
+        #expect(still.cropHeight == clip.cropHeight)
+    }
+
+    @Test func anOddWidthSurvivesAStillButNotAnMP4Frame() throws {
+        // H.264 wants even dimensions and a still does not, which is the only
+        // thing the quantum changes.
+        func width(quantum: Int) throws -> Int {
+            try WindowRecordingFrameGeometry.plan(
+                windowPixelWidth: 1001,
+                windowPixelHeight: 800,
+                pointPixelScale: 1,
+                region: nil,
+                scale: 1,
+                maximumWidth: nil,
+                widthQuantum: quantum
+            ).outputWidth
+        }
+
+        #expect(try width(quantum: 1) == 1001)
+        #expect(try width(quantum: 2) == 1000)
+    }
+
+    @Test func aNonsenseQuantumIsTreatedAsOne() throws {
+        let geometry = try WindowRecordingFrameGeometry.plan(
+            windowPixelWidth: 1001,
+            windowPixelHeight: 800,
+            pointPixelScale: 1,
+            region: nil,
+            scale: 1,
+            maximumWidth: nil,
+            widthQuantum: 0
+        )
+
+        #expect(geometry.outputWidth == 1001)
+    }
 }

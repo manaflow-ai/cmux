@@ -45,4 +45,17 @@ import Testing
         #expect(!filename.contains("/"))
         #expect(filename == "etc-passwd_id.mp4")
     }
+
+    @Test func aStillIsNamedTheSameWayUnderTheScreenshotDirectory() {
+        let filename = WindowRecordingOutputNaming.filename(
+            label: "settings sheet",
+            identifier: "2026-09-28T07-14-03Z_1a2b3c4d",
+            fileExtension: "jpg"
+        )
+
+        #expect(filename == "settings-sheet_2026-09-28T07-14-03Z_1a2b3c4d.jpg")
+        // Stills keep the directory the DEBUG screenshot command has always
+        // used, so anything already collecting cmux screenshots finds these.
+        #expect(WindowRecordingOutputNaming.screenshotDirectoryName == "cmux-screenshots")
+    }
 }
