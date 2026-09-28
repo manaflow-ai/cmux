@@ -155,9 +155,9 @@ struct TerminalSharingDisplay {
         }
     }
 
-    /// The bonsplit tab accessory model, or `nil` when nobody else is attached.
+    /// The bonsplit tab accessory model, or `nil` when nobody else is attached and this view matches the grid.
     func tabPresence() -> TabPresence? {
-        guard snapshot.isShared else { return nil }
+        guard snapshot.showsSizingChrome else { return nil }
         let owners = Set(state.owners)
         let participants = state.participants.map { row in
             TabPresence.Participant(

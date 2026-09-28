@@ -49,6 +49,10 @@ public struct TerminalSharingSnapshot: Hashable, Sendable {
     /// Whether anyone else views the terminal, which is when sharing UI appears.
     public var isShared: Bool { !otherParticipantIDs.isEmpty || detachment != nil }
 
+    /// Whether this view draws the grid bounds and the tab accessory: someone
+    /// else is attached, or this view does not show exactly the grid.
+    public var showsSizingChrome: Bool { isShared || !selfMatchesGrid }
+
     /// The participant that owns the grid, when exactly one does.
     public var owner: TerminalSizingParticipantState? { state.soleOwner }
 }

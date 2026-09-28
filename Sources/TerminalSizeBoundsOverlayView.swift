@@ -48,14 +48,14 @@ final class TerminalSizeBoundsOverlayView: NSView {
     override var acceptsFirstResponder: Bool { false }
 
     /// Whether a snapshot is shown; the legacy phone border hides while it is.
-    var isPresentingSharing: Bool { snapshot?.isShared == true }
+    var isPresentingSharing: Bool { snapshot?.showsSizingChrome == true }
 
     func update(snapshot: TerminalSharingSnapshot?) {
         let previous = self.snapshot
         self.snapshot = snapshot
         updateDetachedCard()
         noteChange(previous: previous)
-        isHidden = !(snapshot?.isShared ?? false)
+        isHidden = !(snapshot?.showsSizingChrome ?? false)
         needsDisplay = true
     }
 
@@ -68,7 +68,7 @@ final class TerminalSizeBoundsOverlayView: NSView {
     // MARK: Change feedback
 
     private func noteChange(previous: TerminalSharingSnapshot?) {
-        guard let snapshot, snapshot.isShared else {
+        guard let snapshot, snapshot.showsSizingChrome else {
             lastChangeKey = nil
             return
         }
@@ -173,7 +173,7 @@ final class TerminalSizeBoundsOverlayView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         chipRect = .zero
-        guard let snapshot, snapshot.isShared, snapshot.detachment == nil,
+        guard let snapshot, snapshot.showsSizingChrome, snapshot.detachment == nil,
               let geometry = currentGeometry(for: snapshot) else {
             window?.invalidateCursorRects(for: self)
             return
