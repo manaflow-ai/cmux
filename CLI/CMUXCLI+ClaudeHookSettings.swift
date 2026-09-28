@@ -58,6 +58,12 @@ extension CMUXCLI {
                 matcher: "PushNotification",
                 subcommand: "push-notification"
             ),
+            // Closes the call PreToolUse opened, so the app can tell a running
+            // tool from a finished one. The app records it at admission and
+            // starts no hook process for it.
+            Self.claudeQueuedHookGroup(
+                subcommand: "post-tool-use"
+            ),
         ]
         hooks["PermissionRequest"] = [
             Self.claudeHookGroup(

@@ -222,3 +222,27 @@ struct AgentForegroundCommandTests {
         #expect(long?.count == AgentForegroundCommand.maximumLength)
     }
 }
+
+@Suite("Agent pane placement")
+struct AgentPanePlacementTests {
+    @Test("only local panes stop with the app")
+    func survivesAppRelaunch() {
+        #expect(!AgentPanePlacement.local.survivesAppRelaunch)
+        #expect(AgentPanePlacement.ssh(host: "box").survivesAppRelaunch)
+        #expect(AgentPanePlacement.cloud.survivesAppRelaunch)
+        #expect(AgentPanePlacement.ssh(host: "box").kind == "ssh")
+        #expect(AgentPanePlacement.ssh(host: "box").host == "box")
+        #expect(AgentPanePlacement.cloud.host == nil)
+    }
+
+    @Test("the turn start is kept until Stop")
+    func turnStart() {
+        var state = AgentHookActivityState()
+        let start = Date(timeIntervalSince1970: 10)
+        state.apply(.promptSubmit, at: start)
+        state.apply(.preToolUse(id: nil, tool: .init(name: "Bash")), at: start.addingTimeInterval(5))
+        #expect(state.turnStartedAt == start)
+        state.apply(.stop(backgroundWork: false), at: start.addingTimeInterval(9))
+        #expect(state.turnStartedAt == nil)
+    }
+}

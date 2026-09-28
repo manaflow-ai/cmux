@@ -153,6 +153,7 @@ extension TerminalController {
             "vm.tunnel_wait",
             "surface.catalog",
             "current.list",
+            "agent.list",
             "surface.project",
             "surface.new_terminal",
             "aiAccounts.list",

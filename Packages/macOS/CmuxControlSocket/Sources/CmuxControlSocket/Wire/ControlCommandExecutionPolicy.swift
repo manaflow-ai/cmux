@@ -165,6 +165,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "surface.catalog",
         // Current-work captures owners once, then reduces/encodes off-main without refresh.
         "current.list",
+        // Agent activity joins the session registry on the main actor once,
+        // then awaits a process census and encodes off-main.
+        "agent.list",
         "surface.project",
         "surface.new_terminal",
         // SSH-session attach resolves ownership and reads the remote PTY

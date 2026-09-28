@@ -1703,6 +1703,10 @@ class TerminalController {
                     )
                 )
             }
+            AgentHookActivityTracker.shared.record(event)
+            if event.isActivityRecordOnly {
+                return v2Ok(id: request.id, result: ["queued": true])
+            }
             guard agentHookDeliveryQueue.enqueue(event) else {
                 return v2Error(
                     id: request.id,
@@ -2074,6 +2078,8 @@ class TerminalController {
 #endif
         case "current.list":
             return socketWorkerCurrentWorkResponse(id: request.id, params: request.params)
+        case "agent.list":
+            return socketWorkerAgentListResponse(id: request.id, params: request.params)
         case "surface.catalog", "surface.project", "surface.new_terminal":
             return socketWorkerSurfaceResponse(method: request.method, id: request.id, params: request.params)
         case let method where method.hasPrefix("vm."):

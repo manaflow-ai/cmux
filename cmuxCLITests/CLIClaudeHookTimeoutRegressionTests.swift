@@ -161,6 +161,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
             ("UserPromptSubmit", "prompt-submit"),
             ("PreToolUse", "pre-tool-use"),
             ("PostToolUse", "push-notification"),
+            ("PostToolUse", "post-tool-use"),
         ]
         for (event, subcommand) in queuedHooks {
             try expectQueuedHook(hooks, event: event, subcommand: subcommand)

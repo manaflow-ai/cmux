@@ -38,6 +38,8 @@ public struct AgentHookActivityState: Sendable, Equatable {
     public private(set) var ended = false
     /// When the latest transition happened.
     public private(set) var since: Date?
+    /// When the running turn's prompt was submitted; nil between turns.
+    public private(set) var turnStartedAt: Date?
     private var openTools: [OpenTool] = []
 
     public init() {}
@@ -57,6 +59,7 @@ public struct AgentHookActivityState: Sendable, Equatable {
             since = date
         case .promptSubmit:
             turnActive = true
+            turnStartedAt = date
             lastToolFinished = false
             backgroundWork = false
             awaitingInput = false
@@ -90,6 +93,7 @@ public struct AgentHookActivityState: Sendable, Equatable {
             }
         case .stop(let background):
             turnActive = false
+            turnStartedAt = nil
             lastToolFinished = false
             pendingQuestion = false
             awaitingInput = false
@@ -108,6 +112,11 @@ public struct AgentHookActivityState: Sendable, Equatable {
 }
 
 extension AgentHookActivityState.Event {
+    /// The hook subcommands that carry an activity fact.
+    public static let subcommands: Set<String> = [
+        "session-start", "prompt-submit", "pre-tool-use", "post-tool-use", "stop", "notification", "session-end",
+    ]
+
     /// Longest command or summary kept for an open tool.
     public static let maximumCommandLength = 200
 
@@ -116,7 +125,8 @@ extension AgentHookActivityState.Event {
     /// - Returns: The event and the hook's session id, or nil when the
     ///   subcommand carries no activity fact or the payload is not a JSON object.
     public static func parse(subcommand: String, payload: Data) -> (event: Self, sessionID: String?)? {
-        guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else {
+        guard subcommands.contains(subcommand),
+              let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else {
             return nil
         }
         let sessionID = string(object, ["session_id", "sessionId"])

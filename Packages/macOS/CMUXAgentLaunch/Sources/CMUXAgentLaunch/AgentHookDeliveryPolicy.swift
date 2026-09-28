@@ -49,7 +49,7 @@ public struct AgentHookDeliveryPolicy: Sendable {
 
     private static let auxiliaryQueuedSubcommands: [String: Set<String>] = [
         "amp": ["title-update", "lifecycle"],
-        "claude": ["pre-tool-use", "push-notification", "feed"],
+        "claude": ["pre-tool-use", "post-tool-use", "push-notification", "feed"],
         "codex": ["pre-tool-use", "post-tool-use"],
         // OMP and Pi run subagents headless inside the parent's process, so a
         // child has no live bound process of its own. These lifecycle-only
