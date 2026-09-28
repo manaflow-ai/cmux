@@ -31,7 +31,7 @@ test-without-building on admission's uploaded product, as it does on
 Blacksmith (about 350 s against 240 to 400 s), so waiting for a mini buys
 nothing. When the picker owned some of this run's gui-token jobs and the gui
 runners idle now cannot take them all, this counts the gui-label jobs already
-queued (gui_backlog(): the jobs of in-flight CI runs, newest runs first,
+queued (gui_backlog(): the jobs of in-flight CI runs, oldest runs first,
 stopping once the answer cannot change). The run keeps on the gui label only
 the jobs that start within GUI_QUEUE_ROUNDS gui job lengths (the idle runners
 plus that many rounds of the online ones, less the backlog), and gives the
@@ -110,7 +110,8 @@ def place(jobs: Sequence[str], *, owned_jobs: str, idle: int, root: str, gui: bo
 
 
 def gui_backlog(github: Any, label: str, *, exclude_run_id: int | None, enough: int, now: dt.datetime) -> int:
-    """Jobs queued on `label` in the CI runs still in flight, stopping at `enough` (one request per run).
+    """Jobs queued on `label` in the CI runs still in flight (one request per run), read BACKLOG_READERS runs
+    at a time and stopping after the batch that reaches `enough`, so the count may pass it.
 
     GitHub lists a run as `queued` while any of its jobs is, even with others
     running, so both `queued` and `in_progress` runs are read. Oldest first,
