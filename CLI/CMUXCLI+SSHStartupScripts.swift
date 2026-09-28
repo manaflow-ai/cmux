@@ -323,18 +323,24 @@ extension CMUXCLI {
             "CMUX_SSH_SESSION_ENDED=0",
             "CMUX_SSH_STARTUP_PID=$$",
             "export CMUX_SSH_STARTUP_PID",
-        ] + reconnectConfiguration + [
+        ]
+        scriptLines += reconnectConfiguration
+        scriptLines += [
             "cmux_ssh_retry=0",
             "cmux_ssh_auth_retry_limit=\(authRetryPolicy.maximumConsecutiveTransientFailures); cmux_ssh_auth_retry=0",
             "cmux_ssh_auth_succeeded=0",
             // Initial transient foreground-auth failures are a reconnect phase, so boot-time outages share this loop.
             "cmux_ssh_reauth_required=\(hasOneTimeCommand ? 1 : 0)",
             "CMUX_SSH_CHILD_PID=; CMUX_SSH_AUTH_PID=; CMUX_SSH_PENDING_SIGNAL=; CMUX_SSH_PENDING_SIGNAL_NAME=",
-        ] + backoffBuilder.stateInitializationLines + [
+        ]
+        scriptLines += backoffBuilder.stateInitializationLines
+        scriptLines += [
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
             "cmux_ssh_reset_terminal_modes() { if [ -t 2 ]; then printf \(terminalModeReset) >&2 || true; fi; }",
             "cmux_ssh_register_attempt() { \(lifecycleLaunching); }",
-        ] + SSHPTYAttachRetryScriptBuilder().launchRegistrationRetryLines(functionPrefix: "cmux_ssh") + [
+        ]
+        scriptLines += SSHPTYAttachRetryScriptBuilder().launchRegistrationRetryLines(functionPrefix: "cmux_ssh")
+        scriptLines += [
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_cleanup_password; \(lifecycleCleanup); }",
             "cmux_ssh_retire_for_signal() { cmux_ssh_signal_status=\"$1\"; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_cleanup_password; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
             "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; cmux_ssh_signal_name=\"$2\"; if [ -n \"${CMUX_SSH_AUTH_PID:-}\" ]; then cmux_ssh_terminate_auth_process_tree \"$CMUX_SSH_AUTH_PID\" \"$CMUX_SSH_STARTUP_PID\"; wait \"$CMUX_SSH_AUTH_PID\" 2>/dev/null || true; CMUX_SSH_AUTH_PID=; \(backoffBuilder.signalHandlerBranches) elif [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; CMUX_SSH_PENDING_SIGNAL_NAME=\"$cmux_ssh_signal_name\"; return; fi; cmux_ssh_retire_for_signal \"$cmux_ssh_signal_status\"; }",
