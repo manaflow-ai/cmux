@@ -10,12 +10,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef struct {
-  uint16_t row;
-  uint16_t start_column;
-  uint16_t end_column;
-} ghostty_external_hover_cell_range_s;
-
 bool ghostty_surface_read_text_physical_rows(
     ghostty_surface_t,
     ghostty_selection_s,
