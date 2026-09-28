@@ -95,7 +95,7 @@ final class MachineDeleteCoordinator {
     }
 
     /// Stops the machine's creates, then closes its local workspaces and
-    /// URL-backed panes.
+    /// URL-backed panes, and refreshes socket reads.
     ///
     /// Creates stop first: closing a workspace cancels its create, and a create
     /// cancelled that way destroys the machine it names, even after this delete fails.
@@ -106,18 +106,21 @@ final class MachineDeleteCoordinator {
     ///     the shared create owner.
     ///   - closeWorkspaces: Closes the machine's local workspaces whole.
     ///   - closePanes: Closes the machine's URL-backed panes.
-    ///   - republishSocketReads: Refreshes what socket reads answer.
+    ///   - republishSocketReads: Refreshes what socket reads answer. Closing a
+    ///     background workspace posts no topology notification, and the `vm.destroy`
+    ///     call that began the delete refreshes them only once its request returns.
     static func detachLocalPresentations(
         of machineID: String,
         workspaceIDs: @MainActor (String) -> Set<UUID> = { AppDelegate.shared?.localWorkspaceIDs(forCloudVMID: $0) ?? [] },
         creates: MachineCreateCoordinator? = nil,
         closeWorkspaces: @MainActor (String) -> Void = { AppDelegate.shared?.closeLocalWorkspaces(forCloudVMID: $0) },
         closePanes: @MainActor (String) -> Void = { SurfaceCatalog.shared.closeURLBackedPanes(on: .cloud($0)) },
-        republishSocketReads: @MainActor () -> Void = {}
+        republishSocketReads: @MainActor () -> Void = { TerminalController.shared.externalTopologyDidChange() }
     ) {
         (creates ?? .shared).machineDeletionBegan(machineID, presentedIn: workspaceIDs(machineID))
         closeWorkspaces(machineID)
         closePanes(machineID)
+        republishSocketReads()
     }
 
     /// Destroys the machine for the `vm.destroy` socket method, which every
