@@ -1,6 +1,16 @@
 import Foundation
 
 extension Array where Element == CuratedSettingEntry {
+    /// `leading`, then ``browserMemorySaverEntries``, then `trailing`. Like
+    /// ``appendingDevicesEntries(to:)``, a call rather than `+` keeps the
+    /// contextual type of ``cmuxDefault(catalog:)``'s large literals concrete.
+    static func insertingBrowserMemorySaverEntries(
+        between leading: [CuratedSettingEntry],
+        and trailing: [CuratedSettingEntry]
+    ) -> [CuratedSettingEntry] {
+        leading + browserMemorySaverEntries + trailing
+    }
+
     /// Search entries for the Browser Memory Saver rows in Settings > Browser
     /// (`BrowserMemorySaverSettingsRows`), in row order.
     static var browserMemorySaverEntries: [CuratedSettingEntry] {

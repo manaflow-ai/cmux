@@ -17,7 +17,7 @@ extension Array where Element == CuratedSettingEntry {
     /// a different set of entries pass their own array via
     /// ``SettingsSearchIndex/init(catalog:curatedEntries:)``.
     public static func cmuxDefault(catalog: SettingCatalog) -> [CuratedSettingEntry] {
-        appendingDevicesEntries(to: [
+        appendingDevicesEntries(to: insertingBrowserMemorySaverEntries(between: [
             // Account / integrations
             .init(section: .account, id: "account", title: String(localized: "settings.section.account", defaultValue: "Account"), synonyms: "Account auth authentication login logout signin sign-in signout sign-out email user profile stack team"),
             .init(section: .automation, id: "claude-code", title: String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), synonyms: "Claude Code Integration automation.claudeCodeIntegration claude code hooks agent integration status notifications"),
@@ -452,7 +452,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .browser, id: "search-engine", title: String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"), synonyms: "Default Search Engine browser.defaultSearchEngine omnibar address bar google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider engine name url template"),
             .init(section: .browser, id: "search-suggestions", title: String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions"), synonyms: "Show Search Suggestions browser.showSearchSuggestions suggest autocomplete address bar search suggestions"),
             .init(section: .browser, id: "theme", title: String(localized: "settings.browser.theme", defaultValue: "Browser Theme"), synonyms: "Browser Theme browser.theme web page theme color scheme light dark system"),
-        ] + browserMemorySaverEntries + [
+        ], and: [
             .init(
                 section: .browser,
                 id: "ask-where-to-save-downloads",
@@ -518,7 +518,7 @@ extension Array where Element == CuratedSettingEntry {
 
             // Reset
             .init(section: .reset, id: "reset-all", title: String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), synonyms: "Reset All Settings factory reset restore defaults clear preferences"),
-        ]) + terminalGhosttyOptionEntries
+        ])) + terminalGhosttyOptionEntries
     }
 
     private static var keyboardShortcutActionSynonyms: String {
