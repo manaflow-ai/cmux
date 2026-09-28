@@ -103,6 +103,14 @@ its retry_runs_on, the Blacksmith pool. A job asking for a capability label no
 idle mini carries waits like any other queued owned job, so it is moved after
 the same budget.
 
+Dispatches of iroh-release-gate.yml are watched the same way. Its `runner`
+job runs e2e_runner_pool.py for the Tailscale version-skew job alone, and
+only takes an owned pool with a machine free now (no queue rounds), so that
+job rarely waits. Its simulator-e2e jobs stay on Blacksmith, but they run in
+the same run: a stuck owned job's rescue cancels them with it, and a refused
+one's waits for them until the watch ends. The re-run of failed and
+cancelled jobs keeps the modes that passed and puts everything on Blacksmith.
+
 Side-lane workflows (SIDE_WORKFLOW_PATHS) have no picker. On attempt 1 of a
 trusted run (a same-repository pull request, or a push, schedule or
 workflow_dispatch, whose code is this repository's own branch; see
@@ -204,16 +212,18 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pr_runner_pool import MAX_QUEUE_ROUNDS, parse_queue_rounds, persistent  # noqa: E402
+from pr_runner_pool import MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, parse_queue_rounds, persistent  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 E2E_WORKFLOW_PATH = ".github/workflows/test-e2e.yml"
 IOS_TEST_WORKFLOW_PATH = ".github/workflows/test-ios.yml"
 IOS_SCREENSHOTS_WORKFLOW_PATH = ".github/workflows/ios-screenshots.yml"
+IROH_RELEASE_GATE_WORKFLOW_PATH = ".github/workflows/iroh-release-gate.yml"
 # workflow_dispatch runs watched like an E2E run: each has a `runner` job that
 # picks the pool and uploads the marker.
-DISPATCH_WORKFLOW_PATHS = (E2E_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, IOS_SCREENSHOTS_WORKFLOW_PATH)
+DISPATCH_WORKFLOW_PATHS = (E2E_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, IOS_SCREENSHOTS_WORKFLOW_PATH,
+                           IROH_RELEASE_GATE_WORKFLOW_PATH)
 # Workflows whose picker may queue a run's jobs on an owned pool within
 # CI_PR_POOL_QUEUE_ROUNDS (ios_runner_pool.py and e2e_runner_pool.py read it
 # since run 36136190497).
@@ -262,7 +272,7 @@ END_MARGIN_SECONDS = 60
 # One round of queue on an owned pool: the longest job a queued job commonly
 # waits behind, compile admission. Over 80 pull request runs on 2026-09-25 it
 # took a median 638 s on the minis (p90 745 s) and a p90 893 s on Blacksmith.
-QUEUE_ROUND_SECONDS = 900
+QUEUE_ROUND_SECONDS = QUEUE_ROUND_MINUTES * 60
 FIRST_LOOK_SECONDS = 45
 POLL_SECONDS = 20
 IDLE_POLL_SECONDS = 120
