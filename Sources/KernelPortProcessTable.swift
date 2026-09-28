@@ -20,9 +20,10 @@ import Foundation
 /// incomplete.
 ///
 /// Each call blocks its cooperative thread for the length of one enumeration,
-/// a few milliseconds even on a busy machine. Scans never overlap and one scan
-/// makes at most two of these calls at once, so they run inline rather than on
-/// a dedicated queue.
+/// a few milliseconds even on a busy machine. A panel scan makes up to four
+/// enumerations and can overlap one agent scan, so at most a handful run at
+/// once, briefly; that is still far cheaper than forking `ps`, so they run
+/// inline rather than on a dedicated queue, like the listening-port lookup.
 ///
 /// ```swift
 /// let table = KernelPortProcessTable()

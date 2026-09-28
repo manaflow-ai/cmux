@@ -21,7 +21,18 @@ public struct DarwinProcessListing: Sendable {
     /// `sysctl` for live processes it may not inspect. Callers that only care
     /// about live processes, such as a port scan that joins PIDs to terminals or
     /// parents, can treat a missing PID as gone and check this property instead.
-    /// It is also `true` when the PID list could not be read at all. Defaults to
-    /// `false` so hand-built listings keep their memberwise initializer.
-    public var isTruncated: Bool = false
+    /// It is also `true` when the PID list could not be read at all.
+    public let isTruncated: Bool
+
+    init(
+        processes: [proc_bsdinfo],
+        isComplete: Bool,
+        missingProcessCount: Int,
+        isTruncated: Bool = false
+    ) {
+        self.processes = processes
+        self.isComplete = isComplete
+        self.missingProcessCount = missingProcessCount
+        self.isTruncated = isTruncated
+    }
 }
