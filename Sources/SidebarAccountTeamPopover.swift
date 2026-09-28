@@ -188,8 +188,14 @@ struct SidebarFooterMenuButton: View {
             menu.addSidebarFooterSeparator()
         }
 
+        // Capture the binding rather than this view. The anchor keeps the menu
+        // alive and `@State` keeps the anchor alive, so a handler that captured
+        // `self` would close a cycle through the state's storage and hold the
+        // menu, its hosting-view header and the rest of what it captures for
+        // good. A binding refers to that storage, not to the view.
+        let shortcutsPresented = $isShortcutsPopoverPresented
         SidebarHelpMenuItems.addApp(to: menu) {
-            isShortcutsPopoverPresented = true
+            shortcutsPresented.wrappedValue = true
         }
         menu.addSidebarFooterSeparator()
         SidebarHelpMenuItems.addHelp(to: menu, onSendFeedback: onSendFeedback)
@@ -216,13 +222,16 @@ struct SidebarFooterMenuButton: View {
 
         if identity != nil {
             menu.addSidebarFooterSeparator()
-            menu.addSidebarFooterItem(
+            let signOut = menu.addSidebarFooterItem(
                 String(localized: "settings.account.signOut", defaultValue: "Sign Out"),
                 identifier: "SidebarAccountSignOutButton",
                 symbol: "rectangle.portrait.and.arrow.right"
             ) {
                 Task { await flow?.signOut() }
             }
+            // The popover this replaces disabled itself while auth was in
+            // flight, which covered Sign Out as well as Sign In.
+            signOut.isEnabled = flow?.isWorkingOnAuth != true
         }
         return menu
     }

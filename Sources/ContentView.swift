@@ -15535,8 +15535,17 @@ struct SidebarFooterButtons: View {
             // while the experimental Extensions feature is enabled.
             if shows(.extensions), extensionsExperimentalEnabled {
                 Button {
+                    // Every candidate of the ViewThatFits above builds this row,
+                    // so all three write the one anchor below and the last one
+                    // wins. Only the row actually on screen has a window, so an
+                    // anchor without one belongs to a candidate that is not
+                    // displayed and would place the popover away from the
+                    // button. Nil falls back to the unanchored path.
+                    let anchor = extensionBrowserAnchorView?.window == nil
+                        ? nil
+                        : extensionBrowserAnchorView
                     _ = AppDelegate.shared?.openSidebarExtensionBrowser(
-                        from: extensionBrowserAnchorView,
+                        from: anchor,
                         title: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
                     )
                 } label: {
