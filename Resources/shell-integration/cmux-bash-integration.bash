@@ -864,6 +864,35 @@ _cmux_clear_pr_for_panel() {
     _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
+_cmux_halt_pr_poll_loop() {
+    # Bash no longer starts a PR poll loop, but clear any legacy process and
+    # force signal left by an older sourced integration before the opt-out.
+    local poll_pid="${_CMUX_PR_POLL_PID:-}"
+    if [[ "$poll_pid" =~ ^[0-9]+$ && "$poll_pid" != "0" ]]; then
+        kill -KILL -- "-$poll_pid" >/dev/null 2>&1 || true
+        kill -KILL "$poll_pid" >/dev/null 2>&1 || true
+    fi
+    local signal_path=""
+    [[ -n "${CMUX_PANEL_ID:-}" ]] && signal_path="/tmp/cmux-pr-force-${CMUX_PANEL_ID}"
+    [[ -n "$signal_path" && -e "$signal_path" ]] && /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
+    _CMUX_PR_POLL_PID=""
+    _CMUX_PR_POLL_PWD=""
+}
+
+_cmux_pr_cache_clear() {
+    [[ -n "${CMUX_PANEL_ID:-}" ]] || return 0
+    local prefix="/tmp/cmux-pr-cache-${CMUX_PANEL_ID}"
+    local cache_file
+    for cache_file in \
+        "${prefix}.branch" \
+        "${prefix}.repo" \
+        "${prefix}.result" \
+        "${prefix}.timestamp" \
+        "${prefix}.no-pr-branch"; do
+        [[ -e "$cache_file" || -L "$cache_file" ]] && /bin/rm -f -- "$cache_file" >/dev/null 2>&1 || true
+    done
+}
+
 _cmux_clear_pr_command_hint_file() {
     [[ -n "${_CMUX_PR_ACTION_HINT_FILE:-}" ]] || return 0
     # Called from every prompt and command; only spawn rm when there is a file.
@@ -1223,6 +1252,8 @@ _cmux_prompt_command() {
     # Track .git/HEAD content so we can restart stale probes immediately.
     local git_head_changed=0
     if [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]]; then
+        _cmux_halt_pr_poll_loop
+        _cmux_pr_cache_clear
         if [[ -n "$_CMUX_GIT_JOB_PID" ]] && kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; then
             kill "$_CMUX_GIT_JOB_PID" >/dev/null 2>&1 || true
         fi

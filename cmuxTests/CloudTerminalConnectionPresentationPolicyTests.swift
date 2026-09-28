@@ -160,7 +160,11 @@ struct CloudTerminalConnectionPresentationPolicyTests {
             "event": "vt-state", "surface": 17, "cols": 80, "rows": 24,
             "data": Data("$ ".utf8).base64EncodedString()
         ])
-        try await Self.waitUntil { session.connectionPresentation == nil && session.phase == .attached }
+        try await Self.waitUntil {
+            session.connectionPresentation == nil
+                && session.phase == .attached
+                && !session.isPresentationEpisodeActive
+        }
         #expect(!session.isPresentationEpisodeActive)
     }
 

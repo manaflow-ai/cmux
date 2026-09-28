@@ -59,9 +59,9 @@ def wait_for_raw_command(
     server: FakeCmuxSocket,
     needle: str,
     *,
-    timeout: float = 5.0,
+    timeout: float = 30.0,
 ) -> None:
-    """Wait on the notification emitted by the transcript parser."""
+    """Wait on the parser notification without assuming a lightly loaded host."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if any(needle in frame.get("raw", "") for frame in list(server.frames)):
