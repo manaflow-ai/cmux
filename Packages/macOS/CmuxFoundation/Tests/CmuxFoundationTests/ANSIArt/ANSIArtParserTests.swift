@@ -1,0 +1,146 @@
+import Foundation
+import Testing
+
+@testable import CmuxFoundation
+
+/// Behavior tests for ``ANSIArtParser``: SGR styling, escape stripping, and the
+/// input caps that keep a hostile or mistaken art file from costing anything.
+@Suite struct ANSIArtParserTests {
+    private let parser = ANSIArtParser()
+    private let esc = "\u{1B}"
+
+    private func runs(_ art: ANSIArt?, line: Int = 0) -> [ANSIArtRun] {
+        art?.lines[line].runs ?? []
+    }
+
+    @Test func plainTextKeepsLinesAndMeasuresTheWidestLine() throws {
+        let art = try #require(parser.parse(" _  _\n| || |\n|_||_|\n"))
+        #expect(art.lines.map(\.text) == [" _  _", "| || |", "|_||_|"])
+        #expect(art.columnCount == 6)
+        #expect(art.lines.allSatisfy { $0.runs.allSatisfy { $0.style == ANSIArtStyle() } })
+    }
+
+    @Test func basicAndBrightForegroundAndBackgroundColors() throws {
+        let art = try #require(parser.parse("\(esc)[31mA\(esc)[92mB\(esc)[44mC\(esc)[103mD\(esc)[39;49mE"))
+        let styles = runs(art).map(\.style)
+        #expect(runs(art).map(\.text) == ["A", "B", "C", "D", "E"])
+        #expect(styles[0].foreground == .indexed(1))
+        #expect(styles[1].foreground == .indexed(10))
+        #expect(styles[2].foreground == .indexed(10))
+        #expect(styles[2].background == .indexed(4))
+        #expect(styles[3].background == .indexed(11))
+        #expect(styles[4] == ANSIArtStyle())
+    }
+
+    @Test func boldDimInverseAndReset() throws {
+        let art = try #require(parser.parse("\(esc)[1;2;7mA\(esc)[22mB\(esc)[27mC\(esc)[1;31mD\(esc)[0mE\(esc)[1mF\(esc)[mG"))
+        let styles = runs(art).map(\.style)
+        #expect(styles[0].isBold && styles[0].isDim && styles[0].isInverse)
+        #expect(!styles[1].isBold && !styles[1].isDim && styles[1].isInverse)
+        #expect(!styles[2].isInverse)
+        #expect(styles[3].isBold && styles[3].foreground == .indexed(1))
+        #expect(styles[4] == ANSIArtStyle())
+        #expect(styles[5].isBold)
+        // `ESC[m` is an empty parameter list, which means reset.
+        #expect(styles[6] == ANSIArtStyle())
+    }
+
+    @Test func extendedColorsUseSemicolonAndColonForms() throws {
+        let art = try #require(parser.parse(
+            "\(esc)[38;5;208mA\(esc)[48;5;17mB\(esc)[38;2;255;128;0mC\(esc)[48;2;1;2;3mD"
+                + "\(esc)[0;38:2::10:20:30mE\(esc)[38:2:40:50:60mF\(esc)[38:5:99mG"
+        ))
+        let styles = runs(art).map(\.style)
+        #expect(styles[0].foreground == .indexed(208))
+        #expect(styles[1].background == .indexed(17))
+        #expect(styles[2].foreground == .rgb(ANSIArtRGB(255, 128, 0)))
+        #expect(styles[3].background == .rgb(ANSIArtRGB(1, 2, 3)))
+        #expect(styles[4].foreground == .rgb(ANSIArtRGB(10, 20, 30)))
+        #expect(styles[4].background == nil)
+        #expect(styles[5].foreground == .rgb(ANSIArtRGB(40, 50, 60)))
+        #expect(styles[6].foreground == .indexed(99))
+    }
+
+    @Test func extendedColorParametersAfterTheColorStillApply() throws {
+        let art = try #require(parser.parse("\(esc)[38;5;1;1;48;2;9;9;9mA"))
+        let style = try #require(runs(art).first?.style)
+        #expect(style.foreground == .indexed(1))
+        #expect(style.isBold)
+        #expect(style.background == .rgb(ANSIArtRGB(9, 9, 9)))
+    }
+
+    @Test func malformedSGRKeepsTheValidPrefixAndDropsTheRest() throws {
+        // Out-of-range and truncated extended colors stop the sequence rather
+        // than guessing; the text stays and earlier parameters still apply.
+        let art = try #require(parser.parse(
+            "\(esc)[1;38;5;300mA\(esc)[0m\(esc)[38;2;1;2mB\(esc)[0m\(esc)[99999999999999999999;31mC\(esc)[0m\(esc)[38mD"
+        ))
+        let parsed = runs(art)
+        #expect(parsed.map(\.text).joined() == "ABCD")
+        #expect(parsed[0].style.isBold)
+        #expect(parsed[0].style.foreground == nil)
+        #expect(parsed.first { $0.text == "B" }?.style == ANSIArtStyle())
+        #expect(parsed.first { $0.text == "C" }?.style.foreground == .indexed(1))
+        #expect(parsed.first { $0.text == "D" }?.style == ANSIArtStyle())
+    }
+
+    @Test func stripsNonSGRSequencesWithoutLeakingTheirText() throws {
+        let input = "\(esc)[?25l\(esc)[2J\(esc)[H\(esc)]0;window title\u{07}"
+            + "\(esc)]8;;https://example.com\(esc)\\A\(esc)]8;;\(esc)\\"
+            + "\(esc)(B\(esc)7B\(esc)[3CC\(esc)[>4;1mD\(esc)P+q544e\(esc)\\E\(esc)[?25h"
+        let art = try #require(parser.parse(input))
+        #expect(art.lines.map(\.text) == ["ABCDE"])
+        // The private-marker `ESC[>4;1m` is not SGR and must not turn bold on.
+        #expect(runs(art).allSatisfy { !$0.style.isBold })
+    }
+
+    @Test func unterminatedSequencesAreDroppedAndLaterLinesSurvive() throws {
+        let art = try #require(parser.parse("A\(esc)[31\nB\(esc)]0;title\(esc)[32mC\(esc)"))
+        #expect(art.lines.map(\.text) == ["A", "BC"])
+        #expect(art.lines[1].runs.last?.style.foreground == .indexed(2))
+    }
+
+    @Test func controlCharactersAreDroppedAndTabsExpand() throws {
+        let art = try #require(parser.parse("a\u{07}b\u{08}\r\n\tc\u{7F}\r\nab\td"))
+        #expect(art.lines.map(\.text) == ["ab", "        c", "ab      d"])
+    }
+
+    @Test func trimsBlankEdgeLinesAndTrailingSpacesButKeepsColoredCells() throws {
+        let art = try #require(parser.parse("\n   \n  x   \n\(esc)[41m  \(esc)[0m   \n\n"))
+        #expect(art.lines.map(\.text) == ["  x", "  "])
+        #expect(art.lines[1].runs.first?.style.background == .indexed(1))
+        #expect(art.columnCount == 3)
+    }
+
+    @Test func emptyOrInvisibleInputHasNoArt() {
+        #expect(parser.parse("") == nil)
+        #expect(parser.parse(" \n\t\n\(esc)[31m\(esc)[0m\n") == nil)
+    }
+
+    @Test func rejectsInputOverTheByteCap() {
+        let small = ANSIArtParser(maxBytes: 8)
+        #expect(small.parse("12345678") != nil)
+        #expect(small.parse("123456789") == nil)
+        #expect(small.parse(data: Data(repeating: 0x41, count: 9)) == nil)
+        #expect(ANSIArtParser.defaultMaxBytes == 64 * 1024)
+    }
+
+    @Test func capsLinesAndColumns() throws {
+        let capped = ANSIArtParser(maxLines: 2, maxColumns: 3)
+        let art = try #require(capped.parse("abcdef\n\(String(repeating: "x", count: 10))\nthird"))
+        #expect(art.lines.map(\.text) == ["abc", "xxx"])
+        #expect(art.columnCount == 3)
+    }
+
+    @Test func decodesInvalidUTF8Lossily() throws {
+        let art = try #require(parser.parse(data: Data([0x41, 0xFF, 0x42])))
+        #expect(art.lines.count == 1)
+        #expect(art.lines[0].text.hasPrefix("A"))
+        #expect(art.lines[0].text.hasSuffix("B"))
+    }
+
+    @Test func adjacentCellsWithTheSameStyleShareARun() throws {
+        let art = try #require(parser.parse("\(esc)[31mab\(esc)[31mcd\(esc)[32me"))
+        #expect(runs(art).map(\.text) == ["abcd", "e"])
+    }
+}
