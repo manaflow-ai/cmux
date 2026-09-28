@@ -35,6 +35,7 @@ extension TerminalPlainTextPasteStartupTests {
                     windowNumber: fixture.window.windowNumber, context: nil,
                     characters: "v", charactersIgnoringModifiers: "v", isARepeat: false, keyCode: 9
                 ))
+                try #require(fixture.window.makeFirstResponder(fixture.view))
                 try #require(fixture.view.performKeyEquivalent(with: event))
             case 1:
                 fixture.view.paste(nil)
