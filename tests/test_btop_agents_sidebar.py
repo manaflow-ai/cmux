@@ -41,6 +41,38 @@ for (const era of [10_000, 1_000, 100]) {{
 
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_expensive_workspace_model_is_capped_before_rendering(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        cap_functions = "function workspaceIsBusy" + source.split(
+            "function workspaceIsBusy", 1
+        )[1].split("const [busyOnly", 1)[0]
+        script = f"""
+const MAX_ROWS = 40;
+const list = (v) => Array.isArray(v) ? v : [];
+const num = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+{cap_functions}
+const workspaces = Array.from({{ length: 1_000 }}, (_, index) => ({{
+  id: `workspace-${{index}}`,
+  selected: index === 999,
+  unread: index % 2,
+  agents: [{{ status: index % 3 === 0 ? "working" : "idle" }}],
+}}));
+for (const onlyBusy of [false, true]) {{
+  const capped = cappedWorkspaces(workspaces, onlyBusy);
+  if (capped.length > MAX_ROWS) throw new Error(`mode ${{onlyBusy}} returned ${{capped.length}} rows`);
+  if (!capped.some((w) => w.selected)) throw new Error(`mode ${{onlyBusy}} lost selection`);
+}}
+"""
+
+        result = subprocess.run(
+            ["node", "-e", script],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
