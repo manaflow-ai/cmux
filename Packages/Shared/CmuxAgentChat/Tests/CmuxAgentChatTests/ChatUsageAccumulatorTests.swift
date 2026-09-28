@@ -11,11 +11,18 @@ import Testing
 /// arithmetic.
 @Suite("ChatUsageAccumulator")
 struct ChatUsageAccumulatorTests {
+    private static let recentResponseLimit = 4_096
+
     // MARK: - Fixtures
 
     private static func json(_ object: [String: Any]) -> String {
         let data = try! JSONSerialization.data(withJSONObject: object)
         return String(decoding: data, as: UTF8.self)
+    }
+
+    private static func saturatedSum(_ lhs: Int, _ rhs: Int) -> Int {
+        let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+        return overflow ? Int.max : sum
     }
 
     /// One Claude assistant line. Every content block of a single response
@@ -76,7 +83,7 @@ struct ChatUsageAccumulatorTests {
                 "cache_write_input_tokens": cacheWrite,
                 "output_tokens": output,
                 "reasoning_output_tokens": reasoning,
-                "total_tokens": input + output,
+                "total_tokens": Self.saturatedSum(input, output),
             ],
         ]
         if !omitResponseID { payload["response_id"] = responseID }
@@ -109,7 +116,7 @@ struct ChatUsageAccumulatorTests {
                 "cache_write_input_tokens": 0,
                 "output_tokens": cumulativeOutput,
                 "reasoning_output_tokens": 0,
-                "total_tokens": cumulativeInput + cumulativeOutput,
+                "total_tokens": Self.saturatedSum(cumulativeInput, cumulativeOutput),
             ],
             "last_token_usage": [
                 "input_tokens": lastInput,
@@ -117,7 +124,7 @@ struct ChatUsageAccumulatorTests {
                 "cache_write_input_tokens": 0,
                 "output_tokens": lastOutput,
                 "reasoning_output_tokens": 0,
-                "total_tokens": lastInput + lastOutput,
+                "total_tokens": Self.saturatedSum(lastInput, lastOutput),
             ],
         ]
         if let contextWindow { info["model_context_window"] = contextWindow }
@@ -488,6 +495,69 @@ struct ChatUsageAccumulatorTests {
         #expect(totals.usageByModel["claude-opus-5"]?.outputTokens == 6_513)
     }
 
+    @Test("bounded Claude identities still upgrade a recent streaming response")
+    func claudeBoundedIdentityWindowPreservesStreamingUpgrade() {
+        var accumulator = ChatUsageAccumulator()
+        for index in 0..<(Self.recentResponseLimit - 1) {
+            accumulator.ingest(claudeLine: claudeLine(
+                uuid: "filler-\(index)",
+                requestID: "request-\(index)",
+                messageID: "message-\(index)",
+                input: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                output: 1
+            ))
+        }
+        accumulator.ingest(claudeLine: claudeLine(
+            uuid: "target-placeholder",
+            requestID: "target-request",
+            messageID: "target-message",
+            input: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            output: 2
+        ))
+        accumulator.ingest(claudeLine: claudeLine(
+            uuid: "overflow",
+            requestID: "overflow-request",
+            messageID: "overflow-message",
+            input: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            output: 1
+        ))
+
+        // The target is recent even though the map is full, so its final
+        // report replaces the placeholder instead of becoming a response.
+        accumulator.ingest(claudeLine: claudeLine(
+            uuid: "target-final",
+            requestID: "target-request",
+            messageID: "target-message",
+            input: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            output: 100
+        ))
+
+        // The oldest filler is outside the retention window and counts as a
+        // new response if it implausibly reappears this far away.
+        accumulator.ingest(claudeLine: claudeLine(
+            uuid: "evicted-repeat",
+            requestID: "request-0",
+            messageID: "message-0",
+            input: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            output: 1
+        ))
+
+        let totals = accumulator.totals
+        #expect(totals.responses == Self.recentResponseLimit + 2)
+        #expect(totals.duplicateReports == 1)
+        #expect(totals.usage.outputTokens == Self.recentResponseLimit + 101)
+    }
+
     @Test("a record before the first turn context counts in the total, not the split")
     func codexRecordBeforeModelKnown() {
         var accumulator = ChatUsageAccumulator()
@@ -531,6 +601,86 @@ struct ChatUsageAccumulatorTests {
         #expect(totals.duplicateReports == 0)
     }
 
+    @Test("multiple cumulative runs become the baseline when records begin")
+    func codexMultiRunCumulativePrefixBecomesRecordBaseline() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexTokenCountLine(
+                cumulativeInput: 100, cumulativeOutput: 0,
+                lastInput: 100, lastOutput: 0
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 30, cumulativeOutput: 0,
+                lastInput: 30, lastOutput: 0
+            ),
+            codexRecordLine(responseID: "record-1", input: 20, cached: 0, output: 0),
+            codexTokenCountLine(
+                cumulativeInput: 50, cumulativeOutput: 0,
+                lastInput: 20, lastOutput: 0
+            ),
+        ])
+
+        let totals = accumulator.totals
+        #expect(accumulator.codexSource == .usageRecords)
+        #expect(totals.responses == 1)
+        #expect(totals.usage.totalTokens == 150)
+    }
+
+    @Test("a cumulative reset after records begin preserves the provisional baseline")
+    func codexCumulativeResetAfterRecordTransition() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexTokenCountLine(
+                cumulativeInput: 100, cumulativeOutput: 0,
+                lastInput: 100, lastOutput: 0
+            ),
+            codexRecordLine(responseID: "record-1", input: 20, cached: 0, output: 0),
+            codexTokenCountLine(
+                cumulativeInput: 120, cumulativeOutput: 0,
+                lastInput: 20, lastOutput: 0
+            ),
+            codexRecordLine(responseID: "record-2", input: 30, cached: 0, output: 0),
+            codexTokenCountLine(
+                cumulativeInput: 30, cumulativeOutput: 0,
+                lastInput: 30, lastOutput: 0
+            ),
+            codexRecordLine(responseID: "record-3", input: 40, cached: 0, output: 0),
+            codexTokenCountLine(
+                cumulativeInput: 70, cumulativeOutput: 0,
+                lastInput: 40, lastOutput: 0
+            ),
+        ])
+
+        let totals = accumulator.totals
+        #expect(accumulator.codexSource == .usageRecords)
+        #expect(totals.responses == 3)
+        #expect(totals.usage.totalTokens == 190)
+    }
+
+    @Test("Codex response identity retention is bounded")
+    func codexResponseIdentityRetentionIsBounded() {
+        var accumulator = ChatUsageAccumulator()
+        for index in 0...Self.recentResponseLimit {
+            accumulator.ingest(codexLine: codexRecordLine(
+                responseID: "response-\(index)", input: 1, cached: 0, output: 0
+            ))
+        }
+
+        accumulator.ingest(codexLine: codexRecordLine(
+            responseID: "response-\(Self.recentResponseLimit)",
+            input: 1,
+            cached: 0,
+            output: 0
+        ))
+        accumulator.ingest(codexLine: codexRecordLine(
+            responseID: "response-0", input: 1, cached: 0, output: 0
+        ))
+
+        let totals = accumulator.totals
+        #expect(totals.responses == Self.recentResponseLimit + 2)
+        #expect(totals.duplicateReports == 1)
+    }
+
     @Test("a record whose counts cannot be read does not zero the session")
     func codexUnreadableRecordKeepsCumulative() {
         var accumulator = ChatUsageAccumulator()
@@ -556,6 +706,32 @@ struct ChatUsageAccumulatorTests {
         #expect(accumulator.codexSource == .cumulativeEvents)
         #expect(totals.usage.totalTokens == 100_500)
         #expect(totals.responses == 0)
+    }
+
+    @Test("an unreadable cumulative block does not disturb record mode")
+    func codexUnreadableCumulativeKeepsRecordSource() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexRecordLine(responseID: "record-1", input: 100, cached: 0, output: 10),
+            Self.json([
+                "type": "event_msg", "ordinal": 30,
+                "payload": [
+                    "type": "token_count",
+                    "info": [
+                        "total_token_usage": [
+                            "prompt_tokens": 100,
+                            "completion_tokens": 10,
+                        ],
+                    ],
+                ],
+            ]),
+        ])
+
+        let totals = accumulator.totals
+        #expect(accumulator.codexSource == .usageRecords)
+        #expect(totals.unidentifiedReports == 1)
+        #expect(totals.responses == 1)
+        #expect(totals.usage.totalTokens == 110)
     }
 
     @Test("one accumulator holds one transcript, so callers sum per transcript")
@@ -621,6 +797,41 @@ struct ChatUsageAccumulatorTests {
         // The weekly window is the one that stops a day of work, so a caller
         // showing one number shows 96.5%, not the five-hour window's 12%.
         #expect(limit.tightestWindow.usedPercent == 96.5)
+    }
+
+    @Test("the complete public rate-limit and nested source APIs remain available")
+    func publicUsageAPICompatibility() {
+        let primary = ChatUsageRateLimit.Window(
+            usedPercent: 12,
+            windowMinutes: 300,
+            resetsAt: Date(timeIntervalSince1970: 100)
+        )
+        let secondary = ChatUsageRateLimit.Window(
+            usedPercent: 96,
+            windowMinutes: 10_080,
+            resetsAt: Date(timeIntervalSince1970: 200)
+        )
+        var limit = ChatUsageRateLimit(
+            primary: primary,
+            secondary: secondary,
+            spendControlReached: true
+        )
+        limit.usedPercent = 13
+        limit.windowMinutes = 301
+        limit.resetsAt = Date(timeIntervalSince1970: 101)
+
+        #expect(limit.primary.usedPercent == 13)
+        #expect(limit.primary.windowMinutes == 301)
+        #expect(limit.primary.resetsAt == Date(timeIntervalSince1970: 101))
+        #expect(limit.secondary == secondary)
+        #expect(limit.spendControlReached)
+        #expect(limit.tightestWindow == secondary)
+
+        let primaryOnly = ChatUsageRateLimit(usedPercent: 25, windowMinutes: 60)
+        #expect(primaryOnly.primary.usedPercent == 25)
+        #expect(primaryOnly.secondary == nil)
+        let source: ChatUsageAccumulator.CodexSource = .usageRecords
+        #expect(source == .usageRecords)
     }
 
     @Test("Claude transcripts carry no allowance state, so it stays absent")
@@ -752,5 +963,58 @@ struct ChatUsageAccumulatorTests {
         #expect(totals.responses == 1)
         #expect(totals.usage.freshInputTokens == 0)
         #expect(totals.usage.outputTokens == 217)
+    }
+
+    @Test("Int.max usage arithmetic and streaming upgrades saturate safely")
+    func maximumUsageArithmeticAndStreamingStaySafe() {
+        let maximum = ChatTokenUsage(
+            freshInputTokens: Int.max,
+            cacheReadTokens: Int.max,
+            cacheWriteTokens: Int.max,
+            outputTokens: Int.max,
+            reasoningOutputTokens: Int.max
+        )
+        #expect(maximum.inputTokens == Int.max)
+        #expect(maximum.totalTokens == Int.max)
+        #expect(maximum + ChatTokenUsage(freshInputTokens: 1) == maximum)
+
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(claudeLines: [
+            claudeLine(
+                uuid: "placeholder", input: 0, cacheRead: 0,
+                cacheWrite: 0, output: 1
+            ),
+            claudeLine(
+                uuid: "final", input: 0, cacheRead: 0,
+                cacheWrite: 0, output: Int.max, thinking: Int.max
+            ),
+        ])
+
+        let totals = accumulator.totals
+        #expect(totals.responses == 1)
+        #expect(totals.duplicateReports == 1)
+        #expect(totals.usage.outputTokens == Int.max)
+        #expect(totals.usage.reasoningOutputTokens == Int.max)
+        #expect(totals.usage.totalTokens == Int.max)
+    }
+
+    @Test("Int.max Codex cache counts cannot overflow subtraction")
+    func maximumCodexCacheCountsStaySafe() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLine: codexRecordLine(
+            responseID: "maximum",
+            input: 0,
+            cached: Int.max,
+            cacheWrite: Int.max,
+            output: Int.max,
+            reasoning: Int.max
+        ))
+
+        let usage = accumulator.totals.usage
+        #expect(usage.freshInputTokens == 0)
+        #expect(usage.cacheReadTokens == Int.max)
+        #expect(usage.cacheWriteTokens == Int.max)
+        #expect(usage.outputTokens == Int.max)
+        #expect(usage.totalTokens == Int.max)
     }
 }
