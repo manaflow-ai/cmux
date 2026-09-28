@@ -4451,6 +4451,75 @@ def test_a_cmux_ui_tests_diff_runs_its_classes_without_a_label() -> None:
         assert coverage_gap("pull_request", True, ui_diff, [], ui_suite=True) is False
 
 
+def test_a_diff_the_fuzz_repros_exercise_asks_for_their_replays() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import changed_ui_selectors, fuzz_regression_selectors
+    from ui_tests_dispatch import FUZZ_REGRESSIONS_SELECTOR
+
+    assert fuzz_regression_selectors(["Sources/Sidebar/SidebarState.swift"]) == [FUZZ_REGRESSIONS_SELECTOR]
+    assert fuzz_regression_selectors(["dogfood/fuzz/regressions/x.json", "README.md"]) == [FUZZ_REGRESSIONS_SELECTOR]
+    assert fuzz_regression_selectors(["Sources/Workspace.swift", "README.md"]) == []
+    assert fuzz_regression_selectors(None) == []
+
+    script = ROOT / "scripts/ci/choose_ci_suite.py"
+    with tempfile.TemporaryDirectory() as directory:
+        changed = Path(directory) / "changed.txt"
+        event = Path(directory) / "event.json"
+
+        def outputs(files: str, head: str = "manaflow-ai/cmux", labels: tuple[str, ...] = ()) -> dict[str, str]:
+            changed.write_text(files)
+            event.write_text(json.dumps({
+                "repository": {"full_name": "manaflow-ai/cmux"},
+                "pull_request": {"head": {"repo": {"full_name": head}},
+                                 "labels": [{"name": label} for label in labels]},
+            }))
+            run = subprocess.run(
+                [sys.executable, str(script), "--event-name", "pull_request",
+                 "--pull-request-policy", "compile-only", "--event-path", str(event),
+                 "--files-from", str(changed), "--root", str(ROOT)],
+                capture_output=True, text=True, check=True,
+            )
+            return dict(line.split("=", 1) for line in run.stdout.splitlines() if "=" in line)
+
+        values = outputs("Sources/Sidebar/SidebarState.swift\n")
+        assert values["ui_selectors"] == FUZZ_REGRESSIONS_SELECTOR
+        assert values["coverage_gap"] == "false"
+        assert outputs("Sources/Workspace.swift\n")["ui_selectors"] == ""
+        # A fork's ui-tests job refuses to run anything, and no-full-ci opts out.
+        assert outputs("Sources/Sidebar/SidebarState.swift\n", head="someone/cmux")["ui_selectors"] == ""
+        assert outputs("Sources/Sidebar/SidebarState.swift\n", labels=("no-full-ci",))["ui_selectors"] == ""
+        # Next to a changed class, after it; a helper change stays a gap the replays do not close.
+        classes = changed_ui_selectors(ROOT, ["cmuxUITests/BonsplitTabDragUITests.swift"])
+        assert classes
+        values = outputs("cmuxUITests/BonsplitTabDragUITests.swift\nvendor/bonsplit\n")
+        assert values["ui_selectors"] == " ".join([*classes, FUZZ_REGRESSIONS_SELECTOR])
+        assert values["coverage_gap"] == "false"
+        helper = next(path.relative_to(ROOT).as_posix() for path in sorted((ROOT / "cmuxUITests").rglob("*"))
+                      if path.is_file() and changed_ui_selectors(ROOT, [path.relative_to(ROOT).as_posix()]) is None)
+        values = outputs(f"{helper}\nSources/Sidebar/SidebarState.swift\n")
+        assert values["ui_selectors"] == FUZZ_REGRESSIONS_SELECTOR
+        assert values["coverage_gap"] == "true"
+
+    # Classes that fill one focused run keep it: the replay gives way, and no gap opens.
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        (root / "cmuxUITests").mkdir()
+        names = [f"SidebarWorkspaceReorderRows{index}UITests" for index in range(6)]  # 287 characters; 315 with the replay
+        (root / "cmuxUITests/Many.swift").write_text("".join(f"class {name}: XCTestCase {{}}\n" for name in names))
+        changed = root / "changed.txt"
+        changed.write_text("cmuxUITests/Many.swift\nSources/Sidebar/SidebarState.swift\n")
+        event = root / "event.json"
+        event.write_text(json.dumps({"repository": {"full_name": "manaflow-ai/cmux"},
+                                     "pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}, "labels": []}}))
+        run = subprocess.run(
+            [sys.executable, str(script), "--event-name", "pull_request", "--pull-request-policy", "compile-only",
+             "--event-path", str(event), "--files-from", str(changed), "--root", str(root)],
+            capture_output=True, text=True, check=True)
+        values = dict(line.split("=", 1) for line in run.stdout.splitlines() if "=" in line)
+        assert values["ui_selectors"] == " ".join(f"cmuxUITests/{name}" for name in names)
+        assert values["coverage_gap"] == "false"
+
+
 def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
     from choose_ci_suite import changed_unit_selectors, strict_steps
@@ -5545,13 +5614,13 @@ def test_merge_groups_stop_at_the_first_failure() -> None:
     assert '.conclusion != null and .conclusion != "success" and .conclusion != "skipped"' in watcher
     assert "permissions: {}" in watcher and "actions: write" in watcher
     assert "uses:" not in watcher
-    # ci.yml holds no actions: write but for ui-tests, which dispatches
-    # test-e2e.yml for a same-repository pull request's changed UI test
-    # classes: the owned-pool rescue sweeper finds CI runs by marker
-    # (ci-owned-pool-rescue.yml).
+    # ci.yml holds no actions: write at all: a pull_request run takes it from
+    # the pull request. ui-tests only requests the UI test run, which
+    # ci-ui-tests.yml dispatches from the default branch
+    # (tests/test_ci_ui_tests_dispatch.py).
     jobs = _ci_jobs()
     writers = sorted(key for key, job in jobs.items() if (job.get("permissions") or {}).get("actions") == "write")
-    assert writers == ["ui-tests"], writers
+    assert writers == [], writers
     assert (yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8")).get("permissions") or {}).get("actions") != "write"
     fork_guard = jobs["ui-tests"]["steps"][0]
     assert fork_guard["if"] == "github.event.pull_request.head.repo.full_name != github.repository"
@@ -6280,10 +6349,10 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     package_block = workflow_job_block("swift-package-tests", MACOS_WORKFLOW)
     assert "vars.MACOS_RUNNER_PR" not in package_block
     assert (
-        "CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && "
-        "github.event.pull_request.head.repo.full_name == github.repository && "
-        "contains(inputs.pr_owned_jobs, ' swift-package ') && "
-        "((github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && (inputs.pr_side_runner || inputs.pr_runner)) && "
+        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
+        "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') || "
+        "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1) && "
+        "contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) && "
         "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
     ) in package_block
     assert (
@@ -6293,7 +6362,10 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in package_block
 
     release_block = workflow_job_block("release-build", MACOS_WORKFLOW)
-    assert "CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}" in release_block
+    assert (
+        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
+        "&& (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}"
+    ) in release_block
     assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in release_block
 
 

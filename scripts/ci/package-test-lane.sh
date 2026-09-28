@@ -14,6 +14,9 @@
 #             needs_rust, changed_files) to GITHUB_OUTPUT.
 #   bonsplit  run the Bonsplit package tests.
 #   packages  run the packages listed in the file SELECTED_PACKAGES.
+#   prebuild-one PACKAGE LOG
+#             build PACKAGE and its tests into LOG; the packages phase runs
+#             several of these at once before its serial test pass.
 #   ghostty-sha  print the GhosttyKit revision a download would use (empty
 #             when a ghostty submodule checkout provides it).
 #
@@ -24,6 +27,7 @@ set -euo pipefail
 phase=run
 case "${1:-}" in
   run|select|bonsplit|packages|ghostty-sha) phase="$1"; shift ;;
+  prebuild-one) phase="$1"; prebuild_package="$2"; prebuild_log="$3"; shift 3 ;;
 esac
 event="${EVENT_NAME:-}"
 full_suite="${FULL_SUITE:-false}"
@@ -37,6 +41,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+lane_script="${BASH_SOURCE[0]}"
 work="${RUNNER_TEMP:-}"
 if [ -z "$work" ]; then
   work="$(mktemp -d -t package-test-lane.XXXXXX)"
@@ -73,6 +78,7 @@ select_packages() {
     CMUXAuthCore
     CmuxBrowser
     CmuxCanvasUI
+    CmuxCloud
     CmuxCloudMachines
     CmuxCloudTui
     CmuxComputerUse
@@ -166,7 +172,7 @@ select_packages() {
   output "selected_packages=$selected"
   output "selected_count=$count"
 
-  if grep -qxE 'CmuxTerminal|CmuxTerminalCore|CmuxCloudTui' "$selected"; then
+  if grep -qxE 'CmuxTerminal|CmuxTerminalCore|CmuxCloudTui|CmuxCloud' "$selected"; then
     needs_ghosttykit=true
   else
     needs_ghosttykit=false
@@ -257,6 +263,65 @@ run_bonsplit_tests() {
   python3 scripts/ci/require_swift_test_execution.py --log "$log"
 }
 
+# Sets pkgdir and swift_test_args for one package. The prebuild and the test
+# pass share them, so the test pass finds the prebuilt products up to date.
+package_args() {
+  local pkg="$1"
+  # Packages live under group folders (Packages/{Shared,iOS,macOS}/);
+  # resolve the actual directory so this list stays group-agnostic.
+  pkgdir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$pkg" -print -quit)"
+  if [ -z "$pkgdir" ]; then
+    echo "package '$pkg' not found under Packages/*/ (renamed or moved?)"
+    return 1
+  fi
+  swift_test_args=(--package-path "$pkgdir")
+  # Preserve the notification workflow's warning gate without a
+  # second package build or changing the existing startup retry.
+  case "$pkg" in
+    CMUXAgentLaunch|CmuxAgentJournal)
+      swift_test_args+=(-Xswiftc -warnings-as-errors)
+      ;;
+  esac
+}
+
+# One package's build, for prebuild_packages. It never fails the lane: a
+# package whose prebuild fails is built again by its `swift test`, which
+# reports the error in that package's group as before.
+prebuild_one() {
+  local pkg="$1" log="$2" started=$SECONDS status=0
+  package_args "$pkg" > "$log" 2>&1 || { echo "Prebuild skipped $pkg (not found)."; return 0; }
+  python3 scripts/ci/run_with_timeout.py \
+    --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
+    -- swift build --build-tests "${swift_test_args[@]}" > "$log" 2>&1 < /dev/null || status=$?
+  if [ "$status" -eq 0 ]; then
+    echo "Prebuilt $pkg in $((SECONDS - started))s."
+  else
+    echo "Prebuild of $pkg exited $status after $((SECONDS - started))s; its swift test builds whatever is still missing (the GhosttyKit packages exit 1 here on the known binaryTarget diagnostic)."
+  fi
+}
+
+# Every package is its own SwiftPM root with its own .build, so each selected
+# package compiles its whole dependency closure from scratch, and most of a
+# package's lane time is that build. Build and test one after another left the
+# runner mostly idle: one package build rarely fills the cores. Build the
+# selected packages CMUX_SWIFT_PACKAGE_BUILD_JOBS at a time first; the test
+# pass below then finds each build up to date and runs the tests serially as
+# before, so no two packages' tests ever overlap.
+prebuild_packages() {
+  local jobs="${CMUX_SWIFT_PACKAGE_BUILD_JOBS:-3}"
+  if ! [[ "$jobs" =~ ^[0-9]+$ ]] || [ "$jobs" -le 1 ] || [ "${SELECTED_COUNT:-0}" -le 1 ]; then
+    return 0
+  fi
+  local logs="$work/package-prebuild" started=$SECONDS
+  mkdir -p "$logs"
+  echo "::group::Prebuild $SELECTED_COUNT Swift packages, $jobs at a time"
+  grep -v '^$' "$selected" \
+    | RUNNER_TEMP="$work" xargs -P "$jobs" -I '{}' \
+      bash "$lane_script" prebuild-one '{}' "$logs/{}.log" || true
+  echo "::endgroup::"
+  echo "Prebuilt $SELECTED_COUNT Swift packages in $((SECONDS - started))s."
+}
+
 run_package_tests() {
   # The cmux-unit scheme only runs the cmuxTests app-host suite; it does
   # not execute the SPM package test targets. Run them here so package
@@ -312,23 +377,10 @@ run_package_tests() {
   # broken or hung package cannot hide the results of the packages
   # after it. test_package returns the package's status instead of
   # exiting; the summary at the end fails the lane.
+  prebuild_packages
   test_package() {
-    local pkg="$1" pkgdir
-    # Packages live under group folders (Packages/{Shared,iOS,macOS}/);
-    # resolve the actual directory so this list stays group-agnostic.
-    pkgdir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$pkg" -print -quit)"
-    if [ -z "$pkgdir" ]; then
-      echo "package '$pkg' not found under Packages/*/ (renamed or moved?)"
-      return 1
-    fi
-    swift_test_args=(--package-path "$pkgdir")
-    # Preserve the notification workflow's warning gate without a
-    # second package build or changing the existing startup retry.
-    case "$pkg" in
-      CMUXAgentLaunch|CmuxAgentJournal)
-        swift_test_args+=(-Xswiftc -warnings-as-errors)
-        ;;
-    esac
+    local pkg="$1"
+    package_args "$pkg" || return 1
     case "$pkg" in
     # CmuxFoundation has several process-tree suites whose child
     # fixtures share global process resources; run each suite in its
@@ -336,7 +388,7 @@ run_package_tests() {
     CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxIrxTransport)
       ./scripts/ci/run-swift-testing-suites.sh "$pkgdir" || return $?
       ;;
-    CmuxTerminal|CmuxTerminalCore|CmuxCloudTui)
+    CmuxTerminal|CmuxTerminalCore|CmuxCloudTui|CmuxCloud)
       run_swift_test
       if [ "$test_status" -ne 0 ]; then
         if [ "$test_status" -eq 1 ] \
@@ -418,6 +470,9 @@ run_package_tests() {
 }
 
 case "$phase" in
+  prebuild-one)
+    prebuild_one "$prebuild_package" "$prebuild_log"
+    ;;
   ghostty-sha)
     resolve_ghostty_sha
     echo "${GHOSTTY_SHA:-}"

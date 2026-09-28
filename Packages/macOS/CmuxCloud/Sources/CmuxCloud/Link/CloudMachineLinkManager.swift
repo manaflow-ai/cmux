@@ -69,8 +69,10 @@ public actor CloudMachineLinkManager {
     private struct LinkFailure { let at: Date; let error: String; let typed: CloudVMHTTPError?; let terminal: Bool }
     private var lastFailure: [String: LinkFailure] = [:]
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
-    /// a machine whose route is broken.
+    /// a machine whose route is broken. Only background upkeep waits it out.
     private let retryBackoff: TimeInterval = 15
+    /// Marks background upkeep so explicit opens can bypass stale transport backoff.
+    @TaskLocal public static var isBackgroundUpkeep = false
     /// How long a link may take to report its socket: the daemon accepts a
     /// carrier or enrolled session immediately, so anything slower than this is
     /// a broken route rather than a slow one.
@@ -181,7 +183,7 @@ public actor CloudMachineLinkManager {
             if let typed = failure.typed { throw VMClientError.typedHTTPStatus(typed) }
             throw ManagerError.retryLater(failure.error)
         }
-        if let failure = lastFailure[machineID], Date.now.timeIntervalSince(failure.at) < retryBackoff {
+        if let failure = lastFailure[machineID], Self.backoffRejects(failedAt: failure.at, now: Date.now, backoff: retryBackoff) {
             recordPreflightFailure(machineID: machineID, reason: "retry_backoff", correlationID: correlationID)
             throw ManagerError.retryLater(failure.error)
         }
@@ -433,6 +435,11 @@ public actor CloudMachineLinkManager {
             }
             return machineIDs.count
         }
+    }
+
+    /// Returns whether background upkeep should wait before reconnecting.
+    public static func backoffRejects(failedAt: Date, now: Date, backoff: TimeInterval) -> Bool {
+        isBackgroundUpkeep && now.timeIntervalSince(failedAt) < backoff
     }
 
     public func status(machineID: String) async -> LinkStatus? {

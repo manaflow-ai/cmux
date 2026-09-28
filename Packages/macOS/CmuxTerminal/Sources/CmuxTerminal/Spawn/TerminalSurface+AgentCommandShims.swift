@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxFoundation
 public import CmuxTerminalCore
 
 extension TerminalSurface {
@@ -119,12 +120,15 @@ extension TerminalSurface {
         defer {
             try? fileManager.removeItem(at: stagingDirectory)
         }
+        // A shared temporary directory lets another user create these
+        // directories first or plant a symlink, so each one must be a real
+        // directory this user owns before anything is written into it.
+        let privateDirectoryCheck = PrivateDirectoryCheck()
         do {
             try fileManager.createDirectory(at: shimParentDirectory, withIntermediateDirectories: true)
+            guard privateDirectoryCheck.makePrivate(atPath: shimParentDirectory.path) else { return nil }
             try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: false)
-            for directory in [shimParentDirectory, stagingDirectory] {
-                try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
-            }
+            guard privateDirectoryCheck.makePrivate(atPath: stagingDirectory.path) else { return nil }
         } catch {
             return nil
         }
@@ -167,6 +171,7 @@ extension TerminalSurface {
         guard !shims.isEmpty else { return nil }
         do {
             if fileManager.fileExists(atPath: shimDirectory.path) {
+                guard privateDirectoryCheck.makePrivate(atPath: shimDirectory.path) else { return nil }
                 _ = try fileManager.replaceItemAt(
                     shimDirectory,
                     withItemAt: stagingDirectory,
@@ -176,10 +181,10 @@ extension TerminalSurface {
             } else {
                 try fileManager.moveItem(at: stagingDirectory, to: shimDirectory)
             }
-            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shimDirectory.path)
         } catch {
             return nil
         }
+        guard privateDirectoryCheck.makePrivate(atPath: shimDirectory.path) else { return nil }
         return TerminalSurfaceAgentCommandShimSet(
             directoryPath: shimDirectory.path,
             shims: shims
