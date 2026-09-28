@@ -488,6 +488,118 @@ final class TerminalOutputCollector {
     #expect(store.selectedWorkspace?.id.rawValue == "active-workspace")
 }
 
+/// Pairing another computer must leave the Mac already in use connected
+/// until the new one authenticates, so a dial that fails changes nothing.
+@MainActor
+@Test func failedPairingOfAnotherMacKeepsActiveMacConnected() async throws {
+    let activeRoute = try CmxAttachRoute(
+        id: "active_route",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56577)
+    )
+    let unreachableRoute = try CmxAttachRoute(
+        id: "unreachable_route",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56578)
+    )
+    let activeTicket = try CmxAttachTicket(
+        workspaceID: "active-workspace",
+        terminalID: "active-terminal",
+        macDeviceID: "active-mac",
+        macDisplayName: "Active Mac",
+        routes: [activeRoute],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "active-ticket-secret"
+    )
+    let otherTicket = try CmxAttachTicket(
+        workspaceID: "other-workspace",
+        terminalID: "other-terminal",
+        macDeviceID: "other-mac",
+        macDisplayName: "Other Mac",
+        routes: [unreachableRoute],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "other-ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "active-workspace", title: "Active Workspace"),
+        try rpcHostStatusFrame(renderGrid: false, macDeviceID: "active-mac"),
+    ])
+    let attempts = RouteAttemptRecorder()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: FailingRouteTransportFactory(
+            failingRouteID: unreachableRoute.id,
+            responses: responses,
+            attempts: attempts
+        )
+    )
+    let store = CMUXMobileShellStore(runtime: runtime, workspaces: PreviewMobileHost.workspaces)
+
+    store.signIn()
+    let firstResult = await store.connectPairingURLResult(try attachURL(for: activeTicket).absoluteString)
+    #expect(firstResult == .connected)
+
+    let secondResult = await store.connectPairingURLResult(try attachURL(for: otherTicket).absoluteString)
+
+    #expect(secondResult == .failed)
+    #expect(await attempts.routeIDs().contains(unreachableRoute.id))
+    #expect(store.connectionError != nil)
+    #expect(store.connectionState == .connected)
+    #expect(store.macConnectionStatus != .unavailable)
+    #expect(store.activeTicket?.macDeviceID == "active-mac")
+    #expect(store.activeRoute?.id == activeRoute.id)
+    #expect(store.selectedWorkspace?.id.rawValue == "active-workspace")
+
+    store.cancelPairing()
+
+    #expect(store.connectionError == nil)
+    #expect(store.connectionState == .connected)
+    #expect(store.activeTicket?.macDeviceID == "active-mac")
+}
+
+/// A typo in the Add Computer form is a validation error on the sheet, not a
+/// reason to drop the Mac already in use.
+@MainActor
+@Test func invalidManualHostKeepsActiveMacConnected() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56577)
+    )
+    let activeTicket = try CmxAttachTicket(
+        workspaceID: "active-workspace",
+        terminalID: "active-terminal",
+        macDeviceID: "active-mac",
+        macDisplayName: "Active Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "active-ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "active-workspace", title: "Active Workspace"),
+        try rpcHostStatusFrame(renderGrid: false, macDeviceID: "active-mac"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore(runtime: runtime, workspaces: PreviewMobileHost.workspaces)
+
+    store.signIn()
+    #expect(await store.connectPairingURLResult(try attachURL(for: activeTicket).absoluteString) == .connected)
+
+    let result = await store.connectManualHostResult(
+        name: "Typo Mac",
+        host: "not a host",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+
+    #expect(result == .failed)
+    #expect(store.connectionError != nil)
+    #expect(store.connectionState == .connected)
+    #expect(store.activeTicket?.macDeviceID == "active-mac")
+}
+
 @MainActor
 @Test func versionWarningSupersedesOlderPairingAttemptWithoutConnectingIt() async throws {
     let route = try CmxAttachRoute(
