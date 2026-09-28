@@ -58,6 +58,8 @@ A crash carries a safe structured cause (`errorCause.ts`), never the message: Dr
 
 Upstream model calls are bounded to headers (`upstreamFetch.ts`, `CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS`, default 10 minutes). A hung provider fails over to the next account like a connection error instead of holding the function for the full 30 minute `maxDuration`. The body stream is never bounded.
 
+On capacity errors (429, 5xx/529, overloaded SSE events, transport failures before any output) the proxies hold the request and replay the same model instead of failing fast (`capacityHold.ts`, `CODEROUTER_CAPACITY_HOLD_MS`, default 20 minutes). Waits back off with jitter and honor the soonest account cooldown; a request fails at once when no account recovers within the budget. `route_events.held_ms` and `hold_count` record the wait.
+
 Investigating one failure: take the `x-coderouter-request-id`, query ClickHouse `SELECT * FROM coderouter.route_events WHERE request_id = '<id>'`, then use Axiom for the route span and PostHog Error Tracking for the operational issue.
 
 Scoping a crash: `SELECT failure_stage, provider, count(), uniqExact(team_id), uniqExact(vm_id), min(event_time), max(event_time) FROM coderouter.route_events WHERE outcome = 'route_crash' AND event_time > now() - INTERVAL 1 DAY GROUP BY failure_stage, provider`. Many rows from one `vm_id` is one looping client; many teams and VMs is an outage.
