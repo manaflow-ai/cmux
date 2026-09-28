@@ -188,7 +188,7 @@ extension CMUXCLI {
         return """
         \(restoreCommandUsageLine)
         \(forkCommandUsageLine)
-        restore-session
+        restore-session [--from <channel|path> | --export <path> [--force]]
         session restore [--list] [--session <id>]...
         \(String(localized: "cli.sessions.command", defaultValue: "sessions [list] [options]"))
         open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]

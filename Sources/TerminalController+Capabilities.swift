@@ -225,6 +225,8 @@ extension TerminalController {
             "session.restore_previous",
             "session.agent_recovery.list",
             "session.agent_recovery.restore",
+            "session.import",
+            "session.export",
             "settings.open",
             "feedback.open",
             "feedback.submit",
