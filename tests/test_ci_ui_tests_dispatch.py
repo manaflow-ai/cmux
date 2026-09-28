@@ -235,6 +235,34 @@ class AwaitVerdictTests(unittest.TestCase):
                     self.assertEqual(ui.await_verdict(gh, "100", "1", sleep=self.bounded_sleep()), 1)
                 self.assertIn(f"compile admission ended {conclusion}", output.getvalue())
 
+    def test_an_admission_carried_from_an_earlier_attempt_still_waits(self) -> None:
+        # Only ui-tests was re-run: attempt 2 lists attempt 1's refused admission.
+        carried = {"jobs": [{**self.admission("failure")["jobs"][0], "run_attempt": 1}]}
+        run = f"repos/{REPO}/actions/runs/100/attempts/2"
+        gh = FakeGitHub({
+            f"{run}/jobs": [carried],
+            run: [ci_run(run_attempt=2)],
+            ARTIFACTS: [NO_ARTIFACT],
+            LIST: [{"workflow_runs": [dispatch_run(title=ui.dispatch_title("100", "2"))]}],
+            f"repos/{REPO}/actions/runs/900/jobs": [jobs("success")],
+            f"repos/{REPO}/actions/runs/900": [dispatch_run(status="in_progress"),
+                                               dispatch_run(title=ui.dispatch_title("100", "2"))],
+        })
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(ui.await_verdict(gh, "100", "2", sleep=self.bounded_sleep()), 0)
+
+    def test_a_truncated_artifact_listing_still_waits(self) -> None:
+        gh = FakeGitHub({
+            self.ADMISSION_JOBS: [self.admission("failure")],
+            RUN: [ci_run()],
+            ARTIFACTS: [{"total_count": 150, "artifacts": [{"name": "other", "expired": False}]}],
+            LIST: [{"workflow_runs": [dispatch_run()]}],
+            f"repos/{REPO}/actions/runs/900/jobs": [jobs("success")],
+            f"repos/{REPO}/actions/runs/900": [dispatch_run(status="in_progress"), dispatch_run()],
+        })
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(ui.await_verdict(gh, "100", "1", sleep=self.bounded_sleep()), 0)
+
     def test_stops_before_any_dispatch_run_appears(self) -> None:
         clock = iter(range(0, 10**6, 1))
         gh = FakeGitHub({self.ADMISSION_JOBS: [self.admission("failure")], RUN: [ci_run()],
