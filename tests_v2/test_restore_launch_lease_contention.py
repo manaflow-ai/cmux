@@ -23,7 +23,8 @@ import time
 import uuid
 
 
-def exercise(cli: Path, reports_owner: bool, owner_cli: Path, launching: bool = False) -> None:
+def exercise(cli: Path, reports_owner: bool, owner_cli: Path, launching: bool = False,
+             presentation: str | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-15111-", dir="/tmp") as temporary:
         root = Path(temporary).resolve()
         home = root / "codex-home"
@@ -44,6 +45,8 @@ def exercise(cli: Path, reports_owner: bool, owner_cli: Path, launching: bool = 
         executable.chmod(0o700)
         owner_pid: int | None = None
         requests: list[str] = []
+        retargeting = threading.Event()
+        finished = threading.Event()
         record = {
             "kind": "codex", "mode": "resumeAgent", "checkpoint_id": session,
             "source": "session-snapshot", "working_directory": str(root),
@@ -59,10 +62,20 @@ def exercise(cli: Path, reports_owner: bool, owner_cli: Path, launching: bool = 
                     method = request["method"]
                     requests.append(method)
                     if method == "surface.resume.get":
+                        if retargeting.is_set():
+                            finished.wait(timeout=10)
+                            return
                         result = {"workspace_id": workspace, "surface_id": surface,
                                   "restore_record": record, "agent_restore_admission_supported": True}
                     elif method == "agent.restore.admit":
                         if owner_pid is None:
+                            result = {"admitted": True, "claim_id": str(uuid.uuid4())}
+                        elif presentation == "slow-retarget":
+                            retargeting.set()
+                            self.wfile.write((json.dumps({"id": request.get("id"), "ok": False,
+                                "error": {"code": "conflict", "message": "fixture surface moved"}}) + "\n").encode())
+                            continue
+                        elif presentation == "slow-release":
                             result = {"admitted": True, "claim_id": str(uuid.uuid4())}
                         else:
                             # Older apps mark even a known live owner recovering.
@@ -70,6 +83,9 @@ def exercise(cli: Path, reports_owner: bool, owner_cli: Path, launching: bool = 
                             if reports_owner:
                                 result["live_owner_pid"] = owner_pid
                     elif method == "agent.restore.release":
+                        if presentation == "slow-release":
+                            finished.wait(timeout=10)
+                            return
                         result = {"released": True}
                     else:
                         raise AssertionError(method)
@@ -133,8 +149,10 @@ def exercise(cli: Path, reports_owner: bool, owner_cli: Path, launching: bool = 
             assert expected in stderr, (stdout, stderr, requests)
             assert first.poll() is None, "Contender must not stop the live owner"
             assert b"READY" not in stdout, "Contender launched another writer"
-            print(f"PASS reports_owner={reports_owner} launching={launching}: terminal rejection in {elapsed:.3f}s; no second writer")
+            print(f"PASS reports_owner={reports_owner} launching={launching} presentation={presentation}: "
+                  f"terminal rejection in {elapsed:.3f}s; no second writer")
         finally:
+            finished.set()
             for process in (second, first):
                 if process is not None and process.poll() is None:
                     process.terminate()
@@ -154,6 +172,8 @@ def main() -> None:
     for reports_owner in (True, False):
         exercise(arguments.cli.resolve(), reports_owner, (arguments.owner_cli or arguments.cli).resolve())
     exercise(arguments.cli.resolve(), False, arguments.cli.resolve(), launching=True)
+    for presentation in ("slow-retarget", "slow-release"):
+        exercise(arguments.cli.resolve(), False, arguments.cli.resolve(), presentation=presentation)
 
 
 if __name__ == "__main__":
