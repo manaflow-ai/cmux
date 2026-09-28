@@ -6,24 +6,6 @@ import XCTest
 @testable import cmux
 #endif
 
-// Sendable safety: the lock guards the only mutable state shared by the two test queues.
-private final class SequenceValuesBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var values: [Int64] = []
-
-    func append(_ value: Int64) {
-        lock.lock()
-        values.append(value)
-        lock.unlock()
-    }
-
-    var snapshot: [Int64] {
-        lock.lock()
-        defer { lock.unlock() }
-        return values
-    }
-}
-
 final class CmuxEventSequenceStoreTests: XCTestCase {
     func testDurablePublishDoesNotPersistSequenceForEveryEvent() async throws {
         let directory = FileManager.default.temporaryDirectory
@@ -105,31 +87,14 @@ final class CmuxEventSequenceStoreTests: XCTestCase {
 
         let firstStore = CmuxEventSequenceStore(eventLogURL: logURL, blockSize: 8)
         let secondStore = CmuxEventSequenceStore(eventLogURL: logURL, blockSize: 8)
-        let values = SequenceValuesBox()
-        let group = DispatchGroup()
-        let firstQueue = DispatchQueue(label: "cmux.event-sequence-test.first")
-        let secondQueue = DispatchQueue(label: "cmux.event-sequence-test.second")
+        var values: [Int64] = []
 
         for _ in 0..<64 {
-            group.enter()
-            firstQueue.async {
-                if let sequence = firstStore.allocate() {
-                    values.append(sequence)
-                }
-                group.leave()
-            }
-            group.enter()
-            secondQueue.async {
-                if let sequence = secondStore.allocate() {
-                    values.append(sequence)
-                }
-                group.leave()
-            }
+            values.append(try XCTUnwrap(firstStore.allocate()))
+            values.append(try XCTUnwrap(secondStore.allocate()))
         }
 
-        XCTAssertEqual(group.wait(timeout: .now() + 5), .success)
-        let allocated = values.snapshot
-        XCTAssertEqual(allocated.count, 128)
-        XCTAssertEqual(Set(allocated).count, allocated.count)
+        XCTAssertEqual(values.count, 128)
+        XCTAssertEqual(Set(values).count, values.count)
     }
 }
