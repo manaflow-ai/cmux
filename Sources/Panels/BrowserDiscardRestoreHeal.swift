@@ -83,10 +83,12 @@ extension BrowserPanel {
         if forceRestartPendingRestore {
             userStoppedLoadSinceWebViewReplacement = false
         }
+        // A process that died while hidden left no live page for Stop to
+        // keep; dropping its web view clears Stop.
+        discardWebViewTerminatedWhileHidden()
         // Stop is sticky for discarded restores too: routine visibility touches
         // must not restart a stopped load; explicit reload is the override.
         guard !userStoppedLoadSinceWebViewReplacement else { return false }
-        discardWebViewTerminatedWhileHidden()
 
         if Self.isQueuedRemoteRestoreInFlight(
             isDiscardedForMemory: hiddenWebViewDiscardManager.isDiscardedForMemory,
