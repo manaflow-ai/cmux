@@ -1437,6 +1437,32 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Show custom metadata pills."
         },
+        "compactAgentStatus": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.sidebar.compactAgentStatus",
+          "description": "Show each workspace on one line: one colored icon before the title for agent, unread, and pull request state replaces the agent status rows (for example Running or Needs input), the branch and directory line, and the pull request rows, whose details move to the icon's tooltip. Other status entries keep their rows."
+        },
+        "compactStatusIcons": {
+          "type": "object",
+          "default": {},
+          "descriptionKey": "schemaDescriptions.sidebar.compactStatusIcons",
+          "description": "SF Symbol names that replace the compactAgentStatus glyph for each state, for example {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Unset states keep the built-in symbol, and a name that does not render falls back to it.",
+          "properties": {
+            "error": { "type": "string", "minLength": 1 },
+            "needsInput": { "type": "string", "minLength": 1 },
+            "running": { "type": "string", "minLength": 1 },
+            "starting": { "type": "string", "minLength": 1 },
+            "unseen": { "type": "string", "minLength": 1 },
+            "pullRequestOpen": { "type": "string", "minLength": 1 },
+            "pullRequestMerged": { "type": "string", "minLength": 1 },
+            "pullRequestClosed": { "type": "string", "minLength": 1 },
+            "idle": { "type": "string", "minLength": 1 },
+            "branch": { "type": "string", "minLength": 1 },
+            "terminal": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
         "rightMaxWidth": {
           "type": "number",
           "exclusiveMinimum": 0,
