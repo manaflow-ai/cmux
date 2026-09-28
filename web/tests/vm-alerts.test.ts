@@ -100,8 +100,17 @@ describe("VM alert checks", () => {
     `;
     await sql`
       insert into cloud_vm_leases (vm_id, user_id, kind, token_hash, expires_at)
-      select ${runningVm.id}, 'user-alerts', 'ssh', 'expired-alert-' || n, ${new Date(now.getTime() - 60 * 1000)}
+      select ${runningVm.id}, 'user-alerts', 'preview', 'expired-preview-alert-' || n, ${new Date(now.getTime() - 60 * 1000)}
       from generate_series(1, 51) as n
+    `;
+    await sql`
+      insert into cloud_vm_leases (
+        vm_id, user_id, kind, token_hash, provider_identity_handle, expires_at
+      )
+      values (
+        ${runningVm.id}, 'user-alerts', 'ssh', 'expired-identity-alert',
+        'provider-identity-alert', ${new Date(now.getTime() - 60 * 1000)}
+      )
     `;
 
     const alerts: AlertInput[] = [];
@@ -121,13 +130,12 @@ describe("VM alert checks", () => {
     expect(summary).toEqual({
       createFailures: { triggered: true, count: 3 },
       stuckProvisioning: { triggered: true, count: 1 },
-      expiredUnrevokedLeases: { triggered: true, count: 51 },
+      expiredUnrevokedLeases: { triggered: false, count: 1 },
       alertSink: { configured: false, droppedAlerts: 0 },
     });
     expect(alerts.map((alert) => alert.key)).toEqual([
       "vm-create-failure-spike",
       "vm-stuck-provisioning",
-      "vm-expired-unrevoked-leases",
     ]);
     expect(alerts[1]?.body).toContain(stuckVm.id);
     const alertText = JSON.stringify(alerts);

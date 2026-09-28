@@ -318,6 +318,42 @@ describe("VM Effect workflows", () => {
     expect(fixture.liveVms).toEqual(new Set(["vm-cleanup-reconcile-2"]));
   });
 
+  dbTest("abandons a provider-less create after the workflow deadline", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const now = new Date();
+    const old = new Date(now.getTime() - 60 * 60 * 1000);
+    const [vm] = await sql<{ id: string }[]>`
+      insert into cloud_vms (
+        user_id, billing_team_id, billing_plan_id, provider, image_id, status,
+        provider_metadata, created_at, updated_at
+      )
+      values (
+        'user-abandoned-create', 'team-abandoned-create', 'pro', 'freestyle',
+        'snapshot-abandoned-create', 'provisioning',
+        '{"cmuxResourceReservation":{"vcpus":2,"memoryMb":8192,"diskMb":32768}}'::jsonb,
+        ${old}, ${old}
+      )
+      returning id
+    `;
+
+    await Effect.runPromise(
+      reconcileVmProviderStatuses().pipe(Effect.provide(providerLayer(unusedProviderGateway()))),
+    );
+
+    const [row] = await sql<{ status: string; failureCode: string | null; metadata: Record<string, unknown> }[]>`
+      select status, failure_code as "failureCode", provider_metadata as metadata
+      from cloud_vms where id = ${vm.id}
+    `;
+    expect(row).toMatchObject({ status: "failed", failureCode: "create_abandoned" });
+    expect(row.metadata.cmuxResourceReservation).toBeUndefined();
+    const [event] = await sql<{ eventType: string; metadata: Record<string, unknown> }[]>`
+      select event_type as "eventType", metadata
+      from cloud_vm_usage_events where vm_id = ${vm.id}
+    `;
+    expect(event).toMatchObject({ eventType: "vm.create.failed", metadata: { operation: "create_abandoned" } });
+  });
+
   dbTest("retains failed cleanup with durable backoff and does not duplicate the provider delete", async () => {
     if (!sql) throw new Error("test database not initialized");
     const nowMs = 1_800_000_000_000;
