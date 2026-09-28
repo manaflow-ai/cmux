@@ -10,16 +10,15 @@ extension CMUXCLI {
         let listed = try runtime.sessions()
         let registeredNames = Set(records.map(LocalZellijCommandBuilder.zellijSessionName(for:)))
         var rows: [[String: Any]] = records.map { record in
-            let zellijName = LocalZellijCommandBuilder.zellijSessionName(for: record)
-            let state = localZellijState(of: zellijName, in: listed)
+            let state = LocalZellijRuntime.state(of: record, in: listed)
             return [
                 "id": record.id.uuidString,
                 "session_name": record.name,
-                "zellij_session_name": zellijName,
+                "zellij_session_name": LocalZellijCommandBuilder.zellijSessionName(for: record),
                 "socket_path": runtime.builder.socketDirectory,
                 "managed": true,
-                "live": state == "live",
-                "state": state,
+                "live": state == .live,
+                "state": state.rawValue,
                 "workspace_id": record.workspaceID ?? NSNull(),
                 "workspace_title": record.workspaceTitle ?? NSNull(),
                 "cwd": record.cwd,
@@ -36,7 +35,7 @@ extension CMUXCLI {
                 "socket_path": runtime.builder.socketDirectory,
                 "managed": false,
                 "live": true,
-                "state": "live",
+                "state": LocalZellijSessionState.live.rawValue,
                 "workspace_id": NSNull(),
                 "workspace_title": NSNull(),
                 "cwd": NSNull(),
@@ -56,7 +55,7 @@ extension CMUXCLI {
                 let rowText = String.localizedStringWithFormat(
                     String(localized: "cli.localZellij.output.sessionRow", defaultValue: "%@ [%@]"),
                     row["session_name"] as? String ?? "?",
-                    localZellijDisplayState(row["state"] as? String ?? "unknown")
+                    localZellijDisplayState((row["state"] as? String).flatMap(LocalZellijSessionState.init(rawValue:)))
                 )
                 let idSuffix = (row["id"] as? String).map {
                     String.localizedStringWithFormat(
@@ -75,20 +74,19 @@ extension CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
-        let zellijName = LocalZellijCommandBuilder.zellijSessionName(for: record)
-        let state = localZellijState(of: zellijName, in: try runtime.sessions())
+        let state = try runtime.state(of: record)
         if jsonOutput {
             let payload: [String: Any] = [
                 "id": record.id.uuidString,
                 "session_name": record.name,
-                "zellij_session_name": zellijName,
+                "zellij_session_name": LocalZellijCommandBuilder.zellijSessionName(for: record),
                 "socket_path": runtime.builder.socketDirectory,
                 "cwd": record.cwd,
                 "workspace_id": record.workspaceID ?? NSNull(),
                 "workspace_title": record.workspaceTitle ?? NSNull(),
                 "surface_id": record.surfaceID ?? NSNull(),
-                "live": state == "live",
-                "state": state,
+                "live": state == .live,
+                "state": state.rawValue,
                 "updated_at": record.updatedAt,
             ]
             print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -109,10 +107,11 @@ extension CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
-        let zellijName = LocalZellijCommandBuilder.zellijSessionName(for: record)
-        if try runtime.sessions().contains(where: { $0.name == zellijName }) {
+        if try runtime.state(of: record) != .stale {
             let result = try runtime.runner.run(
-                arguments: runtime.builder.deleteSessionArguments(sessionName: zellijName)
+                arguments: runtime.builder.deleteSessionArguments(
+                    sessionName: LocalZellijCommandBuilder.zellijSessionName(for: record)
+                )
             )
             let alreadyGone = result.stdout.contains("not found") || result.stderr.contains("not found")
             guard result.succeeded || alreadyGone else {
@@ -163,9 +162,9 @@ extension CMUXCLI {
         }
     }
 
+    /// Reports a session `start --detached` left running without a client.
     func printLocalZellijRecord(
         _ record: LocalTmuxSessionRecord,
-        state: String,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) {
@@ -176,7 +175,7 @@ extension CMUXCLI {
                 "zellij_session_name": LocalZellijCommandBuilder.zellijSessionName(for: record),
                 "socket_path": record.socketPath,
                 "cwd": record.cwd,
-                "state": state,
+                "state": "detached",
                 "live": true,
             ]
             print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -185,32 +184,22 @@ extension CMUXCLI {
                 String(localized: "cli.localZellij.output.record", defaultValue: "OK session=%@ id=%@ state=%@ socket=%@"),
                 record.name,
                 record.id.uuidString,
-                localZellijDisplayState(state),
+                String(localized: "cli.localZellij.state.detached", defaultValue: "detached"),
                 record.socketPath
             ))
         }
     }
 
     /// `live`, `exited` (zellij can resurrect it), or `stale` (gone).
-    private func localZellijState(
-        of name: String,
-        in sessions: [LocalZellijSessionListParser.Session]
-    ) -> String {
-        guard let session = sessions.first(where: { $0.name == name }) else { return "stale" }
-        return session.exited ? "exited" : "live"
-    }
-
-    private func localZellijDisplayState(_ state: String) -> String {
+    private func localZellijDisplayState(_ state: LocalZellijSessionState?) -> String {
         switch state {
-        case "live":
+        case .live:
             return String(localized: "cli.localZellij.state.live", defaultValue: "live")
-        case "exited":
+        case .exited:
             return String(localized: "cli.localZellij.state.exited", defaultValue: "exited")
-        case "stale":
+        case .stale:
             return String(localized: "cli.localZellij.state.stale", defaultValue: "stale")
-        case "detached":
-            return String(localized: "cli.localZellij.state.detached", defaultValue: "detached")
-        default:
+        case nil:
             return String(localized: "cli.localZellij.state.unknown", defaultValue: "unknown")
         }
     }

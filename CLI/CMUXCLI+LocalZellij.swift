@@ -1,6 +1,16 @@
 import Darwin
 import Foundation
 
+/// What zellij reports for a session this profile owns.
+enum LocalZellijSessionState: String {
+    /// Running in the private socket directory.
+    case live
+    /// Stopped, but zellij can resurrect it on attach.
+    case exited
+    /// zellij has no session by this name.
+    case stale
+}
+
 /// Registry, command builder, and process runner for one local-zellij command.
 struct LocalZellijRuntime {
     let registry: LocalTmuxSessionRegistry
@@ -15,6 +25,20 @@ struct LocalZellijRuntime {
             throw CLIError(message: String(localized: "cli.localZellij.error.listFailed", defaultValue: "local-zellij could not list sessions; liveness is unknown."))
         }
         return sessions
+    }
+
+    /// The single place that maps a record to zellij's view of its session.
+    func state(of record: LocalTmuxSessionRecord) throws -> LocalZellijSessionState {
+        Self.state(of: record, in: try sessions())
+    }
+
+    static func state(
+        of record: LocalTmuxSessionRecord,
+        in sessions: [LocalZellijSessionListParser.Session]
+    ) -> LocalZellijSessionState {
+        let zellijName = LocalZellijCommandBuilder.zellijSessionName(for: record)
+        guard let session = sessions.first(where: { $0.name == zellijName }) else { return .stale }
+        return session.exited ? .exited : .live
     }
 }
 
@@ -54,16 +78,14 @@ extension CMUXCLI {
             if invocation.headless, !invocation.detached {
                 try runLocalZellijInteractiveAttach(record: record, runtime: runtime)
             } else if invocation.detached || invocation.headless {
-                printLocalZellijRecord(record, state: "detached", jsonOutput: jsonOutput, idFormat: idFormat)
+                printLocalZellijRecord(record, jsonOutput: jsonOutput, idFormat: idFormat)
             } else {
                 try attachLocalZellijClient(record: record, invocation: invocation, runtime: runtime, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
             }
         case .attach:
             let record = try requireLocalZellijRecord(invocation, runtime: runtime)
-            // An exited session is attachable: zellij resurrects it. The
-            // tokenized name keeps that to sessions this profile started.
-            let zellijName = LocalZellijCommandBuilder.zellijSessionName(for: record)
-            guard try runtime.sessions().contains(where: { $0.name == zellijName }) else {
+            // An exited session is attachable: zellij resurrects it.
+            guard try runtime.state(of: record) != .stale else {
                 throw CLIError(message: String.localizedStringWithFormat(
                     String(localized: "cli.localZellij.error.sessionNotRunning", defaultValue: "local-zellij session is no longer running: %@"),
                     record.name
@@ -142,6 +164,11 @@ extension CMUXCLI {
         }
     }
 
+    /// Starts or reuses the session named by the invocation.
+    ///
+    /// The record is written before zellij is touched, so ownership survives
+    /// any failure after that point; the outcome is then decided only by what
+    /// zellij reports for that record, the same way before and after creation.
     private func startLocalZellijSession(
         invocation: LocalZellijInvocation,
         runtime: LocalZellijRuntime
@@ -154,40 +181,60 @@ extension CMUXCLI {
             $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
         }
         let existingRecord = try runtime.registry.load().first { $0.name == name }
-        let newRecord = LocalTmuxSessionRecord(name: name, socketPath: builder.socketDirectory, cwd: "")
-        let zellijName = LocalZellijCommandBuilder.zellijSessionName(for: existingRecord ?? newRecord)
+        var record = existingRecord
+            ?? LocalTmuxSessionRecord(name: name, socketPath: builder.socketDirectory, cwd: "")
 
-        if let existingRecord,
-           let listed = try runtime.sessions().first(where: { $0.name == zellijName }) {
-            if listed.exited {
-                throw CLIError(message: String.localizedStringWithFormat(
-                    String(localized: "cli.localZellij.error.sessionExited", defaultValue: "local-zellij session %@ has exited; attach to resurrect it or close it first"),
-                    name
-                ))
-            }
+        switch try runtime.state(of: record) {
+        case .live:
             if command != nil {
                 throw CLIError(message: String(localized: "cli.localZellij.error.existingSessionCommand", defaultValue: "local-zellij session already exists; use attach or close it before supplying a new command"))
             }
-            if let requestedCwd, requestedCwd != existingRecord.cwd {
+            if let requestedCwd, requestedCwd != record.cwd {
                 throw CLIError(message: String(localized: "cli.localZellij.error.existingSessionCwd", defaultValue: "local-zellij session already exists with a different working directory; use attach or close it first"))
             }
-            var record = existingRecord
             record.socketPath = builder.socketDirectory
             record.updatedAt = Date.now.timeIntervalSince1970
             try runtime.registry.upsert(record)
             return record
+        case .exited:
+            throw localZellijExitedError(name)
+        case .stale:
+            break
         }
 
-        let cwd = try requestedCwd ?? localZellijWorkingDirectory(nil)
-        // Save the identity before creating the session. If creation succeeds
-        // but its result can't be confirmed, a retry finds this record and the
-        // same zellij name instead of starting a second session.
-        var record = existingRecord ?? newRecord
-        record.cwd = cwd
+        record.cwd = try requestedCwd ?? localZellijWorkingDirectory(nil)
         record.socketPath = builder.socketDirectory
         record.updatedAt = Date.now.timeIntervalSince1970
         try runtime.registry.upsert(record)
+        try createLocalZellijSession(record, command: command, runtime: runtime)
 
+        // A listing failure propagates and leaves the record for a retry.
+        switch try runtime.state(of: record) {
+        case .live:
+            return record
+        case .exited:
+            // The server stopped after creating the session; it can still be
+            // resurrected, so ownership stays.
+            throw localZellijExitedError(name)
+        case .stale:
+            if existingRecord == nil {
+                _ = try? runtime.registry.remove(id: record.id)
+            }
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.localZellij.error.startFailed", defaultValue: "local-zellij could not start session %@"),
+                name
+            ))
+        }
+    }
+
+    /// Asks zellij to create the record's session. Success is judged by the
+    /// caller from zellij's listing, not from this command's exit status.
+    private func createLocalZellijSession(
+        _ record: LocalTmuxSessionRecord,
+        command: String?,
+        runtime: LocalZellijRuntime
+    ) throws {
+        let builder = runtime.builder
         let layoutURL = try command.map { command in
             let url = runtime.registry.rootURL.appendingPathComponent(".layout-\(UUID().uuidString).kdl", isDirectory: false)
             guard FileManager.default.createFile(
@@ -203,24 +250,18 @@ extension CMUXCLI {
         defer {
             if let layoutURL { try? FileManager.default.removeItem(at: layoutURL) }
         }
-        let created = try runtime.runner.run(arguments: builder.createBackgroundArguments(
-            sessionName: zellijName,
-            workingDirectory: cwd,
+        _ = try runtime.runner.run(arguments: builder.createBackgroundArguments(
+            sessionName: LocalZellijCommandBuilder.zellijSessionName(for: record),
+            workingDirectory: record.cwd,
             layoutPath: layoutURL?.path
         ))
-        // A listing failure propagates and leaves the record for a retry.
-        let isLive = try runtime.sessions().contains { $0.name == zellijName && !$0.exited }
-        guard created.succeeded, isLive else {
-            if existingRecord == nil, !isLive {
-                // Nothing was started, so the new record has nothing to track.
-                _ = try? runtime.registry.remove(id: record.id)
-            }
-            throw CLIError(message: String.localizedStringWithFormat(
-                String(localized: "cli.localZellij.error.startFailed", defaultValue: "local-zellij could not start session %@"),
-                name
-            ))
-        }
-        return record
+    }
+
+    private func localZellijExitedError(_ name: String) -> CLIError {
+        CLIError(message: String.localizedStringWithFormat(
+            String(localized: "cli.localZellij.error.sessionExited", defaultValue: "local-zellij session %@ has exited; attach to resurrect it or close it first"),
+            name
+        ))
     }
 
     private func localZellijWorkingDirectory(_ raw: String?) throws -> String {

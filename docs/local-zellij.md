@@ -75,7 +75,9 @@ the registry update, so a `close` racing a `start` of the same name cannot
 leave a live session without a record. `start` saves the record before it creates the
 session, so if creation can't be confirmed (say, the follow-up listing
 fails), rerunning `start` finds the same session instead of starting a second
-one; with `--command` it refuses rather than running the command again.
+one; with `--command` it refuses rather than running the command again. If
+the session exited before `start` could check it, `start` keeps the record
+and says so: `attach` resurrects it and `close` removes it.
 
 The state and socket directories are created mode `0700` and the registry
 `0600`; cmux refuses to use them if another user owns them or they are group-
