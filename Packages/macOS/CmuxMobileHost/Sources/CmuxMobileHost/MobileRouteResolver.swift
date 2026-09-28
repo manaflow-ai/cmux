@@ -17,6 +17,7 @@ public struct MobileHostRouteSnapshot: Sendable {
 }
 
 public final class MobileRouteResolver: @unchecked Sendable {
+    /// Stateless to construct; the resolver caches resolved Tailscale hosts internally.
     public init() {}
 
     private static let tailscaleRouteCacheTTL: TimeInterval = 30
