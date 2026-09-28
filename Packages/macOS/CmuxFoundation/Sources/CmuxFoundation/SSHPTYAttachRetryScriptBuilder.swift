@@ -21,7 +21,8 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
     /// - Returns: Shell lines for the bounded registration loop.
     public func launchRegistrationRetryLines(functionPrefix: String) -> [String] {
         [
-            "\(functionPrefix)_begin_attempt() { CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || return 1; export CMUX_SSH_ATTEMPT_ID; \(functionPrefix)_attempt_registration_retry=0; while :; do \(functionPrefix)_register_attempt; \(functionPrefix)_attempt_registration_status=$?; if [ \"$\(functionPrefix)_attempt_registration_status\" -eq 0 ]; then return 0; fi; \(functionPrefix)_attempt_registration_retry=$((\(functionPrefix)_attempt_registration_retry + 1)); if [ \"$\(functionPrefix)_attempt_registration_retry\" -ge 3 ]; then return \"$\(functionPrefix)_attempt_registration_status\"; fi; /bin/sleep 0.1; done; }",
+            "\(functionPrefix)_registration_timed_out=0",
+            "\(functionPrefix)_begin_attempt() { \(functionPrefix)_registration_timed_out=0; CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || return 1; export CMUX_SSH_ATTEMPT_ID; \(functionPrefix)_attempt_registration_retry=0; while :; do \(functionPrefix)_register_attempt; \(functionPrefix)_attempt_registration_status=$?; if [ \"$\(functionPrefix)_attempt_registration_status\" -eq 0 ]; then return 0; fi; if [ \"$\(functionPrefix)_attempt_registration_status\" -ne \(SSHPTYAttachExitCode.launchAcknowledgementTimedOut.rawValue) ]; then return \"$\(functionPrefix)_attempt_registration_status\"; fi; \(functionPrefix)_attempt_registration_retry=$((\(functionPrefix)_attempt_registration_retry + 1)); if [ \"$\(functionPrefix)_attempt_registration_retry\" -ge 3 ]; then \(functionPrefix)_registration_timed_out=1; return \"$\(functionPrefix)_attempt_registration_status\"; fi; /bin/sleep 0.1; done; }",
         ]
     }
 
@@ -170,6 +171,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "  \(command)",
             "  cmux_ssh_attach_status=$?",
             "  if [ \"$cmux_ssh_attach_status\" -ne 0 ] && [ -t 2 ]; then printf \(terminalModeReset) >&2 || true; fi",
+            "  if [ \"$cmux_ssh_attach_status\" -eq \(launchAcknowledgementTimeoutStatus) ] && [ \"${cmux_ssh_attach_registration_timed_out:-0}\" -ne 1 ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  if [ \"$cmux_ssh_attach_status\" -eq 0 ] && [ \"$cmux_ssh_attach_retry\" -gt 0 ] && [ -t 2 ]; then printf '\\n\\033[32m%s\\033[0m\\n' \"$(printf \(reconnectedFormat) \"$cmux_ssh_attach_retry\" \"$cmux_ssh_attach_reconnect_limit\")\" >&2 || true; fi",
             "  case \"$cmux_ssh_attach_status\" in",
             "    \(hostUnreachableStatus)) cmux_ssh_attach_retry_reason=\(hostUnreachableReason); cmux_ssh_attach_no_progress_retry=0; if [ \"$cmux_ssh_attach_auth_succeeded\" -eq 0 ]; then \(reauthenticate); fi ;;",
