@@ -184,16 +184,22 @@ struct AgentSessionRecoveryPlannerTests {
         candidate.launchCommand?.launcherPrefix = prefix + ["--resume", "old"]
         #expect(candidate.launcherResumeArguments(isReadableFile: { _ in true }) == nil)
 
-        // A proven Subrouter-routed launch belongs to the normal restore path.
+        // A proven Subrouter-routed launch resumes the way `cmux restore`
+        // does: through sr with only the account pin, never the private
+        // per-launch settings file.
         candidate.launchCommand = AgentLaunchCommand(
-            arguments: ["claude"],
+            arguments: ["claude", "--settings", "/tmp/subrouter-claude-settings-abc/settings.json", "--model", "opus"],
             environment: [
                 SubrouterClaudeResumeRouting.environmentKey: "sr claude proxy --resume",
                 SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: "sr claude proxy --resume",
             ],
-            launcherPrefix: prefix
+            launcherPrefix: prefix + ["--resume", "old", "prompt"]
         )
-        #expect(candidate.launcherResumeArguments(isReadableFile: { _ in true }) == nil)
+        #expect(candidate.routesThroughSubrouter)
+        #expect(
+            candidate.launcherResumeArguments(isReadableFile: { _ in true })
+                == ["sr", "claude", "proxy", "--account", "me@example.com", "--resume", "s1", "--model", "opus"]
+        )
     }
 
     @Test("launch commands without a launcher prefix still decode")

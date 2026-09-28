@@ -129,10 +129,18 @@ struct AgentSessionRecovery: Sendable {
     static func resumeCommand(for candidate: AgentRecoveryCandidate) -> String? {
         guard let kind = RestorableAgentKind(rawValue: candidate.kind) else { return nil }
         if let arguments = candidate.launcherResumeArguments {
+            var launchCommand = candidate.launchCommand
+            if candidate.routesThroughSubrouter {
+                // sr recomputes the auth selection and markers; replaying the
+                // captured ones would pin the resume to a dead launch's route.
+                launchCommand?.environment = launchCommand?.environment?.filter {
+                    !SubrouterClaudeResumeRouting.restoreOwnedEnvironmentKeys.contains($0.key)
+                }
+            }
             return AgentResumeCommandBuilder.launcherResumeShellCommand(
                 kind: kind,
                 sessionId: candidate.sessionId,
-                launchCommand: candidate.launchCommand,
+                launchCommand: launchCommand,
                 launcherArguments: arguments
             )
         }

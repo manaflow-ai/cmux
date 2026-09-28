@@ -35,8 +35,8 @@ struct AgentSessionRecoveryAppTests {
                 surfaceId: UUID().uuidString
             ))
         }
-        try append(.sessionStarted, "proxied")
-        try append(.turnStarted, "proxied")
+        try append(.sessionStarted, "0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11")
+        try append(.turnStarted, "0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11")
         try append(.sessionStarted, "plain")
         try append(.sessionStarted, "finished")
         try append(.sessionEnded, "finished")
@@ -77,7 +77,7 @@ struct AgentSessionRecoveryAppTests {
         let plain = AgentLaunchCommand(launcher: "claude", arguments: ["claude"])
         var file = RestorableAgentHookSessionStoreFile()
         file.sessions = [
-            "proxied": try record("proxied", cwd: "/Users/me/Projects/my app", launch: proxied),
+            "0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11": try record("0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11", cwd: "/Users/me/Projects/my app", launch: proxied),
             "plain": try record("plain", cwd: "/Users/me/Projects/plain", launch: plain),
             "finished": try record("finished", cwd: "/tmp", launch: plain),
             "already-open": try record("already-open", cwd: "/tmp", launch: plain),
@@ -102,15 +102,15 @@ struct AgentSessionRecoveryAppTests {
             environment: ["CMUX_AGENT_HOOK_STATE_DIR": root.path]
         )
         let candidates = recovery.candidates(openSessionIds: ["already-open"], now: now)
-        #expect(Set(candidates.map(\.sessionId)) == ["proxied", "plain", "no-pid", "missing-pid-start"])
+        #expect(Set(candidates.map(\.sessionId)) == ["0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11", "plain", "no-pid", "missing-pid-start"])
 
-        let proxiedCandidate = try #require(candidates.first { $0.sessionId == "proxied" })
+        let proxiedCandidate = try #require(candidates.first { $0.sessionId == "0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11" })
         let proxiedCommand = try #require(AgentSessionRecovery.resumeCommand(for: proxiedCandidate))
         // The launcher argv runs inside the portable `/bin/sh -c` wrapper that
         // keeps cmux's Claude shim on PATH for the re-exec'd agent.
         #expect(proxiedCommand.hasPrefix("/bin/sh -c "))
         #expect(proxiedCommand.contains("CMUX_CLAUDE_WRAPPER_SHIM"))
-        for word in ["sr", "claude", "proxy", "--account", "me@example.com", "--resume", "proxied"] {
+        for word in ["sr", "claude", "proxy", "--account", "me@example.com", "--resume", "0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11"] {
             #expect(proxiedCommand.contains(word))
         }
         #expect(AgentSessionRecovery.workspaceTitle(for: proxiedCandidate) == "my app")
