@@ -24080,6 +24080,16 @@ mod tests {
         assert_eq!(records[0].state, AgentState::Idle);
     }
 
+    /// The hook projector's live record for `terminal_id`. `list_agents` reads
+    /// the journal-folded roster, which direct `apply_agent_hook_record` calls
+    /// bypass, so projector tests inspect the projector's own output.
+    fn hook_projected_agent(
+        mux: &Mux,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<TerminalAgentRecord> {
+        mux.agent_records.lock().unwrap().get(terminal_id).cloned()
+    }
+
     #[test]
     fn stale_same_terminal_hook_sequence_cannot_overwrite_newer_state() {
         let mux = test_mux();
@@ -24106,7 +24116,7 @@ mod tests {
         .unwrap();
         mux.apply_agent_hook_record(&newer, 2).unwrap();
         mux.apply_agent_hook_record(&older, 1).unwrap();
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Blocked);
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Blocked);
     }
 
     #[test]
@@ -24132,8 +24142,11 @@ mod tests {
         // must not try to acquire that guard again.
         mux.apply_agent_hook_record(&hook, 1).unwrap();
 
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].agent.as_deref(), Some("claude"));
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Working);
+        assert_eq!(
+            hook_projected_agent(&mux, &terminal_id).unwrap().agent.as_deref(),
+            Some("claude")
+        );
         let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
         assert_eq!(snapshot["agents"][0]["extra"]["agent"], serde_json::json!("claude"));
         assert_eq!(
@@ -25571,9 +25584,8 @@ mod tests {
         mux.apply_agent_hook_record(&ingress("SessionEnd", "old"), 1).unwrap();
         mux.apply_agent_hook_record(&ingress("SessionStart", "new"), 2).unwrap();
         mux.apply_agent_hook_record(&ingress("UserPromptSubmit", "old"), 3).unwrap();
-        let records = mux.list_agents(Some(surface.id), None);
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].state, AgentState::Idle);
+        let record = hook_projected_agent(&mux, &terminal_id).expect("new session record");
+        assert_eq!(record.state, AgentState::Idle);
         assert!(
             !mux.agent_hook_fences
                 .lock()
@@ -25602,11 +25614,11 @@ mod tests {
         // The old session can arrive after its end marker. Matching the ended
         // identity is still a stale event, not permission to reopen it.
         mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 3).unwrap();
-        assert!(mux.list_agents(Some(surface.id), None).is_empty());
+        assert!(hook_projected_agent(&mux, &terminal_id).is_none());
         assert!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].ended);
         mux.apply_agent_hook_record(&ingress("SessionStart", "new"), 4).unwrap();
         mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 5).unwrap();
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Idle);
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Idle);
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
     }
 
@@ -25640,7 +25652,7 @@ mod tests {
         mux.apply_agent_hook_record(&sessionless("UserPromptSubmit"), 4).unwrap();
 
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Idle);
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Idle);
     }
 
     #[test]
@@ -25667,7 +25679,7 @@ mod tests {
         let second = mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id.clone();
         assert_ne!(first, second);
         mux.apply_agent_hook_record(&ingress("UserPromptSubmit"), 4).unwrap();
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Working);
     }
 
     #[test]
@@ -25793,12 +25805,12 @@ mod tests {
         mux.apply_agent_hook_record(&ingress, 7).unwrap();
         assert_eq!(mux.workspace_registry.lock().unwrap().agent_hook_apply_cursor().unwrap(), 7);
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].sequence, 7);
-        assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
+        assert!(hook_projected_agent(&mux, &terminal_id).is_some());
 
         // A replay of the committed sequence is an idempotent no-op.
         mux.apply_agent_hook_record(&ingress, 7).unwrap();
         assert_eq!(mux.workspace_registry.lock().unwrap().agent_hook_apply_cursor().unwrap(), 7);
-        assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
+        assert!(hook_projected_agent(&mux, &terminal_id).is_some());
     }
 
     #[test]
