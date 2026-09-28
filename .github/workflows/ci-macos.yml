@@ -295,6 +295,10 @@ jobs:
       # macOS status can tell a test failure from a compile failure. Empty
       # when the job ran none.
       changed_suites: ${{ steps.run-changed-suites.outcome }}
+      # "false" when a changed-suites run could not take this Mac's gui token
+      # and left the suites to the `app-host unit tests` worker; empty when
+      # the run has none or the job stopped before that step.
+      unit_tested: ${{ steps.test-here.outputs.tested }}
       artifact_id: ${{ steps.upload-products.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload-products.outputs.artifact-digest }}
       layer_index_artifact_id: ${{ steps.upload-layer-index.outputs.artifact-id }}
@@ -1378,9 +1382,47 @@ jobs:
           python3 scripts/ci/owned_build_state.py save "$CMUX_OWNED_STATE_ROOT" \
             "${CMUX_CI_CANONICAL_SRC:-/private/tmp/cmux-ci/src}/.ci-source-packages" "$PWD" "${CMUX_OWNED_PACKAGE_STORE:-}"
 
+      # On an owned Mac the suites share its one console session with every
+      # other GUI job, so they need glaeda's gui token, which glaeda never
+      # gives compile admission at job start. This step takes it
+      # (glaeda-canonical-root take-gui) for the rest of the job, as
+      # test-e2e.yml's build does. When it cannot, the `app-host unit tests`
+      # worker runs the suites, as it did for every owned admission before:
+      # take-gui gave way (exit 3: the console is locked, or a GUI job holding
+      # the token waits for this job's canonical root), the token stayed taken
+      # past the wait (1), or the helper cannot take it here (2, which leaves
+      # this job without the token, unlike a GUI job). CI_PR_POOL_OWNED_GUI=0,
+      # which keeps GUI jobs off the owned Macs, sends them there too.
+      # Blacksmith has no helper and runs the suites here.
+      - name: Take this Mac's gui token for the changed suites
+        id: test-here
+        if: ${{ inputs.unit_in_admission == 'true' }}
+        env:
+          POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
+          GLAEDA_CANONICAL_ROOT: /Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+        run: |
+          set -uo pipefail
+          helper=$GLAEDA_CANONICAL_ROOT
+          if [ -x "$helper" ]; then
+            status=0
+            if [ "$POOL_OWNED_GUI" = 0 ]; then
+              status=off
+            else
+              # The step shell is bash -e, so capture the status instead of
+              # letting a give-way (exit 3) fail the job before it is read.
+              "$helper" take-gui --wait 240 || status=$?
+            fi
+            if [ "$status" != 0 ]; then
+              echo "::notice::No gui token for the changed suites here (take-gui: $status); the app-host unit tests worker runs them."
+              echo "tested=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "tested=true" >> "$GITHUB_OUTPUT"
+
       - name: Prepare isolated DerivedData
         id: test-derived-data
-        if: ${{ inputs.unit_in_admission == 'true' }}
+        if: ${{ steps.test-here.outputs.tested == 'true' }}
         run: |
           set -euo pipefail
           DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-derived-data-tests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-shard-${CMUX_APP_HOST_SHARD}"
@@ -1390,7 +1432,7 @@ jobs:
 
       - name: Restore compiled app-host test product
         id: restore-test-products
-        if: ${{ inputs.unit_in_admission == 'true' }}
+        if: ${{ steps.test-here.outputs.tested == 'true' }}
         env:
           ARTIFACT_ID: ${{ steps.upload-products.outputs.artifact-id }}
           ARTIFACT_PROVIDER_DIGEST: ${{ steps.upload-products.outputs.artifact-digest }}
@@ -1408,15 +1450,15 @@ jobs:
 
       - name: Prepare isolated app-host home
         id: prepare-app-host-home
-        if: ${{ inputs.unit_in_admission == 'true' }}
+        if: ${{ steps.test-here.outputs.tested == 'true' }}
         run: scripts/ci/prepare-app-host-home.sh
 
       - name: Enumerate built app-host tests
-        if: ${{ inputs.unit_in_admission == 'true' }}
+        if: ${{ steps.test-here.outputs.tested == 'true' }}
         run: scripts/ci/enumerate-app-host-tests.sh
 
       - name: Upload built app-host test inventory
-        if: ${{ inputs.unit_in_admission == 'true' }}
+        if: ${{ steps.test-here.outputs.tested == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-app-host-test-inventory-${{ github.run_id }}-${{ github.run_attempt }}
@@ -1428,12 +1470,12 @@ jobs:
           retention-days: 14
 
       - name: Enable XCTest automation mode
-        if: ${{ inputs.unit_in_admission == 'true' }}
+        if: ${{ steps.test-here.outputs.tested == 'true' }}
         run: scripts/ci/enable-xctest-automation-mode.sh
 
       - name: Run changed app-host suites
         id: run-changed-suites
-        if: ${{ inputs.unit_in_admission == 'true' }}
+        if: ${{ steps.test-here.outputs.tested == 'true' }}
         run: scripts/ci/run-app-host-unit-batches.sh
 
       # Compile admission no longer waits for the caller's `macOS admission
@@ -1525,7 +1567,7 @@ jobs:
           PY
 
       - name: Clean up isolated app-host home
-        if: ${{ always() && inputs.unit_in_admission == 'true' }}
+        if: ${{ always() && steps.test-here.outputs.tested == 'true' }}
         env:
           CMUX_APP_HOST_PREPARATION_OUTCOME: ${{ steps.prepare-app-host-home.outcome }}
         run: |
@@ -1614,7 +1656,7 @@ jobs:
           CLI: ${{ inputs.cli }}
           FULL_SUITE: ${{ inputs.full_suite }}
           UNIT_SUITE: ${{ inputs.unit_suite }}
-          UNIT_IN_ADMISSION: ${{ inputs.unit_in_admission }}
+          UNIT_IN_ADMISSION: ${{ inputs.unit_in_admission == 'true' && needs.macos-compile-admission.outputs.unit_tested != 'false' && 'true' || 'false' }}
           UNIT_SELECTORS: ${{ inputs.unit_selectors }}
           OWNED_JOBS: ${{ inputs.pr_owned_jobs }}
           POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
@@ -1671,8 +1713,9 @@ jobs:
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     # A changed-suites run that compile admission ran itself
-    # (inputs.unit_in_admission) needs no worker here.
-    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true') && inputs.unit_in_admission != 'true' }}
+    # (inputs.unit_in_admission) needs no worker here, unless admission could
+    # not take its Mac's gui token (outputs.unit_tested false).
+    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true') && (inputs.unit_in_admission != 'true' || needs.macos-compile-admission.outputs.unit_tested == 'false') }}
     name: ${{ inputs.unit_selectors != '' && 'app-host unit tests (changed suites)' || format('app-host unit tests ({0}/7)', matrix.shard) }}
     # Every consumer runs on compile admission's pool and pins its Xcode,
     # both read from the admission's outputs. The shards run test-without-building
@@ -4256,7 +4299,11 @@ jobs:
           unit_suite = inputs.get("unit_suite", "") == "true"
           # A changed-suites run compile admission runs itself replaces the
           # separate worker, so admission's success is what proves the tests.
-          in_admission = inputs.get("unit_in_admission", "") == "true"
+          # When admission could not take its Mac's gui token it says so
+          # (unit_tested false) and the worker is required again.
+          admission_outputs = needs["macos-compile-admission"].get("outputs") or {}
+          in_admission = (inputs.get("unit_in_admission", "") == "true"
+                          and admission_outputs.get("unit_tested", "") != "false")
           required = {
               "macos-compile-admission": (macos or cli) and (inputs["compile_admitted"] != "true" or full_suite or cli or in_admission),
               "app-host-unit-tests": macos and (full_suite or unit_suite) and not in_admission,
