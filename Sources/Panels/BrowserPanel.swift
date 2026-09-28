@@ -4229,18 +4229,33 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
+        guard let configurations = Self.remoteWorkspaceProxyConfigurations(for: endpoint) else {
+            store.proxyConfigurations = []
+            return
+        }
+        store.proxyConfigurations = [configurations.socks, configurations.connect]
+    }
+
+    /// SOCKS5 and HTTP CONNECT configurations for the remote workspace proxy,
+    /// each carrying the tunnel credential the listener requires; nil when
+    /// the endpoint is unusable.
+    private static func remoteWorkspaceProxyConfigurations(
+        for endpoint: BrowserProxyEndpoint
+    ) -> (socks: ProxyConfiguration, connect: ProxyConfiguration)? {
         let host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !host.isEmpty,
               endpoint.port > 0 && endpoint.port <= 65535,
               let nwPort = NWEndpoint.Port(rawValue: UInt16(endpoint.port)) else {
-            store.proxyConfigurations = []
-            return
+            return nil
         }
 
         let nwEndpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: nwPort)
-        let socks = ProxyConfiguration(socksv5Proxy: nwEndpoint)
-        let connect = ProxyConfiguration(httpCONNECTProxy: nwEndpoint)
-        store.proxyConfigurations = [socks, connect]
+        var socks = ProxyConfiguration(socksv5Proxy: nwEndpoint)
+        var connect = ProxyConfiguration(httpCONNECTProxy: nwEndpoint)
+        let credential = endpoint.credential
+        socks.applyCredential(username: credential.username, password: credential.password)
+        connect.applyCredential(username: credential.username, password: credential.password)
+        return (socks, connect)
     }
 
     private func beginDownloadActivity() {
@@ -5725,19 +5740,18 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func remoteProxyURLSession() -> URLSession? {
-        guard let endpoint = remoteProxyEndpoint else { return nil }
-        let host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !host.isEmpty, endpoint.port > 0, endpoint.port <= 65535 else { return nil }
+        guard let endpoint = remoteProxyEndpoint,
+              let proxyConfigurations = Self.remoteWorkspaceProxyConfigurations(for: endpoint) else {
+            return nil
+        }
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .returnCacheDataElseLoad
         configuration.timeoutIntervalForRequest = 2.0
         configuration.timeoutIntervalForResource = 4.0
-        configuration.connectionProxyDictionary = [
-            kCFNetworkProxiesSOCKSEnable as String: 1,
-            kCFNetworkProxiesSOCKSProxy as String: host,
-            kCFNetworkProxiesSOCKSPort as String: endpoint.port,
-        ]
+        // SOCKS only, as before; the legacy proxy dictionary cannot carry
+        // the listener's credential.
+        configuration.proxyConfigurations = [proxyConfigurations.socks]
         return URLSession(configuration: configuration)
     }
 
