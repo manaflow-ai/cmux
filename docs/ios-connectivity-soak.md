@@ -11,13 +11,12 @@ The stress workload runs for 3,600 seconds, with a five-second target cadence.
 Each cycle runs the basic transactions and the next step of a fixed four-step
 sequence: workspace navigation and refresh; 128 lines of Unicode output;
 create, open, use and close a scratch workspace; then refresh and use the
-terminal again. Every 120th cycle replaces the fourth step with an explicit
-terminal again. The release gate keeps the native connection unchanged for
-the entire foreground workload. A separate recovery test may opt into an
-explicit disconnect and reconnect, preserving the saved pairing; that test is
-never mixed into the uninterrupted foreground evidence. Unexpected
-connection replacement fails the foreground workload. A cycle exceeding 30
-seconds fails.
+terminal again. The foreground workload never forces a reconnect, so every
+cycle checks that the original native connection is still present. A separate
+recovery test may opt into an explicit disconnect and reconnect, preserving the
+saved pairing; that test is never mixed into the uninterrupted foreground
+evidence. Unexpected connection replacement fails the foreground workload. A
+cycle exceeding 30 seconds fails.
 
 These are app-action and transport checks in an isolated Simulator. They do
 not establish physical iPhone reliability, touch gesture correctness, cellular
@@ -127,6 +126,11 @@ and from the row's selection action to the first nonblank verified terminal fram
 The gate invokes the production row selection and back actions, waits for the
 terminal view to unmount, then starts the full transport workload. Timings are
 recorded once per process and survive SwiftUI reconstruction and later frames.
+For a soak run, the first launch is an enrollment prewarm that verifies sign-in
+and pairing. The measured launch then restores the saved sign-in and pairing
+without credentials or an injected attach URL, matching a returning user's
+startup path. The report records `startupPath`, and a soak is rejected unless
+it is `stored_pairing`; `injected_pairing` is reserved for enrollment.
 The two UI screenshots are captured from the isolated app window after each
 measured boundary. Launch timing includes OS pre-main work, using the shared
 Mach uptime clock. It does not measure physical touchscreen delivery latency. The monitor
