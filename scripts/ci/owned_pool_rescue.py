@@ -212,7 +212,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pr_runner_pool import MAX_QUEUE_ROUNDS, parse_queue_rounds, persistent  # noqa: E402
+from pr_runner_pool import MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, parse_queue_rounds, persistent  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
@@ -272,7 +272,7 @@ END_MARGIN_SECONDS = 60
 # One round of queue on an owned pool: the longest job a queued job commonly
 # waits behind, compile admission. Over 80 pull request runs on 2026-09-25 it
 # took a median 638 s on the minis (p90 745 s) and a p90 893 s on Blacksmith.
-QUEUE_ROUND_SECONDS = 900
+QUEUE_ROUND_SECONDS = QUEUE_ROUND_MINUTES * 60
 FIRST_LOOK_SECONDS = 45
 POLL_SECONDS = 20
 IDLE_POLL_SECONDS = 120
