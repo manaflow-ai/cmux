@@ -267,6 +267,28 @@ struct UpdateRelaunchAgentResumeTests {
         #expect(workspace.surfaceResumeBinding(panelId: panelId)?.command == tmuxBinding.command)
     }
 
+    /// The relaunch save uses the indexes captured just before the relaunch, so an agent the
+    /// cached index has not seen yet is still saved as running. A capture from a relaunch that
+    /// did not happen is never reused.
+    @Test("The update relaunch save uses only a recent pre-relaunch capture, once")
+    func updateRelaunchIndexCaptureIsRecentAndSingleUse() throws {
+        let fresh = ProcessDetectedResumeIndexes(
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: [:])
+        )
+        var capture = UpdateRelaunchIndexCapture()
+        #expect(capture.take(now: 100) == nil)
+
+        capture.store(fresh, capturedAt: 100)
+        let taken = try #require(capture.take(now: 100 + UpdateRelaunchIndexCapture.lifetime))
+        #expect(taken.surfaceResumeBindingIndex.isAvailable)
+        #expect(capture.take(now: 101) == nil)
+
+        capture.store(fresh, capturedAt: 100)
+        #expect(capture.take(now: 101 + UpdateRelaunchIndexCapture.lifetime) == nil)
+        #expect(capture.take(now: 101) == nil)
+    }
+
     /// Mirrors the `cmux restore` CLI mapping from a socket restore record to
     /// the planner request.
     private static func restoreRequest(from record: ControlSurfaceRestoreRecord) throws -> AgentRestoreRequest {

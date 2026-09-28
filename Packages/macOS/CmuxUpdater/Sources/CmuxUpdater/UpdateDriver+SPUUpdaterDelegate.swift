@@ -32,10 +32,21 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         log.append("automatic update checks disabled; no scheduled check")
     }
 
-    /// Called when an update is scheduled to install silently,
-    /// which occurs when automatic download is enabled.
+    /// Called when an update Sparkle downloaded in the background is ready, which happens only
+    /// when automatic installs are on (Sparkle's automatic downloads follow that setting). The
+    /// update installs at the next quiet moment; Sparkle also installs it when cmux quits.
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
+        handleWillInstallUpdateOnQuit(immediateInstallHandler: immediateInstallHandler)
+    }
+
+    /// Extracted from the ``SPUUpdaterDelegate`` callback so it is testable without an
+    /// `SPUUpdater`.
+    func handleWillInstallUpdateOnQuit(immediateInstallHandler: @escaping () -> Void) -> Bool {
         model.clearDetectedUpdate()
+        if installsAutomatically() {
+            beginAutomaticInstall(immediateInstallHandler)
+            return true
+        }
         model.setState(.installing(.init(
             isAutoUpdate: true,
             retryTerminatingApplication: immediateInstallHandler,
@@ -120,7 +131,7 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     func handleDidFinishUpdateCycle(_ updateCheck: SPUUpdateCheck, error: (any Error)?) {
         let errorText = error.map(formatErrorForLog) ?? "none"
         log.append("update cycle finished (check=\(updateCheck.rawValue), error=\(errorText))")
-        relaunchGate.cancel()
+        endRelaunchHold()
         eventDelegate?.updateDriverDidFinishCycle(updateCheck, error: error.map { $0 as NSError })
     }
 

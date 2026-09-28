@@ -129,9 +129,21 @@ public final class UpdateController {
         self.defaults = defaults
         self.fileManager = fileManager
         self.hostBundle = hostBundle
-        let isDevLikeBundle = isDevLikeBundle ?? Self.isDevLikeBundleIdentifier(hostBundle.bundleIdentifier)
+        var isDevLikeBundle = isDevLikeBundle ?? Self.isDevLikeBundleIdentifier(hostBundle.bundleIdentifier)
+#if DEBUG
+        // Dogfooding a real update cycle between two tagged builds: an explicit test feed plus
+        // this opt-in lets a DEV build update from that feed (never from the public appcast).
+        let env = ProcessInfo.processInfo.environment
+        if isDevLikeBundle,
+           env["CMUX_UPDATE_DOGFOOD_ALLOW_DEV_BUILD"] == "1",
+           !(env["CMUX_UI_TEST_FEED_URL"] ?? "").isEmpty {
+            log.append("dev build updates from the test feed (dogfood opt-in)")
+            isDevLikeBundle = false
+        }
+#endif
         self.isDevLikeBundle = isDevLikeBundle
-        settings.apply(to: defaults)
+        let feedURL = hostBundle.object(forInfoDictionaryKey: "SUFeedURL") as? String
+        settings.apply(to: defaults, channel: UpdateFeedResolver().resolve(infoFeedURL: feedURL).channel)
         if isDevLikeBundle {
             // DEV (`com.cmuxterm.app.debug[.<tag>]`) and staging (`com.cmuxterm.app.staging[.<tag>]`)
             // builds are produced from local source and are not on the public release train, so
@@ -149,7 +161,29 @@ public final class UpdateController {
         self.driver = driver
         self.updater = updaterFactory(driver, hostBundle)
         driver.eventDelegate = self
+        driver.installsAutomatically = { [weak self] in self?.installsAutomatically ?? false }
+        applyInstallAutomatically()
         startStateReactions()
+    }
+
+    /// Whether updates download in the background and install at a quiet moment: the user's
+    /// setting, except that DEV/staging builds and managed Macs never update on their own.
+    public var installsAutomatically: Bool {
+        !isDevLikeBundle && !isDisabledByPolicy() && defaults.bool(forKey: UpdateSettings.installAutomaticallyKey)
+    }
+
+    /// Applies a changed "Install updates automatically" setting to the running updater.
+    public func installAutomaticallyDidChange() {
+        applyInstallAutomatically()
+    }
+
+    /// Sparkle downloads updates in the background only while automatic installs are on; the
+    /// download is what leads to ``UpdateDriver/handleWillInstallUpdateOnQuit(immediateInstallHandler:)``.
+    private func applyInstallAutomatically() {
+        let enabled = installsAutomatically
+        guard updater.automaticallyDownloadsUpdates != enabled else { return }
+        updater.automaticallyDownloadsUpdates = enabled
+        log.append("automatic update installs \(enabled ? "on" : "off")")
     }
 
     deinit {

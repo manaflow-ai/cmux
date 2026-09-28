@@ -3,36 +3,56 @@ import Testing
 @preconcurrency import Sparkle
 @testable import CmuxUpdater
 
-/// Host double that reports whatever blockers the test sets.
+/// Host double that reports whatever blockers and input idle time the test sets, and counts
+/// the pre-relaunch captures. `onPrepare` runs inside the capture, to change the world while
+/// it is in flight.
 @MainActor
-private final class BlockerHost: UpdateActionDelegate {
+private final class RelaunchHost: UpdateActionDelegate {
     var blockers = UpdateRelaunchBlockers.empty
+    var idle: Duration = .seconds(600)
+    var prepareCount = 0
+    var onPrepare: (@MainActor () -> Void)?
 
     func updaterRequestsRetryCheckForUpdates() {}
+    func updaterPrepareForRelaunch() async {
+        prepareCount += 1
+        onPrepare?()
+    }
     func updaterWillRelaunchApplication() {}
     func updaterRelaunchBlockers() -> UpdateRelaunchBlockers { blockers }
+    func updaterTimeSinceLastUserInput() -> Duration { idle }
 }
 
-/// Counts calls to Sparkle's immediate-install block for the install-on-quit path.
+/// Counts calls to Sparkle's install block.
 private final class CallCounter: @unchecked Sendable {
     var count = 0
 }
 
-/// Behavior of the update relaunch gate: Sparkle's install-and-relaunch does not relaunch
-/// cmux while an agent is mid-turn or another command is running, and relaunches once they
-/// finish. Sparkle routes every relaunching install (Install and Relaunch, Restart Now, and a
-/// resumed install after Later) through `shouldPostponeRelaunchForUpdate`, which the driver
-/// answers with ``UpdateDriver/handleShouldPostponeRelaunch(installHandler:)``.
+/// Behavior of update relaunches. An install the user asked for relaunches right after the host
+/// captures its sessions, whatever is running (#15084). An automatic install (the "Install
+/// Updates Automatically" setting) waits for a quiet moment: no busy agent, no running command,
+/// and a minute without input. Sparkle asks `shouldPostponeRelaunchForUpdate` once per install,
+/// which the driver answers with ``UpdateDriver/handleShouldPostponeRelaunch(installHandler:)``.
 @MainActor
 @Suite struct UpdateRelaunchGateTests {
     private let clock = TestDeadlineClock()
-    private let host = BlockerHost()
+    private let host = RelaunchHost()
     private let model = UpdateStateModel()
 
-    private func makeDriver() -> UpdateDriver {
+    private func makeDriver(installsAutomatically: Bool = true) -> UpdateDriver {
         let driver = UpdateDriver(model: model, log: NoopUpdateLog(), clock: clock)
         driver.actionDelegate = host
+        driver.installsAutomatically = { installsAutomatically }
         return driver
+    }
+
+    /// Starts an automatic install the way Sparkle does: the background download finishes, the
+    /// driver runs the immediate-install block, and Sparkle asks whether to postpone.
+    private func startAutomaticInstall(_ driver: UpdateDriver, installs: CallCounter) {
+        let handled = driver.handleWillInstallUpdateOnQuit(immediateInstallHandler: {
+            #expect(driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 }))
+        })
+        #expect(handled)
     }
 
     private var waitingBlockers: UpdateRelaunchBlockers? {
@@ -45,10 +65,8 @@ private final class CallCounter: @unchecked Sendable {
         return installing
     }
 
-    /// Releases one re-check deadline and waits, bounded, for its effect. The bounds only
-    /// catch a hang; they are generous so a loaded CI host does not fail a correct run.
-    private func recheck(until condition: @MainActor () -> Bool) async {
-        await clock.fireDeadlineWhenReady(timeout: .seconds(20))
+    /// Waits, bounded, for an effect of work already scheduled on the main actor.
+    private func settle(until condition: @MainActor () -> Bool) async {
         let deadline = ContinuousClock.now.advanced(by: .seconds(20))
         while !condition(), ContinuousClock.now < deadline {
             await Task.yield()
@@ -56,50 +74,154 @@ private final class CallCounter: @unchecked Sendable {
         #expect(condition())
     }
 
-    @Test func relaunchesImmediatelyWhenNothingWouldBeInterrupted() {
-        let driver = makeDriver()
+    /// Releases one re-check deadline and waits, bounded, for its effect. The bounds only
+    /// catch a hang; they are generous so a loaded CI host does not fail a correct run.
+    private func recheck(until condition: @MainActor () -> Bool) async {
+        await clock.fireDeadlineWhenReady(timeout: .seconds(20))
+        await settle(until: condition)
+    }
 
-        #expect(!driver.handleShouldPostponeRelaunch(installHandler: {}))
+    /// Releases one re-check deadline and waits until the gate has handled it and is waiting
+    /// for the next one.
+    private func tick() async {
+        await clock.fireDeadlineWhenReady(timeout: .seconds(20))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+        while await !clock.hasParkedDeadline, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        #expect(await clock.hasParkedDeadline)
+    }
+
+    // MARK: - Installs the user asked for
+
+    @Test func userInstallRelaunchesAfterPreparingEvenWhileAgentsAndCommandsRun() async {
+        let driver = makeDriver()
+        let installs = CallCounter()
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 2, runningCommandCount: 1)
+        host.idle = .zero
+
+        #expect(driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 }))
+
+        await settle { installs.count == 1 }
+        #expect(host.prepareCount == 1)
+        #expect(!driver.relaunchGate.isWaiting)
+        #expect(waitingBlockers == nil)
+    }
+
+    @Test func updateDownloadedWithAutomaticInstallsOffWaitsForRestart() async {
+        let driver = makeDriver(installsAutomatically: false)
+        let installs = CallCounter()
+
+        let handled = driver.handleWillInstallUpdateOnQuit(immediateInstallHandler: {
+            _ = driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 })
+        })
+
+        #expect(handled)
+        #expect(model.text == "Restart to Complete Update")
+        #expect(installs.count == 0)
+
+        installing?.retryTerminatingApplication()
+        await settle { installs.count == 1 }
+        #expect(host.prepareCount == 1)
+    }
+
+    // MARK: - Automatic installs
+
+    @Test func automaticInstallWaitsForAQuietMomentThenRelaunches() async {
+        let driver = makeDriver()
+        let installs = CallCounter()
+        host.idle = .seconds(5)
+
+        startAutomaticInstall(driver, installs: installs)
+
+        #expect(driver.relaunchGate.isWaiting)
+        #expect(waitingBlockers == .empty)
+        #expect(model.text == "Update Ready")
+
+        await tick()
+        #expect(installs.count == 0)
+        #expect(host.prepareCount == 0)
+
+        host.idle = .seconds(61)
+        await recheck { installs.count == 1 }
+        #expect(host.prepareCount == 1)
         #expect(!driver.relaunchGate.isWaiting)
     }
 
-    @Test func waitsForBusyAgentsThenRelaunches() async {
+    @Test func automaticInstallWaitsForBusyAgentsWithoutATimeout() async {
         let driver = makeDriver()
         let installs = CallCounter()
         host.blockers = UpdateRelaunchBlockers(busyAgentCount: 2, runningCommandCount: 0)
 
-        #expect(driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 }))
+        startAutomaticInstall(driver, installs: installs)
+        #expect(waitingBlockers?.busyAgentCount == 2)
 
-        #expect(installs.count == 0)
-        #expect(waitingBlockers == UpdateRelaunchBlockers(busyAgentCount: 2, runningCommandCount: 0))
-        #expect(model.text == "Update Ready")
-
+        for _ in 0..<5 {
+            await tick()
+        }
+        #expect(waitingBlockers?.busyAgentCount == 2)
         host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
-        await recheck { waitingBlockers?.busyAgentCount == 1 }
+        await tick()
+        #expect(waitingBlockers?.busyAgentCount == 1)
         #expect(installs.count == 0)
 
         host.blockers = .empty
         await recheck { installs.count == 1 }
-        #expect(!driver.relaunchGate.isWaiting)
     }
 
-    @Test func runningCommandsWaitForInstallNow() async {
+    @Test func automaticInstallNeverStopsARunningCommandButInstallNowDoes() async {
         let driver = makeDriver()
         let installs = CallCounter()
-        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 1)
-        _ = driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 })
-
-        // The agent finishes, but the dev server is still running: keep waiting.
         host.blockers = UpdateRelaunchBlockers(busyAgentCount: 0, runningCommandCount: 1)
-        await recheck { waitingBlockers?.busyAgentCount == 0 }
+
+        startAutomaticInstall(driver, installs: installs)
+        for _ in 0..<3 {
+            await tick()
+        }
+        #expect(waitingBlockers?.runningCommandCount == 1)
         #expect(installs.count == 0)
 
         installing?.retryTerminatingApplication()
-        #expect(installs.count == 1)
+        await settle { installs.count == 1 }
+        #expect(host.prepareCount == 1)
         #expect(!driver.relaunchGate.isWaiting)
     }
 
-    @Test func menuInstallWhileWaitingMeansInstallNow() {
+    @Test func agentThatStartsATurnDuringPrepareKeepsTheUpdateWaiting() async {
+        let driver = makeDriver()
+        let installs = CallCounter()
+        startAutomaticInstall(driver, installs: installs)
+
+        // The quiet moment arrives, but an agent starts a turn while the host captures its
+        // sessions: relaunching now would cut that turn off.
+        host.onPrepare = { [host] in
+            host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
+        }
+        await tick()
+        #expect(host.prepareCount == 1)
+        #expect(waitingBlockers?.busyAgentCount == 1)
+        #expect(installs.count == 0)
+        #expect(driver.relaunchGate.isWaiting)
+
+        host.onPrepare = nil
+        host.blockers = .empty
+        await recheck { installs.count == 1 }
+        #expect(host.prepareCount == 2)
+    }
+
+    @Test func userReturningDuringPrepareKeepsTheUpdateWaiting() async {
+        let driver = makeDriver()
+        let installs = CallCounter()
+        startAutomaticInstall(driver, installs: installs)
+
+        host.onPrepare = { [host] in host.idle = .milliseconds(200) }
+        await tick()
+        #expect(host.prepareCount == 1)
+        #expect(installs.count == 0)
+        #expect(driver.relaunchGate.isWaiting)
+    }
+
+    @Test func menuInstallWhileWaitingMeansInstallNow() async {
         let controller = UpdateController(
             log: NoopUpdateLog(),
             clock: clock,
@@ -107,21 +229,22 @@ private final class CallCounter: @unchecked Sendable {
             updaterFactory: { _, _ in FakeUpdater() }
         )
         controller.actionDelegate = host
+        controller.driver.installsAutomatically = { true }
         host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
         let installs = CallCounter()
-        _ = controller.driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 })
+        startAutomaticInstall(controller.driver, installs: installs)
         #expect(installs.count == 0)
 
         controller.attemptUpdate()
 
-        #expect(installs.count == 1)
+        await settle { installs.count == 1 }
     }
 
-    @Test func laterKeepsRestartToCompleteAndRestartNowIsGatedAgain() async {
+    @Test func laterKeepsRestartToCompleteAndRestartNowInstallsOnce() async {
         let driver = makeDriver()
         let installs = CallCounter()
         host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
-        _ = driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 })
+        startAutomaticInstall(driver, installs: installs)
 
         installing?.dismiss()
         #expect(installs.count == 0)
@@ -135,26 +258,12 @@ private final class CallCounter: @unchecked Sendable {
         installing?.dismiss()
         #expect(model.text == "Restart to Complete Update")
 
-        installing?.retryTerminatingApplication()
-        #expect(installs.count == 0)
-        #expect(waitingBlockers?.busyAgentCount == 1)
-
-        host.blockers = .empty
-        await recheck { installs.count == 1 }
-    }
-
-    @Test func repeatedRestartNowInstallsOnce() {
-        let driver = makeDriver()
-        let installs = CallCounter()
-        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
-        _ = driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 })
-        installing?.dismiss()
+        // Restart Now is the user's choice: it does not wait for the busy agent.
         let restartPrompt = installing
-
-        host.blockers = .empty
         restartPrompt?.retryTerminatingApplication()
         restartPrompt?.retryTerminatingApplication()
-
+        await settle { installs.count == 1 }
+        for _ in 0..<10 { await Task.yield() }
         #expect(installs.count == 1)
     }
 
@@ -162,7 +271,7 @@ private final class CallCounter: @unchecked Sendable {
         let driver = makeDriver()
         let installs = CallCounter()
         host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
-        _ = driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 })
+        startAutomaticInstall(driver, installs: installs)
 
         driver.showUpdaterError(NSError(domain: "test", code: 1), acknowledgement: {})
 
@@ -177,10 +286,24 @@ private final class CallCounter: @unchecked Sendable {
     @Test func finishedUpdateCycleEndsTheHold() {
         let driver = makeDriver()
         host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
-        _ = driver.handleShouldPostponeRelaunch(installHandler: {})
+        startAutomaticInstall(driver, installs: CallCounter())
 
         driver.handleDidFinishUpdateCycle(.updates, error: nil)
 
+        #expect(!driver.relaunchGate.isWaiting)
+    }
+
+    @Test func finishedCycleForgetsAnAutomaticInstallSparkleNeverAskedAbout() async {
+        let driver = makeDriver()
+        let installs = CallCounter()
+        // Sparkle aborted before asking about the relaunch.
+        _ = driver.handleWillInstallUpdateOnQuit(immediateInstallHandler: {})
+        driver.handleDidFinishUpdateCycle(.updates, error: nil)
+
+        // A later install the user asks for must not be held as if it were automatic.
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
+        _ = driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 })
+        await settle { installs.count == 1 }
         #expect(!driver.relaunchGate.isWaiting)
     }
 
@@ -188,59 +311,27 @@ private final class CallCounter: @unchecked Sendable {
         let driver = makeDriver()
         let installs = CallCounter()
         host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
-        _ = driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 })
+        startAutomaticInstall(driver, installs: installs)
 
         model.setState(.idle)
-        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 2, runningCommandCount: 0)
+        host.blockers = .empty
         await recheck { !driver.relaunchGate.isWaiting }
 
         #expect(model.state == .idle)
         #expect(installs.count == 0)
     }
 
-    @Test func busyAgentsStopHoldingAfterTheTimeoutButCommandsDoNot() async {
-        let gate = UpdateRelaunchGate(
-            clock: clock,
-            log: NoopUpdateLog(),
-            recheckInterval: .seconds(1),
-            agentTimeout: .seconds(2)
-        )
-        var blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
-        var relaunched = 0
-        var evaluations = 0
-        gate.hold(
-            isAutoUpdate: false,
-            blockers: {
-                evaluations += 1
-                return blockers
-            },
-            isShown: { true },
-            publish: { _ in },
-            relaunch: { relaunched += 1 },
-            later: { Issue.record("later must not run") }
-        )
-        #expect(evaluations == 1)
-        await recheck { evaluations == 2 }
-        #expect(relaunched == 0)
-        await recheck { relaunched == 1 }
-
-        blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 1)
-        evaluations = 0
-        gate.hold(
-            isAutoUpdate: false,
-            blockers: {
-                evaluations += 1
-                return blockers
-            },
-            isShown: { true },
-            publish: { _ in },
-            relaunch: { relaunched += 1 },
-            later: {}
-        )
-        for expected in 2...4 {
-            await recheck { evaluations == expected }
-        }
-        #expect(relaunched == 1)
-        #expect(gate.isWaiting)
+    @Test func quietMomentNeedsNoBlockersAndAQuietMinute() {
+        let quiet = UpdateRelaunchGate.quietPeriod
+        #expect(UpdateRelaunchGate.isQuietMoment(.init(blockers: .empty, idle: quiet), quietPeriod: quiet))
+        #expect(!UpdateRelaunchGate.isQuietMoment(.init(blockers: .empty, idle: .seconds(59)), quietPeriod: quiet))
+        #expect(!UpdateRelaunchGate.isQuietMoment(
+            .init(blockers: UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0), idle: .seconds(3600)),
+            quietPeriod: quiet
+        ))
+        #expect(!UpdateRelaunchGate.isQuietMoment(
+            .init(blockers: UpdateRelaunchBlockers(busyAgentCount: 0, runningCommandCount: 1), idle: .seconds(3600)),
+            quietPeriod: quiet
+        ))
     }
 }

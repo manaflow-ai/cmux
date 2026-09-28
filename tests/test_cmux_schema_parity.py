@@ -60,6 +60,7 @@ NOT_IN_CMUX_JSON = frozenset({
     "account.welcomeShown",
     # App preferences stored only in UserDefaults today.
     "app.fileDropDefaultBehavior",
+    "app.installUpdatesAutomatically",
     "app.systemWideHotkeyEnabled",
     "app.titlebarControlsStyle",
     "app.workspaceButtonFade",

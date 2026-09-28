@@ -704,14 +704,14 @@
       1
     ]
   },
-  "update.readyWaiting.agents": {
-    "source": "Installs and relaunches when %lld agents finish. Agents resume after the relaunch.",
+  "update.autoInstall.waitingAgents": {
+    "source": "Installs after %lld agents finish and you step away. Workspaces and agents resume where they left off.",
     "arguments": [
       1
     ]
   },
-  "update.readyWaiting.commands": {
-    "source": "Relaunching will stop %lld running commands. Choose Install Now when you're ready.",
+  "update.autoInstall.waitingCommands": {
+    "source": "Installs after %lld running commands finish and you step away. Install Now stops them.",
     "arguments": [
       1
     ]
