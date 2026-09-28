@@ -149,6 +149,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.confirmUnsafePaste",
         "terminal.showPasswordInputIndicator",
         "terminal.showPasswordInputDots",
+        "terminal.showJumpToBottomButton",
         "terminal.textEditingGestures",
         "terminal.resumeCommands",
         "terminal.sessionContentAlignment",

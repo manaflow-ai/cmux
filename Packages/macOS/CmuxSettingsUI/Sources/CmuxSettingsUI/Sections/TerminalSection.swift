@@ -28,6 +28,7 @@ public struct TerminalSection: View {
     @State private var textEditingGestures: DefaultsValueModel<Bool>
     @State private var passwordInputIndicator: DefaultsValueModel<Bool>
     @State private var passwordInputDots: DefaultsValueModel<Bool>
+    @State private var jumpToBottomButton: DefaultsValueModel<Bool>
     @State private var adaptiveDefaultTheme: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
@@ -60,6 +61,7 @@ public struct TerminalSection: View {
         _textEditingGestures = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGestures))
         _passwordInputIndicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputIndicator))
         _passwordInputDots = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputDots))
+        _jumpToBottomButton = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showJumpToBottomButton))
         _adaptiveDefaultTheme = State(
             initialValue: DefaultsValueModel(
                 store: defaultsStore,
@@ -101,6 +103,7 @@ public struct TerminalSection: View {
             textEditingGestures,
             passwordInputIndicator,
             passwordInputDots,
+            jumpToBottomButton,
             adaptiveDefaultTheme,
             autoResume,
             hibernation,
@@ -485,6 +488,17 @@ public struct TerminalSection: View {
                     .controlSize(.small)
                     .disabled(!passwordInputIndicator.current)
                     .accessibilityIdentifier("SettingsTerminalPasswordInputDotsToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.showJumpToBottomButton"),
+                String(localized: "settings.terminal.showJumpToBottomButton", defaultValue: "Jump to Bottom Button"),
+                subtitle: String(localized: "settings.terminal.showJumpToBottomButton.subtitle", defaultValue: "Shows a Jump to Bottom button while you scroll a terminal up into its scrollback. Full-screen programs such as vim, less, or an agent's fullscreen mode handle their own scrolling and never show it.")
+            ) {
+                Toggle("", isOn: Binding(get: { jumpToBottomButton.current }, set: { jumpToBottomButton.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalJumpToBottomButtonToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(

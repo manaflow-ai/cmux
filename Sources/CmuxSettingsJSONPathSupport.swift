@@ -295,6 +295,11 @@ enum TerminalSettingsFileMapping {
             invalidPath: terminal.showPasswordInputDots.id
         ),
         .init(
+            jsonKey: "showJumpToBottomButton",
+            defaultsKey: terminal.showJumpToBottomButton.userDefaultsKey,
+            invalidPath: terminal.showJumpToBottomButton.id
+        ),
+        .init(
             jsonKey: "autoResumeAgentSessions",
             defaultsKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
             invalidPath: "terminal.autoResumeAgentSessions"
