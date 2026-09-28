@@ -3532,30 +3532,74 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 finishStoredMacReconnectAttempt(generation: generation)
                 return .superseded
             }
-            for mac in zeroTouchCandidates {
+            // Dial every discovered Mac at once. The directory carries no
+            // liveness, so its order says nothing about reachability; dialing
+            // in order let each stalled entry spend its whole connect timeout
+            // ahead of a live Mac until the reconnect deadline cancelled the
+            // pass. The first Mac to answer is authenticated on the client
+            // that reached it; the rest are released when the pass ends.
+            attemptedAutomaticIroh = attemptedAutomaticIroh
+                || zeroTouchCandidates.contains { mac in
+                    storedReconnectRoutes(mac).contains { $0.kind == .iroh }
+                }
+            let dialRace = ZeroTouchDialRace(
+                candidates: zeroTouchCandidates
+            ) { [weak self] mac in
+                await self?.dialZeroTouchCandidate(
+                    mac,
+                    automaticReconnectAccountID: scope.userID
+                ) ?? .skipped
+            }
+            defer { dialRace.close() }
+            var attemptedForegroundConnect = false
+            for await arrival in dialRace.arrivals {
+                let client = dialRace.claim(arrival)
+                let mac = arrival.mac
                 guard generation == storedMacReconnectGeneration,
-                      await isScopeCurrent(scope),
-                      await !isHiddenMacDeviceID(
-                          mac.macDeviceID,
-                          instanceTag: mac.instanceTag,
-                          scope: scope
-                      ) else { break }
-                let routes = storedReconnectRoutes(mac)
-                attemptedAutomaticIroh = attemptedAutomaticIroh
-                    || routes.contains { $0.kind == .iroh }
+                      await isScopeCurrent(scope) else {
+                    client.retire()
+                    await client.disconnect()
+                    break
+                }
+                guard await !isHiddenMacDeviceID(
+                    mac.macDeviceID,
+                    instanceTag: mac.instanceTag,
+                    scope: scope
+                ) else {
+                    client.retire()
+                    await client.disconnect()
+                    continue
+                }
+                attemptedForegroundConnect = true
                 lastDialOutcome = await connectStoredMacOutcome(
                     name: mac.displayName ?? mac.macDeviceID,
-                    routes: routes,
+                    routes: storedReconnectRoutes(mac),
                     pairedMacDeviceID: mac.macDeviceID,
                     instanceTag: mac.instanceTag,
                     legacyTailscaleRoutes: mac.legacyTailscaleRoutes ?? [],
                     automaticReconnectAccountID: scope.userID,
                     knownPairing: mac,
+                    preconnectedClient: client,
                     ifStillCurrent: { [weak self] in
                         self?.storedMacReconnectGeneration == generation
                     }
                 )
                 if connectionState == .connected { break }
+            }
+            // A dial that failed before any Mac answered never reached the
+            // foreground connect, so surface its error the way that connect
+            // would have.
+            if !attemptedForegroundConnect,
+               connectionState != .connected,
+               generation == storedMacReconnectGeneration,
+               let failure = dialRace.lastFailure {
+                lastDialOutcome = .failed(Self.diagnosticFailureKind(for: failure))
+                if !disconnectForAuthorizationFailureIfNeeded(failure) {
+                    applyOperationalError(failure)
+                    connectionState = .disconnected
+                    macConnectionStatus = .unavailable
+                    clearRemoteConnectionContext()
+                }
             }
         }
         if candidates.isEmpty, zeroTouchCandidates.isEmpty {
@@ -10148,8 +10192,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         resolvedConnectionMethod: MobileConnectionMethod? = nil,
         pairedMacDeviceID: String? = nil,
         instanceTagExpectation: MobileMacInstanceTagExpectation = .adopt,
+        preconnectedClient: MobileCoreRPCClient? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async throws -> MobilePairingFailureCategory? {
+        // A caller that already dialed this Mac hands over its client so the
+        // matching route authenticates on that transport instead of dialing
+        // again. Any exit that does not adopt it releases it.
+        var unclaimedPreconnectedClient = preconnectedClient
+        defer {
+            if let unclaimedPreconnectedClient {
+                unclaimedPreconnectedClient.retire()
+                scheduleClientDisconnect(unclaimedPreconnectedClient)
+            }
+        }
         // A bounded reconnect can outlive its owning task when an FFI dial
         // ignores cancellation. Its authority closure must be checked before
         // claiming the foreground generation or clearing the established
@@ -10512,22 +10567,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     authorizations: userTailscalePairingAuthorizations
                 )
                 : nil
-            let client = MobileCoreRPCClient(
-                runtime: runtime,
-                route: route,
-                ticket: ticket,
-                allowsStackAuthFallback: routeAllowsStackAuthFallbackOverride
-                    ?? MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
-                legacyTailscaleAuthorizationEvidence: legacyTailscaleAuthorizationEvidence,
-                userTailscalePairingAuthorization: userTailscalePairingAuthorization,
-                irohDirectOnlyDialCandidates: directOnlyDialCandidates,
-                connectAttemptRegistry: connectAttemptRegistry,
-                stackTokenGate: stackTokenGate,
-                stackTokenForceRefreshGate: stackTokenForceRefreshGate,
-                transportConnectObserver: transportConnectDiagnosticObserver(
-                    peerID: ticket.macDeviceID
+            let client: MobileCoreRPCClient
+            if let preconnected = unclaimedPreconnectedClient,
+               preconnected.sharesPhysicalTransportRoute(with: route) {
+                client = preconnected
+                unclaimedPreconnectedClient = nil
+            } else {
+                client = MobileCoreRPCClient(
+                    runtime: runtime,
+                    route: route,
+                    ticket: ticket,
+                    allowsStackAuthFallback: routeAllowsStackAuthFallbackOverride
+                        ?? MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+                    legacyTailscaleAuthorizationEvidence: legacyTailscaleAuthorizationEvidence,
+                    userTailscalePairingAuthorization: userTailscalePairingAuthorization,
+                    irohDirectOnlyDialCandidates: directOnlyDialCandidates,
+                    connectAttemptRegistry: connectAttemptRegistry,
+                    stackTokenGate: stackTokenGate,
+                    stackTokenForceRefreshGate: stackTokenForceRefreshGate,
+                    transportConnectObserver: transportConnectDiagnosticObserver(
+                        peerID: ticket.macDeviceID
+                    )
                 )
-            )
+            }
             if let previousAttemptClient =
                 replaceConnectionAttemptClientOwnership(with: client) {
                 await previousAttemptClient.disconnect()

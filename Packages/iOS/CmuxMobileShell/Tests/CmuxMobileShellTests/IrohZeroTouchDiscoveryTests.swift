@@ -96,7 +96,9 @@ struct IrohZeroTouchDiscoveryTests {
         defer { fixture.cleanup() }
 
         #expect(await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a", "iroh-mac-b"])
+        // Discovered Macs dial concurrently, so dial order is not deterministic;
+        // each Mac is still dialed exactly once.
+        #expect(fixture.factory.attemptedRouteIDs().sorted() == ["iroh-mac-a", "iroh-mac-b"])
         let rows = try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil)
         #expect(rows.count == 1)
         #expect(rows.first?.macDeviceID == "mac-b")
