@@ -108,15 +108,18 @@ public actor CloudWireGuardHub {
     public struct Configuration: Sendable {
         public init(
             enroll: @escaping @Sendable () async throws -> Enrollment,
+            refreshEnrollment: (@Sendable () async throws -> Enrollment)? = nil,
             clientURL: URL,
             socketURL: URL,
             spawner: any CloudWireGuardHubSpawning,
             waitUntilReady: @escaping @Sendable (_ socketPath: String) async throws -> Void,
             sleep: @escaping @Sendable (Duration) async throws -> Void,
             restartBackoff: [Duration],
-            idleGrace: Duration
+            idleGrace: Duration,
+            now: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock().now }
         ) {
             self.enroll = enroll
+            self.refreshEnrollment = refreshEnrollment
             self.clientURL = clientURL
             self.socketURL = socketURL
             self.spawner = spawner
@@ -124,12 +127,14 @@ public actor CloudWireGuardHub {
             self.sleep = sleep
             self.restartBackoff = restartBackoff
             self.idleGrace = idleGrace
+            self.now = now
         }
 
         /// Enrolls the app tunnel identity with the control plane and writes the
         /// WireGuard config (``VMTunnelManager/enroll(client:deviceName:)`` with the
         /// terminal role in production).
         public let enroll: @Sendable () async throws -> Enrollment
+        public let refreshEnrollment: (@Sendable () async throws -> Enrollment)?
         /// The cmux-tui client binary that provides `wg hub`.
         public let clientURL: URL
         /// Where the hub's SOCKS5 unix socket lives; the parent directory is 0700.
@@ -143,6 +148,7 @@ public actor CloudWireGuardHub {
         public let restartBackoff: [Duration]
         /// How long the hub outlives its last lease, so a re-link does not pay a fresh handshake.
         public let idleGrace: Duration
+        public let now: @Sendable () -> ContinuousClock.Instant
 
         static let defaultRestartBackoff: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(16)]
         static let defaultIdleGrace: Duration = .seconds(10)
@@ -176,6 +182,8 @@ public actor CloudWireGuardHub {
     /// A child can exit after readiness wins but before the shared startup task
     /// publishes `.running`. Keep that signal until the state transition commits.
     private var pendingStartupExit: (processID: UUID, status: Int32)?
+    private var refreshTask: Task<Ready, Error>?
+    private var lastRefresh: ContinuousClock.Instant?
 
     public init(configuration: Configuration) {
         self.configuration = configuration
@@ -189,6 +197,52 @@ public actor CloudWireGuardHub {
             return IPNetworkPrefix.host(host, isWithinAnyOf: enrolledRoutes)
         }
         return IPNetworkPrefix.isPrivateAddress(host)
+    }
+
+    public func readyRouting(anyOf hosts: [String]) async throws -> Ready {
+        let ready = try await ensureRunning()
+        scheduleIdleStopIfUnused()
+        guard configuration.refreshEnrollment != nil,
+              !hosts.contains(where: { Self.routesHost($0, enrolledRoutes: ready.routes) }) else { return ready }
+        if let refreshTask { return try await refreshTask.value }
+        let now = configuration.now()
+        if let lastRefresh, lastRefresh.duration(to: now) < .seconds(15) { return ready }
+        let refreshGeneration = generation
+        let task = Task<Ready, Error> { [weak self] in
+            guard let self else { throw HubError.notReady("hub deallocated") }
+            await self.markRefreshStarted()
+            let enrollment = try await self.configuration.refreshEnrollment!()
+            return try await self.completeRefresh(enrollment, refreshGeneration: refreshGeneration)
+        }
+        refreshTask = task
+        do { let result = try await task.value; refreshTask = nil; return result }
+        catch { refreshTask = nil; throw error }
+    }
+
+    private func markRefreshStarted() {
+        lastRefresh = configuration.now()
+    }
+
+    private func completeRefresh(_ enrollment: Enrollment, refreshGeneration: UInt64) async throws -> Ready {
+        let restarted = finishRefresh(enrollment, refreshGeneration: refreshGeneration)
+        // Sign-out during refresh intentionally cancels private-route callers instead of restarting the hub.
+        if !restarted && generation != refreshGeneration { throw CancellationError() }
+        let refreshed = try await ensureRunning()
+        scheduleIdleStopIfUnused()
+        return refreshed
+    }
+
+    private func finishRefresh(_ enrollment: Enrollment, refreshGeneration: UInt64) -> Bool {
+        guard generation == refreshGeneration else { return false }
+        lastRefresh = configuration.now()
+        guard case .running(let ready) = state, ready.routes != enrollment.routes else { return false }
+        generation &+= 1
+        restartTask?.cancel(); restartTask = nil
+        idleStopTask?.cancel(); idleStopTask = nil
+        processHandle.terminate()
+        removeSocketFile()
+        state = .stopped
+        return true
     }
 
     /// Claims the hub for one link, starting it if needed.
