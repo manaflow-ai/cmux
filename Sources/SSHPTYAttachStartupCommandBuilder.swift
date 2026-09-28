@@ -50,6 +50,11 @@ enum SSHPTYAttachStartupCommandBuilder {
             ]
         }
         if let foregroundAuth {
+            // The app passes the token in the environment. Keep it in a shell
+            // variable for every retry, and out of the environment of the
+            // commands this script starts.
+            lines += SSHForegroundAuthenticationLaunch(token: foregroundAuth.token)
+                .tokenLoadShellLines(into: "cmux_ssh_attach_auth_token")
             lines += foregroundAuthLines(foregroundAuth)
             lines.append(
                 SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction()
@@ -105,7 +110,6 @@ enum SSHPTYAttachStartupCommandBuilder {
     private static func foregroundAuthLines(_ auth: ForegroundAuth) -> [String] {
         let readinessInsideResolvedLock =
             foregroundAuthenticationReadyShellLines(
-                auth,
                 includeResolvedControlPath: true,
                 requireSuccess: true,
                 cliVariable: "CMUX_SSH_ATTACH_CLI"
@@ -122,8 +126,8 @@ enum SSHPTYAttachStartupCommandBuilder {
             "  if [ \"$cmux_ssh_auth_status\" -ne 0 ]; then return \"$cmux_ssh_auth_status\"; fi",
         ]
         if !reportsReadiness {
+            lines.append("cmux_ssh_auth_token=\"$cmux_ssh_attach_auth_token\";")
             lines += foregroundAuthenticationReadyShellLines(
-                auth,
                 includeResolvedControlPath: false,
                 requireSuccess: false,
                 cliVariable: "cmux_ssh_attach_cli"
@@ -201,7 +205,9 @@ enum SSHPTYAttachStartupCommandBuilder {
             )
         }
         let inFlightPath = lockPath + ".inflight"
-        var lockedCommand = [
+        var lockedCommand = SSHForegroundAuthenticationLaunch(token: auth.token)
+            .tokenLoadShellLines(into: "cmux_ssh_auth_token")
+        lockedCommand += [
             "umask 077",
             "cmux_ssh_auth_inflight_path=\(shellQuote(inFlightPath))",
             "cmux_ssh_auth_lock_path=\(shellQuote(lockPath))",
@@ -228,41 +234,29 @@ enum SSHPTYAttachStartupCommandBuilder {
         lockedCommand.append("exit 0")
         let classifiedCommand = SSHForegroundAuthenticationRetryPolicy()
             .classifyingTransientFailure(in: lockedCommand.joined(separator: "\n"))
+        let tokenEnvironment = SSHForegroundAuthenticationLaunch
+            .environmentAssignment(from: "cmux_ssh_attach_auth_token")
         return (
-            "CMUX_SSH_ATTACH_CLI=\"$cmux_ssh_attach_cli\" \(classifiedCommand)",
+            "\(tokenEnvironment) CMUX_SSH_ATTACH_CLI=\"$cmux_ssh_attach_cli\" \(classifiedCommand)",
             true
         )
     }
 
     private static func foregroundAuthenticationReadyShellLines(
-        _ auth: ForegroundAuth,
         includeResolvedControlPath: Bool,
         requireSuccess: Bool,
         cliVariable: String
     ) -> [String] {
-        let payload: String
-        if includeResolvedControlPath {
-            payload =
-                "cmux_ssh_auth_payload=\"{\\\"workspace_id\\\":\\\"" +
-                "$CMUX_WORKSPACE_ID\\\",\\\"foreground_auth_token\\\":\\\"" +
-                "$cmux_ssh_auth_token\\\",\\\"control_path\\\":\\\"" +
-                "$cmux_ssh_resolved_control_path\\\"}\""
-        } else {
-            payload =
-                "cmux_ssh_auth_payload=\"{\\\"workspace_id\\\":\\\"" +
-                "$CMUX_WORKSPACE_ID\\\",\\\"foreground_auth_token\\\":\\\"" +
-                "$cmux_ssh_auth_token\\\"}\""
-        }
-        let failureHandling = requireSuccess ? " || exit 255" : " || true"
-        return [
-            "cmux_ssh_auth_token=\(shellQuote(auth.token))",
-            payload,
-            "\"$\(cliVariable)\" --socket \"$CMUX_SOCKET_PATH\" rpc " +
-                "workspace.remote.foreground_auth_ready " +
-                "\"$cmux_ssh_auth_payload\" >/dev/null 2>&1" +
-                failureHandling,
-            "unset cmux_ssh_auth_payload cmux_ssh_auth_token",
-        ]
+        SSHForegroundAuthenticationLaunch.readyShellLines(
+            tokenVariable: "cmux_ssh_auth_token",
+            payloadVariable: "cmux_ssh_auth_payload",
+            cliVariable: cliVariable,
+            socketVariable: "CMUX_SOCKET_PATH",
+            controlPathVariable: includeResolvedControlPath
+                ? "cmux_ssh_resolved_control_path"
+                : nil,
+            requireSuccess: requireSuccess
+        )
     }
 
     private static func resolvedControlMasterAuthenticationLockLines(
