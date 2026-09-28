@@ -126,52 +126,7 @@ async fn serve_phone_services(daemon: Arc<ServiceMultiplexer>, phone: Arc<PhoneD
                     stream.reject("invalid-argument".into(), message.into()).await.unwrap();
                     continue;
                 }
-                let opened =
-                    serde_json::to_vec(&ServiceControl::Opened { service: Service::TerminalBytes })
-                        .unwrap();
-                stream.send_on(Lane::Interactive, Bytes::from(opened)).await.unwrap();
-                stream
-                    .send_on(
-                        Lane::Interactive,
-                        frame(MessageKind::Snapshot, snapshot_payload(b"$ "), 7),
-                    )
-                    .await
-                    .unwrap();
-                stream
-                    .send_on(Lane::Interactive, frame(MessageKind::Ready, Vec::new(), 7))
-                    .await
-                    .unwrap();
-                stream
-                    .send_on(
-                        Lane::Interactive,
-                        frame(MessageKind::Output, b"hello from vm\r\n".to_vec(), 8),
-                    )
-                    .await
-                    .unwrap();
-                // Echo typed input back as output so the input path is proven too.
-                // Input arrives as encoded Input frames, exactly as a PTY host sees it.
-                let echo = stream.clone();
-                tokio::spawn(async move {
-                    let mut sequence = 9;
-                    let mut decoder = FrameDecoder::new(MAX_FRAME_PAYLOAD);
-                    while let Ok(Some(chunk)) = echo.receive().await {
-                        if chunk.payload.is_empty() {
-                            continue;
-                        }
-                        for input in decoder.push(&chunk.payload).unwrap() {
-                            if input.kind != MessageKind::Input {
-                                continue;
-                            }
-                            let _ = echo
-                                .send_on(
-                                    Lane::Interactive,
-                                    frame(MessageKind::Output, input.payload, sequence),
-                                )
-                                .await;
-                            sequence += 1;
-                        }
-                    }
-                });
+                tokio::spawn(serve_terminal_bytes(stream));
             }
             Service::MuxControl => {
                 let opened = serde_json::to_vec(&serde_json::json!({
@@ -184,6 +139,42 @@ async fn serve_phone_services(daemon: Arc<ServiceMultiplexer>, phone: Arc<PhoneD
                 tokio::spawn(mux_responder(stream));
             }
             other => panic!("unexpected service {other:?}"),
+        }
+    }
+}
+
+/// One TerminalBytes stream: replay a prompt, write one line, then echo typed
+/// input back as output so the input path is proven too. A client may detach
+/// as soon as it sees Opened, so a failed send ends only this stream.
+async fn serve_terminal_bytes(stream: Arc<cmux_remote::service::ServiceStream>) {
+    let opened =
+        serde_json::to_vec(&ServiceControl::Opened { service: Service::TerminalBytes }).unwrap();
+    let bootstrap = [
+        Bytes::from(opened),
+        frame(MessageKind::Snapshot, snapshot_payload(b"$ "), 7),
+        frame(MessageKind::Ready, Vec::new(), 7),
+        frame(MessageKind::Output, b"hello from vm\r\n".to_vec(), 8),
+    ];
+    for payload in bootstrap {
+        if stream.send_on(Lane::Interactive, payload).await.is_err() {
+            return;
+        }
+    }
+    // Input arrives as encoded Input frames, exactly as a PTY host sees it.
+    let mut sequence = 9;
+    let mut decoder = FrameDecoder::new(MAX_FRAME_PAYLOAD);
+    while let Ok(Some(chunk)) = stream.receive().await {
+        if chunk.payload.is_empty() {
+            continue;
+        }
+        for input in decoder.push(&chunk.payload).unwrap() {
+            if input.kind != MessageKind::Input {
+                continue;
+            }
+            let _ = stream
+                .send_on(Lane::Interactive, frame(MessageKind::Output, input.payload, sequence))
+                .await;
+            sequence += 1;
         }
     }
 }
