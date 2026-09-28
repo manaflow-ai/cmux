@@ -1,0 +1,190 @@
+name: CI guard attribution
+
+# Guards never block a merge; a red guard gets attributed and made actionable
+# instead (scripts/ci/guard_attribution.py). On every completed run of the fast
+# guard check or the repository-variable check:
+#
+#   main, red     the first commit that fails each step (earlier runs, then
+#                 only that step on each commit in between), a comment on its
+#                 PR with the assertion and the fix (@author, @merger), one
+#                 tracking issue labeled guard-red-main, and, when the fix is
+#                 mechanical and passes on main's head, a fix PR
+#   main, green   the tracking issue closes
+#   PR, red       one comment with the failing assertions and the fix, edited in
+#                 place on each push; a step that is red on main is marked so
+#   PR, green     that comment, if any, says it passes now
+#
+# A PR's code never runs here. `analyze` reads the run's log and, on main, runs
+# merged commits' guard steps, with a read-only token. `report` writes with
+# the result; its job name is the headline ("culprit: ...") that ci-dash shows
+# from the build controller's webhook feed, which costs no GitHub API calls.
+# Everything is event driven: nothing polls.
+
+on:
+  workflow_run:
+    workflows: ["CI fast guards", "CI repository variables"]
+    types: [completed]
+
+env:
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ci-fast-guards.yml .github/workflows/ci-repo-variables.yml
+
+permissions: {}
+
+concurrency:
+  # One report at a time per PR (a newer run replaces an older one) and per
+  # workflow on main. GitHub keeps one pending run per group, so a burst of
+  # main runs can skip one; each report re-derives the state from main's runs
+  # and the tracking issue, and a green run it missed resets what the issue knows.
+  group: ci-guard-attribution-${{ github.event.workflow_run.event == 'pull_request' && format('pr-{0}-{1}', github.event.workflow_run.head_repository.full_name, github.event.workflow_run.head_branch) || format('main-{0}', github.event.workflow_run.path) }}
+  cancel-in-progress: ${{ github.event.workflow_run.event == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: Analyze
+    if: ${{ github.repository == 'manaflow-ai/cmux' && contains(fromJSON('["success","failure","timed_out"]'), github.event.workflow_run.conclusion) && (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.head_branch == 'main') }}
+    # GitHub-hosted, like the fast guard it follows: it starts in seconds, and
+    # no repository variable may move it onto a queued pool.
+    runs-on: ubuntu-24.04 # github-hosted-required: attribution must follow the fast guard within a minute
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      headline: ${{ steps.analyze.outputs.headline }}
+      state: ${{ steps.analyze.outputs.state }}
+      has_patch: ${{ steps.analyze.outputs.has_patch }}
+      head: ${{ steps.head.outputs.sha }}
+    steps:
+      - name: Checkout main with history
+        # A red fast guard on main is bisected: main's history, without blobs
+        # until a commit is checked out, for the commits between two runs.
+        if: ${{ github.event.workflow_run.event != 'pull_request' && github.event.workflow_run.path == '.github/workflows/ci-fast-guards.yml' && github.event.workflow_run.conclusion != 'success' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Checkout main
+        # Everything else only reads a log and ci-guards.yml.
+        if: ${{ !(github.event.workflow_run.event != 'pull_request' && github.event.workflow_run.path == '.github/workflows/ci-fast-guards.yml' && github.event.workflow_run.conclusion != 'success') }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Record main's head
+        id: head
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the pull request head as data
+        # Read with git show to shape the fix hint; never checked out or run.
+        if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'success' }}
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: git fetch --no-tags --depth=1 --filter=blob:none origin "$HEAD_SHA" || true
+
+      - name: Analyze
+        id: analyze
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/guard_attribution.py analyze --out "$RUNNER_TEMP/guard-report.json"
+
+      - name: Upload the report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: guard-report
+          path: ${{ runner.temp }}/guard-report.json
+          retention-days: 14
+
+  report:
+    # The headline is the job name, so the webhook feed carries the culprit.
+    name: ${{ needs.analyze.outputs.headline || 'report' }}
+    needs: analyze
+    if: ${{ needs.analyze.outputs.state == 'red' || needs.analyze.outputs.state == 'green' }}
+    runs-on: ubuntu-24.04 # github-hosted-required: attribution must follow the fast guard within a minute
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout main's analyzed head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.analyze.outputs.head }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      - name: Download the report
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: guard-report
+          path: ${{ runner.temp }}/guard-report
+
+      # A verified mechanical fix for main becomes a pull request, pushed and
+      # opened by the org's App so its CI runs. Without the App (or its pull
+      # request permission) the patch stays in the culprit comment instead.
+      - name: Mint the fix PR token
+        id: app-token
+        if: ${{ needs.analyze.outputs.has_patch == 'true' && vars.GLAEDA_ROUTE_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+
+      - name: Open the fix PR
+        id: fix-pr
+        if: ${{ steps.app-token.outputs.token != '' }}
+        continue-on-error: true
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPORT: ${{ runner.temp }}/guard-report/guard-report.json
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/guard_attribution.py patch --report "$REPORT" \
+            --patch-out "$RUNNER_TEMP/fix.patch" --body-out "$RUNNER_TEMP/fix-pr.json"
+          branch="guard-fix/$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha"][:10])' "$REPORT")"
+          # The index holds every path; the sparse worktree does not need to.
+          git apply --cached "$RUNNER_TEMP/fix.patch"
+          git -c user.name="cmux guard attribution" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["title"])' "$RUNNER_TEMP/fix-pr.json")"
+          auth="$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          GIT_CONFIG_COUNT=1 \
+          GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git push --force --quiet "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$branch"
+          url="$(GH_TOKEN="$APP_TOKEN" gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&head=${GITHUB_REPOSITORY_OWNER}:${branch}" --jq '.[0].html_url // empty')"
+          if [ -z "$url" ]; then
+            url="$(GH_TOKEN="$APP_TOKEN" gh api -X POST "repos/$GITHUB_REPOSITORY/pulls" \
+              -f head="$branch" -f base=main \
+              -f title="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["title"])' "$RUNNER_TEMP/fix-pr.json")" \
+              -f body="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["body"])' "$RUNNER_TEMP/fix-pr.json")" \
+              --jq .html_url)"
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Fix PR: $url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment, and open, update or close the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIX_PR: ${{ steps.fix-pr.outputs.url }}
+        run: |
+          set -euo pipefail
+          args=(report --report "$RUNNER_TEMP/guard-report/guard-report.json")
+          if [ -n "$FIX_PR" ]; then
+            args+=(--fix-pr "$FIX_PR")
+          fi
+          python3 scripts/ci/guard_attribution.py "${args[@]}"

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { runChild } from "./helpers/run-child";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,9 +20,10 @@ const binary = process.env.CMUX_TUI_TEST_BIN;
   const env = { ...process.env, HOME: home, CFFIXED_USER_HOME: home, XDG_CONFIG_HOME: join(home, ".config"),
     CMUX_TUI_BIN: binary!, CMUX_TUI_SESSION: `layout-real-${process.pid}`, SHELL: "/bin/bash", TERM: "xterm-256color" };
   const daemonArgs = [binary!, "--session", env.CMUX_TUI_SESSION];
-  const run = (args: string[], guest = false) => {
-    const result = spawnSync(guest ? "/bin/sh" : binary!, guest ? [shim, ...args] : [...daemonArgs.slice(1), "--json", ...args],
-      { env, encoding: "utf8", timeout: 20_000 });
+  /** Runs a daemon or guest-shim command and returns its parsed JSON value; throws on failure. */
+  const run = async (args: string[], guest = false) => {
+    const result = await runChild(guest ? "/bin/sh" : binary!, guest ? [shim, ...args] : [...daemonArgs.slice(1), "--json", ...args],
+      { env, timeout: 20_000 });
     if (result.status !== 0) throw new Error(`${args.join(" ")}: ${result.stderr}`);
     const parsed = JSON.parse(result.stdout);
     return parsed.value ?? parsed;
@@ -30,7 +32,7 @@ const binary = process.env.CMUX_TUI_TEST_BIN;
   const exited = new Promise<void>((resolve, reject) => { daemon.once("exit", () => resolve()); daemon.once("error", reject); });
   try {
     const deadline = Date.now() + 10_000;
-    while (spawnSync(binary!, [...daemonArgs.slice(1), "server", "status"], { env, stdio: "ignore", timeout: 1000 }).status !== 0) {
+    while ((await runChild(binary!, [...daemonArgs.slice(1), "server", "status"], { env, timeout: 1000 })).status !== 0) {
       if (Date.now() >= deadline) throw new Error("daemon did not become ready");
       await delay(25);
     }
@@ -44,8 +46,8 @@ const binary = process.env.CMUX_TUI_TEST_BIN;
     for (const [index, layout] of layouts.entries()) {
       const document = join(root, `layout-${index}.json`);
       writeFileSync(document, JSON.stringify({ layout }));
-      const applied = run(["layout", "apply", "--name", `layout-${index}`, "--json", document], true);
-      const exported = run(["layout", "export", "--workspace", applied.workspace_id, "--json"], true);
+      const applied = await run(["layout", "apply", "--name", `layout-${index}`, "--json", document], true);
+      const exported = await run(["layout", "export", "--workspace", applied.workspace_id, "--json"], true);
       expect(exported.layout.direction).toBe(layout.direction);
       expect(exported.layout.split).toBeCloseTo(layout.split, 4);
       if (index === 2) {
@@ -54,7 +56,7 @@ const binary = process.env.CMUX_TUI_TEST_BIN;
       }
     }
   } finally {
-    spawnSync(binary!, [...daemonArgs.slice(1), "server", "stop"], { env, stdio: "ignore", timeout: 5000 });
+    await runChild(binary!, [...daemonArgs.slice(1), "server", "stop"], { env, timeout: 5000 });
     daemon.kill();
     await exited;
     rmSync(root, { recursive: true, force: true });

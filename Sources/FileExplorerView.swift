@@ -102,9 +102,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
         weak var containerView: FileExplorerContainerView?
         weak var outlineView: NSOutlineView?
         private var lastRootNodeCount: Int = -1
+        private var lastContentRevision: Int = -1
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
+        private var needsReloadAfterContextMenu = false
         // Keep one coordinator-level record for the promoted native source.
         // The source view can be replaced during SwiftUI reconstruction, so
         // view-local markers alone cannot reclaim a lost endedAt callback.
@@ -200,10 +202,20 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 showsRemoteTarget: store.provider is any RemoteFileExplorerProvider
             )
 
+            // Reloading rows under an open context menu crashes AppKit's
+            // highlight drawing (#12914). Catch up once the menu closes.
+            if (outlineView as? FileExplorerNSOutlineView)?.isContextMenuOpen == true {
+                needsReloadAfterContextMenu = true
+                return
+            }
+            needsReloadAfterContextMenu = false
+
             let newCount = store.rootNodes.count
+            let newContentRevision = store.contentRevision
             withProgrammaticOutlineUpdate {
-                if newCount != lastRootNodeCount {
+                if newCount != lastRootNodeCount || newContentRevision != lastContentRevision {
                     lastRootNodeCount = newCount
+                    lastContentRevision = newContentRevision
                     let expandedPaths = store.expandedPaths
                     outlineView.reloadData()
                     restoreExpansionState(expandedPaths, in: outlineView)
@@ -214,12 +226,26 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
         }
 
+        @MainActor
+        func contextMenuDidClose() {
+            guard needsReloadAfterContextMenu else { return }
+            // Let AppKit finish tearing down the menu highlight first.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.needsReloadAfterContextMenu else { return }
+                self.reloadIfNeeded()
+            }
+        }
+
         private func restoreExpansionState(_ expandedPaths: Set<String>, in outlineView: NSOutlineView) {
-            for row in 0..<outlineView.numberOfRows {
-                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { continue }
-                if expandedPaths.contains(node.path) && outlineView.isExpandable(node) {
+            // Expanding a row can reveal descendants, so re-read the row count each iteration.
+            var row = 0
+            while row < outlineView.numberOfRows {
+                if let node = outlineView.item(atRow: row) as? FileExplorerNode,
+                   expandedPaths.contains(node.path),
+                   outlineView.isExpandable(node) {
                     outlineView.expandItem(node)
                 }
+                row += 1
             }
         }
 
@@ -1059,6 +1085,9 @@ final class FileExplorerContainerView: NSView {
         outlineView.doubleAction = #selector(FileExplorerPanelView.Coordinator.handleDoubleClick(_:))
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
         coordinator.outlineView = outlineView
+        outlineView.onContextMenuDidClose = { [weak coordinator] in
+            coordinator?.contextMenuDidClose()
+        }
 
         // Context menu
         let menu = NSMenu()

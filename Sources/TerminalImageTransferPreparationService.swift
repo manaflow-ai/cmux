@@ -74,6 +74,16 @@ actor TerminalImageTransferPreparationService {
         request: TerminalPasteboardReadRequest,
         mode: TerminalImageTransferMode
     ) async -> TerminalImageTransferPreparedContent {
+        await prepareReportingFailure(request: request, mode: mode).content
+    }
+
+    /// Same as ``prepare(request:mode:)``, but also reports why an accepted
+    /// request produced no content, so a paste can tell the user. The failure
+    /// signal (the beep) fires exactly as it does for `prepare`.
+    func prepareReportingFailure(
+        request: TerminalPasteboardReadRequest,
+        mode: TerminalImageTransferMode
+    ) async -> TerminalImageTransferPreparationOutcome {
         let outcome = await submit(
             TerminalPastePreparationRequest(
                 pasteboard: request,
@@ -83,12 +93,12 @@ actor TerminalImageTransferPreparationService {
         )
         switch outcome {
         case .success(.terminal(let content)):
-            return content
+            return TerminalImageTransferPreparationOutcome(content: content, failure: nil)
         case .success:
-            return .reject
+            return TerminalImageTransferPreparationOutcome(content: .reject, failure: nil)
         case .failure(let failure):
             await signalFailureIfNeeded(failure)
-            return .reject
+            return TerminalImageTransferPreparationOutcome(content: .reject, failure: failure)
         }
     }
 

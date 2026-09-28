@@ -174,7 +174,7 @@ if ! awk '
 fi
 
 if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}" \
-       -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}" '
+       -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}" '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
@@ -360,6 +360,25 @@ for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
   fi
 done
 
+# The resolver deepens the shallow clone, which took 1.5 to 11 minutes. It runs
+# in its own job beside the Xcode compile, never after it in build-nightly-app,
+# and every sign variant installs that one commit before thinning.
+if ! awk '
+  /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
+  job == "build-nightly-app:" && /resolve-cmux-tui-client-commit\.sh/ { in_app=1 }
+  job == "resolve-nightly-cmux-tui-client:" && /^    needs: decide$/ { resolver_needs=1 }
+  job == "resolve-nightly-cmux-tui-client:" && /cmux_tui_commit="\$\(\.\/scripts\/ci\/resolve-cmux-tui-client-commit\.sh --max-fallback 5\)"/ { resolver=1 }
+  job == "build-sign-notarize-nightly:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { sign_needs=1 }
+  job == "build-sign-notarize-nightly:" && /^      - name: Bundle the cmux-tui client$/ { install_line=NR }
+  job == "build-sign-notarize-nightly:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
+  job == "build-sign-notarize-nightly:" && /CMUX_TUI_CLIENT_COMMIT: \$\{\{ needs\.resolve-nightly-cmux-tui-client\.outputs\.commit \}\}/ { sign_commit=1 }
+  job == "report-nightly-failure:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { reported=1 }
+  END { exit !(!in_app && resolver_needs && resolver && sign_needs && sign_commit && install_line && thin_line && install_line < thin_line && reported) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly must resolve the cmux-tui commit beside the compile and install it in every sign variant before thinning"
+  exit 1
+fi
+
 for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
   if grep -Fq 'signing will use the wg-quick fallback' "$workflow"; then
     echo "FAIL: $(basename "$workflow") must not ship without the Network Extension"
@@ -390,6 +409,21 @@ if ! awk '
   echo "FAIL: release must smoke-launch the signed app before paying the Apple notarization wait"
   exit 1
 fi
+
+# The launch smoke only proves the process stays alive. Both signing jobs must
+# also drive the signed app through its bundled CLI before notarization.
+for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
+  if ! awk '
+    /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
+    /^      - name: Smoke bundled CLI against the signed app/ { cli_line=NR }
+    /^          \.\/scripts\/smoke-signed-app-cli\.sh/ { cli_run=NR }
+    /^      - name: Notarize app/ { if (!notarize_line) notarize_line=NR }
+    END { exit !(smoke_line && cli_line && cli_run && notarize_line && smoke_line < cli_line && cli_line < cli_run && cli_run < notarize_line) }
+  ' "$workflow"; then
+    echo "FAIL: $(basename "$workflow") must run the bundled CLI smoke on the signed app after the launch smoke and before notarization"
+    exit 1
+  fi
+done
 
 # PR release builds restore the cache nightly warms from main by this prefix.
 # Renaming it on either side, or on a key but not its restore-keys, silently
@@ -580,6 +614,7 @@ PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '
 if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE" ] \
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
+  || [ "$(job_if resolve-nightly-cmux-tui-client)" != "$(job_if build-sign-notarize-nightly)" ] \
   || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1

@@ -1,10 +1,42 @@
 import AppKit
+import CmuxSettings
+import SwiftUI
 import Testing
 @testable import cmux_DEV
 
 @Suite
 @MainActor
 struct SidebarRowPaletteTests {
+    @Test(arguments: [false, true])
+    func selectedBackgroundUsesTheSameEmphasisAndContrastStateAsSelectionChrome(colorSchemeIsDark: Bool) {
+        let defaults = UserDefaults(suiteName: "SidebarRowPaletteTests.\(UUID().uuidString)")!
+        defaults.set(true, forKey: SettingCatalog().workspaceColors.subtleSelection.userDefaultsKey)
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        #expect(settings.subtleSelection)
+        let model = SidebarAppKitRowCellTests.makeModel(
+            isActive: true,
+            settings: settings,
+            colorSchemeIsDark: colorSchemeIsDark
+        )
+        let scheme: ColorScheme = colorSchemeIsDark ? .dark : .light
+        let palette = SidebarRowPalette(
+            model: model,
+            isSelectionEmphasized: false,
+            increasesSelectionContrast: true
+        )
+        let expected = sidebarSelectedWorkspaceBackgroundNSColor(
+            for: scheme,
+            sidebarSelectionColorHex: model.settings.selectionColorHex,
+            activeTabIndicatorStyle: model.settings.activeTabIndicatorStyle,
+            subtleSelection: true,
+            isEmphasized: false,
+            increaseContrast: true
+        )
+
+        #expect(SidebarAppKitRowCellTests.distance(palette.selectedBackground, expected) < 0.001)
+        #expect(abs(palette.selectedBackground.alphaComponent - expected.alphaComponent) < 0.001)
+    }
+
     @Test(arguments: [false, true])
     func rowPaletteSemanticColorsFollowRowSchemeAcrossAppearances(colorSchemeIsDark: Bool) throws {
         let lightAppearance = try #require(NSAppearance(named: .aqua))

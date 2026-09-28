@@ -282,9 +282,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.minimalMode"),
                 String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode"),
-                subtitle: minimalMode.current == .minimal
-                    ? String(localized: "settings.app.minimalMode.subtitleOn", defaultValue: "Hide the workspace title bar and move workspace controls into the sidebar.")
-                    : String(localized: "settings.app.minimalMode.subtitleStandardControls", defaultValue: "Use standard workspace controls with your title bar preference.")
+                subtitle: String(localized: "settings.app.minimalMode.subtitle", defaultValue: "Hides the workspace title bar and shows its controls in the sidebar.")
             ) {
                 Toggle("", isOn: Binding(
                     get: { minimalMode.current == .minimal },

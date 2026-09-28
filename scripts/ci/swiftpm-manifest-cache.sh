@@ -65,7 +65,9 @@ key() {
 # name the runner account (runner on Blacksmith, cmux on the glaeda minis), so
 # keeping them split one seed into one per account, and SwiftPM finds the same
 # ~/Library/Caches through the user database without them. TMPDIR is dropped
-# so Foundation picks the per-user default. CMUX_CI_SWIFTPM_KEEP_ENV names
+# so Foundation picks the per-user default. FileSystemMode is kept because
+# compile-app-host-test-product.sh sets it on the resolve and on every build,
+# and they must share one environment. CMUX_CI_SWIFTPM_KEEP_ENV names
 # extra variables to keep, for tests whose xcodebuild stub is configured
 # through the environment.
 run() {
@@ -78,7 +80,7 @@ run() {
   )
   local name
   # shellcheck disable=SC2086 # a space-separated list of names
-  for name in DEVELOPER_DIR http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY ${CMUX_CI_SWIFTPM_KEEP_ENV:-}; do
+  for name in DEVELOPER_DIR FileSystemMode http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY ${CMUX_CI_SWIFTPM_KEEP_ENV:-}; do
     [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
     if [ -n "${!name:-}" ]; then
       vars+=("$name=${!name}")
@@ -105,11 +107,23 @@ stage() {
   rm -f "$dir/manifest.db-wal" "$dir/manifest.db-shm"
 }
 
+# Past this size a kept cache is replaced instead of merged into.
+MANIFEST_CACHE_MERGE_MAX_BYTES="${CMUX_CI_SWIFTPM_MANIFEST_MERGE_MAX_BYTES:-268435456}"
+
 # Installs a restored manifest.db as SwiftPM's cache. A missing or unreadable
 # restore leaves the runner's own cache alone: the resolve then evaluates
 # manifests as it always has.
+#
+# An owned Mac keeps its cache between jobs, so the restored entries are merged
+# into it rather than replacing it. The seed holds entries for one canonical
+# root (the key names each manifest's absolute path), and a second compile slot
+# resolves at /private/tmp/cmux-ci-2. Replaced every job, that slot evaluated
+# all 91 manifests every time: 53 to 64 s of the resolve against 15 to 22 s in
+# root 1 (hq#661). Merged, it evaluates only what changed since its last job on
+# that Mac. Entries are keyed on contents, so an old one is never wrong, only
+# unused. An ephemeral runner has no cache and gets the plain copy.
 install() {
-  local dir="$1" entries
+  local dir="$1" entries kept_bytes
   if [ ! -f "$dir/manifest.db" ]; then
     echo "No restored SwiftPM manifest cache; resolving without it"
     return 0
@@ -119,6 +133,25 @@ install() {
     return 0
   fi
   mkdir -p "$MANIFEST_CACHE_DIR"
+  if [ -f "$MANIFEST_CACHE_DIR/manifest.db" ]; then
+    kept_bytes="$(wc -c <"$MANIFEST_CACHE_DIR/manifest.db" | tr -d ' ')"
+    if [ "$kept_bytes" -le "$MANIFEST_CACHE_MERGE_MAX_BYTES" ] \
+      && sqlite3 -cmd '.timeout 30000' "$MANIFEST_CACHE_DIR/manifest.db" 'select count(*) from MANIFEST_CACHE' >/dev/null 2>&1; then
+      # Readable: merge, or leave it be. A merge that fails here is almost
+      # always the other slot's resolve holding the write lock past the
+      # timeout, and deleting a database another process has open loses
+      # its writes.
+      if sqlite3 -cmd '.timeout 30000' "$MANIFEST_CACHE_DIR/manifest.db" \
+        "ATTACH '$dir/manifest.db' AS seed; INSERT OR REPLACE INTO main.MANIFEST_CACHE(key, value) SELECT key, value FROM seed.MANIFEST_CACHE;" \
+        >/dev/null; then
+        echo "Merged $entries SwiftPM manifest cache entries into this Mac's $(sqlite3 -cmd '.timeout 30000' "$MANIFEST_CACHE_DIR/manifest.db" 'select count(*) from MANIFEST_CACHE')"
+      else
+        echo "::warning::Could not merge the SwiftPM manifest seed into this Mac's cache; keeping it as it is"
+      fi
+      return 0
+    fi
+    echo "Replacing this Mac's SwiftPM manifest cache ($kept_bytes bytes, or unreadable)"
+  fi
   rm -f "$MANIFEST_CACHE_DIR/manifest.db" "$MANIFEST_CACHE_DIR/manifest.db-wal" "$MANIFEST_CACHE_DIR/manifest.db-shm"
   cp "$dir/manifest.db" "$MANIFEST_CACHE_DIR/manifest.db"
   echo "Installed $entries SwiftPM manifest cache entries"
