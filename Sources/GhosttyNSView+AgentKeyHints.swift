@@ -94,6 +94,16 @@ extension GhosttyNSView {
         if due { press?() }
     }
 
+    /// Fires a released click once its double-click deadline passes. The timer
+    /// and deterministic regression coverage share this consumption path.
+    func fireAgentKeyHintPendingPress(at now: TimeInterval) {
+        let state = agentKeyHintPointer
+        guard state.deferredPress.fire(at: now) else { return }
+        let press = state.pendingPress
+        state.pendingPress = nil
+        press?()
+    }
+
     /// Drops both halves of an in-progress hint click. Geometry, viewport,
     /// and ownership changes call this before the deferred action can fire.
     func cancelAgentKeyHintInteraction() {
@@ -189,12 +199,7 @@ extension GhosttyNSView {
         // A little past the deadline, so the timer never finds it not yet due.
         let delay = max(0, due - ProcessInfo.processInfo.systemUptime) + 0.01
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self else { return }
-            let state = self.agentKeyHintPointer
-            guard state.deferredPress.fire(at: ProcessInfo.processInfo.systemUptime) else { return }
-            let press = state.pendingPress
-            state.pendingPress = nil
-            press?()
+            self?.fireAgentKeyHintPendingPress(at: ProcessInfo.processInfo.systemUptime)
         }
     }
 
@@ -284,11 +289,12 @@ extension GhosttyNSView {
         )
     }
 
-    /// Hides any hint hover, for the pointer leaving the terminal, a scroll,
-    /// or a resize. The next mouse move resolves hover again.
+    /// Hides any hint hover and cancels an unreleased press. A completed click
+    /// keeps waiting through pointer exit; scroll, resize, and detach cancel it
+    /// at their stronger invalidation boundaries.
     func clearAgentKeyHintHover() {
-        cancelAgentKeyHintInteraction()
         let state = agentKeyHintPointer
+        state.pressCell = nil
         state.hoverCell = nil
         hideAgentKeyHintHover()
     }

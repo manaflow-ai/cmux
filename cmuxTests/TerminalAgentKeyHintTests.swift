@@ -264,8 +264,9 @@ struct TerminalAgentKeyHintTests {
         }
 
         installDeferredClosure()
-        view.settleAgentKeyHintPendingPress(clickCount: 1)
-        #expect(fired == 1, "The fixture must exercise the real deferred callback")
+        view.clearAgentKeyHintHover()
+        view.fireAgentKeyHintPendingPress(at: .greatestFiniteMagnitude)
+        #expect(fired == 1, "Pointer exit after mouse-up must preserve the real deferred callback")
 
         currentRow = "x ⎿  … +53 lines (ctrl+o to expand)"
         #expect(fixture.panel.agentKeyHintClick(
@@ -276,25 +277,25 @@ struct TerminalAgentKeyHintTests {
             modifierFlags: []
         ) == click, "The changed row deliberately keeps the same parsed hint and authorization")
         installDeferredClosure()
-        view.settleAgentKeyHintPendingPress(clickCount: 1)
+        view.fireAgentKeyHintPendingPress(at: .greatestFiniteMagnitude)
         #expect(fired == 1, "Different surrounding row text must cancel even when the same hint stays at the same cells")
 
         currentRow = expandLine
         installDeferredClosure()
         currentGeneration &+= 1
-        view.settleAgentKeyHintPendingPress(clickCount: 1)
+        view.fireAgentKeyHintPendingPress(at: .greatestFiniteMagnitude)
         #expect(fired == 1, "A changed terminal runtime generation must cancel the deferred click")
     }
 
     @Test
-    func pointerInvalidationCancelsADeferredClick() {
+    func layoutInvalidationCancelsADeferredClick() {
         let view = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 40))
         var fired = false
         view.agentKeyHintPointer.pressCell = TerminalAgentKeyHintCell(row: 1, column: 2)
         view.agentKeyHintPointer.pendingPress = { fired = true }
         view.agentKeyHintPointer.deferredPress.release(at: 10)
 
-        view.clearAgentKeyHintHover()
+        view.layout()
 
         #expect(view.agentKeyHintPointer.pressCell == nil)
         #expect(view.agentKeyHintPointer.pendingPress == nil)

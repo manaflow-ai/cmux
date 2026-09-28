@@ -5321,7 +5321,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func layout() {
         super.layout()
-        // A hint underline drawn for the old grid would sit on the wrong cells.
+        // A pending click and underline both refer to the old grid geometry.
+        cancelAgentKeyHintInteraction()
         clearAgentKeyHintHover()
         // A portal-owned view is sized by the portal's commit; only a view
         // that AppKit lays out directly publishes its own bounds.
@@ -9565,7 +9566,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func scrollWheel(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
-        // Scrolling moves the text under a hint underline.
+        // Scrolling moves the text under both a pending click and its underline.
+        cancelAgentKeyHintInteraction()
         clearAgentKeyHintHover()
         reconcileGhosttyMouseButtons(reason: "scrollWheel")
         guard let surface else {
