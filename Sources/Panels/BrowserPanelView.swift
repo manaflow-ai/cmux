@@ -7358,6 +7358,12 @@ struct WebViewRepresentable: NSViewRepresentable {
         var current = presentationView.superview
         var last: NSView?
         while let view = current {
+            // A preload window owns its content view. Transfer the browser
+            // subtree inside it, never the window's whole content container:
+            // that container retains the preload size instead of the pane's.
+            if view === view.window?.contentView {
+                return view
+            }
             if view is WindowBrowserSlotView {
                 return view
             }
