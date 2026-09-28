@@ -47,8 +47,16 @@ extension MobileHostRPCRequest {
 
     /// The per-surface ordering domain for an ordered terminal request.
     /// Requests without a surface selection share one conservative bucket.
+    /// The key uses the same id precedence as terminal resolution and the
+    /// canonical UUID spelling, so two spellings of one terminal never land
+    /// in different buckets and overtake each other.
     var orderedInputSurfaceKey: String {
-        (params["surface_id"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        for key in ["surface_id", "terminal_id", "tab_id"] {
+            guard let raw = params[key] as? String,
+                  let id = UUID(uuidString: raw.trimmingCharacters(in: .whitespacesAndNewlines))
+            else { continue }
+            return id.uuidString
+        }
+        return ""
     }
 }
