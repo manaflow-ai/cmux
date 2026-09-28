@@ -2307,6 +2307,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # run takes retry_runner. The marker's jobs are the owned machines held.
     owned_slots = slots(env.get("OWNED_SLOTS"), pr_xcode_app)
     gui_label_out = gui_runner(choice, owned_slots)
+    if choice.runner.startswith(f"glaeda-{LIGHT_CLASS}-"):
+        # The light pool's own pick places no universal Release compile; it keeps MACOS_RUNNER_26.
+        plan = dataclasses.replace(plan, side=tuple(key for key in plan.side if key != RELEASE_BUILD_JOB))
     owned_jobs, held = (place(plan, choice.owned_budget, gui, choice.root_budget if choice.root_runner else None,
                               bool(gui_label_out))
                         if persistent(choice.runner) else ((), plan.peak))

@@ -2078,6 +2078,10 @@ class WarmAffinity(unittest.TestCase):
         self.assertIn(" release-build ", values["owned_jobs"])
         self.assertEqual(pool.light_side_lanes(pool.RunJobs(False, (), ("release-build",)), idle,
                                                {LIGHT: 4, light_root: 2}, PR_XCODE), ("", ()))
+        # The light pool's own pick leaves it to MACOS_RUNNER_26 too.
+        values = self.outputs(idle, slots=slots, extra={**lanes, "POOL_ORDER": LIGHT})
+        self.assertEqual(values["runner"], LIGHT)
+        self.assertNotIn(" release-build ", values["owned_jobs"])
 
     def test_light_side_lanes_on_the_light_pick_count_in_its_peak(self):
         # The janitor takes the side lanes off the marker's peak for the root share, so the peak holds them.
@@ -2420,9 +2424,10 @@ class Wiring(unittest.TestCase):
                       "(github.run_attempt > 1 && github.triggering_actor == 'github-actions[bot]' || !contains(needs.changes.outputs.macos_pr_owned_jobs, "
                       "' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner", wrapper)
         # Main's dispatch takes the side label only where the picker placed the wrapper.
+        # Attempt 1 only: a re-run of main's dispatch takes no owned machine (the janitor charges none).
         self.assertIn("|| github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && "
+                      "github.run_attempt == 1 && "
                       "contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && "
-                      "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && "
                       "(needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner) "
                       "|| vars.CI_PAID_MACOS_OVERFLOW == '1'", wrapper)
 
@@ -2561,10 +2566,10 @@ class Wiring(unittest.TestCase):
         # (MACOS_RUNNER_PR) or the retry pool; only the owned label, on the
         # attempts that read it, when owned_jobs names ' swift-package '.
         job = self.workflow("ci-macos.yml")["jobs"]["swift-package-tests"]
-        owned = ("(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || "
-                 "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && "
-                 "contains(inputs.pr_owned_jobs, ' swift-package ') && "
-                 "((github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && (inputs.pr_side_runner || inputs.pr_runner))")
+        owned = ("(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
+                 "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') || "
+                 "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1) && "
+                 "contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner)")
         self.assertEqual(job["runs-on"], (
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && "
             "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || "
@@ -2595,16 +2600,19 @@ class Wiring(unittest.TestCase):
         # ' release-build ' (same repository or main's dispatch), else the
         # macOS 26 variable, and its product-contract mirror says the same.
         job = self.workflow("ci-macos.yml")["jobs"]["release-build"]
-        owned = ("(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || "
-                 "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && "
-                 "contains(inputs.pr_owned_jobs, ' release-build ') && "
-                 "((github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && "
-                 "(inputs.pr_side_runner || inputs.pr_runner))")
+        owned = ("(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
+                 "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') || "
+                 "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1) && "
+                 "contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner)")
         expected = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && "
                     "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
                     f"{owned} || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}}}")
         self.assertEqual(job["runs-on"], expected)
         self.assertEqual(job["env"]["CMUX_PRODUCT_RUNNER"], expected)
+        # The Xcode follows the same condition: the lane pin on the owned label.
+        self.assertEqual(job["env"]["CMUX_CI_XCODE_APP"],
+                         f"${{{{ {owned} && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) "
+                         "|| vars.CMUX_CI_XCODE_APP_MACOS_26 }}")
         self.assertEqual(pool.RELEASE_BUILD_JOB, "release-build")
 
     def test_release_build_is_a_side_lane_of_a_full_suite_with_release_build(self):
