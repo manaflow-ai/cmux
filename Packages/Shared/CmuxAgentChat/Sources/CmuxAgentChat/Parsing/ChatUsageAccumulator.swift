@@ -96,6 +96,7 @@ public struct ChatUsageAccumulator: Sendable {
     private struct ClaudeResponse {
         var usage: ChatTokenUsage
         var model: String?
+        var modelBucket: String?
     }
 
     // Claude accounting keeps the largest report for each recent identity.
@@ -256,13 +257,13 @@ public struct ChatUsageAccumulator: Sendable {
         // reuses the message id, and the retry is a second billed response.
         let key = "\(root["requestId"]?.string ?? "-")|\(messageID)"
         guard let counted = claudeCountedResponses.value(forKey: key) else {
+            let modelBucket = addToClaudeModel(model, usage)
             claudeCountedResponses.setValue(
-                ClaudeResponse(usage: usage, model: model),
+                ClaudeResponse(usage: usage, model: model, modelBucket: modelBucket),
                 forKey: key
             )
             Self.incrementSaturating(&claudeResponseCount)
             claudeUsage += usage
-            addToClaudeModel(model, usage)
             return
         }
 
@@ -272,27 +273,55 @@ public struct ChatUsageAccumulator: Sendable {
         // keeps the copy already counted.
         Self.incrementSaturating(&duplicateReports)
         guard Self.isLargerClaudeReport(usage, than: counted.usage) else { return }
-        claudeCountedResponses.setValue(
-            ClaudeResponse(usage: usage, model: model),
-            forKey: key
-        )
         claudeUsage += Self.difference(usage, counted.usage)
+        let modelBucket: String?
         if counted.model == model {
-            addToClaudeModel(model, Self.difference(usage, counted.usage))
+            addToClaudeModelBucket(counted.modelBucket, Self.difference(usage, counted.usage))
+            modelBucket = counted.modelBucket
         } else {
             // The model changed between two reports of one identity, which
             // should not happen. Move the whole amount instead of a delta so
             // neither row keeps a share of the other's tokens.
-            addToClaudeModel(counted.model, Self.difference(ChatTokenUsage(), counted.usage))
-            addToClaudeModel(model, usage)
+            removeFromClaudeModelBucket(counted.modelBucket, counted.usage)
+            modelBucket = addToClaudeModel(model, usage)
         }
+        claudeCountedResponses.setValue(
+            ClaudeResponse(usage: usage, model: model, modelBucket: modelBucket),
+            forKey: key
+        )
     }
 
     /// Adds usage to one model's row, when the model is known.
-    private mutating func addToClaudeModel(_ model: String?, _ usage: ChatTokenUsage) {
-        guard let model else { return }
+    @discardableResult
+    private mutating func addToClaudeModel(
+        _ model: String?,
+        _ usage: ChatTokenUsage
+    ) -> String? {
+        guard let model else { return nil }
         let bucket = Self.usageModelBucket(for: model, in: claudeUsageByModel)
+        addToClaudeModelBucket(bucket, usage)
+        return bucket
+    }
+
+    private mutating func addToClaudeModelBucket(
+        _ bucket: String?,
+        _ usage: ChatTokenUsage
+    ) {
+        guard let bucket else { return }
         claudeUsageByModel[bucket, default: ChatTokenUsage()] += usage
+    }
+
+    private mutating func removeFromClaudeModelBucket(
+        _ bucket: String?,
+        _ usage: ChatTokenUsage
+    ) {
+        guard let bucket, let counted = claudeUsageByModel[bucket] else { return }
+        let remainder = Self.difference(counted, usage)
+        if remainder.isEmpty, bucket != Self.overflowModelBucket {
+            claudeUsageByModel.removeValue(forKey: bucket)
+        } else {
+            claudeUsageByModel[bucket] = remainder
+        }
     }
 
     /// Ingests one Codex rollout line.

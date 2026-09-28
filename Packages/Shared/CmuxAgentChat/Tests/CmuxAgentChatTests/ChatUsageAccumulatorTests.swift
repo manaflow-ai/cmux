@@ -326,6 +326,32 @@ struct ChatUsageAccumulatorTests {
         #expect(codex.totals.usageByModel.values.map(\.totalTokens).reduce(0, +) == reports)
     }
 
+    @Test("Claude model corrections release their old bounded row")
+    func claudeModelCorrectionsReleaseOldRows() {
+        let reports = ChatUsageAccumulator.usageModelBucketLimit + 2
+        var accumulator = ChatUsageAccumulator()
+
+        accumulator.ingest(claudeLines: (0..<reports).map { index in
+            claudeLine(
+                uuid: "claude-correction-\(index)",
+                requestID: "corrected-request",
+                messageID: "corrected-message",
+                model: "corrected-model-\(index)",
+                input: index + 1,
+                cacheRead: 0,
+                cacheWrite: 0,
+                output: 0
+            )
+        })
+
+        let totals = accumulator.totals
+        #expect(totals.responses == 1)
+        #expect(totals.usage.freshInputTokens == reports)
+        #expect(totals.usageByModel.keys.sorted() == ["corrected-model-\(reports - 1)"])
+        #expect(totals.usageByModel["corrected-model-\(reports - 1)"]?.freshInputTokens == reports)
+        #expect(totals.usageByModel["<other models>"] == nil)
+    }
+
     @Test("a Claude usage block with no message id is skipped, not guessed")
     func claudeUnidentifiedUsageSkipped() {
         var accumulator = ChatUsageAccumulator()
