@@ -233,6 +233,27 @@ describe("coderouter accounts section", () => {
     expect(html).toContain('name="apiKeyLabel"');
   });
 
+  test("keeps account controls when only API-key management is denied", () => {
+    const html = renderToStaticMarkup(
+      <CoderouterAccountsSection
+        teamId="team-1"
+        canManage
+        canManageApiKeys={false}
+        claude={{ kind: "ok", accounts: [claudeAccount] }}
+        native={{ kind: "ok", accounts: [nativeCodexAccount] }}
+        shared={{ kind: "ok", accounts: [codexAccount] }}
+      />,
+    );
+
+    // Every team member manages provider accounts; API keys keep their own gate.
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('name="apiKey"');
+    expect(html).toContain(">Remove<");
+    expect(html).toContain("acct_9f3");
+    expect(html).not.toContain('name="apiKeyLabel"');
+    expect(html).not.toContain("Create API key");
+  });
+
   test("hides management controls when the viewer cannot manage accounts or API keys", () => {
     const html = renderToStaticMarkup(
       <CoderouterAccountsSection
