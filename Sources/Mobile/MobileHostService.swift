@@ -534,32 +534,25 @@ final class MobileHostService {
         )
     }
 
-    /// Render-grid fast path: frames arrive already in their binary wire form
-    /// (`MobileTerminalRenderGridFrame.binaryEncoded()`) and are framed as-is,
-    /// with no JSON envelope; the phone recognizes them by their first byte.
-    /// This is the hottest producer in the app (issue #8842). Each connection receives the anchor variant it
-    /// negotiated at subscribe time (viewport = v1 Mac-scroll mirror, screen =
-    /// v2 active-area anchor for local scrollback), admitted through the same
-    /// synchronous bounded queues as every other event.
+    /// Render-grid fast path: the frame arrives already in its binary wire
+    /// form (`MobileTerminalRenderGridFrame.binaryEncoded()`) and is framed
+    /// once, with no JSON envelope; the phone recognizes it by its first byte.
+    /// This is the hottest producer in the app (issue #8842). Every frame is
+    /// screen-anchored, and only connections whose view set includes the
+    /// surface receive it, through the same synchronous bounded queues as
+    /// every other event.
     nonisolated static func emitRenderGridEvent(
-        framesByAnchor: [MobileTerminalRenderGridFrame.Anchor: (payload: Data, isFullFrame: Bool)],
+        payload: Data,
+        isFullFrame: Bool,
         surfaceID: String,
         stateSeq: UInt64
     ) {
         let topic = MobileHostEventTopicPolicy.renderGridTopic
-        guard !framesByAnchor.isEmpty,
-              MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else {
+        guard MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else { return }
+        guard let frame = try? MobileSyncFrameCodec.encodeFrame(payload) else {
+            mobileHostLog.error("mobile host dropped oversized render-grid event")
             return
         }
-        var encodedByAnchor: [MobileTerminalRenderGridFrame.Anchor: (frame: Data, isFullRenderGridFrame: Bool)] = [:]
-        for (anchor, item) in framesByAnchor {
-            guard let frame = try? MobileSyncFrameCodec.encodeFrame(item.payload) else {
-                mobileHostLog.error("mobile host dropped oversized render-grid event")
-                continue
-            }
-            encodedByAnchor[anchor] = (frame, item.isFullFrame)
-        }
-        guard !encodedByAnchor.isEmpty else { return }
         let surfaceUUID = UUID(uuidString: surfaceID)
         deliverEventFrames(topic: topic, coalesceKey: surfaceID, stateSeq: stateSeq) { connection in
             if let surfaceUUID,
@@ -569,9 +562,7 @@ final class MobileHostService {
                ) {
                 return nil
             }
-            return encodedByAnchor[
-                MobileTerminalRenderGridAnchorRegistry.shared.anchor(connectionID: connection.connectionID)
-            ]
+            return (frame, isFullFrame)
         }
     }
 
@@ -1638,7 +1629,6 @@ actor MobileHostConnection {
                 nextTopics: nil
             )
         }
-        MobileTerminalRenderGridAnchorRegistry.shared.remove(connectionID: id)
         MobileTerminalRenderObserver.renderInterestDidChange(
             MobileTerminalRenderInterestRegistry.shared.remove(connectionID: id)
         )
@@ -2011,17 +2001,6 @@ actor MobileHostConnection {
                 clientID: request.params["client_id"] as? String,
                 surfaceEventLanes: grantsSurfaceEventLanes
             )
-            if topics.contains("terminal.render_grid") {
-                // Anchor negotiation: "screen" clients own their local
-                // viewport/scrollback and receive active-area-anchored frames;
-                // everything else keeps the v1 viewport-mirror contract.
-                let anchor: MobileTerminalRenderGridFrame.Anchor =
-                    (request.params["render_grid_anchor"] as? String)
-                        == MobileTerminalRenderGridFrame.Anchor.screen.rawValue
-                    ? .screen
-                    : .viewport
-                MobileTerminalRenderGridAnchorRegistry.shared.set(anchor, connectionID: id)
-            }
             #if DEBUG
             cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
             #endif

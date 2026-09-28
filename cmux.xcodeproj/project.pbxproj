@@ -2337,7 +2337,6 @@
 		5FBEE7A11EE7A11EE7A10001 /* MobileTerminalByteTeeAppendCostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FBEE7A11EE7A11EE7A10002 /* MobileTerminalByteTeeAppendCostTests.swift */; };
 		5FBEE7A31EE7A31EE7A30001 /* MobileTerminalFramePacer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FBEE7A31EE7A31EE7A30002 /* MobileTerminalFramePacer.swift */; };
 		AEF5CBAAC4D67800B57B0250 /* MobileTerminalFramePacerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B32678EFAC31EA6D25F35B9 /* MobileTerminalFramePacerTests.swift */; };
-		580DAA428E6092CBBC496E6E /* MobileTerminalRenderGridAnchorRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8DABF0FECE726AD90156499 /* MobileTerminalRenderGridAnchorRegistry.swift */; };
 		AF4F38C4E0CE3DDD529207B6 /* MobileTerminalRenderInterestRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 073A9C19E15EC1092B5D0516 /* MobileTerminalRenderInterestRegistry.swift */; };
 		1A5C3CAB31DAD5CC50D29E38 /* MobileTerminalRenderInterestRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFF65532E7CEC81A66A02E5D /* MobileTerminalRenderInterestRegistryTests.swift */; };
 		C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */; };
@@ -6372,7 +6371,6 @@
 		5FBEE7A11EE7A11EE7A10002 /* MobileTerminalByteTeeAppendCostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTerminalByteTeeAppendCostTests.swift; sourceTree = "<group>"; };
 		5FBEE7A31EE7A31EE7A30002 /* MobileTerminalFramePacer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalFramePacer.swift; sourceTree = "<group>"; };
 		8B32678EFAC31EA6D25F35B9 /* MobileTerminalFramePacerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MobileTerminalFramePacerTests.swift"; sourceTree = "<group>"; };
-		E8DABF0FECE726AD90156499 /* MobileTerminalRenderGridAnchorRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalRenderGridAnchorRegistry.swift; sourceTree = "<group>"; };
 		073A9C19E15EC1092B5D0516 /* MobileTerminalRenderInterestRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalRenderInterestRegistry.swift; sourceTree = "<group>"; };
 		FFF65532E7CEC81A66A02E5D /* MobileTerminalRenderInterestRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MobileTerminalRenderInterestRegistryTests.swift"; sourceTree = "<group>"; };
 		F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalRenderObserver.swift; sourceTree = "<group>"; };
@@ -8567,7 +8565,6 @@
 				C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */,
 				D75280030000000000000002 /* MobileWorkspaceObserverSignposts.swift */,
 				F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */,
-				E8DABF0FECE726AD90156499 /* MobileTerminalRenderGridAnchorRegistry.swift */,
 				073A9C19E15EC1092B5D0516 /* MobileTerminalRenderInterestRegistry.swift */,
 				4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */,
 				5FBEE7A31EE7A31EE7A30002 /* MobileTerminalFramePacer.swift */,
@@ -14282,7 +14279,6 @@
 				7BD32764E8A31FA15DCCF257 /* MobileStateSync.swift in Sources */,
 				AB57F0C27BECE8EDFC6B2B97 /* MobileTerminalByteTee.swift in Sources */,
 				5FBEE7A31EE7A31EE7A30001 /* MobileTerminalFramePacer.swift in Sources */,
-				580DAA428E6092CBBC496E6E /* MobileTerminalRenderGridAnchorRegistry.swift in Sources */,
 				AF4F38C4E0CE3DDD529207B6 /* MobileTerminalRenderInterestRegistry.swift in Sources */,
 				C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */,
 				00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */,
