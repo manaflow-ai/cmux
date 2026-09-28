@@ -23,7 +23,13 @@ class BrowserFixtureSocketTestCase: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
-        socketPath = "/tmp/cmux-debug-\(UUID().uuidString).sock"
+        // The sandboxed runner cannot connect to a socket under /tmp even
+        // when the app's own readiness probe succeeds. Both processes can
+        // reach the runner's temporary directory; keep the name within the
+        // Unix socket's 104-byte path limit.
+        socketPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("b\(UUID().uuidString.prefix(6)).sock").path
+        XCTAssertLessThan(socketPath.utf8.count, 104)
         diagnosticsPath = "/tmp/cmux-ui-test-browser-fixtures-\(UUID().uuidString).json"
         launchTag = "ui-tests-browser-\(UUID().uuidString.prefix(8))"
         try? FileManager.default.removeItem(atPath: socketPath)
@@ -289,16 +295,7 @@ class BrowserFixtureSocketTestCase: XCTestCase {
                 return false
             }
         )
-        if ready { return true }
-
-        let diagnostics = loadDiagnostics()
-        guard controlSocketDiagnosticsReportReady(diagnostics),
-              let expectedPath = diagnostics["socketExpectedPath"],
-              socketCandidates().contains(expectedPath) else {
-            return false
-        }
-        socketPath = expectedPath
-        return true
+        return ready
     }
 
     private func socketCandidates() -> [String] {

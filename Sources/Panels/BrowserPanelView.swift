@@ -568,12 +568,23 @@ struct BrowserPanelView: View {
     }
 
     private var isCurrentPaneOwner: Bool {
+        Self.isCurrentPaneOwner(panel: panel, paneId: paneId, paneOwnershipOverride: paneOwnershipOverride)
+    }
+
+    private static func isCurrentPaneOwner(
+        panel: BrowserPanel,
+        paneId: PaneID,
+        paneOwnershipOverride: Bool?
+    ) -> Bool {
         // Dock (and other non-Workspace hosts) inject ownership explicitly, since
         // their panels are not registered in the main Workspace tree.
         if let paneOwnershipOverride {
             return paneOwnershipOverride
         }
-        guard let currentPaneId = owningWorkspace?.paneId(forPanelId: panel.id) else {
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: panel.workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),
+              let currentPaneId = workspace.paneId(forPanelId: panel.id) else {
             return false
         }
         return currentPaneId.id == paneId.id
@@ -5530,6 +5541,43 @@ struct WebViewRepresentable: NSViewRepresentable {
         var lastSynchronizedHostGeometryRevision: UInt64 = 0
     }
 
+    private static func isCurrentPaneOwner(
+        panel: BrowserPanel,
+        paneId: PaneID,
+        paneOwnershipOverride: Bool?
+    ) -> Bool {
+        if let paneOwnershipOverride {
+            return paneOwnershipOverride
+        }
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: panel.workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),
+              let currentPaneId = workspace.paneId(forPanelId: panel.id) else {
+            return false
+        }
+        return currentPaneId.id == paneId.id
+    }
+
+    private static func allowsLocalInlineTransfer(
+        panel: BrowserPanel,
+        paneId: PaneID,
+        paneOwnershipOverride: Bool?
+    ) -> Bool {
+        if let paneOwnershipOverride {
+            return paneOwnershipOverride
+        }
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: panel.workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),
+              let currentPaneId = workspace.paneId(forPanelId: panel.id) else {
+            // Standalone and headless hosts have no Workspace authority. Keep
+            // their established local-inline behavior until an authoritative
+            // pane mapping exists; explicit ownership overrides remain strict.
+            return true
+        }
+        return currentPaneId.id == paneId.id
+    }
+
     final class HostContainerView: NSView {
         private final class HostedInspectorSideDockContainerView: NSView {
             override init(frame frameRect: NSRect) {
@@ -5554,6 +5602,8 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         var onDidMoveToWindow: (() -> Void)?
         var onGeometryChanged: (() -> Void)?
+        private var windowArrivalCallbackTask: Task<Void, Never>?
+        private var windowArrivalCallbackPending = false
         private(set) var geometryRevision: UInt64 = 0
         private var lastReportedGeometryState: GeometryState?
         private var hasPendingGeometryNotification = false
@@ -5627,6 +5677,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
 
         deinit {
+            windowArrivalCallbackTask?.cancel()
             hostedInspectorSideDockPromotionTask?.cancel()
             if let trackingArea {
                 removeTrackingArea(trackingArea)
@@ -6082,6 +6133,17 @@ struct WebViewRepresentable: NSViewRepresentable {
             isWindowPortalHosting = isHosting
         }
 
+        func setWindowArrivalCallback(_ callback: (() -> Void)?) {
+            onDidMoveToWindow = callback
+            windowArrivalCallbackPending = callback != nil
+        }
+
+        func markWindowArrivalCallbackHandledIfAttached() {
+            if window != nil {
+                windowArrivalCallbackPending = false
+            }
+        }
+
         func clearStaleHostedInspectorOwnershipState() {
             hostedInspectorDockConfigurationSyncScheduler.cancel()
             hostedInspectorFrontendWebView = nil
@@ -6399,10 +6461,12 @@ struct WebViewRepresentable: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if window == nil {
+                windowArrivalCallbackPending = false
                 cancelHostedWebKitPresentationRefresh()
                 notifyHostedWebKitHidden(reason: "viewDidMoveToWindow")
                 clearActiveDividerCursor(restoreArrow: false)
             } else {
+                windowArrivalCallbackPending = onDidMoveToWindow != nil
                 scheduleHostedInspectorDividerReapply(reason: "viewDidMoveToWindow")
                 scheduleHostedInspectorDockConfigurationSync(reason: "viewDidMoveToWindow")
                 scheduleHostedWebKitPresentationRefresh(
@@ -6411,7 +6475,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 )
             }
             window?.invalidateCursorRects(for: self)
-            onDidMoveToWindow?()
+            scheduleWindowArrivalCallbackIfNeeded()
             notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "viewDidMoveToWindow")
@@ -6422,14 +6486,36 @@ struct WebViewRepresentable: NSViewRepresentable {
             super.viewDidMoveToSuperview()
             scheduleHostedInspectorDividerReapply(reason: "viewDidMoveToSuperview")
             scheduleHostedInspectorDockConfigurationSync(reason: "viewDidMoveToSuperview")
+            if window != nil {
+                windowArrivalCallbackPending = onDidMoveToWindow != nil
+            }
+            scheduleWindowArrivalCallbackIfNeeded()
             notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "viewDidMoveToSuperview")
 #endif
         }
 
+        /// Reparenting an already-mounted SwiftUI host can deliver the
+        /// superview callback before AppKit updates the nested host's window.
+        /// Coalesce both lifecycle signals and retry on the next main-actor turn,
+        /// once the final window and geometry are observable.
+        private func scheduleWindowArrivalCallbackIfNeeded() {
+            guard window != nil, windowArrivalCallbackPending,
+                  onDidMoveToWindow != nil,
+                  windowArrivalCallbackTask == nil else { return }
+            windowArrivalCallbackTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.windowArrivalCallbackTask = nil
+                guard self.window != nil else { return }
+                self.windowArrivalCallbackPending = false
+                self.onDidMoveToWindow?()
+            }
+        }
+
         override func layout() {
             super.layout()
+            scheduleWindowArrivalCallbackIfNeeded()
             if enforceAdaptiveBottomDockIfNeeded(reason: "host.layout") {
                 updateHostedInspectorDockControlAvailabilityIfNeeded(reason: "host.layout")
                 notifyGeometryChangedIfNeeded()
@@ -7255,7 +7341,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     private static func clearPortalCallbacks(for host: NSView) {
         guard let host = host as? HostContainerView else { return }
-        host.onDidMoveToWindow = nil
+        host.setWindowArrivalCallback(nil)
         host.onGeometryChanged = nil
         host.clearLocalInlineCallbacks()
     }
@@ -7272,6 +7358,12 @@ struct WebViewRepresentable: NSViewRepresentable {
         var current = presentationView.superview
         var last: NSView?
         while let view = current {
+            // A preload window owns its content view. Transfer the browser
+            // subtree inside it, never the window's whole content container:
+            // that container retains the preload size instead of the pane's.
+            if view === view.window?.contentView {
+                return view
+            }
             if view is WindowBrowserSlotView {
                 return view
             }
@@ -7408,7 +7500,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
     }
 
-    private func updateUsingLocalInlineHosting(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
+    private func updateUsingLocalInlineHosting(
+        _ nsView: NSView,
+        coordinator: Coordinator,
+        webView: WKWebView
+    ) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
         host.setWindowPortalHosting(false)
         let slotView = host.ensureLocalInlineSlotView()
@@ -7421,10 +7517,44 @@ struct WebViewRepresentable: NSViewRepresentable {
         let didAttachWebViewToLocalHost =
             !isAlreadyInLocalHost && !shouldPreserveExternalFullscreenHost
 
-        let coordinator = context.coordinator
         coordinator.desiredPortalVisibleInUI = false
         coordinator.desiredPortalZPriority = 0
         coordinator.attachGeneration += 1
+        let generation = coordinator.attachGeneration
+
+        // A Canvas host may be created before joining its window while the
+        // page still belongs to an automation preload or previous pane host.
+        // Complete that deferred handoff on window arrival, even if SwiftUI
+        // has no further state change to trigger updateNSView.
+        host.setWindowArrivalCallback { [weak host, weak webView, weak coordinator, weak panel, paneId, paneOwnershipOverride] in
+            guard let host, host.window != nil,
+                  let webView, let coordinator,
+                  let panel,
+                  coordinator.attachGeneration == generation,
+                  coordinator.webView === webView,
+                  panel.webView === webView,
+                  Self.allowsLocalInlineTransfer(
+                      panel: panel,
+                      paneId: paneId,
+                      paneOwnershipOverride: paneOwnershipOverride
+                  ) else { return }
+            let ownsWebView = updateUsingLocalInlineHosting(
+                host,
+                coordinator: coordinator,
+                webView: webView
+            )
+            applyAttachmentPresentation(host, webView: webView, hostOwnsWebView: ownsWebView)
+        }
+
+        // Resolve ownership before any transfer or pin operation. The callback
+        // remains installed so a host that becomes authorized on a later
+        // representable update can still reconcile, while stale hosts return
+        // without moving the shared web view.
+        guard Self.allowsLocalInlineTransfer(
+            panel: panel,
+            paneId: paneId,
+            paneOwnershipOverride: paneOwnershipOverride
+        ) else { return false }
 
         if panel.releasePortalHostIfOwned(
             hostId: ObjectIdentifier(host),
@@ -7600,6 +7730,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             details: Self.attachContext(webView: webView, host: host)
         )
 #endif
+        host.markWindowArrivalCallbackHandledIfAttached()
         return !shouldPreserveExternalFullscreenHost
     }
 
@@ -7682,7 +7813,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
         let activeOmnibarSuggestions = coordinator.desiredPortalVisibleInUI ? omnibarSuggestions : nil
 
-        host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator, weak portalAnchorView, weak browserPanel = panel] in
+        host.setWindowArrivalCallback { [weak host, weak webView, weak coordinator, weak portalAnchorView, weak browserPanel = panel] in
             guard let host, let webView, let coordinator, let portalAnchorView, let browserPanel else { return }
             guard coordinator.attachGeneration == generation else { return }
             guard let currentPaneDropContext = currentPaneDropContext(),
@@ -7855,7 +7986,6 @@ struct WebViewRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         let webView = panel.webView
         let coordinator = context.coordinator
-        let isCurrentPaneOwner = currentPaneDropContext()?.paneId.id == paneId.id
         if let previousWebView = coordinator.webView, previousWebView !== webView {
             BrowserWindowPortalRegistry.detach(webView: previousWebView)
             coordinator.lastPortalHostId = nil
@@ -7866,23 +7996,32 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         Self.clearPortalCallbacks(for: nsView)
         let hostOwnsPortal = useLocalInlineHosting
-            ? updateUsingLocalInlineHosting(nsView, context: context, webView: webView)
+            ? updateUsingLocalInlineHosting(nsView, coordinator: coordinator, webView: webView)
             : updateUsingWindowPortal(nsView, context: context, webView: webView)
-        if hostOwnsPortal {
+        applyAttachmentPresentation(nsView, webView: webView, hostOwnsWebView: hostOwnsPortal)
+    }
+
+    private func applyAttachmentPresentation(
+        _ nsView: NSView,
+        webView: WKWebView,
+        hostOwnsWebView: Bool
+    ) {
+        let isCurrentPaneOwner = currentPaneDropContext()?.paneId.id == paneId.id
+        if hostOwnsWebView {
             panel.releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: "representable.update")
         }
         Self.applyWebViewFirstResponderPolicy(
             panel: panel,
             webView: webView,
-            isPanelFocused: isPanelFocused && isCurrentPaneOwner && hostOwnsPortal
+            isPanelFocused: isPanelFocused && isCurrentPaneOwner && hostOwnsWebView
         )
 
         Self.applyFocus(
             panel: panel,
             webView: webView,
             nsView: nsView,
-            shouldFocusWebView: shouldFocusWebView && isCurrentPaneOwner && hostOwnsPortal,
-            isPanelFocused: isPanelFocused && isCurrentPaneOwner && hostOwnsPortal
+            shouldFocusWebView: shouldFocusWebView && isCurrentPaneOwner && hostOwnsWebView,
+            isPanelFocused: isPanelFocused && isCurrentPaneOwner && hostOwnsWebView
         )
     }
 
