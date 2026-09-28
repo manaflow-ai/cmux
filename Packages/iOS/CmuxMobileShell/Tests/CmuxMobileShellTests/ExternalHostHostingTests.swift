@@ -69,6 +69,20 @@ struct ExternalHostHostingTests {
         return composite
     }
 
+    @Test("An external host's terminal resolves to its row, so its view can start output")
+    func terminalResolvesForOutputStart() {
+        let host = RecordingHost(hostID: Self.hostID, surfaceID: Self.surfaceID)
+        let composite = Self.composite(with: host)
+
+        // The terminal view opens its output only once this resolves; nil
+        // leaves a mounted Cloud terminal blank forever.
+        #expect(composite.workspaceID(forTerminalID: Self.surfaceID) != nil)
+        #expect(composite.workspaceID(forTerminalID: Self.surfaceID) == composite.workspaces.first?.id)
+        #expect(
+            composite.prepareTerminalViewport(surfaceID: Self.surfaceID, columns: 80, rows: 24) != nil
+        )
+    }
+
     @Test("An external host's workspaces join the ordinary aggregated list")
     func rowsAppear() {
         let host = RecordingHost(hostID: Self.hostID, surfaceID: Self.surfaceID)
