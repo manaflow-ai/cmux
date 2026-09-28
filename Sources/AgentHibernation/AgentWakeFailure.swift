@@ -8,6 +8,22 @@ enum AgentWakeFailureReason: Equatable, Sendable {
     /// Nothing reported in before the verification deadline, and no live
     /// agent process was found for the pane.
     case didNotStart
+
+    /// The second line of the failure banner and the feed entry body.
+    var detail: String {
+        switch self {
+        case .exitedBeforeStart:
+            String(
+                localized: "agentWake.reason.exitedBeforeStart",
+                defaultValue: "Its resume command exited."
+            )
+        case .didNotStart:
+            String(
+                localized: "agentWake.reason.didNotStart",
+                defaultValue: "It did not start within 90 seconds."
+            )
+        }
+    }
 }
 
 /// A failed wake shown on the terminal pane until retried, dismissed, or

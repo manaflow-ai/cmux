@@ -99,6 +99,9 @@ final class TerminalPanel: Panel, ObservableObject {
     /// Set when an agent woken from hibernation did not come back; drives
     /// `AgentWakeFailureBanner`.
     @Published var agentWakeFailure: AgentWakeFailure?
+    /// Set by the owning workspace while `agentWakeFailure` is shown.
+    var onRequestAgentWakeRetry: (() -> Void)?
+    var onDismissAgentWakeFailure: (() -> Void)?
     /// A native cloud pane's live attachment state (nil for local terminals).
     /// Written only by the owning cloud session; the view shows it.
     var cloudAttachment: CloudTerminalAttachmentStatus?

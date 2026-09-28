@@ -24,8 +24,20 @@ enum AgentWakeVerificationState: Equatable, Sendable {
     }
 
     func applying(_ event: Event) -> AgentWakeVerificationState {
-        // Stub: always stays where it is.
-        self
+        switch (self, event) {
+        case (_, .started):
+            return .pending
+        case (_, .agentReported):
+            // A report after a failure means the agent did come back.
+            return .succeeded
+        case (.pending, .commandEnded):
+            return .failed(.exitedBeforeStart)
+        case (.pending, .deadline(let hasLiveProcess)):
+            // Some agents have no hooks; a live process is enough.
+            return hasLiveProcess ? .succeeded : .failed(.didNotStart)
+        case (.succeeded, _), (.failed, _):
+            return self
+        }
     }
 
     var failureReason: AgentWakeFailureReason? {

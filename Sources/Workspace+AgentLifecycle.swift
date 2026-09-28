@@ -334,6 +334,8 @@ extension Workspace {
                 markRestoredAgentCompleted(panelId: panelId, snapshot: restoredAgent)
                 restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
                 retireAgentHookResumeBinding(panelId: panelId, matching: restoredAgent)
+                // Fails a pending wake check that no agent hook confirmed.
+                noteAgentWakeCommandEnded(panelId: panelId)
             case .some(.awaitingAutoResumeCommand), .some(.manualResumeAvailable),
                  .some(.completedAgentExit), nil:
                 // The terminal owns prompt-ready startup input delivery.
@@ -499,6 +501,7 @@ extension Workspace {
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
             recordAgentLifecycleChange(panelId: targetPanelId)
+            noteAgentWakeAgentReported(panelId: targetPanelId)
         }
     }
 
