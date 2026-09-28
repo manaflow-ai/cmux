@@ -112,6 +112,8 @@ extension ContentView {
             return .toggleSplitZoom
         case "palette.equalizeSplits":
             return .equalizeSplits
+        case "palette.newPaneAutoLayout":
+            return .newPaneAutoLayout
         case "palette.resizePaneLeft":
             return .resizePaneLeft
         case "palette.resizePaneRight":

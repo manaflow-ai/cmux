@@ -103,6 +103,14 @@ its retry_runs_on, the Blacksmith pool. A job asking for a capability label no
 idle mini carries waits like any other queued owned job, so it is moved after
 the same budget.
 
+Dispatches of iroh-release-gate.yml are watched the same way. Its `runner`
+job runs e2e_runner_pool.py for the Tailscale version-skew job alone, and
+only takes an owned pool with a machine free now (no queue rounds), so that
+job rarely waits. Its simulator-e2e jobs stay on Blacksmith, but they run in
+the same run: a stuck owned job's rescue cancels them with it, and a refused
+one's waits for them until the watch ends. The re-run of failed and
+cancelled jobs keeps the modes that passed and puts everything on Blacksmith.
+
 Side-lane workflows (SIDE_WORKFLOW_PATHS) have no picker. On attempt 1 of a
 trusted run (a same-repository pull request, or a push, schedule or
 workflow_dispatch, whose code is this repository's own branch; see
@@ -204,15 +212,18 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pr_runner_pool import MAX_QUEUE_ROUNDS, parse_queue_rounds, persistent  # noqa: E402
+from pr_runner_pool import MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, parse_queue_rounds, persistent  # noqa: E402
+import ui_tests_dispatch  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 E2E_WORKFLOW_PATH = ".github/workflows/test-e2e.yml"
 IOS_TEST_WORKFLOW_PATH = ".github/workflows/test-ios.yml"
 IOS_SCREENSHOTS_WORKFLOW_PATH = ".github/workflows/ios-screenshots.yml"
+IROH_RELEASE_GATE_WORKFLOW_PATH = ".github/workflows/iroh-release-gate.yml"
 # workflow_dispatch runs watched like an E2E run: each has a `runner` job that
 # picks the pool and uploads the marker.
-DISPATCH_WORKFLOW_PATHS = (E2E_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, IOS_SCREENSHOTS_WORKFLOW_PATH)
+DISPATCH_WORKFLOW_PATHS = (E2E_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, IOS_SCREENSHOTS_WORKFLOW_PATH,
+                           IROH_RELEASE_GATE_WORKFLOW_PATH)
 # Workflows whose picker may queue a run's jobs on an owned pool within
 # CI_PR_POOL_QUEUE_ROUNDS (ios_runner_pool.py and e2e_runner_pool.py read it
 # since run 36136190497).
@@ -261,7 +272,7 @@ END_MARGIN_SECONDS = 60
 # One round of queue on an owned pool: the longest job a queued job commonly
 # waits behind, compile admission. Over 80 pull request runs on 2026-09-25 it
 # took a median 638 s on the minis (p90 745 s) and a p90 893 s on Blacksmith.
-QUEUE_ROUND_SECONDS = 900
+QUEUE_ROUND_SECONDS = QUEUE_ROUND_MINUTES * 60
 FIRST_LOOK_SECONDS = 45
 POLL_SECONDS = 20
 IDLE_POLL_SECONDS = 120
@@ -494,9 +505,10 @@ class GitHub:
         self.headers = _headers(token)
         self.read_headers = _headers(read_token) if read_token else self.headers
 
-    def request(self, method: str, path: str, *, own_token: bool = False) -> Any:
+    def request(self, method: str, path: str, *, own_token: bool = False, body: Mapping | None = None) -> Any:
         headers = self.read_headers if method == "GET" and not own_token else self.headers
-        request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", method=method, headers=headers)
+        data = json.dumps(body).encode() if body is not None else None
+        request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", method=method, headers=headers, data=data)
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
                 body = response.read()
@@ -607,11 +619,31 @@ class GitHub:
     def force_cancel(self, run_id: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/force-cancel")
 
-    def rerun(self, run_id: int) -> None:
+    def rerun(self, run_id: int, next_attempt: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun")
+        self.request_ui_tests(run_id, next_attempt)
 
-    def rerun_failed(self, run_id: int) -> None:
+    def rerun_failed(self, run_id: int, next_attempt: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs")
+        self.request_ui_tests(run_id, next_attempt)
+
+    def request_ui_tests(self, run_id: int, attempt: int) -> None:
+        """Start ci-ui-tests.yml for the attempt a re-run of a pull request's CI began.
+
+        This token's re-run may emit no workflow_run event, and that attempt's
+        ui-tests job waits for ci-ui-tests.yml (ui_tests_dispatch.rerun_dispatch()).
+        Best effort: a failure here never stops the rescue.
+        """
+        try:
+            run = self.request("GET", f"/actions/runs/{run_id}") or {}
+            if run.get("path") != CI_WORKFLOW_PATH or run.get("event") != "pull_request":
+                return
+            # The caller's attempt: a read right after the re-run may still show the old one.
+            path, body = ui_tests_dispatch.rerun_dispatch(run_id, attempt)
+            self.request("POST", f"/{path}", body=body)
+        except (urllib.error.URLError, OSError, ValueError) as error:
+            print(f"::warning::could not start {ui_tests_dispatch.DISPATCH_WORKFLOW_FILE} for run {run_id}: {error}",
+                  flush=True)
 
 
 @dataclasses.dataclass
@@ -930,9 +962,9 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         if not (failed_only if refused is None else refused):
             return "not rescued: the run already finished"
         if e2e_build_unfinished(api, target, sleep, log):
-            api.rerun(target.run_id)
+            api.rerun(target.run_id, target.attempt + 1)
             return f"re-ran every job of run {target.run_id}, so its sibling wait runs again; {next_attempt(target)}"
-        api.rerun_failed(target.run_id)
+        api.rerun_failed(target.run_id, target.attempt + 1)
         return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
     api.cancel(target.run_id)
     log(f"cancelled run {target.run_id}")
@@ -965,11 +997,11 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         return f"cancelled but not re-run: {moved}"
     if failed_only:
         if e2e_build_unfinished(api, target, sleep, log):
-            api.rerun(target.run_id)
+            api.rerun(target.run_id, target.attempt + 1)
             return f"re-ran every job of run {target.run_id}, so its sibling wait runs again; {next_attempt(target)}"
-        api.rerun_failed(target.run_id)
+        api.rerun_failed(target.run_id, target.attempt + 1)
         return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
-    api.rerun(target.run_id)
+    api.rerun(target.run_id, target.attempt + 1)
     return (f"re-ran run {target.run_id}; attempt {target.attempt + 1} takes an ephemeral pool, "
             "or the light tier when CI_OWNED_LIGHT_RETRY is 1 and it is free")
 
