@@ -226,7 +226,12 @@ extension AppDelegate {
                 titleSource: .auto,
                 workingDirectory: directory,
                 initialTerminalInput: command + "\r",
-                select: false
+                select: false,
+                // Start the terminal now so the agent is running (and its
+                // hook record carries a live pid) before the resume claim
+                // expires; otherwise a later `cmux session restore` would see
+                // the unvisited session as lost and open it a second time.
+                eagerLoadTerminal: true
             ) != nil else {
                 AgentResumeLaunchGuard.shared.releaseResumeLaunch(kind: candidate.kind, sessionId: candidate.sessionId)
                 continue
@@ -249,9 +254,13 @@ extension AppDelegate {
         // Runs once session restore has completed: restored panels, including
         // staged and deferred agent resumes, are already visible to the open-id
         // scan, and restoreRecoveredAgentSessions repeats it before launching.
+        // Without the dead run's start time the window would widen to the
+        // planner's 48-hour limit and pull in sessions from earlier runs that
+        // exited cleanly; those stay reachable through `cmux session restore
+        // --session <id>`.
+        guard let activeSince = previousSessionLaunchStartedAt else { return }
         let openSessionIds = openAgentSessionIdsForRecovery()
         let recovery = AgentSessionRecovery()
-        let activeSince = previousSessionLaunchStartedAt
         Task.detached(priority: .utility) {
             let candidates = recovery.candidates(openSessionIds: openSessionIds, activeSince: activeSince)
             guard !candidates.isEmpty else { return }
@@ -341,7 +350,8 @@ extension TerminalController {
         if let requested = requestedSessionIDs {
             let wanted = Set(requested)
             candidates = candidates.filter { wanted.contains($0.sessionId) }
-        } else if !context.previousExitUnclean {
+        } else if !context.previousExitUnclean || context.activeSince == nil {
+            // Unnamed restore acts only on sessions from the run that died.
             candidates = []
         }
         let selected = candidates
