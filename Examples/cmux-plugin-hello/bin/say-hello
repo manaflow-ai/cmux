@@ -1,4 +1,4 @@
 #!/bin/sh
 # cmux puts its bundled CLI first on PATH and sets CMUX_SOCKET_PATH,
 # CMUX_WORKSPACE_ID, and CMUX_SURFACE_ID for the focused workspace.
-exec cmux notify --title "Hello from $CMUX_PLUGIN_ID" --body "Workspace $CMUX_WORKSPACE_ID"
+exec cmux notify --title "cmux plugin" --body "Hello from $CMUX_PLUGIN_ID in workspace $CMUX_WORKSPACE_ID"

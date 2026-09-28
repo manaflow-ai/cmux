@@ -159,7 +159,7 @@ final class AppPluginHelloUITests: SettingsUITestCase {
             """,
             "bin/say-hello": """
             #!/bin/sh
-            exec cmux notify --title "Hello from $CMUX_PLUGIN_ID" --body "Workspace $CMUX_WORKSPACE_ID"
+            exec cmux notify --title "cmux plugin" --body "Hello from $CMUX_PLUGIN_ID in workspace $CMUX_WORKSPACE_ID"
 
             """,
             "bin/log-event": """
