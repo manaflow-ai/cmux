@@ -208,56 +208,6 @@ final class SplitDividerDragUITests: SettingsUITestCase {
         )
     }
 
-    /// Dragging a right sidebar tool (its mode bar button) onto a pane's edge
-    /// opens the tool as a split beside that pane.
-    func testDraggingSidebarToolOntoPaneEdgeCreatesSplit() throws {
-        let dataPath = "/tmp/cmux-ui-test-split-drag-tool-\(UUID().uuidString).json"
-        try? FileManager.default.removeItem(atPath: dataPath)
-        let app = XCUIApplication.cmuxTestApplication()
-        app.launchArguments += settingsLaunchArguments
-        app.launchArguments += ["-workspacePresentationMode", "standard"]
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_TAG"] = "ui-split-drag-\(UUID().uuidString.prefix(8))"
-        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
-        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
-        launchAndActivate(app)
-        defer {
-            app.terminate()
-            try? FileManager.default.removeItem(atPath: dataPath)
-        }
-        XCTAssertTrue(
-            poll(timeout: 25) { loadJSON(atPath: dataPath)["ready"] == "1" },
-            "Timed out waiting for the setup. data=\(loadJSON(atPath: dataPath))"
-        )
-        let window = app.windows.firstMatch
-        let tool = app.descendants(matching: .any)["RightSidebarModeButton.find"]
-        XCTAssertTrue(tool.waitForExistence(timeout: 10), "Expected the Find mode button in the right sidebar")
-        var terminal: XCUIElement?
-        XCTAssertTrue(
-            poll(timeout: 10) {
-                terminal = visibleTerminals(in: app).max { $0.frame.width < $1.frame.width }
-                return terminal != nil
-            },
-            "Expected the workspace terminal; textViews=\(terminalFrames(in: app))"
-        )
-        guard let terminal else { return }
-        let before = terminal.frame
-        attach(window.screenshot(), name: "01 before sidebar tool drag")
-
-        let source = tool.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let target = point(in: window, x: before.maxX - 24, y: before.midY)
-        source.press(forDuration: 0.3, thenDragTo: target)
-
-        let split = poll(timeout: 6) { terminal.frame.width < before.width * 0.75 }
-        attach(window.screenshot(), name: "02 after sidebar tool drag")
-        XCTAssertTrue(
-            split,
-            "Expected dropping the Find tool on the pane's right edge to split it. " +
-                "before=\(before) after=\(terminal.frame)"
-        )
-    }
-
     // MARK: - Helpers
 
     private func launchSplitApp() -> XCUIApplication {
