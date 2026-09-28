@@ -97,7 +97,8 @@ struct SidebarCloudWorkspaceBadgeTests {
         ), workspaceID: workspaceID)
 
         #expect(store.machineIDs(forWorkspace: workspaceID) == [machine])
-        #expect(store.remove(panelID: firstPanelID))
+        let removed = store.remove(panelID: firstPanelID)
+        #expect(removed)
         #expect(store.machineIDs(forWorkspace: workspaceID) == [machine])
     }
 
