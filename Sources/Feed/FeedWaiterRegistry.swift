@@ -64,6 +64,7 @@ final class FeedWaiterRegistry: Sendable {
             guard var group = groups[registration.requestID], group.id == registration.groupID else { return nil }
             group.event = event
             group.itemID = item.id
+            let decisionToApply: WorkstreamDecision?
             if let decision = group.decision {
                 decisionToApply = decision
             } else {
