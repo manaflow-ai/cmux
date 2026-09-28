@@ -344,6 +344,10 @@ lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_codex_monitor_process_identity.py"
+lane = "macos-cli-no-socket-post-fish"
+
+[[test]]
 path = "tests/test_omp_extension_install.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
