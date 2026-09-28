@@ -84,31 +84,46 @@ public enum ChromeExtensionCompatibility {
         var isModule: Bool
     }
 
+    static let beginMarker = "// cmux-compat begin"
+    static let endMarker = "// cmux-compat end"
+
     /// Installs the compatibility layer into an unpacked extension folder.
     /// Safe to run on every load: it rewrites only what it owns.
+    ///
+    /// The background worker keeps its own file and manifest entry: a module
+    /// worker gets `import "/cmux-compat.js";` as its first line (imports run
+    /// in order, before its own body), and a classic worker gets the preamble
+    /// written at the top of the file between markers.
     public static func install(into folder: URL, fileManager: FileManager = .default) throws {
         let manifestURL = folder.appendingPathComponent("manifest.json")
         guard var manifest = try JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any] else { return }
         try Data(preambleSource.utf8).write(to: folder.appendingPathComponent(preambleFile), options: .atomic)
 
-        let stateURL = folder.appendingPathComponent(stateFile)
-        let previous = (try? Data(contentsOf: stateURL)).flatMap { try? JSONDecoder().decode(State.self, from: $0) }
         var background = manifest["background"] as? [String: Any] ?? [:]
         var changedManifest = false
 
-        if let worker = background["service_worker"] as? String {
+        // Undo the wrapper layout earlier builds wrote.
+        let stateURL = folder.appendingPathComponent(stateFile)
+        if let worker = background["service_worker"] as? String,
+           worker == workerWrapperFile || worker == moduleWorkerWrapperFile,
+           let data = try? Data(contentsOf: stateURL),
+           let state = try? JSONDecoder().decode(State.self, from: data),
+           let original = state.serviceWorker {
+            background["service_worker"] = original
+            changedManifest = true
+            try? fileManager.removeItem(at: folder.appendingPathComponent(worker))
+            try? fileManager.removeItem(at: stateURL)
+        }
+
+        if let worker = background["service_worker"] as? String,
+           let workerURL = containedFile(worker, in: folder),
+           var source = try? String(contentsOf: workerURL, encoding: .utf8) {
             let isModule = (background["type"] as? String) == "module"
-            let wrapper = isModule ? moduleWorkerWrapperFile : workerWrapperFile
-            let original = worker == wrapper ? previous?.serviceWorker : worker
-            if let original, isSafeRelativePath(original) {
-                try Data(workerWrapperSource(original: original, isModule: isModule).utf8)
-                    .write(to: folder.appendingPathComponent(wrapper), options: .atomic)
-                try JSONEncoder().encode(State(serviceWorker: original, isModule: isModule)).write(to: stateURL, options: .atomic)
-                if worker != wrapper {
-                    background["service_worker"] = wrapper
-                    changedManifest = true
-                }
-            }
+            source = strippingPreamble(from: source)
+            let prefixed = isModule
+                ? "import \"/\(preambleFile)\";\n" + source
+                : beginMarker + "\n" + preambleSource + "\n" + endMarker + "\n" + source
+            try Data(prefixed.utf8).write(to: workerURL, options: .atomic)
         } else if var scripts = background["scripts"] as? [String], scripts.first != preambleFile {
             scripts.insert(preambleFile, at: 0)
             background["scripts"] = scripts
@@ -116,20 +131,32 @@ public enum ChromeExtensionCompatibility {
         }
         if changedManifest {
             manifest["background"] = background
-            let data = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+            let data = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
             try data.write(to: manifestURL, options: .atomic)
         }
         try injectIntoPages(in: folder, fileManager: fileManager)
     }
 
-    static func workerWrapperSource(original: String, isModule: Bool) -> String {
-        // `original` passed `isSafeRelativePath`, so it has no quotes, line
-        // breaks, backslashes, or `..`.
-        let quoted = "\"" + (original.hasPrefix("/") ? original : "/" + original) + "\""
-        let preamble = "\"/\(preambleFile)\""
-        return isModule
-            ? "import \(preamble);\nimport \(quoted);\n"
-            : "importScripts(\(preamble), \(quoted));\n"
+    /// Removes a preamble an earlier load added, so re-applying replaces it.
+    static func strippingPreamble(from source: String) -> String {
+        var source = source
+        let moduleLine = "import \"/\(preambleFile)\";\n"
+        while source.hasPrefix(moduleLine) { source.removeFirst(moduleLine.count) }
+        if source.hasPrefix(beginMarker), let end = source.range(of: endMarker + "\n") {
+            source = String(source[end.upperBound...])
+        }
+        return source
+    }
+
+    /// A worker path inside `folder` that is a regular file, not a link.
+    private static func containedFile(_ path: String, in folder: URL) -> URL? {
+        guard isSafeRelativePath(path) else { return nil }
+        let url = folder.appendingPathComponent(path.hasPrefix("/") ? String(path.dropFirst()) : path)
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
+              values.isRegularFile == true, values.isSymbolicLink != true else { return nil }
+        let root = folder.resolvingSymlinksInPath().standardizedFileURL.path
+        guard url.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(root + "/") else { return nil }
+        return url
     }
 
     /// Adds the preamble as the first script of every HTML page the extension

@@ -105,6 +105,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
     private static let protectedMatchPatterns = [
         "*://chromewebstore.google.com/*",
         "*://chrome.google.com/webstore/*",
+        "file:///*",
     ]
 
     /// Denies script injection and page access on the Web Store, as Chrome
@@ -569,8 +570,8 @@ final class BrowserExtensions: NSObject, ObservableObject {
     }
 
     func openOptions(_ id: String, profile: String) {
-        guard let controller = controllers[profile], let url = controller.contexts[id]?.optionsPageURL else { return }
-        _ = controller.openTab(url: url, focus: true, extensionID: id)
+        guard let context = controllers[profile]?.contexts[id], let url = context.optionsPageURL else { return }
+        openExtensionPage(url, context: context)
     }
 
     /// Opens `cmux://extensions` in a new tab beside `panel`.
@@ -635,7 +636,11 @@ final class BrowserExtensions: NSObject, ObservableObject {
                 let context = WKWebExtensionContext(for: found)
                 context.uniqueIdentifier = id
                 if let base = URL(string: "\(Self.extensionScheme)://\(id)/") { context.baseURL = base }
+                #if DEBUG
+                context.isInspectable = true
+                #else
                 context.isInspectable = !item.fromStore
+                #endif
                 // Grant exactly what the user accepted. Anything the current
                 // manifest asks for beyond that stays ungranted until the
                 // user approves it through an update or reload prompt.
@@ -704,6 +709,39 @@ final class BrowserExtensions: NSObject, ObservableObject {
         popover.close()
         self.popover = nil
         popoverExtensionID = nil
+    }
+
+    private var extensionPageWindows: [NSWindow] = []
+
+    /// Shows one of an extension's own pages (options, a popped-out popup)
+    /// in a window whose web view is built from that extension's
+    /// configuration, the only kind WebKit serves extension pages to.
+    fileprivate func openExtensionPage(_ url: URL, context: WKWebExtensionContext) {
+        guard let configuration = context.webViewConfiguration else { return }
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 900, height: 700), configuration: configuration)
+        #if DEBUG
+        webView.isInspectable = true
+        #endif
+        let window = NSWindow(
+            contentRect: webView.frame,
+            styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.title = context.webExtension.displayName ?? context.uniqueIdentifier
+        window.contentView = webView
+        window.center()
+        extensionPageWindows.append(window)
+        var observer: NSObjectProtocol?
+        observer = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self, weak window] _ in
+            MainActor.assumeIsolated {
+                self?.extensionPageWindows.removeAll { $0 === window }
+                if let observer { NotificationCenter.default.removeObserver(observer) }
+            }
+        }
+        webView.load(URLRequest(url: url))
+        window.makeKeyAndOrderFront(nil)
     }
 
     fileprivate func stopObservingErrors(of context: WKWebExtensionContext) {
@@ -1073,6 +1111,16 @@ private final class Controller: NSObject, WKWebExtensionControllerDelegate {
     /// profile and data store, and returns its adapter. Refuses URLs an
     /// extension may not open (``ChromeExtensionNavigationPolicy``).
     func openTab(url: URL, focus: Bool, extensionID: String) -> BrowserExtensionTab? {
+        // A browser tab cannot show extension pages (WebKit serves them only
+        // to views built from the extension's configuration), so the
+        // extension's own pages open in a window of their own.
+        if url.scheme?.lowercased() == ChromeExtensionNavigationPolicy.extensionScheme {
+            if ChromeExtensionNavigationPolicy.allows(url, fromExtensionID: extensionID),
+               let context = contexts[extensionID] {
+                owner.openExtensionPage(url, context: context)
+            }
+            return nil
+        }
         guard ChromeExtensionNavigationPolicy.allows(url, fromExtensionID: extensionID),
               let anchor = activeTab?.panel ?? orderedTabs.last?.panel,
               BrowserExtensions.profileKey(for: anchor.websiteDataStore) == profileKey,
@@ -1267,8 +1315,13 @@ private final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
         return panel
     }
 
+    /// WebKit maps pages to tabs through this, including for content
+    /// scripts' messaging, so it always returns the tab's web view. Access to
+    /// protected pages is enforced by host permissions (cmux schemes match no
+    /// pattern; `file:` and the Web Store are denied) and by the capture and
+    /// metadata methods below.
     func webView(for context: WKWebExtensionContext) -> WKWebView? {
-        showsPageAccessible(to: context) ? livePanel?.webView : nil
+        livePanel?.webView
     }
     /// Titles and URLs of protected pages are withheld, like their content.
     func title(for context: WKWebExtensionContext) -> String? {
@@ -1308,6 +1361,10 @@ private final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
     func loadURL(_ url: URL, for context: WKWebExtensionContext) async throws {
         guard ChromeExtensionNavigationPolicy.allows(url, fromExtensionID: context.uniqueIdentifier) else {
             throw URLError(.unsupportedURL)
+        }
+        if url.scheme?.lowercased() == ChromeExtensionNavigationPolicy.extensionScheme {
+            owner.owner.openExtensionPage(url, context: context)
+            return
         }
         guard let panel = livePanel else { throw URLError(.cancelled) }
         panel.extensionNavigationOrigin = context.uniqueIdentifier
