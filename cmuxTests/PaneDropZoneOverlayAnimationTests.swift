@@ -293,4 +293,24 @@ struct PaneDropZoneOverlayAnimationTests {
             to: PaneDropRouting.compactOverlayFrame(for: .left, in: hostedView.bounds.size)
         )
     }
+
+    @Test("Resizing a terminal pane during a slide drops the slide and pins the zone to the new layout")
+    func terminalResizeDuringSlideSnaps() throws {
+        let host = OverlayWindowHost(size: CGSize(width: 240, height: 120))
+        defer { host.close() }
+        let container = host.container
+        let hostedView = GhosttySurfaceScrollView(surfaceView: GhosttyNSView(frame: .zero))
+        hostedView.frame = container.bounds
+        hostedView.dropZoneOverlayAnimator.reducesMotion = { false }
+        container.addSubview(hostedView)
+
+        hostedView.setDropZoneOverlay(zone: .right)
+        hostedView.setDropZoneOverlay(zone: .left)
+        hostedView.setFrameSize(CGSize(width: 200, height: 100))
+        hostedView.needsLayout = true
+        hostedView.layoutSubtreeIfNeeded()
+
+        let overlay = try #require(container.subviews.first { $0 is GhosttyFlashOverlayView })
+        expectSnap(of: overlay, to: PaneDropRouting.compactOverlayFrame(for: .left, in: hostedView.bounds.size))
+    }
 }
