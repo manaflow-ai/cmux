@@ -7318,8 +7318,23 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
-              let leftPanel = workspace.terminalPanel(for: leftPanelId),
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false) else {
+              let leftPanel = workspace.terminalPanel(for: leftPanelId) else {
+            XCTFail("Expected split terminal panels")
+            return
+        }
+        // `createMainWindow` inherits the current main window's size. Earlier
+        // app-host tests can leave a 320-point window behind, which is too
+        // narrow for the minimum-width split admission check.
+        window.setContentSize(NSSize(width: 1_000, height: 700))
+        window.contentView?.layoutSubtreeIfNeeded()
+        workspace.bonsplitController.setContainerFrame(
+            CGRect(x: 0, y: 0, width: 1_000, height: 1_000)
+        )
+        guard let rightPanel = workspace.newTerminalSplit(
+            from: leftPanelId,
+            orientation: .horizontal,
+            focus: false
+        ) else {
             XCTFail("Expected split terminal panels")
             return
         }
