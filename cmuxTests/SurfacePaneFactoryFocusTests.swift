@@ -616,6 +616,31 @@ import SwiftUI
         #expect(workspace.paneId(forPanelId: created.panelID) != paneID)
     }
 
+    /// A focused Cloud split hands focus over like a local Cmd+D. SwiftUI reparents
+    /// the source terminal into the new split; unless that reparent is suppressed,
+    /// the source takes focus back and the new pane shows a hollow cursor.
+    @Test func focusedCloudSplitKeepsTheSourceFromTakingFocusBack() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let source = try #require(workspace.focusedPanelId.flatMap { workspace.terminalPanel(for: $0) })
+        let panel = try #require(workspace.makeRemoteTmuxPanePanel(onInput: { _ in }))
+
+        _ = try workspace.insertCloudManualMirrorPanel(
+            panel,
+            at: .split(workspaceID: workspace.id, paneID: paneID.id.uuidString, direction: .right),
+            focus: true,
+            isLoading: false
+        )
+
+        #expect(workspace.focusedPanelId == panel.id)
+        #expect(workspace.paneId(forPanelId: panel.id) != paneID)
+#if DEBUG
+        #expect(source.hostedView.debugIsSuppressingReparentFocusForTesting())
+#endif
+    }
+
     /// A projected browser (VM desktop or port preview) goes through the same create
     /// handler as a terminal; `focus: true` must select it too.
     @Test func focusedBrowserTabIsSelected() throws {

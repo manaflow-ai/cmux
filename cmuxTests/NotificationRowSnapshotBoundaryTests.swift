@@ -430,7 +430,7 @@ struct NotificationRowSnapshotBoundaryTests {
             tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil, workingDirectory: nil
         )
-        defer { terminal.releaseSurfaceForTesting() }
+        defer { terminal.releaseHostedSurfaceForTesting() }
         let hostedView = terminal.hostedView
         hostedView.notificationScrollRestoreState = NotificationScrollRestoreState(
             replay: .replaying(expectedEndBoundary: "test-replay-boundary"),
@@ -455,7 +455,7 @@ struct NotificationRowSnapshotBoundaryTests {
             tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil, workingDirectory: nil
         )
-        defer { terminal.releaseSurfaceForTesting() }
+        defer { terminal.releaseHostedSurfaceForTesting() }
         let hostedView = terminal.hostedView
         hostedView.notificationScrollRestoreState = NotificationScrollRestoreState(
             replay: .replaying(expectedEndBoundary: "test-replay-boundary"),

@@ -61,9 +61,7 @@ public struct TextBoxSection: View {
         SettingsCardRow(
             configurationReview: .json("terminal.showTextBoxOnNewTerminals"),
             String(localized: "settings.textBox.showOnNewTerminals", defaultValue: "Show TextBox on New Terminals"),
-            subtitle: showOnNewTerminals.current
-                ? String(localized: "settings.textBox.showOnNewTerminals.subtitleOn", defaultValue: "New terminal tabs, splits, and workspaces open with the TextBox visible.")
-                : String(localized: "settings.textBox.showOnNewTerminals.subtitleOff", defaultValue: "New terminals start with the TextBox hidden until you open it.")
+            subtitle: String(localized: "settings.textBox.showOnNewTerminals.subtitle", defaultValue: "Opening a terminal tab, split, or workspace shows the TextBox.")
         ) {
             Toggle("", isOn: Binding(get: { showOnNewTerminals.current }, set: { showOnNewTerminals.set($0) }))
                 .labelsHidden()
@@ -80,9 +78,7 @@ public struct TextBoxSection: View {
         SettingsCardRow(
             configurationReview: .json("terminal.focusTextBoxOnNewTerminals"),
             String(localized: "settings.textBox.focusOnNewTerminals", defaultValue: "Focus TextBox on New Terminals"),
-            subtitle: focusOnNewTerminals.current
-                ? String(localized: "settings.textBox.focusOnNewTerminals.subtitleOn", defaultValue: "New terminal tabs, splits, and workspaces put keyboard focus in the TextBox.")
-                : String(localized: "settings.textBox.focusOnNewTerminals.subtitleOff", defaultValue: "New terminals keep keyboard focus in the terminal surface.")
+            subtitle: String(localized: "settings.textBox.focusOnNewTerminals.subtitle", defaultValue: "Opening a terminal tab, split, or workspace puts keyboard focus in the TextBox.")
         ) {
             Toggle("", isOn: Binding(get: { focusOnNewTerminals.current }, set: { focusOnNewTerminals.set($0) }))
                 .labelsHidden()

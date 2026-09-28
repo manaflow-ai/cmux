@@ -2785,7 +2785,7 @@ struct TextBoxInputContainer: View {
             return true
         case .fileURLs(let fileURLs):
             return attachFileURLs(fileURLs, into: textView)
-        case .reject:
+        case .reject, .rejectOversizedImage:
             return false
         }
     }
