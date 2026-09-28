@@ -432927,6 +432927,197 @@
             "state": "translated",
             "value": "이 터미널 입력은 이전 연결에 속합니다. 다시 연결한 후 시도해 주세요."
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj unos u terminal pripada starijoj vezi. Ponovo se povežite i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dette terminalinput tilhører en ældre forbindelse. Opret forbindelse igen, og prøv igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo input del terminale appartiene a una connessione precedente. Riconnettiti e riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបញ្ចូលទៅស្ថានីយនេះជារបស់ការតភ្ជាប់ចាស់។ សូមតភ្ជាប់ឡើងវិញ ហើយព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne terminalinndataen tilhører en eldre tilkobling. Koble til på nytt og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To dane wejściowe terminala należą do starszego połączenia. Połącz się ponownie i spróbuj jeszcze raz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta entrada do terminal pertence a uma conexão antiga. Reconecte-se e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот ввод в терминал относится к старому соединению. Подключитесь снова и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อินพุตเทอร์มินัลนี้เป็นของการเชื่อมต่อเก่า โปรดเชื่อมต่อใหม่แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu terminal girdisi eski bir bağlantıya ait. Yeniden bağlanıp tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ці вхідні дані термінала належать старому з’єднанню. Підключіться знову й повторіть спробу."
+          }
+        }
+      }
+    },
+    "socket.terminal.inputOrderingDuplicate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal input was already applied. Continue typing without retrying it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナル入力はすでに適用されています。再送せずに入力を続けてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Terminaleingabe wurde bereits angewendet. Setzen Sie die Eingabe fort, ohne sie erneut zu senden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette saisie du terminal a déjà été appliquée. Continuez à saisir sans la réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تطبيق إدخال الطرفية هذا بالفعل. تابع الكتابة من دون إعادة إرساله."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta entrada de terminal ya se aplicó. Continúe escribiendo sin volver a enviarla."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這筆終端機輸入已套用。請繼續輸入，不要重新傳送。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端输入已应用。请继续输入，不要重复发送。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널 입력은 이미 적용되었습니다. 다시 보내지 말고 계속 입력하세요."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj unos u terminal je već primijenjen. Nastavite unos bez ponovnog slanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dette terminalinput er allerede anvendt. Fortsæt med at skrive uden at sende det igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo input del terminale è già stato applicato. Continua a digitare senza inviarlo di nuovo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបញ្ចូលទៅស្ថានីយនេះត្រូវបានអនុវត្តរួចហើយ។ សូមបន្តវាយដោយមិនផ្ញើវាម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne terminalinndataen er allerede brukt. Fortsett å skrive uten å sende den på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Te dane wejściowe terminala zostały już zastosowane. Kontynuuj wpisywanie bez ponownego wysyłania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta entrada do terminal já foi aplicada. Continue digitando sem reenviá-la."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот ввод в терминал уже применён. Продолжайте вводить, не отправляя его повторно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อินพุตเทอร์มินัลนี้ถูกใช้งานแล้ว ให้พิมพ์ต่อโดยไม่ส่งซ้ำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu terminal girdisi zaten uygulandı. Yeniden göndermeden yazmaya devam edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ці вхідні дані термінала вже застосовано. Продовжуйте вводити, не надсилаючи їх повторно."
+          }
         }
       }
     },
@@ -565584,6 +565775,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "Цей Mac недоступний для виявлення. На тому Mac увімкніть «Зробити цей Mac доступним для виявлення» у розділі Налаштування › Пристрої."
+          }
+        }
+      }
+    },
+    "socket.terminal.notRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal is not running right now, for example because it is hibernated or still starting. Show it in cmux, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルは現在実行されていません。休止中または起動中である可能性があります。cmux で表示してから再試行してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal läuft derzeit nicht, möglicherweise weil es ruht oder noch gestartet wird. Zeigen Sie es in cmux an und versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal ne fonctionne pas pour le moment, par exemple parce qu’il est en veille ou qu’il démarre encore. Affichez-le dans cmux, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الطرفية لا تعمل حاليًا، ربما لأنها في وضع السبات أو لا تزال قيد التشغيل. اعرضها في cmux ثم أعد المحاولة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La terminal no está funcionando ahora, por ejemplo porque está hibernada o aún se está iniciando. Muéstrela en cmux y vuelva a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機目前未執行，可能是處於休眠狀態或仍在啟動。請在 cmux 中顯示它，然後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端当前未运行，可能是处于休眠状态或仍在启动。请在 cmux 中显示它，然后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 현재 실행되고 있지 않습니다. 최대 절전 상태이거나 아직 시작 중일 수 있습니다. cmux에서 표시한 후 다시 시도하세요."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal trenutno ne radi, na primjer zato što je u hibernaciji ili se još pokreće. Prikažite ga u cmuxu, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen kører ikke lige nu, f.eks. fordi den er i dvale eller stadig starter. Vis den i cmux, og prøv derefter igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale non è in esecuzione al momento, ad esempio perché è ibernato o si sta ancora avviando. Mostralo in cmux, quindi riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់មិនកំពុងដំណើរការទេ ព្រោះវាអាចកំពុងសម្រាក ឬនៅតែកំពុងចាប់ផ្តើម។ បង្ហាញវានៅក្នុង cmux រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen kjører ikke akkurat nå, for eksempel fordi den er i dvale eller fortsatt starter. Vis den i cmux, og prøv deretter igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal nie działa obecnie, na przykład dlatego, że jest uśpiony lub wciąż się uruchamia. Wyświetl go w cmux, a następnie spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal não está em execução no momento, por exemplo porque está hibernando ou ainda iniciando. Mostre-o no cmux e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал сейчас не работает, например потому, что он в спящем режиме или ещё запускается. Покажите его в cmux и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลไม่ได้ทำงานอยู่ในขณะนี้ อาจอยู่ในโหมดพักหรือยังเริ่มทำงานไม่เสร็จ แสดงเทอร์มินัลใน cmux แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal şu anda çalışmıyor; hazırda bekliyor veya hâlâ başlıyor olabilir. Terminali cmux’ta gösterip yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал зараз не працює, наприклад тому, що він у режимі сну або ще запускається. Покажіть його в cmux, а потім повторіть спробу."
           }
         }
       }

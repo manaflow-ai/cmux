@@ -40,8 +40,8 @@ struct TerminalSurfaceMountOwnershipTests {
 
         #expect(surfaceView.window == nil)
         coordinator.attach(surfaceView: surfaceView)
-        for _ in 0..<20 {
-            await Task.yield()
+        _ = await waitUntil(timeout: .seconds(2)) {
+            store.terminalByteContinuationsBySurfaceID[surfaceID] != nil
         }
 
         #expect(store.terminalByteContinuationsBySurfaceID[surfaceID] == nil)
@@ -225,12 +225,13 @@ struct TerminalSurfaceMountOwnershipTests {
 
     @MainActor
     private func waitUntil(
-        attempts: Int = 100,
+        timeout: Duration = .seconds(5),
         _ predicate: () -> Bool
     ) async -> Bool {
-        for _ in 0..<attempts {
-            if predicate() { return true }
-            await Task.yield()
+        let clock = ContinuousClock()
+        let deadline = clock.now + timeout
+        while !predicate(), clock.now < deadline {
+            try? await clock.sleep(for: .milliseconds(10))
         }
         return predicate()
     }

@@ -243,7 +243,13 @@ struct MobileHostOrderedInputTests {
 
         await connection.debugHandleReceiveDataForTesting(batch)
         await gate.waitUntilFirstInputStarts()
-        #expect(!(await gate.secondInputStarted()))
+        let deadline = ContinuousClock.now + .seconds(1)
+        var secondInputStarted = await gate.secondInputStarted()
+        while !secondInputStarted, ContinuousClock.now < deadline {
+            await Task.yield()
+            secondInputStarted = await gate.secondInputStarted()
+        }
+        #expect(!secondInputStarted)
         await gate.releaseFirstInput()
         _ = await transport.waitForResponseCount(2)
         await connection.close(reason: "test complete")

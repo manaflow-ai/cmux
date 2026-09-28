@@ -301,6 +301,12 @@ class TerminalController {
             defaultValue: "This terminal input belongs to an older connection; reconnect and try again."
         )
     }
+    nonisolated static var terminalInputDuplicateSequenceMessage: String {
+        String(
+            localized: "socket.terminal.inputOrderingDuplicate",
+            defaultValue: "This terminal input was already applied. Continue typing without retrying it."
+        )
+    }
     nonisolated static var terminalNotRunningMessage: String {
         String(
             localized: "socket.terminal.notRunning",
@@ -14876,12 +14882,23 @@ class TerminalController {
             )
         }
 
-        let inputSequence = mobileInputSequence(params: request.params)
-        guard case let .success(ticket) = MobileHostService.shared.terminalInputOrdering.reserve(
+        let inputSequence = Self.mobileInputSequence(params: request.params)
+        let reservation = MobileHostService.shared.terminalInputOrdering.reserve(
             surfaceID: surfaceID,
             token: orderingToken,
             inputSequence: inputSequence
-        ) else {
+        )
+        let ticket: MobileTerminalInputOrderingTicket
+        switch reservation {
+        case let .success(reserved):
+            ticket = reserved
+        case .failure(.staleSequence):
+            return mobileHostResult(.err(
+                code: "duplicate_input",
+                message: Self.terminalInputDuplicateSequenceMessage,
+                data: ["surface_id": surfaceID.uuidString]
+            ))
+        case .failure(.inactiveConnection):
             return mobileHostResult(.err(
                 code: "stale_input",
                 message: Self.terminalInputOrderingStaleMessage,
@@ -14916,7 +14933,7 @@ class TerminalController {
         )
     }
 
-    private func mobileInputSequence(params: [String: Any]) -> UInt64? {
+    private nonisolated static func mobileInputSequence(params: [String: Any]) -> UInt64? {
         guard let raw = params["input_sequence"] else { return nil }
         if let string = raw as? String {
             return UInt64(string)
@@ -15831,7 +15848,7 @@ class TerminalController {
         #endif
         let sendResult = MobileTerminalByteTee.shared.performMobileInput(
             surfaceID: surfaceId,
-            sequence: (params["input_sequence"] as? String).flatMap(UInt64.init)
+            sequence: Self.mobileInputSequence(params: params)
         ) { terminalTarget.sendInputResult(text) }
         switch sendResult {
         case .sent:
