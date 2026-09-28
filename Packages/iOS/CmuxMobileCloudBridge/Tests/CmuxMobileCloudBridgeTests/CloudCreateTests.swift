@@ -171,7 +171,9 @@ struct CloudCreateTests {
         await settle(until: { store.terminalCreationError != nil })
 
         #expect(store.terminalCreationError != nil)
-        #expect(store.terminalCreationErrorWorkspaceID == workspaceID)
+        // The detail screen shows the error only when this matches the
+        // workspace's published id, as it does for a Mac's.
+        #expect(store.terminalCreationErrorWorkspaceID == row("ws-1"))
         // The Mac path would have selected a placeholder terminal no host
         // serves; the selection must stay on a real one.
         let existing = store.workspaces.first { $0.id == workspaceID }?.terminals.map(\.id) ?? []

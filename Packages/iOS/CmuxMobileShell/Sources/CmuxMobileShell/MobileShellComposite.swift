@@ -8808,7 +8808,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "mobile.terminal.creationFailed",
                     defaultValue: "Couldn't create a terminal."
                 )
-                self.terminalCreationErrorWorkspaceID = workspaceID
+                // The detail screen matches the error on the id its host
+                // published, as it does for a Mac.
+                self.terminalCreationErrorWorkspaceID = publishedWorkspaceID
                 return
             }
             self.selectedWorkspaceID = owner

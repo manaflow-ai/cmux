@@ -253,8 +253,9 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         catalogTasks.removeValue(forKey: machine.id)
         do {
             let catalog = try await connection.loadCatalog()
-            guard admittedMachines.contains(where: { $0.id == machine.id }) else { return }
-            applyCatalog(catalog, of: machine)
+            // The machine may have been renamed or retired while this read ran.
+            guard let current = admittedMachines.first(where: { $0.id == machine.id }) else { return }
+            applyCatalog(catalog, of: current)
         } catch {
             guard let current = admittedMachines.first(where: { $0.id == machine.id }) else { return }
             refreshCatalog(for: current)
