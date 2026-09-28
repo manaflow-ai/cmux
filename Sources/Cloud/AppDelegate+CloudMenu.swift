@@ -87,7 +87,7 @@ extension AppDelegate {
                 if self?.revealCloudMachinesSidebar(preferredWindow: preferred) != true { NSSound.beep() }
             },
             openDashboard: {
-                NSWorkspace.shared.open(AuthEnvironment.apiBaseURL.appendingPathComponent("dashboard/cloud"))
+                _ = NSWorkspace.shared.open(AuthEnvironment.apiBaseURL.appendingPathComponent("dashboard/cloud"))
             },
             showDiagnostics: { [weak self] in
                 if fromStatusItem { NSApp.activate() }

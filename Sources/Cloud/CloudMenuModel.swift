@@ -28,7 +28,7 @@ final class CloudMenuModel {
     /// appears and disappears with the feature flag.
     private(set) var isFeatureEnabled = false
 
-    @ObservationIgnored static let freshness: Duration = .seconds(20)
+    static let freshness: Duration = .seconds(20)
     @ObservationIgnored private let listMachines: @MainActor () async throws -> VMListPage
     @ObservationIgnored private let isAvailable: @MainActor () -> Bool
     @ObservationIgnored private let pinStore: @MainActor () -> CloudMachinePinStore?
