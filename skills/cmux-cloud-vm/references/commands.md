@@ -107,12 +107,12 @@ someone else's machine or Base.
 ### `cmux vm new`
 
 ```bash
-cmux vm new [--desktop|--base] [--size <4g|8g|16g|24g|32g|64g|MB>] [--name <label>] [--provider <p>] [--image <id>] [--workspace <id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d] [--json]
+cmux vm new [--desktop|--base] [--size <4g|8g|16g|24g|32g|64g|MB>] [--name <label>] [--provider <p>] [--image <id>] [--workspace <id>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d] [--json]
 # alias: cmux vm create
 ```
 
 Socket `vm.create` with `kind: desktop` for every new machine. The legacy `--base`/`--no-desktop` and `--desktop` flags all select the same devbox; contradictory flags are rejected. The backend selects the image from its manifest; `--image <id>` is the explicit override and the only way an image id leaves the client. If the requested kind is not offered, the server fails closed with an image-config error rather than silently returning the wrong shape. `--size` accepts `4g`, `8g`, `16g`, `24g`, `32g`, `64g`, or raw MB ≥ 512. `vm ls --json` → `limits.memoryOptionsMb` is authoritative for the current plan; the backend selects its default when a parsed request is unavailable, and the chosen image supplies the matching CPU and initial disk. `--name` applies a display label through `vm.rename` after the create. Positional arguments are rejected (`cmux vm new myvm` errors instead of provisioning). Retries of a failed create reuse an idempotency key so a transient failure never mints two machines.
-Without `--detach`, opens a plain terminal on the machine (the same open path as `vm shell`); `--focus false` opens it without switching to its workspace (what the New Machine sheet does — the app's Create returns control immediately and the pane appears in the background); desktop machines also get their screen in a split. Text output carries the stable `OK machine=<id>` marker after the localized created line; `--detach` prints `<id> is ready` and the follow-up commands. `--json`: the `vm.create` payload (`{id, provider, image, kind?, …}`) and no pane. Sidebar: Machines panel ＋ / "New Cloud Machine…" sheet (name, size, plan meter). On a free or unknown plan the backend returns `vm_requires_pro` (exit 1); paid-plan machine caps come from the backend (`vm ls --json` → `limits.maxActiveVms`; absent means uncapped). The current CLI accepts `--provider freestyle`; omit it to let the server choose the configured default. If a deployment adds another provider, read that tagged app's `vm new --help` before using it.
+Without `--detach`, opens a plain terminal on the machine (the same open path as `vm shell`); it switches to its workspace only when run interactively from a terminal (an agent or script gets it in the background, marked unread); `--focus` / `--no-focus` (also `--focus true|false`) override that, and `--no-focus` is what the New Machine sheet does — the app's Create returns control immediately and the pane appears in the background); desktop machines also get their screen in a split. Text output carries the stable `OK machine=<id>` marker after the localized created line; `--detach` prints `<id> is ready` and the follow-up commands. `--json`: the `vm.create` payload (`{id, provider, image, kind?, …}`) and no pane. Sidebar: Machines panel ＋ / "New Cloud Machine…" sheet (name, size, plan meter). On a free or unknown plan the backend returns `vm_requires_pro` (exit 1); paid-plan machine caps come from the backend (`vm ls --json` → `limits.maxActiveVms`; absent means uncapped). The current CLI accepts `--provider freestyle`; omit it to let the server choose the configured default. If a deployment adds another provider, read that tagged app's `vm new --help` before using it.
 
 ### `cmux vm rename`
 
@@ -195,7 +195,7 @@ Socket `vm.status`, printed as a short block (id, provider, status, `attach: cmu
 ### Base: `cmux vm base open` / `cmux vm base reset`
 
 ```bash
-cmux vm base [open] [--desktop|--base] [--workspace <workspace-id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d] [--json]
+cmux vm base [open] [--desktop|--base] [--workspace <workspace-id>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d] [--json]
 cmux vm base reset [--desktop|--base] [--reason <text>] [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d] [--json]
 ```
 
@@ -562,7 +562,7 @@ Opens the full cmux-tui client in a pane, with its own workspaces, panes, and ta
 ### `cmux vm open`
 
 ```bash
-cmux vm open <target> [--workspace <id|ref|index>] [--focus <true|false>] [--print] [--json]
+cmux vm open <target> [--workspace <id|ref|index>] [--focus|--no-focus] [--print] [--json]
 cmux vm open <id> <port> [--print] [--json]
 ```
 
@@ -577,7 +577,7 @@ One resolver, several target shapes (copy them from `cmux vm tree`):
 | `<machine>:port/<n>` and `<machine> <n>` | an HTTP port on the machine, as a browser pane — the URL is the machine's private VPC address, so it needs `cmux vpn up` | `vm.port_open {id, port, workspace_id?}` |
 | `… --print` | ports only: mint and print the URL, no pane | `vm.open_port {id, port}` → `{open_url, …}` |
 
-`--workspace` targets a local workspace (default: the machine's open workspace, else where you are); `--focus` defaults to false so the pane opens beside you without stealing typing. Text `OK surface=… workspace=… terminal=… [reused=true]`; ports print `<id>:<port>` and the URL. Anything else is a usage error (exit 1). `cmux vm port` is an alias for the verb. Sidebar: row click / Open; Port row click.
+`--workspace` targets a local workspace (default: the machine's open workspace, else where you are); focus follows the open-command default: interactive runs switch to the pane, agents and scripts open it beside you in the background (marked unread) without stealing typing; `--focus` / `--no-focus` override it and `CMUX_FOCUS_NEW=1|0` sets it for a whole environment. Text `OK surface=… workspace=… terminal=… [reused=true]`; ports print `<id>:<port>` and the URL. Anything else is a usage error (exit 1). `cmux vm port` is an alias for the verb. Sidebar: row click / Open; Port row click.
 
 ### `cmux vm desktop`
 
@@ -618,7 +618,7 @@ Socket `surface.catalog` — exactly `cmux vm tree`, including This Mac.
 ### `cmux surface open`
 
 ```bash
-cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>] [--json]
+cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus|--no-focus] [--json]
 # alias: cmux surface project
 ```
 
@@ -627,7 +627,7 @@ Socket `surface.project {resource, workspace_id?, pane_id?, direction?, placemen
 ### `cmux surface new-terminal`
 
 ```bash
-cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [--json] [-- <command...>]
+cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json] [-- <command...>]
 # alias: cmux surface new
 ```
 

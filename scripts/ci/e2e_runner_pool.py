@@ -107,7 +107,14 @@ and in dispatch-focused-test.py): with no owned room it queues on the owned
 pool, whatever the rule above or its fallbacks picked, and a re-run of it
 stays there too (retry_runner()). That overrides "an owned pool is never
 the fewest-queued fallback" and the move to Blacksmith for re-runs, for UI
-runs only.
+runs only. It overrides "an explicit runner is never rerouted" too, for the
+Blacksmith macOS 26 and macos-latest pools only (BLACKSMITH_NO_UI): their
+sessions cannot capture the screen either, so a recorded UI run pinned there
+fails in its capture preflight before any test runs (every one of 21 such runs
+between 2026-09-27 and 2026-09-28, 2 of them on macos-latest, e.g. run
+36426283823). A pinned macOS 15 run, an owned label, or a fleet the rule above
+leaves alone keeps its pin. A moved run keeps its pinned title, so the replay
+charges it to the Blacksmith pool it names, as for a moved `auto` run.
 """
 from __future__ import annotations
 
@@ -129,6 +136,9 @@ LARGE_RUNNER = pr_runner_pool.LARGE_RUNNER
 # The Blacksmith pools E2E may take, all macOS 26. Owned pools for the lane's
 # Xcode pin join them when CI_PR_POOL_OWNED is 1 (e2e_pool()).
 E2E_POOLS = (LARGE_RUNNER, SMALL_RUNNER)
+# Blacksmith pools that cannot run UI tests (see the module docstring), so a UI
+# run pinned to one still moves to an owned pool with machines.
+BLACKSMITH_NO_UI = (*E2E_POOLS, "blacksmith-6vcpu-macos-latest")
 E2E_WORKFLOW = "test-e2e.yml"
 # Most machines one E2E run holds at once: the build job, then the test job.
 E2E_JOBS = 1
@@ -457,7 +467,10 @@ def resolve(
     """The runner label for a workflow run, from its inputs and variables."""
     requested = (requested or "").strip()
     if requested and requested != "auto":
-        return requested
+        if requested not in BLACKSMITH_NO_UI:
+            return requested
+        return ui_owned_runner(requested, test_filter=test_filter, owned=owned, owned_ui=owned_ui, order=order,
+                               owned_slots=owned_slots, pr_xcode_app=pr_xcode_app, log=log) or requested
     if (owned or "").strip() == "1" and not owned_target(test_filter, owned_ui):
         log(f"a UI run and {OWNED_UI_VARIABLE} is not 1; no owned Mac")
         owned = ""
