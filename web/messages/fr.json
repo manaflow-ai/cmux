@@ -25,6 +25,11 @@
       "message": "La configuration de la VM Cloud a échoué et le nettoyage est encore en attente.",
       "action": "Contactez le support avec l’identifiant de trace avant de créer une autre machine."
     },
+    "recreateRequired": {
+      "title": "Recréez cette machine",
+      "message": "Cette machine a été créée avant une mise à jour de Cloud et ne peut pas être connectée.",
+      "action": "Créez une nouvelle machine, copiez vos fichiers avec cmux vm pull et cmux vm push, puis supprimez celle-ci."
+    },
     "unsupported": {
       "title": "Opération de Cloud VM indisponible",
       "reason": "Ce type de machine ne propose pas cette opération.",

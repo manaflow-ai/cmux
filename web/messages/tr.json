@@ -25,6 +25,11 @@
       "message": "Cloud VM kurulumu başarısız oldu ve temizlik henüz tamamlanmadı.",
       "action": "Başka bir makine oluşturmadan önce izleme kimliğiyle destek ekibine başvurun."
     },
+    "recreateRequired": {
+      "title": "Bu makineyi yeniden oluşturun",
+      "message": "Bu makine bir Cloud güncellemesinden önce oluşturuldu ve bağlanılamıyor.",
+      "action": "Yeni bir makine oluşturun, dosyalarınızı cmux vm pull ve cmux vm push ile aktarın, ardından bunu silin."
+    },
     "unsupported": {
       "title": "Cloud VM işlemi kullanılamıyor",
       "reason": "Bu makine türü bu işlemi sağlamıyor.",

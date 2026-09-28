@@ -25,6 +25,11 @@
       "message": "La configurazione della VM Cloud non è riuscita e la pulizia è ancora in sospeso.",
       "action": "Contatta il supporto con l’ID della traccia prima di creare un’altra macchina."
     },
+    "recreateRequired": {
+      "title": "Ricrea questa macchina",
+      "message": "Questa macchina è stata creata prima di un aggiornamento di Cloud e non può essere collegata.",
+      "action": "Crea una nuova macchina, copia i tuoi file con cmux vm pull e cmux vm push, poi elimina questa."
+    },
     "unsupported": {
       "title": "Operazione Cloud VM non disponibile",
       "reason": "Questo tipo di macchina non offre questa operazione.",

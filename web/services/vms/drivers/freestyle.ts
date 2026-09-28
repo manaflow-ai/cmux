@@ -18,6 +18,7 @@ import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { currentVmRequestContext } from "../requestContext";
 import {
   ProviderError,
+  ProviderMachineRecreateRequiredError,
   type AttachTransport,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
@@ -1369,7 +1370,7 @@ export class FreestyleProvider implements VMProvider {
           // the upgrade and backfill in docs/cloud-guest-upgrades.md.
           const routeAddresses = freestyleRouteAddressesFromMetadata(options?.providerMetadata);
           if (options?.providerMetadata?.cmuxTuiContract !== "snapshot-v2" || !routeAddresses) {
-            throw new ProviderError(
+            throw new ProviderMachineRecreateRequiredError(
               "freestyle",
               `VM ${vmId} predates the snapshot-v2 machine contract (no recorded contract or private address); recreate the machine`,
             );

@@ -25,6 +25,11 @@
       "message": "Oppsettet av Cloud VM mislyktes, og oppryddingen venter fortsatt.",
       "action": "Kontakt kundestøtte med sporings-ID-en før du oppretter en ny maskin."
     },
+    "recreateRequired": {
+      "title": "Opprett denne maskinen på nytt",
+      "message": "Denne maskinen ble opprettet før en Cloud-oppdatering og kan ikke kobles til.",
+      "action": "Opprett en ny maskin, kopier filene dine med cmux vm pull og cmux vm push, og slett så denne."
+    },
     "unsupported": {
       "title": "Cloud VM-operasjon er ikke tilgjengelig",
       "reason": "Denne maskintypen tilbyr ikke denne operasjonen.",

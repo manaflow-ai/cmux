@@ -166,6 +166,11 @@
       "message": "Cloud VM のセットアップを一時的に利用できません。",
       "action": "しばらくしてから再試行してください。問題が続く場合はサポートにお問い合わせください。"
     },
+    "recreateRequired": {
+      "title": "このマシンを作り直してください",
+      "message": "このマシンは Cloud の更新前に作成されたため、接続できません。",
+      "action": "新しいマシンを作成し、cmux vm pull と cmux vm push でファイルを移してから、このマシンを削除してください。"
+    },
     "unsupported": {
       "title": "Cloud VM 操作を利用できません",
       "reason": "このマシン種別ではこの操作を利用できません。",
