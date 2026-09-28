@@ -3239,6 +3239,7 @@
 		C12575000000000000000036 /* SurfaceCatalog+WorkspaceDeletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12575000000000000000037 /* SurfaceCatalog+WorkspaceDeletion.swift */; };
 		00B9FC4EDB2E47F6819B01C4 /* SurfaceCatalog+WorkspaceMembership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B8876F3CE1A40FB83FF5463 /* SurfaceCatalog+WorkspaceMembership.swift */; };
 		F7F3BED81BD5FE96D52055C0 /* SurfaceCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA63D377742D3A6A0BAB499B /* SurfaceCatalog.swift */; };
+		0CFAE1C22B0BB59F4A0B75F3 /* SurfaceCatalogObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F27EA9972F21B98FB4A7312 /* SurfaceCatalogObservationTests.swift */; };
 		D01100800000000000000002 /* SurfaceCatalogQueryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D01100800000000000000001 /* SurfaceCatalogQueryService.swift */; };
 		D01100800000000000000004 /* SurfaceCatalogQueryServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D01100800000000000000003 /* SurfaceCatalogQueryServiceTests.swift */; };
 		5873A6BE37C34CC1082864E2 /* SurfaceCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 877BC9A2B697FEF2957397FA /* SurfaceCatalogTests.swift */; };
@@ -7258,6 +7259,7 @@
 		C12575000000000000000037 /* SurfaceCatalog+WorkspaceDeletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+WorkspaceDeletion.swift"; sourceTree = "<group>"; };
 		0B8876F3CE1A40FB83FF5463 /* SurfaceCatalog+WorkspaceMembership.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+WorkspaceMembership.swift"; sourceTree = "<group>"; };
 		EA63D377742D3A6A0BAB499B /* SurfaceCatalog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceCatalog.swift; sourceTree = "<group>"; };
+		6F27EA9972F21B98FB4A7312 /* SurfaceCatalogObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalogObservationTests.swift"; sourceTree = "<group>"; };
 		D01100800000000000000001 /* SurfaceCatalogQueryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceCatalogQueryService.swift; sourceTree = "<group>"; };
 		D01100800000000000000003 /* SurfaceCatalogQueryServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceCatalogQueryServiceTests.swift; sourceTree = "<group>"; };
 		877BC9A2B697FEF2957397FA /* SurfaceCatalogTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceCatalogTests.swift; sourceTree = "<group>"; };
@@ -12311,6 +12313,7 @@
 				3D5E43A566AB0B441162EC5A /* CloudTreeNodeCacheTests.swift */,
 				23E35F95320CBED308AD98CF /* CloudTreeTogglePerformanceTests.swift */,
 				0C37EA14DE74095FB1BB23E1 /* CloudTreeDisclosureIntentTests.swift */,
+				6F27EA9972F21B98FB4A7312 /* SurfaceCatalogObservationTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16792,6 +16795,7 @@
 				B9B1DC92B6B88F225DAD7ABB /* SSHTuiPreflightTests.swift in Sources */,
 				A11C00030000000000000001 /* StackAccountAvatarImageLoaderTests.swift in Sources */,
 				A11C00050000000000000001 /* StackAccountAvatarViewTests.swift in Sources */,
+				0CFAE1C22B0BB59F4A0B75F3 /* SurfaceCatalogObservationTests.swift in Sources */,
 				D01100800000000000000004 /* SurfaceCatalogQueryServiceTests.swift in Sources */,
 				5873A6BE37C34CC1082864E2 /* SurfaceCatalogTests.swift in Sources */,
 				DEC1CE00000000000000003E /* SurfaceMachineIDDeviceEncodingTests.swift in Sources */,
