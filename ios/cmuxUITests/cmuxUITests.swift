@@ -8528,8 +8528,15 @@ final class cmuxUITests: XCTestCase {
     private func finishLaunchWhatsNewIfPresented(_ app: XCUIApplication) throws {
         let whatsNewContinue = app.buttons["MobileWhatsNewSheet"].firstMatch
         guard whatsNewContinue.waitForExistence(timeout: 4) else { return }
-        for _ in 0..<4 where whatsNewContinue.exists {
-            tap(whatsNewContinue, in: app)
+        // Each tap either advances a page or dismisses the sheet. Let the
+        // transition settle before deciding whether another page remains, so
+        // a sheet that is animating away is never tapped again.
+        for _ in 0..<6 {
+            guard whatsNewContinue.waitForExistence(timeout: 1) else { break }
+            if whatsNewContinue.isHittable {
+                whatsNewContinue.tap()
+            }
+            _ = whatsNewContinue.waitForNonExistence(timeout: 2)
         }
         _ = try XCTUnwrap(
             whatsNewContinue.waitForNonExistence(timeout: 4) ? true : nil,
