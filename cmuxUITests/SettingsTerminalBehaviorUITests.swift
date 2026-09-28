@@ -392,11 +392,11 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
         let lineHeight = window.steppers["SettingsTerminalGhosttyLineHeightStepper"]
         XCTAssertTrue(poll(timeout: 4.0) { lineHeight.exists }, "The Line Height stepper should exist")
         for _ in 0..<5 { lineHeight.incrementArrows.firstMatch.click() }
-        XCTAssertTrue(waitForStaticText(window, "+10%"), "Five steps should read +10%")
+        XCTAssertTrue(poll(timeout: 4.0) { stepperText(lineHeight).contains("+10%") }, "Five steps should read +10%")
         attachScreenshot(name: "05 Menlo with +10% line height")
 
         for _ in 0..<5 { lineHeight.decrementArrows.firstMatch.click() }
-        XCTAssertTrue(waitForStaticText(window, "0%"), "Stepping back should read 0%")
+        XCTAssertTrue(poll(timeout: 4.0) { !stepperText(lineHeight).contains("+") }, "Stepping back should read 0%")
         fontButton.click()
         let defaultRow = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Default (")).firstMatch
         XCTAssertTrue(poll(timeout: 4.0) { defaultRow.exists }, "The font list should offer the built-in font")
@@ -404,6 +404,12 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
         XCTAssertTrue(poll(timeout: 4.0) { fontButton.label.hasPrefix("Default") }, "Picking Default should restore the built-in font")
         attachScreenshot(name: "06 Back to defaults")
         closeSettings(app, window)
+    }
+
+    /// A SwiftUI stepper's label text, which XCUITest exposes on the stepper
+    /// itself (as its label or value) rather than as a child static text.
+    private func stepperText(_ stepper: XCUIElement) -> String {
+        [stepper.label, stepper.value as? String ?? ""].joined(separator: " ")
     }
 
     /// The whole screen, so the font list popover (its own window) is in frame.
