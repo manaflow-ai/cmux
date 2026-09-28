@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import Combine
 import CmuxFoundation
 import CmuxSidebar
@@ -60,6 +61,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var lastStatusPopoverModel: SidebarWorkspaceStatusPopoverModel?
 
     private var model: SidebarWorkspaceRowModel?
+    private var selectionChromeObservers: [NSObjectProtocol] = []
+    private var workspaceSelectionChromeObserver: NSObjectProtocol?
     private var actions: SidebarAppKitRowActions?
     private var isPointerHovering = false
     private var contextMenuVisible = false
@@ -206,6 +209,96 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private func applyBackgroundStyle(_ style: SidebarWorkspaceRowBackgroundStyle) {
         backgroundView.layer?.backgroundColor = (style.color ?? .clear)
             .withAlphaComponent((style.color == nil ? 0 : style.opacity) * ((style.color?.alphaComponent) ?? 1)).cgColor
+    }
+
+    /// Paints the selection fill and edge for `model`.
+    private func applySelectionChrome(_ model: SidebarWorkspaceRowModel) {
+        let palette = palette(model)
+        let settings = model.settings
+        let style = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
+            isActive: model.isActive,
+            isMultiSelected: model.isMultiSelected,
+            customColorHex: model.snapshot.customColorHex,
+            colorScheme: palette.colorScheme,
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            subtleSelection: settings.subtleSelection,
+            isEmphasized: palette.isSelectionEmphasized,
+            increaseContrast: palette.increasesSelectionContrast,
+            accent: palette.accent
+        )
+        applyBackgroundStyle(style)
+        if let edgeColor = style.edgeColor {
+            backgroundView.layer?.borderWidth = 1
+            backgroundView.layer?.borderColor = edgeColor.cgColor
+        } else if settings.activeTabIndicatorStyle.drawsActiveBorder(
+            isActive: model.isActive,
+            increaseContrast: model.displayAccessibility.increaseContrast
+        ) {
+            backgroundView.layer?.borderWidth = 1.5
+            backgroundView.layer?.borderColor = palette.semantic(.labelColor, opacity: 0.5).cgColor
+        } else {
+            backgroundView.layer?.borderWidth = 0
+        }
+    }
+
+    private func repaintSelectionChrome() {
+        guard let model else { return }
+        let painted = paintedModel(model)
+        guard painted.isActive || painted.isMultiSelected else { return }
+        // Only the subtle left-rail treatment depends on window activation and
+        // Increase Contrast; the default solid fill never changes here.
+        let settings = painted.settings
+        guard settings.subtleSelection,
+              settings.activeTabIndicatorStyle != .solidFill,
+              settings.selectionColorHex.flatMap({ NSColor(hex: $0) }) == nil else { return }
+        // Selection-derived foregrounds must resolve from the same window and
+        // accessibility state as the fill. These notifications are rare, so
+        // repaint the row from its existing model instead of leaving text
+        // colors from the previous emphasis/contrast state behind.
+        applyModel(painted)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        selectionChromeObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        selectionChromeObservers.removeAll()
+        workspaceSelectionChromeObserver.map { NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        workspaceSelectionChromeObserver = nil
+        guard let window else { return }
+        let repaint: @Sendable (Notification) -> Void = { [weak self] _ in
+            MainActor.assumeIsolated { self?.repaintSelectionChrome() }
+        }
+        selectionChromeObservers = [
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main, using: repaint
+            ),
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification, object: window, queue: .main, using: repaint
+            ),
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeMainNotification, object: window, queue: .main, using: repaint
+            ),
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignMainNotification, object: window, queue: .main, using: repaint
+            ),
+            NotificationCenter.default.addObserver(
+                forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main, using: repaint
+            ),
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main, using: repaint
+            ),
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification, object: nil, queue: .main, using: repaint
+            ),
+        ]
+        workspaceSelectionChromeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil,
+            queue: .main,
+            using: repaint
+        )
+        repaintSelectionChrome()
     }
 
     override var isFlipped: Bool { true }
@@ -401,7 +494,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     private func palette(_ model: SidebarWorkspaceRowModel) -> SidebarRowPalette {
-        SidebarRowPalette(model: model)
+        SidebarRowPalette(
+            model: model,
+            isSelectionEmphasized: NSApp.isActive && (window.map { $0.isKeyWindow || $0.isMainWindow } ?? true),
+            increasesSelectionContrast: model.displayAccessibility.increaseContrast
+        )
     }
 
     private func applyModel(_ model: SidebarWorkspaceRowModel) {
@@ -420,21 +517,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let settings = model.settings
 
         // Chrome
-        let style = sidebarWorkspaceRowBackgroundStyle(
-            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
-            isActive: model.isActive,
-            isMultiSelected: model.isMultiSelected,
-            customColorHex: snapshot.customColorHex,
-            colorScheme: palette.colorScheme,
-            sidebarSelectionColorHex: settings.selectionColorHex
-        )
-        applyBackgroundStyle(style)
-        if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
-            backgroundView.layer?.borderWidth = 1.5
-            backgroundView.layer?.borderColor = palette.semantic(.labelColor, opacity: 0.5).cgColor
-        } else {
-            backgroundView.layer?.borderWidth = 0
-        }
+        applySelectionChrome(model)
         let railColor = sidebarWorkspaceRowExplicitRailNSColor(
             activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
             customColorHex: snapshot.customColorHex,
@@ -497,7 +580,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     hasOverride: true,
                     usesMonochrome: model.isActive,
                     fontScale: model.fontScale,
-                    colorScheme: palette.colorScheme
+                    colorScheme: palette.colorScheme,
+                    accent: palette.accent,
+                    differentiateWithoutColor: model.displayAccessibility.differentiateWithoutColor
                 ),
                 monochromeColor: palette.secondary(0.8),
                 neutralColor: palette.secondary(0.8)
@@ -576,10 +661,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         subtitleView.isHidden = effectiveSubtitle == nil
         if let effectiveSubtitle {
             subtitleView.maximumNumberOfLines = subtitleLineLimit
-            subtitleView.stringValue = effectiveSubtitle.sidebarBoundedDisplayString(
+            let display = effectiveSubtitle.sidebarBoundedDisplayString(
                 maxDisplayedLines: subtitleLineLimit,
                 maxDisplayedCharacters: 4096
             )
+            subtitleView.stringValue = model.latestNotificationText == nil
+                ? display
+                : SidebarMarkdownRenderer(markdown: display).plainText
             subtitleView.font = .systemFont(ofSize: model.scaled(10))
             subtitleView.textColor = palette.secondary(0.8)
         }
@@ -625,8 +713,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             emphasis: model.isActive ? 1.0 : 0.9,
             representedIdentity: model.workspaceId
         )
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: palette.colorScheme).cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: palette.colorScheme).cgColor
+        topDropIndicator.accentColor = palette.accent
+        bottomDropIndicator.accentColor = palette.accent
+        topDropIndicator.layer?.backgroundColor = palette.accentColor.cgColor
+        bottomDropIndicator.layer?.backgroundColor = palette.accentColor.cgColor
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
         bottomDropIndicator.isHidden = !model.bottomDropIndicatorVisible
         alphaValue = model.isBeingDragged ? 0.6 : 1
@@ -647,7 +737,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     func paintControllerDropIndicator(top: Bool, bottom: Bool) {
         let colorScheme = model.map { $0.colorSchemeIsDark ? ColorScheme.dark : .light }
             ?? SidebarAppearanceColorResolver().currentColorScheme()
-        let accent = cmuxAccentNSColor(for: colorScheme)
+        let accent = (model?.settings.accentColor ?? CmuxAccentColor()).nsColor(for: colorScheme)
         topDropIndicator.layer?.backgroundColor = accent.cgColor
         bottomDropIndicator.layer?.backgroundColor = accent.cgColor
         topDropIndicator.isHidden = !top
@@ -670,14 +760,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         badgeVisible: Bool,
         spinnerVisible: Bool
     ) {
-        let badgeFill: NSColor = {
-            if let hex = model.settings.notificationBadgeColorHex, let color = NSColor(hex: hex) {
-                return color
-            }
-            return model.isActive
+        let badgeFill = cmuxNotificationBadgeNSColor(
+            hex: model.settings.notificationBadgeColorHex,
+            fallback: model.isActive
                 ? palette.primaryText.withAlphaComponent(0.25)
-                : cmuxAccentNSColor(for: palette.colorScheme)
-        }()
+                : palette.accentColor
+        )
         let badgeText: NSColor = model.isActive ? palette.primaryText : .white
         let badgeFont = NSFont.systemFont(ofSize: model.scaled(9), weight: .semibold)
 
@@ -786,7 +874,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             // yields to the selected foreground — otherwise agent-status
             // tints (blue "Running") vanish into the blue selection
             // highlight. Explicit colors only apply on unselected rows.
-            let explicitColor = entry.color.flatMap { NSColor(hex: $0) }
+            let explicitColor = palette.accent.statusEntryColor(
+                hex: entry.color,
+                isDark: palette.colorScheme == .dark
+            )
             let entryColor: NSColor
             if model.isActive {
                 entryColor = explicitColor != nil
@@ -873,7 +964,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     : palette.semantic(.secondaryLabelColor, opacity: 0.2),
                 fillColor: model.isActive
                     ? palette.selectedForeground(0.8)
-                    : cmuxAccentNSColor(for: palette.colorScheme),
+                    : palette.accentColor,
                 labelText: progress.label,
                 labelFont: labelFont,
                 labelColor: palette.secondary(0.6)
@@ -1107,6 +1198,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 self?.contextMenuVisible = false
                 self?.updateCloseVisibility()
                 didClose?()
+            },
+            beginInlineRename: { [weak self] in
+                self?.beginInlineRename()
             }
         )
     }

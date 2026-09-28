@@ -369,8 +369,11 @@ public struct VMTunnelManager: Sendable {
         // The provider may return broad 10/8 and fd00::/8 routes. Narrow them
         // to this owner's network so production and Dev interfaces can install
         // their routes simultaneously without colliding.
-        let allowedIPs = [endpoint.networkCidr, endpoint.networkCidrV6]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let rawAllowed: [String] = endpoint.networkCidrs.isEmpty
+            ? [endpoint.networkCidr, endpoint.networkCidrV6].compactMap { $0 }
+            : endpoint.networkCidrs
+        let allowedIPs = rawAllowed
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         let config = try Self.completedConfig(
             endpoint.clientConfig,

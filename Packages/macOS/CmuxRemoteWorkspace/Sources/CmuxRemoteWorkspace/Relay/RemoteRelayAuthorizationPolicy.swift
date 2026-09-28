@@ -50,6 +50,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.report_shell_state",
         "surface.ports_kick",
         "notification.create_for_target",
+        "agent.hook.enqueue",
     ]).union(tmuxCompatibleMethods)
 
     private static let surfaceRequiredMethods: Set<String> = [
@@ -71,6 +72,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.close",
         "surface.send_text",
         "terminal.paste",
+        "agent.hook.enqueue",
     ]
 
     private static let exactSurfaceSelectorMethods: Set<String> = [
@@ -83,6 +85,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.report_shell_state",
         "surface.ports_kick",
         "terminal.paste",
+        "agent.hook.enqueue",
     ]
 
     private static let workspaceSelectorKeys: Set<String> = [

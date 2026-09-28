@@ -234,7 +234,8 @@ public struct AgentRestorePlanner: Sendable {
             launcher: launch.launcher,
             sessionID: checkpointID,
             launchArguments: launch.arguments,
-            environment: launch.environment
+            environment: launch.environment,
+            launcherPrefix: launch.launcherPrefix
         ), let launcherExecutable = routed.first,
         isResolvableOnRestorePath(launcherExecutable, ambientEnvironment: ambientEnvironment) else {
             return nil
@@ -291,6 +292,13 @@ public struct AgentRestorePlanner: Sendable {
         case .resumeAgent:
             guard let checkpointID = normalized(request.checkpointID) else { return nil }
             let launch = request.launchCommand
+            // A non-empty prepared argv is already the caller's authoritative,
+            // typed restore plan. Use it before launcher or built-in synthesis
+            // when the captured argv is empty, so a rejected capture cannot be
+            // replaced by a guessed command for the provider kind.
+            if (launch?.arguments.isEmpty ?? true), let preparedArguments {
+                return (preparedArguments, false)
+            }
             switch AgentResumeArgv().launcherResolution(
                 launcher: launch?.launcher,
                 sessionId: checkpointID,
@@ -502,9 +510,11 @@ public struct AgentRestorePlanner: Sendable {
                launcher: request.launchCommand?.launcher,
                sessionID: checkpointID,
                launchArguments: request.launchCommand?.arguments ?? [],
-               environment: request.launchCommand?.environment
+               environment: request.launchCommand?.environment,
+               launcherPrefix: request.launchCommand?.launcherPrefix
            ),
-           arguments.starts(with: routedPrefix.prefix(5)) {
+           let sessionIndex = routedPrefix.firstIndex(of: checkpointID),
+           arguments.starts(with: routedPrefix.prefix(through: sessionIndex)) {
             if let capturedExecutable = normalized(request.launchCommand?.executablePath) {
                 environment[restoreLaunch.customExecutablePathEnvironmentKey] = capturedExecutable
             }

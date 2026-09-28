@@ -1,4 +1,5 @@
 import type { AuthedUser } from "../../../../services/vms/auth";
+import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../services/vms/teamDirectory";
 import { defaultMemoryMbForPlan } from "../../../../services/vms/entitlements";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
 import { defaultProviderId, isProviderId, vmCapabilitiesFor, type ProviderId } from "../../../../services/vms/drivers";
@@ -104,6 +105,7 @@ export async function runBaseRoute(input: {
     imageVersion: imageSelection.imageVersion,
     imageSize: imageSelection.size,
     baseName: parsed.body.name,
+    teamDirectory: vmClientRoutesTeamNetworks(input.request) ? vmTeamDirectory() : undefined,
     modelPlane: vmModelPlaneGatewayFor({
       teamId: entitlements.billingTeamId,
       stackUserId: input.user.id,
