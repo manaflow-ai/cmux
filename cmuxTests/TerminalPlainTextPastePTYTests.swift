@@ -29,6 +29,9 @@ extension TerminalPlainTextPasteStartupTests {
             try #require(NSPasteboard.general.setString(transcription, forType: .string))
             switch trial {
             case 0:
+                // Async trials can leave the isolated fixture without a first
+                // responder; restore the terminal before real Cmd+V dispatch.
+                try #require(fixture.window.makeFirstResponder(fixture.view))
                 let event = try #require(NSEvent.keyEvent(
                     with: .keyDown, location: .zero, modifierFlags: .command,
                     timestamp: ProcessInfo.processInfo.systemUptime,
