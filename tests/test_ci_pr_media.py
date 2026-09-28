@@ -703,6 +703,17 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(set(pins[0] + pins[1])), 1, pins)
         self.assertTrue(pins[0] and pins[1])
 
+    def test_each_tours_folder_survives_the_artifact_hand_off(self) -> None:
+        # A download of one artifact lands without a per-artifact folder, so the
+        # archive itself must hold <tour>/ (seen on a single-tour run).
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        keep = next(step for step in workflow["jobs"]["tour"]["steps"] if "upload-artifact" in str(step.get("uses")))
+        fetch = next(step for step in workflow["jobs"]["publish"]["steps"]
+                     if "download-artifact" in str(step.get("uses")))
+        self.assertEqual(keep["with"]["path"], "${{ runner.temp }}/media")
+        self.assertIs(fetch["with"]["merge-multiple"], True)
+        self.assertEqual(fetch["with"]["path"], "${{ runner.temp }}/media")
+
     def test_media_is_never_part_of_the_ci_verdict(self) -> None:
         self.assertNotIn("pr-media", CI.read_text())
 
