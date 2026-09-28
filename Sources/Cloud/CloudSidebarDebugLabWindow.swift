@@ -325,6 +325,21 @@ private enum CloudSidebarDebugFixture {
                     diskTotalMb: 102_400,
                     diskUsedMb: 77_824
                 )
+            ),
+            // The row above truncates its subtitle inside the id, so the author
+            // never reaches the screen there. A short-id machine is what shows
+            // the change at all: one crowded row and one that fits, which is
+            // also the pair the design call needs to look at.
+            MachineSnapshot(
+                id: "vm-4f2a",
+                provider: "freestyle",
+                image: "cmux-debug-base-image",
+                isDesktop: false,
+                activity: .ready,
+                createdAt: Date(timeIntervalSinceNow: -7_200),
+                createdBy: VMCreator(userId: "debug-user-2", displayName: "Grace Hopper"),
+                label: "api-smoke-test",
+                slug: "brave-otter"
             )
         ]
     }
