@@ -7854,8 +7854,9 @@ describe("status read that observes a gone machine", () => {
   };
 
   function goneMachine(userId: string, id: string): CloudVmRow {
-    // No `homeVolume`: a machine with a durable home is only asleep when the
-    // provider drops it, so only a homeless row reaches the terminal status.
+    // No `homeVolume`, so observedDbStatus maps a provider 404 straight to the
+    // terminal status. A row with a durable home maps to `paused` instead, on
+    // every entrypoint: see the stats case in vm-stats-not-found.test.ts.
     return testCloudVmRow({
       id,
       userId,

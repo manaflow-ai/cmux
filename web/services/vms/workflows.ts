@@ -359,7 +359,7 @@ export function getVm(input: {
       if (dbStatus !== vm.status) {
         const didUpdate = yield* applyObservedProviderStatus(repo, vm, {
           providerVmId,
-          status: dbStatus,
+          providerStatus,
           usageEventSource: "provider_status_read",
           modelPlane: input.modelPlane,
         });
@@ -1477,29 +1477,30 @@ function reopenBaseIfProviderDeleted(
     Effect.catchAll((err) =>
       isProviderNotFoundError(err)
         ? Effect.gen(function* () {
-          const markedDestroyed = yield* repo.markProviderObservedStatus({
-            id: existing.id,
+          // forceStatus, the one caller that overrides the mapping. Everywhere
+          // else a 404 on a volume-backed machine means `paused`, because the
+          // machine can come back. Here it must not: this row is the Base's
+          // active generation, and beginBaseOpen below only allocates a
+          // replacement generation once this row has stopped being a machine
+          // the Base could still open. Leaving it `paused` would hand the same
+          // dead provider id back on the next open, forever.
+          //
+          // The home volume is not lost by this. beginBaseOpen retains the old
+          // generation rather than deleting it, which is the same place a
+          // normal reset leaves it.
+          const markedDestroyed = yield* applyObservedProviderStatus(repo, existing, {
             providerVmId,
-            status: "destroyed",
+            providerStatus: "destroyed",
+            forceStatus: "destroyed",
+            usageEventSource: "base_open_provider_missing",
+            usageEventMetadata: {
+              baseName: input.baseName ?? "base",
+              generation: create.generation.generation,
+            },
           });
           if (!markedDestroyed) {
             return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
           }
-          yield* repo.recordUsageEvent({
-            userId: existing.userId,
-            billingTeamId: existing.billingTeamId,
-            billingPlanId: existing.billingPlanId,
-            vmId: existing.id,
-            eventType: "vm.destroyed",
-            provider: existing.provider,
-            imageId: existing.imageId,
-            vmCreatedAt: existing.createdAt,
-            metadata: {
-              source: "base_open_provider_missing",
-              baseName: input.baseName ?? "base",
-              generation: create.generation.generation,
-            },
-          }).pipe(Effect.catchAll(() => Effect.void));
           return yield* measureVmEffect(
             input.timing,
             "begin_base_open",
@@ -2684,24 +2685,38 @@ function observedDbStatus(
  * to either of them never happens. Callers that win the transition therefore
  * revoke the model plane and record `vm.destroyed` here, whichever entrypoint
  * they are.
+ *
+ * The status is derived here rather than taken from the caller, so every
+ * entrypoint agrees about what a provider 404 means. It does not always mean
+ * `destroyed`: observedDbStatus maps a 404 on a machine with a persistent home
+ * volume to `paused`, because the compute is gone but the machine is not. A
+ * caller that hardcoded `destroyed` would both terminalize such a row and bill
+ * a `vm.destroyed` that did not happen, and nothing can revisit a terminal row
+ * to take either back.
+ *
+ * `forceStatus` is the one deliberate exception and has exactly one caller;
+ * see reopenBaseIfProviderDeleted for why.
  */
 function applyObservedProviderStatus(
   repo: VmRepositoryShape,
   vm: CloudVmRow,
   input: {
     readonly providerVmId: string;
-    readonly status: CloudVmStatus;
+    readonly providerStatus: "running" | "paused" | "destroyed";
     readonly usageEventSource: string;
     readonly modelPlane?: VmModelPlaneRevoker;
+    readonly usageEventMetadata?: Record<string, string | number | boolean | null>;
+    readonly forceStatus?: CloudVmStatus;
   },
 ): Effect.Effect<boolean, VmDatabaseError> {
   return Effect.gen(function* () {
+    const status = input.forceStatus ?? observedDbStatus(vm, input.providerStatus);
     const didUpdate = yield* repo.markProviderObservedStatus({
       id: vm.id,
       providerVmId: input.providerVmId,
-      status: input.status,
+      status,
     });
-    if (!didUpdate || input.status !== "destroyed") return didUpdate;
+    if (!didUpdate || status !== "destroyed") return didUpdate;
     yield* revokeModelPlane(input.modelPlane, vm.id);
     yield* repo.recordUsageEvent({
       userId: vm.userId,
@@ -2712,7 +2727,7 @@ function applyObservedProviderStatus(
       provider: vm.provider,
       imageId: vm.imageId,
       vmCreatedAt: vm.createdAt,
-      metadata: { source: input.usageEventSource },
+      metadata: { source: input.usageEventSource, ...input.usageEventMetadata },
     }).pipe(Effect.catchAll(() => Effect.void));
     return true;
   });
@@ -2742,7 +2757,7 @@ function reconcileObservedProviderStatus(
     if (dbStatus === vm.status) return "unchanged" as const;
     const didUpdate = yield* applyObservedProviderStatus(repo, vm, {
       providerVmId,
-      status: dbStatus,
+      providerStatus,
       usageEventSource,
       modelPlane,
     }).pipe(Effect.catchAll(() => Effect.succeed(false)));
@@ -2973,9 +2988,13 @@ function preflightResumeIfSuspended(
       // mint an endpoint (or start a fork) against an id that Freestyle has
       // already removed; mark the row so the next fleet refresh drops it and
       // return the same not-found contract as ownership checks.
+      // No revoker is threaded here: this preflight has seven call sites, and
+      // the credentials a revoke would mark are already inert, because both
+      // authenticateRouteToken and authenticateVmAuthorization refuse a row
+      // that is not provisioning, running or paused.
       yield* applyObservedProviderStatus(repo, vm, {
         providerVmId,
-        status: "destroyed",
+        providerStatus: "destroyed",
         usageEventSource: "provider_status_access",
       }).pipe(Effect.catchAll(() => Effect.succeed(false)));
       return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
@@ -3380,6 +3399,7 @@ export function getVmStats(input: {
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }): VmWorkflowProgram<VMStats> {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -3423,8 +3443,9 @@ export function getVmStats(input: {
         return Effect.gen(function* () {
           yield* applyObservedProviderStatus(repo, vm, {
             providerVmId: input.providerVmId,
-            status: "destroyed",
+            providerStatus: "destroyed",
             usageEventSource: "provider_status_stats",
+            modelPlane: input.modelPlane,
           }).pipe(Effect.catchAll(() => Effect.succeed(false)));
           return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
         });
