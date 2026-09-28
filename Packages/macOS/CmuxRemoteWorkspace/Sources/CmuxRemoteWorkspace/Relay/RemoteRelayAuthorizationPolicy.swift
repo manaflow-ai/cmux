@@ -39,9 +39,6 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "workspace.remote.terminal_session_end",
         "surface.list",
         "surface.current",
-        "surface.resume.set",
-        "surface.resume.get",
-        "surface.resume.clear",
         "surface.report_tty",
         "surface.report_pwd",
         "surface.report_git_branch",
@@ -56,9 +53,6 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "workspace.remote.terminal_session_launching",
         "workspace.remote.terminal_session_connected",
         "workspace.remote.terminal_session_end",
-        "surface.resume.set",
-        "surface.resume.get",
-        "surface.resume.clear",
         "surface.read_text",
         "surface.read_selection",
         "notification.create_for_target",
@@ -146,8 +140,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
             )
         }
 
-        if method != "surface.resume.set",
-           let key = firstParameterKey(
+        if let key = firstParameterKey(
                in: parameters,
                keys: Self.localExecutionKeys.union(["command"])
            ) {
