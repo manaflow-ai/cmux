@@ -146,8 +146,8 @@ struct CloudSidebarNativeDropTests {
         #expect(line.isHidden)
     }
 
-    @Test("A new invalid destination clears the preceding session's reorder feedback")
-    func invalidReplacementClearsIndicator() throws {
+    @Test("Stale validation leaves the current reorder indicator intact")
+    func staleValidationKeepsCurrentIndicator() throws {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         let coordinator = fixture.coordinator
@@ -158,11 +158,14 @@ struct CloudSidebarNativeDropTests {
         defer { board.releaseGlobally() }
         #expect(board.writeObjects([try #require(coordinator.outlineView(outline, pasteboardWriterForItem: parent.children[1]))]))
         let old = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero, sequenceNumber: 1)
+        let current = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero, sequenceNumber: 2)
         #expect(coordinator.outlineView(outline, validateDrop: old, proposedItem: parent, proposedChildIndex: 0) == .move)
+        #expect(coordinator.outlineView(outline, validateDrop: current, proposedItem: parent, proposedChildIndex: 0) == .move)
         let line = try #require(outline.subviews.first { $0.identifier?.rawValue == "sidebarReorderIndicator" })
         #expect(!line.isHidden)
-        let invalid = CloudSidebarDraggingInfo(source: NSOutlineView(), pasteboard: board, location: .zero, sequenceNumber: 2)
-        #expect(coordinator.outlineView(outline, validateDrop: invalid, proposedItem: parent, proposedChildIndex: 0).isEmpty)
+        #expect(coordinator.outlineView(outline, validateDrop: old, proposedItem: nil, proposedChildIndex: 0).isEmpty)
+        #expect(!line.isHidden)
+        #expect(coordinator.outlineView(outline, validateDrop: current, proposedItem: nil, proposedChildIndex: 0).isEmpty)
         #expect(line.isHidden)
         let host = try #require(fixture.window.contentView?.superview)
         #expect(host.subviews.compactMap { $0 as? FileDropHintBadgeView }.isEmpty)
