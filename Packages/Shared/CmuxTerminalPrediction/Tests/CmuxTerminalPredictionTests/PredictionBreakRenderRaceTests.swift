@@ -25,7 +25,7 @@ struct PredictionBreakRenderRaceTests {
     }
 
     /// The drain wins by 3 ms, less than one frame.
-    @Test(.disabled("The fork tees before the parse; the ghostty change that tees after it removes this ordering. Re-enable with that submodule bump."))
+    @Test(.disabled("The fork tees before the parse. manaflow-ai/ghostty#242 tees after it; re-enable with that submodule bump."))
     func aDrainThatBeatsTheParserDrawsEchoedGlyphsOverTheCellsToTheirLeft() {
         var rig = PredictionBreakRig(keystrokes: script().keystrokes)
         rig.parseLagMicros = 3_000
@@ -35,7 +35,7 @@ struct PredictionBreakRenderRaceTests {
 
     /// A frame presented between the drain and the parse retires the held
     /// glyph, and that frame does not contain its character yet.
-    @Test(.disabled("The fork tees before the parse; the ghostty change that tees after it removes this ordering. Re-enable with that submodule bump."))
+    @Test(.disabled("The fork tees before the parse. manaflow-ai/ghostty#242 tees after it; re-enable with that submodule bump."))
     func aFrameBetweenDrainAndParseBlanksAnEchoedCharacter() {
         var rig = PredictionBreakRig(keystrokes: script().keystrokes)
         rig.parseLagMicros = 20_000
