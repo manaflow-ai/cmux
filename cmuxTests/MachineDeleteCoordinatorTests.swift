@@ -44,23 +44,31 @@ struct MachineDeleteCoordinatorTests {
     }
 
     @Test func detachRetiresTheMachinesCreatesBeforeClosingItsWorkspaces() {
-        let workspaceID = UUID()
         var steps: [String] = []
-        var retiredWorkspaceIDs: Set<UUID> = []
+        let launches = MachineCreateCoordinatorTests.LaunchRecorder()
+        let creates = MachineCreateCoordinator(
+            notifier: { _ in },
+            notificationCenter: NotificationCenter(),
+            cancelCreatedMachine: { steps.append("clean up \($0)") },
+            cancelOperation: { _ in steps.append("close card") }
+        )
+        // The workspace's create has not named the machine yet.
+        let workspaceID = UUID()
+        let request = MachineCreateCoordinatorTests.newMachineRequest().targetingReservedWorkspace(workspaceID)
+        #expect(creates.start(request, cancellableLaunch: launches.cancellableLaunch))
+
         MachineDeleteCoordinator.detachLocalPresentations(
             of: "m1",
             workspaceIDs: { steps.append("find \($0)"); return [workspaceID] },
-            retireCreates: { machineID, workspaceIDs in
-                steps.append("retire \(machineID)")
-                retiredWorkspaceIDs = workspaceIDs
-            },
-            closeWorkspaces: { steps.append("close workspaces \($0)") },
+            creates: creates,
+            closeWorkspaces: { steps.append("close workspaces \($0) with \(creates.operations.count) creates") },
             closePanes: { steps.append("close panes \($0)") }
         )
         // Closing a workspace first would cancel its create, whose receipt then
-        // destroys the machine even when this delete fails.
-        #expect(steps == ["find m1", "retire m1", "close workspaces m1", "close panes m1"])
-        #expect(retiredWorkspaceIDs == [workspaceID])
+        // destroys the machine even when this delete fails. The create's card stays
+        // for the whole-workspace close.
+        #expect(steps == ["find m1", "close workspaces m1 with 0 creates", "close panes m1"])
+        #expect(launches.cancellations == 1)
     }
 
     @Test func createCleanupDetachesOnlyAfterTheTransitionThatRequestedIt() throws {
