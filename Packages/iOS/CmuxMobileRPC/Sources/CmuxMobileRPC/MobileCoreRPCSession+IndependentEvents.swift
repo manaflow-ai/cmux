@@ -124,13 +124,13 @@ extension MobileCoreRPCSession {
     func dispatchIndependent(frame: Data, laneSurfaceID: inout String?) {
         let parsed = try? JSONSerialization.jsonObject(with: frame) as? [String: Any]
         guard let envelope = parsed else { return }
-        if let scope = MobileEventLaneScope.scopeChange(in: envelope) {
+        if let scope = MobileEventLaneScope().scopeChange(in: envelope) {
             laneSurfaceID = scope
             return
         }
         if let laneSurfaceID,
            (envelope["kind"] as? String) == "event",
-           !MobileEventLaneScope.eventBelongs(payload: envelope["payload"], toScope: laneSurfaceID) {
+           !MobileEventLaneScope().eventBelongs(payload: envelope["payload"], toScope: laneSurfaceID) {
             independentEventLog.error(
                 "refused event on another terminal's lane lane=\(laneSurfaceID, privacy: .public) topic=\((envelope["topic"] as? String) ?? "-", privacy: .public)"
             )

@@ -13,10 +13,8 @@ func terminalOutputApplicationPath(
 ) -> TerminalOutputApplicationPath {
     // A view owns exactly one terminal. Output naming any other terminal is
     // never drawn, on any path; rejecting it resyncs this view.
-    if let surfaceID = chunk.surfaceID, !sameTerminal(surfaceID, expectedSurfaceID) {
-        return .rejectUnverified
-    }
-    if let frame = chunk.sourceRenderGridFrame, !sameTerminal(frame.surfaceID, expectedSurfaceID) {
+    let named = [chunk.surfaceID, chunk.sourceRenderGridFrame?.surfaceID].compactMap { $0 }
+    if named.contains(where: { $0.caseInsensitiveCompare(expectedSurfaceID) != .orderedSame }) {
         return .rejectUnverified
     }
     guard chunk.requiresVerifiedReplay else { return .legacy }
@@ -32,8 +30,4 @@ func terminalOutputApplicationPath(
         return .rejectUnverified
     }
     return .legacy
-}
-
-private func sameTerminal(_ lhs: String, _ rhs: String) -> Bool {
-    lhs.caseInsensitiveCompare(rhs) == .orderedSame
 }

@@ -166,7 +166,7 @@ public actor IrxServerEventLaneHub {
             subscriber?.yield(frames)
             return
         }
-        subscriber?.yield(MobileEventLaneScope.scoped(frames, surfaceID: laneSurfaceID))
+        subscriber?.yield(MobileEventLaneScope().scoped(frames, surfaceID: laneSurfaceID))
     }
 
     private func laneEnded(laneID: UInt64) {

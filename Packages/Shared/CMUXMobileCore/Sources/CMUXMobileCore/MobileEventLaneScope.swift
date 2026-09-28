@@ -11,12 +11,14 @@ public import Foundation
 /// revision and resyncs through its own chain.
 ///
 /// Scope frames exist only inside the phone; they never cross the network.
-public enum MobileEventLaneScope {
-    public static let kind = "lane"
-    public static let surfaceKey = "surface_id"
+public struct MobileEventLaneScope: Sendable {
+    public let kind = "lane"
+    public let surfaceKey = "surface_id"
+
+    public init() {}
 
     /// A framed scope marker: `surfaceID` opens a lane's scope, nil closes it.
-    public static func frame(surfaceID: String?) -> Data {
+    public func frame(surfaceID: String?) -> Data {
         var envelope: [String: Any] = ["kind": kind]
         if let surfaceID { envelope[surfaceKey] = surfaceID }
         let payload = (try? JSONSerialization.data(withJSONObject: envelope)) ?? Data()
@@ -24,7 +26,7 @@ public enum MobileEventLaneScope {
     }
 
     /// Wraps whole frames read from one terminal's lane in its scope.
-    public static func scoped(_ frames: Data, surfaceID: String) -> Data {
+    public func scoped(_ frames: Data, surfaceID: String) -> Data {
         var scoped = frame(surfaceID: surfaceID)
         scoped.append(frames)
         scoped.append(frame(surfaceID: nil))
@@ -33,19 +35,19 @@ public enum MobileEventLaneScope {
 
     /// The scope a decoded envelope opens (`.some(id)`) or closes
     /// (`.some(nil)`), or nil when the envelope is not a scope frame.
-    public static func scopeChange(in envelope: [String: Any]) -> String?? {
+    public func scopeChange(in envelope: [String: Any]) -> String?? {
         guard envelope["kind"] as? String == kind else { return nil }
         return .some(envelope[surfaceKey] as? String)
     }
 
     /// Whether an event decoded inside `scope` belongs to that terminal.
-    public static func eventBelongs(payload: Any?, toScope scope: String) -> Bool {
+    public func eventBelongs(payload: Any?, toScope scope: String) -> Bool {
         guard let payload = payload as? [String: Any],
               let surfaceID = payload[surfaceKey] as? String else { return false }
         return normalized(surfaceID) == normalized(scope)
     }
 
-    private static func normalized(_ surfaceID: String) -> String {
+    private func normalized(_ surfaceID: String) -> String {
         surfaceID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }

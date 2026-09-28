@@ -197,7 +197,7 @@ private actor FrameCollector {
     func append(_ data: Data) {
         for text in decodeFrames(data) {
             if let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
-               let change = MobileEventLaneScope.scopeChange(in: object) {
+               let change = MobileEventLaneScope().scopeChange(in: object) {
                 scope = change
                 continue
             }

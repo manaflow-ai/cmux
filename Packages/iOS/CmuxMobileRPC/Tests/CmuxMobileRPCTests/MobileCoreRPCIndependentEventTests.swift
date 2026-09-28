@@ -192,7 +192,7 @@ struct MobileCoreRPCIndependentEventTests {
         // Terminal A's lane carries a frame naming B, then A's own frame.
         var laneA = try event("terminal-b")
         laneA.append(try event("terminal-a"))
-        await source.yield(MobileEventLaneScope.scoped(laneA, surfaceID: "terminal-a"))
+        await source.yield(MobileEventLaneScope().scoped(laneA, surfaceID: "terminal-a"))
         // The shared lane is unscoped and delivers B's frame normally.
         await source.yield(try event("terminal-b"))
 
