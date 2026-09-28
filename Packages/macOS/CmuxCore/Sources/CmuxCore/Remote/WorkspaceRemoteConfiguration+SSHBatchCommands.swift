@@ -40,16 +40,25 @@ extension WorkspaceRemoteConfiguration {
             + ["-o", "RequestTTY=no", destination, command]
     }
 
-    /// `ssh` argv that forwards `127.0.0.1:<localPort>` to the baked VM
-    /// daemon's Unix socket (`-N`, no remote command). Argument text is
-    /// wire/process behavior; do not alter.
-    public func daemonSocketForwardArguments(localPort: Int, remoteSocketPath: String) -> [String] {
-        ["-N", "-T", "-S", "none"]
+    /// `ssh` argv that forwards the local Unix socket `localSocketPath` to
+    /// the baked VM daemon's Unix socket (`-N`, no remote command). Argument
+    /// text is wire/process behavior; do not alter.
+    ///
+    /// Daemon RPC on this forward carries no credential of its own, so the
+    /// caller places `localSocketPath` in a directory only the current user
+    /// can open, and ssh creates the socket with mode 0600. The bind options
+    /// lead so they win (first value per option) over configured options.
+    public func daemonSocketForwardArguments(localSocketPath: String, remoteSocketPath: String) -> [String] {
+        [
+            "-N", "-T", "-S", "none",
+            "-o", "StreamLocalBindMask=0177",
+            "-o", "StreamLocalBindUnlink=yes",
+        ]
             + batchSSHArguments()
             + [
                 "-o", "ExitOnForwardFailure=yes",
                 "-o", "RequestTTY=no",
-                "-L", "127.0.0.1:\(localPort):\(remoteSocketPath)",
+                "-L", "\(localSocketPath):\(remoteSocketPath)",
                 destination,
             ]
     }
