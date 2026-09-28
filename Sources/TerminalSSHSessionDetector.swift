@@ -417,6 +417,8 @@ struct DetectedSSHSession: Equatable, Sendable {
 }
 
 enum TerminalSSHSessionDetector {
+    static let detectionLimiter = TerminalSSHSessionDetectionLimiter()
+
     struct ProcessSnapshot: Equatable {
         let pid: Int32
         let pgid: Int32

@@ -77,6 +77,19 @@ extension TextBoxInputContainer {
                 }
                 let target = await self.surface
                     .resolvedImageTransferTargetAsync()
+                guard self.ownsTextView(textView),
+                      textView.canAcceptPendingAttachmentUpload(
+                          validationToken: validationToken
+                      ) else {
+                    _ = textView.rollbackPendingPasteReservation(
+                        id: placeholderID,
+                        notifyingTextChange: false
+                    )
+                    preparationService.cleanupTransferredTemporaryFiles(
+                        preparedContent
+                    )
+                    return
+                }
                 self.attachPreparedPasteAttachments(
                     preparedAttachments,
                     to: textView,

@@ -20,6 +20,7 @@ extension TextBoxInputContainer {
         Task { @MainActor [self, weak textView] in
             guard let textView else { return }
             let target = await self.surface.resolvedImageTransferTargetAsync()
+            guard self.ownsTextView(textView) else { return }
             self.attachFileURLs(
                 standardizedURLs,
                 into: textView,

@@ -12,6 +12,20 @@ import Testing
 
 @Suite("Cloud clipboard image routing")
 struct CloudImagePasteRoutingTests {
+    /// Test-only gate shared with the detached detector closure. The semaphore
+    /// is immutable and provides the only cross-task mutation.
+    private final class DetectionBlocker: @unchecked Sendable {
+        private let semaphore = DispatchSemaphore(value: 0)
+
+        func wait() {
+            semaphore.wait()
+        }
+
+        func signal() {
+            semaphore.signal()
+        }
+    }
+
     @Test @MainActor
     func legacyCloudSSHWorkspaceKeepsItsExistingUploadRoute() throws {
         let workspace = Workspace()
@@ -129,7 +143,7 @@ struct CloudImagePasteRoutingTests {
         let panel = try #require(workspace.terminalPanel(for: panelID))
         workspace.surfaceTTYNames[panelID] = "/dev/ttys15073"
         let url = URL(fileURLWithPath: "/tmp/cmux-image-15073.png")
-        let releaseDetector = DispatchSemaphore(value: 0)
+        let releaseDetector = DetectionBlocker()
 
         let target = await panel.surface.resolvedImageTransferTargetAsync(
             in: workspace,
