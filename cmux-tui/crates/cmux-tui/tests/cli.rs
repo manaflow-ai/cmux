@@ -795,7 +795,7 @@ fn explicit_session_overrides_an_inherited_socket_route() {
     let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let session = format!("explicit-route-{unique}");
     let socket = cmux_tui_core::server::default_socket_path(&session);
-    fs::create_dir_all(socket.parent().unwrap()).unwrap();
+    cmux_tui_core::server::prepare_socket_parent(&socket, true).unwrap();
     let _ = fs::remove_file(&socket);
     let _socket_guard = SocketFileGuard(socket.clone());
     let listener = UnixListener::bind(&socket).unwrap();

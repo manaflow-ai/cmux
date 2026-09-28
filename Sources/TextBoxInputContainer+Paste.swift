@@ -61,13 +61,46 @@ extension TextBoxInputContainer {
             }
             publishComposerContent(from: textView)
         case .attachments(let preparedAttachments):
-            attachPreparedPasteAttachments(
-                preparedAttachments,
-                to: textView,
-                placeholderID: placeholderID,
-                validationToken: validationToken,
-                preparationService: preparationService
-            )
+            Task { @MainActor in
+                guard self.ownsTextView(textView),
+                      textView.canAcceptPendingAttachmentUpload(
+                          validationToken: validationToken
+                      ) else {
+                    _ = textView.rollbackPendingPasteReservation(
+                        id: placeholderID,
+                        notifyingTextChange: false
+                    )
+                    preparationService.cleanupTransferredTemporaryFiles(
+                        preparedContent
+                    )
+                    return
+                }
+                let runtimeGeneration = self.surface.runtimeSurfaceGeneration
+                let target = await self.surface
+                    .resolvedImageTransferTargetAsync()
+                guard self.surface.runtimeSurfaceGeneration == runtimeGeneration,
+                      self.ownsTextView(textView),
+                      textView.canAcceptPendingAttachmentUpload(
+                          validationToken: validationToken
+                      ) else {
+                    _ = textView.rollbackPendingPasteReservation(
+                        id: placeholderID,
+                        notifyingTextChange: false
+                    )
+                    preparationService.cleanupTransferredTemporaryFiles(
+                        preparedContent
+                    )
+                    return
+                }
+                self.attachPreparedPasteAttachments(
+                    preparedAttachments,
+                    to: textView,
+                    placeholderID: placeholderID,
+                    validationToken: validationToken,
+                    target: target,
+                    preparationService: preparationService
+                )
+            }
         case .reject:
             if textView.removePendingAttachmentUploadPlaceholder(
                 id: placeholderID
@@ -82,6 +115,7 @@ extension TextBoxInputContainer {
         to textView: TextBoxInputTextView,
         placeholderID: UUID,
         validationToken: UInt64,
+        target: TerminalImageTransferTarget,
         preparationService: TerminalImageTransferPreparationService
     ) {
         guard !preparedAttachments.isEmpty else {
@@ -95,7 +129,7 @@ extension TextBoxInputContainer {
         let fileURLs = preparedAttachments.map(\.fileURL)
         let plan = TerminalImageTransferPlanner.plan(
             fileURLs: fileURLs,
-            target: surface.resolvedImageTransferTarget(),
+            target: target,
             mode: .paste
         )
 
