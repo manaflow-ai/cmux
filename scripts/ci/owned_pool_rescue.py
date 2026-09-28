@@ -103,6 +103,14 @@ its retry_runs_on, the Blacksmith pool. A job asking for a capability label no
 idle mini carries waits like any other queued owned job, so it is moved after
 the same budget.
 
+Dispatches of iroh-release-gate.yml are watched the same way. Its `runner`
+job runs e2e_runner_pool.py for the Tailscale version-skew job alone, and
+only takes an owned pool with a machine free now (no queue rounds), so that
+job rarely waits. Its simulator-e2e jobs stay on Blacksmith, but they run in
+the same run: a stuck owned job's rescue cancels them with it, and a refused
+one's waits for them until the watch ends. The re-run of failed and
+cancelled jobs keeps the modes that passed and puts everything on Blacksmith.
+
 Side-lane workflows (SIDE_WORKFLOW_PATHS) have no picker. On attempt 1 of a
 trusted run (a same-repository pull request, or a push, schedule or
 workflow_dispatch, whose code is this repository's own branch; see
@@ -211,9 +219,11 @@ CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 E2E_WORKFLOW_PATH = ".github/workflows/test-e2e.yml"
 IOS_TEST_WORKFLOW_PATH = ".github/workflows/test-ios.yml"
 IOS_SCREENSHOTS_WORKFLOW_PATH = ".github/workflows/ios-screenshots.yml"
+IROH_RELEASE_GATE_WORKFLOW_PATH = ".github/workflows/iroh-release-gate.yml"
 # workflow_dispatch runs watched like an E2E run: each has a `runner` job that
 # picks the pool and uploads the marker.
-DISPATCH_WORKFLOW_PATHS = (E2E_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, IOS_SCREENSHOTS_WORKFLOW_PATH)
+DISPATCH_WORKFLOW_PATHS = (E2E_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, IOS_SCREENSHOTS_WORKFLOW_PATH,
+                           IROH_RELEASE_GATE_WORKFLOW_PATH)
 # Workflows whose picker may queue a run's jobs on an owned pool within
 # CI_PR_POOL_QUEUE_ROUNDS (ios_runner_pool.py and e2e_runner_pool.py read it
 # since run 36136190497).
