@@ -68,6 +68,7 @@ cmux workspace-group expand <group-id>
 cmux workspace-group pin <group-id>
 cmux workspace-group unpin <group-id>
 cmux workspace-group add --group <group-id> --workspace <workspace-id>
+cmux workspace-group join "Sidebar work" [--workspace <workspace-id>]
 cmux workspace-group remove --workspace <workspace-id>
 cmux workspace-group set-anchor --group <group-id> --workspace <workspace-id>
 cmux workspace-group new-workspace <group-id> [--placement afterCurrent|top|end]
@@ -76,6 +77,8 @@ cmux workspace-group new-workspace <group-id> [--placement afterCurrent|top|end]
 `create` returns a group handle (`workspace_group:N` by default). Omitting `--from` creates an anchor-only group; existing workspaces are never inferred from selection or caller context. Pass `--json` for the full structured payload.
 
 Use a stable `--idempotency-key` (or `--external-id`) when more than one controller can reconcile the same logical group. The key is atomic within the target window and is persisted with the group. `--remove-generated-anchor` is an explicit cleanup path for an anchor-only group whose current anchor still has cmux-generated provenance; it refuses groups with child workspaces or user-selected anchors.
+
+`join` files a workspace into a group by name: it finds the first group whose name matches (ignoring case and surrounding spaces), creates one if none exists, and adds the workspace to it. Without `--workspace` it uses the terminal it runs in, so an agent can file itself with one line, for example in a session start hook: `cmux workspace group join "Release"`. Running it again is a no-op. A new group gets a header workspace, the same as New Group from Selection, and focus does not move. The socket method is `workspace.group.join` with `name` and `workspace_id`; the reply carries `group`, `created` and `already_member`.
 
 `delete` dissolves the group and keeps its workspaces by default. Pass `--close-workspaces` only when you intend to close every member workspace and terminate its processes. The response reports whether the group was dissolved or its workspaces were closed, including the affected count.
 

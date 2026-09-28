@@ -143,6 +143,23 @@ public protocol ControlWorkspaceGroupContext: AnyObject {
         referenceWorkspaceID: UUID?
     ) -> ControlWorkspaceGroupAddResolution
 
+    /// Finds a group by name, or creates one, and adds a workspace to it for
+    /// `workspace.group.join`.
+    ///
+    /// Names match after trimming, case-insensitively. When several groups
+    /// share the name, the first in sidebar order wins.
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors used for TabManager resolution.
+    ///   - name: The trimmed, non-empty group name.
+    ///   - workspaceID: The workspace to file into the group.
+    /// - Returns: The join resolution.
+    func controlJoinWorkspaceGroup(
+        routing: ControlRoutingSelectors,
+        name: String,
+        workspaceID: UUID
+    ) -> ControlWorkspaceGroupJoinResolution
+
     /// Removes a workspace from its group for `workspace.group.remove`.
     ///
     /// - Parameters:

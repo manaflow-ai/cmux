@@ -11318,7 +11318,7 @@ struct CMUXCLI {
         windowOverride: String?
     ) throws {
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "workspace-group requires a subcommand. Try: list, create, ungroup, delete, rename, collapse, expand, pin, unpin, add, remove, set-anchor, new-workspace, set-color, set-icon, move, focus")
+            throw CLIError(message: "workspace-group requires a subcommand. Try: list, create, ungroup, delete, rename, collapse, expand, pin, unpin, add, join, remove, set-anchor, new-workspace, set-color, set-icon, move, focus")
         }
         let rest = Array(commandArgs.dropFirst())
         var params: [String: Any] = [:]
@@ -11442,6 +11442,41 @@ struct CMUXCLI {
             params["workspace_id"] = wsId
             let resp = try client.sendV2(method: "workspace.group.add", params: params)
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "join":
+            let (nameOpt, rem0) = parseOption(rest, name: "--name")
+            let (wsOpt, rem1) = parseOption(rem0, name: "--workspace")
+            let (_, rem2) = parseOption(rem1, name: "--window")
+            let groupName = (nameOpt ?? rem2.first(where: { !$0.hasPrefix("--") }) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !groupName.isEmpty else {
+                throw CLIError(message: "join requires a group name")
+            }
+            params["name"] = groupName
+            // Without --workspace, the caller context above already set the
+            // calling terminal's workspace.
+            if let wsOpt {
+                params["workspace_id"] = try normalizeWorkspaceHandle(wsOpt, client: client) ?? wsOpt
+            }
+            guard params["workspace_id"] != nil else {
+                throw CLIError(message: "join requires --workspace <id> when run outside a cmux terminal")
+            }
+            let response = try client.sendV2(method: "workspace.group.join", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(response, mode: idFormat)))
+            } else if let group = response["group"] as? [String: Any] {
+                let note: String
+                if (response["created"] as? Bool) == true {
+                    note = " (created)"
+                } else if (response["already_member"] as? Bool) == true {
+                    note = " (already a member)"
+                } else {
+                    note = ""
+                }
+                print("OK \(textHandle(group, idFormat: idFormat))\(note)")
+            } else {
+                print("OK")
+            }
 
         case "remove":
             let (wsOpt, rem0) = parseOption(rest, name: "--workspace")
@@ -19481,6 +19516,11 @@ struct CMUXCLI {
               pin <group>
               unpin <group>
               add --group <group> --workspace <ws>
+              join <name> [--workspace <ws>]
+                                        Add a workspace (default: this terminal's)
+                                        to the group with this name, creating it
+                                        if none exists. Names match ignoring case.
+                                        Safe to repeat.
               remove --workspace <ws>
               set-anchor --group <group> --workspace <ws>
               new-workspace <group> [--placement afterCurrent|top|end]
