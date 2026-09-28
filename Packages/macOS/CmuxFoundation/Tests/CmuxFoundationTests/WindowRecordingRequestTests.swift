@@ -118,11 +118,11 @@ import Testing
         #expect(throws: (any Error).self) {
             try WindowRecordingRequest.make(params: ["max_seconds": 3600])
         }
-        #expect(WindowRecordingLimits.seconds.upperBound == 120)
+        #expect(WindowRecordingRequest.allowedSeconds.upperBound == 120)
     }
 
     @Test func scaleNeverUpscales() {
-        #expect(WindowRecordingLimits.scale.upperBound == 1)
+        #expect(WindowRecordingRequest.allowedScale.upperBound == 1)
         #expect(throws: (any Error).self) {
             try WindowRecordingRequest.make(params: ["scale": 2])
         }

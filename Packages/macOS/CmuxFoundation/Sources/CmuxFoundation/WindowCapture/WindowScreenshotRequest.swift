@@ -1,18 +1,5 @@
 internal import Foundation
 
-/// The bounds every `window.screenshot` request is held to.
-///
-/// A still writes one file and returns, so it needs no duration or frame rate
-/// limit: what it can get wrong is size. The width cap is higher than the
-/// recorder's because a single png of a 6K window is a reasonable thing to ask
-/// for, where 30 frames a second of one is not.
-public struct WindowScreenshotLimits: Sendable {
-    public static let scale = 0.1...1.0
-    public static let maximumWidth = 64...8192
-    public static let minimumRegionExtent: Double = 8
-    public static let quality = 0.1...1.0
-}
-
 /// One validated `window.screenshot` request.
 public struct WindowScreenshotRequest: Equatable, Sendable {
     public enum Format: String, Sendable, CaseIterable {
@@ -70,7 +57,7 @@ public struct WindowScreenshotRequest: Equatable, Sendable {
             case let .malformedRegion(value):
                 return "region '\(value)' must be x,y,width,height in window points"
             case .regionTooSmall:
-                let minimum = Int(WindowScreenshotLimits.minimumRegionExtent)
+                let minimum = Int(WindowScreenshotRequest.minimumRegionExtent)
                 return "region width and height must each be at least \(minimum) points"
             case let .outputPathNotAbsolute(path):
                 return "out '\(path)' must be an absolute path"
@@ -137,21 +124,21 @@ public struct WindowScreenshotRequest: Equatable, Sendable {
         let scale = try WindowCaptureValueDecoding.double(
             params["scale"],
             field: "scale",
-            range: WindowScreenshotLimits.scale
+            range: Self.allowedScale
         )
         let maximumWidth = try WindowCaptureValueDecoding.int(
             params["max_width"],
             field: "max_width",
-            range: WindowScreenshotLimits.maximumWidth
+            range: Self.allowedMaximumWidth
         )
         let quality = try WindowCaptureValueDecoding.double(
             params["quality"],
             field: "quality",
-            range: WindowScreenshotLimits.quality
+            range: Self.allowedQuality
         )
         let region = try WindowCaptureValueDecoding.region(
             params["region"],
-            minimumExtent: WindowScreenshotLimits.minimumRegionExtent
+            minimumExtent: Self.minimumRegionExtent
         )
         let outputPath = try WindowCaptureValueDecoding.outputPath(
             params["out"],
@@ -204,4 +191,17 @@ private extension WindowScreenshotRequest.Failure {
             self = .outputExtensionMismatch(path: path, format: format)
         }
     }
+}
+
+/// The bounds every `window.screenshot` request is held to.
+///
+/// A still writes one file and returns, so it needs no duration or frame rate
+/// limit: what it can get wrong is size. The width cap is higher than the
+/// recorder's because a single png of a 6K window is a reasonable thing to ask
+/// for, where 30 frames a second of one is not.
+extension WindowScreenshotRequest {
+    public static let allowedScale = 0.1...1.0
+    public static let allowedMaximumWidth = 64...8192
+    public static let allowedQuality = 0.1...1.0
+    public static let minimumRegionExtent: Double = 8
 }

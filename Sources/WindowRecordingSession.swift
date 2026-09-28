@@ -185,6 +185,11 @@ actor WindowRecordingSession {
             request: request
         )
         geometry = planned
+        // A caller that gave up on this start (see `abandon`) may have ended
+        // the session while the capture above was in flight; open nothing then.
+        guard state == .recording else {
+            throw WindowRecordingSessionError.alreadyFinished
+        }
         writer = try makeWriter(geometry: planned)
         startUptime = ProcessInfo.processInfo.systemUptime
         do {
@@ -194,6 +199,9 @@ actor WindowRecordingSession {
             // partial file behind; close and discard both before giving up.
             await fail(error)
             throw error
+        }
+        guard state == .recording else {
+            throw WindowRecordingSessionError.alreadyFinished
         }
         loop = Task { [weak self] in
             await self?.run()
@@ -218,6 +226,24 @@ actor WindowRecordingSession {
             await finalize()
         }
         return status
+    }
+
+    /// Ends the session and throws away whatever it captured. Used when the
+    /// `record start` that opened it already reported a timeout: the caller
+    /// believes nothing is recording, so nothing may be left recording or on
+    /// disk. Idempotent, and safe while `start` is still suspended.
+    func abandon(reason: String) async {
+        await acquireWriter()
+        defer { releaseWriter() }
+        // Cancelled after the writer turn, not before: a `start` that was
+        // mid-append when this was called creates its sample loop only once
+        // that append returns.
+        loop?.cancel()
+        loop = nil
+        await discardWriter()
+        guard state == .recording else { return }
+        state = .failed
+        failure = reason
     }
 
     private func run() async {
@@ -296,15 +322,21 @@ actor WindowRecordingSession {
         await acquireWriter()
         defer { releaseWriter() }
         // A clip that already closed keeps its own verdict: a stop racing a
-        // capture failure must not turn a finished clip into a failed one.
-        guard state == .recording else { return }
+        // capture failure must not turn a finished clip into a failed one. A
+        // writer opened by a `start` that lost that race is still released.
+        guard state == .recording else {
+            await discardWriter()
+            return
+        }
         // Keep whatever was captured before the failure: a clip that ends when
         // the window closes is still evidence of what happened before that.
         if let writer {
             self.writer = nil
             do {
+                // Close the writer even with no frames, so an append that
+                // started it and then failed does not leave it open.
+                try await writer.finish()
                 if frames > 0 {
-                    try await writer.finish()
                     try promote()
                 }
             } catch {
@@ -316,6 +348,16 @@ actor WindowRecordingSession {
         failure = error.localizedDescription
     }
 
+    /// Drops an open writer and its partial file without promoting anything.
+    /// The writer is closed first so no handle outlives the file it points at.
+    private func discardWriter() async {
+        guard let writer else { return }
+        self.writer = nil
+        try? await writer.finish()
+        try? FileManager.default.removeItem(at: workingURL)
+    }
+
+    /// Moves the finished clip to the path the caller asked for.
     private func promote() throws {
         try WindowCaptureOutputFile.promote(from: workingURL, to: outputURL)
     }

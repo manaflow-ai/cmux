@@ -97,6 +97,7 @@ function sessionPayload(session: CloudVmSessionRow) {
     title: session.title,
     kind: session.kind,
     status: session.status,
+    // Cumulative attaches over the session's life, never a live client count.
     attachmentCount: session.attachmentCount,
     effectiveCols: session.effectiveCols,
     effectiveRows: session.effectiveRows,

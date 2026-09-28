@@ -14,6 +14,12 @@ actor WindowRecordingRegistry {
     private static let historyLimit = 8
 
     private var active: WindowRecordingSession?
+    /// The `record start` call that claimed `active`, so a caller that timed
+    /// out can end exactly the session it opened and nothing newer.
+    private var activeStartToken: UUID?
+    /// Starts still running, and those whose caller has already given up.
+    private var pendingStarts: Set<UUID> = []
+    private var abandonedStarts: Set<UUID> = []
     private var history: [WindowRecordingStatus] = []
 
     enum Failure: Error, LocalizedError {
@@ -39,17 +45,27 @@ actor WindowRecordingRegistry {
     func start(
         request: WindowRecordingRequest,
         windowID: CGWindowID,
-        windowHandle: String?
+        windowHandle: String?,
+        token: UUID = UUID()
     ) async throws -> WindowRecordingStatus {
+        pendingStarts.insert(token)
+        defer {
+            pendingStarts.remove(token)
+            abandonedStarts.remove(token)
+        }
         await harvestFinishedRecording()
+        if abandonedStarts.contains(token) {
+            throw WindowRecordingSessionError.alreadyFinished
+        }
         if let active {
             throw Failure.busy(active.id)
         }
-        let identifier = WindowRecordingOutputNaming.identifier(date: Date())
+        let name = WindowCaptureOutputName()
+        let identifier = name.identifier
         let session = WindowRecordingSession(
             id: identifier,
             request: request,
-            outputURL: Self.outputURL(request: request, identifier: identifier),
+            outputURL: Self.outputURL(request: request, name: name),
             windowID: windowID,
             windowHandle: windowHandle
         )
@@ -57,22 +73,48 @@ actor WindowRecordingRegistry {
         // capture round trip, and a second `record start` arriving during it
         // would otherwise pass the check above and replace this session.
         active = session
+        activeStartToken = token
         do {
             try await session.start()
         } catch {
-            if active === session {
-                active = nil
-            }
+            releaseSlot(held: session)
             throw error
         }
+        // `abandonStart` may have ended the session during the await above.
+        guard await session.isRecording else {
+            releaseSlot(held: session)
+            throw WindowRecordingSessionError.alreadyFinished
+        }
         return await session.status
+    }
+
+    /// Called when the socket caller of `start(token:)` stopped waiting. The
+    /// caller was told the start failed, so the session it would have opened
+    /// must not keep recording: end and discard it, or make a start that has
+    /// not claimed the slot yet give up when it gets there. Returns once the
+    /// session has released its writer and partial file.
+    func abandonStart(token: UUID) async {
+        guard pendingStarts.contains(token) || activeStartToken == token else { return }
+        guard let session = active, activeStartToken == token else {
+            abandonedStarts.insert(token)
+            return
+        }
+        await session.abandon(reason: "record start timed out; the recording was discarded")
+        remember(await session.status)
+        releaseSlot(held: session)
+    }
+
+    private func releaseSlot(held session: WindowRecordingSession) {
+        guard active === session else { return }
+        active = nil
+        activeStartToken = nil
     }
 
     func stop(id: String?) async throws -> WindowRecordingStatus {
         await harvestFinishedRecording()
         if let active, id == nil || id == active.id {
             let status = await active.stop()
-            self.active = nil
+            releaseSlot(held: active)
             remember(status)
             return status
         }
@@ -134,7 +176,7 @@ actor WindowRecordingRegistry {
         let isRecording = await active.isRecording
         guard !isRecording else { return }
         remember(await active.status)
-        self.active = nil
+        releaseSlot(held: active)
     }
 
     /// Files a finished clip in history. Internal rather than private so tests
@@ -149,17 +191,13 @@ actor WindowRecordingRegistry {
 
     private static func outputURL(
         request: WindowRecordingRequest,
-        identifier: String
+        name: WindowCaptureOutputName
     ) -> URL {
         if let outputPath = request.outputPath {
             return URL(fileURLWithPath: outputPath)
         }
         return FileManager.default.temporaryDirectory
-            .appendingPathComponent(WindowRecordingOutputNaming.directoryName)
-            .appendingPathComponent(WindowRecordingOutputNaming.filename(
-                label: request.label,
-                identifier: identifier,
-                format: request.format
-            ))
+            .appendingPathComponent(WindowRecordingRequest.outputDirectoryName)
+            .appendingPathComponent(request.outputFilename(name))
     }
 }

@@ -50,11 +50,18 @@ extension TerminalController {
                 data: nil
             )
         }
-        return awaitRecordingCall(timeout: 20) {
+        let token = UUID()
+        return awaitRecordingCall(
+            timeout: 20,
+            onTimeout: {
+                await WindowRecordingRegistry.shared.abandonStart(token: token)
+            }
+        ) {
             try await WindowRecordingRegistry.shared.start(
                 request: request,
                 windowID: windowID,
-                windowHandle: request.windowHandle
+                windowHandle: request.windowHandle,
+                token: token
             )
         }
     }
@@ -133,6 +140,7 @@ extension TerminalController {
 
     private nonisolated func awaitRecordingCall(
         timeout: TimeInterval,
+        onTimeout: (@Sendable () async -> Void)? = nil,
         _ work: @escaping () async throws -> WindowRecordingStatus
     ) -> V2CallResult {
         let outcome: Result<WindowRecordingStatus, Error>? = socketAwaitCallback(
@@ -147,6 +155,17 @@ extension TerminalController {
             }
         }
         guard let outcome else {
+            // The work keeps running after the wait gives up. Let the caller
+            // undo it before answering, so a "timeout" reply never leaves
+            // behind the side effect it reports as failed.
+            if let onTimeout {
+                let _: Void? = socketAwaitCallback(timeout: 10) { completion in
+                    Task {
+                        await onTimeout()
+                        completion(())
+                    }
+                }
+            }
             return .err(
                 code: "timeout",
                 message: "recording command timed out after \(Int(timeout)) seconds",

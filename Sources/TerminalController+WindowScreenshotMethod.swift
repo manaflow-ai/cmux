@@ -128,12 +128,8 @@ extension TerminalController {
             return URL(fileURLWithPath: outputPath)
         }
         return FileManager.default.temporaryDirectory
-            .appendingPathComponent(WindowRecordingOutputNaming.screenshotDirectoryName)
-            .appendingPathComponent(WindowRecordingOutputNaming.filename(
-                label: request.label,
-                identifier: WindowRecordingOutputNaming.identifier(date: Date()),
-                fileExtension: request.format.preferredFileExtension
-            ))
+            .appendingPathComponent(WindowScreenshotRequest.outputDirectoryName)
+            .appendingPathComponent(request.outputFilename(WindowCaptureOutputName()))
     }
 
     /// Maps a screenshot error onto the socket error code the caller sees.

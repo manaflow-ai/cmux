@@ -82,8 +82,11 @@ extension CMUXCLI {
                 jsonOutput: jsonOutput
             )
         case "note":
-            let (id, trailing) = parseCaptureOption(arguments, name: "--id")
-            let text = trailing.filter { $0 != "--" }.joined(separator: " ")
+            let (id, parsed) = parseCaptureOption(arguments, name: "--id")
+            // Only a leading `--` ends the options; one later in the text is
+            // part of the caption.
+            let trailing = parsed.first == "--" ? Array(parsed.dropFirst()) : parsed
+            let text = trailing.joined(separator: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else {
                 throw CLIError(message: String(

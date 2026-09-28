@@ -1,19 +1,5 @@
 internal import Foundation
 
-/// The bounds every `window.record.start` request is held to.
-///
-/// One recording writes frames for as long as it runs, so the caller cannot be
-/// trusted with an unbounded frame rate, duration, or pixel count: a stuck
-/// agent would fill the disk. These are the limits the socket enforces; the
-/// recorder stops itself at `maximumSeconds` even when nobody calls stop.
-public struct WindowRecordingLimits: Sendable {
-    public static let framesPerSecond = 1...30
-    public static let seconds = 0.5...120.0
-    public static let scale = 0.1...1.0
-    public static let maximumWidth = 64...4096
-    public static let minimumRegionExtent: Double = 8
-}
-
 /// One validated `window.record.start` request.
 public struct WindowRecordingRequest: Equatable, Sendable {
     public enum Format: String, Sendable, CaseIterable {
@@ -83,7 +69,7 @@ public struct WindowRecordingRequest: Equatable, Sendable {
             case let .malformedRegion(value):
                 return "region '\(value)' must be x,y,width,height in window points"
             case .regionTooSmall:
-                let minimum = Int(WindowRecordingLimits.minimumRegionExtent)
+                let minimum = Int(WindowRecordingRequest.minimumRegionExtent)
                 return "region width and height must each be at least \(minimum) points"
             case let .outputPathNotAbsolute(path):
                 return "out '\(path)' must be an absolute path"
@@ -161,26 +147,26 @@ public struct WindowRecordingRequest: Equatable, Sendable {
         let framesPerSecond = try WindowCaptureValueDecoding.int(
             params["fps"],
             field: "fps",
-            range: WindowRecordingLimits.framesPerSecond
+            range: Self.allowedFramesPerSecond
         )
         let maximumSeconds = try WindowCaptureValueDecoding.double(
             params["max_seconds"],
             field: "max_seconds",
-            range: WindowRecordingLimits.seconds
+            range: Self.allowedSeconds
         )
         let scale = try WindowCaptureValueDecoding.double(
             params["scale"],
             field: "scale",
-            range: WindowRecordingLimits.scale
+            range: Self.allowedScale
         )
         let maximumWidth = try WindowCaptureValueDecoding.int(
             params["max_width"],
             field: "max_width",
-            range: WindowRecordingLimits.maximumWidth
+            range: Self.allowedMaximumWidth
         )
         let region = try WindowCaptureValueDecoding.region(
             params["region"],
-            minimumExtent: WindowRecordingLimits.minimumRegionExtent
+            minimumExtent: Self.minimumRegionExtent
         )
         let outputPath = try WindowCaptureValueDecoding.outputPath(
             params["out"],
@@ -230,4 +216,18 @@ private extension WindowRecordingRequest.Failure {
             self = .outputExtensionMismatch(path: path, format: format)
         }
     }
+}
+
+/// The bounds every `window.record.start` request is held to.
+///
+/// One recording writes frames for as long as it runs, so the caller cannot be
+/// trusted with an unbounded frame rate, duration, or pixel count: a stuck
+/// agent would fill the disk. These are the limits the socket enforces; the
+/// recorder stops itself at `maximumSeconds` even when nobody calls stop.
+extension WindowRecordingRequest {
+    public static let allowedFramesPerSecond = 1...30
+    public static let allowedSeconds = 0.5...120.0
+    public static let allowedScale = 0.1...1.0
+    public static let allowedMaximumWidth = 64...4096
+    public static let minimumRegionExtent: Double = 8
 }

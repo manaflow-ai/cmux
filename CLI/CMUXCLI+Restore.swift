@@ -454,7 +454,8 @@ extension CMUXCLI {
             environment: object["environment"] as? [String: String],
             verificationHome: object["verification_home"] as? String,
             capturedAt: (object["captured_at"] as? NSNumber)?.doubleValue,
-            source: object["source"] as? String
+            source: object["source"] as? String,
+            launcherPrefix: (object["launcher_prefix"] as? [String]).flatMap { $0.isEmpty ? nil : $0 }
         )
     }
 
