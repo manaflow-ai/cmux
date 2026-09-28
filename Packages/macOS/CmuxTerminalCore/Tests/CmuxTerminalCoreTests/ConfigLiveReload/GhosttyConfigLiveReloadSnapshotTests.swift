@@ -129,7 +129,7 @@ private struct NoFonts: GhosttyFontProbing {
 
     /// Ghostty loads `$XDG_CONFIG_HOME/ghostty/config` when that variable is
     /// set, so an edit there must be watched and reloaded.
-    @Test func readerWatchesTheConfigUnderXDGConfigHome() async {
+    @Test func readerWatchesTheConfigUnderXDGConfigHome() {
         let files = InMemoryConfigFiles(contentsByPath: [
             "/xdg-home/ghostty/config.ghostty": "font-size = 13\n",
         ])
@@ -141,7 +141,7 @@ private struct NoFonts: GhosttyFontProbing {
             GhosttyConfigDiscovery(fileReader: files, fontProbe: NoFonts())
         }
 
-        let result = await reader.snapshot()
+        let result = reader.snapshot()
 
         #expect(result.watchedPaths.contains("/xdg-home/ghostty/config"))
         #expect(result.watchedPaths.contains("/xdg-home/ghostty/config.ghostty"))
