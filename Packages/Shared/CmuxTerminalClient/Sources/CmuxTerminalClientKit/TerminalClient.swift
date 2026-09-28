@@ -147,6 +147,25 @@ public final class TerminalClient: @unchecked Sendable {
         return try TerminalCatalogDecoding.createdWorkspaceID(fromCreateResult: Data(bytes: text, count: strlen(text)))
     }
 
+    /// The daemon's workspaces and terminals from one session snapshot, each
+    /// terminal placed under the workspace that shows it.
+    public func loadCatalog(timeout: Duration = .seconds(15)) throws -> SessionCatalog {
+        var error = [CChar](repeating: 0, count: 1024)
+        guard let text = cmux_terminal_client_session_snapshot(raw, &error, error.count, timeout.milliseconds) else {
+            throw TerminalClientError.failed(String(cString: error))
+        }
+        defer { cmux_terminal_client_string_free(text) }
+        return try TerminalCatalogDecoding.catalog(fromSnapshot: Data(bytes: text, count: strlen(text)))
+    }
+
+    /// Asks the daemon to size attached terminals to this client's grid even
+    /// while other viewers share them. Read when an attach begins; a daemon
+    /// or terminal host that predates it keeps sharing the smallest grid.
+    @discardableResult
+    public func setViewerSizePriority(_ preferred: Bool) -> Bool {
+        cmux_terminal_client_set_viewer_size_priority(raw, preferred)
+    }
+
     public func attach(terminalID: String, timeout: Duration = .seconds(15)) throws {
         var error = [CChar](repeating: 0, count: 1024)
         guard cmux_terminal_client_attach_with_timeout(raw, terminalID, &error, error.count, timeout.milliseconds) else {

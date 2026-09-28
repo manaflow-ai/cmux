@@ -46,6 +46,10 @@ public struct CmuxTerminalClientCloudConnector: CloudTerminalConnecting {
                 trustedCarrier: trustedCarrier,
                 wireGuard: net
             )
+            // The phone's grid wins when a Mac shares the terminal: the
+            // product rule for Cloud, since the phone has the smaller screen
+            // and a shared minimum would fit neither.
+            client.setViewerSizePriority(true)
             return KitSession(client: client)
         }.value
     }
@@ -69,6 +73,31 @@ final class KitSession: CloudTerminalSession, @unchecked Sendable {
 
     func createWorkspace(name: String?) async throws -> String {
         try client.createWorkspace(name: name)
+    }
+
+    func loadCatalog() async throws -> (workspaces: [CloudWorkspaceSummary], terminals: [CloudTerminalSummary]) {
+        let catalog: SessionCatalog
+        do {
+            catalog = try client.loadCatalog()
+        } catch {
+            // A daemon that cannot answer the snapshot still answers the
+            // lists; its terminals just cannot be placed in workspaces.
+            async let workspaces = listWorkspaces()
+            async let terminals = listTerminals()
+            return try await (workspaces, terminals)
+        }
+        return (
+            catalog.workspaces.map { CloudWorkspaceSummary(id: $0.id, name: $0.name, root: $0.root) },
+            catalog.terminals.map {
+                CloudTerminalSummary(
+                    id: $0.id,
+                    name: $0.name,
+                    workspaceID: $0.workspaceID,
+                    title: $0.title,
+                    currentDirectory: $0.cwd
+                )
+            }
+        )
     }
 
     func listTerminals() async throws -> [CloudTerminalSummary] {
