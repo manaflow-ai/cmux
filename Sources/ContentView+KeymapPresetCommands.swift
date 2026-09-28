@@ -14,6 +14,14 @@ extension ContentView {
     @MainActor
     private static var hasPresentedKeymapChooserThisLaunch = false
 
+    /// Lets a UI test opt back into the chooser that tests otherwise suppress.
+    ///
+    /// Without this there is no way to drive the sheet from a test at all, and
+    /// `scripts/ui-test` cannot capture a frame of it, since it runs XCUITests.
+    /// Same shape as `MacSentryStartupPolicy`'s `CMUX_TEST_SENTRY_ENABLED`: the
+    /// harness suppresses by default and one variable turns it back on.
+    static let keymapChooserTestOptInEnvironmentKey = "CMUX_UI_TEST_KEYMAP_CHOOSER"
+
     /// Whether this window should open the first-run chooser as it appears.
     ///
     /// Claims the right to present as a side effect, so the first window to ask
@@ -21,12 +29,7 @@ extension ContentView {
     @MainActor
     static func claimKeymapChooserPresentation() -> Bool {
         guard !hasPresentedKeymapChooserThisLaunch else { return false }
-        // Every XCUITest launches with HOME pointed at a throwaway directory, so
-        // each one looks like a fresh install. A modal sheet over the main
-        // window swallows the keystrokes those tests send.
-        guard !MacSentryStartupPolicy.isRunningUnderXCTest(
-            environment: ProcessInfo.processInfo.environment
-        ) else { return false }
+        guard keymapChooserIsAllowedInThisProcess() else { return false }
         let decision = keymapChooserLaunchDecision()
         guard decision == .open else {
             // An install with history is answered for good, so a config file
@@ -38,6 +41,22 @@ extension ContentView {
         }
         hasPresentedKeymapChooserThisLaunch = true
         return true
+    }
+
+    /// Whether this process is allowed to open the chooser by itself.
+    ///
+    /// Every XCUITest launches with HOME pointed at a throwaway directory, so
+    /// each one looks like a fresh install, and a modal sheet over the main
+    /// window swallows the keystrokes those tests send. Suppressed there by
+    /// default, and a test that wants the sheet asks for it by name.
+    ///
+    /// Settings and the command palette do not go through here, so they reach
+    /// the chooser under test either way.
+    static func keymapChooserIsAllowedInThisProcess(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        if environment[keymapChooserTestOptInEnvironmentKey] == "1" { return true }
+        return !MacSentryStartupPolicy.isRunningUnderXCTest(environment: environment)
     }
 
     /// Whether this launch should open the first-run base keymap chooser.
