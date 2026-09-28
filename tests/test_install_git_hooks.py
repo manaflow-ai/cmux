@@ -126,6 +126,32 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertIn("python3 must resolve to an absolute executable", result.stderr)
         self.assertFalse(marker.exists())
 
+    def test_in_checkout_python_is_rejected_through_a_symlinked_checkout(self):
+        tools = self.repo / "tools"
+        tools.mkdir()
+        marker = self.root / "untrusted-symlink-python-ran"
+        fake_python = tools / "python3"
+        fake_python.write_text(
+            f"#!/bin/sh\ntouch {shlex.quote(str(marker))}\n",
+            encoding="utf-8",
+        )
+        fake_python.chmod(0o755)
+        linked_repo = self.root / "repository-link"
+        linked_repo.symlink_to(self.repo, target_is_directory=True)
+        self.env["PATH"] = f"{linked_repo / 'tools'}:{self.env['PATH']}"
+
+        result = subprocess.run(
+            ["bash", str(linked_repo / INSTALLER)],
+            cwd=linked_repo,
+            env=self.env,
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("python3 resolves inside the checkout", result.stderr)
+        self.assertFalse(marker.exists())
+
     def test_global_hooks_path_warns_and_succeeds(self):
         global_hooks = self.root / "global-hooks"
         global_hooks.mkdir()
