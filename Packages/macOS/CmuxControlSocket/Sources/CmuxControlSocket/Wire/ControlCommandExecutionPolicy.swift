@@ -209,6 +209,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "window.record.status",
         "window.record.note",
         "window.record.list",
+        // A still runs the same ScreenCaptureKit capture once. The window being
+        // shot has to draw while the capture waits, so it stays off the main
+        // actor too.
+        "window.screenshot",
         // debug.sidebar.simulate_drag intentionally runs on the socket worker
         // so its Thread.sleep between drag-state ticks doesn't block the main
         // actor (which still owns the SidebarDragState mutations via

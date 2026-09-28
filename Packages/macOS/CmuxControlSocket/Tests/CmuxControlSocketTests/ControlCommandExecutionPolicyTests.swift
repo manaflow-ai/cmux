@@ -124,13 +124,15 @@ struct ControlCommandExecutionPolicyTests {
         )
     }
 
-    @Test func windowRecordingRunsOnTheWorkerAndIsNotMainThreadCallable() {
-        // A recording samples the window for as long as the clip lasts, so its
-        // verbs must never be callable inline on the main thread: the window
-        // being filmed has to keep drawing while the sampler runs.
+    @Test func windowCaptureRunsOnTheWorkerAndIsNotMainThreadCallable() {
+        // A recording samples the window for as long as the clip lasts, and a
+        // still waits on the same capture once, so these verbs must never be
+        // callable inline on the main thread: the window being captured has to
+        // keep drawing while ScreenCaptureKit answers.
         for method in [
             "window.record.start", "window.record.stop", "window.record.status",
             "window.record.note", "window.record.list",
+            "window.screenshot",
         ] {
             let policy = ControlCommandExecutionPolicy(forMethod: method)
             #expect(policy == .socketWorker(mainThreadCallable: false), "\(method)")

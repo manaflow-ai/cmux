@@ -42,7 +42,7 @@ extension TerminalController {
         } catch {
             return .err(code: "invalid_params", message: error.localizedDescription, data: nil)
         }
-        guard let windowID = recordingWindowID(handle: request.windowHandle) else {
+        guard let windowID = captureWindowID(handle: request.windowHandle) else {
             return .err(
                 code: "not_found",
                 message: request.windowHandle.map { "Window \($0) is not available" }
@@ -100,9 +100,12 @@ extension TerminalController {
         return .ok(["recordings": statuses.map { $0.jsonObject }])
     }
 
-    /// Resolves the window to film: the one named by `window`, else the
+    /// Resolves the window to capture: the one named by `window`, else the
     /// frontmost cmux window.
-    private nonisolated func recordingWindowID(handle: String?) -> CGWindowID? {
+    ///
+    /// Shared with `window.screenshot`, so `cmux record --window` and
+    /// `cmux shot --window` cannot pick different windows for the same handle.
+    nonisolated func captureWindowID(handle: String?) -> CGWindowID? {
         v2MainSync {
             let eligibleWindows = WindowRecordingWindowSelection.eligibleWindows(in: NSApp)
             let selected: NSWindow?

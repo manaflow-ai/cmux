@@ -29,6 +29,20 @@ enum WindowRecordingSessionError: Error, LocalizedError {
     }
 }
 
+extension WindowRecordingSessionError {
+    /// Keeps the recorder's wording for a failure raised by the shared capture.
+    init(_ failure: OwnWindowFrameCapture.Failure) {
+        switch failure {
+        case .unsupportedSystem:
+            self = .unsupportedSystem
+        case .windowGone:
+            self = .windowGone
+        case let .captureFailed(detail):
+            self = .captureFailed(detail)
+        }
+    }
+}
+
 /// What `window.record.start`, `.status` and `.stop` report back.
 struct WindowRecordingStatus: Sendable {
     enum State: String, Sendable {
@@ -93,7 +107,7 @@ actor WindowRecordingSession {
     let outputURL: URL
     let windowHandle: String?
 
-    private let windowID: CGWindowID
+    private let capture: OwnWindowFrameCapture
     /// Frames go here while the clip runs; `outputURL` only appears once the
     /// clip closes cleanly. A failed, interrupted or killed recording therefore
     /// never leaves a broken file where the caller asked for the clip, and an
@@ -126,18 +140,14 @@ actor WindowRecordingSession {
         self.id = id
         self.request = request
         self.outputURL = outputURL
-        self.windowID = windowID
+        capture = OwnWindowFrameCapture(windowID: windowID)
         self.windowHandle = windowHandle
         workingURL = Self.workingURL(for: outputURL, id: id)
         captions = WindowRecordingCaptionTrack()
     }
 
-    /// A hidden sibling of the clip, named after the recording so two sessions
-    /// and a stale leftover cannot be confused for each other.
     private static func workingURL(for outputURL: URL, id: String) -> URL {
-        outputURL.deletingLastPathComponent().appendingPathComponent(
-            ".\(outputURL.lastPathComponent).recording-\(id).partial"
-        )
+        WindowCaptureOutputFile.workingURL(for: outputURL, discriminator: "recording-\(id)")
     }
 
     var isRecording: Bool {
@@ -306,14 +316,8 @@ actor WindowRecordingSession {
         failure = error.localizedDescription
     }
 
-    /// Moves the finished clip to the path the caller asked for.
     private func promote() throws {
-        let manager = FileManager.default
-        if manager.fileExists(atPath: outputURL.path) {
-            _ = try manager.replaceItemAt(outputURL, withItemAt: workingURL)
-        } else {
-            try manager.moveItem(at: workingURL, to: outputURL)
-        }
+        try WindowCaptureOutputFile.promote(from: workingURL, to: outputURL)
     }
 
     /// Only one operation touches the writer at a time. An actor alone is not
@@ -336,18 +340,10 @@ actor WindowRecordingSession {
     private func makeWriter(
         geometry: WindowRecordingFrameGeometry
     ) throws -> WindowRecordingFrameWriter {
-        try FileManager.default.createDirectory(
-            at: outputURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        // A directory, socket or device at the output path is not something a
-        // recording gets to delete on the caller's behalf.
-        if let attributes = try? FileManager.default.attributesOfItem(atPath: outputURL.path),
-           let type = attributes[.type] as? FileAttributeType,
-           type != .typeRegular, type != .typeSymbolicLink {
+        guard WindowCaptureOutputFile.isReplaceable(at: outputURL) else {
             throw WindowRecordingSessionError.outputNotAFile(outputURL.path)
         }
-        try? FileManager.default.removeItem(at: workingURL)
+        try WindowCaptureOutputFile.prepare(outputURL: outputURL, workingURL: workingURL)
         switch request.format {
         case .mp4:
             return try WindowRecordingMP4Writer(
@@ -364,54 +360,30 @@ actor WindowRecordingSession {
         }
     }
 
-    private struct Sample {
-        let image: CGImage
-        let pointPixelScale: Double
-    }
+    /// The recorder's name for a captured frame, unchanged from when it owned
+    /// the capture itself.
+    private typealias Sample = OwnWindowFrame
 
     private func resolveFilter() async throws -> SCContentFilter {
-        if #available(macOS 14.4, *) {
-            // The current-process query captures cmux's own windows without
-            // Screen Recording permission, and cannot reach another app's
-            // windows even if that permission was granted.
-            let content: SCShareableContent
-            do {
-                content = try await SCShareableContent.currentProcess
-            } catch {
-                throw WindowRecordingSessionError.captureFailed(error.localizedDescription)
-            }
-            guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
-                throw WindowRecordingSessionError.windowGone
-            }
-            return SCContentFilter(desktopIndependentWindow: window)
-        }
-        throw WindowRecordingSessionError.unsupportedSystem
+        try await translatingCaptureFailure { try await capture.resolveFilter() }
     }
 
     private func sample() async throws -> Sample {
         guard let filter else { throw WindowRecordingSessionError.windowGone }
-        let info = SCShareableContent.info(for: filter)
-        // A window closed mid-clip reports an empty rectangle rather than an
-        // error, and capturing that gives a one-pixel frame stretched over the
-        // whole clip. End the recording instead and keep what came before.
-        guard info.contentRect.width > 1, info.contentRect.height > 1 else {
-            throw WindowRecordingSessionError.windowGone
+        return try await translatingCaptureFailure {
+            try await OwnWindowFrameCapture.sample(filter: filter)
         }
-        let pixelScale = Double(info.pointPixelScale) > 0 ? Double(info.pointPixelScale) : 1
-        let configuration = SCStreamConfiguration()
-        configuration.width = max(1, Int((Double(info.contentRect.width) * pixelScale).rounded(.up)))
-        configuration.height = max(1, Int((Double(info.contentRect.height) * pixelScale).rounded(.up)))
-        configuration.showsCursor = false
-        configuration.ignoreShadowsSingleWindow = true
-        configuration.captureResolution = .best
+    }
+
+    /// Every error a caller sees from a recording is a `WindowRecordingSessionError`,
+    /// including the ones the shared capture raises.
+    private func translatingCaptureFailure<T>(
+        _ work: () async throws -> T
+    ) async throws -> T {
         do {
-            let image = try await SCScreenshotManager.captureImage(
-                contentFilter: filter,
-                configuration: configuration
-            )
-            return Sample(image: image, pointPixelScale: pixelScale)
-        } catch {
-            throw WindowRecordingSessionError.captureFailed(error.localizedDescription)
+            return try await work()
+        } catch let failure as OwnWindowFrameCapture.Failure {
+            throw WindowRecordingSessionError(failure)
         }
     }
 }

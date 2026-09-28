@@ -177,6 +177,7 @@ extension TerminalController {
             "window.record.status",
             "window.record.note",
             "window.record.list",
+            "window.screenshot",
             "workspace.list",
             "workspace.create",
             "workspace.cloud_vm_open",

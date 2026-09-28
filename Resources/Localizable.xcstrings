@@ -566465,6 +566465,200 @@
           }
         }
       }
+    },
+    "cli.help.shot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux shot [flags]\n\nScreenshot a cmux window, or a region of one, to a png or a jpeg. Only\ncmux's own windows can be captured, and no Screen Recording permission\nis involved, so this works on a release build and inside CI.\n\nFlags:\n  --format png|jpg       Output format (default: png)\n  --jpg                  Shorthand for --format jpg\n  --scale <0.1-1>        Scale the output (default: 1)\n  --max-width <64-8192>  Cap the output width, keeping the aspect ratio\n  --quality <0.1-1>      JPEG quality (default: 0.8, ignored for png)\n  --region <x,y,w,h>     Capture part of the window, in window points\n  --out <path>           Write here instead of a temporary directory\n  --label <text>         Name the file\n  --caption <text>       Draw a caption into the image\n  --window <id|ref>      Window to capture (default: the frontmost one)\n\nOutput: `<width>x<height> <bytes> <path>`, or the full response with --json.\n\nA region is the same rectangle `cmux record --region` films, so a\ndetail spotted in a clip can be shot with the same four numbers.\n\nExample:\n  cmux shot --label settings-sheet\n  cmux shot --region 0,0,420,900 --out ~/sidebar.png"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux shot [flags]\n\nتصوير نافذة cmux أو جزء منها بصيغة png أو jpeg.\nلا يمكن تصوير سوى نوافذ cmux نفسها، ولا يتطلب ذلك إذن تسجيل الشاشة،\nلذلك يعمل هذا في بناء الإصدار وداخل CI.\n\nالخيارات:\n  --format png|jpg       صيغة الإخراج (الافتراضي: png)\n  --jpg                  اختصار لـ --format jpg\n  --scale <0.1-1>        تحجيم الإخراج (الافتراضي: 1)\n  --max-width <64-8192>  تحديد أقصى عرض للإخراج مع الحفاظ على نسبة الأبعاد\n  --quality <0.1-1>      جودة JPEG (الافتراضي: 0.8، وتُهمل مع png)\n  --region <x,y,w,h>     تصوير جزء من النافذة، بوحدات نقاط النافذة\n  --out <path>           الكتابة هنا بدلاً من دليل مؤقت\n  --label <text>         تسمية الملف\n  --caption <text>       رسم تعليق داخل الصورة\n  --window <id|ref>      النافذة المراد تصويرها (الافتراضي: النافذة الأمامية)\n\nالإخراج: `<width>x<height> <bytes> <path>`، أو الاستجابة الكاملة مع --json.\n\nالمنطقة هي نفس المستطيل الذي يصوّره `cmux record --region`، لذا يمكن تصوير\nتفصيل لوحظ في مقطع بالأرقام الأربعة نفسها.\n\nمثال:\n  cmux shot --label settings-sheet\n  cmux shot --region 0,0,420,900 --out ~/sidebar.png"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux shot [Flags]\n\nEin cmux-Fenster oder einen Teil davon als png oder jpeg aufnehmen. Nur\ncmux-eigene Fenster sind aufnehmbar, und es ist keine Berechtigung für\nBildschirmaufnahmen nötig, das geht also im Release-Build und in der CI.\n\nFlags:\n  --format png|jpg       Ausgabeformat (Standard: png)\n  --jpg                  Kurzform für --format jpg\n  --scale <0.1-1>        Ausgabe skalieren (Standard: 1)\n  --max-width <64-8192>  Ausgabebreite begrenzen, Seitenverhältnis bleibt\n  --quality <0.1-1>      JPEG-Qualität (Standard: 0.8, für png ignoriert)\n  --region <x,y,w,h>     Teil des Fensters aufnehmen, in Fensterpunkten\n  --out <path>           Hierhin schreiben statt in ein temporäres Verzeichnis\n  --label <text>         Datei benennen\n  --caption <text>       Eine Bildunterschrift ins Bild zeichnen\n  --window <id|ref>      Fenster zum Aufnehmen (Standard: das vorderste)\n\nAusgabe: `<width>x<height> <bytes> <path>`, oder mit --json die vollständige Antwort.\n\nEine Region ist dasselbe Rechteck, das `cmux record --region` filmt: ein im\nClip entdecktes Detail lässt sich mit denselben vier Zahlen aufnehmen.\n\nBeispiel:\n  cmux shot --label settings-sheet\n  cmux shot --region 0,0,420,900 --out ~/sidebar.png"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux shot [flags]\n\nCaptura una ventana de cmux, o una región de ella, en png o jpeg. Solo se\npueden capturar las ventanas propias de cmux, y no interviene ningún permiso\nde grabación de pantalla, así que funciona en una release y dentro de CI.\n\nFlags:\n  --format png|jpg       Formato de salida (predeterminado: png)\n  --jpg                  Atajo para --format jpg\n  --scale <0.1-1>        Escala la salida (predeterminado: 1)\n  --max-width <64-8192>  Limita el ancho de salida manteniendo la proporción\n  --quality <0.1-1>      Calidad JPEG (predeterminado: 0.8, se ignora en png)\n  --region <x,y,w,h>     Captura parte de la ventana, en puntos de ventana\n  --out <path>           Escribe aquí en lugar de en un directorio temporal\n  --label <text>         Da nombre al archivo\n  --caption <text>       Dibuja un rótulo dentro de la imagen\n  --window <id|ref>      Ventana que se captura (predeterminado: la del frente)\n\nSalida: `<width>x<height> <bytes> <path>`, o la respuesta completa con --json.\n\nUna región es el mismo rectángulo que filma `cmux record --region`, así que un\ndetalle visto en un clip se captura con los mismos cuatro números.\n\nEjemplo:\n  cmux shot --label settings-sheet\n  cmux shot --region 0,0,420,900 --out ~/sidebar.png"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux shot [flags]\n\nCapture une fenêtre cmux, ou une partie de celle-ci, en png ou en jpeg.\nSeules les fenêtres de cmux peuvent être capturées, et aucune autorisation\nd'enregistrement d'écran n'intervient : cela marche en release et dans la CI.\n\nFlags :\n  --format png|jpg       Format de sortie (par défaut : png)\n  --jpg                  Raccourci pour --format jpg\n  --scale <0.1-1>        Met la sortie à l'échelle (par défaut : 1)\n  --max-width <64-8192>  Limite la largeur de sortie en gardant les proportions\n  --quality <0.1-1>      Qualité JPEG (par défaut : 0.8, ignorée pour png)\n  --region <x,y,w,h>     Capture une partie de la fenêtre, en points de fenêtre\n  --out <path>           Écrit ici au lieu d'un répertoire temporaire\n  --label <text>         Nomme le fichier\n  --caption <text>       Dessine une légende dans l'image\n  --window <id|ref>      Fenêtre à capturer (par défaut : celle au premier plan)\n\nSortie : `<width>x<height> <bytes> <path>`, ou la réponse complète avec --json.\n\nUne région est le même rectangle que filme `cmux record --region` : un détail\nrepéré dans un clip se capture avec les mêmes quatre nombres.\n\nExemple :\n  cmux shot --label settings-sheet\n  cmux shot --region 0,0,420,900 --out ~/sidebar.png"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux shot [flags]\n\ncmux のウィンドウ、またはその一部の領域を png または jpeg で撮ります。\n撮れるのは cmux 自身のウィンドウだけで、画面収録の権限は必要ないので、\nリリースビルドでも CI の中でも動きます。\n\nフラグ:\n  --format png|jpg       出力形式（既定: png）\n  --jpg                  --format jpg の短縮形\n  --scale <0.1-1>        出力を拡大縮小（既定: 1）\n  --max-width <64-8192>  縦横比を保ったまま出力の幅を制限\n  --quality <0.1-1>      JPEG の品質（既定: 0.8、png では無視）\n  --region <x,y,w,h>     ウィンドウの一部だけを撮る（ウィンドウポイント単位）\n  --out <path>           一時ディレクトリではなくこのパスに書き出す\n  --label <text>         ファイルに名前を付ける\n  --caption <text>       画像にキャプションを描画する\n  --window <id|ref>      撮るウィンドウ（既定: 最前面のウィンドウ）\n\n出力: `<width>x<height> <bytes> <path>`、または --json で完全なレスポンス。\n\n領域は `cmux record --region` が撮るのと同じ矩形なので、クリップで見つけた\n細部を同じ 4 つの数字で撮れます。\n\n例:\n  cmux shot --label settings-sheet\n  cmux shot --region 0,0,420,900 --out ~/sidebar.png"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux shot [flags]\n\ncmux 창이나 창의 일부 영역을 png 또는 jpeg로 캡처합니다. cmux 자신의\n창만 캡처할 수 있고, 화면 기록 권한이 필요하지 않으므로 릴리스 빌드와\nCI 안에서도 동작합니다.\n\n플래그:\n  --format png|jpg       출력 형식 (기본값: png)\n  --jpg                  --format jpg의 단축형\n  --scale <0.1-1>        출력 크기 조정 (기본값: 1)\n  --max-width <64-8192>  가로 세로 비율을 유지하며 출력 너비 제한\n  --quality <0.1-1>      JPEG 품질 (기본값: 0.8, png에서는 무시)\n  --region <x,y,w,h>     창의 일부만 캡처, 창 포인트 단위\n  --out <path>           임시 디렉터리 대신 이 경로에 기록\n  --label <text>         파일 이름 지정\n  --caption <text>       이미지에 캡션 그리기\n  --window <id|ref>      캡처할 창 (기본값: 맨 앞 창)\n\n출력: `<width>x<height> <bytes> <path>`, 또는 --json으로 전체 응답.\n\n영역은 `cmux record --region`이 촬영하는 사각형과 같으므로, 클립에서 본\n세부를 같은 네 숫자로 캡처할 수 있습니다.\n\n예:\n  cmux shot --label settings-sheet\n  cmux shot --region 0,0,420,900 --out ~/sidebar.png"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux shot [flags]\n\n将 cmux 窗口或其中一块区域截取为 png 或 jpeg。\n只能截取 cmux 自己的窗口，而且不需要任何屏幕录制权限，\n因此在 release 构建和 CI 中都能用。\n\n标志:\n  --format png|jpg       输出格式（默认: png）\n  --jpg                  --format jpg 的简写\n  --scale <0.1-1>        缩放输出（默认: 1）\n  --max-width <64-8192>  限制输出宽度并保持宽高比\n  --quality <0.1-1>      JPEG 质量（默认: 0.8，png 会忽略）\n  --region <x,y,w,h>     只截取窗口的一部分，以窗口点为单位\n  --out <path>           写入此处而非临时目录\n  --label <text>         为文件命名\n  --caption <text>       在图片上绘制字幕\n  --window <id|ref>      要截取的窗口（默认: 最前面的窗口）\n\n输出: `<width>x<height> <bytes> <path>`，或用 --json 获取完整响应。\n\n区域和 `cmux record --region` 拍摄的矩形相同，因此在视频里看到的细节\n可以用同样的四个数字截取。\n\n示例:\n  cmux shot --label settings-sheet\n  cmux shot --region 0,0,420,900 --out ~/sidebar.png"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux shot [flags]\n\n將 cmux 視窗或其中一塊區域擷取成 png 或 jpeg。\n只能擷取 cmux 自己的視窗，而且不需要任何螢幕錄製權限，\n因此在 release 版本與 CI 內都能用。\n\n旗標:\n  --format png|jpg       輸出格式（預設: png）\n  --jpg                  --format jpg 的簡寫\n  --scale <0.1-1>        縮放輸出（預設: 1）\n  --max-width <64-8192>  限制輸出寬度並保持長寬比\n  --quality <0.1-1>      JPEG 品質（預設: 0.8，png 會忽略）\n  --region <x,y,w,h>     只擷取視窗的一部分，以視窗點為單位\n  --out <path>           寫入此處而非暫存目錄\n  --label <text>         為檔案命名\n  --caption <text>       在圖片上畫出字幕\n  --window <id|ref>      要擷取的視窗（預設: 最前面的視窗）\n\n輸出: `<width>x<height> <bytes> <path>`，或用 --json 取得完整回應。\n\n區域和 `cmux record --region` 拍攝的矩形相同，所以在影片裡看到的細節\n可以用同樣的四個數字擷取。\n\n範例:\n  cmux shot --label settings-sheet\n  cmux shot --region 0,0,420,900 --out ~/sidebar.png"
+          }
+        }
+      }
+    },
+    "cli.shot.error.formatConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: --jpg conflicts with --format"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: لا يمكن دمج --jpg مع --format"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: --jpg kann nicht mit --format kombiniert werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: --jpg no se puede combinar con --format"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot : --jpg ne peut pas être combiné avec --format"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: --jpg は --format と併用できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: --jpg은 --format과 함께 사용할 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: --jpg 不能与 --format 同用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: --jpg 無法與 --format 同時使用"
+          }
+        }
+      }
+    },
+    "cli.shot.error.unexpectedArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: unexpected arguments: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: وسائط غير متوقعة: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: unerwartete Argumente: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: argumentos inesperados: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot : arguments inattendus : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: 予期しない引数: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: 예기치 않은 인수: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: 多余的参数: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot: 未預期的引數: %@"
+          }
+        }
+      }
+    },
+    "cli.usage.shot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot [--format png|jpg] [--jpg] [--scale <n>] [--max-width <n>] [--quality <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--caption <text>] [--window <id|ref|index>]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shot [--format png|jpg] [--jpg] [--scale <n>] [--max-width <n>] [--quality <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--caption <text>] [--window <id|ref|index>]"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

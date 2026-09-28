@@ -65,7 +65,7 @@ extension CMUXCLI {
                 windowOverride: windowOverride
             )
         case "stop", "status":
-            var (recordingID, trailing) = parseRecordOption(arguments, name: "--id")
+            var (recordingID, trailing) = parseCaptureOption(arguments, name: "--id")
             if recordingID == nil, let positional = trailing.first, !positional.hasPrefix("-") {
                 recordingID = positional
                 trailing = Array(trailing.dropFirst())
@@ -82,7 +82,7 @@ extension CMUXCLI {
                 jsonOutput: jsonOutput
             )
         case "note":
-            let (id, trailing) = parseRecordOption(arguments, name: "--id")
+            let (id, trailing) = parseCaptureOption(arguments, name: "--id")
             let text = trailing.filter { $0 != "--" }.joined(separator: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else {
@@ -125,15 +125,15 @@ extension CMUXCLI {
         jsonOutput: Bool,
         windowOverride: String?
     ) throws {
-        let (format, afterFormat) = parseRecordOption(arguments, name: "--format")
-        let (fps, afterFPS) = parseRecordOption(afterFormat, name: "--fps")
-        let (maxSeconds, afterSeconds) = parseRecordOption(afterFPS, name: "--max-seconds")
-        let (scale, afterScale) = parseRecordOption(afterSeconds, name: "--scale")
-        let (maxWidth, afterWidth) = parseRecordOption(afterScale, name: "--max-width")
-        let (region, afterRegion) = parseRecordOption(afterWidth, name: "--region")
-        let (out, afterOut) = parseRecordOption(afterRegion, name: "--out")
-        let (label, afterLabel) = parseRecordOption(afterOut, name: "--label")
-        let (window, afterWindow) = parseRecordOption(afterLabel, name: "--window")
+        let (format, afterFormat) = parseCaptureOption(arguments, name: "--format")
+        let (fps, afterFPS) = parseCaptureOption(afterFormat, name: "--fps")
+        let (maxSeconds, afterSeconds) = parseCaptureOption(afterFPS, name: "--max-seconds")
+        let (scale, afterScale) = parseCaptureOption(afterSeconds, name: "--scale")
+        let (maxWidth, afterWidth) = parseCaptureOption(afterScale, name: "--max-width")
+        let (region, afterRegion) = parseCaptureOption(afterWidth, name: "--region")
+        let (out, afterOut) = parseCaptureOption(afterRegion, name: "--out")
+        let (label, afterLabel) = parseCaptureOption(afterOut, name: "--label")
+        let (window, afterWindow) = parseCaptureOption(afterLabel, name: "--window")
 
         var trailing = afterWindow
         let wantsGIF = trailing.contains("--gif")
@@ -160,7 +160,7 @@ extension CMUXCLI {
         if let label { params["label"] = label }
         if !drawsCaptions { params["captions"] = false }
         // The app has no idea what directory the CLI was run from.
-        if let out { params["out"] = Self.absoluteRecordingPath(out) }
+        if let out { params["out"] = Self.absoluteCapturePath(out) }
         if let windowID = try normalizeWindowHandle(window ?? windowOverride, client: client) {
             params["window"] = windowID
         }
@@ -178,7 +178,9 @@ extension CMUXCLI {
     /// A flag where a value belongs is a typo rather than a value: plain
     /// `parseOption` would let `--label --gif` name the clip "--gif" and quietly
     /// drop the format. Hand both back so the caller's error names them.
-    private func parseRecordOption(_ args: [String], name: String) -> (String?, [String]) {
+    ///
+    /// Shared with `cmux shot`, which has the same flags and the same problem.
+    func parseCaptureOption(_ args: [String], name: String) -> (String?, [String]) {
         let (value, remaining) = parseOption(args, name: name)
         guard let value, value.hasPrefix("--") else { return (value, remaining) }
         return (nil, [name, value] + remaining)
@@ -217,7 +219,9 @@ extension CMUXCLI {
         return line
     }
 
-    static func absoluteRecordingPath(_ path: String) -> String {
+    /// The app has no idea what directory the CLI was run from, so `--out`
+    /// becomes absolute here. Shared with `cmux shot`.
+    static func absoluteCapturePath(_ path: String) -> String {
         let expanded = NSString(string: path).expandingTildeInPath
         guard !expanded.hasPrefix("/") else { return expanded }
         return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
