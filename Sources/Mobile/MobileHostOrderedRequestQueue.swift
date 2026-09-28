@@ -45,6 +45,16 @@ extension MobileHostRPCRequest {
         }
     }
 
+    /// Whether the request writes to or closes a terminal. A phone must name
+    /// that terminal: the Mac never falls back to its focused terminal, which
+    /// would put a keystroke, paste, click or close into whatever terminal
+    /// happens to be focused.
+    var mustNameItsTerminal: Bool {
+        isOrderedTerminalInput
+            || method == "mobile.terminal.close"
+            || method == "mobile.terminal.rename"
+    }
+
     /// The per-surface ordering domain for an ordered terminal request.
     /// Requests without a surface selection share one conservative bucket.
     /// The key uses the same id precedence as terminal resolution and the

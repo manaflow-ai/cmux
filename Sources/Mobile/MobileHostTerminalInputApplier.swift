@@ -115,30 +115,3 @@ final class MobileHostTerminalInputApplier {
         )
     }
 }
-
-/// Phone RPCs that write to a terminal or destroy one must name it. The Mac
-/// never falls back to its focused terminal for them: a missing id would put
-/// a phone keystroke, paste, click or close into whatever terminal happens to
-/// be focused on the Mac.
-enum MobileHostExplicitTerminalPolicy {
-    static let terminalWritingMethods: Set<String> = [
-        "mobile.terminal.input", "terminal.input",
-        "mobile.terminal.paste", "terminal.paste",
-        "mobile.terminal.paste_image", "terminal.paste_image",
-        "mobile.terminal.scroll", "terminal.scroll",
-        "mobile.terminal.mouse", "terminal.mouse",
-        "mobile.terminal.close",
-        "mobile.terminal.rename",
-    ]
-
-    static func requiresExplicitTerminal(_ method: String) -> Bool {
-        terminalWritingMethods.contains(method)
-    }
-
-    static func hasExplicitTerminal(_ params: [String: Any]) -> Bool {
-        ["surface_id", "terminal_id", "tab_id"].contains { key in
-            guard let raw = params[key] as? String else { return false }
-            return UUID(uuidString: raw.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
-        }
-    }
-}

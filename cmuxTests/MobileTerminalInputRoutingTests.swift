@@ -116,8 +116,10 @@ final class MobileTerminalInputRoutingTests: XCTestCase {
         XCTAssertEqual(early.expected, 1)
         XCTAssertEqual(queuedInputCount(panel), 0)
 
-        XCTAssertEqual(try acknowledgement(await send("terminal.input", params(1, "first"))).status, .applied)
-        XCTAssertEqual(try acknowledgement(await send("terminal.input", params(2, "second"))).status, .applied)
+        let first = try acknowledgement(await send("terminal.input", params(1, "first")))
+        let second = try acknowledgement(await send("terminal.input", params(2, "second")))
+        XCTAssertEqual(first.status, .applied)
+        XCTAssertEqual(second.status, .applied)
         XCTAssertEqual(queuedInputCount(panel), 2)
     }
 
@@ -139,8 +141,10 @@ final class MobileTerminalInputRoutingTests: XCTestCase {
         ]
         crossing.merge(MobileTerminalInputDelivery(surfaceID: other.id, streamID: stream, sequence: 2).rpcParameters) { current, _ in current }
 
-        XCTAssertEqual(try acknowledgement(await send("terminal.input", first)).status, .applied)
-        XCTAssertEqual(try acknowledgement(await send("terminal.input", crossing)).status, .surfaceMismatch)
+        let applied = try acknowledgement(await send("terminal.input", first))
+        let refused = try acknowledgement(await send("terminal.input", crossing))
+        XCTAssertEqual(applied.status, .applied)
+        XCTAssertEqual(refused.status, .surfaceMismatch)
         XCTAssertEqual(queuedInputCount(other), 0)
     }
 
@@ -156,7 +160,8 @@ final class MobileTerminalInputRoutingTests: XCTestCase {
             MobileTerminalInputDelivery(surfaceID: panel.id, streamID: UUID(), sequence: 1).rpcParameters
         ) { current, _ in current }
 
-        XCTAssertEqual(try acknowledgement(await send("terminal.input", params)).status, .terminalUnavailable)
+        let answer = try acknowledgement(await send("terminal.input", params))
+        XCTAssertEqual(answer.status, .terminalUnavailable)
     }
 
     func testOrderedInputKeyIsTheSameForEverySpellingOfOneTerminal() {
