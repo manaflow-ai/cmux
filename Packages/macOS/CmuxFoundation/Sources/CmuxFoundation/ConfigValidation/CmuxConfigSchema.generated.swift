@@ -2075,6 +2075,7 @@ enum CmuxEmbeddedConfigSchema {
               "focusNextPane",
               "splitRight",
               "splitDown",
+              "newPaneAutoLayout",
               "toggleSplitZoom",
               "increaseWorkspaceTerminalFontSize",
               "decreaseWorkspaceTerminalFontSize",
