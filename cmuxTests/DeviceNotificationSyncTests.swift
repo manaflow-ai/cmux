@@ -136,12 +136,19 @@ struct DeviceNotificationSyncTests {
             cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil, remoteWorkspaces: [workspace]
         )], resources: [resource], projections: [])
         let nodes = CloudTreeNodeBuilder.nodes(machines: [], snapshot: snapshot, localWorkspaces: [],
-            unreadTerminalIDs: [machine.rawValue: [terminal]], includeLocalMachine: false)
+            unreadTerminalIDs: [machine.rawValue: [terminal]], includeLocalMachine: false, source: .devices)
         let rows = CloudTreeNodeBuilder.flattened(nodes).compactMap { node -> Bool? in
             if case .terminal(let row) = node.kind { return row.hasUnreadNotification }
             return nil
         }
         #expect(rows == [true])
+        let quiet = CloudTreeNodeBuilder.nodes(machines: [], snapshot: snapshot, localWorkspaces: [],
+            unreadTerminalIDs: [:], includeLocalMachine: false, source: .devices)
+        let quietRows = CloudTreeNodeBuilder.flattened(quiet).compactMap { node -> Bool? in
+            if case .terminal(let row) = node.kind { return row.hasUnreadNotification }
+            return nil
+        }
+        #expect(quietRows == [false])
     }
 
     private func makeAuth(defaults: UserDefaults) -> AuthCoordinator {
