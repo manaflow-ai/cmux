@@ -1396,6 +1396,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Her çalışma alanını tek satırda göster: başlığın önündeki tek bir renkli simge ajan, okunmamış ve pull request durumunu gösterir; ajan durum satırlarının (örneğin Çalışıyor veya Girdi gerekiyor), dal ve dizin satırının ve pull request satırlarının yerini alır, ayrıntılar simgenin ipucuna taşınır. Diğer durum girdileri kendi satırlarını korur.",
+          "compactStatusIcons": "Her durum için compactAgentStatus glifinin yerine geçen SF Symbol adları, örneğin {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Ayarlanmamış durumlar yerleşik sembolü korur ve görüntülenemeyen bir ad da ona geri döner.",
           "notificationMessageLineLimit": "Her çalışma alanı başlığının altında en son bildirim için gösterilen en fazla satır sayısı.",
           "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
         },

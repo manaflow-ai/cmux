@@ -1,3 +1,7 @@
+import {
+  creatorFor,
+  readCreatorNames,
+} from "../../../../services/vms/creators";
 import { normalizedDisplayName } from "../../../../services/vms/displayName";
 import {
   invalidVmDisplayNameResponse,
@@ -53,6 +57,14 @@ export async function GET(
         createdAt: vm.createdAt,
         displayName: vm.displayName,
         slug: vm.slug,
+        // Same field the list carries. A client that merges a detail read into
+        // the row it already listed would otherwise overwrite the author with
+        // nothing, and the resulting "Unknown" reads as a client bug.
+        createdBy: creatorFor(vm, await readCreatorNames({
+          userIds: [vm.createdByUserId],
+          teamId: vm.ownerTeamId,
+          caller: user,
+        })),
         address: { ipv4: vm.addressIpv4 ?? null, ipv6: vm.addressIpv6 ?? null },
       });
     },
