@@ -116,6 +116,7 @@ import {
   type CloudVmLeaseKind,
   type CloudVmRow,
   type VmRepositoryShape,
+  type VmListOptions,
   type VmResizeReservation,
   type VmUsageEventInput,
 } from "./repository";
@@ -156,6 +157,10 @@ import {
 export type VmEntry = {
   readonly providerVmId: string;
   readonly provider: ProviderId;
+  /** Internal ownership metadata used when a response combines billing scopes. */
+  readonly ownerTeamId: string;
+  /** Billing plan recorded when the machine was created, for mixed-scope expiry. */
+  readonly billingPlanId: string | null;
   readonly image: string;
   readonly imageVersion: string | null;
   readonly status: CloudVmStatus;
@@ -313,10 +318,10 @@ export function isRetiredProviderRow(row: Pick<CloudVmRow, "provider">): boolean
   return !isProviderId(row.provider);
 }
 
-export function listUserVms(userId: string, billingTeamId?: string | null) {
+export function listUserVms(userId: string, billingTeamId?: string | null, options?: VmListOptions) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
-    const rows = yield* repo.listUserVms(userId, billingTeamId);
+    const rows = yield* repo.listUserVms(userId, billingTeamId, options);
     return rows
       .filter((row) => row.providerVmId && !isRetiredProviderRow(row))
       .map(vmEntryFromRow);
@@ -4525,6 +4530,8 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
   return {
     providerVmId: row.providerVmId,
     provider: row.provider,
+    ownerTeamId: row.ownerTeamId,
+    billingPlanId: row.billingPlanId,
     image: row.imageId,
     imageVersion: row.imageVersion,
     status: row.status,
