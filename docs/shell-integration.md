@@ -100,7 +100,7 @@ production launch rates or exercise the app's metadata services.
 This support contract complements the watcher repairs rather than implementing
 them: [#15066](https://github.com/manaflow-ai/cmux/issues/15066) /
 [#6032](https://github.com/manaflow-ai/cmux/pull/6032) cover zsh fork-free waits,
-[#10926](https://github.com/manaflow-ai/cmux/issues/10926) tracks orphan lifecycle
+[#10926](https://github.com/manaflow-ai/cmux/issues/10926) tracked orphan lifecycle
 problems, and [#2924](https://github.com/manaflow-ai/cmux/pull/2924) removes dead
 per-shell PR polling code. [#15075](https://github.com/manaflow-ai/cmux/pull/15075)
 already removed bash's PR poller for

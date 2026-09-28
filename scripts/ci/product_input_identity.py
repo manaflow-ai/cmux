@@ -187,6 +187,7 @@ NON_PRODUCT_RECIPE_STEPS = frozenset({
     "Report evidence collection outcomes",
     # A changed-suites run tests the product after it is packaged and
     # uploaded; nothing here can change its bytes.
+    "Take this Mac's gui token for the changed suites",
     "Prepare isolated DerivedData",
     "Restore compiled app-host test product",
     "Prepare isolated app-host home",

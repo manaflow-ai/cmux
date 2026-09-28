@@ -948,16 +948,66 @@ PY_CAPTURE
   }
 fi
 
+# The simulator launch is detached, but the launcher also performs setup and
+# attach work before it returns. Own that process group as well as notifyutil;
+# otherwise a stalled launcher can keep the job alive after the report deadline.
+run_release_gate_launch() {
+  local log_path="$1"
+  shift
+  /usr/bin/python3 - "$log_path" "$((REPORT_TIMEOUT + 30))" "$@" <<'PY_LAUNCH'
+import signal
+import subprocess
+import sys
+
+log_path, timeout_seconds, *command = sys.argv[1:]
+with open(log_path, "wb") as output:
+    process = subprocess.Popen(
+        command,
+        stdout=output,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    try:
+        return_code = process.wait(timeout=int(timeout_seconds))
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+        raise SystemExit("Iroh release gate launcher timed out")
+
+if return_code < 0:
+    raise SystemExit(128 - return_code)
+raise SystemExit(return_code)
+PY_LAUNCH
+}
+
+GATE_LAUNCH_LOG="$(mktemp "${TMPDIR:-/tmp}/cmux-iroh-launch-${TAG}.XXXXXX")"
+launch_status=0
 CMUX_DEV_AUTH_REPLACE_SESSION="$([[ -n "$SOAK_PROFILE" ]] && printf 0 || printf 1)" \
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
 CMUX_ATTACH_READY_TIMEOUT_SECONDS="${CMUX_IROH_RELEASE_GATE_ATTACH_READY_TIMEOUT_SECONDS:-90}" \
 CMUX_IROH_RELEASE_GATE_SCENARIO="$GATE_SCENARIO" \
 CMUX_IROH_SOAK_PROFILE="$SOAK_PROFILE" \
 CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH="$([[ "$GATE_SCENARIO" == "relay_expiry" ]] && printf 1 || printf 0)" \
-./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}" \
-  2>&1 | sed -E \
-    -e 's/^(==> dev sign-in account:).*/\1 [redacted]/' \
-    -e 's/(signed in as )[^,)]+/\1[redacted]/'
+run_release_gate_launch "$GATE_LAUNCH_LOG" ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}" || launch_status=$?
+sed -E \
+  -e 's/^(==> dev sign-in account:).*/\1 [redacted]/' \
+  -e 's/(signed in as )[^,)]+/\1[redacted]/' \
+  "$GATE_LAUNCH_LOG"
+rm -f "$GATE_LAUNCH_LOG"
+if (( launch_status )); then
+  echo "error: Iroh release gate launcher failed with status $launch_status" >&2
+  exit "$launch_status"
+fi
 
 DATA_CONTAINER="$(xcrun simctl get_app_container "$SIMULATOR_ID" "$IOS_BUNDLE_ID" data)"
 REPORT_PATH="$DATA_CONTAINER/Library/Caches/$REPORT_FILENAME"
