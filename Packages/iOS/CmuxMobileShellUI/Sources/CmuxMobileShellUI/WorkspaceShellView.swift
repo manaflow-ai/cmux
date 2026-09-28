@@ -1383,7 +1383,7 @@ struct WorkspaceShellView: View {
             names[mac.id] = mac.resolvedName
         }
         if let buildScope = MobileIOSBuildScope.current() {
-            names = names.mapValues(buildScope.computerDisplayName)
+            names = buildScope.computerDisplayNames(names, isExternalHost: store.externalHostOwnsHost)
         }
 
         let buildLabelsByID = WorkspaceMacBuildLabelResolver().labels(

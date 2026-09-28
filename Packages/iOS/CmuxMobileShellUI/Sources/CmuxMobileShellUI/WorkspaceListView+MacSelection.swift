@@ -83,7 +83,7 @@ extension WorkspaceListView {
             names[mac.id] = mac.resolvedName
         }
         guard let buildScope = MobileIOSBuildScope.current() else { return names }
-        return names.mapValues(buildScope.computerDisplayName)
+        return buildScope.computerDisplayNames(names) { store?.externalHostOwnsHost($0) == true }
     }
 
     func macBuildLabelsByID() -> [String: String] {
