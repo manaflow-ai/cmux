@@ -244,6 +244,11 @@ extension TerminalController {
         if request.method == "agent.restore.release" {
             return try await agentRestoreAdmissionReleaseResponse(request)
         }
+        if request.method.hasPrefix("agent.message.") {
+            // Local surfaces only for now; relay-backed requests are denied
+            // by RemoteRelayCommandPolicy before they reach this worker.
+            return await agentMessageResponse(request)
+        }
         if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] == nil,
            ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
            let snapshotResult = socketReadSnapshotStore.response(

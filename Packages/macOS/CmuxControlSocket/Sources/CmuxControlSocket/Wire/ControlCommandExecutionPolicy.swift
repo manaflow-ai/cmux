@@ -104,6 +104,14 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "agent.restore.admit",
         // Releases only the tokenized claim owned by a failed restore exec.
         "agent.restore.release",
+        // Agent messages: `agent.message.wait` awaits a store continuation
+        // for minutes at a time, and the rest are store reads and appends
+        // with at most one main-actor hop for target resolution.
+        "agent.message.send",
+        "agent.message.list",
+        "agent.message.claim",
+        "agent.message.mark_read",
+        "agent.message.wait",
         "browser.download.list", "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",

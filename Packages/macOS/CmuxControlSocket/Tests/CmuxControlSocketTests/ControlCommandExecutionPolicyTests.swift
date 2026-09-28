@@ -45,6 +45,8 @@ struct ControlCommandExecutionPolicyTests {
             "auth.team.list", "auth.team.use", "auth.team.create",
             "feed.jump", "feed.push", "agent.hook.enqueue", "agent.hook.barrier",
             "agent.restore.admit", "agent.restore.release",
+            "agent.message.send", "agent.message.list", "agent.message.claim",
+            "agent.message.mark_read", "agent.message.wait",
             "browser.download.list", "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
@@ -74,7 +76,11 @@ struct ControlCommandExecutionPolicyTests {
         ] {
             #expect(ControlCommandExecutionPolicy(forMethod: method).runsOnSocketWorker, "\(method)")
         }
-        for method in ["agent.restore.admit", "agent.restore.release"] {
+        for method in [
+            "agent.restore.admit", "agent.restore.release",
+            "agent.message.send", "agent.message.list", "agent.message.claim",
+            "agent.message.mark_read", "agent.message.wait",
+        ] {
             #expect(
                 ControlCommandExecutionPolicy(forMethod: method)
                     == .socketWorker(mainThreadCallable: false),

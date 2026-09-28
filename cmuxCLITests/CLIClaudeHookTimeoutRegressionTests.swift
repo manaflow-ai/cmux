@@ -184,6 +184,23 @@ struct CLIClaudeHookTimeoutRegressionTests {
             timeout: 120,
             isAsync: true
         )
+        // Agent messages: a background wake hook after every start and stop,
+        // and a synchronous prompt hook that fails open to `{}`.
+        for event in ["SessionStart", "Stop"] {
+            try expectDirectHook(
+                hooks,
+                event: event,
+                command: #""${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude inbox-wait"#,
+                timeout: 86_400,
+                isAsyncRewake: true
+            )
+        }
+        try expectDirectHook(
+            hooks,
+            event: "UserPromptSubmit",
+            command: #""${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude inbox-drain 2>/dev/null || echo '{}'"#,
+            timeout: 5
+        )
 
         let promptCommand = try hookCommand(
             hooks,
@@ -1494,7 +1511,8 @@ struct CLIClaudeHookTimeoutRegressionTests {
         event: String,
         command: String,
         timeout: Int,
-        isAsync: Bool = false
+        isAsync: Bool = false,
+        isAsyncRewake: Bool = false
     ) throws {
         let groups = try #require(hooks[event] as? [[String: Any]])
         let hook = try #require(groups.lazy.compactMap { group -> [String: Any]? in
@@ -1503,6 +1521,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
         }.first)
         #expect(hook["timeout"] as? Int == timeout)
         #expect((hook["async"] as? Bool) == (isAsync ? true : nil))
+        #expect((hook["asyncRewake"] as? Bool) == (isAsyncRewake ? true : nil))
         #expect(!(command.contains("hooks enqueue")))
     }
 }
