@@ -3284,14 +3284,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
         }
-        // Pull the authoritative per-user backup first so saved-Mac routes are
-        // current before we dial: a Mac that relaunched on a new port republishes
-        // to the backup, and LWW by lastSeenAt keeps any live local edit. Without
-        // this a stale port makes the auto-connect fail and the app falls back to
-        // the Mac picker, the screen we want to avoid showing.
+        // A launch already has a cached route that can be dialed immediately.
+        // Refresh the authoritative backup in parallel during that startup
+        // path, then await it only if the cached route needs a second attempt.
+        // Manual and recovery reconnects keep the freshness-first behavior.
+        let deferredBackupRefresh: Task<Void, Never>?
         if refreshBackupBeforeDial,
            let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
-            await refresher.refreshFromBackup(stackUserID: scope.userID)
+            if hydratePairedMacs {
+                deferredBackupRefresh = Task { @MainActor in
+                    await refresher.refreshFromBackup(stackUserID: scope.userID)
+                }
+            } else {
+                await refresher.refreshFromBackup(stackUserID: scope.userID)
+                deferredBackupRefresh = nil
+            }
+        } else {
+            deferredBackupRefresh = nil
         }
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
@@ -3432,6 +3441,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         func loadRefreshSnapshotIfNeeded() async -> ReconnectRefreshSnapshot? {
             if didLoadRefreshSnapshot { return refreshSnapshot }
             didLoadRefreshSnapshot = true
+            // The local route gets the first attempt. If it failed, make the
+            // backup refresh part of the authoritative second attempt before
+            // reading the registry and refreshed paired-Mac snapshot.
+            await deferredBackupRefresh?.value
             refreshSnapshot = await loadReconnectRefreshSnapshot(scope: scope)
             return refreshSnapshot
         }

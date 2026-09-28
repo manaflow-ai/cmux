@@ -45,9 +45,12 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
     private var backupCancellationBlockers: [Int: CheckedContinuation<Void, Never>] = [:]
     private var backupCancellationObservedCancellation: [Int: Bool] = [:]
     private var backupRefreshBlocked = false
+    private var backupRefreshBlockConsumed = false
     private var backupRefreshStarted = false
     private var backupRefreshStartWaiters: [CheckedContinuation<Void, Never>] = []
     private var backupRefreshBlocker: CheckedContinuation<Void, Never>?
+    private var backupRefreshFinished = false
+    private var backupRefreshFinishWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(recordsByTeam: [String: [MobilePairedMac]], blockedTeams: Set<String>) {
         self.recordsByTeam = recordsByTeam
@@ -261,15 +264,21 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
         let waiters = backupRefreshStartWaiters
         backupRefreshStartWaiters.removeAll()
         for waiter in waiters { waiter.resume() }
-        if backupRefreshBlocked {
+        if backupRefreshBlocked, !backupRefreshBlockConsumed {
+            backupRefreshBlockConsumed = true
             await withCheckedContinuation { continuation in
                 backupRefreshBlocker = continuation
             }
         }
+        backupRefreshFinished = true
+        let finishWaiters = backupRefreshFinishWaiters
+        backupRefreshFinishWaiters.removeAll()
+        for waiter in finishWaiters { waiter.resume() }
     }
 
     func blockBackupRefresh() {
         backupRefreshBlocked = true
+        backupRefreshBlockConsumed = false
     }
 
     func waitUntilBackupRefreshStarted() async {
@@ -283,6 +292,13 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
         backupRefreshBlocked = false
         backupRefreshBlocker?.resume()
         backupRefreshBlocker = nil
+    }
+
+    func waitUntilBackupRefreshFinished() async {
+        if backupRefreshFinished { return }
+        await withCheckedContinuation { continuation in
+            backupRefreshFinishWaiters.append(continuation)
+        }
     }
 
     func cancelInFlightRestores() async {

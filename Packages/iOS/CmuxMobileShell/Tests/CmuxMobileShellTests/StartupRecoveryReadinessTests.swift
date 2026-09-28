@@ -260,6 +260,7 @@ extension ReconnectRouteSelectionTests {
         #expect(factory.attemptedKinds() == [.iroh])
 
         await pairedStore.releaseBackupRefresh()
+        await pairedStore.waitUntilBackupRefreshFinished()
         await shell.remoteClient?.disconnect()
     }
 }
