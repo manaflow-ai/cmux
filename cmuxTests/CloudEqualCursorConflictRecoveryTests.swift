@@ -16,6 +16,10 @@ import Testing
 @MainActor
 @Suite("Equal-cursor conflict recovery", .timeLimit(.minutes(1)))
 struct CloudEqualCursorConflictRecoveryTests {
+    /// The provider holds its catalog `unowned`, so the suite owns it for the
+    /// whole test; a temporary would be freed before the provider touches it.
+    private let catalog = SurfaceCatalog()
+
     private func snapshot(workspaceName: String, revision: Int = 3) -> [String: Any] {
         [
             "cursor": ["generation": "daemon", "revision": String(revision)],
@@ -33,7 +37,7 @@ struct CloudEqualCursorConflictRecoveryTests {
         return CmuxTuiSurfaceProvider(
             summary: summary,
             links: CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil }),
-            catalog: SurfaceCatalog()
+            catalog: catalog
         )
     }
 
