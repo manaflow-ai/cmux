@@ -274,15 +274,19 @@ tests-build-and-lag, cli-product-tests). That is main's own code, so it may
 take an owned pool like a same-repository pull request, and ci-macos.yml
 already routes a `workflow_dispatch` on `refs/heads/main` through the same
 inputs. It is placed like a pull request, split and queue rounds
-(CI_PR_POOL_QUEUE_ROUNDS) included, on the owned pools only; what does not
-fit keeps its own route (MACOS_RUNNER_PR), since only an owned pool is a
-candidate for it. With no Blacksmith pool to compare against, its jobs may
+(CI_PR_POOL_QUEUE_ROUNDS) included, on the owned pools only. With the
+split and queue rounds, an owned pool with machines and root runners for
+its whole run holds all of it (queued there), not just the jobs that fit:
+the rest would take retry_runner and wait behind every overflowed pull
+request. A smaller pool (light) still splits, since the excess would wait
+past the owned-pool rescue's budget. With no owned pool it keeps its own route
+(MACOS_RUNNER_PR), since only an owned pool is a candidate for it. With no Blacksmith pool to compare against, its jobs may
 wait up to the queue rounds and the bound (owned_room()). CI_OWNED_MAIN_RESERVE (0 when unset) holds that many
 machines and root runners back for pull requests; with a reserve it takes
 an owned pool only whole, and only while its peak is free now (no queue
-allowance). Its side lanes (the Claude wrapper and
-remote daemon) route only for pull requests, so they are not in its plan.
-Main's CI concurrency group holds one run at a time, so main holds at most
+allowance). Its side lanes (the Claude wrapper, the remote daemon and the
+universal Release build) are in its plan like a pull request's, and read the
+pick through the same inputs. Main's CI concurrency group holds one run at a time, so main holds at most
 one run's machines. ci-owned-pool-rescue.yml watches it like a pull request.
 
 Anything uncertain keeps today's route: an event other than pull_request or
@@ -399,7 +403,10 @@ MAIN_BRANCH = "main"
 # suite with release_build false, which then peaks at all three side lanes
 # beside admission and its nine follow-on jobs. MAX_RUN_JOBS counts all three;
 # the replay charge leaves out the package lane, which a compile-only run
-# carries only on a package change.
+# carries only on a package change. release-build (RELEASE_BUILD_JOB) is the
+# package lane's alternative: it runs only on a full suite with release_build,
+# exactly when swift-package-tests builds the SDK 15 helper on Blacksmith, so a
+# run still has at most three side lanes.
 APP_HOST_SHARDS = 7
 SIDE_LANES = 3
 MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2
@@ -548,7 +555,8 @@ def light_side_lanes(plan: "RunJobs", runners: Sequence[Mapping[str, Any]], owne
                      pr_xcode_app: str | None) -> tuple[str, tuple[str, ...]]:
     """The light pool's side label and the side lanes of `plan` its idle side runners take now, one per runner.
 
-    ("", ()) when none is idle, and always while CI_OWNED_POOL_SLOTS gives
+    release-build (RELEASE_BUILD_JOB), a universal Release compile, is never
+    one of them. ("", ()) when none is idle, and always while CI_OWNED_POOL_SLOTS gives
     the light pool no machines beyond its root runners (side_runner()'s
     rule), so removing that count turns it off.
     """
@@ -556,7 +564,8 @@ def light_side_lanes(plan: "RunJobs", runners: Sequence[Mapping[str, Any]], owne
     label = side_label(light)
     if not plan.side or not label or owned_slots.get(light, 0) <= owned_slots.get(root_label(light), 0):
         return "", ()
-    lanes = plan.side[:max(0, live_owned_free(runners, [label])[label])]
+    # release-build stays with the picked pool: ci-macos.yml gives it only side_runner.
+    lanes = tuple(key for key in plan.side if key != RELEASE_BUILD_JOB)[:max(0, live_owned_free(runners, [label])[label])]
     return (label, lanes) if lanes else ("", ())
 
 
@@ -676,13 +685,16 @@ def run_plan(*, macos: str | None, full_suite: str | None, unit_suite: str | Non
     that does not know) counts one shard, as before. swift-package-tests is a
     side lane only when package_lane_owned() says it may take the pool;
     `swift_packages` None (a caller that does not pass it) leaves it out.
+    release-build is a side lane on a full suite with `release_build` true;
+    None leaves it out.
     """
     full = flag(macos) and flag(full_suite)
     side = tuple(key for key, on in (("claude-wrapper", flag(claude_wrapper) or full),
                                      ("remote-daemon", flag(remote_daemon)),
                                      (SWIFT_PACKAGE_JOB, package_lane_owned(
                                          full=full, full_suite=full_suite, swift_packages=swift_packages,
-                                         release_build=release_build))) if on)
+                                         release_build=release_build)),
+                                     (RELEASE_BUILD_JOB, full and flag(release_build))) if on)
     if not (flag(macos) or flag(cli)):
         return RunJobs(False, (), side)
     unit = flag(macos) and flag(unit_suite) and not flag(unit_in_admission)
@@ -704,6 +716,11 @@ def run_plan(*, macos: str | None, full_suite: str | None, unit_suite: str | Non
 # Blacksmith macOS 15 image carries (the minis have Xcode 26.6 alone), so only
 # a run without that helper build places it on an owned pool.
 SWIFT_PACKAGE_JOB = "swift-package"
+# ci-macos.yml release-build: the unsigned universal Release app nightly signs,
+# into its own workspace DerivedData with the lane's Xcode 26.6 (glaeda's hook
+# classes it isolated: no GUI, product, canonical root or secrets). It runs
+# after admission and swift-package-tests on its own machine.
+RELEASE_BUILD_JOB = "release-build"
 
 
 def package_lane_owned(*, full: bool, full_suite: str | None, swift_packages: str | None,
@@ -726,12 +743,14 @@ def run_jobs(**routing: str | None) -> int:
 # Owned placement priority: the heavy compile, then GUI jobs (the longest
 # Blacksmith queues), then light jobs. GUI jobs need the mini's console
 # session; CI_PR_POOL_OWNED_GUI=0 keeps them off.
-LIGHT_JOBS = ("cli-product", "remote-daemon", "claude-wrapper", SWIFT_PACKAGE_JOB)
+# release-build is not light (a 15-minute universal compile), but it follows
+# cli-product: it is the side lane that saves the most Blacksmith time.
+LIGHT_JOBS = ("cli-product", RELEASE_BUILD_JOB, "remote-daemon", "claude-wrapper", SWIFT_PACKAGE_JOB)
 # glaeda's canonical-root jobs: admission and every job after it (RunJobs.after:
 # the shards, tests-build-and-lag, cli-product-tests). The side lanes are not.
 ROOT_JOBS = "admission, shards, lag, cli-product"
 # The side lanes (RunJobs.side): light, no canonical root; they take side_runner() on a pool with a root count.
-SIDE_LANE_JOBS = ("claude-wrapper", "remote-daemon", SWIFT_PACKAGE_JOB)
+SIDE_LANE_JOBS = ("claude-wrapper", "remote-daemon", SWIFT_PACKAGE_JOB, RELEASE_BUILD_JOB)
 
 
 def gui_job(key: str) -> bool:
@@ -1861,6 +1880,25 @@ def choose(
                     # Main only ever takes an owned pool; the replay still
                     # spreads newer runs over the whole order.
                     choose_from=tuple(label for label in limits.order if persistent(label)) if main else None)
+    if (main and limits.queue_rounds and persistent(choice.runner)
+            and (choice.owned_budget < jobs or choice.root_runner and choice.root_budget < jobs)
+            # Only a pool that holds the whole run at once: on a small one the
+            # excess would wait rounds past the rescue's budget.
+            and owned_capacity.get(choice.runner, 0) >= jobs
+            and (not choice.root_runner or owned_capacity.get(choice.root_runner, 0) >= jobs)):
+        # Main queues its whole run on the owned pool instead of splitting:
+        # the jobs that did not fit took the retry runner and waited behind
+        # every overflowed pull request there (run 36402943637, 2026-09-28:
+        # five jobs queued over an hour behind 76 others on 3 running
+        # machines), so main gave no verdict. The owned queue drains in
+        # rounds, and the rescue still bounds the wait. With the rounds at 0
+        # (no queueing) it splits as before.
+        choice = dataclasses.replace(
+            # A root budget of `jobs` holds every job whether or not the pool
+            # has gui runners (root_held() never exceeds the machines held).
+            choice, owned_budget=jobs, root_budget=max(choice.root_budget, jobs),
+            reason=choice.reason.replace("the jobs that fit run there, the rest on the retry runner",
+                                         "the whole run queues there"))
     if main and not persistent(choice.runner):
         # A Blacksmith pick would move main off MACOS_RUNNER_PR; keep its route.
         choice = Choice("", "", f"main's full-suite dispatch: no owned pool fits its whole run with "
@@ -2212,10 +2250,6 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         cli=env.get("RUN_CLI"), remote_daemon=env.get("RUN_REMOTE_DAEMON"),
         unit_selectors=env.get("RUN_UNIT_SELECTORS"),
         swift_packages=env.get("RUN_SWIFT_PACKAGES"), release_build=env.get("RUN_RELEASE_BUILD"))
-    if on_main:
-        # The side lanes read the pick only on a pull request (ci.yml's
-        # claude-wrapper, remote-daemon.yml); main's keep their own route.
-        plan = dataclasses.replace(plan, side=())
     # What an owned pool must have free for the whole run: its owned-eligible
     # jobs at their peak.
     gui = (env.get("POOL_OWNED_GUI") or "").strip() != "0"
@@ -2297,6 +2331,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # run takes retry_runner. The marker's jobs are the owned machines held.
     owned_slots = slots(env.get("OWNED_SLOTS"), pr_xcode_app)
     gui_label_out = gui_runner(choice, owned_slots)
+    if choice.runner.startswith(f"glaeda-{LIGHT_CLASS}-"):
+        # The light pool's own pick places no universal Release compile; it keeps MACOS_RUNNER_26.
+        plan = dataclasses.replace(plan, side=tuple(key for key in plan.side if key != RELEASE_BUILD_JOB))
     owned_jobs, held = (place(plan, choice.owned_budget, gui, choice.root_budget if choice.root_runner else None,
                               bool(gui_label_out))
                         if persistent(choice.runner) else ((), plan.peak))

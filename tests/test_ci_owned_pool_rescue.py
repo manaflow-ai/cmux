@@ -1218,6 +1218,10 @@ class IOSDispatch(unittest.TestCase):
         self.assertEqual((target.pr_number > 0, target.e2e, target.picker_job), (True, True, "runner"))
         self.assertIsInstance(rescue.target_from_event(
             event(path=".github/workflows/ios-screenshots.yml"), "manaflow-ai/cmux"), str)
+        # The Iroh release gate's runner job places its Tailscale job the same way.
+        path = ".github/workflows/iroh-release-gate.yml"
+        target = rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux")
+        self.assertEqual((target.pr_number, target.e2e, target.picker_job, target.path), (0, True, "runner", path))
         # Signing and streamed validation never take an owned Mac, so they are never watched.
         for path in (".github/workflows/ios-testflight.yml", ".github/workflows/ios-streamed-validate.yml"):
             self.assertIsInstance(rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux"), str)
