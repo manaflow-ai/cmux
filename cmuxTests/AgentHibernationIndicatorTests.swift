@@ -115,9 +115,23 @@ struct AgentHibernationIndicatorTests {
         let snapshot = source.sessionSnapshot(includeScrollback: false)
         try #require(snapshot.panels.contains { $0.terminal?.hibernation != nil })
 
+        let saved = try #require(snapshot.panels.first { $0.terminal?.hibernation != nil })
+        // DIAG(temporary): locate where the restore drops hibernation.
+        #expect(saved.terminal?.agent != nil, "DIAG saved agent")
+        #expect(saved.terminal?.agent?.resumeCommand != nil, "DIAG saved resumeCommand")
+        #expect(saved.terminal?.resumeBinding == nil, "DIAG saved resumeBinding \(String(describing: saved.terminal?.resumeBinding))")
+        #expect(snapshot.focusedPanelId == live.id, "DIAG focused \(String(describing: snapshot.focusedPanelId))")
+
         let restored = Workspace()
         _ = restored.restoreSessionSnapshot(snapshot)
         let restoredPanels = restored.panels.values.compactMap { $0 as? TerminalPanel }
+        #expect(restoredPanels.count == 2, "DIAG restored count \(restoredPanels.count)")
+        for panel in restoredPanels {
+            #expect(panel.id == restored.focusedPanelId || panel.agentHibernationPhase.isSettledHibernation,
+                    "DIAG phase \(panel.agentHibernationPhase) focused=\(panel.id == restored.focusedPanelId) resume=\(String(describing: restored.restoredAgentSnapshotsByPanelId[panel.id]))")
+        }
+        let probe = try #require(restoredPanels.first { $0.id != restored.focusedPanelId })
+        #expect(probe.enterAgentHibernation(agent: state.agent, lastActivityAt: Date()), "DIAG direct enter")
         try #require(restoredPanels.contains { $0.agentHibernationPhase.isSettledHibernation })
         #expect(restored.statusEntries[statusKey] != nil)
     }
