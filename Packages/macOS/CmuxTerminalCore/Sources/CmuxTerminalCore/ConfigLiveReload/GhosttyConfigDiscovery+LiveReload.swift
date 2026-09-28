@@ -68,12 +68,13 @@ extension GhosttyConfigDiscovery {
     /// their resolved target, so dotfile setups that replace the target file
     /// are noticed.
     ///
-    /// Performs file I/O through the injected ``GhosttyConfigFileReading``;
-    /// call it off the main thread.
+    /// Performs file I/O through the injected ``GhosttyConfigFileReading``.
+    /// Call it off the main thread, except alongside Ghostty's own read of the
+    /// same files when a reload records its baseline.
     ///
     /// - Parameters:
     ///   - topLevelPaths: The top-level config candidates, typically
-    ///     ``liveReloadTopLevelPaths(currentBundleIdentifier:appSupportDirectory:)``.
+    ///     ``liveReloadTopLevelPaths(currentBundleIdentifier:appSupportDirectory:configHomeDirectory:)``.
     ///   - configHomeDirectory: The XDG config home (`$XDG_CONFIG_HOME`, or
     ///     `~/.config`) whose `ghostty/themes` directory holds user themes.
     ///   - resolvesSymlinks: Whether to add each file's resolved symlink
