@@ -12,7 +12,8 @@ import SwiftUI
 struct CloudTeamPickerMenuAnchor: NSViewRepresentable {
     @Binding var isPresented: Bool
     let helpText: String
-    let makeMenu: @MainActor () -> NSMenu
+    /// Receives the trigger's window, so follow-up UI lands on the same window.
+    let makeMenu: @MainActor (NSWindow?) -> NSMenu
     let onWillPresent: @MainActor () -> Void
 
     func makeNSView(context: Context) -> CloudTeamPickerMenuAnchorView {
@@ -43,7 +44,7 @@ struct CloudTeamPickerMenuAnchor: NSViewRepresentable {
 /// trigger has a window and a size. A request made while the trigger is
 /// disabled is dropped, as a click would be.
 final class CloudTeamPickerMenuAnchorView: NSView {
-    var makeMenu: (@MainActor () -> NSMenu)?
+    var makeMenu: (@MainActor (NSWindow?) -> NSMenu)?
     var onWillPresent: (@MainActor () -> Void)?
     var onOpen: (@MainActor () -> Void)?
     var onDismiss: (@MainActor () -> Void)?
@@ -137,7 +138,7 @@ final class CloudTeamPickerMenuAnchorView: NSView {
     }
 
     private func present() {
-        guard trackingMenu == nil, let menu = makeMenu?() else { return }
+        guard trackingMenu == nil, let menu = makeMenu?(window) else { return }
         menu.minimumWidth = bounds.width
         menu.userInterfaceLayoutDirection = isRightToLeft ? .rightToLeft : .leftToRight
         trackingMenu = menu

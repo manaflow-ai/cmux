@@ -111,7 +111,7 @@ struct CloudTeamPickerMenuTests {
         let anchor = CloudTeamPickerMenuAnchorView(frame: NSRect(x: 0, y: 0, width: 120, height: 22))
         var menuCount = 0
         var dismissCount = 0
-        anchor.makeMenu = {
+        anchor.makeMenu = { _ in
             menuCount += 1
             return NSMenu()
         }
@@ -143,7 +143,7 @@ struct CloudTeamPickerMenuTests {
         let anchor = CloudTeamPickerMenuAnchorView(frame: NSRect(x: 0, y: 0, width: 120, height: 22))
         window.contentView?.addSubview(anchor)
         let probe = MenuTrackingProbe()
-        anchor.makeMenu = { NSMenu() }
+        anchor.makeMenu = { _ in NSMenu() }
         anchor.trackMenu = { _, _, _ in probe.track() }
 
         anchor.syncPresentation(true)
