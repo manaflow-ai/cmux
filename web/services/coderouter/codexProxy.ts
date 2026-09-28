@@ -316,13 +316,13 @@ async function proxyCodexRequestWith(
     }
     const upstreamStartedAt = performance.now();
     try {
-      upstream = await sendResponses(
+      upstream = replaceUpstreamResponse(upstream, await sendResponses(
         request.clone(),
         forwardedHeaders,
         credential,
         runtime.fetch,
         headersTimeoutMs,
-      );
+      ));
       recordCoderouterSpan({
         name: "upstream_attempt",
         startedAt: upstreamStartedAt,
@@ -382,13 +382,13 @@ async function proxyCodexRequestWith(
             break;
           }
           const retryStartedAt = performance.now();
-          upstream = await sendResponses(
+          upstream = replaceUpstreamResponse(upstream, await sendResponses(
             request.clone(),
             forwardedHeaders,
             refreshed,
             runtime.fetch,
             retryHeadersTimeoutMs,
-          );
+          ));
           recordCoderouterSpan({
             name: "upstream_attempt",
             startedAt: retryStartedAt,
@@ -1130,6 +1130,16 @@ function servesResponses(credential: CodeRouterCredential): credential is Respon
  * public API; an OpenRouter key goes to OpenRouter, whose model catalog is
  * vendor-prefixed, so a bare OpenAI model id is rewritten to `openai/<id>`.
  */
+// Keep the last rejection available until another attempt supplies a response.
+// Once replaced, its body must release its connection even if it never ends.
+// Cleanup must not delay the selected response or turn success into an error.
+function replaceUpstreamResponse(previous: Response | null, replacement: Response): Response {
+  if (previous && previous !== replacement) {
+    void previous.body?.cancel().catch(() => undefined);
+  }
+  return replacement;
+}
+
 async function sendResponses(
   request: Request,
   forwardedHeaders: Headers,
