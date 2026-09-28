@@ -2,6 +2,7 @@ import CmuxMobileBrowser
 import CmuxMobileBrowserStream
 import CmuxMobileShell
 import CmuxMobileShellModel
+import Foundation
 import SwiftUI
 
 #if os(iOS) && DEBUG
@@ -65,7 +66,10 @@ struct WorkspaceDetailCreateDelayedTerminalPreviewView: View {
             return
         }
         delayedTerminalTask = Task { @MainActor in
-            try? await ContinuousClock().sleep(for: .milliseconds(1_500))
+            let milliseconds = Int(
+                ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_DELAY_MS"] ?? ""
+            ) ?? 1_500
+            try? await ContinuousClock().sleep(for: .milliseconds(max(0, milliseconds)))
             guard !Task.isCancelled else { return }
             let terminalID = MobileTerminalPreview.ID(rawValue: "\(workspaceID.rawValue)-terminal-1")
             let updatedWorkspace = MobileWorkspacePreview(

@@ -7466,10 +7466,16 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testWorkspaceDetailToolbarSurvivesDelayedTerminalLifecycle() throws {
-        let app = launchWorkspaceDetailDelayedTerminalPreviewApp()
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_DELAY_MS": "5000",
+        ])
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let titleMenu = workspaceTitleElement(in: app)
         let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+
+        tap(terminalDropdown, in: app)
+        assertTerminalMenuItemDoesNotExist("terminal-delayed", in: app)
+        dismissOpenMenu(in: app)
 
         assertWorkspaceToolbarVisible(
             backButton: backButton,
@@ -7481,7 +7487,7 @@ final class cmuxUITests: XCTestCase {
         assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
         assertToolbarOverflowButtonDoesNotExist(in: app)
 
-        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
+        RunLoop.current.run(until: Date().addingTimeInterval(5.5))
         assertWorkspaceToolbarVisible(
             backButton: backButton,
             titleMenu: titleMenu,
@@ -7495,6 +7501,22 @@ final class cmuxUITests: XCTestCase {
 
         tap(terminalDropdown, in: app)
         assertTerminalMenuItemExists("terminal-delayed", in: app)
+
+        tap(backButton, in: app)
+        let reopenedRow = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-delayed-terminal"
+        ]
+        XCTAssertTrue(reopenedRow.waitForExistence(timeout: 4),
+                      "The delayed-terminal workspace must remain in the list after leaving detail.")
+        tap(reopenedRow, in: app)
+        assertWorkspaceToolbarVisible(
+            backButton: app.buttons["MobileWorkspaceBackButton"],
+            titleMenu: workspaceTitleElement(in: app),
+            terminalDropdown: app.buttons["MobileTerminalDropdown"],
+            in: app,
+            context: "reopened delayed-terminal workspace after native toolbar teardown"
+        )
+        assertToolbarOverflowButtonDoesNotExist(in: app)
     }
 
     @MainActor
@@ -7539,7 +7561,10 @@ final class cmuxUITests: XCTestCase {
             _ = app.buttons["MobileChangesButton"].waitForExistence(timeout: 8)
             // Capture before assertions so a visual regression still leaves usable evidence.
             captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-portrait")
-            if app.navigationBars["MobileWorkspaceNavigationBar"].exists {
+            let navigationBar = app.navigationBars["MobileWorkspaceNavigationBar"]
+            XCTAssertTrue(navigationBar.waitForExistence(timeout: 4),
+                          "Every presentation scenario must render the native workspace navigation bar.")
+            if navigationBar.exists {
                 assertNativeWorkspaceToolbarFits(in: app, includesChanges: true,
                                                  includesAlternateScreen: scenario == "alternate-screen")
                 assertWorkspaceToolbarTitlePresentation(in: app)
@@ -7569,12 +7594,14 @@ final class cmuxUITests: XCTestCase {
             XCUIDevice.shared.orientation = .portrait
             RunLoop.current.run(until: Date().addingTimeInterval(1))
             let picker = app.buttons["MobileTerminalDropdown"]
-            if picker.exists, picker.isHittable {
-                tap(picker, in: app)
-                assertTerminalMenuItemExists("terminal-delayed", in: app)
-                captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-terminal-menu")
-                dismissOpenMenu(in: app)
-            }
+            XCTAssertTrue(picker.waitForExistence(timeout: 4),
+                          "Every presentation scenario must keep the terminal picker visible.")
+            XCTAssertTrue(waitForHittable(picker, timeout: 4),
+                          "Every presentation scenario must keep the terminal picker hittable.")
+            tap(picker, in: app)
+            assertTerminalMenuItemExists("terminal-delayed", in: app)
+            captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-terminal-menu")
+            dismissOpenMenu(in: app)
             app.terminate()
         }
     }
@@ -7642,7 +7669,7 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testWorkspaceDetailToolbarSurvivesCreateWorkspaceDelayedTerminalLifecycle() throws {
-        let app = launchWorkspaceDetailCreateDelayedTerminalPreviewApp()
+        let app = launchWorkspaceDetailCreateDelayedTerminalPreviewApp(delayMilliseconds: 5000)
         let initialTerminalDropdown = app.buttons["MobileTerminalDropdown"]
         tap(initialTerminalDropdown, in: app)
         tapMenuItem(app.buttons["MobileNewWorkspaceMenuItem"], in: app)
@@ -7661,7 +7688,11 @@ final class cmuxUITests: XCTestCase {
         assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
         assertToolbarOverflowButtonDoesNotExist(in: app)
 
-        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
+        tap(terminalDropdown, in: app)
+        assertTerminalMenuItemDoesNotExist("workspace-3-terminal-1", in: app)
+        dismissOpenMenu(in: app)
+
+        RunLoop.current.run(until: Date().addingTimeInterval(5.5))
         assertWorkspaceToolbarVisible(
             backButton: backButton,
             titleMenu: titleMenu,
@@ -7675,6 +7706,20 @@ final class cmuxUITests: XCTestCase {
 
         tap(terminalDropdown, in: app)
         assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
+
+        tap(backButton, in: app)
+        let reopenedRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-3"]
+        XCTAssertTrue(reopenedRow.waitForExistence(timeout: 4),
+                      "The created workspace must remain in the list after leaving detail.")
+        tap(reopenedRow, in: app)
+        assertWorkspaceToolbarVisible(
+            backButton: app.buttons["MobileWorkspaceBackButton"],
+            titleMenu: workspaceTitleElement(in: app),
+            terminalDropdown: app.buttons["MobileTerminalDropdown"],
+            in: app,
+            context: "reopened created workspace after native toolbar teardown"
+        )
+        assertToolbarOverflowButtonDoesNotExist(in: app)
     }
 
     @MainActor
@@ -8443,11 +8488,17 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchWorkspaceDetailCreateDelayedTerminalPreviewApp() -> XCUIApplication {
-        let app = launchApp(mockData: false, environment: [
+    private func launchWorkspaceDetailCreateDelayedTerminalPreviewApp(
+        delayMilliseconds: Int? = nil
+    ) -> XCUIApplication {
+        var environment = [
             "CMUX_UITEST_WORKSPACE_DETAIL_CREATE_DELAYED_TERMINAL": "1",
             "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
-        ])
+        ]
+        if let delayMilliseconds {
+            environment["CMUX_UITEST_WORKSPACE_DETAIL_DELAY_MS"] = "\(delayMilliseconds)"
+        }
+        let app = launchApp(mockData: false, environment: environment)
         if !workspaceTitleElement(in: app).waitForExistence(timeout: 4) {
             let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
             XCTAssertTrue(row.waitForExistence(timeout: 8))
@@ -8678,6 +8729,21 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(
             item.waitForExistence(timeout: 4),
             "Expected terminal menu to contain \(terminalID).",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func assertTerminalMenuItemDoesNotExist(
+        _ terminalID: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertFalse(
+            app.buttons["MobileTerminalMenuItem-\(terminalID)"].waitForExistence(timeout: 1),
+            "Expected terminal menu to exclude \(terminalID) before delayed injection.",
             file: file,
             line: line
         )

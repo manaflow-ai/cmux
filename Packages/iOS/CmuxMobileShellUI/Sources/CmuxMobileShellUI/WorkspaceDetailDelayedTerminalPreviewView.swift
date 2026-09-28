@@ -66,7 +66,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
                 return
             }
 
-            try? await ContinuousClock().sleep(for: .milliseconds(1_500))
+            try? await ContinuousClock().sleep(for: Self.terminalInjectionDelay)
             guard !Task.isCancelled else { return }
             let workspace = MobileWorkspacePreview(
                 id: Self.workspaceID,
@@ -93,6 +93,13 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
 
     private static var showsToolbarComparison: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_TOOLBAR_COMPARISON"] == "1"
+    }
+
+    private static var terminalInjectionDelay: ContinuousClock.Duration {
+        let milliseconds = Int(
+            ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_DELAY_MS"] ?? ""
+        ) ?? 1_500
+        return .milliseconds(max(0, milliseconds))
     }
 
     private func deliverToolbarComparisonFrame() async {
