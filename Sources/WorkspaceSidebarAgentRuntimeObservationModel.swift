@@ -64,6 +64,39 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
         notifyChanged()
     }
 
+    @discardableResult
+    func setAgentLifecycle(
+        key: String,
+        panelId: UUID,
+        lifecycle: AgentHibernationLifecycleState
+    ) -> Bool {
+        guard agentLifecycleStatesByPanelId[panelId]?[key] != lifecycle else { return false }
+        agentLifecycleStatesByPanelId[panelId, default: [:]][key] = lifecycle
+        notifyChanged()
+        return true
+    }
+
+    @discardableResult
+    func clearAgentLifecycle(key: String, panelId: UUID) -> Bool {
+        guard agentLifecycleStatesByPanelId[panelId]?.removeValue(forKey: key) != nil else {
+            return false
+        }
+        if agentLifecycleStatesByPanelId[panelId]?.isEmpty == true {
+            agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
+        }
+        notifyChanged()
+        return true
+    }
+
+    @discardableResult
+    func removeAgentLifecycleStates(panelId: UUID) -> [String: AgentHibernationLifecycleState]? {
+        guard let removed = agentLifecycleStatesByPanelId.removeValue(forKey: panelId) else {
+            return nil
+        }
+        notifyChanged()
+        return removed
+    }
+
     private func notifyChanged() {
         changeGeneration &+= 1
         // Termination cleanup arrives through a separate MainActor task. If

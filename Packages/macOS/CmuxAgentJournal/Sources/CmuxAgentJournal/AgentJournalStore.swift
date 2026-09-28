@@ -96,63 +96,109 @@ public final class AgentJournalStore: @unchecked Sendable {
         let committedAtMs = Int64(committedAt.timeIntervalSince1970 * 1000)
         return try withDatabase { database in
             try database.transaction {
-                if let existing = try Self.lookupByEventId(database, eventId: draft.eventId) {
-                    guard existing.draft == draft else {
-                        throw AgentJournalStoreError.idempotencyConflict(
-                            "event id \(draft.eventId) was retried with different content"
-                        )
-                    }
-                    return AgentJournalAppendOutcome(
-                        sequence: existing.sequence,
-                        committedAtMs: existing.committedAtMs,
-                        replayed: true
-                    )
-                }
-                try database.exec(
-                    """
-                    INSERT INTO agent_journal(
-                        event_id, schema_version, kind, occurred_at_ms, committed_at_ms,
-                        source, agent_key, session_id, workspace_id, surface_id,
-                        unattributed_reason, is_subagent, pending_work, native_event,
-                        declared_phase, detail
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16);
-                    """,
-                    binding: [
-                        .text(draft.eventId),
-                        .int(Int64(draft.schemaVersion)),
-                        .text(draft.kind.rawValue),
-                        .int(draft.occurredAtMs),
-                        .int(committedAtMs),
-                        .text(draft.source),
-                        .text(draft.agentKey),
-                        .optionalText(draft.sessionId),
-                        .optionalText(draft.workspaceId),
-                        .optionalText(draft.surfaceId),
-                        .optionalText(draft.unattributedReason),
-                        .int(draft.isSubagent ? 1 : 0),
-                        .int(draft.pendingWork ? 1 : 0),
-                        .optionalText(draft.nativeEvent),
-                        .optionalText(draft.declaredPhase?.rawValue),
-                        .optionalText(draft.detail),
-                    ]
-                )
-                guard let sequence = try Self.scalarInt64(
+                try Self.appendValidated(draft, committedAtMs: committedAtMs, database: database)
+            }
+        }
+    }
+
+    /// Appends an event only while the journal still has the expected head.
+    ///
+    /// The head comparison and append share one SQLite transaction. Callers
+    /// can therefore reconcile through a known sequence and append a derived
+    /// event without overtaking a concurrently committed producer event.
+    ///
+    /// - Parameters:
+    ///   - draft: The event to append.
+    ///   - expectedHeadSequence: Head sequence already reconciled by the caller.
+    ///   - committedAt: Commit timestamp source (injectable for tests).
+    /// - Returns: The durable outcome, or `nil` when another event committed
+    ///   after `expectedHeadSequence`.
+    /// - Throws: The same validation, idempotency, and storage errors as
+    ///   ``append(_:committedAt:)``.
+    public func append(
+        _ draft: AgentJournalEventDraft,
+        ifHeadSequence expectedHeadSequence: Int64,
+        committedAt: Date = Date()
+    ) throws -> AgentJournalAppendOutcome? {
+        if let problem = draft.validationProblem() {
+            throw AgentJournalStoreError.invalidDraft(problem)
+        }
+        let committedAtMs = Int64(committedAt.timeIntervalSince1970 * 1000)
+        return try withDatabase { database in
+            try database.transaction {
+                let head = try Self.scalarInt64(
                     database,
-                    "SELECT sequence FROM agent_journal WHERE event_id = ?1;",
-                    binding: [.text(draft.eventId)]
-                ) else {
-                    // The insert happened in this same transaction; a missing
-                    // sequence is a storage fault, never a receipt.
-                    throw AgentJournalStoreError.stepFailed(0, "committed row has no sequence")
-                }
-                try Self.writeAttention(database, eventId: draft.eventId, attention: draft.attention)
-                return AgentJournalAppendOutcome(
-                    sequence: sequence,
+                    "SELECT COALESCE(MAX(sequence), 0) FROM agent_journal;",
+                    binding: []
+                ) ?? 0
+                guard head == expectedHeadSequence else { return nil }
+                return try Self.appendValidated(
+                    draft,
                     committedAtMs: committedAtMs,
-                    replayed: false
+                    database: database
                 )
             }
         }
+    }
+
+    private static func appendValidated(
+        _ draft: AgentJournalEventDraft,
+        committedAtMs: Int64,
+        database: AgentJournalDatabase
+    ) throws -> AgentJournalAppendOutcome {
+        if let existing = try lookupByEventId(database, eventId: draft.eventId) {
+            guard existing.draft == draft else {
+                throw AgentJournalStoreError.idempotencyConflict(
+                    "event id \(draft.eventId) was retried with different content"
+                )
+            }
+            return AgentJournalAppendOutcome(
+                sequence: existing.sequence,
+                committedAtMs: existing.committedAtMs,
+                replayed: true
+            )
+        }
+        try database.exec(
+            """
+            INSERT INTO agent_journal(
+                event_id, schema_version, kind, occurred_at_ms, committed_at_ms,
+                source, agent_key, session_id, workspace_id, surface_id,
+                unattributed_reason, is_subagent, pending_work, native_event,
+                declared_phase, detail
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16);
+            """,
+            binding: [
+                .text(draft.eventId),
+                .int(Int64(draft.schemaVersion)),
+                .text(draft.kind.rawValue),
+                .int(draft.occurredAtMs),
+                .int(committedAtMs),
+                .text(draft.source),
+                .text(draft.agentKey),
+                .optionalText(draft.sessionId),
+                .optionalText(draft.workspaceId),
+                .optionalText(draft.surfaceId),
+                .optionalText(draft.unattributedReason),
+                .int(draft.isSubagent ? 1 : 0),
+                .int(draft.pendingWork ? 1 : 0),
+                .optionalText(draft.nativeEvent),
+                .optionalText(draft.declaredPhase?.rawValue),
+                .optionalText(draft.detail),
+            ]
+        )
+        guard let sequence = try scalarInt64(
+            database,
+            "SELECT sequence FROM agent_journal WHERE event_id = ?1;",
+            binding: [.text(draft.eventId)]
+        ) else {
+            throw AgentJournalStoreError.stepFailed(0, "committed row has no sequence")
+        }
+        try writeAttention(database, eventId: draft.eventId, attention: draft.attention)
+        return AgentJournalAppendOutcome(
+            sequence: sequence,
+            committedAtMs: committedAtMs,
+            replayed: false
+        )
     }
 
     /// Reads one page of committed events in sequence order.

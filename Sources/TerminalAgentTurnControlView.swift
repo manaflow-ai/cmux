@@ -12,10 +12,12 @@ final class TerminalAgentTurnControlView: NSView {
 
     private let backdrop = NSVisualEffectView(frame: .zero)
     private let stopButton = TerminalAgentTurnControlButton(frame: .zero)
+    private let clock: any Clock<Duration>
     private(set) var target: AgentTurnInterruptTarget?
     /// How long Stop stays disabled after a click.
-    static let stopHoldInterval: TimeInterval = 1.5
+    static let stopHoldInterval: Duration = .milliseconds(1_500)
     private var stopHoldGeneration: UInt64 = 0
+    private var stopHoldTask: Task<Void, Never>?
     private var isEnabledBySetting = false
     /// Registered only while an agent is running, so toggling the setting
     /// mid-turn applies at once without every idle terminal observing defaults.
@@ -28,7 +30,12 @@ final class TerminalAgentTurnControlView: NSView {
         return hit === stopButton || hit.isDescendant(of: stopButton) ? hit : nil
     }
 
-    override init(frame frameRect: NSRect) {
+    override convenience init(frame frameRect: NSRect) {
+        self.init(frame: frameRect, clock: ContinuousClock())
+    }
+
+    init(frame frameRect: NSRect, clock: any Clock<Duration>) {
+        self.clock = clock
         super.init(frame: frameRect)
         isHidden = true
 
@@ -73,6 +80,7 @@ final class TerminalAgentTurnControlView: NSView {
     }
 
     deinit {
+        stopHoldTask?.cancel()
         if let settingsObserver {
             NotificationCenter.default.removeObserver(settingsObserver)
         }
@@ -86,6 +94,8 @@ final class TerminalAgentTurnControlView: NSView {
         observeSetting(target != nil)
         if target != self.target {
             stopHoldGeneration &+= 1
+            stopHoldTask?.cancel()
+            stopHoldTask = nil
             stopButton.isEnabled = true
         }
         self.target = target
@@ -133,11 +143,6 @@ final class TerminalAgentTurnControlView: NSView {
         isHidden = false
     }
 
-    /// Clicks Stop the way the user would, for tests.
-    func clickStopForTesting() {
-        stopButton.performClick(nil)
-    }
-
     @objc private func handleStop() {
         guard let target, isEnabledBySetting, stopButton.isEnabled else { return }
         // One Escape per click: a second Escape at Claude's idle prompt opens
@@ -145,21 +150,19 @@ final class TerminalAgentTurnControlView: NSView {
         stopButton.isEnabled = false
         let generation = stopHoldGeneration &+ 1
         stopHoldGeneration = generation
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.stopHoldInterval) { [weak self] in
-            guard let self, self.stopHoldGeneration == generation else { return }
+        stopHoldTask?.cancel()
+        let clock = clock
+        stopHoldTask = Task { @MainActor [weak self, clock] in
+            do {
+                try await clock.sleep(for: Self.stopHoldInterval)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  let self,
+                  self.stopHoldGeneration == generation else { return }
             self.stopButton.isEnabled = true
         }
         onInterrupt?(target)
-    }
-}
-
-private final class TerminalAgentTurnControlButton: NSButton {
-    override var acceptsFirstResponder: Bool { false }
-
-    /// Stop works on the first click even when the window isn't key.
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
     }
 }

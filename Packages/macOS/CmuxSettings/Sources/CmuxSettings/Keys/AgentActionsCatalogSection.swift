@@ -12,5 +12,6 @@ public struct AgentActionsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "agentActionsTurnControlEnabled"
     )
 
+    /// Creates the agent-actions settings catalog section.
     public init() {}
 }

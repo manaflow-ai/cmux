@@ -18,7 +18,7 @@ extension DockSplitStore {
         managedAgentResumeBindingsByPanelId.removeValue(forKey: panelId)
         invalidatedCachedTransferAgentSessionPanelIds.remove(panelId)
         replacedCachedTransferAgentSessionPanelIds.remove(panelId)
-        agentRuntimeByPanelId.removeValue(forKey: panelId)
+        replaceAgentRuntime(nil, panelId: panelId)
         syncAgentNeedsInputAttention(panelId: panelId, runtime: nil)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
     }
@@ -169,11 +169,7 @@ extension DockSplitStore {
                 restore: deferredRestore
             )
         }
-        if let runtime = detached.agentRuntime {
-            agentRuntimeByPanelId[detached.panelId] = runtime
-        } else {
-            agentRuntimeByPanelId.removeValue(forKey: detached.panelId)
-        }
+        replaceAgentRuntime(detached.agentRuntime, panelId: detached.panelId)
         syncAgentNeedsInputAttention(
             panelId: detached.panelId,
             runtime: detached.agentRuntime
@@ -374,9 +370,9 @@ extension DockSplitStore {
             || !runtime.agentPIDKeys.isEmpty
             || !runtime.agentLifecycleStates.isEmpty
         if shouldKeep {
-            agentRuntimeByPanelId[panelId] = runtime
+            replaceAgentRuntime(runtime, panelId: panelId)
         } else {
-            agentRuntimeByPanelId.removeValue(forKey: panelId)
+            replaceAgentRuntime(nil, panelId: panelId)
         }
         if var transfer = detachedSurfaceTransfersByPanelId[panelId] {
             transfer.agentRuntime = shouldKeep ? runtime : nil
@@ -387,6 +383,33 @@ extension DockSplitStore {
                 panelId: panelId,
                 runtime: shouldKeep ? runtime : nil
             )
+        }
+    }
+
+    func replaceAgentRuntime(
+        _ runtime: Workspace.DetachedAgentRuntimeState?,
+        panelId: UUID
+    ) {
+        let previousLifecycle = agentRuntimeByPanelId[panelId]?.agentLifecycleStates
+        if let runtime {
+            agentRuntimeByPanelId[panelId] = runtime
+        } else {
+            agentRuntimeByPanelId.removeValue(forKey: panelId)
+        }
+        guard previousLifecycle != runtime?.agentLifecycleStates else { return }
+        (panels[panelId] as? TerminalPanel)?.refreshAgentTurnControl()
+    }
+
+    func replaceAgentRuntimes(
+        _ runtimes: [UUID: Workspace.DetachedAgentRuntimeState]
+    ) {
+        let previous = agentRuntimeByPanelId
+        agentRuntimeByPanelId = runtimes
+        let changedPanelIds = Set(previous.keys).union(runtimes.keys).filter {
+            previous[$0]?.agentLifecycleStates != runtimes[$0]?.agentLifecycleStates
+        }
+        for panelId in changedPanelIds {
+            (panels[panelId] as? TerminalPanel)?.refreshAgentTurnControl()
         }
     }
 

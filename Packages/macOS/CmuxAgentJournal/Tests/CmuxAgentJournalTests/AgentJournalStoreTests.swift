@@ -69,6 +69,39 @@ struct AgentJournalStoreTests {
         store.close()
     }
 
+    @Test func conditionalAppendRejectsAStaleCommittedHead() throws {
+        try withStore { store, _ in
+            let first = try store.append(draft(eventId: "turn-started"))
+            _ = try store.append(draft(eventId: "pre-tool-use"))
+
+            let stale = try store.append(
+                draft(eventId: "user-interrupt", kind: .turnCompleted),
+                ifHeadSequence: first.sequence
+            )
+
+            #expect(stale == nil)
+            #expect(try store.headSequence() == 2)
+            #expect(
+                try store.events(afterSequence: 0, limit: 10).map(\.draft.eventId)
+                    == ["turn-started", "pre-tool-use"]
+            )
+        }
+    }
+
+    @Test func conditionalAppendCommitsAtTheCurrentHead() throws {
+        try withStore { store, _ in
+            let first = try store.append(draft(eventId: "turn-started"))
+
+            let appended = try store.append(
+                draft(eventId: "user-interrupt", kind: .turnCompleted),
+                ifHeadSequence: first.sequence
+            )
+
+            #expect(appended?.sequence == 2)
+            #expect(try store.headSequence() == 2)
+        }
+    }
+
     @Test func appendRejectsSameIdWithDifferentContent() throws {
         let (store, url) = try makeStore()
         defer {
