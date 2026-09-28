@@ -265,6 +265,29 @@ struct WorktreeSeedApplierTests {
         #expect(report.failed.isEmpty)
     }
 
+    @Test func aDanglingSourceSymlinkIsCopiedAsALinkNode() throws {
+        let source = try WorktreeSeedTemporaryTree("source")
+        let destination = try WorktreeSeedTemporaryTree("destination")
+        try FileManager.default.createSymbolicLink(
+            atPath: source.root.appendingPathComponent("local-config").path,
+            withDestinationPath: "missing-config"
+        )
+
+        let seedPlan = plan("local-config", in: source)
+        #expect(seedPlan.copies.map(\.relativePath) == ["local-config"])
+        let report = WorktreeSeedApplier().apply(
+            seedPlan,
+            from: source.root,
+            to: destination.root
+        )
+
+        #expect(report.copied == ["local-config"])
+        #expect(report.failed.isEmpty)
+        #expect(try FileManager.default.destinationOfSymbolicLink(
+            atPath: destination.root.appendingPathComponent("local-config").path
+        ) == "missing-config")
+    }
+
     @Test func aDestinationSymlinkAncestorCannotRedirectACopy() throws {
         let source = try WorktreeSeedTemporaryTree("source")
         let destination = try WorktreeSeedTemporaryTree("destination")

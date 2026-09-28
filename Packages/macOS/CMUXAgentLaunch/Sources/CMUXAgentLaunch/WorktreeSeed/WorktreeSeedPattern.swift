@@ -159,7 +159,18 @@ extension WorktreeSeedPattern {
         }
         if sawKeyword, isNegated { return problem(.negatedActionKeyword) }
 
-        if rest.hasPrefix("\\") { rest = rest.dropFirst() }
+        if rest.hasPrefix("\\") {
+            let escaped = rest.dropFirst()
+            if escaped.isEmpty { return problem(.emptyPattern) }
+            let escapesParserPrefix = escaped.hasPrefix("!")
+                || escaped.hasPrefix("#")
+                || WorktreeSeedAction.allCases.contains { candidate in
+                    guard escaped.hasPrefix(candidate.rawValue) else { return false }
+                    let after = escaped.dropFirst(candidate.rawValue.count)
+                    return after.first == " " || after.first == "\t"
+                }
+            if escapesParserPrefix { rest = escaped }
+        }
 
         if rest.hasPrefix("/") { return problem(.leadingSlash) }
         if rest.hasPrefix("~") { return problem(.homeRelative) }

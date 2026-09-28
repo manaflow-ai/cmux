@@ -286,4 +286,12 @@ struct WorktreeSeedPlannerTests {
         let plan = plan("star\\*name", repository)
         #expect(plan.entries.map(\.relativePath) == ["star*name"])
     }
+
+    @Test func aLeadingEscapedMetacharacterStaysLiteral() {
+        let repository = WorktreeSeedFakeRepository([
+            "*.env", "prod.env", "?.secret", "a.secret",
+        ])
+        let plan = plan("\\*.env\n\\?.secret\n", repository)
+        #expect(plan.entries.map(\.relativePath) == ["*.env", "?.secret"])
+    }
 }

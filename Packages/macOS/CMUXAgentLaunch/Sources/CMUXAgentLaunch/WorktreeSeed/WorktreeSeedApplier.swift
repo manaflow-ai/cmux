@@ -78,7 +78,7 @@ public struct WorktreeSeedApplier: Sendable {
                 )
                 continue
             }
-            guard fileManager.fileExists(atPath: from.path) else {
+            guard fileExistsWithoutFollowingLinks(from) else {
                 report.failed.append(
                     WorktreeSeedFailure(relativePath: entry.relativePath, reason: "no longer in the repository")
                 )
