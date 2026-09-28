@@ -1265,6 +1265,7 @@ function finishBaseCreate(
     const creditReservation = yield* reserveCreateCredit(billing, repo, {
       ...input,
       idempotencyKey,
+      baseGeneration: { baseId: create.base.id, generation: create.generation.generation },
     }, create.vm);
     yield* recordCreateRequestedEvents(repo, {
       ...input,
@@ -4279,9 +4280,33 @@ function reserveCreateCredit(
     readonly imageVersion?: string | null;
     readonly idempotencyKey?: string;
     readonly timing?: VmTimingSink;
+    /**
+     * Set by the Base flow. createVm and forkVm own a plain row, so failing it
+     * is the whole rollback. A Base row is also claimed by a base and a
+     * generation, and only markBaseCreateFailed releases those; marking it with
+     * the ad-hoc path leaves the base "resetting" and its generation
+     * "creating", which makes every later open and reset 409 forever. The
+     * abandonment sweeper cannot recover it either, because it matches only
+     * provisioning rows with no failure code.
+     */
+    readonly baseGeneration?: {
+      readonly baseId: string;
+      readonly generation: number;
+    };
   },
   vm: CloudVmRow,
 ) {
+  const markCreateFailed = (code: string, message: string) =>
+    input.baseGeneration
+      ? repo.markBaseCreateFailed({
+        baseId: input.baseGeneration.baseId,
+        generation: input.baseGeneration.generation,
+        vmId: vm.id,
+        userId: input.userId,
+        code,
+        message,
+      })
+      : repo.markCreateFailed({ id: vm.id, code, message });
   return measureVmEffect(
     input.timing,
     "billing",
@@ -4318,13 +4343,12 @@ function reserveCreateCredit(
       }).pipe(
         Effect.tapError((err) =>
           Effect.all([
-            recordCreateFailureAfterMark(repo, repo.markCreateFailed({
-              id: vm.id,
-              code: isVmCreateCreditsInsufficientError(err)
+            recordCreateFailureAfterMark(repo, markCreateFailed(
+              isVmCreateCreditsInsufficientError(err)
                 ? "billing_credits_insufficient"
                 : "billing_reserve_failed",
-              message: errorMessage(err),
-            }), {
+              errorMessage(err),
+            ), {
               userId: input.userId,
               billingTeamId: input.billingTeamId,
               billingPlanId: input.billingPlanId,

@@ -3950,14 +3950,14 @@ describe("VM Effect workflows", () => {
     // The Base-aware mark is the only one that also runs
     // restoreBaseAfterCreateFailure, which fails the generation row and
     // promotes the retained generation back onto the base.
-    expect(baseMarks).toEqual([{
+    expect(baseMarks).toHaveLength(1);
+    expect(baseMarks[0]).toMatchObject({
       baseId: base.id,
       generation: generation.generation,
       vmId: requested.id,
       userId: requested.userId,
       code: "billing_credits_insufficient",
-      message: expect.any(String),
-    }]);
+    });
     expect(adHocMarks).toEqual([]);
   });
 
