@@ -1,6 +1,7 @@
 import { inArray } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
+import { runWithCloudDbQuerySignal } from "../../db/queryScope";
 import { stackIdentitySnapshots } from "../../db/schema";
 
 /**
@@ -44,6 +45,13 @@ export function creatorUserIds(
 type CreatorDb = Pick<ReturnType<typeof cloudDb>, "select">;
 
 /**
+ * How long the list waits for names before answering without them. The read
+ * is one indexed lookup; anything slower is a stalled connection, and names
+ * are not worth holding the machine list for.
+ */
+export const CREATOR_LOOKUP_TIMEOUT_MS = 2_000;
+
+/**
  * Display names for the accounts that made these machines.
  *
  * This reads `stack_identity_snapshots` with no freshness bound, unlike
@@ -63,6 +71,11 @@ type CreatorDb = Pick<ReturnType<typeof cloudDb>, "select">;
  *
  * A read failure returns an empty map. A list without authors is the behavior
  * that shipped before this, so it is never worth failing the request over.
+ * The same holds for a slow read: the lookup is bounded by `timeoutMs`, after
+ * which the query is cancelled through the driver and the request continues
+ * with no names. The wait is raced against the deadline as well as cancelled,
+ * because a cancel packet on a stalled connection does not settle the query
+ * promptly on its own.
  * The caller records how many names came back as a span attribute, because a
  * migration lagging in one environment is otherwise indistinguishable from
  * nobody having set a name.
@@ -70,26 +83,41 @@ type CreatorDb = Pick<ReturnType<typeof cloudDb>, "select">;
 export async function readCreatorDisplayNames(
   userIds: readonly string[],
   db?: CreatorDb,
+  timeoutMs: number = CREATOR_LOOKUP_TIMEOUT_MS,
 ): Promise<Map<string, string>> {
   const names = new Map<string, string>();
   if (userIds.length === 0) return names;
+  const signal = AbortSignal.timeout(timeoutMs);
+  let onAbort: (() => void) | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
   try {
-    const rows = await (db ?? cloudDb())
-      .select({
-        userId: stackIdentitySnapshots.userId,
-        displayName: stackIdentitySnapshots.displayName,
-      })
-      .from(stackIdentitySnapshots)
-      .where(inArray(stackIdentitySnapshots.userId, [...userIds]));
+    const query = runWithCloudDbQuerySignal(signal, async () =>
+      (db ?? cloudDb())
+        .select({
+          userId: stackIdentitySnapshots.userId,
+          displayName: stackIdentitySnapshots.displayName,
+        })
+        .from(stackIdentitySnapshots)
+        .where(inArray(stackIdentitySnapshots.userId, [...userIds])),
+    );
+    // The losing side of the race must not surface as an unhandled rejection.
+    query.catch(() => undefined);
+    const rows = await Promise.race([query, deadline]);
     for (const row of rows) {
       const name = row.displayName?.trim();
       if (name) names.set(row.userId, name);
     }
   } catch {
     return new Map();
+  } finally {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
   }
   return names;
 }
+
 
 /**
  * Adds the caller's own name to a name map.

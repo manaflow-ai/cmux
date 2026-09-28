@@ -4,6 +4,7 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import { currentCloudDbQuerySignal } from "../db/queryScope";
 import { stackIdentitySnapshots } from "../db/schema";
 import {
   VmRepository,
@@ -159,6 +160,26 @@ describe("cloud machine creator metadata", () => {
     // snapshot read must never take the whole list down with it.
     const names = await readCreatorDisplayNames(["user-a"], throwingSelectDb());
     expect(names.size).toBe(0);
+  });
+
+  test("readCreatorDisplayNames gives up on a stalled read and cancels it", async () => {
+    // A stalled snapshot read must not hold the machine list. The query runs
+    // under a signal the driver cancels on, and the wait ends at the deadline
+    // even if the cancellation itself never settles the query.
+    let querySignal: AbortSignal | undefined;
+    const stalledDb = {
+      select: () => ({
+        from: () => ({
+          where: () => {
+            querySignal = currentCloudDbQuerySignal();
+            return new Promise(() => undefined);
+          },
+        }),
+      }),
+    } as unknown as Parameters<typeof readCreatorDisplayNames>[1];
+    const names = await readCreatorDisplayNames(["user-a"], stalledDb, 10);
+    expect(names.size).toBe(0);
+    expect(querySignal?.aborted).toBe(true);
   });
 
   test("creatorFor publishes the account id with its name", () => {
