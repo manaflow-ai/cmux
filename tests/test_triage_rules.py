@@ -113,6 +113,76 @@ class AreaTests(unittest.TestCase):
         self.assertTrue(result.needs_triage or result.areas)
 
 
+class DeclaredAreaTests(unittest.TestCase):
+    """A title that names its own area up front beats scoring the rest of it."""
+
+    def test_scope_prefix_wins_over_a_tie_in_the_rest_of_the_title(self):
+        # Without the prefix this ties agents (Codex) against workspaces.
+        result = RULES.classify(
+            "Cloud: Codex TUI garbled again after restoring a Cloud workspace", ""
+        )
+        self.assertEqual(result.areas, ["area: cloud"])
+        self.assertFalse(result.needs_triage)
+
+    def test_scope_prefix_works_when_the_scoring_pattern_wants_a_qualifier(self):
+        # `area: cloud` scores only on "cloud machine", "cloud workspace" and
+        # friends, which a bare `Cloud:` prefix never supplies.
+        self.assertEqual(RULES.score_areas("Cloud: ports VPN state messaging", ""), {})
+        self.assertEqual(
+            RULES.classify("Cloud: ports VPN state messaging", "").areas, ["area: cloud"]
+        )
+
+    def test_leading_subject_counts_when_nothing_else_matches(self):
+        result = RULES.classify("Terminal jitters when toggling between tabs", "")
+        self.assertEqual(result.areas, ["area: terminal"])
+
+    def test_leading_subject_does_not_override_a_clear_scoring_winner(self):
+        # "Sidebar" leads, but the title is scored on its own terms and the
+        # subject shape is only a fallback, so both areas survive.
+        result = RULES.classify("Sidebar shows Running after a Claude Code turn ends", "")
+        self.assertEqual(sorted(result.areas), ["area: agents", "area: sidebar"])
+
+    def test_an_enumeration_beats_the_subject_shape(self):
+        # `declared_area` alone does read the leading word here, so the guard
+        # has to be the one in `pick_areas`: a title that scores several areas
+        # at title weight goes to a person, declaration or not.
+        title = "Sidebar, splits, ssh, cloud machines and the iOS app all need a rethink"
+        self.assertEqual(RULES.declared_area(title), "area: sidebar")
+        self.assertGreater(len(RULES.score_areas(title, "")), 2)
+        self.assertEqual(RULES.classify(title, "").areas, [])
+
+    def test_two_areas_in_the_prefix_declare_neither(self):
+        self.assertIsNone(RULES.declared_area("Terminal paste: drops characters"))
+
+    def test_prefix_only_ignores_the_subject_shape(self):
+        title = "Terminal jitters when toggling between tabs"
+        self.assertEqual(RULES.declared_area(title), "area: terminal")
+        self.assertIsNone(RULES.declared_area(title, prefix_only=True))
+
+    def test_a_channel_name_is_not_an_area(self):
+        # "NIGHTLY" and "Install" name where a bug happens or what it is called,
+        # not `area: updates`, so they stay out of the declaration vocabulary.
+        self.assertIsNone(RULES.declared_area("NIGHTLY hangs: CmuxEventBus.publish blocks"))
+        self.assertIsNone(
+            RULES.declared_area("Regression: Install and Relaunch no longer relaunches")
+        )
+
+    def test_every_area_can_be_declared_by_its_own_name(self):
+        # A reporter who types the area label's own noun as a scope prefix
+        # should land on that area. This is the check that caught 10 areas
+        # whose scoring pattern needs a qualifier the prefix does not have.
+        words = {
+            "area: build-and-ci": "CI",
+            "area: command-palette": "Command palette",
+            "area: ios": "iOS",
+            "area: cli": "CLI",
+        }
+        for area, _pattern in RULES.AREA_RULES:
+            word = words.get(area, area.removeprefix(RULES.AREA_PREFIX))
+            with self.subTest(area=area):
+                self.assertEqual(RULES.declared_area(f"{word}: something is wrong"), area)
+
+
 class OverrideTests(unittest.TestCase):
     def test_existing_severity_counts_as_triaged(self):
         self.assertEqual(

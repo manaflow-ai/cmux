@@ -158,6 +158,8 @@ AREA_RULES: list[tuple[str, re.Pattern[str]]] = [
 BODY_WEIGHT_CHARS = 1200
 TITLE_WEIGHT = 3
 BODY_WEIGHT = 1
+# How far into a title to look for an area named as the subject.
+SUBJECT_CHARS = 24
 
 BUG_WORDS = re.compile(
     r"\b(bug|broken|break(?:s|ing)?|fail(?:s|ed|ing|ure)?|error(?:s)?|crash(?:es|ed|ing)?"
@@ -326,21 +328,97 @@ def score_areas(title: str, body: str) -> dict[str, int]:
     return scores
 
 
-def pick_areas(scores: dict[str, int], *, limit: int = 2) -> list[str]:
+# Words that name an area when they lead the title, used only by
+# `declared_area`. Several scoring patterns want a qualifier on purpose
+# (`cloud machine`, not every passing "cloud"), which a scope prefix like
+# `Cloud:` never supplies. Deliberately left out: `nightly`, `release`, `build`
+# and `install`, which name the channel or the feature an issue happens in far
+# more often than they name its area ("NIGHTLY hangs: ...", "Install and
+# Relaunch no longer relaunches").
+DECLARED_WORDS: dict[str, tuple[str, ...]] = {
+    "area: terminal": ("terminal", "ghostty", "scrollback", "escape sequence"),
+    "area: input": ("input", "keyboard", "keybinding", "shortcut", "clipboard", "paste", "ime"),
+    "area: cloud": ("cloud",),
+    "area: remote": ("remote", "ssh"),
+    "area: updates": ("updates", "installer", "homebrew", "sparkle"),
+    "area: auth": ("auth", "login", "sign-in", "signin", "billing"),
+    "area: performance": ("performance", "perf", "latency"),
+    "area: localization": ("localization", "l10n", "i18n", "translation", "translations"),
+    "area: accessibility": ("accessibility", "a11y", "voiceover"),
+    "area: docs": ("docs", "documentation", "readme"),
+    "area: build-and-ci": ("ci",),
+}
+DECLARED_RULES: list[tuple[str, re.Pattern[str]]] = [
+    (area, re.compile(r"\b(?:" + "|".join(re.escape(w) for w in words) + r")\b", re.I))
+    for area, words in DECLARED_WORDS.items()
+]
+
+
+def declared_area(title: str, *, prefix_only: bool = False) -> str | None:
+    """The area the title names up front, if it names exactly one.
+
+    Two shapes count, and both are the reporter telling us the area rather than
+    us inferring it from a word that happens to appear:
+
+        Cloud: Codex TUI garbled after restoring a workspace
+        Browser panes lose page state after being hidden
+
+    The first is a scope prefix, an explicit declaration, and it wins outright.
+    The second opens with the area as the subject of the sentence, which is
+    weaker (the sentence has to start somewhere) so it only breaks a tie.
+    `prefix_only` asks for the explicit shape alone.
+
+    Either way, two areas in the opening means no declaration at all:
+    `len(hits) == 1` is the whole safeguard, and a prefix like
+    `Terminal paste:` names two areas, so it declares neither.
+    """
+    prefix = SCOPE_PREFIX.match(title)
+    if prefix:
+        scope = title[: prefix.end()]
+        hits = {
+            area
+            for area, pattern in (*AREA_RULES, *DECLARED_RULES)
+            if pattern.search(scope)
+        }
+        return hits.pop() if len(hits) == 1 else None
+    if prefix_only:
+        return None
+    # No scope prefix, so the area has to be the first thing in the title.
+    head = title.lstrip()[:SUBJECT_CHARS]
+    hits = {
+        area
+        for area, pattern in (*AREA_RULES, *DECLARED_RULES)
+        if (match := pattern.search(head)) and match.start() == 0
+    }
+    return hits.pop() if len(hits) == 1 else None
+
+
+def pick_areas(scores: dict[str, int], *, limit: int = 2, title: str = "") -> list[str]:
     """Take the top area, plus a second only when it ties the top.
 
     A guess that is wrong costs more than no guess: a wrong `area:` label sends
-    the issue to a person who then has to hand it back.
+    the issue to a person who then has to hand it back. The exception is a
+    title that declares its own area, which beats the words scattered through
+    the rest of it.
     """
-    if not scores:
-        return []
+    explicit = declared_area(title, prefix_only=True)
+    if explicit:
+        return [explicit]
     ranked = sorted(scores.items(), key=lambda pair: (-pair[1], pair[0]))
-    top_score = ranked[0][1]
+    top_score = ranked[0][1] if ranked else 0
     if top_score < TITLE_WEIGHT:
-        # Body-only evidence. One passing mention of `ssh` is not an area.
-        return []
+        # No area in the title. Body-only evidence does not carry an area (one
+        # passing mention of `ssh` in a paragraph is not the subject), but the
+        # area the title leads with does. This is what keeps a title like
+        # `Cloud team picker ...` off `needs-triage`, where the scoring pattern
+        # wants `cloud machine` and the title never says it.
+        declared = declared_area(title)
+        return [declared] if declared else []
     winners = [area for area, score in ranked if score == top_score]
     if len(winners) > limit:
+        # The title genuinely names several areas, so a person picks. Leading
+        # with one of them is not a declaration here: `Sidebar, splits, ssh and
+        # the iOS app all need a rethink` is an enumeration.
         return []
     return winners
 
@@ -351,7 +429,7 @@ def classify(title: str, body: str, labels: Iterable[object] = ()) -> Classifica
     body = body or ""
     result = Classification()
 
-    result.areas = pick_areas(score_areas(title, body))
+    result.areas = pick_areas(score_areas(title, body), title=title)
 
     if is_bug(title, body, labels):
         severity, reason = severity_for(title, body)

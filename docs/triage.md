@@ -54,10 +54,34 @@ on it, so the rules leave those alone and mark `needs-triage` instead.
 [`.github/labels.json`](../.github/labels.json) carries a one-line description
 of each, which is what shows in the GitHub label picker.
 
-`needs-triage` means the rules could not pick: either the title matched nothing
-or it matched three areas at once. About a third of the backlog is in this
-state, and that is the honest number. Clearing `needs-triage` is useful work
-and needs no build.
+### Naming the area yourself
+
+A title that opens with an area's own name is taken at its word, ahead of
+anything scored from the rest of the line:
+
+```
+Cloud: Codex TUI garbled after restoring a workspace   ->  area: cloud
+```
+
+Without that prefix this one scores `agents` (Codex) against `workspaces` and
+lands on `needs-triage`. Writing `Cloud:` settles it. Any area label's own noun
+works as a prefix, so `perf:`, `iOS:`, `Docs:` and `CI:` all do what they look
+like. A prefix naming two areas (`Terminal paste:`) declares neither.
+
+A title with no prefix that simply starts with the area works too
+(`Terminal jitters when toggling between tabs`), but only as a fallback when
+scoring found no area in the title at all. That keeps an enumeration like
+`Sidebar, splits, ssh and the iOS app all need a rethink` on `needs-triage`
+rather than reading it as a sidebar issue.
+
+Two words are deliberately not area names: `nightly` and `install`. Both name
+the build channel or the feature an issue happens in far more often than they
+name its area, so `NIGHTLY hangs: ...` is not `area: updates`.
+
+`needs-triage` means the rules could not pick: the title matched nothing, or it
+matched three areas at once without declaring one. About a third of the backlog
+is in this state, and that is the honest number. Clearing `needs-triage` is
+useful work and needs no build.
 
 ## How a new issue gets labeled
 

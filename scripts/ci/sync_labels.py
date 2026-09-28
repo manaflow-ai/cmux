@@ -99,13 +99,13 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     labels = load_manifest(args.manifest)
-    if args.dry_run and not os.environ.get("GH_TOKEN"):
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+    if args.dry_run and not token:
+        # Validation still works with no credentials, so a fork's CI can run it.
         print(f"{args.manifest}: {len(labels)} labels valid (no token, so no comparison)")
         return 0
-
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
     if not token:
-        raise SystemExit("set GH_TOKEN to sync labels")
+        raise SystemExit("set GH_TOKEN or GITHUB_TOKEN to sync labels")
 
     existing = fetch_existing(args.repo, token)
     created = updated = unchanged = 0
