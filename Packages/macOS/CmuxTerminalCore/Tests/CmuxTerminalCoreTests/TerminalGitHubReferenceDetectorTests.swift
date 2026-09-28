@@ -148,3 +148,35 @@ private extension String {
         return distance(from: startIndex, to: range.lowerBound)
     }
 }
+
+@Suite struct TerminalGitHubReferenceRepositoryNeedTests {
+    private let detector = TerminalGitHubReferenceDetector()
+
+    @Test func bareFormsNeedThePaneRepository() {
+        #expect(detector.needsRepositorySlug(inToken: "#847"))
+        #expect(detector.needsRepositorySlug(inToken: "GH-1234"))
+        #expect(detector.needsRepositorySlug(inToken: "a1b2c3d"))
+    }
+
+    @Test func anExplicitSlugNeedsNothingFurther() {
+        #expect(!detector.needsRepositorySlug(inToken: "manaflow-ai/cmux#847"))
+    }
+
+    /// The pointer lands on ordinary words far more often than on references,
+    /// so this must stay false for them: it is what keeps a cmd-click on a word
+    /// from paying for a repository lookup.
+    @Test func ordinaryWordsNeedNothing() {
+        #expect(!detector.needsRepositorySlug(inToken: "and"))
+        #expect(!detector.needsRepositorySlug(inToken: "1234567"))
+        #expect(!detector.needsRepositorySlug(inToken: "deadbeef"))
+        #expect(!detector.needsRepositorySlug(inToken: "https://example.com/page#847"))
+        #expect(!detector.needsRepositorySlug(inToken: ""))
+    }
+
+    @Test func columnSelectsTheTokenUnderThePointer() {
+        let line = "landed #847 already"
+        #expect(detector.needsRepositorySlug(inVisibleLine: line, column: 7))
+        #expect(!detector.needsRepositorySlug(inVisibleLine: line, column: 0))
+        #expect(!detector.needsRepositorySlug(inVisibleLine: line, column: 6))
+    }
+}
