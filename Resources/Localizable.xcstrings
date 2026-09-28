@@ -565529,127 +565529,627 @@
         }
       }
     },
-    "socket.terminal.notRunning": {
+    "socket.terminal.notRunning.awaitingRestore": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The terminal is not running right now, for example because it is hibernated or still starting. Show it in cmux, then retry."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルは現在実行されていません（休止中または起動中など）。cmux で表示してから再試行してください。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "终端当前未运行（例如处于休眠状态或仍在启动）。请在 cmux 中显示它，然后重试。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das Terminal läuft gerade nicht, zum Beispiel weil es im Ruhezustand ist oder noch startet. Zeigen Sie es in cmux an und versuchen Sie es dann erneut."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le terminal ne s’exécute pas pour le moment, par exemple parce qu’il est en veille ou encore en cours de démarrage. Affichez-le dans cmux, puis réessayez."
+            "value": "cmux is still restoring the terminal after it reopened and is checking which agent session to resume. Retry in a few seconds."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الطرفية لا تعمل حالياً، على سبيل المثال لأنها في وضع السبات أو لا تزال قيد التشغيل. اعرضها في cmux ثم أعد المحاولة."
+            "value": "لا يزال cmux يستعيد الطرفية بعد إعادة فتحه ويتحقق من جلسة الوكيل التي يجب استئنافها. أعد المحاولة بعد بضع ثوانٍ."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux stellt das Terminal nach dem erneuten Öffnen noch wieder her und prüft, welche Agent-Sitzung fortgesetzt werden soll. Versuche es in ein paar Sekunden erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La terminal no se está ejecutando ahora mismo, por ejemplo porque está hibernada o todavía se está iniciando. Muéstrela en cmux y vuelva a intentarlo."
+            "value": "cmux todavía está restaurando la terminal después de volver a abrirse y comprueba qué sesión de agente reanudar. Vuelve a intentarlo en unos segundos."
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "終端機目前未執行（例如處於休眠狀態或仍在啟動中）。請在 cmux 中顯示它，然後重試。"
+            "value": "cmux restaure encore le terminal après sa réouverture et vérifie quelle session d’agent reprendre. Réessayez dans quelques secondes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は再起動後にターミナルを復元中で、再開するエージェントセッションを確認しています。数秒後に再試行してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터미널이 현재 실행 중이 아닙니다(예: 최대 절전 상태이거나 아직 시작 중). cmux에서 표시한 후 다시 시도하십시오."
+            "value": "cmux가 다시 열린 후 터미널을 아직 복원하는 중이며 어떤 에이전트 세션을 재개할지 확인하고 있습니다. 몇 초 후에 다시 시도하세요."
           }
         },
-        "bs": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal trenutno ne radi, na primjer zato što je u hibernaciji ili se još pokreće. Prikažite ga u cmuxu, pa pokušajte ponovo."
+            "value": "cmux 重新打开后仍在恢复此终端，并确认要恢复哪个代理会话。请几秒后重试。"
           }
         },
-        "da": {
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminalen kører ikke lige nu, for eksempel fordi den er i dvale eller stadig starter. Vis den i cmux, og prøv igen."
+            "value": "cmux 重新開啟後仍在還原此終端機，並確認要恢復哪個代理工作階段。請幾秒後再試。"
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il terminale non è in esecuzione in questo momento, ad esempio perché è ibernato o ancora in avvio. Mostralo in cmux, quindi riprova."
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux još vraća terminal nakon ponovnog otvaranja i provjerava koju sesiju agenta treba nastaviti. Pokušajte ponovo za nekoliko sekundi."
           }
         },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ទែមីណាល់មិនកំពុងដំណើរការឥឡូវនេះទេ ឧទាហរណ៍ ដោយសារវាកំពុងសម្រាក ឬកំពុងចាប់ផ្តើម។ បង្ហាញវានៅក្នុង cmux រួចព្យាយាមម្តងទៀត។"
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux gendanner stadig terminalen efter genåbning og tjekker, hvilken agentsession der skal genoptages. Prøv igen om et par sekunder."
           }
         },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminalen kjører ikke akkurat nå, for eksempel fordi den er i dvale eller fortsatt starter. Vis den i cmux, og prøv igjen."
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sta ancora ripristinando il terminale dopo la riapertura e verifica quale sessione dell’agente riprendere. Riprova tra qualche secondo."
           }
         },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal nie działa w tej chwili, na przykład dlatego, że jest uśpiony lub wciąż się uruchamia. Pokaż go w cmux, a następnie spróbuj ponownie."
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux នៅតែកំពុងស្ដារទែមីណាល់ឡើងវិញ បន្ទាប់ពីបើកម្ដងទៀត ហើយកំពុងពិនិត្យមើលថាត្រូវបន្តវគ្គភ្នាក់ងារមួយណា។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
           }
         },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O terminal não está em execução agora, por exemplo porque está hibernado ou ainda iniciando. Mostre-o no cmux e tente novamente."
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux gjenoppretter fortsatt terminalen etter at den ble åpnet på nytt, og sjekker hvilken agentøkt som skal gjenopptas. Prøv igjen om noen sekunder."
           }
         },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Терминал сейчас не запущен, например потому что он в спящем режиме или ещё запускается. Откройте его в cmux и повторите попытку."
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux wciąż przywraca terminal po ponownym otwarciu i sprawdza, którą sesję agenta wznowić. Spróbuj ponownie za kilka sekund."
           }
         },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เทอร์มินัลไม่ได้ทำงานอยู่ในขณะนี้ เช่น เพราะกำลังพักการทำงานหรือยังเริ่มต้นไม่เสร็จ แสดงเทอร์มินัลใน cmux แล้วลองอีกครั้ง"
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux ainda está restaurando o terminal após ser reaberto e verificando qual sessão do agente retomar. Tente novamente em alguns segundos."
           }
         },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal şu anda çalışmıyor; örneğin hazırda bekletiliyor ya da hâlâ başlatılıyor. cmux'ta gösterin, ardından yeniden deneyin."
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux ещё восстанавливает терминал после повторного открытия и проверяет, какой сеанс агента возобновить. Повторите попытку через несколько секунд."
           }
         },
-        "uk": {
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux ยังคงกู้คืนเทอร์มินัลหลังจากเปิดใหม่ และกำลังตรวจสอบว่าจะทำเซสชันเอเจนต์ใดต่อ ลองอีกครั้งในอีกไม่กี่วินาที"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux yeniden açıldıktan sonra terminali hâlâ geri yüklüyor ve hangi ajan oturumunun sürdürüleceğini denetliyor. Birkaç saniye sonra yeniden deneyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux ще відновлює термінал після повторного відкриття та перевіряє, який сеанс агента відновити. Спробуйте ще раз за кілька секунд."
+          }
+        }
+      }
+    },
+    "socket.terminal.notRunning.closing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Термінал зараз не запущено, наприклад тому що він у режимі сну або ще запускається. Покажіть його в cmux і спробуйте ще раз."
+            "value": "The terminal is closing and cannot be read."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الطرفية قيد الإغلاق ولا يمكن قراءتها."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal wird geschlossen und kann nicht gelesen werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La terminal se está cerrando y no se puede leer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal est en cours de fermeture et ne peut pas être lu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルは閉じられているため読み取れません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 닫히는 중이라 읽을 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端正在关闭，无法读取。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機正在關閉，無法讀取。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal se zatvara i ne može se pročitati."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen lukkes og kan ikke læses."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il terminale si sta chiudendo e non può essere letto."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ទែមីណាល់កំពុងបិទ ហើយមិនអាចអានបានទេ។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen lukkes og kan ikke leses."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal jest zamykany i nie można go odczytać."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O terminal está sendo fechado e não pode ser lido."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Терминал закрывается, и его нельзя прочитать."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เทอร์มินัลกำลังปิดและไม่สามารถอ่านได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal kapanıyor ve okunamıyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Термінал закривається, і його не можна прочитати."
+          }
+        }
+      }
+    },
+    "socket.terminal.notRunning.hibernated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal is hibernated: cmux suspended its idle agent to save memory. Wake it by showing it (this brings its window to the front), then retry: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الطرفية في وضع السبات: أوقف cmux وكيلها الخامل مؤقتًا لتوفير الذاكرة. أيقظها بعرضها (يؤدي ذلك إلى إحضار نافذتها إلى المقدمة)، ثم أعد المحاولة: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal ruht: cmux hat seinen inaktiven Agenten angehalten, um Speicher zu sparen. Wecke es, indem du es anzeigst (dadurch kommt sein Fenster in den Vordergrund), und versuche es dann erneut: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La terminal está hibernada: cmux suspendió su agente inactivo para ahorrar memoria. Despiértala mostrándola (esto trae su ventana al frente) y vuelve a intentarlo: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal est en veille : cmux a suspendu son agent inactif pour économiser de la mémoire. Réveillez-le en l’affichant (sa fenêtre passe au premier plan), puis réessayez : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルは休止中です。cmux がメモリ節約のためアイドル状態のエージェントを停止しました。表示すると再開します（ウィンドウが前面に出ます）。その後、再試行してください: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 최대 절전 상태입니다. cmux가 메모리를 절약하려고 유휴 에이전트를 일시 중단했습니다. 터미널을 표시해 깨운 후(창이 앞으로 옵니다) 다시 시도하세요: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端已休眠：cmux 暂停了其空闲的代理以节省内存。显示它即可唤醒（这会将其窗口带到最前面），然后重试：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機已休眠：cmux 暫停了其閒置的代理以節省記憶體。顯示它即可喚醒（這會將其視窗帶到最前面），然後再試一次：%@"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Probudite ga tako što ćete ga prikazati (njegov prozor prelazi u prvi plan), pa pokušajte ponovo: %@"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Væk den ved at vise den (dens vindue kommer forrest), og prøv igen: %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Riattivalo mostrandolo (la sua finestra passa in primo piano), quindi riprova: %@"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ ដាស់វាដោយបង្ហាញវា (បង្អួចរបស់វានឹងមកខាងមុខ) រួចព្យាយាមម្ដងទៀត៖ %@"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vekk den ved å vise den (vinduet kommer i forgrunnen), og prøv igjen: %@"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wybudź go, wyświetlając go (jego okno przejdzie na pierwszy plan), a potem spróbuj ponownie: %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Desperte-o exibindo-o (a janela vem para a frente) e tente novamente: %@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Разбудите его, показав терминал (его окно выйдет на передний план), и повторите попытку: %@"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ ปลุกโดยแสดงเทอร์มินัล (หน้าต่างจะมาอยู่ด้านหน้า) แล้วลองอีกครั้ง: %@"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Onu göstererek uyandırın (penceresi öne gelir), ardından yeniden deneyin: %@"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Розбудіть його, показавши термінал (його вікно перейде на передній план), і спробуйте ще раз: %@"
+          }
+        }
+      }
+    },
+    "socket.terminal.notRunning.hibernatedNoCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal is hibernated: cmux suspended its idle agent to save memory. Show the terminal in cmux to wake it, then retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الطرفية في وضع السبات: أوقف cmux وكيلها الخامل مؤقتًا لتوفير الذاكرة. اعرض الطرفية في cmux لإيقاظها، ثم أعد المحاولة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal ruht: cmux hat seinen inaktiven Agenten angehalten, um Speicher zu sparen. Zeige das Terminal in cmux an, um es zu wecken, und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La terminal está hibernada: cmux suspendió su agente inactivo para ahorrar memoria. Muestra la terminal en cmux para despertarla y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal est en veille : cmux a suspendu son agent inactif pour économiser de la mémoire. Affichez le terminal dans cmux pour le réveiller, puis réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルは休止中です。cmux がメモリ節約のためアイドル状態のエージェントを停止しました。cmux でターミナルを表示して再開してから、再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 최대 절전 상태입니다. cmux가 메모리를 절약하려고 유휴 에이전트를 일시 중단했습니다. cmux에서 터미널을 표시해 깨운 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端已休眠：cmux 暂停了其空闲的代理以节省内存。请在 cmux 中显示此终端以唤醒它，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機已休眠：cmux 暫停了其閒置的代理以節省記憶體。請在 cmux 中顯示此終端機以喚醒它，然後再試一次。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Prikažite terminal u cmuxu da ga probudite, pa pokušajte ponovo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Vis terminalen i cmux for at vække den, og prøv igen."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Mostra il terminale in cmux per riattivarlo, quindi riprova."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ បង្ហាញទែមីណាល់នៅក្នុង cmux ដើម្បីដាស់វា រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vis terminalen i cmux for å vekke den, og prøv igjen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wyświetl terminal w cmux, aby go wybudzić, a potem spróbuj ponownie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Mostre o terminal no cmux para despertá-lo e tente novamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Покажите терминал в cmux, чтобы разбудить его, и повторите попытку."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ แสดงเทอร์มินัลใน cmux เพื่อปลุก แล้วลองอีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Uyandırmak için terminali cmux'ta gösterin, ardından yeniden deneyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Покажіть термінал у cmux, щоб розбудити його, і спробуйте ще раз."
+          }
+        }
+      }
+    },
+    "socket.terminal.notRunning.starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal has not started yet. Retry in a few seconds."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تبدأ الطرفية بعد. أعد المحاولة بعد بضع ثوانٍ."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal wurde noch nicht gestartet. Versuche es in ein paar Sekunden erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La terminal aún no se ha iniciado. Vuelve a intentarlo en unos segundos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal n’a pas encore démarré. Réessayez dans quelques secondes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルはまだ起動していません。数秒後に再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 아직 시작되지 않았습니다. 몇 초 후에 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端尚未启动。请几秒后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機尚未啟動。請幾秒後再試。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal se još nije pokrenuo. Pokušajte ponovo za nekoliko sekundi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen er ikke startet endnu. Prøv igen om et par sekunder."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il terminale non è ancora stato avviato. Riprova tra qualche secondo."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ទែមីណាល់មិនទាន់បានចាប់ផ្តើមនៅឡើយទេ។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen har ikke startet ennå. Prøv igjen om noen sekunder."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal jeszcze się nie uruchomił. Spróbuj ponownie za kilka sekund."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O terminal ainda não foi iniciado. Tente novamente em alguns segundos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Терминал ещё не запущен. Повторите попытку через несколько секунд."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เทอร์มินัลยังไม่ได้เริ่มทำงาน ลองอีกครั้งในอีกไม่กี่วินาที"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal henüz başlamadı. Birkaç saniye sonra yeniden deneyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Термінал ще не запущено. Спробуйте ще раз за кілька секунд."
           }
         }
       }
