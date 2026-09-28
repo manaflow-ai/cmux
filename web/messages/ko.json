@@ -1396,6 +1396,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "각 워크스페이스를 한 줄로 표시합니다. 제목 앞의 색상 아이콘 하나가 에이전트, 읽지 않음, 풀 리퀘스트 상태를 나타내며 에이전트 상태 행(예: 실행 중, 입력 필요), 브랜치 및 디렉터리 행, 풀 리퀘스트 행을 대신하고, 그 세부 정보는 아이콘의 도움말로 옮겨집니다. 다른 상태 항목은 자체 행을 유지합니다.",
+          "compactStatusIcons": "상태별로 compactAgentStatus 글리프를 대체하는 SF Symbol 이름입니다(예: {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}). 설정하지 않은 상태는 기본 기호를 사용하며, 표시할 수 없는 이름도 기본 기호로 돌아갑니다.",
           "notificationMessageLineLimit": "각 작업 공간 제목 아래에 표시되는 최신 알림의 최대 줄 수입니다.",
           "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다.",
           "showAgentUsage": "Claude Code 또는 Codex 상태 항목에 코딩 에이전트 사용량을 덧붙입니다. 모델과 사용한 컨텍스트 창을 표시하고, Claude Code에서는 Anthropic이 공개한 정가를 기준으로 한 API 비용 추정치(메인 스레드와 서브에이전트)도 함께 표시합니다. 이 비용은 추정치이며 구독 청구액이 아닙니다. 배치 및 우선 처리 등급, 파트너 가격, 고속 모드, 서버 도구 요금은 반영하지 않습니다."

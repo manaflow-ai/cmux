@@ -25,6 +25,9 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let hasLatestNotifications: Bool
     let canMarkAllRead: Bool
     let canMarkAllUnread: Bool
+    let statusGlyph: SidebarCompactStatusGlyph?
+    /// Whether `sidebar.compactAgentStatus` is on; see the AppKit row model.
+    var compactsAgentStatus = false
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
