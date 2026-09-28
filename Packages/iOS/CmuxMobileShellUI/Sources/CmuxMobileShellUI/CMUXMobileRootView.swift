@@ -593,7 +593,8 @@ struct CMUXMobileRootView: View {
                 showDisconnectedNoPairedMacShell: MobileAuthenticatedShellPresentation.resolve(
                     connectionState: store.connectionState,
                     hasKnownPairedMac: store.hasKnownPairedMac,
-                    hasHiddenComputers: store.hasHiddenComputers
+                    hasHiddenComputers: store.hasHiddenComputers,
+                    hasExternalHosts: !store.externalHostSummaries.isEmpty
                 ) == .disconnected
             ) {
             case .disconnectedNoKnownPairedMac:

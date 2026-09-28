@@ -1,6 +1,65 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.cloud.empty.create": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Cloud machines yet. Create one below."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Cloud-Maschinen. Erstelle unten eine."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune machine Cloud. Créez-en une ci-dessous."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد أجهزة Cloud بعد. أنشئ جهازًا أدناه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay máquinas de Cloud. Crea una abajo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚無 Cloud 主機。請在下方建立一台。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚无 Cloud 主机。请在下方创建一台。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 Cloud 머신이 없습니다. 아래에서 만들어 보세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloudマシンがまだありません。下から作成してください。"
+          }
+        }
+      }
+    },
     "mobile.tabs.cloud": {
       "extractionState": "manual",
       "localizations": {
@@ -833,55 +892,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your plan does not include this type."
+            "value": "This type isn't available yet. Choose Base."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dein Tarif enthält diesen Typ nicht."
+            "value": "Dieser Typ ist noch nicht verfügbar. Wähle Basis."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Votre offre n’inclut pas ce type."
+            "value": "Ce type n’est pas encore disponible. Choisissez Base."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خطتك لا تتضمن هذا النوع."
+            "value": "هذا النوع غير متاح بعد. اختر أساسي."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tu plan no incluye este tipo."
+            "value": "Este tipo aún no está disponible. Elige Base."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的方案不包含此類型。"
+            "value": "此類型尚未開放。請選擇「基本」。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的方案不包含此类型。"
+            "value": "此类型尚未开放。请选择“基本”。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "현재 요금제에는 이 유형이 포함되지 않습니다."
+            "value": "이 유형은 아직 사용할 수 없습니다. 기본을 선택하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "現在のプランにはこの種類が含まれていません。"
+            "value": "この種類はまだ利用できません。「ベース」を選択してください。"
           }
         }
       }

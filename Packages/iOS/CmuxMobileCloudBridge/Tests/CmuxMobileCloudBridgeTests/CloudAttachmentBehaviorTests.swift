@@ -1,4 +1,5 @@
 import CmuxMobileCloud
+import CmuxMobileShell
 import Foundation
 import Testing
 
@@ -259,5 +260,50 @@ struct CloudAttachmentBehaviorTests {
 
         #expect(link.attachCount == 0)
         #expect(bridge.admittedMachines.map(\.id) == ["vm-1"])
+    }
+}
+
+/// Which store the bridge publishes into, across composition-root re-renders
+/// and sign-out.
+@MainActor
+struct CloudBridgeStoreLifetimeTests {
+    private final class NoLinks: CloudMachineLinkProviding {
+        func link(for machine: CloudMachine) -> (any CloudMachineLinking)? { nil }
+    }
+
+    private static let machine = CloudMachine(
+        id: "vm-1", provider: "freestyle", status: "running", displayName: "otter"
+    )
+    private static var hostID: String { CloudAddress(machineID: "vm-1").identifier }
+
+    @Test("A re-render's throwaway store never steals the live one")
+    func firstLiveStoreWins() {
+        let bridge = CloudWorkspaceBridge(links: NoLinks())
+        let live = MobileShellComposite(workspaces: [])
+        bridge.attach(to: live)
+
+        // A second store built by a re-render, then discarded.
+        do {
+            let throwaway = MobileShellComposite(workspaces: [])
+            bridge.attach(to: throwaway)
+        }
+
+        bridge.setAdmittedMachines([Self.machine])
+        #expect(live.externalHostSummaries.map(\.hostID) == [Self.hostID])
+    }
+
+    @Test("Sign-out clears rows but stays attached for the next sign-in")
+    func signOutThenSignInPublishesAgain() {
+        let bridge = CloudWorkspaceBridge(links: NoLinks())
+        let store = MobileShellComposite(workspaces: [])
+        bridge.attach(to: store)
+        bridge.setAdmittedMachines([Self.machine])
+        #expect(!store.externalHostSummaries.isEmpty)
+
+        bridge.resetForSignOut()
+        #expect(store.externalHostSummaries.isEmpty)
+
+        bridge.setAdmittedMachines([Self.machine])
+        #expect(store.externalHostSummaries.map(\.hostID) == [Self.hostID])
     }
 }

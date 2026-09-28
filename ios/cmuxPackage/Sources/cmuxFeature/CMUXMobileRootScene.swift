@@ -97,6 +97,9 @@ public struct CMUXMobileRootScene: View {
     /// Publishes Cloud machines' workspaces into the shell store. Built with
     /// the controller so both live for the app's lifetime.
     @State private var cloudWorkspaceBridge: CloudWorkspaceBridge?
+    /// Foreground state for the Cloud tunnel: the lease only holds while the
+    /// scene is active, since iOS suspends the in-process tunnel's socket.
+    @Environment(\.scenePhase) private var scenePhase
     #endif
     /// Per-terminal composer drafts for the app session, so an unsent message
     /// survives keyboard dismiss and terminal switches. In-memory only for now;
@@ -367,6 +370,12 @@ public struct CMUXMobileRootScene: View {
     }
 
     #if os(iOS)
+    private var cloudShellLeaseWanted: Bool {
+        auth.coordinator.isAuthenticated
+            && !auth.coordinator.isRestoringSession
+            && !(cloudSessionController?.machines.elements.isEmpty ?? true)
+    }
+
     private var cloudAccountScope: String? {
         guard let userID = auth.coordinator.currentUser?.id else { return nil }
         return [auth.config.apiBaseURL, userID, auth.coordinator.resolvedTeamID ?? ""].joined(separator: "|")
@@ -416,6 +425,42 @@ public struct CMUXMobileRootScene: View {
                 // Every machine the account owns joins the workspace list;
                 // the Computers sheet is where one is hidden again.
                 cloudWorkspaceBridge?.setAdmittedMachines(machines)
+            }
+            .onChange(of: cloudAccountScope, initial: true) { _, scope in
+                // Keyed on the signed-in account and team, not on session
+                // restore: a fresh sign-in never toggles restore, so a
+                // restore-keyed fetch would run once while signed out and never
+                // again. Machines are team-scoped, so a team switch refetches.
+                // The list is a plain API read and must load without visiting
+                // the Cloud tab: with no paired Mac, the tab scaffold only
+                // mounts once a Cloud machine is known.
+                guard !auth.coordinator.isRestoringSession else { return }
+                guard scope != nil, auth.coordinator.isAuthenticated else {
+                    cloudSessionController?.resetForSignOut()
+                    cloudWorkspaceBridge?.resetForSignOut()
+                    return
+                }
+                cloudSessionController?.refreshMachines()
+            }
+            .onChange(of: auth.coordinator.isRestoringSession) { _, restoring in
+                // A cached session finishing restore does not change the scope
+                // key when the user was already known, so fetch here as well.
+                guard !restoring, auth.coordinator.isAuthenticated else { return }
+                cloudSessionController?.refreshMachines()
+            }
+            .onChange(of: cloudShellLeaseWanted, initial: true) { _, wanted in
+                // Cloud terminals open from the Workspaces tab, where no Cloud
+                // screen is visible, so the shell holds the tunnel. Only while
+                // the account owns a machine: an account without one never
+                // enrolls a tunnel peer.
+                cloudSessionController?.setShellLease(wanted)
+            }
+            .onChange(of: scenePhase, initial: true) { _, phase in
+                switch phase {
+                case .active: cloudSessionController?.sceneWillEnterForeground()
+                case .background: cloudSessionController?.sceneDidEnterBackground()
+                default: break
+                }
             }
             .onChange(of: cloudSessionController?.tunnel) { _, phase in
                 // A catalog read attempted before the tunnel was up published
@@ -491,7 +536,10 @@ public struct CMUXMobileRootScene: View {
             simulatorStreamStore: simulatorStreamStore,
             onboardingStore: onboardingStore,
             signOutHook: MobileSignOutHook {
-                cloudWorkspaceBridge?.detachFromStore()
+                // Reset, not detach: the bridge stays attached to the live
+                // store so the next sign-in publishes without a relaunch.
+                cloudSessionController?.resetForSignOut()
+                cloudWorkspaceBridge?.resetForSignOut()
                 return signOutHook.begin()
             }
         )

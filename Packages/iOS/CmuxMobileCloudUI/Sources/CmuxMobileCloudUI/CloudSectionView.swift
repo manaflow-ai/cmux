@@ -3,15 +3,17 @@ public import CmuxMobileCloud
 import CmuxMobileSupport
 import SwiftUI
 
-/// The Cloud section: the account's Cloud VMs, reachable over the phone's
-/// in-process WireGuard tunnel. Tapping a machine opens its terminal catalog.
+/// The Cloud tab's machine list: where machines are listed, created and
+/// inspected. A machine's terminals open from the Workspaces tab alongside
+/// every other computer's, so rows here do not navigate.
 ///
-/// HIG: Lists and tables (inset-grouped list of machines), Loading (a progress
-/// row while the tunnel comes up and the list loads), and Navigation (a stack
-/// pushing catalog then terminal). See the PR description for the pages read.
+/// HIG: Lists and tables (inset-grouped list of machines) and Loading (a
+/// progress row while the list loads, and while the tunnel comes up once there
+/// is a machine to reach).
 ///
-/// The tunnel's lifecycle is owned by ``CloudSessionController`` and driven by
-/// the enclosing ``CloudFlowView``'s appearance and the scene phase (5A).
+/// The tunnel's lifecycle is owned by ``CloudSessionController``, leased by
+/// the composition root while the account owns a machine; this view only
+/// reflects it.
 public struct CloudSectionView: View {
     @State private var controller: CloudSessionController
     @State private var isCreateSheetPresented = false
@@ -38,37 +40,46 @@ public struct CloudSectionView: View {
         }
     }
 
+    /// The tunnel only matters once there is a machine to reach; listing and
+    /// creating machines are control-plane calls that need none. An account
+    /// with no machines never starts a tunnel, so an idle tunnel is not
+    /// "connecting" and shows nothing.
     @ViewBuilder
     private var tunnelSection: some View {
-        switch controller.tunnel {
-        case .idle, .starting:
-            Section {
-                HStack(spacing: 12) {
-                    ProgressView()
-                    Text(L10n.string("mobile.cloud.tunnel.connecting", defaultValue: "Connecting to your private network"))
-                        .foregroundStyle(.secondary)
+        if !controller.machines.elements.isEmpty {
+            switch controller.tunnel {
+            case .starting:
+                Section {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text(L10n.string("mobile.cloud.tunnel.connecting", defaultValue: "Connecting to your private network"))
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityIdentifier("CloudTunnelConnecting")
                 }
-                .accessibilityIdentifier("CloudTunnelConnecting")
-            }
-        case .ready:
-            EmptyView()
-        case .failed(let failure):
-            Section {
-                CloudFailureRow(failure: failure, retry: { controller.retryTunnel() })
+            case .failed(let failure):
+                Section {
+                    CloudFailureRow(failure: failure, retry: { controller.retryTunnel() })
+                }
+            case .idle, .ready:
+                EmptyView()
             }
         }
     }
 
+    /// Rendered from the list's own phase, never the tunnel's.
     @ViewBuilder
     private var machinesSection: some View {
-        switch controller.tunnel {
-        case .ready:
-            let machines = controller.machines.elements
-            if machines.isEmpty, controller.machines.isLoading {
-                Section { loadingRow }
-            } else if machines.isEmpty {
+        let machines = controller.machines.elements
+        switch controller.machines {
+        case .idle, .loading where machines.isEmpty:
+            Section { loadingRow }
+        case .failed(let failure, _) where machines.isEmpty:
+            Section { CloudFailureRow(failure: failure, retry: { controller.refreshMachines() }) }
+        default:
+            if machines.isEmpty {
                 Section {
-                    Text(L10n.string("mobile.cloud.empty", defaultValue: "No cloud machines yet."))
+                    Text(L10n.string("mobile.cloud.empty.create", defaultValue: "No Cloud machines yet. Create one below."))
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("CloudMachinesEmpty")
                 }
@@ -94,10 +105,8 @@ public struct CloudSectionView: View {
                     Section { CloudFailureRow(failure: failure, retry: { controller.refreshMachines() }) }
                 }
             }
-            createMachineSection
-        default:
-            EmptyView()
         }
+        createMachineSection
     }
 
     private var createMachineSection: some View {
@@ -149,7 +158,7 @@ struct CloudCreateMachineSheet: View {
                     if let availableKinds, !availableKinds.contains(kind) {
                         Text(L10n.string(
                             "mobile.cloud.create.kindUnavailable",
-                            defaultValue: "This machine type is not available in the current Cloud environment. Choose Base or ask an admin to publish its image."
+                            defaultValue: "This type isn't available yet. Choose Base."
                         ))
                         .font(.footnote)
                         .foregroundStyle(.orange)

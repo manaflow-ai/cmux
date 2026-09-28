@@ -42,7 +42,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxMobileCloudBridgeTests",
-            dependencies: ["CmuxMobileCloudBridge", "CmuxMobileCloud"],
+            dependencies: ["CmuxMobileCloudBridge", "CmuxMobileCloud", "CmuxMobileShell"],
             swiftSettings: swiftSettings
         ),
     ]

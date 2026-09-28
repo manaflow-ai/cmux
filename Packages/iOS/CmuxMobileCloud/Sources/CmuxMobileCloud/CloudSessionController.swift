@@ -21,6 +21,14 @@ public final class CloudSessionController {
     public private(set) var visibleScreenCount = 0
     /// Whether any Cloud screen is on screen.
     public var sectionIsVisible: Bool { visibleScreenCount > 0 }
+    /// Whether the authenticated shell holds the tunnel open.
+    ///
+    /// Cloud machines' workspaces live in the Workspaces tab beside every
+    /// other computer's, so their terminals are used while no Cloud screen is
+    /// visible. The composition root takes this lease while the account is
+    /// signed in and owns at least one machine, which keeps an account with no
+    /// machines from ever enrolling a tunnel peer.
+    public private(set) var shellLeaseActive = false
     /// Whether the scene is in the foreground.
     public private(set) var isForeground = true
     /// Cloud machines selected for the shared Computers/workspace picker.
@@ -105,6 +113,30 @@ public final class CloudSessionController {
         reconcile()
     }
 
+    /// Takes or releases the shell-wide tunnel lease. Idempotent.
+    public func setShellLease(_ active: Bool) {
+        guard shellLeaseActive != active else { return }
+        shellLeaseActive = active
+        reconcile()
+    }
+
+    /// Forgets everything tied to the signed-in account: the tunnel and its
+    /// links, the machine list, and any in-flight create. The device identity
+    /// stays persisted, because it belongs to the phone rather than the
+    /// account, and re-enrolling under the next account reuses it.
+    public func resetForSignOut() {
+        shellLeaseActive = false
+        listTask?.cancel()
+        listTask = nil
+        stopTunnel()
+        tunnel = .idle
+        identity = nil
+        machines = .idle
+        availableMachineKinds = nil
+        lastCreateFailure = nil
+        pendingCreate = nil
+    }
+
     /// Re-run enrollment after a failure.
     public func retryTunnel() {
         guard case .failed = tunnel else { return }
@@ -112,7 +144,7 @@ public final class CloudSessionController {
         reconcile()
     }
 
-    private var wantsTunnel: Bool { sectionIsVisible && isForeground }
+    private var wantsTunnel: Bool { (sectionIsVisible || shellLeaseActive) && isForeground }
 
     private func reconcile() {
         if wantsTunnel {
@@ -164,8 +196,9 @@ public final class CloudSessionController {
         startGeneration &+= 1
         startTask?.cancel()
         startTask = nil
-        listTask?.cancel()
-        listTask = nil
+        // The machine list is a control-plane read that needs no tunnel, so a
+        // tunnel stop must not cancel it: backgrounding mid-refresh would
+        // otherwise leave the list stuck loading.
         for connection in connections.values { connection.close() }
         connections.removeAll()
         liveTunnel = nil

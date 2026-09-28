@@ -52,9 +52,25 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     // MARK: Lifecycle
 
     /// Starts publishing into `store`.
+    ///
+    /// The first live store wins. A composition root can build short-lived
+    /// stores on re-render (SwiftUI keeps only the first as `@State`), and
+    /// re-pointing at one of those would leave the weak reference nil the
+    /// moment it deallocates, publishing into nothing.
     public func attach(to store: MobileShellComposite) {
+        if let current = self.store {
+            guard current === store else { return }
+            return
+        }
         self.store = store
         store.registerExternalHostSource(self)
+    }
+
+    /// Forgets the signed-in account's machines while staying attached, so
+    /// signing in again publishes into the same store without a relaunch.
+    public func resetForSignOut() {
+        setAdmittedMachines([])
+        cancelAll()
     }
 
     /// Stops publishing and removes every row this bridge contributed, so a
