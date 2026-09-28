@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxSidebar
 import Foundation
 import Testing
 
@@ -91,9 +92,9 @@ struct NarrowWindowSidePanelFitTests {
         #expect(collapsed, "both side panels collapse in a 320 pt window")
         let keepsTerminal = await pump.waitUntil(timeout: .seconds(10)) {
             layOut(window)
-            return containerWidth(context) >= 1
+            return containerWidth(context) >= Double(SidePanelWidthFit.minimumTerminalWidth)
         }
-        #expect(keepsTerminal, "the terminal area keeps its width (was 0 pt)")
+        #expect(keepsTerminal, "the terminal area keeps at least the minimum terminal width (was 0 pt)")
 
         // Widening the window brings back the panels it collapsed.
         _ = appDelegate.resizeMainWindow(windowId: windowId, width: 1440, height: 900)
