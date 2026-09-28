@@ -12365,7 +12365,11 @@ final class GhosttySurfaceScrollView: NSView {
     /// through `setWorkspaceAttentionColor(_:)`.
     @objc private func cmuxAccentColorDidChange(_ notification: Notification) {
         guard let observer = notification.object as? CmuxAccentColorObserver else { return }
-        let accent = observer.current.themeNSColor
+        applyAccentColor(observer.current)
+    }
+
+    private func applyAccentColor(_ accentColor: CmuxAccentColor) {
+        let accent = accentColor.themeNSColor
         dropZoneOverlayView.layer?.backgroundColor = accent.withAlphaComponent(0.25).cgColor
         dropZoneOverlayView.layer?.borderColor = accent.cgColor
         surfaceView.keyboardCopyModeCursorOverlayView.layer?.borderColor = accent.cgColor
