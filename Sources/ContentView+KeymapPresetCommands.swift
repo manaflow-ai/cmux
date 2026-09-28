@@ -88,8 +88,14 @@ extension ContentView {
     }
 
     /// Shortcuts older Settings builds saved in UserDefaults, keyed by action id.
+    ///
+    /// The element type is spelled out because the app target has its own
+    /// internal `StoredShortcut` in `KeyboardShortcutSettings.swift`, which
+    /// shadows this one inside this module. Left unqualified, the two types
+    /// meet at the `??` below and the compiler reports conflicting arguments
+    /// to a generic parameter with the same type printed on both sides.
     @MainActor
-    static func keymapChooserLegacyBindings() -> [String: StoredShortcut] {
+    static func keymapChooserLegacyBindings() -> [String: CmuxSettings.StoredShortcut] {
         AppDelegate.shared?.settingsRuntime?.userDefaultsStore
             .initialLegacyShortcutBindings() ?? [:]
     }
