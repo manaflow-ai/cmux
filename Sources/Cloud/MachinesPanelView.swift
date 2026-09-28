@@ -82,7 +82,7 @@ struct MachinesPanelView: View {
     }
 
     private var treeSnapshot: SurfaceCatalogSnapshot {
-        viewModel.catalog.applyingDeviceVisibility(
+        viewModel.visibleCatalog.applyingDeviceVisibility(
             includesCloud: includesCloud,
             includesDevices: includesDevices,
             hiddenMacIDs: devicesModel.preferences?.hiddenMacIDs ?? []
@@ -200,14 +200,15 @@ struct MachinesPanelView: View {
             listError: viewModel.lastErrorDescription,
             treeError: viewModel.treeErrorDescription,
             plan: viewModel.plan,
-            onDismissStale: { bannerDismissals.dismiss(id: "machines.stale", signature: $0) }
+            onDismissStale: { bannerDismissals.dismiss(id: "machines.stale", signature: $0) },
+            performListStatusAction: performListStatusAction
         )
     }
 
     /// Only while cached machines stay on screen; a dismissed failure stays
     /// hidden until its error changes.
     private var toolbarListStatus: MachineListStatus? {
-        guard !viewModel.machines.isEmpty, let status = viewModel.listStatus else { return nil }
+        guard !viewModel.visibleMachines.isEmpty, let status = viewModel.listStatus else { return nil }
         if case .failed = status, let error = viewModel.lastErrorDescription,
            bannerDismissals.isDismissed(id: "machines.stale", signature: error) { return nil }
         return status
@@ -234,13 +235,13 @@ struct MachinesPanelView: View {
         // catalog previously left a blank panel for a signed-in account with
         // no machines, because the catalog's This Mac entry counted as a row
         // the tree never drew.
-        if includesCloud && includesDevices && viewModel.machines.isEmpty, let status = viewModel.listStatus {
+        if includesCloud && includesDevices && viewModel.visibleMachines.isEmpty, let status = viewModel.listStatus {
             VStack(spacing: 0) {
                 MachinesListStatusNotice(status: status, perform: performListStatusAction)
                 machinesList
             }
         } else if CloudTreeNodeBuilder.isEmpty(
-            machines: includesCloud ? viewModel.machines : [],
+            machines: includesCloud ? viewModel.visibleMachines : [],
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
             snapshot: treeSnapshot,
             source: treeSource
@@ -472,7 +473,7 @@ struct MachinesPanelView: View {
             )
         }
         return CloudTreeOutlineView(
-            machines: includesCloud ? viewModel.sidebarMachines : [],
+            machines: includesCloud ? viewModel.sidebarMachines : [], pendingMachineDeletions: MachineDeleteCoordinator.shared.pendingMachineIDs,
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
             adoptedOperationIDs: includesCloud ? viewModel.adoptedOperationIDs : [:],
             snapshot: treeSnapshot,
