@@ -25,6 +25,7 @@ extension AppDelegate {
               SessionScrollbackCheckpointPolicy.isEnabled(environment: environment),
               let store = sessionScrollbackCheckpointStore() else { return }
         let queue = sessionScrollbackCheckpointQueue
+        let activity = GhosttyApp.terminalScrollbackCheckpointActivity
         sessionScrollbackCheckpointCoordinator = SessionScrollbackCheckpointCoordinator(
             environment: SessionScrollbackCheckpointCoordinator.Environment(
                 uptime: { ProcessInfo.processInfo.systemUptime },
@@ -48,11 +49,32 @@ extension AppDelegate {
                     }
                 },
                 persist: { batch in
+                    // A removal means the panel stopped being eligible (for
+                    // example a command started running). Delete its old file
+                    // before returning, after earlier queued writes, so a crash
+                    // before the async batch runs cannot leave stale scrollback
+                    // for the next unclean restore to merge.
+                    if !batch.removals.isEmpty {
+                        let removals = SessionScrollbackCheckpointWriteBatch(
+                            captures: [],
+                            removals: batch.removals,
+                            livePanelIds: nil
+                        )
+                        queue.sync {
+                            _ = store.apply(removals)
+                        }
+                    }
+                    let writes = SessionScrollbackCheckpointWriteBatch(
+                        captures: batch.captures,
+                        removals: [],
+                        livePanelIds: batch.livePanelIds
+                    )
                     queue.async {
-                        store.applyMarkingFailuresPending(batch, activity: .shared)
+                        store.applyMarkingFailuresPending(writes, activity: activity)
                     }
                 }
-            )
+            ),
+            activity: activity
         )
     }
 

@@ -124,9 +124,12 @@ final class TerminalScrollbackOutputFlags: Sendable {
 }
 
 /// Per-surface "output since last checkpoint" flags.
+///
+/// One instance is owned by the composition root
+/// (`GhosttyApp.terminalScrollbackCheckpointActivity`) and injected into the
+/// PTY tee bridge, the checkpoint coordinator, and the checkpoint persist step,
+/// so all three read and write the same flags.
 final class TerminalScrollbackCheckpointActivity: @unchecked Sendable {
-    static let shared = TerminalScrollbackCheckpointActivity()
-
     private let flags = OSAllocatedUnfairLock(initialState: [UUID: TerminalScrollbackOutputFlags]())
 
     /// Registers a new runtime for `surfaceID`. A new runtime starts pending so it is captured once.
@@ -478,7 +481,7 @@ final class SessionScrollbackCheckpointCoordinator {
 
     init(
         environment: Environment,
-        activity: TerminalScrollbackCheckpointActivity = .shared
+        activity: TerminalScrollbackCheckpointActivity
     ) {
         self.environment = environment
         self.activity = activity
