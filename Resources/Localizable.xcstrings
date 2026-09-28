@@ -562932,7 +562932,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] cmux가 SSH 시작을 확인하지 못했습니다. %s초 후 %s번째로 다시 시도합니다."
+            "value": "[cmux] cmux가 SSH 시작을 확인하지 못했습니다. %s번째로 %s초 후 다시 시도합니다."
           }
         },
         "ja": {

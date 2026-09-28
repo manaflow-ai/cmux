@@ -383,7 +383,7 @@ extension CMUXCLI {
             "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
             "  if [ \"$cmux_ssh_registration_status\" -eq 0 ]; then wait \"$CMUX_SSH_CHILD_PID\"; cmux_ssh_status=$?; else cmux_ssh_status=\"$cmux_ssh_registration_status\"; fi",
             "  CMUX_SSH_CHILD_PID=",
-            "  if [ \"$cmux_ssh_status\" -eq \(SSHPTYAttachExitCode.launchAcknowledgementTimedOut.rawValue) ] && [ \"${cmux_ssh_registration_timed_out:-0}\" -ne 1 ]; then break; fi",
+            "  if [ \"$cmux_ssh_status\" -eq \(SSHPTYAttachExitCode.launchAcknowledgementTimedOut.rawValue) ] && [ \"$cmux_ssh_registration_status\" -eq 0 ]; then break; fi",
             "  if [ \"$cmux_ssh_status\" -eq 0 ]; then if [ \"$cmux_ssh_retry\" -gt 0 ]; then cmux_ssh_note \"$(printf \(reconnectRecoveredNote) \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\")\"; fi; break; fi",
             "  cmux_ssh_reset_terminal_modes",
             "  case \"$cmux_ssh_status\" in 255|\(SSHPTYAttachExitCode.launchAcknowledgementTimedOut.rawValue)) ;; *) break ;; esac",
