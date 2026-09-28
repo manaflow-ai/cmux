@@ -1396,6 +1396,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Afficher chaque espace de travail sur une seule ligne : une icône colorée avant le titre indique l’état de l’agent, des éléments non lus et de la pull request, et remplace les lignes de statut des agents (par exemple En cours ou Saisie requise), la ligne de branche et de dossier et les lignes de pull request, dont les détails passent dans l’infobulle de l’icône. Les autres entrées de statut gardent leurs lignes.",
+          "compactStatusIcons": "Noms de SF Symbols qui remplacent le glyphe compactAgentStatus pour chaque état, par exemple {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Les états non définis gardent le symbole intégré, et un nom qui ne s’affiche pas revient à celui-ci.",
           "notificationMessageLineLimit": "Nombre maximal de lignes affichées pour la notification la plus récente sous le titre de chaque espace de travail.",
           "rightMaxWidth": "Largeur maximale en points de la barre latérale droite. Si elle est omise, la limite dynamique intégrée s’applique."
         },

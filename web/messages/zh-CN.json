@@ -1396,6 +1396,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "每个工作区只显示一行：标题前的单个彩色图标表示代理、未读和拉取请求状态，取代代理状态行（例如“运行中”或“需要输入”）、分支和目录行以及拉取请求行，这些详细信息移到图标的提示中。其他状态条目保留各自的行。",
+          "compactStatusIcons": "按状态替换 compactAgentStatus 字形的 SF Symbol 名称，例如 {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}。未设置的状态使用内置符号，无法显示的名称也会回退到内置符号。",
           "notificationMessageLineLimit": "每个工作区标题下方显示的最新通知的最大行数。",
           "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
         },

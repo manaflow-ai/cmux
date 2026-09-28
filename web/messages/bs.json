@@ -1396,6 +1396,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Prikaži svaki radni prostor u jednom redu: jedna obojena ikona ispred naslova prikazuje stanje agenta, nepročitanog i pull requesta te zamjenjuje redove statusa agenata (na primjer Radi ili Potreban unos), red grane i direktorija i redove pull requestova, čiji detalji prelaze u opis ikone. Ostali unosi statusa zadržavaju svoje redove.",
+          "compactStatusIcons": "Nazivi SF Symbols koji zamjenjuju compactAgentStatus glif za svako stanje, na primjer {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Stanja bez vrijednosti zadržavaju ugrađeni simbol, a naziv koji se ne može prikazati vraća se na njega.",
           "notificationMessageLineLimit": "Maksimalan broj redova prikazanih za najnoviju obavijest ispod naslova svakog radnog prostora.",
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
         },
