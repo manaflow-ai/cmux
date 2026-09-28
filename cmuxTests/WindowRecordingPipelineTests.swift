@@ -186,6 +186,15 @@ import Testing
         #expect(wide.width == 400)
         #expect(wide.height == 100)
         #expect(wide.minY == 150)
+
+        // A window that shrank mid-clip keeps its own pixel size, centered,
+        // rather than being blown up to fill the frame it opened with.
+        let small = WindowRecordingFrameComposer.fit(CGSize(width: 200, height: 100), in: bounds)
+
+        #expect(small.width == 200)
+        #expect(small.height == 100)
+        #expect(small.minX == 100)
+        #expect(small.minY == 150)
     }
 
     // MARK: mp4
@@ -223,8 +232,16 @@ import Testing
         try await writer.append(frame, atOffsetSeconds: 0)
         try await writer.finish()
 
-        let asset = AVURLAsset(url: url)
-        #expect(try await asset.load(.duration).seconds > 0)
+        // Both frames have to survive, and the second one has to present later
+        // than the first: an equal timestamp makes AVFoundation drop it.
+        let times = try await Self.presentationTimes(url: url)
+        #expect(times.count == 2)
+        #expect(times.first == 0)
+        if times.count == 2 {
+            #expect(times[1] > times[0])
+            // One 1/600 second tick, the smallest step the clip can carry.
+            #expect(abs(times[1] - (1.0 / 600)) < 1e-6)
+        }
     }
 
     @Test func anMP4WithNoFramesFailsInsteadOfLeavingAnEmptyFile() async throws {
@@ -235,6 +252,25 @@ import Testing
         await #expect(throws: WindowRecordingWriterError.noFrames) {
             try await writer.finish()
         }
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    /// Reads back what the file really carries, rather than trusting the asset's
+    /// rounded duration.
+    private static func presentationTimes(url: URL) async throws -> [Double] {
+        let asset = AVURLAsset(url: url)
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else {
+            return []
+        }
+        let reader = try AVAssetReader(asset: asset)
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+        reader.add(output)
+        reader.startReading()
+        var times: [Double] = []
+        while let sample = output.copyNextSampleBuffer() {
+            times.append(CMSampleBufferGetPresentationTimeStamp(sample).seconds)
+        }
+        return times
     }
 
     // MARK: gif
@@ -260,15 +296,37 @@ import Testing
     @Test func aGIFDelayStaysInThePlayableRange() async throws {
         let url = Self.temporaryURL(extension: "gif")
         defer { try? FileManager.default.removeItem(at: url) }
-        let writer = try WindowRecordingGIFWriter(url: url, frameBudget: 2, framesPerSecond: 8)
+        let writer = try WindowRecordingGIFWriter(url: url, frameBudget: 3, framesPerSecond: 8)
 
         try await writer.append(Self.image(width: 40, height: 40), atOffsetSeconds: 0)
         // A 40 second gap would stall a viewer; a zero gap would be dropped.
         try await writer.append(Self.image(width: 40, height: 40, gray: 0), atOffsetSeconds: 40)
+        try await writer.append(Self.image(width: 40, height: 40, gray: 0.5), atOffsetSeconds: 40)
         try await writer.finish()
 
         let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
         #expect(Self.gifDelay(source, at: 0) == 10)
+        #expect(Self.gifDelay(source, at: 1) == 0.02)
+    }
+
+    /// The normal flow: a clip with a 30 second budget that an agent stops after
+    /// three frames still has to produce a gif.
+    @Test func aGIFStoppedLongBeforeItsBudgetStillFinalizes() async throws {
+        let url = Self.temporaryURL(extension: "gif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let writer = try WindowRecordingGIFWriter(url: url, frameBudget: 240, framesPerSecond: 8)
+
+        for step in 0..<3 {
+            try await writer.append(
+                Self.image(width: 40, height: 40, gray: Double(step) / 3),
+                atOffsetSeconds: Double(step) * 0.125
+            )
+        }
+        try await writer.finish()
+
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
+        #expect(CGImageSourceGetCount(source) == 3)
     }
 
     @Test func aGIFWithNoFramesFails() async throws {
@@ -288,5 +346,83 @@ import Testing
             return nil
         }
         return (gif[kCGImagePropertyGIFUnclampedDelayTime] as? NSNumber)?.doubleValue
+    }
+}
+
+/// Covers the bookkeeping `cmux record` needs without a window on screen: which
+/// clip `stop`, `status` and `note` resolve to once a recording has ended.
+@Suite struct WindowRecordingRegistryTests {
+    private static func finished(id: String) -> WindowRecordingStatus {
+        WindowRecordingStatus(
+            id: id,
+            state: .finished,
+            format: .mp4,
+            path: "/tmp/\(id).mp4",
+            label: "",
+            frames: 12,
+            seconds: 1,
+            width: 320,
+            height: 200,
+            notes: 0,
+            requestedFramesPerSecond: 12,
+            maximumSeconds: 15,
+            error: nil
+        )
+    }
+
+    /// A clip that reached its own `--max-seconds` limit is no longer active, so
+    /// the `cmux record stop` an agent runs afterwards has to report that clip
+    /// rather than claim nothing was recorded.
+    @Test func stoppingAfterTheClipStoppedItselfReportsThatClip() async throws {
+        let registry = WindowRecordingRegistry()
+        await registry.remember(Self.finished(id: "a"))
+
+        let stopped = try await registry.stop(id: nil)
+
+        #expect(stopped.id == "a")
+        #expect(stopped.state == .finished)
+        #expect(stopped.path == "/tmp/a.mp4")
+    }
+
+    @Test func stoppingWithNothingEverRecordedSaysSo() async {
+        let registry = WindowRecordingRegistry()
+
+        await #expect(throws: WindowRecordingRegistry.Failure.self) {
+            _ = try await registry.stop(id: nil)
+        }
+    }
+
+    @Test func anUnknownIdIsNotAnsweredWithTheLatestClip() async {
+        let registry = WindowRecordingRegistry()
+        await registry.remember(Self.finished(id: "a"))
+
+        await #expect(throws: WindowRecordingRegistry.Failure.self) {
+            _ = try await registry.stop(id: "b")
+        }
+        await #expect(throws: WindowRecordingRegistry.Failure.self) {
+            _ = try await registry.status(id: "b")
+        }
+    }
+
+    @Test func aNoteForAStoppedClipIsRefused() async {
+        let registry = WindowRecordingRegistry()
+        await registry.remember(Self.finished(id: "a"))
+
+        await #expect(throws: WindowRecordingRegistry.Failure.self) {
+            _ = try await registry.note(text: "too late", id: "a")
+        }
+    }
+
+    @Test func historyKeepsTheMostRecentClipsOnly() async {
+        let registry = WindowRecordingRegistry()
+        for index in 0..<12 {
+            await registry.remember(Self.finished(id: "clip-\(index)"))
+        }
+
+        let recent = await registry.recentStatuses()
+
+        #expect(recent.count == 8)
+        #expect(recent.first?.id == "clip-4")
+        #expect(recent.last?.id == "clip-11")
     }
 }

@@ -122,7 +122,9 @@ actor WindowRecordingRegistry {
         self.active = nil
     }
 
-    private func remember(_ status: WindowRecordingStatus) {
+    /// Files a finished clip in history. Internal rather than private so tests
+    /// can set up a registry without a window on screen.
+    func remember(_ status: WindowRecordingStatus) {
         history.removeAll { $0.id == status.id }
         history.append(status)
         if history.count > Self.historyLimit {

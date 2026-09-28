@@ -134,6 +134,21 @@ import Testing
         }
     }
 
+    /// `Int(Double.nan)` and `Int(1e30)` trap, which takes the whole app down,
+    /// and `cmux record --fps nan` hands exactly those values to this decoder.
+    @Test(arguments: ["nan", "inf", "-inf", "1e30", "-1e30"])
+    func numbersThatCannotBeAnIntegerAreRejectedRatherThanTrapping(text: String) {
+        #expect(throws: (any Error).self) {
+            try WindowRecordingRequest.make(params: ["fps": text])
+        }
+        #expect(throws: (any Error).self) {
+            try WindowRecordingRequest.make(params: ["max_width": text])
+        }
+        #expect(throws: (any Error).self) {
+            try WindowRecordingRequest.make(params: ["max_seconds": text])
+        }
+    }
+
     @Test func outputPathMustBeAbsoluteAndMatchTheFormat() {
         #expect(throws: WindowRecordingRequest.Failure.outputPathNotAbsolute("clip.mp4")) {
             try WindowRecordingRequest.make(params: ["out": "clip.mp4"])
