@@ -36,7 +36,8 @@ public struct MobileRootAuthGate {
     /// shell would flash the add-device surface, so sign-in keeps the screen
     /// (showing its restore status) until validation settles. A live attach
     /// ticket always proceeds directly to the shell to complete the attach
-    /// flow.
+    /// flow. Signed out there is no other surface: every user signs in
+    /// before using the app, including SSH computers.
     public static func shouldShowSignIn(
         stackAuthenticated: Bool,
         attachTicketAuthenticated: Bool = false,
