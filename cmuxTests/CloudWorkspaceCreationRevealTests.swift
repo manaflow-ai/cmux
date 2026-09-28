@@ -3,6 +3,7 @@ import CmuxCloud
 import CmuxCloudMachines
 import CmuxSurfaceCatalogModel
 import Foundation
+import Observation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -163,6 +164,63 @@ struct CloudWorkspaceCreationRevealTests {
             #expect(reveal.nodeID == CloudTreeNodeBuilder.nodeID(workspace: "ws_7", machine: machine))
             #expect(!reveal.isWithdrawn)
         }
+    }
+
+    @Test("Device ⌘N reveals the workspace it selects, unless the user navigated first", arguments: [false, true])
+    func deviceShortcutReveals(navigate: Bool) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let machine = SurfaceMachineID.device(.init(deviceID: UUID().uuidString, tag: "creation-reveal"))
+            let fixture = try CloudWorkspaceCreationSidebarFixture(machine: machine)
+            defer { fixture.close() }
+            fixture.provider.usesReceipt = true
+            let other = try #require(fixture.manager.addWorkspaceIfActive(initialSurface: .cloudVMLoading, select: false))
+            let reveals = fixture.catalog.cloudWorkspaceCreationCoordinator.reveals
+            var inFlight: CloudWorkspaceCreationReveal?
+            fixture.provider.beforeCreate = {
+                inFlight = reveals.reveal(for: fixture.manager)
+                if navigate { fixture.manager.selectWorkspace(other) }
+            }
+            let operations = CloudWorkspaceOperationController(isAvailable: { true })
+            let devices = fixture.app.makeDeviceWorkspaceCreationCoordinator(operations: operations, catalog: fixture.catalog)
+
+            #expect(devices.start(on: machine, in: fixture.manager))
+            await operations.waitForPendingOperations()
+            let started = try #require(inFlight, "The reveal starts with the shortcut")
+            #expect(started.nodeID == nil && !started.isWithdrawn)
+            let reveal = try #require(reveals.reveal(for: fixture.manager))
+            #expect(reveal.token == started.token)
+            if navigate {
+                #expect(fixture.manager.selectedTabId == other.id)
+                #expect(reveal.isWithdrawn, "A newer selection wins over the finished create")
+            } else {
+                let workspace = try #require(fixture.provider.createdWorkspaces.first)
+                #expect(fixture.manager.selectedTabId != fixture.originalWorkspaceID)
+                #expect(reveal.nodeID == CloudTreeNodeBuilder.nodeID(workspace: workspace.id, machine: machine))
+                #expect(!reveal.isWithdrawn)
+            }
+        }
+    }
+
+    /// The Cloud tree reads its reveal inside SwiftUI's `updateNSView`, so each
+    /// step of a create must invalidate that read.
+    @Test("Beginning, completing and withdrawing a reveal each invalidate the tree's read")
+    func revealChangesInvalidateObservers() async throws {
+        let manager = TabManager(createInitialWorkspace: false)
+        let reveals = CloudWorkspaceCreationReveals()
+        func expectInvalidation(_ comment: Comment, _ step: () -> Void) async {
+            await confirmation(comment) { changed in
+                withObservationTracking { _ = reveals.reveal(for: manager) } onChange: { changed() }
+                step()
+            }
+        }
+
+        var token: UUID?
+        await expectInvalidation("begin") { token = reveals.begin(in: manager) }
+        let started = try #require(token)
+        await expectInvalidation("receive") { reveals.receive(started, machine: .cloud("observed"), remoteWorkspaceID: "ws_1") }
+        #expect(reveals.reveal(for: manager)?.nodeID == CloudTreeNodeBuilder.nodeID(workspace: "ws_1", machine: .cloud("observed")))
+        await expectInvalidation("withdraw") { reveals.withdraw(started) }
+        #expect(reveals.reveal(for: manager)?.isWithdrawn == true)
     }
 
     private static func create(_ fixture: CloudWorkspaceCreationSidebarFixture, focus: Bool) -> Task<Void, any Error> {

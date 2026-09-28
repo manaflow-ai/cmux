@@ -131,6 +131,19 @@ struct CloudTreeCreationRevealTests {
         #expect(tree.selection == tree.fixture.folderID("ws_2"))
     }
 
+    @Test("A row the outline view has not selected yet is asked for again on the next update")
+    func unselectedRowIsRequestedAgain() throws {
+        var presentation = CloudTreeCreationRevealPresentation()
+        let baseline = "machine:retry"
+        #expect(presentation.update(request: nil, selectedNodeID: baseline) { _ in true } == nil)
+        let reveal = CloudWorkspaceCreationReveal(token: UUID(), machine: .cloud("retry"), remoteWorkspaceID: "ws_1")
+        let id = try #require(reveal.nodeID)
+
+        #expect(presentation.update(request: reveal, selectedNodeID: baseline) { _ in true } == .select(id))
+        #expect(presentation.update(request: reveal, selectedNodeID: baseline) { _ in true } == .select(id),
+                "An unresolved row must not end the reveal")
+    }
+
     @MainActor
     private final class Tree {
         let fixture = CloudSidebarOrderingFixture()
