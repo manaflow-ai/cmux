@@ -9,6 +9,10 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let hidesAllDetails: Bool
     let wrapsWorkspaceTitles: Bool
     let usesTwoLineWorkspaceTitles: Bool
+    /// `sidebar.compactAgentStatus`: agent status entries draw on the title line.
+    let compactsAgentStatus: Bool
+    /// `sidebar.compactStatusIcons`, keeping only known states and non-empty names.
+    let compactStatusIcons: [String: String]
     let showsWorkspaceDescription: Bool
     let workspaceDescriptionColorHex: String?
     let sidebarShortcutHintXOffset: Double
@@ -68,6 +72,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         hidesAllDetails = settings.value(for: sidebar.hideAllDetails)
         wrapsWorkspaceTitles = settings.value(for: sidebar.wrapWorkspaceTitles)
         usesTwoLineWorkspaceTitles = settings.value(for: sidebar.twoLineWorkspaceTitles)
+        compactsAgentStatus = settings.value(for: sidebar.compactAgentStatus)
+        compactStatusIcons = SidebarCompactStatusGlyph.validIconOverrides(settings.value(for: sidebar.compactStatusIcons))
         let detailVisibility = SidebarWorkspaceDetailVisibility(
             showWorkspaceDescription: settings.value(for: sidebar.showWorkspaceDescription),
             showNotificationMessage: settings.value(for: sidebar.showNotificationMessage),
