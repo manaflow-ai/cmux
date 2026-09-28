@@ -1,13 +1,7 @@
-import CmuxCloud
+@testable import CmuxCloud
 import Foundation
 import Testing
 import CMUXMobileCore
-
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
 
 /// Tests the pure request-shaping for `cmux remotes`: host:port parsing, the
 /// loopback refusal (a phone could never dial a localhost remote), deterministic
