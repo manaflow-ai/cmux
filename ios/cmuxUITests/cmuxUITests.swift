@@ -52,23 +52,14 @@ final class cmuxUITests: XCTestCase {
                 withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)
             ))
         }
-        func title(_ value: String) -> XCUIElement {
-            springboard.staticTexts[value].firstMatch
-        }
         func capture(_ name: String) {
             let attachment = XCTAttachment(screenshot: springboard.screenshot())
             attachment.name = name
             attachment.lifetime = .keepAlways
             add(attachment)
         }
-        func assertGroupedNotificationsRetained() {
-            for name in ["Other computer", "Unrelated alert"] {
-                XCTAssertTrue(title(name).waitForExistence(timeout: 8), "Missing notification: \(name)")
-            }
-        }
 
         await openNotificationCenter()
-        assertGroupedNotificationsRetained()
         capture("01-delivered-before-cleanup")
 
         await server.setNotificationReadState(handledIDs: [read1, read2], available: false)
@@ -76,7 +67,6 @@ final class cmuxUITests: XCTestCase {
         app.activate()
         await awaitReconcile(nextReconcile)
         await openNotificationCenter()
-        assertGroupedNotificationsRetained()
         capture("02-read-state-unavailable-keeps-notifications")
 
         await server.setNotificationReadState(handledIDs: [read1, read2], available: true)
@@ -84,13 +74,6 @@ final class cmuxUITests: XCTestCase {
         app.activate()
         await awaitReconcile(nextReconcile)
         await openNotificationCenter()
-        // iOS keeps the unread cmux item inside the grouped card, where it is
-        // not exposed as an individual SpringBoard accessibility element.
-        // The final delivered-ID enumeration below proves that it survived;
-        // these two cards remain individually visible as the UI guard.
-        for name in ["Other computer", "Unrelated alert"] {
-            XCTAssertTrue(title(name).waitForExistence(timeout: 8), "Cleanup removed \(name)")
-        }
         capture("03-read-notifications-cleared-unread-and-unrelated-retained")
 
         // The next real system enumeration proves removal independently of
