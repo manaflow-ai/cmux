@@ -72,8 +72,9 @@ struct CloudTeamPickerRow: View {
 
     /// Built from the state at open time. A switch finishing while the menu is
     /// open shows on the trigger; the next open reflects it.
-    private func makeMenu(in window: NSWindow?) -> NSMenu {
-        CloudTeamPickerMenu.make(
+    private func makeMenu(from anchor: CloudTeamPickerMenuAnchorView) -> NSMenu {
+        let window = anchor.window
+        return CloudTeamPickerMenu.make(
             teams: accountFlow.availableTeams,
             selectedTeamID: accountFlow.selectedTeamID,
             isSwitching: accountFlow.isSelectingTeam,
@@ -81,13 +82,18 @@ struct CloudTeamPickerRow: View {
             onSelect: { [presentation, accountFlow] team in
                 presentation.selectTeam(team.id, accountFlow: accountFlow)
             },
-            onCreate: { [accountFlow] in
-                // Let the menu finish closing before a sheet takes the window.
-                DispatchQueue.main.async {
+            onCreate: { [weak anchor, accountFlow] in
+                // The sheet waits for the menu's tracking loop to return.
+                let present: @MainActor () -> Void = {
                     CloudCreateTeamSheetPresenter.shared.present(
                         accountFlow: accountFlow,
                         preferredWindow: window
                     )
+                }
+                if let anchor {
+                    anchor.afterDismiss(present)
+                } else {
+                    present()
                 }
             }
         )

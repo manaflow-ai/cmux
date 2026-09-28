@@ -12,8 +12,9 @@ import SwiftUI
 struct CloudTeamPickerMenuAnchor: NSViewRepresentable {
     @Binding var isPresented: Bool
     let helpText: String
-    /// Receives the trigger's window, so follow-up UI lands on the same window.
-    let makeMenu: @MainActor (NSWindow?) -> NSMenu
+    /// Receives the anchor, so an item can place follow-up UI on the trigger's
+    /// window once the menu closes.
+    let makeMenu: @MainActor (CloudTeamPickerMenuAnchorView) -> NSMenu
     let onWillPresent: @MainActor () -> Void
 
     func makeNSView(context: Context) -> CloudTeamPickerMenuAnchorView {
@@ -44,7 +45,7 @@ struct CloudTeamPickerMenuAnchor: NSViewRepresentable {
 /// trigger has a window and a size. A request made while the trigger is
 /// disabled is dropped, as a click would be.
 final class CloudTeamPickerMenuAnchorView: NSView {
-    var makeMenu: (@MainActor (NSWindow?) -> NSMenu)?
+    var makeMenu: (@MainActor (CloudTeamPickerMenuAnchorView) -> NSMenu)?
     var onWillPresent: (@MainActor () -> Void)?
     var onOpen: (@MainActor () -> Void)?
     var onDismiss: (@MainActor () -> Void)?
@@ -65,6 +66,7 @@ final class CloudTeamPickerMenuAnchorView: NSView {
     }
 
     private(set) var trackingMenu: NSMenu?
+    private var afterDismissActions: [@MainActor () -> Void] = []
     private var isPresentationRequested = false
     private var isPresentationScheduled = false
 
@@ -104,6 +106,17 @@ final class CloudTeamPickerMenuAnchorView: NSView {
         presentIfRequested()
     }
 
+    /// Runs `action` once the menu's tracking loop has returned, or right away
+    /// when no menu is open. An item that opens a sheet uses this so the sheet
+    /// never starts while the menu still holds the event loop.
+    func afterDismiss(_ action: @escaping @MainActor () -> Void) {
+        guard trackingMenu != nil else {
+            action()
+            return
+        }
+        afterDismissActions.append(action)
+    }
+
     func syncPresentation(_ requested: Bool) {
         isPresentationRequested = requested
         if requested {
@@ -138,7 +151,7 @@ final class CloudTeamPickerMenuAnchorView: NSView {
     }
 
     private func present() {
-        guard trackingMenu == nil, let menu = makeMenu?(window) else { return }
+        guard trackingMenu == nil, let menu = makeMenu?(self) else { return }
         menu.minimumWidth = bounds.width
         menu.userInterfaceLayoutDirection = isRightToLeft ? .rightToLeft : .leftToRight
         trackingMenu = menu
@@ -153,5 +166,8 @@ final class CloudTeamPickerMenuAnchorView: NSView {
         trackingMenu = nil
         isPresentationRequested = false
         onDismiss?()
+        let actions = afterDismissActions
+        afterDismissActions.removeAll()
+        actions.forEach { $0() }
     }
 }

@@ -155,6 +155,36 @@ struct CloudTeamPickerMenuTests {
         #expect(probe.drainedWhileTracking == true, "The menu tracked inside a main-queue callout.")
     }
 
+    /// Create Team… opens a sheet, which must not start while the menu's
+    /// tracking loop still holds the event loop.
+    @Test func itemFollowUpRunsAfterTheMenuCloses() throws {
+        let anchor = CloudTeamPickerMenuAnchorView(frame: NSRect(x: 0, y: 0, width: 120, height: 22))
+        var events: [String] = []
+        anchor.makeMenu = { _ in NSMenu() }
+        anchor.onDismiss = { events.append("dismissed") }
+        anchor.trackMenu = { _, _, view in
+            let anchor = view as? CloudTeamPickerMenuAnchorView
+            anchor?.afterDismiss { events.append("follow-up") }
+            events.append("tracking ended")
+        }
+
+        let click = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
+        anchor.mouseDown(with: click)
+        anchor.afterDismiss { events.append("closed menu") }
+
+        #expect(events == ["tracking ended", "dismissed", "follow-up", "closed menu"])
+    }
+
     /// Run-loop blocks run in FIFO order, so a scheduled open has run by the
     /// time this later block does.
     private func nextRunLoopTurn() async {
