@@ -389,10 +389,10 @@ public struct SSHConnectionSharingOptions: Sendable {
         let quotedDestination = shellQuote(destination)
         return [
             "\(functionName)() {",
-            #"  cmux_ssh_control_path="$(command \#(sshPrefix) -G \#(quotedDestination) 2>/dev/null | awk 'tolower($1) == "controlpath" { $1 = ""; sub(/^[[:space:]]+/, ""); print; exit }')" "#,
+            #"  cmux_ssh_control_path="$(command \#(sshPrefix) -G -- \#(quotedDestination) 2>/dev/null | awk 'tolower($1) == "controlpath" { $1 = ""; sub(/^[[:space:]]+/, ""); print; exit }')" "#,
             "  case \"${cmux_ssh_control_path:-}\" in",
             "    \(socketPattern))",
-            "      if ! command \(sshPrefix) -S \"$cmux_ssh_control_path\" -O check \(quotedDestination) >/dev/null 2>&1; then",
+            "      if ! command \(sshPrefix) -S \"$cmux_ssh_control_path\" -O check -- \(quotedDestination) >/dev/null 2>&1; then",
             "        rm -f -- \"$cmux_ssh_control_path\" 2>/dev/null || true",
             "      fi",
             "      ;;",
@@ -448,10 +448,6 @@ public struct SSHConnectionSharingOptions: Sendable {
     }
 
     private func shellQuote(_ value: String) -> String {
-        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
-        if value.range(of: safePattern, options: .regularExpression) != nil {
-            return value
-        }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        value.posixShellWord
     }
 }
