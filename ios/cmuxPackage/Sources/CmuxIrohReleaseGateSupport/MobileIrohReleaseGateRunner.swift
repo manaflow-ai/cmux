@@ -479,10 +479,14 @@ final class MobileIrohReleaseGateRunner {
                         failure: .timeout
                     )
                 }
-                if let accepted = Self.acceptedPath(
+                let accepted = Self.acceptedPath(
                     snapshot.selectedTransportPath,
                     mode: configuration.mode
-                ) {
+                )
+                mobileIrohReleaseGateLog.info(
+                    "path-check path=\(String(describing: snapshot.selectedTransportPath), privacy: .public) accepted=\(accepted ?? "no", privacy: .public)"
+                )
+                if let accepted {
                     pathBeforeProbe = accepted
                     break
                 }
