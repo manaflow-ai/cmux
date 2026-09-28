@@ -55,7 +55,7 @@ extension KeyboardShortcutSettings.Action {
              .clearScreenKeepScrollback,
              .focusLeft, .focusRight, .focusUp, .focusDown,
              .focusPreviousPane, .focusNextPane,
-             .splitRight, .splitDown, .toggleSplitZoom,
+             .splitRight, .splitDown, .newPaneAutoLayout, .toggleSplitZoom,
              .resizePaneLeft, .resizePaneRight, .resizePaneUp, .resizePaneDown,
              .equalizeSplits,
              .splitBrowserRight, .splitBrowserDown,
