@@ -1,8 +1,6 @@
 import Foundation
 import os
-
 nonisolated private let cmuxEventBusLogger = Logger(subsystem: "com.cmuxterm.app", category: "events")
-
 struct CmuxEventSubscriptionSnapshot {
     let subscription: CmuxEventSubscription
     let replay: [[String: Any]]
@@ -348,6 +346,12 @@ final class CmuxEventBus: @unchecked Sendable {
             return
         }
 
+#if DEBUG
+        if restoreTask == nil {
+            publishDurableOnPublicationQueue(pending)
+            return
+        }
+#endif
         publicationQueue.async { [weak self] in
             self?.publishDurableOnPublicationQueue(pending)
         }
@@ -361,7 +365,6 @@ final class CmuxEventBus: @unchecked Sendable {
         lock.unlock()
         deliver(publication)
     }
-
     private func publishDurableOnPublicationQueue(_ pending: PendingPublish) {
         guard let sequenceStore,
               let sequence = sequenceStore.allocate() else {
@@ -380,7 +383,6 @@ final class CmuxEventBus: @unchecked Sendable {
         lock.unlock()
         deliver(publication)
     }
-
     /// The caller must hold ``lock`` while appending the event.
     private func appendEventLocked(_ pending: PendingPublish, sequence: Int64) -> EventPublication {
         nextSequence = max(nextSequence, sequence + 1)
@@ -624,10 +626,10 @@ final class CmuxEventBus: @unchecked Sendable {
         defer { lock.unlock() }
         return retained
     }
-
-    #if DEBUG
+#if DEBUG
     func resetForTesting() {
         restoreTask?.cancel()
+        restoreTask = nil
         publicationQueue.sync {}
         lock.lock()
         restorePending = false
