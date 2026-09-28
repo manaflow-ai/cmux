@@ -51,6 +51,12 @@ extension MobileIrxRuntimeComposition {
     /// Uses a current cached list immediately. Initial enrollment waits for its first complete directory.
     public func freshLiveDiscovery() async -> V2Directory? {
         if let directory = await currentDirectory() { return directory }
+        // A terminal open is latency-sensitive. Request the latest directory
+        // immediately so the waiter is driven by this dial rather than a
+        // periodic control refresh.
+        if let service = control {
+            Task { _ = try? await service.refreshDirectory() }
+        }
         return await withTaskGroup(of: V2Directory?.self) { group in
             group.addTask { [weak self] in
                 guard let self else { return nil }
