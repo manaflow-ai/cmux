@@ -15367,6 +15367,16 @@ impl Mux {
         } else {
             None
         };
+        let mut terminal_snapshot = terminal_snapshot;
+        if detach_projection.is_some() {
+            // The same revision deletes every view of this terminal, so the
+            // exited row must carry the detached tab edge. A full snapshot at
+            // this revision derives `tab_id: null, tab_ids: []` from topology;
+            // a delta that disagrees leaves clients with a graph that no
+            // snapshot at the same cursor can confirm.
+            terminal_snapshot["tab_id"] = Value::Null;
+            terminal_snapshot["tab_ids"] = serde_json::json!([]);
+        }
         let topology =
             detach_projection.as_ref().map(|projection| (&projection.patch, &projection.changes));
         let (_, terminal_revision, resource_revision, replayed) = registry.commit_terminal_exit(
@@ -23516,6 +23526,30 @@ mod tests {
         let batches = mux.resource_events_after(before_revision).unwrap().batches;
         assert_eq!(batches.len(), 1, "exit lifecycle and topology split across revisions");
         let changes = batches[0].changes.as_array().unwrap();
+        let exited_row = changes
+            .iter()
+            .find(|change| {
+                change["kind"] == "upsert"
+                    && change["resource"] == "terminal"
+                    && change["id"] == terminal_id.as_str()
+            })
+            .expect("atomic exit publishes the exited terminal row")["value"]
+            .clone();
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        let snapshot_row = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .expect("the exited terminal stays in the snapshot")
+            .clone();
+        for key in ["tab_id", "tab_ids"] {
+            assert_eq!(
+                exited_row[key], snapshot_row[key],
+                "the exit delta and the snapshot at its revision disagree on {key}"
+            );
+        }
+        assert_eq!(exited_row["tab_ids"], serde_json::json!([]));
         for tab_id in tab_ids {
             assert!(
                 changes.iter().any(|change| {
