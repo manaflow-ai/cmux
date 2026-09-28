@@ -566391,6 +566391,124 @@
           }
         }
       }
+    },
+    "shortcut.keymap.preset.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser-style (Ctrl-Tab)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نمط المتصفح (Ctrl-Tab)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser-Stil (Ctrl-Tab)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo navegador (Ctrl-Tab)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Style navigateur (Ctrl-Tab)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ風（Ctrl-Tab）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 스타일 (Ctrl-Tab)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器风格（Ctrl-Tab）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器風格（Ctrl-Tab）"
+          }
+        }
+      }
+    },
+    "shortcut.keymap.summary.browserTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌃Tab and ⌃⇧Tab will cycle tabs, so ⌘⇧[ and ⌘⇧] stop cycling them. ⌘T, ⌘W, ⌘⇧T, ⌘L and ⌘[ / ⌘] already match a browser and are left alone."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيتنقل ⌃Tab و ⌃⇧Tab بين علامات التبويب، لذلك يتوقف ⌘⇧[ و ⌘⇧] عن التنقل بينها. أما ⌘T و ⌘W و ⌘⇧T و ⌘L و ⌘[ / ⌘] فهي تطابق المتصفح بالفعل وتبقى كما هي."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌃Tab und ⌃⇧Tab wechseln dann zwischen Tabs, daher wechseln ⌘⇧[ und ⌘⇧] keine Tabs mehr. ⌘T, ⌘W, ⌘⇧T, ⌘L und ⌘[ / ⌘] entsprechen bereits einem Browser und bleiben unverändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌃Tab y ⌃⇧Tab cambiarán de pestaña, así que ⌘⇧[ y ⌘⇧] dejan de hacerlo. ⌘T, ⌘W, ⌘⇧T, ⌘L y ⌘[ / ⌘] ya coinciden con un navegador y se mantienen igual."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌃Tab et ⌃⇧Tab feront défiler les onglets, donc ⌘⇧[ et ⌘⇧] ne les feront plus défiler. ⌘T, ⌘W, ⌘⇧T, ⌘L et ⌘[ / ⌘] correspondent déjà à un navigateur et restent inchangés."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌃Tab と ⌃⇧Tab でタブを切り替えるようになるため、⌘⇧[ と ⌘⇧] はタブを切り替えなくなります。⌘T、⌘W、⌘⇧T、⌘L、⌘[ / ⌘] はすでにブラウザと同じなので変更しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌃Tab과 ⌃⇧Tab이 탭을 전환하므로 ⌘⇧[와 ⌘⇧]는 더 이상 탭을 전환하지 않습니다. ⌘T, ⌘W, ⌘⇧T, ⌘L, ⌘[ / ⌘]는 이미 브라우저와 같으므로 그대로 유지됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌃Tab 与 ⌃⇧Tab 将切换标签页，因此 ⌘⇧[ 与 ⌘⇧] 不再切换标签页。⌘T、⌘W、⌘⇧T、⌘L 与 ⌘[ / ⌘] 已与浏览器一致，保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌃Tab 與 ⌃⇧Tab 將切換分頁，因此 ⌘⇧[ 與 ⌘⇧] 不再切換分頁。⌘T、⌘W、⌘⇧T、⌘L 與 ⌘[ / ⌘] 已與瀏覽器一致，保持不變。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

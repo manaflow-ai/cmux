@@ -1,7 +1,7 @@
 import Foundation
 
-/// A base keymap for people coming from another terminal, like Zed's base
-/// keymap picker.
+/// A base keymap for people coming from another terminal, or from a browser,
+/// like Zed's base keymap picker.
 ///
 /// A preset is a list of `shortcuts.bindings` overrides. Every override
 /// differs from the cmux default, so the ``cmux`` preset has none and choosing
@@ -21,6 +21,14 @@ public enum ShortcutKeymapPreset: String, CaseIterable, Sendable {
     /// tmux's default `ctrl+b` prefix, with tmux windows mapped to cmux
     /// workspaces and tmux panes to cmux panes.
     case tmux
+    /// A browser's tab keys: Ctrl-Tab and Ctrl-Shift-Tab cycle the tab bar and
+    /// Cmd-1…9 selects a tab. The system owns Cmd-Tab, so Ctrl-Tab stands in
+    /// for it, the same substitution Chrome and Firefox make on macOS.
+    ///
+    /// cmux already agrees with a browser on Cmd-T, Cmd-W, Cmd-Shift-T,
+    /// Cmd-L, Cmd-R, Cmd-F and Cmd-[ / Cmd-], so this preset only writes the
+    /// two tab-cycling keys and the number row.
+    case browser
 
     /// The `shortcuts.bindings` values this preset writes, keyed by action.
     ///
@@ -65,6 +73,21 @@ public enum ShortcutKeymapPreset: String, CaseIterable, Sendable {
                 .focusNextPane: .chord(prefix, "o"),
                 .toggleSplitZoom: .chord(prefix, "z"),
                 .toggleTerminalCopyMode: .chord(prefix, "["),
+            ]
+        case .browser:
+            return [
+                // The tab bar holds surfaces, so a browser's tab keys drive
+                // the surface actions. Cmd-Shift-[ and Cmd-Shift-] stop
+                // cycling surfaces: an action carries one binding, and Tab
+                // cycling is the key people arrive expecting.
+                .nextSurface: .stroke("ctrl+tab"),
+                .prevSurface: .stroke("ctrl+shift+tab"),
+                // Cmd-1…9 picks a tab in a browser, so it moves off
+                // workspaces and onto surfaces. Workspaces take the Option
+                // row, matching what the iTerm2 preset does with the same
+                // collision.
+                .selectSurfaceByNumber: .stroke("cmd+1"),
+                .selectWorkspaceByNumber: .stroke("cmd+opt+1"),
             ]
         }
     }

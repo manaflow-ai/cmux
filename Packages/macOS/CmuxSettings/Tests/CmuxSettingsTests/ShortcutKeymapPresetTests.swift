@@ -171,6 +171,56 @@ struct ShortcutKeymapPresetTests {
         #expect(preset.plan(from: empty).systemConflicts.isEmpty)
     }
 
+    @Test func browserPresetBindsTheTabKeysAndTheNumberRow() throws {
+        let plan = ShortcutKeymapPreset.browser.plan(from: empty)
+
+        #expect(Set(plan.changes.map(\.action)) == [
+            .nextSurface, .prevSurface, .selectSurfaceByNumber, .selectWorkspaceByNumber,
+        ])
+        let next = try #require(plan.changes.first { $0.action == .nextSurface })
+        #expect(next.before == StoredShortcut(first: ShortcutStroke(key: "]", command: true, shift: true)))
+        #expect(next.after == StoredShortcut(first: ShortcutStroke(key: "\t", control: true)))
+        let previous = try #require(plan.changes.first { $0.action == .prevSurface })
+        #expect(previous.after == StoredShortcut(first: ShortcutStroke(key: "\t", shift: true, control: true)))
+        // Cmd-1…9 moves from workspaces to surfaces, so workspaces take the
+        // Option row rather than losing the number row.
+        let surfaces = try #require(plan.changes.first { $0.action == .selectSurfaceByNumber })
+        #expect(surfaces.after == StoredShortcut(first: ShortcutStroke(key: "1", command: true)))
+        let workspaces = try #require(plan.changes.first { $0.action == .selectWorkspaceByNumber })
+        #expect(workspaces.after == StoredShortcut(first: ShortcutStroke(key: "1", command: true, option: true)))
+    }
+
+    @Test func browserPresetLeavesTheShortcutsABrowserAlreadyAgreesWith() {
+        // Cmd-T, Cmd-W, Cmd-Shift-T, Cmd-L, Cmd-R, Cmd-F and Cmd-[ / Cmd-]
+        // are cmux defaults already, so the preset must not write them.
+        let untouched: [ShortcutAction: ShortcutStroke] = [
+            .newSurface: ShortcutStroke(key: "t", command: true),
+            .closeTab: ShortcutStroke(key: "w", command: true),
+            .reopenClosedBrowserPanel: ShortcutStroke(key: "t", command: true, shift: true),
+            .focusBrowserAddressBar: ShortcutStroke(key: "l", command: true),
+            .browserReload: ShortcutStroke(key: "r", command: true),
+            .find: ShortcutStroke(key: "f", command: true),
+            .focusHistoryBack: ShortcutStroke(key: "[", command: true),
+            .focusHistoryForward: ShortcutStroke(key: "]", command: true),
+        ]
+
+        for (action, expected) in untouched {
+            #expect(ShortcutKeymapPreset.browser.overrides[action] == nil, "\(action)")
+            #expect(
+                action.defaultShortcut?.canonicalized() == StoredShortcut(first: expected).canonicalized(),
+                "\(action) is no longer a browser-style default"
+            )
+        }
+    }
+
+    @Test func browserPresetIsDetectedAndReversible() {
+        #expect(ShortcutKeymapPreset.active(in: snapshot(applied(.browser))) == .browser)
+
+        let back = ShortcutKeymapPreset.cmux.plan(from: snapshot(applied(.browser)))
+        #expect(Set(back.changes.map(\.action)) == Set(ShortcutKeymapPreset.browser.overrides.keys))
+        #expect(back.changes.allSatisfy { $0.write == nil })
+    }
+
     /// Whether two bindings can fire on the same keystroke sequence. A chord
     /// overlaps a single stroke equal to its prefix; numbered actions stand for
     /// their `1…9` family.
