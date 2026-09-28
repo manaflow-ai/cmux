@@ -83,6 +83,24 @@ public final class BrowserSurfaceStore {
         return surface
     }
 
+    /// Streamed browser tabs the user switched to "On iPhone". The choice
+    /// belongs to each tab: reopening the tab opens it on the phone again.
+    private var onDevicePanelIDs: Set<String> = []
+
+    /// Whether the streamed tab `panelID` was last switched to "On iPhone".
+    public func prefersOnDevice(panelID: String) -> Bool {
+        onDevicePanelIDs.contains(panelID)
+    }
+
+    /// Remembers a streamed tab's last mode.
+    public func rememberOnDevice(_ onDevice: Bool, panelID: String) {
+        if onDevice {
+            onDevicePanelIDs.insert(panelID)
+        } else {
+            onDevicePanelIDs.remove(panelID)
+        }
+    }
+
     /// Close the browser pane for a workspace, returning the UI to its terminal.
     ///
     /// - Parameter workspaceID: The workspace's raw identifier string.
