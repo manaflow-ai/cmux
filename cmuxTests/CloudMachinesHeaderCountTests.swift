@@ -133,15 +133,14 @@ struct CloudMachinesHeaderCountTests {
         }
     }
 
-    @Test("The hover + never overlaps the header count")
+    @Test("The hover + never covers the drawn count, and the title truncates before the count")
     func hoverPlusLeavesRoomForTheCount() throws {
-        let cell = headerCell(usage: CloudMachinesUsage(activeCount: 50, maxActiveVms: 50, isPaidPlan: false), width: 160)
-        cell.setHovered(true)
-        cell.layoutSubtreeIfNeeded()
-        let display = try #require(cell.subviews.first { $0 is CloudTreePassthroughHostingView })
-        let buttons = try #require(cell.subviews.first { $0 is CloudTreeRowControlsHostingView })
-        #expect(!buttons.isHidden)
-        #expect(display.frame.maxX <= buttons.frame.minX, "Count area \(display.frame) runs under + \(buttons.frame)")
+        let roomy = try hoveredFullPlanHeader(width: 380)
+        let narrow = try hoveredFullPlanHeader(width: 160)
+        #expect(narrow.count.lowerBound < roomy.count.lowerBound, "The 160pt title should have given up room")
+        #expect(narrow.count.upperBound <= narrow.plusMinX, "Count \(narrow.count) runs under + at \(narrow.plusMinX)")
+        #expect(abs(narrow.count.upperBound - narrow.count.lowerBound - (roomy.count.upperBound - roomy.count.lowerBound)) <= 1,
+                "The count was clipped: \(narrow.count) at 160pt, \(roomy.count) at 380pt")
     }
 
     @Test("An empty status adds no row under the Cloud toolbar")
@@ -191,8 +190,55 @@ struct CloudMachinesHeaderCountTests {
         (outline.view(atColumn: 0, row: 0, makeIfNecessary: false) as? CloudTreeCellView)?.accessibilityLabel()
     }
 
-    private func headerCell(usage: CloudMachinesUsage, width: CGFloat = 240) -> CloudTreeCellView {
-        let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: width, height: 24))
+    /// Where the production outline draws a hovered 50/50 header's orange count, and where its + starts.
+    private func hoveredFullPlanHeader(width: CGFloat) throws -> (count: ClosedRange<CGFloat>, plusMinX: CGFloat) {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        fixture.window.setContentSize(NSSize(width: width, height: 560))
+        fixture.coordinator.update(inputs: CloudTreeBuildInputs(
+            machines: [], snapshot: fixture.snapshot(), source: .cloudWithDevicesSection, canCreateCloudMachine: true,
+            cloudMachinesUsage: CloudMachinesUsage(activeCount: 50, maxActiveVms: 50, isPaidPlan: false)
+        ))
+        fixture.container.layoutSubtreeIfNeeded()
+        let outline = try #require(fixture.coordinator.outlineView)
+        let cell = try #require(outline.view(atColumn: 0, row: 0, makeIfNecessary: false) as? CloudTreeCellView)
+        cell.setHovered(true)
+        cell.layoutSubtreeIfNeeded()
+        let buttons = try #require(cell.subviews.first { $0 is CloudTreeRowControlsHostingView })
+        #expect(!buttons.isHidden)
+        let count = try #require(try orangeSpan(in: cell), "No orange count drawn at \(width)pt")
+        return (count, buttons.frame.minX)
+    }
+
+    /// The horizontal span, in points, that the view draws in the at-limit orange.
+    private func orangeSpan(in view: NSView) throws -> ClosedRange<CGFloat>? {
+        let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let image = try #require(bitmap.cgImage)
+        let (width, height) = (image.width, image.height)
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            // Flatten onto white so every pixel is opaque sRGB; gray text stays gray, orange keeps red > blue.
+            guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB), let context = CGContext(
+                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: sRGB, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.setFillColor(CGColor(gray: 1, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        try #require(drawn)
+        let columns = (0..<width).filter { x in
+            (0..<height).contains { y in Int(pixels[(y * width + x) * 4]) - Int(pixels[(y * width + x) * 4 + 2]) > 80 }
+        }
+        guard let first = columns.first, let last = columns.last else { return nil }
+        let scale = CGFloat(width) / view.bounds.width
+        return CGFloat(first) / scale...CGFloat(last + 1) / scale
+    }
+
+    private func headerCell(usage: CloudMachinesUsage) -> CloudTreeCellView {
+        let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         let node = CloudTreeNode(id: "cloud-machines-section", kind: .cloudMachinesSection(canCreateMachine: true, usage: usage))
         cell.configure(node: node, machineActions: machineActions(), nodeActions: nodeActions())
         return cell
