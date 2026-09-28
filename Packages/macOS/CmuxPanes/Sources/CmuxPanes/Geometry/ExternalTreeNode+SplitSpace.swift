@@ -120,8 +120,7 @@ extension ExternalTreeNode {
                 return requiredExtent(
                     orientation: orientation,
                     minimumExtent: minimumExtent,
-                    dividerThickness: dividerThickness,
-                    prospectiveSplittingPaneId: splittingPaneId
+                    dividerThickness: dividerThickness
                 ) <= extent
             }
             let firstSpanCount = splitNode.first.prospectiveSpanCount(
@@ -174,89 +173,25 @@ extension ExternalTreeNode {
     private func requiredExtent(
         orientation: String,
         minimumExtent: Double,
-        dividerThickness: Double,
-        prospectiveSplittingPaneId: String? = nil
+        dividerThickness: Double
     ) -> Double {
-        prospectiveExtentTrace(
-            orientation: orientation,
-            minimumExtent: minimumExtent,
-            dividerThickness: dividerThickness,
-            splittingPaneId: prospectiveSplittingPaneId
-        ).requiredExtent
-    }
-
-    private struct ProspectiveExtentTrace {
-        let requiredExtent: Double
-        let containsSplittingPane: Bool
-        let targetRunReachesRoot: Bool
-    }
-
-    /// Computes the required axis extent after inserting the prospective
-    /// split. A cross-orientation node still occupies one outer-run slot, but
-    /// we descend through it so the target's nested same-axis run is simulated
-    /// instead of being collapsed to its pre-split requirement.
-    private func prospectiveExtentTrace(
-        orientation: String,
-        minimumExtent: Double,
-        dividerThickness: Double,
-        splittingPaneId: String?
-    ) -> ProspectiveExtentTrace {
         switch self {
-        case .pane(let pane):
-            let isTarget = pane.id == splittingPaneId
-            return ProspectiveExtentTrace(
-                requiredExtent: isTarget ? 2 * minimumExtent + dividerThickness : minimumExtent,
-                containsSplittingPane: isTarget,
-                targetRunReachesRoot: isTarget
-            )
+        case .pane:
+            return minimumExtent
         case .split(let splitNode):
-            let first = splitNode.first.prospectiveExtentTrace(
+            let first = splitNode.first.requiredExtent(
                 orientation: orientation,
                 minimumExtent: minimumExtent,
-                dividerThickness: dividerThickness,
-                splittingPaneId: splittingPaneId
+                dividerThickness: dividerThickness
             )
-            let second = splitNode.second.prospectiveExtentTrace(
+            let second = splitNode.second.requiredExtent(
                 orientation: orientation,
                 minimumExtent: minimumExtent,
-                dividerThickness: dividerThickness,
-                splittingPaneId: splittingPaneId
+                dividerThickness: dividerThickness
             )
-            let containsTarget = first.containsSplittingPane || second.containsSplittingPane
-            guard splitNode.orientation == orientation else {
-                return ProspectiveExtentTrace(
-                    requiredExtent: max(first.requiredExtent, second.requiredExtent),
-                    containsSplittingPane: containsTarget,
-                    targetRunReachesRoot: false
-                )
-            }
-            let targetRunReachesRoot =
-                (first.containsSplittingPane && first.targetRunReachesRoot)
-                || (second.containsSplittingPane && second.targetRunReachesRoot)
-            let position: Double
-            if targetRunReachesRoot, let splittingPaneId {
-                let firstSpanCount = splitNode.first.prospectiveSpanCount(
-                    orientation: orientation,
-                    splittingPaneId: splittingPaneId
-                )
-                let secondSpanCount = splitNode.second.prospectiveSpanCount(
-                    orientation: orientation,
-                    splittingPaneId: splittingPaneId
-                )
-                position = splitSpaceClampedDividerPosition(
-                    Double(firstSpanCount) / Double(firstSpanCount + secondSpanCount)
-                )
-            } else {
-                position = splitSpaceClampedDividerPosition(splitNode.dividerPosition)
-            }
-            return ProspectiveExtentTrace(
-                requiredExtent: max(
-                    first.requiredExtent / position,
-                    second.requiredExtent / (1 - position)
-                ) + dividerThickness,
-                containsSplittingPane: containsTarget,
-                targetRunReachesRoot: targetRunReachesRoot
-            )
+            guard splitNode.orientation == orientation else { return max(first, second) }
+            let position = splitSpaceClampedDividerPosition(splitNode.dividerPosition)
+            return max(first / position, second / (1 - position)) + dividerThickness
         }
     }
 

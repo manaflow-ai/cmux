@@ -9746,6 +9746,29 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // 1:1 view of a tmux session). See ``newBrowserSurface(inPane:)``.
         if isRemoteTmuxMirror { return nil }
 
+        let browserEnabled: Bool = {
+#if DEBUG
+            // Tests that inspect the construction boundary must exercise the
+            // split-space preflight, independent of the user's browser toggle.
+            if debugBrowserSplitPanelConstructionProbe != nil { return true }
+#endif
+            return BrowserAvailabilitySettings.isEnabled()
+        }()
+        // Under an MDM-managed disable no path may create a browser panel,
+        // including session restore (mirrors the Dock restore behavior).
+        let creationPermittedWhileDisabled = creationPolicy.permitsCreationWhenBrowserDisabled
+            && !BrowserAvailabilitySettings.isManagedByPolicy
+        guard browserEnabled || creationPermittedWhileDisabled else {
+            if allowsExternalBrowserFallback,
+               let externalURL = externalBrowserFallbackURL(
+                url: url,
+                initialRequest: initialRequest
+            ) {
+                _ = NSWorkspace.shared.open(externalURL)
+            }
+            return nil
+        }
+
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -9764,23 +9787,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                   dividerPosition: initialDividerPosition
               ) else { return nil }
 
-        let browserEnabled = BrowserAvailabilitySettings.isEnabled()
-        // Under an MDM-managed disable no path may create a browser panel,
-        // including session restore (mirrors the Dock restore behavior).
-        let creationPermittedWhileDisabled = creationPolicy.permitsCreationWhenBrowserDisabled
-            && !BrowserAvailabilitySettings.isManagedByPolicy
-        guard browserEnabled || creationPermittedWhileDisabled else {
-            if allowsExternalBrowserFallback,
-               let externalURL = externalBrowserFallbackURL(
-                url: url,
-                initialRequest: initialRequest
-            ) {
-                _ = NSWorkspace.shared.open(externalURL)
-            }
-            return nil
-        }
-
-        // Create browser panel
+        // Preflight is deliberately adjacent to construction: Bonsplit's
+        // delegate remains the final mutation-time backstop.
 #if DEBUG
         debugBrowserSplitPanelConstructionProbe?(initialRequest?.url ?? url)
 #endif
