@@ -182,6 +182,33 @@ struct PaneDropZoneOverlayAnimationTests {
         try expectSlide(of: host.overlay, from: host.frame(for: .right), to: host.frame(for: .center))
     }
 
+    @Test("Retargeting partway through a slide continues from the presented frame")
+    func retargetMidSlideContinuesFromPresentation() throws {
+        let host = OverlayAnimatorHost()
+        defer { host.close() }
+        host.setZone(.right)
+        let layer = try #require(host.overlay.layer)
+        // Pause the overlay's clock: slides begin at its local time, and the
+        // test moves that time instead of waiting.
+        layer.speed = 0
+        layer.timeOffset = 10
+        host.setZone(.left)
+        CATransaction.flush()
+        layer.timeOffset = 10.05
+        CATransaction.flush()
+        let presented = try #require(layer.presentation()).frame
+        #expect(
+            !Probe.approximatelyEqual(presented, host.frame(for: .right)) &&
+                !Probe.approximatelyEqual(presented, host.frame(for: .left)),
+            "50 ms into the slide the overlay is drawn at \(presented)"
+        )
+
+        host.setZone(.center)
+        CATransaction.flush()
+        let continued = try #require(layer.presentation()).frame
+        #expect(Probe.approximatelyEqual(continued, presented), "retarget drawn at \(continued), was \(presented)")
+    }
+
     @Test("Reduce Motion moves the overlay without sliding")
     func reduceMotionSnaps() {
         let host = OverlayAnimatorHost(reduceMotion: true)
