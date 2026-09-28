@@ -149,16 +149,19 @@ final class DogfoodScenarioUITests: XCTestCase {
             app.typeKey(key, modifierFlags: modifiers)
         case .type(let text):
             app.typeText(text)
-        case .click(let target):
-            try element(target, in: app).click()
+        case .click(let target, let modifiers):
+            let resolved = try element(target, in: app)
+            DogfoodStep.holding(modifiers, on: resolved) { resolved.click() }
         case .doubleClick(let target):
             try element(target, in: app).doubleClick()
         case .rightClick(let target):
             try element(target, in: app).rightClick()
         case .hover(let target):
             try element(target, in: app).hover()
-        case .clickAt(let x, let y):
-            app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y)).click()
+        case .clickAt(let x, let y, let modifiers):
+            let window = app.windows.firstMatch
+            let point = window.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y))
+            DogfoodStep.holding(modifiers, on: window) { point.click() }
         case .hoverAt(let x, let y):
             app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y)).hover()
         case .menu(let path):
@@ -441,11 +444,11 @@ enum DogfoodStep {
     case wait(TimeInterval)
     case key(String, XCUIElement.KeyModifierFlags)
     case type(String)
-    case click(DogfoodTarget)
+    case click(DogfoodTarget, XCUIElement.KeyModifierFlags)
     case doubleClick(DogfoodTarget)
     case rightClick(DogfoodTarget)
     case hover(DogfoodTarget)
-    case clickAt(Double, Double)
+    case clickAt(Double, Double, XCUIElement.KeyModifierFlags)
     case hoverAt(Double, Double)
     case menu([String])
     case socket(method: String, params: Any, saveAs: String?)
@@ -458,11 +461,12 @@ enum DogfoodStep {
         case .wait(let seconds): return "wait \(seconds)"
         case .key(let key, let modifiers): return "key \(key) modifiers=\(modifiers.rawValue)"
         case .type(let text): return "type \(text.debugDescription)"
-        case .click(let target): return "click \(target)"
+        case .click(let target, let modifiers): return "click \(target)\(Self.describe(modifiers))"
         case .doubleClick(let target): return "doubleClick \(target)"
         case .rightClick(let target): return "rightClick \(target)"
         case .hover(let target): return "hover \(target)"
-        case .clickAt(let x, let y): return "clickAt \(x),\(y)"
+        case .clickAt(let x, let y, let modifiers):
+            return "clickAt \(x),\(y)\(Self.describe(modifiers))"
         case .hoverAt(let x, let y): return "hoverAt \(x),\(y)"
         case .menu(let path): return "menu \(path.joined(separator: " > "))"
         case .socket(let method, _, _): return "socket \(method)"
@@ -489,7 +493,7 @@ enum DogfoodStep {
         case "key":
             guard let key = object["key"] as? String else { throw DogfoodError("key takes a string") }
             self = .key(Self.key(named: key), try Self.modifiers(object["modifiers"]))
-        case "click": self = .click(try DogfoodTarget(json: value))
+        case "click": self = .click(try DogfoodTarget(json: value), try Self.modifiers(object["modifiers"]))
         case "doubleClick": self = .doubleClick(try DogfoodTarget(json: value))
         case "rightClick": self = .rightClick(try DogfoodTarget(json: value))
         case "hover": self = .hover(try DogfoodTarget(json: value))
@@ -499,7 +503,9 @@ enum DogfoodStep {
                   let y = (point["y"] as? NSNumber)?.doubleValue else {
                 throw DogfoodError("\(kind) takes {\"x\": 0-1, \"y\": 0-1} in window space")
             }
-            self = kind == "clickAt" ? .clickAt(x, y) : .hoverAt(x, y)
+            self = kind == "clickAt"
+                ? .clickAt(x, y, try Self.modifiers(object["modifiers"]))
+                : .hoverAt(x, y)
         case "menu":
             guard let path = value as? [String], !path.isEmpty else { throw DogfoodError("menu takes a path array") }
             self = .menu(path)
@@ -536,6 +542,37 @@ enum DogfoodStep {
         case "pagedown": return XCUIKeyboardKey.pageDown.rawValue
         default: return name
         }
+    }
+
+    /// Runs `body` with `modifiers` held down.
+    ///
+    /// `XCUICoordinate` has no modifier-aware click, so the modifiers are held
+    /// around an ordinary click by the element the click is anchored to. An
+    /// empty set skips the wrapper entirely, so every existing step keeps its
+    /// exact previous behavior.
+    fileprivate static func holding(
+        _ modifiers: XCUIElement.KeyModifierFlags,
+        on anchor: XCUIElement,
+        _ body: () -> Void
+    ) {
+        guard !modifiers.isEmpty else {
+            body()
+            return
+        }
+        anchor.perform(withKeyModifiers: modifiers, block: body)
+    }
+
+    /// Renders held modifiers for the step label, so a frame caption says which
+    /// click it was rather than just "clickAt".
+    fileprivate static func describe(_ modifiers: XCUIElement.KeyModifierFlags) -> String {
+        guard !modifiers.isEmpty else { return "" }
+        var names: [String] = []
+        if modifiers.contains(.command) { names.append("cmd") }
+        if modifiers.contains(.shift) { names.append("shift") }
+        if modifiers.contains(.option) { names.append("opt") }
+        if modifiers.contains(.control) { names.append("ctrl") }
+        if modifiers.contains(.function) { names.append("fn") }
+        return " +\(names.joined(separator: "+"))"
     }
 
     private static func modifiers(_ json: Any?) throws -> XCUIElement.KeyModifierFlags {
