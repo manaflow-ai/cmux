@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxCloud
 import CmuxFoundation
 import CmuxSurfaceCatalogModel
@@ -72,29 +73,29 @@ struct CloudTreeDisclosureIntentTests {
         #expect(expanded.isExpanded(tree.resources))
     }
 
-    @Test func nativeDisclosureClickPersistsOnlyTheClickedItem() throws {
+    @Test func nativeDisclosureControlPersistsOnlyTheClickedItem() throws {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         let tree = try tree(fixture)
         fixture.container.layoutSubtreeIfNeeded()
-        let rect = tree.outline.frameOfOutlineCell(atRow: tree.outline.row(forItem: tree.section))
-        let point = tree.outline.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
-        let down = try #require(NSEvent.mouseEvent(
-            with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
-            windowNumber: fixture.window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1
-        ))
-        let up = try #require(NSEvent.mouseEvent(
-            with: .leftMouseUp, location: point, modifierFlags: [], timestamp: 0,
-            windowNumber: fixture.window.windowNumber, context: nil, eventNumber: 2, clickCount: 1, pressure: 0
-        ))
+        let row = tree.outline.row(forItem: tree.section)
+        let button = try #require(descendants(of: tree.outline).compactMap { $0 as? NSButton }.first {
+            $0.identifier == NSOutlineView.disclosureButtonIdentifier && tree.outline.row(for: $0) == row
+        })
+        let center = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+        let hit = try #require(tree.outline.cmuxHitTest(windowPoint: center))
+        #expect(hit === button || hit.isDescendant(of: button))
         let events = Counter()
         let token = NotificationCenter.default.addUserDefaultsObserver(object: fixture.defaults) { events.count += 1 }
         defer { NotificationCenter.default.removeObserver(token) }
-        NSApp.postEvent(up, atStart: true)
-        tree.outline.mouseDown(with: down)
+        button.performClick(nil)
         #expect(!tree.outline.isItemExpanded(tree.section))
         #expect(events.count == 1)
         #expect(fixture.defaults.object(forKey: "cloudTree.collapsedMachineIDs") == nil)
+    }
+
+    private func descendants(of view: NSView) -> [NSView] {
+        view.subviews.flatMap { [$0] + descendants(of: $0) }
     }
 
     @Test func nestedBatchesAndNetNoOpsDoNotWrite() throws {
