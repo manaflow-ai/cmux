@@ -42,23 +42,23 @@ extension CloudTreeOutlineView.Coordinator {
     func outlineView(_ outlineView: NSOutlineView, validateDrop info: any NSDraggingInfo,
                      proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
         // The tree is a navigation/source surface. Pane destinations own the
-        // ownership warning and announcement; the tree only presents reorders.
+        // ownership warning and announcement; the tree draws no drag hints.
         guard ownershipRejection(info: info, item: item) == nil else {
-            (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+            (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber)
             return []
         }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else {
-            (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+            (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber)
             return []
         }
         outlineView.setDropItem(drop.parent, dropChildIndex: drop.childIndex)
-        (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.show(drop, sequence: info.draggingSequenceNumber)
+        (outlineView as? CloudTreeNSOutlineView)?.trackDragDestination(sequenceNumber: info.draggingSequenceNumber)
         return .move
     }
 
     func outlineView(_ outlineView: NSOutlineView, acceptDrop info: any NSDraggingInfo,
                      item: Any?, childIndex index: Int) -> Bool {
-        defer { (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.clear(sequence: info.draggingSequenceNumber) }
+        defer { (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber) }
         guard ownershipRejection(info: info, item: item) == nil else { return false }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else { return false }
         switch drop.operation {
