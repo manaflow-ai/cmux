@@ -217,6 +217,8 @@ jobs:
           name: pr-media-${{ matrix.tour }}
           # The folder above the tour's, so the archive holds <tour>/...: a
           # download of a single artifact lands without a per-artifact folder.
+          # The hidden .frames-<tour> scratch next to it stays out
+          # (include-hidden-files defaults to false).
           path: ${{ runner.temp }}/media
           if-no-files-found: ignore
           overwrite: true
