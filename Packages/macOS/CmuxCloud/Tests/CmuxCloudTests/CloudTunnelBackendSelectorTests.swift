@@ -1,12 +1,6 @@
-import CmuxCloud
+@testable import CmuxCloud
 import Foundation
 import Testing
-
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
 
 /// Backend selection makes unentitled builds fail closed: every missing piece
 /// must name itself, and only a build with the

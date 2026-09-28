@@ -39,6 +39,13 @@ def pick(items: list, fraction: float):
 
 # ----------------------------------------------------------------- generators
 
+# The main window's minimum content size (SessionPersistencePolicy.minimumWindowWidth/Height).
+# The app raises a smaller frame to it, so a resize step below it would silently test the minimum instead.
+MIN_WINDOW_WIDTH = 300
+MIN_WINDOW_HEIGHT = 400
+WINDOW_WIDTHS = [320, 480, 800, 1280, 1920, 2600]
+WINDOW_HEIGHTS = [MIN_WINDOW_HEIGHT, 560, 700, 1080, 1600]
+
 
 def _f(rng: random.Random) -> float:
     return round(rng.random(), 3)
@@ -125,8 +132,7 @@ KINDS: list[Kind] = [
     Kind("send_key", "terminal", 1.5, lambda r: {"key": r.choice(["ctrl-c", "ctrl-d", "enter", "ctrl-l", "ctrl-z"])}),
     Kind("shortcut", "terminal", 3, lambda r: {"combo": r.choice(_SHORTCUTS)}),
     # window
-    Kind("window_resize", "window", 2, lambda r: {"w": r.choice([320, 480, 800, 1280, 1920, 2600]),
-                                                  "h": r.choice([200, 360, 700, 1080, 1600])}),
+    Kind("window_resize", "window", 2, lambda r: {"w": r.choice(WINDOW_WIDTHS), "h": r.choice(WINDOW_HEIGHTS)}),
     Kind("fullscreen", "window", 0.7, lambda r: {}),
     Kind("window_create", "window", 0.6, lambda r: {}),
     Kind("window_close", "window", 0.4, lambda r: {"f": _f(r)}),
@@ -208,7 +214,13 @@ class Executor:
         if s["via"] == "shortcut" and s["dir"] in "rd":
             self.shortcut("cmd+d" if s["dir"] == "r" else "cmd+shift+d")
             return "shortcut"
-        self.sock.call("surface.split", {"direction": s["dir"], "focus": True})
+        try:
+            self.sock.call("surface.split", {"direction": s["dir"], "focus": True})
+        except SocketError as error:
+            # cmux refuses a split that would leave a pane below its minimum size (#15371), like tmux.
+            if isinstance(error.error, dict) and error.error.get("code") == "no_space":
+                raise Skip("no space for new pane") from error
+            raise
         return ""
 
     def do_close_surface(self, s: dict) -> str:
