@@ -29,7 +29,14 @@ extension MachinesPanelViewModel {
     static func usage(
         _ usage: CloudMachinesUsage?, machines: [MachineSnapshot], hiding machineIDs: Set<String>
     ) -> CloudMachinesUsage? {
-        usage
+        guard let usage, !machineIDs.isEmpty else { return usage }
+        let hiddenCount = machines.count(where: { machineIDs.contains($0.id) })
+        guard hiddenCount > 0 else { return usage }
+        return CloudMachinesUsage(
+            activeCount: max(0, usage.activeCount - hiddenCount),
+            maxActiveVms: usage.maxActiveVms,
+            isPaidPlan: usage.isPaidPlan
+        )
     }
 
     /// The catalog without machines being deleted, their resources and panes.
