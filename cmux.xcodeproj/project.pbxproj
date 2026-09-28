@@ -11494,7 +11494,7 @@
 				D01100800000000000000007 /* CmuxTuiSurfaceProviderRegistryDiscoveryTests.swift */,
 				7A1D4C000000000000000105 /* CmuxTuiSurfaceProviderRegistryPollingTests.swift */,
 				7A1D4C000000000000000103 /* CloudTunnelLaunchGateTests.swift */,
-				7A1D4C000000000000000101 /* CloudActivationPolicyTests.swift */,				
+				7A1D4C000000000000000101 /* CloudActivationPolicyTests.swift */,
 				7A0CE1000000000000000401 /* CloudTunnelTestFakes.swift */,
 				C6544386D2BA373AF2133B58 /* CloudWireGuardHubTests.swift */,
 				A9126001C5E7F90123456789 /* ReopenLastClosedTests.swift */,
