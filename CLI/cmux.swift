@@ -307,6 +307,11 @@ private struct CodexMonitorLeaseRecord: Codable {
     var retiredAt: TimeInterval?
 }
 
+private struct CodexTranscriptFileState: Equatable {
+    let fileSize: Int
+    let modificationDate: Date
+}
+
 final class ClaudeHookSessionStore {
     private typealias CursorPendingShellApproval = ClaudeHookSessionRecord.PendingCursorShellApproval
     typealias CursorShellApprovalResolution = (
@@ -31029,7 +31034,14 @@ struct CMUXCLI {
                 transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
             }
 
+            var transcriptStateBeforeRead: CodexTranscriptFileState?
             if let currentTranscriptPath = transcriptPath {
+                // Capture the file state before parsing. The monitor publishes
+                // notifications before it arms the next file watcher; a
+                // transcript append during that delivery window can otherwise
+                // be missed and leave the monitor asleep until its long
+                // fallback timeout.
+                transcriptStateBeforeRead = codexTranscriptFileState(path: currentTranscriptPath)
                 let userInput = autoreleasepool(invoking: { readCodexTranscriptUserInput(path: currentTranscriptPath, turnId: turnId, excluding: publishedUserInputCallIds) })
                 if let userInput {
                     publishedUserInputCallIds.insert(userInput.callId)
@@ -31076,7 +31088,12 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return nil }
-            waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: min(30, remaining))
+            waitForCodexTranscriptChange(
+                path: transcriptPath,
+                leasePath: leasePath,
+                knownTranscriptState: transcriptStateBeforeRead,
+                timeout: min(30, remaining)
+            )
         }
         return nil
     }
@@ -31147,7 +31164,27 @@ struct CMUXCLI {
         )
     }
 
-    private func waitForCodexTranscriptChange(path: String?, leasePath: String?, timeout: TimeInterval) {
+    private func codexTranscriptFileState(path: String) -> CodexTranscriptFileState? {
+        let url = URL(fileURLWithPath: NSString(string: path).expandingTildeInPath)
+        guard let values = try? url.resourceValues(
+            forKeys: [.fileSizeKey, .contentModificationDateKey]
+        ),
+        let fileSize = values.fileSize,
+        let modificationDate = values.contentModificationDate else {
+            return nil
+        }
+        return CodexTranscriptFileState(
+            fileSize: fileSize,
+            modificationDate: modificationDate
+        )
+    }
+
+    private func waitForCodexTranscriptChange(
+        path: String?,
+        leasePath: String?,
+        knownTranscriptState: CodexTranscriptFileState?,
+        timeout: TimeInterval
+    ) {
         guard timeout > 0 else { return }
 
         let semaphore = DispatchSemaphore(value: 0)
@@ -31179,6 +31216,16 @@ struct CMUXCLI {
         guard !sources.isEmpty else {
             _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
             return
+        }
+
+        // Check after the source is armed. An append that happened while the
+        // previous notification was delivered is already present but may have
+        // preceded the source's event stream registration. Comparing the
+        // post-arm state closes that gap; later appends are delivered by the
+        // source itself.
+        if let path,
+           codexTranscriptFileState(path: path) != knownTranscriptState {
+            semaphore.signal()
         }
 
         _ = semaphore.wait(timeout: .now() + timeout)
