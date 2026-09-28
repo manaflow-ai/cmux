@@ -24974,9 +24974,28 @@ mod tests {
             assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
             assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
             mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+
+            // Startup runs this reconciliation once restored surfaces exist.
+            // This test's terminal is a local PTY, which does not survive a
+            // daemon restart (only host-owned terminals are adopted), so run
+            // the startup repair against the live surface here.
+            mux.reconcile_agent_roster_projections();
+            let repaired = mux.list_agents(Some(surface.id), None);
+            assert_eq!(repaired.len(), 1);
+            assert_eq!(repaired[0].state, AgentState::Working);
+            assert_eq!(repaired[0].source, AgentSource::Plugin);
+            assert_eq!(repaired[0].agent.as_deref(), Some("codex"));
+            assert_eq!(repaired[0].session.as_deref(), Some("pid:42"));
+            assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
+            // A healthy repeat is a no-op.
+            let revision = mux.with_state(|state| state.resource_revision);
+            mux.reconcile_agent_roster_projections();
+            assert_eq!(mux.with_state(|state| state.resource_revision), revision);
             mux.shutdown();
         }
 
+        // The roster itself is durable: a restart restores the plugin entry
+        // from the reducer checkpoint and journal.
         let registry = WorkspaceRegistry::open(&root, session).unwrap();
         let reopened = Mux::from_workspace_registry(
             session.into(),
@@ -24986,13 +25005,12 @@ mod tests {
             true,
         )
         .unwrap();
-        let repaired = reopened.list_agents(None, None);
-        assert_eq!(repaired.len(), 1);
-        assert_eq!(repaired[0].state, AgentState::Working);
-        assert_eq!(repaired[0].source, AgentSource::Plugin);
-        assert_eq!(repaired[0].agent.as_deref(), Some("codex"));
-        assert_eq!(repaired[0].session.as_deref(), Some("pid:42"));
-        assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 1);
+        {
+            let host = reopened.agent_roster.lock().unwrap();
+            let entry = host.roster.entries.get(terminal_id.as_str()).expect("restored roster");
+            assert_eq!(entry.agent_source(), AgentSource::Plugin);
+            assert_eq!(entry.agent_state(), AgentState::Working);
+        }
         reopened.shutdown();
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
