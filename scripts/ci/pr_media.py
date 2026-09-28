@@ -4,8 +4,8 @@
 pr-media.yml runs this from the default branch for every same-repository pull
 request CI run, next to CI and never inside it:
 
-- `plan` waits for the CI run's dogfood build job, which runs only for app
-  pull requests, then picks the dogfood tours (dogfood/scenarios/*.json at the
+- `plan` waits for the CI run's app build (and its dogfood build job, when
+  the dev-build label runs one), then picks the dogfood tours (dogfood/scenarios/*.json at the
   head) whose `paths` globs match the changed files. A `Dogfood-tours:` line in
   the pull request body overrides the pick; `Dogfood-tours: none` turns media
   off. With no match it takes DEFAULT_TOUR. Tours already published for this
@@ -234,6 +234,8 @@ def published(repository: str, pr: int | str, head_sha: str, tour: str) -> dict 
 
 
 BUILT, REUSED, NO_BUILD = "built", "reused", ""
+# The line ci.yml's dogfood-build job opens its comment with.
+DOGFOOD_HEAD = re.compile(r"\*\*Dogfood build\*\* of `([0-9a-f]{40})`")
 # ci.yml static-preflight, which `macos` needs.
 STATIC_JOB = "Fast static checks"
 
@@ -246,10 +248,9 @@ def app_build_gate(repository: str, run_id: str, attempt: str, pr: int,
     because an earlier run already compiled the same build inputs (a push that
     only edits a tour, docs or tests). NO_BUILD: anything else.
 
-    Its dogfood build job runs only for app and CLI pull requests (docs or web
-    only changes skip it). A CLI-only push still runs compile admission but
-    leaves no app product; its tours do not compile one (no app path
-    changed), and the comment says why each was skipped.
+    The dogfood build job is opt-in (the dev-build label). When it runs, the
+    gate waits for it, since it rewrites the whole sticky comment that
+    publish then edits; when it is skipped, media posts that comment itself.
     """
     deadline = clock() + GATE_WAIT_SECONDS
     name = f"{DOGFOOD_JOB_PREFIX}{pr}"
@@ -257,15 +258,13 @@ def app_build_gate(repository: str, run_id: str, attempt: str, pr: int,
         jobs = (gh_json([f"repos/{repository}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100"])
                 or {}).get("jobs", [])
         dogfood = next((job for job in jobs if job.get("name") == name), None)
-        # Only after the dogfood comment exists: publish edits it, and the job
-        # rewrites the whole comment when it posts.
-        if dogfood and dogfood.get("status") == "completed" and dogfood.get("conclusion") != "success":
-            return NO_BUILD
+        # The job lists once `changes` is done, which admission needs too.
+        dogfood_done = dogfood is None or dogfood.get("status") == "completed"
         admission = next((job for job in jobs if str(job.get("name", "")).endswith(ADMISSION_JOB_SUFFIX)), None)
         # A skipped `macos` caller lists no admission job: this push changed
         # nothing the app is built from (dispatch-focused-test.py skips_macos).
         skipped = any(job.get("name") == "macos" and job.get("conclusion") == "skipped" for job in jobs)
-        if dogfood and dogfood.get("status") == "completed":
+        if dogfood_done and (skipped or admission):
             if skipped:
                 # `macos` also skips when the static checks fail; that is no build to reuse.
                 static = next((job for job in jobs if job.get("name") == STATIC_JOB), {})
@@ -412,6 +411,12 @@ def plan(repository: str) -> int:
                 pass
     tours, reason = select_tours(scenarios, changed, pull.get("body"))
     app_change = any(reaches_app(path) for path in changed)
+    if not app_change and not parse_override(pull.get("body")):
+        # No dogfood job to say so any more (it is opt-in): a pull request
+        # that changes nothing a tour shows gets no media section.
+        write_outputs({"tours": "[]", "run": "[]"})
+        print(f"#{pr} changes nothing a tour shows.", flush=True)
+        return 0
     force = os.environ.get("FORCE", "").lower() == "true"
     pending = [tour for tour in tours if force or published(repository, pr, head_sha, tour) is None]
     print(f"#{pr} at {head_sha}: tours {tours or 'none'} ({reason}); to run: {pending or 'none'}", flush=True)
@@ -849,7 +854,10 @@ def publish(repository: str, pr: int, head_sha: str, tours: list[str], media: Pa
     if (pull.get("head") or {}).get("sha") != head_sha:
         print(f"#{pr} moved past {head_sha}; not touching its comment.", flush=True)
         return 0
-    if ours and head_sha not in ours[0].get("body", ""):
+    # A dogfood link for another head: that push's dogfood job has not
+    # rewritten the comment yet. A media-only comment names no build.
+    named = DOGFOOD_HEAD.search(ours[0].get("body", "")) if ours else None
+    if named and named.group(1) != head_sha:
         print(f"The dogfood comment does not name {head_sha} yet; leaving it to that push's run.", flush=True)
         return 0
     if ours:

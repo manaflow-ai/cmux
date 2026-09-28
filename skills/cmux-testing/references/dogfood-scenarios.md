@@ -51,7 +51,8 @@ its verdict:
    compiles straight away.
 3. The frames become a few key PNGs and a captioned GIF, uploaded to the
    `pr-media` branch at `<pr>/<sha8>/<tour>/` and shown in a media section of
-   the PR's sticky dogfood comment, each labelled with its tour and SHA. A new
+   the PR's sticky dogfood comment (posted by the media job when the PR has
+   no `dev-build` label), each labelled with its tour and SHA. A new
    push replaces the section; tours of a head that already has media are not
    run again (`-f force=true` reruns them).
 

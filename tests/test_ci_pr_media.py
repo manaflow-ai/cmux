@@ -170,17 +170,20 @@ class GateTests(StubbedTest):
 
     def gate(self, jobs: list[dict], run_status: str = "in_progress") -> str:
         self.stub({self.JOBS: {"jobs": jobs}, "repos/o/r/actions/runs/9": {"status": run_status}})
-        return media.app_build_gate("o/r", "9", "1", 42, sleep=lambda _: None)
+        # Each poll moves the clock a minute, so a gate that keeps waiting times out.
+        ticks = iter(range(0, 10_000_000, 60))
+        return media.app_build_gate("o/r", "9", "1", 42, sleep=lambda _: None, clock=lambda: next(ticks))
 
     def test_an_app_pull_request_with_a_macos_build_passes(self) -> None:
         jobs = [{"name": "Dogfood build #42", "status": "completed", "conclusion": "success"},
                 {"name": "macos / macOS compile admission", "status": "in_progress", "conclusion": None}]
         self.assertEqual(self.gate(jobs), media.BUILT)
 
-    def test_media_waits_for_a_successful_dogfood_comment(self) -> None:
+    def test_media_waits_for_a_running_dogfood_job(self) -> None:
         admission = {"name": "macos / macOS compile admission", "status": "in_progress", "conclusion": None}
+        # A failed dogfood job wrote no comment to protect; media posts its own.
         self.assertEqual(self.gate([{"name": "Dogfood build #42", "status": "completed", "conclusion": "failure"},
-                                    admission]), media.NO_BUILD)
+                                    admission]), media.BUILT)
         self.assertEqual(self.gate([{"name": "Dogfood build #42", "status": "in_progress", "conclusion": None},
                                     admission], run_status="completed"), media.NO_BUILD)
 
@@ -196,9 +199,12 @@ class GateTests(StubbedTest):
                 {"name": "Fast static checks", "status": "completed", "conclusion": "failure"}]
         self.assertEqual(self.gate(jobs), media.NO_BUILD)
 
-    def test_a_skipped_dogfood_job_means_no_app_change(self) -> None:
-        self.assertEqual(self.gate([{"name": "Dogfood build #42", "status": "completed", "conclusion": "skipped"}]),
-                         media.NO_BUILD)
+    def test_without_the_dev_build_label_the_app_build_decides(self) -> None:
+        skipped = {"name": "Dogfood build #42", "status": "completed", "conclusion": "skipped"}
+        admission = {"name": "macos / macOS compile admission", "status": "in_progress", "conclusion": None}
+        self.assertEqual(self.gate([skipped, admission]), media.BUILT)
+        self.assertEqual(self.gate([admission]), media.BUILT)
+        self.assertEqual(self.gate([skipped], run_status="completed"), media.NO_BUILD)
 
     def test_a_cli_only_pull_request_compiles_no_app(self) -> None:
         jobs = [{"name": "Dogfood build #42", "status": "completed", "conclusion": "success"}]
@@ -339,10 +345,10 @@ class PlanTests(StubbedTest):
             with self.subTest(path=path):
                 self.assertFalse(media.reaches_app(path))
 
-    def test_only_app_changes_may_compile(self) -> None:
+    def test_a_pull_request_no_tour_shows_gets_no_media(self) -> None:
         outputs = self.plan({"repos/o/r/actions/workflows/ci.yml/runs": {"workflow_runs": []},
                              "repos/o/r/pulls/42/files": [[{"filename": "CLI/cmux.swift"}]]}, {})
-        self.assertEqual(outputs["compile"], "never")
+        self.assertEqual(outputs["run"], "[]")
 
     def test_an_automatic_run_without_a_build_tours_nothing(self) -> None:
         run = {"id": 9, "run_attempt": 1, "head_sha": HEAD, "event": "pull_request", "status": "completed",
@@ -632,9 +638,19 @@ class PublishTests(StubbedTest):
             media.publish("o/r", 1, HEAD, ["sidebar-and-chrome-tour"], Path(tmp))
         self.assertIn("<br>skipped: the tour job left no result", self.patched_body(stub))
 
+    def test_a_media_only_comment_is_updated_for_a_new_head(self) -> None:
+        import tempfile
+        old = media.section("o/r", 1, "e" * 40, [{"tour": "t", "result": "passed"}])
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = self.publish(Path(tmp), HEAD, self.comment(f"{media.DOGFOOD_MARKER}\n{old}"),
+                                note="skipped: because")
+        body = self.patched_body(stub)
+        self.assertIn(f"Dogfood tours of `{HEAD[:8]}`", body)
+        self.assertNotIn("e" * 8, body)
+
     def test_a_moved_head_or_a_comment_for_another_head_is_left_alone(self) -> None:
         import tempfile
-        for head, body in (("f" * 40, f"of `{HEAD}`"), (HEAD, f"of `{'e' * 40}`")):
+        for head, body in (("f" * 40, f"**Dogfood build** of `{HEAD}`"), (HEAD, f"**Dogfood build** of `{'e' * 40}`")):
             with self.subTest(head=head[:4]), tempfile.TemporaryDirectory() as tmp:
                 stub = self.publish(Path(tmp), head, self.comment(f"{media.DOGFOOD_MARKER}\n{body}"))
                 self.assertFalse(any(w[:4] == ["gh", "api", "-X", "PATCH"] for w in stub.writes))

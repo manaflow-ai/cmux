@@ -8,8 +8,9 @@ run-name: "${{ github.event_name == 'workflow_dispatch' && format('PR media for 
 # It runs beside CI, never in it: nothing here is a required check or part of
 # ci-status, so it adds nothing to a pull request's verdict. It starts with every
 # CI run attempt and returns at once for anything but a same-repository pull
-# request whose CI ran the dogfood build job (app pull requests; docs or web
-# only changes skip it). Each tour is a DogfoodScenarioUITests dispatch of
+# request whose CI builds the app (docs or web only changes do not). The
+# dogfood build job is opt-in (dev-build label); without it, media posts the
+# sticky comment itself. Each tour is a DogfoodScenarioUITests dispatch of
 # test-e2e.yml, first with --adopt-only so it loads the app and UI test bundle
 # the pull request's CI compiled. When CI's build is on a pool the tour's
 # runner cannot load, or CI reused main's build, an app pull request compiles
@@ -52,7 +53,7 @@ jobs:
     name: Pick tours
     if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository) }}
     runs-on: ubuntu-24.04 # github-hosted-required: reads the pull request and mostly waits; keeps CI's Linux pool free
-    # Waits for CI's dogfood build job, which follows `changes`.
+    # Waits for CI's compile admission, and the dogfood build job when it runs.
     timeout-minutes: 30
     permissions:
       actions: read
