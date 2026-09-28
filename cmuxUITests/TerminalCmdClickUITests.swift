@@ -753,32 +753,42 @@ final class TerminalCmdClickUITests: XCTestCase {
 
     /// Makes the fixture directory a git repository with one GitHub remote, so
     /// a bare `#847` in that pane has a repository to resolve against.
+    ///
+    /// Writes `.git` by hand rather than running `git init`. The UI test runner
+    /// is sandboxed, and `git` there resolves to the xcrun shim, which refuses
+    /// with "xcrun: error: cannot be used within an App Sandbox".
+    ///
+    /// Writing the files is also closer to what is under test. cmux never
+    /// shells out to git for this: `GitMetadataService.resolveGitRepository`
+    /// walks up for a `.git` directory and the config readers parse
+    /// `<gitDirectory>/config` themselves. A fixture built out of files
+    /// exercises exactly that, and does not depend on a `git` binary, on a
+    /// global `user.name`, or on whatever `init.defaultBranch` is set to.
     private func makeFixtureAGitRepository(remote: String) throws {
-        _ = try runGitInFixture(["init", "--quiet"])
-        _ = try runGitInFixture(["remote", "add", "origin", remote])
-    }
+        let gitDirectoryURL = fixtureDirectoryURL.appendingPathComponent(".git")
+        try FileManager.default.createDirectory(
+            at: gitDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let config = """
+            [core]
+            \trepositoryformatversion = 0
+            \tbare = false
+            [remote "origin"]
+            \turl = \(remote)
+            \tfetch = +refs/heads/*:refs/remotes/origin/*
 
-    @discardableResult
-    private func runGitInFixture(_ arguments: [String]) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["git"] + arguments
-        process.currentDirectoryURL = fixtureDirectoryURL
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        let output = String(
-            data: pipe.fileHandleForReading.readDataToEndOfFile(),
+            """
+        try config.write(
+            to: gitDirectoryURL.appendingPathComponent("config"),
+            atomically: true,
             encoding: .utf8
-        ) ?? ""
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw NSError(domain: "TerminalCmdClickUITests", code: 3, userInfo: [
-                NSLocalizedDescriptionKey: "git \(arguments.joined(separator: " ")) failed: \(output)"
-            ])
-        }
-        return output
+        )
+        try "ref: refs/heads/main\n".write(
+            to: gitDirectoryURL.appendingPathComponent("HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
     }
 
     private func assertCommandHoverResolves(
