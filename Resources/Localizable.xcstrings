@@ -570015,6 +570015,65 @@
           }
         }
       }
+    },
+    "cloudTree.error.renameNoRemoteTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This tab is not open in a remote workspace."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامة التبويب هذه ليست مفتوحة في مساحة عمل بعيدة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Tab ist in keinem Remote-Arbeitsbereich geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta pestaña no está abierta en un espacio de trabajo remoto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet onglet n’est pas ouvert dans un espace de travail distant."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブはリモートワークスペースで開かれていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 탭은 원격 작업 공간에 열려 있지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此标签页未在任何远程工作区中打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此標籤頁未在遠端工作區中開啟。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

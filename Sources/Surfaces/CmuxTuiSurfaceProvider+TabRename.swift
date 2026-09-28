@@ -93,8 +93,12 @@ extension CmuxTuiSurfaceProvider {
         case .unavailable:
             throw ProviderError.stateUnavailable(machineID)
         case .targetMissing:
+            // This path renames any tab by id, whatever its content kind, so a
+            // browser or a display row reaches it too. The terminal-scoped
+            // wording lives on renameTerminal, which really does filter to
+            // terminals.
             throw SurfaceCatalogError.unsupported(
-                String(localized: "cloudTree.error.renameTerminalNoView", defaultValue: "This terminal is not open in a remote workspace.")
+                String(localized: "cloudTree.error.renameNoRemoteTab", defaultValue: "This tab is not open in a remote workspace.")
             )
         }
         // The daemon event normally installs this before the command exits. The
