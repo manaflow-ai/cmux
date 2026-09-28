@@ -2120,67 +2120,65 @@ public actor VMClient {
         deviceFingerprint: String?,
         clientCapabilities: [String]
     ) async throws -> VMCmuxRemoteEndpoint {
-        do {
-            let encodedID = try pathSegment(id, fieldName: "vm id")
-            var body: [String: Any] = ["transport": "cmux-remote"]
-            if let deviceFingerprint, !deviceFingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                body["deviceFingerprint"] = deviceFingerprint
-            }
-            let capabilities = Self.sanitizedClientCapabilities(clientCapabilities)
-            if !capabilities.isEmpty {
-                body["clientCapabilities"] = capabilities
-            }
-            // Terminal and metadata traffic uses the user-space WireGuard hub.
-            // Do not start or require the browser Network Extension here.
-            let obj = try await {
-                let (data, http) = try await request(
-                    "POST",
-                    path: "/api/vm/\(encodedID)/attach-endpoint",
-                    jsonBody: body,
-                    timeoutSeconds: 20
-                )
-                try ensureOK(http, data: data)
-                return try decodeJSONObject(data)
-            }()
-            guard (obj["transport"] as? String) == "cmux-remote",
-                  let route = obj["route"] as? String, !route.isEmpty,
-                  let token = obj["token"] as? String,
-                  let session = obj["session"] as? String else {
-                throw VMClientError.malformedResponse("Cloud VM cmux-remote attach response was missing required fields.")
-            }
-            let expiresAtUnix = (obj["expiresAtUnix"] as? Int64) ?? Int64((obj["expiresAtUnix"] as? Double) ?? 0)
-            // Absent on a control plane older than the trusted listener: such a
-            // daemon would still expect enrollment, which this build no longer does.
-            let trustedCarrier = (obj["trustedCarrier"] as? Bool) ?? false
-            var daemonBuild: VMCmuxRemoteEndpoint.DaemonBuild?
-            if let raw = obj["daemonBuild"] as? [String: Any] {
-                daemonBuild = .init(
-                    commit: raw["commit"] as? String,
-                    remoteProtocol: (raw["remoteProtocol"] as? Int) ?? (raw["remoteProtocol"] as? Double).map(Int.init),
-                    version: raw["version"] as? String
-                )
-            }
-            var networkAddresses: VMCmuxRemoteEndpoint.NetworkAddresses?
-            // The HTTP API uses camelCase. The local control socket uses the
-            // snake_case wire contract. Accept both at this boundary so a proxy
-            // or an older app cannot silently drop the address metadata.
-            if let raw = (obj["network_addresses"] ?? obj["networkAddresses"]) as? [String: Any] {
-                let ipv4 = raw["ipv4"] as? String
-                let ipv6 = raw["ipv6"] as? String
-                if ipv4 != nil || ipv6 != nil {
-                    networkAddresses = .init(ipv4: ipv4, ipv6: ipv6)
-                }
-            }
-            return VMCmuxRemoteEndpoint(
-                route: route,
-                token: token,
-                expiresAtUnix: expiresAtUnix,
-                session: session,
-                trustedCarrier: trustedCarrier,
-                networkAddresses: networkAddresses,
-                daemonBuild: daemonBuild
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        var body: [String: Any] = ["transport": "cmux-remote"]
+        if let deviceFingerprint, !deviceFingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["deviceFingerprint"] = deviceFingerprint
+        }
+        let capabilities = Self.sanitizedClientCapabilities(clientCapabilities)
+        if !capabilities.isEmpty {
+            body["clientCapabilities"] = capabilities
+        }
+        // Terminal and metadata traffic uses the user-space WireGuard hub.
+        // Do not start or require the browser Network Extension here.
+        let obj = try await {
+            let (data, http) = try await request(
+                "POST",
+                path: "/api/vm/\(encodedID)/attach-endpoint",
+                jsonBody: body,
+                timeoutSeconds: 20
+            )
+            try ensureOK(http, data: data)
+            return try decodeJSONObject(data)
+        }()
+        guard (obj["transport"] as? String) == "cmux-remote",
+              let route = obj["route"] as? String, !route.isEmpty,
+              let token = obj["token"] as? String,
+              let session = obj["session"] as? String else {
+            throw VMClientError.malformedResponse("Cloud VM cmux-remote attach response was missing required fields.")
+        }
+        let expiresAtUnix = (obj["expiresAtUnix"] as? Int64) ?? Int64((obj["expiresAtUnix"] as? Double) ?? 0)
+        // Absent on a control plane older than the trusted listener: such a
+        // daemon would still expect enrollment, which this build no longer does.
+        let trustedCarrier = (obj["trustedCarrier"] as? Bool) ?? false
+        var daemonBuild: VMCmuxRemoteEndpoint.DaemonBuild?
+        if let raw = obj["daemonBuild"] as? [String: Any] {
+            daemonBuild = .init(
+                commit: raw["commit"] as? String,
+                remoteProtocol: (raw["remoteProtocol"] as? Int) ?? (raw["remoteProtocol"] as? Double).map(Int.init),
+                version: raw["version"] as? String
             )
         }
+        var networkAddresses: VMCmuxRemoteEndpoint.NetworkAddresses?
+        // The HTTP API uses camelCase. The local control socket uses the
+        // snake_case wire contract. Accept both at this boundary so a proxy
+        // or an older app cannot silently drop the address metadata.
+        if let raw = (obj["network_addresses"] ?? obj["networkAddresses"]) as? [String: Any] {
+            let ipv4 = raw["ipv4"] as? String
+            let ipv6 = raw["ipv6"] as? String
+            if ipv4 != nil || ipv6 != nil {
+                networkAddresses = .init(ipv4: ipv4, ipv6: ipv6)
+            }
+        }
+        return VMCmuxRemoteEndpoint(
+            route: route,
+            token: token,
+            expiresAtUnix: expiresAtUnix,
+            session: session,
+            trustedCarrier: trustedCarrier,
+            networkAddresses: networkAddresses,
+            daemonBuild: daemonBuild
+        )
     }
 
     /// Enroll (or refresh) this Mac's WireGuard tunnel into the user's private
