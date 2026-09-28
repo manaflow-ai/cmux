@@ -12172,6 +12172,14 @@ struct VerticalTabsSidebar: View, Equatable {
             guard isPresented else { return }
             scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
         }
+        // The compact status tooltip reads agent profiles from the live index,
+        // which is not observable; rebuild the rows it reports as changed.
+        .onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
+            guard isPresented, renderContext.tabItemSettings.compactsAgentStatus else { return }
+            for workspaceId in SidebarAgentProfileLabel.changedWorkspaceIds(notification.userInfo, allWorkspaceIds: renderContext.workspaceIds) {
+                scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+            }
+        }
         .onAppear {
             if isPresented {
                 refreshWorkspaceSnapshots()
@@ -12549,6 +12557,7 @@ struct VerticalTabsSidebar: View, Equatable {
             ) else { return nil }
             return (workspace.id, input)
         })
+        let memberStatusGlyphs = SidebarCompactStatusGlyph.groupMembers(workspaceRowInputsById)
         let groupRowSnapshotsById = Dictionary(uniqueKeysWithValues: renderContext.workspaceGroups.map { group in
             (
                 group.id,
@@ -12556,6 +12565,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     group: group,
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
                     renderContext: renderContext,
+                    memberStatusGlyphs: memberStatusGlyphs,
                     unreadSnapshot: unreadSnapshot,
                     notificationIndex: notificationIndex,
                     shouldCollectWorkspaceDropTargets: false
@@ -12578,6 +12588,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 return sidebarWorkspaceGroupTableConfiguration(
                     group: group,
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[groupId] ?? [],
+                    memberStatusGlyphs: memberStatusGlyphs,
                     renderContext: renderContext
                 )
             case .workspace(let workspaceId):
@@ -13483,6 +13494,9 @@ struct VerticalTabsSidebar: View, Equatable {
 
         case .splitTerminal(let workspaceId, let surfaceId, let direction):
             let outcome = splitDirection(from: direction).map { tabManager.createSplitOutcome(tabId: workspaceId, surfaceId: surfaceId, direction: $0) }
+            if case .noSpace? = outcome {
+                return .rejected(String(localized: "sidebar.extensions.action.noSpaceForPane", defaultValue: "No space for new pane"))
+            }
             guard let outcome, outcome.isAccepted else {
                 return .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
             }
@@ -14280,6 +14294,7 @@ struct VerticalTabsSidebar: View, Equatable {
             return (workspace.id, input)
         })
         let _ = anchorCwdRevision
+        let memberStatusGlyphs = SidebarCompactStatusGlyph.groupMembers(workspaceRowInputsById)
         let groupRowSnapshotsById = Dictionary(uniqueKeysWithValues: renderContext.workspaceGroups.map { group in
             (
                 group.id,
@@ -14287,6 +14302,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     group: group,
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
                     renderContext: renderContext,
+                    memberStatusGlyphs: memberStatusGlyphs,
                     unreadSnapshot: unreadSnapshot,
                     notificationIndex: notificationIndex,
                     shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
@@ -16269,14 +16285,20 @@ struct TabItemView: View, Equatable {
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let subtitleLineLimit = latestNotificationSubtitle == nil ? 2 : settings.notificationMessageLineLimit
         // Bound notification payloads before shaping so pathological text stays cheap in lazy, Equatable rows.
-        let displayedSubtitle = effectiveSubtitle.map { subtitle in
-            let display = subtitle.sidebarBoundedDisplayString(maxDisplayedLines: subtitleLineLimit, maxDisplayedCharacters: 4096)
-            return latestNotificationSubtitle == nil
-                ? display
-                : SidebarMarkdownRenderer(markdown: display).plainText
-        }
+        // Compact status rows are one line; the notification leads the glyph's tooltip instead.
+        let displayedSubtitle = workspaceSnapshot.compactStatusGlyph != nil
+            ? nil
+            : effectiveSubtitle.map { subtitle in
+                let display = subtitle.sidebarBoundedDisplayString(maxDisplayedLines: subtitleLineLimit, maxDisplayedCharacters: 4096)
+                return latestNotificationSubtitle == nil
+                    ? display
+                    : SidebarMarkdownRenderer(markdown: display).plainText
+            }
         let detailVisibility = visibleAuxiliaryDetails
-        let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1
+        // Compact status rows are one line, so title wrapping does not undo it.
+        let titleLineLimit = settings.wrapsWorkspaceTitles && workspaceSnapshot.compactStatusGlyph == nil
+            ? Self.maxWrappedTitleLines
+            : 1
         let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
@@ -16294,9 +16316,13 @@ struct TabItemView: View, Equatable {
             scaledCloseButtonHitSize
         )
 
-        let showsLoadingSpinner = showsAgentActivity && workspaceSnapshot.activeCodingAgentCount > 0
-        let badgeOnLeading = unreadCount > 0 && settings.notificationBadgePosition == .leading
-        let badgeOnTrailing = unreadCount > 0 && settings.notificationBadgePosition == .trailing
+        // Compact status draws running and unread as its one glyph instead.
+        let compactStatusGlyph = workspaceSnapshot.compactStatusGlyph?.applyingUnread(unreadCount, latestNotificationText: latestNotificationText)
+        let showsLoadingSpinner = compactStatusGlyph == nil
+            && showsAgentActivity && workspaceSnapshot.activeCodingAgentCount > 0
+        let showsUnreadBadge = compactStatusGlyph == nil && unreadCount > 0
+        let badgeOnLeading = showsUnreadBadge && settings.notificationBadgePosition == .leading
+        let badgeOnTrailing = showsUnreadBadge && settings.notificationBadgePosition == .trailing
         let spinnerOnLeading = showsLoadingSpinner && settings.loadingSpinnerPosition == .leading
         let spinnerOnTrailing = showsLoadingSpinner && settings.loadingSpinnerPosition == .trailing
         let leadingSlotActive = badgeOnLeading || spinnerOnLeading
@@ -16353,6 +16379,13 @@ struct TabItemView: View, Equatable {
                     )
                     .alignmentGuide(.sidebarTitleFirstLineCenter) { $0[VerticalAlignment.center] }
                     .transition(.opacity)
+                }
+
+                if let compactStatusGlyph, compactStatusGlyph.isDrawn {
+                    SidebarCompactStatusGlyphView(glyph: compactStatusGlyph, pointSize: GlobalFontMagnification.scaledSize(scaledFontSize(11), percent: globalFontMagnificationPercent), color: compactStatusGlyph.color(isActive: usesInvertedActiveForeground, selected: selectedWorkspaceForegroundNSColor(opacity: 0.95), secondary: usesInvertedActiveForeground ? selectedWorkspaceForegroundNSColor(opacity: 0.8) : .secondaryLabelColor))
+                        // Same geometry as the AppKit row: pulled into the leading padding, tighter gap to the title.
+                        .padding(.leading, -SidebarCompactStatusGlyph.leadingPullIn)
+                        .padding(.trailing, SidebarCompactStatusGlyph.titleSpacing - titleRowSpacing)
                 }
 
                 SidebarCloudWorkspaceBadgeView(label: detailVisibility.showsBranchDirectory ? workspaceSnapshot.remoteWorkspaceBadgeLabel : nil, pointSize: scaledFontSize(10), tint: activeSecondaryColor(0.7), symbol: workspaceSnapshot.remoteWorkspaceBadgeSymbol)

@@ -229,7 +229,8 @@ class SeedDerivedData(unittest.TestCase):
             self.assertEqual(seed.main(["seed", "keep", str(self.derived), "k2", "../evil-"]), 0)
         self.assertFalse((self.root / "cmux-ci-2" / seed.SEED_SOURCE).exists())
 
-    def test_the_trusted_seed_job_keeps_its_seeds_between_save_and_the_product_steps(self):
+    def test_the_trusted_seed_job_keeps_its_seeds_before_save_and_the_product_steps(self):
+        """Keep clones the seed before the R2 upload, so the LAN archive need not wait for it."""
         seeder = steps("seed-derived-data.yml", "seed")
         choose_at, choose = named(seeder, "Keep seeds on a trusted Mac")
         adopt_at, _ = named(seeder, "Adopt the newest seed")
@@ -237,8 +238,9 @@ class SeedDerivedData(unittest.TestCase):
         keep_at, keep = named(seeder, "Keep the seed on this Mac")
         stage_at, _ = named(seeder, "Stage compiled package frameworks")
         self.assertLess(choose_at, adopt_at)
-        self.assertLess(save_at, keep_at)
-        self.assertLess(keep_at, stage_at)
+        self.assertLess(adopt_at, keep_at)
+        self.assertLess(keep_at, save_at)  # the LAN archive gets the seed without waiting on R2
+        self.assertLess(save_at, stage_at)
         self.assertIn("matrix.pool == vars.CI_SEED_TRUSTED_POOL", choose["if"])
         # only runners that run nothing else as this user: a kept seed becomes the next R2 seed
         self.assertIn("vars.CI_SEED_KEEP_LOCAL_RUNNERS", choose["if"])

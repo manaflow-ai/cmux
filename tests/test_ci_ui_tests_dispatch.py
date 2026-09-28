@@ -2,8 +2,10 @@
 """The UI test request and dispatch split across PR CI and a default-branch workflow."""
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -19,6 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/ui_tests_dispatch.py"
 CI = ROOT / ".github/workflows/ci.yml"
 DISPATCH = ROOT / ".github/workflows/ci-ui-tests.yml"
+E2E = ROOT / ".github/workflows/test-e2e.yml"
+E2E_ACTION = ROOT / ".github/actions/e2e-run-tests/action.yml"
 
 spec = importlib.util.spec_from_file_location("ui_tests_dispatch", SCRIPT)
 assert spec and spec.loader
@@ -129,6 +133,12 @@ class AwaitRequestTests(unittest.TestCase):
         self.assertIsNone(ui.touches_ui_tests(gh, [7]))
         self.assertIsNone(ui.touches_ui_tests(gh, []))
 
+    def test_a_fuzz_regression_path_waits_for_a_request(self) -> None:
+        for name in ("Sources/Sidebar/SidebarState.swift", "dogfood/fuzz/regressions/x.json", "vendor/bonsplit"):
+            with self.subTest(name=name):
+                gh = FakeGitHub({FILES: [[{"filename": "README.md"}, {"filename": name}]]})
+                self.assertTrue(ui.touches_ui_tests(gh, [7]))
+
     def test_refuses_forks_other_workflows_and_events(self) -> None:
         for run in (ci_run(head_repository={"full_name": "someone/cmux"}), ci_run(path=".github/workflows/x.yml"),
                     ci_run(event="merge_group")):
@@ -203,6 +213,97 @@ class AwaitVerdictTests(unittest.TestCase):
             f"repos/{REPO}/actions/runs/900/jobs": [jobs("skipped")],
             f"repos/{REPO}/actions/runs/900": [dispatch_run()],
         }), 1)
+
+    ADMISSION_JOBS = f"repos/{REPO}/actions/runs/100/attempts/1/jobs"
+
+    @staticmethod
+    def bounded_sleep(limit=50):
+        calls = iter(range(limit))
+        return lambda _: next(calls, None) is not None or (_ for _ in ()).throw(AssertionError("still waiting"))
+
+    def admission(self, conclusion, status="completed"):
+        return {"jobs": [{"name": "macos / macOS compile admission", "status": status, "conclusion": conclusion,
+                          "run_attempt": 1, "html_url": "https://x/job/7"}]}
+
+    def test_stops_once_compile_admission_ended_without_a_product(self) -> None:
+        # Run 36435812903: the fleet refused compile admission at 14:30, and this
+        # wait held the run open past 15:27, so the owned-pool rescue could not
+        # re-run the refusal. The dispatch run never finishes here.
+        for conclusion in ("failure", "cancelled", "timed_out"):
+            with self.subTest(conclusion):
+                gh = FakeGitHub({
+                    self.ADMISSION_JOBS: [self.admission(None, "in_progress"), self.admission(conclusion)],
+                    RUN: [ci_run()],
+                    ARTIFACTS: [NO_ARTIFACT],
+                    LIST: [{"workflow_runs": [dispatch_run(status="in_progress")]}],
+                    f"repos/{REPO}/actions/runs/900": [dispatch_run(status="in_progress")],
+                })
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    self.assertEqual(ui.await_verdict(gh, "100", "1", sleep=self.bounded_sleep()), 1)
+                self.assertIn(f"compile admission ended {conclusion}", output.getvalue())
+
+    def test_an_admission_carried_from_an_earlier_attempt_still_waits(self) -> None:
+        # Only ui-tests was re-run: attempt 2 lists attempt 1's refused admission.
+        carried = {"jobs": [{**self.admission("failure")["jobs"][0], "run_attempt": 1}]}
+        run = f"repos/{REPO}/actions/runs/100/attempts/2"
+        gh = FakeGitHub({
+            f"{run}/jobs": [carried],
+            run: [ci_run(run_attempt=2)],
+            ARTIFACTS: [NO_ARTIFACT],
+            LIST: [{"workflow_runs": [dispatch_run(title=ui.dispatch_title("100", "2"))]}],
+            f"repos/{REPO}/actions/runs/900/jobs": [jobs("success")],
+            f"repos/{REPO}/actions/runs/900": [dispatch_run(status="in_progress"),
+                                               dispatch_run(title=ui.dispatch_title("100", "2"))],
+        })
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(ui.await_verdict(gh, "100", "2", sleep=self.bounded_sleep()), 0)
+
+    def test_a_truncated_artifact_listing_still_waits(self) -> None:
+        gh = FakeGitHub({
+            self.ADMISSION_JOBS: [self.admission("failure")],
+            RUN: [ci_run()],
+            ARTIFACTS: [{"total_count": 150, "artifacts": [{"name": "other", "expired": False}]}],
+            LIST: [{"workflow_runs": [dispatch_run()]}],
+            f"repos/{REPO}/actions/runs/900/jobs": [jobs("success")],
+            f"repos/{REPO}/actions/runs/900": [dispatch_run(status="in_progress"), dispatch_run()],
+        })
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(ui.await_verdict(gh, "100", "1", sleep=self.bounded_sleep()), 0)
+
+    def test_stops_before_any_dispatch_run_appears(self) -> None:
+        clock = iter(range(0, 10**6, 1))
+        gh = FakeGitHub({self.ADMISSION_JOBS: [self.admission("failure")], RUN: [ci_run()],
+                         ARTIFACTS: [NO_ARTIFACT], LIST: [{"workflow_runs": []}]})
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(ui.await_verdict(gh, "100", "1", sleep=self.bounded_sleep(), now=lambda: next(clock)), 1)
+        self.assertLess(sum(call.startswith(LIST) for call in gh.calls), 3)
+
+    def test_a_failed_admission_that_left_its_product_still_waits_for_the_verdict(self) -> None:
+        # Admission uploads the product, then may fail its changed suites: the UI tests still run.
+        products = {"artifacts": [{"name": "app-host-products-v1-abc", "expired": False}]}
+        gh = FakeGitHub({
+            self.ADMISSION_JOBS: [self.admission("failure")],
+            RUN: [ci_run()],
+            ARTIFACTS: [products],
+            LIST: [{"workflow_runs": [dispatch_run()]}],
+            f"repos/{REPO}/actions/runs/900/jobs": [jobs("success")],
+            f"repos/{REPO}/actions/runs/900": [dispatch_run(status="in_progress"), dispatch_run()],
+        })
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(ui.await_verdict(gh, "100", "1", sleep=lambda _: None), 0)
+
+    def test_a_skipped_admission_still_waits_for_the_verdict(self) -> None:
+        gh = FakeGitHub({
+            self.ADMISSION_JOBS: [self.admission("skipped")],
+            RUN: [ci_run()],
+            ARTIFACTS: [NO_ARTIFACT],
+            LIST: [{"workflow_runs": [dispatch_run()]}],
+            f"repos/{REPO}/actions/runs/900/jobs": [jobs("success")],
+            f"repos/{REPO}/actions/runs/900": [dispatch_run(status="in_progress"), dispatch_run()],
+        })
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(ui.await_verdict(gh, "100", "1", sleep=lambda _: None), 0)
 
     def test_gives_up_when_no_dispatch_run_appears(self) -> None:
         clock = iter(range(0, 10**6, 600))
@@ -457,5 +558,89 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(ui.dispatch_title("{0}", "{1}"), "UI tests for CI run {0} attempt {1}")
 
 
+class FuzzRegressionPathTests(unittest.TestCase):
+    def test_the_areas_the_repros_exercise(self) -> None:
+        for path in (
+            "dogfood/fuzz/README.md", "dogfood/fuzz/regressions/15346-narrow-window-side-panels.json",
+            "dogfood/fuzz/cmuxfuzz/runner.py", "scripts/fuzz", "vendor/bonsplit", "vendor/bonsplit/Sources/x.swift",
+            "Packages/macOS/CmuxPanes/Sources/CmuxPanes/x.swift", "Packages/macOS/CmuxSidebar/Package.swift",
+            "Sources/Sidebar/SidebarState.swift", "Sources/App/CmuxMainWindow.swift",
+            "Sources/App/MainWindowFrameReconciler.swift", "Sources/AppDelegate+WindowFramePolicy.swift",
+            "Sources/Workspace+EqualizeSplitsSupport.swift", "Sources/Workspace+SplitPaneProvisionalGeometry.swift",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(ui.fuzz_regression_path(path))
+
+    def test_everything_else(self) -> None:
+        for path in (
+            "Sources/Workspace.swift", "Sources/ContentView.swift", "Packages/macOS/CmuxSidebarGit/x.swift",
+            "vendor/bonsplit-old/x", "scripts/fuzzy", "dogfood/fuzzing.md", "Sources/Panels/x.swift",
+            "Sources/Workspace+Split/x.swift", "cmuxTests/Sources/Sidebar/x.swift", "README.md",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(ui.fuzz_regression_path(path))
+
+    def test_the_selector_passes_the_request_validation(self) -> None:
+        self.assertEqual(ui.build_request(ui.FUZZ_REGRESSIONS_SELECTOR, HEAD, MERGE)["selectors"],
+                         [ui.FUZZ_REGRESSIONS_SELECTOR])
+
+
+def e2e_filter(test_filter: str, runner: str = "glaeda-std-xcode-26.6") -> tuple[int, dict[str, str], str]:
+    """test-e2e.yml's `Normalize test filter` step, run with bash; (status, outputs, log)."""
+    steps = yaml.safe_load(E2E.read_text())["jobs"]["filter"]["steps"]
+    script = next(step for step in steps if step.get("name") == "Normalize test filter")["run"]
+    with tempfile.TemporaryDirectory() as directory:
+        output = Path(directory) / "output"
+        output.write_text("")
+        result = subprocess.run(
+            ["bash", "-e", "-c", script], capture_output=True, text=True,
+            env={"PATH": "/usr/bin:/bin", "GITHUB_OUTPUT": str(output), "TEST_FILTER_INPUT": test_filter,
+                 "RECORD_VIDEO_INPUT": "true", "RUNNER_LABEL": runner, "JOB_TIMEOUT": "45"})
+        values = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
+    return result.returncode, values, result.stdout + result.stderr
+
+
+class E2EFuzzRegressionsTests(unittest.TestCase):
+    def test_the_filter_job_takes_the_selector_out_of_the_xcuitest_list(self) -> None:
+        status, values, log = e2e_filter(ui.FUZZ_REGRESSIONS_SELECTOR)
+        self.assertEqual(status, 0, log)
+        self.assertEqual((values["target"], values["selectors"], values["count"], values["fuzz_regressions"]),
+                         ("cmuxUITests", "", "0", "true"))
+        status, values, log = e2e_filter(f"cmuxUITests/SidebarUITests,{ui.FUZZ_REGRESSIONS_SELECTOR}")
+        self.assertEqual(status, 0, log)
+        self.assertEqual((values["selectors"], values["count"], values["fuzz_regressions"], values["selector"]),
+                         ("cmuxUITests/SidebarUITests", "1", "true", "cmuxUITests/SidebarUITests"))
+        status, values, log = e2e_filter("cmuxUITests/SidebarUITests")
+        self.assertEqual(status, 0, log)
+        self.assertEqual((values["count"], values["fuzz_regressions"]), ("1", "false"))
+
+    def test_the_filter_job_refuses_a_repeat_or_a_mix_with_cmux_tests(self) -> None:
+        for bad in (f"{ui.FUZZ_REGRESSIONS_SELECTOR},FuzzRegressions", f"cmuxTests/A,{ui.FUZZ_REGRESSIONS_SELECTOR}"):
+            with self.subTest(bad=bad):
+                status, _, _ = e2e_filter(bad)
+                self.assertNotEqual(status, 0)
+
+    def test_both_macos_jobs_hand_the_request_to_the_action(self) -> None:
+        jobs = yaml.safe_load(E2E.read_text())["jobs"]
+        self.assertIn("fuzz_regressions", jobs["filter"]["outputs"])
+        for job in ("build", "test"):
+            with self.subTest(job=job):
+                step = next(step for step in jobs[job]["steps"] if step.get("name") == "Run selected tests")
+                self.assertEqual(step["with"]["fuzz-regressions"], "${{ needs.filter.outputs.fuzz_regressions }}")
+
+    def test_the_action_replays_after_the_tests_and_skips_xcodebuild_without_classes(self) -> None:
+        steps = yaml.safe_load(E2E_ACTION.read_text())["runs"]["steps"]
+        names = [step.get("name") for step in steps]
+        tests = steps[names.index("Run selected tests")]
+        fuzz = steps[names.index("Replay the UI fuzzer regressions")]
+        self.assertEqual(tests["if"], "${{ inputs.count != '0' }}")
+        self.assertLess(names.index("Run selected tests"), names.index("Replay the UI fuzzer regressions"))
+        self.assertIn("inputs.fuzz-regressions == 'true'", fuzz["if"])
+        self.assertIn("!cancelled()", fuzz["if"])
+        self.assertIn("scripts/ci/run-in-console-session.sh", fuzz["run"])
+        self.assertIn("scripts/fuzz regressions --app \"$app\"", fuzz["run"])
+        self.assertIn("--no-pointer", fuzz["run"])
+
+
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(buffer=True)
