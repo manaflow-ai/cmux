@@ -654,6 +654,8 @@ public final class AuthCoordinator {
         let shouldRunPostSignInHook: Bool
         switch publication {
         case .signIn:
+            // A new credential session owns a fresh recovery budget.
+            cancelTeamScopeRecovery()
             advanceSessionGeneration()
             shouldRunPostSignInHook = true
         case .revalidation:
