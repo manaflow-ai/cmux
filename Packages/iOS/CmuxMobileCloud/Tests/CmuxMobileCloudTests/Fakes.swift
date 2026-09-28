@@ -10,6 +10,9 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
         var enroll: [(publicKey: String, fingerprint: String, purpose: CloudTunnelPurpose, deviceName: String?)] = []
         var attach: [(machineID: String, fingerprint: String)] = []
         var approve: [(machineID: String, invitationId: String)] = []
+        var pause: [String] = []
+        var resume: [String] = []
+        var delete: [String] = []
     }
 
     private let lock = OSAllocatedUnfairLock(initialState: Calls())
@@ -20,6 +23,8 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
     var enrollment: Result<CloudTunnelEnrollment, any Error> = .success(Fixtures.enrollment)
     var attach: Result<CloudAttachEndpoint, any Error> = .success(CloudAttachEndpoint(route: "ws://[fd00::10]:1337/v1/link", session: "s1"))
     var approvals: [Bool] = [true]
+    /// Thrown by pause, resume and delete when set.
+    var lifecycleFailure: (any Error)?
 
     func listMachines() async throws -> [CloudMachine] {
         lock.withLock { $0.list += 1 }
@@ -47,6 +52,21 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
             return calls.approve.count - 1
         }
         return index < approvals.count ? approvals[index] : approvals.last ?? true
+    }
+
+    func pauseMachine(id: String) async throws {
+        lock.withLock { $0.pause.append(id) }
+        if let lifecycleFailure { throw lifecycleFailure }
+    }
+
+    func resumeMachine(id: String) async throws {
+        lock.withLock { $0.resume.append(id) }
+        if let lifecycleFailure { throw lifecycleFailure }
+    }
+
+    func deleteMachine(id: String) async throws {
+        lock.withLock { $0.delete.append(id) }
+        if let lifecycleFailure { throw lifecycleFailure }
     }
 }
 

@@ -17,6 +17,8 @@ import SwiftUI
 public struct CloudSectionView: View {
     @State private var controller: CloudSessionController
     @State private var isCreateSheetPresented = false
+    /// The machine awaiting delete confirmation.
+    @State private var pendingDelete: CloudMachine?
 
     /// Creates the section over a session controller.
     public init(controller: CloudSessionController) {
@@ -32,6 +34,27 @@ public struct CloudSectionView: View {
         .navigationTitle(L10n.string("mobile.cloud.title", defaultValue: "Cloud"))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { controller.refreshMachines() }
+        .confirmationDialog(
+            pendingDelete.map {
+                String(format: L10n.string("mobile.cloud.delete.titleFormat", defaultValue: "Delete %@?"), $0.preferredName)
+            } ?? "",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingDelete
+        ) { machine in
+            Button(L10n.string("mobile.cloud.action.delete", defaultValue: "Delete"), role: .destructive) {
+                Task { await controller.deleteMachine(machine) }
+            }
+            .accessibilityIdentifier("CloudDeleteMachineConfirm")
+        } message: { _ in
+            Text(L10n.string(
+                "mobile.cloud.delete.message",
+                defaultValue: "This permanently deletes the machine and its disk, including its terminals and files."
+            ))
+        }
         .sheet(isPresented: $isCreateSheetPresented) {
             CloudCreateMachineSheet(
                 controller: controller,
@@ -89,7 +112,16 @@ public struct CloudSectionView: View {
                     // Workspaces tab with every other computer's, so there is
                     // no second terminal experience to push to from here.
                     ForEach(machines) { machine in
-                        CloudMachineRow(machine: machine)
+                        CloudMachineRow(
+                            machine: machine,
+                            isBusy: controller.machineActionsInFlight.contains(machine.id),
+                            failure: controller.lastMachineActionFailure?.machineID == machine.id
+                                ? controller.lastMachineActionFailure
+                                : nil,
+                            pause: { Task { await controller.pauseMachine(machine) } },
+                            resume: { Task { await controller.resumeMachine(machine) } },
+                            requestDelete: { pendingDelete = machine }
+                        )
                     }
                 } header: {
                     Text(L10n.string("mobile.cloud.machines.header", defaultValue: "Machines"))
@@ -238,17 +270,116 @@ struct CloudCreateMachineSheet: View {
 /// One machine row: its name and a lowercased status line.
 struct CloudMachineRow: View {
     let machine: CloudMachine
+    /// A pause, resume or delete is running for this machine.
+    let isBusy: Bool
+    /// The last lifecycle failure, when it hit this machine.
+    let failure: CloudMachineActionFailure?
+    let pause: () -> Void
+    let resume: () -> Void
+    let requestDelete: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(machine.preferredName)
-                .font(.body)
-            Text(machine.status.lowercased())
-                .font(.caption)
-                .foregroundStyle(machine.isRunning ? .green : .secondary)
+        HStack(spacing: 12) {
+            Image(systemName: "cloud")
+                .foregroundStyle(.tint)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(machine.preferredName)
+                    .font(.body)
+                Text(statusText)
+                    .font(.caption)
+                    .foregroundStyle(statusColor)
+                    .accessibilityIdentifier("CloudMachineStatus")
+                if let failure {
+                    Text(failureText(failure))
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .accessibilityIdentifier("CloudMachineActionFailure")
+                }
+            }
+            Spacer(minLength: 0)
+            if isBusy {
+                ProgressView()
+                    .accessibilityIdentifier("CloudMachineBusy")
+            }
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("CloudMachineRow")
+        .contextMenu { actions }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if machine.lifecycle.canDelete {
+                Button(role: .destructive, action: requestDelete) {
+                    Label(L10n.string("mobile.cloud.action.delete", defaultValue: "Delete"), systemImage: "trash")
+                }
+                .disabled(isBusy)
+            }
+            if machine.lifecycle.canPause {
+                Button(action: pause) {
+                    Label(L10n.string("mobile.cloud.action.pause", defaultValue: "Pause"), systemImage: "pause.circle")
+                }
+                .tint(.orange)
+                .disabled(isBusy)
+            }
+            if machine.lifecycle.canResume {
+                Button(action: resume) {
+                    Label(L10n.string("mobile.cloud.action.resume", defaultValue: "Resume"), systemImage: "play.circle")
+                }
+                .tint(.green)
+                .disabled(isBusy)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var actions: some View {
+        if machine.lifecycle.canResume {
+            Button(action: resume) {
+                Label(L10n.string("mobile.cloud.action.resume", defaultValue: "Resume"), systemImage: "play.circle")
+            }
+            .disabled(isBusy)
+        }
+        if machine.lifecycle.canPause {
+            Button(action: pause) {
+                Label(L10n.string("mobile.cloud.action.pause", defaultValue: "Pause"), systemImage: "pause.circle")
+            }
+            .disabled(isBusy)
+        }
+        if machine.lifecycle.canDelete {
+            Button(role: .destructive, action: requestDelete) {
+                Label(L10n.string("mobile.cloud.action.delete", defaultValue: "Delete"), systemImage: "trash")
+            }
+            .disabled(isBusy)
+        }
+    }
+
+    private var statusText: String {
+        switch machine.lifecycle {
+        case .running: return L10n.string("mobile.cloud.status.running", defaultValue: "Running")
+        case .paused: return L10n.string("mobile.cloud.status.paused", defaultValue: "Paused")
+        case .provisioning: return L10n.string("mobile.cloud.status.provisioning", defaultValue: "Starting")
+        case .failed: return L10n.string("mobile.cloud.status.failed", defaultValue: "Failed")
+        // Destroyed machines are filtered out before they reach a screen; a
+        // state this build does not know yet shows the server's own word.
+        case .destroyed, .unknown: return machine.status
+        }
+    }
+
+    private var statusColor: Color {
+        switch machine.lifecycle {
+        case .running: return .green
+        case .failed: return .red
+        default: return .secondary
+        }
+    }
+
+    private func failureText(_ failure: CloudMachineActionFailure) -> String {
+        let format: String
+        switch failure.action {
+        case .pause: format = L10n.string("mobile.cloud.action.pauseFailedFormat", defaultValue: "Couldn't pause: %@")
+        case .resume: format = L10n.string("mobile.cloud.action.resumeFailedFormat", defaultValue: "Couldn't resume: %@")
+        case .delete: format = L10n.string("mobile.cloud.action.deleteFailedFormat", defaultValue: "Couldn't delete: %@")
+        }
+        return String(format: format, failure.failure.action ?? failure.failure.detail)
     }
 }
 
@@ -276,17 +407,6 @@ struct CloudFailureRow: View {
                 .buttonStyle(.bordered)
         }
         .accessibilityIdentifier("CloudFailureRow")
-    }
-}
-
-/// The push target when a machine's tunnel is not ready.
-struct CloudTunnelUnavailableView: View {
-    var body: some View {
-        ContentUnavailableView(
-            L10n.string("mobile.cloud.unavailable.title", defaultValue: "Not connected"),
-            systemImage: "network.slash",
-            description: Text(L10n.string("mobile.cloud.unavailable.body", defaultValue: "The private network is not up yet. Go back and try again."))
-        )
     }
 }
 

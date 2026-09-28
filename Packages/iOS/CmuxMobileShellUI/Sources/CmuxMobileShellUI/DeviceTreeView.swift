@@ -52,12 +52,15 @@ struct DeviceTreeView: View {
         MacComputerListSection.sections(from: computers).flatMap { section in
             [section.id] + section.computers.map(\.id)
         } + ["hidden"] + store.hiddenComputers.map(\.id)
+            + ["cloud"] + store.externalHostSummaries.map(\.hostID)
     }
 
     var body: some View {
         NavigationStack {
             List {
-                if computers.isEmpty && store.hiddenComputers.isEmpty {
+                if computers.isEmpty
+                    && store.hiddenComputers.isEmpty
+                    && store.externalHostSummaries.isEmpty {
                     emptySection
                 } else {
                     // One row per Computer, grouped under the connection
@@ -94,6 +97,21 @@ struct DeviceTreeView: View {
                                 "mobile.connections.hidden.title",
                                 defaultValue: "Hidden Computers"
                             ))
+                        }
+                    }
+                    if !store.externalHostSummaries.isEmpty {
+                        // Cloud machines are computers too. Their switch hides
+                        // a machine's workspaces on this phone exactly as a
+                        // Mac's does; managing the machine itself lives in
+                        // the Cloud tab.
+                        Section {
+                            ForEach(store.externalHostSummaries) { host in
+                                CloudComputerRow(host: host) { visible in
+                                    store.setExternalHost(host.hostID, hidden: !visible)
+                                }
+                            }
+                        } header: {
+                            Text(L10n.string("mobile.cloud.title", defaultValue: "Cloud"))
                         }
                     }
                     Section {

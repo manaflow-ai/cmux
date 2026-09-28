@@ -37,6 +37,17 @@ public protocol CloudMachineLinkProviding {
     func link(for machine: CloudMachine) -> (any CloudMachineLinking)?
 }
 
+/// Where the user's choice to hide a Cloud machine is persisted.
+@MainActor
+public protocol CloudMachineVisibilityStoring: AnyObject {
+    /// Machine ids hidden on this phone.
+    var hiddenMachineIDs: Set<String> { get }
+    /// Records whether one machine is hidden.
+    func setMachine(id: String, hidden: Bool)
+}
+
+extension CloudSessionController: CloudMachineVisibilityStoring {}
+
 extension CloudTerminalAttachment: CloudTerminalLinking {}
 
 extension CloudMachineConnection: CloudMachineLinking {

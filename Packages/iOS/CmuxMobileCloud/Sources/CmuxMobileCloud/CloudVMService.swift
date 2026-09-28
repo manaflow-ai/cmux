@@ -116,6 +116,21 @@ public actor CloudVMService: CloudVMServing {
         return (access, refresh)
     }
 
+    public func pauseMachine(id: String) async throws {
+        let (access, refresh) = try await credentials()
+        _ = try await send(requests.pauseMachine(id: id, accessToken: access, refreshToken: refresh))
+    }
+
+    public func resumeMachine(id: String) async throws {
+        let (access, refresh) = try await credentials()
+        _ = try await send(requests.resumeMachine(id: id, accessToken: access, refreshToken: refresh))
+    }
+
+    public func deleteMachine(id: String) async throws {
+        let (access, refresh) = try await credentials()
+        _ = try await send(requests.deleteMachine(id: id, accessToken: access, refreshToken: refresh))
+    }
+
     private func send(_ request: URLRequest) async throws -> Data {
         var request = request
         if let teamID = await tokens.teamID(), !teamID.isEmpty {

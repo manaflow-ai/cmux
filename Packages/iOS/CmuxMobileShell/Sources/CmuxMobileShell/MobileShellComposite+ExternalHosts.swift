@@ -41,6 +41,14 @@ public protocol MobileExternalHostSource: AnyObject {
     /// Asks the host to repaint an owned surface from its current full screen
     /// state, on mount and after a view reset.
     func externalHostRequestReplay(surfaceID: String)
+
+    /// The user hid or revealed one of this source's hosts, so the source can
+    /// persist it. The store has already applied the change.
+    func externalHostVisibilityDidChange(_ hostID: String, hidden: Bool)
+}
+
+extension MobileExternalHostSource {
+    public func externalHostVisibilityDidChange(_ hostID: String, hidden: Bool) {}
 }
 
 @MainActor
@@ -95,6 +103,9 @@ extension MobileShellComposite {
             hiddenExternalHostIDs.insert(hostID)
         } else {
             hiddenExternalHostIDs.remove(hostID)
+        }
+        for source in externalHostSources.values where source.externalHostOwnsHost(hostID) {
+            source.externalHostVisibilityDidChange(hostID, hidden: hidden)
         }
     }
 

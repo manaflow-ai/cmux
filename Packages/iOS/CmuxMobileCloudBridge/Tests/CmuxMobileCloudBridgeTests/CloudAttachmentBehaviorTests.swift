@@ -292,6 +292,28 @@ struct CloudBridgeStoreLifetimeTests {
         #expect(live.externalHostSummaries.map(\.hostID) == [Self.hostID])
     }
 
+    @Test("A paused machine is shown unreachable and never dialed")
+    func pausedMachineIsNotDialed() {
+        final class CountingLinks: CloudMachineLinkProviding {
+            var requests = 0
+            func link(for machine: CloudMachine) -> (any CloudMachineLinking)? {
+                requests += 1
+                return nil
+            }
+        }
+        let links = CountingLinks()
+        let bridge = CloudWorkspaceBridge(links: links)
+        let store = MobileShellComposite(workspaces: [])
+        bridge.attach(to: store)
+
+        bridge.setAdmittedMachines([
+            CloudMachine(id: "vm-1", provider: "freestyle", status: "paused", displayName: "otter"),
+        ])
+
+        #expect(links.requests == 0)
+        #expect(store.externalHostSummaries.first?.status == .unavailable)
+    }
+
     @Test("Sign-out clears rows but stays attached for the next sign-in")
     func signOutThenSignInPublishesAgain() {
         let bridge = CloudWorkspaceBridge(links: NoLinks())
@@ -305,5 +327,65 @@ struct CloudBridgeStoreLifetimeTests {
 
         bridge.setAdmittedMachines([Self.machine])
         #expect(store.externalHostSummaries.map(\.hostID) == [Self.hostID])
+    }
+}
+
+/// Hiding a Cloud machine from the Computers screen persists across launches.
+@MainActor
+struct CloudVisibilityPersistenceTests {
+    private final class NoLinks: CloudMachineLinkProviding {
+        func link(for machine: CloudMachine) -> (any CloudMachineLinking)? { nil }
+    }
+
+    private final class MemoryVisibility: CloudMachineVisibilityStoring {
+        var hiddenMachineIDs: Set<String> = []
+        func setMachine(id: String, hidden: Bool) {
+            if hidden { hiddenMachineIDs.insert(id) } else { hiddenMachineIDs.remove(id) }
+        }
+    }
+
+    private static let machine = CloudMachine(
+        id: "vm-1", provider: "freestyle", status: "paused", displayName: "otter"
+    )
+    private static var hostID: String { CloudAddress(machineID: "vm-1").identifier }
+
+    @Test("Hiding in the store is persisted, and a fresh launch restores it")
+    func hidePersistsAcrossLaunch() {
+        let persisted = MemoryVisibility()
+
+        // First launch: the user hides the machine.
+        do {
+            let bridge = CloudWorkspaceBridge(links: NoLinks(), visibility: persisted)
+            let store = MobileShellComposite(workspaces: [])
+            bridge.attach(to: store)
+            bridge.setAdmittedMachines([Self.machine])
+            store.setExternalHost(Self.hostID, hidden: true)
+        }
+        #expect(persisted.hiddenMachineIDs == ["vm-1"])
+
+        // Relaunch: a new store and bridge over the same persistence.
+        let bridge = CloudWorkspaceBridge(links: NoLinks(), visibility: persisted)
+        let store = MobileShellComposite(workspaces: [])
+        bridge.attach(to: store)
+        bridge.setAdmittedMachines([Self.machine])
+
+        #expect(store.externalHostIsHidden(Self.hostID))
+        #expect(store.externalHostSummaries.first?.isHidden == true)
+    }
+
+    @Test("Revealing again is persisted too")
+    func revealPersists() {
+        let persisted = MemoryVisibility()
+        persisted.hiddenMachineIDs = ["vm-1"]
+        let bridge = CloudWorkspaceBridge(links: NoLinks(), visibility: persisted)
+        let store = MobileShellComposite(workspaces: [])
+        bridge.attach(to: store)
+        bridge.setAdmittedMachines([Self.machine])
+        #expect(store.externalHostIsHidden(Self.hostID))
+
+        store.setExternalHost(Self.hostID, hidden: false)
+
+        #expect(persisted.hiddenMachineIDs.isEmpty)
+        #expect(!store.externalHostIsHidden(Self.hostID))
     }
 }

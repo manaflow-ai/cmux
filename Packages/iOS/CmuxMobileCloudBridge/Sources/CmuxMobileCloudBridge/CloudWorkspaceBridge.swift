@@ -22,6 +22,8 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     public private(set) var admittedMachines: [CloudMachine] = []
 
     private let links: any CloudMachineLinkProviding
+    /// Persists which machines the user hid; nil keeps hiding in memory only.
+    private let visibility: (any CloudMachineVisibilityStoring)?
     private weak var store: MobileShellComposite?
     private var catalogTasks: [String: Task<Void, Never>] = [:]
     private var attachments: [String: any CloudTerminalLinking] = [:]
@@ -45,8 +47,12 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     ///
     /// Production passes the app's ``CloudSessionController``; tests pass a
     /// fake so attachment behavior is exercised without a tunnel.
-    public init(links: any CloudMachineLinkProviding) {
+    public init(
+        links: any CloudMachineLinkProviding,
+        visibility: (any CloudMachineVisibilityStoring)? = nil
+    ) {
         self.links = links
+        self.visibility = visibility
     }
 
     // MARK: Lifecycle
@@ -98,11 +104,18 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         let previousIDs = Set(admittedMachines.map(\.id))
         let nextIDs = Set(machines.map(\.id))
         admittedMachines = machines
+        applyPersistedVisibility(to: machines)
 
         for removed in previousIDs.subtracting(nextIDs) {
             retire(machineID: removed)
         }
         for machine in machines {
+            // A machine that stopped running (paused, failed) has no daemon to
+            // talk to; drop its attachment rather than send into a dead link.
+            if !machine.isRunning {
+                teardownAttachment(machineID: machine.id)
+                attachedSurfaceIDsByMachine.removeValue(forKey: machine.id)
+            }
             publishPlaceholderIfNeeded(machine)
             refreshCatalog(for: machine)
         }
@@ -143,6 +156,13 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     /// its rows.
     public func refreshCatalog(for machine: CloudMachine) {
         catalogTasks[machine.id]?.cancel()
+        guard machine.isRunning else {
+            // Paused, provisioning or failed: there is no daemon to read a
+            // catalog from, so publish it unreachable without dialing.
+            catalogTasks.removeValue(forKey: machine.id)
+            publish(machine: machine, workspaces: [], terminals: [], status: .unavailable, isAuthoritative: true)
+            return
+        }
         catalogTasks[machine.id] = Task { [weak self] in
             guard let self else { return }
             guard let connection = links.link(for: machine) else {
@@ -192,6 +212,28 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
             return false
         }
         return admittedMachines.contains { $0.id == address.machineID }
+    }
+
+    public func externalHostVisibilityDidChange(_ hostID: String, hidden: Bool) {
+        guard let address = CloudAddress(parsing: hostID), address.component == nil else { return }
+        visibility?.setMachine(id: address.machineID, hidden: hidden)
+    }
+
+    /// Mirrors the persisted hidden set into the store's filter for these
+    /// machines. Writes the property directly rather than through
+    /// `setExternalHost`, which would echo the change straight back into
+    /// persistence and could clear a selection on a launch-time restore.
+    private func applyPersistedVisibility(to machines: [CloudMachine]) {
+        guard let store, let visibility else { return }
+        let persisted = visibility.hiddenMachineIDs
+        let hostIDs = Set(machines.map { CloudAddress(machineID: $0.id).identifier })
+        let hiddenHosts = Set(
+            machines.filter { persisted.contains($0.id) }
+                .map { CloudAddress(machineID: $0.id).identifier }
+        )
+        var next = store.hiddenExternalHostIDs.subtracting(hostIDs)
+        next.formUnion(hiddenHosts)
+        store.hiddenExternalHostIDs = next
     }
 
     public func externalHostSendInput(_ text: String, surfaceID: String) {

@@ -70,5 +70,40 @@ public struct CloudMachine: Sendable, Equatable, Identifiable, Hashable {
 
     /// Whether the provider reports the machine as running, which is the only
     /// state where attaching can succeed.
-    public var isRunning: Bool { status.lowercased() == "running" }
+    public var isRunning: Bool { lifecycle == .running }
+
+    /// The control plane's lifecycle state, from the `vm_status` enum.
+    public var lifecycle: CloudMachineLifecycle { CloudMachineLifecycle(status: status) }
+}
+
+/// A machine's lifecycle, mirroring the control plane's `vm_status` enum
+/// (`provisioning`, `running`, `failed`, `paused`, `destroyed`).
+///
+/// A value the phone does not know yet decodes to ``unknown`` rather than
+/// failing, so a newer server state never hides the machine.
+public enum CloudMachineLifecycle: Sendable, Equatable {
+    case provisioning
+    case running
+    case paused
+    case failed
+    case destroyed
+    case unknown
+
+    public init(status: String) {
+        switch status.lowercased() {
+        case "provisioning": self = .provisioning
+        case "running": self = .running
+        case "paused": self = .paused
+        case "failed": self = .failed
+        case "destroyed": self = .destroyed
+        default: self = .unknown
+        }
+    }
+
+    /// Pausing stops compute and billing while keeping the disk.
+    public var canPause: Bool { self == .running }
+    /// Resuming brings a paused machine's compute back.
+    public var canResume: Bool { self == .paused }
+    /// Deleting is offered for every state that still has a machine behind it.
+    public var canDelete: Bool { self != .destroyed }
 }

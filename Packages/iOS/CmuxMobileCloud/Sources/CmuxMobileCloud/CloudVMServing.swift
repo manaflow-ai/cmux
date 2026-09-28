@@ -20,6 +20,12 @@ public protocol CloudVMServing: Sendable {
     /// Approve a first-contact invitation. Returns whether the daemon has
     /// granted it yet; callers poll until true.
     func approveEnrollment(machineID: String, invitationId: String) async throws -> Bool
+    /// Stop a machine's compute and billing, keeping its disk.
+    func pauseMachine(id: String) async throws
+    /// Bring a paused machine's compute back.
+    func resumeMachine(id: String) async throws
+    /// Delete a machine and its disk.
+    func deleteMachine(id: String) async throws
 }
 
 public extension CloudVMServing {
