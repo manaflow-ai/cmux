@@ -295,7 +295,7 @@ prebuild_one() {
   if [ "$status" -eq 0 ]; then
     echo "Prebuilt $pkg in $((SECONDS - started))s."
   else
-    echo "Prebuild of $pkg exited $status after $((SECONDS - started))s; its test run builds it again."
+    echo "Prebuild of $pkg exited $status after $((SECONDS - started))s; its swift test builds whatever is still missing (the GhosttyKit packages exit 1 here on the known binaryTarget diagnostic)."
   fi
 }
 

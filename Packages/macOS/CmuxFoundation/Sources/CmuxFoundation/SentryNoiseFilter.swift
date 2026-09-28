@@ -194,5 +194,3 @@ public struct SentryNoiseFilter: Sendable {
         return text.range(of: pattern, options: .regularExpression) != nil
     }
 }
-
-// Temporary: selects the CmuxFoundation dependents to measure the package lane. Reverted before merge.
