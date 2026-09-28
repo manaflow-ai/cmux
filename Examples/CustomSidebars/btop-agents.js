@@ -188,16 +188,8 @@ function rowModel(w, now) {
   };
 }
 
-function workspaceIsBusy(w) {
-  return (num(w.unread) || 0) > 0
-    || list(w.agents).some((a) => a.status === "working" || a.status === "needs_input");
-}
-
-function cappedWorkspaces(workspaces, onlyBusy) {
-  const candidates = onlyBusy
-    ? workspaces.filter((w) => workspaceIsBusy(w) || w.selected)
-    : workspaces;
-  const capped = candidates.slice(0, MAX_ROWS);
+function cappedWorkspaces(workspaces) {
+  const capped = workspaces.slice(0, MAX_ROWS);
   const selected = workspaces.find((w) => w.selected);
   if (selected && !capped.some((w) => w.id === selected.id)) {
     if (capped.length === MAX_ROWS) capped[MAX_ROWS - 1] = selected;
@@ -210,7 +202,9 @@ const [busyOnly, setBusyOnly] = signal(false);
 
 const snapshot = computed(() => {
   const now = Math.floor(num(data.clock()?.epoch) ?? 0);
-  const workspaces = cappedWorkspaces(list(data.workspaces()), busyOnly());
+  // History ownership is capped, but independent of the transient ALL/BUSY
+  // filter so hiding a newly quiet row does not erase its recent sparkline.
+  const workspaces = cappedWorkspaces(list(data.workspaces()));
   if (now > 0 && now !== lastSampled) {
     sample(workspaces, now);
     lastSampled = now;
@@ -246,7 +240,8 @@ const snapshot = computed(() => {
 });
 
 const shown = computed(() => {
-  return snapshot().rows;
+  const rows = snapshot().rows;
+  return busyOnly() ? rows.filter((r) => r.busy || r.selected) : rows;
 });
 
 // A drop index counts visible rows; map it onto the full workspace order.
