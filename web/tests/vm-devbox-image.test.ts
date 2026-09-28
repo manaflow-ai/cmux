@@ -1001,6 +1001,42 @@ describe("devbox image template", () => {
     }
   });
 
+  test("concurrent shells rewrite the codex config once each without a runaway self-append", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-codex-concurrent-"));
+    const config = path.join(home, ".codex/config.toml");
+    mkdirSync(path.dirname(config), { recursive: true });
+    writeFileSync(config, "[hooks]\nx = 1\n");
+    // Each shell leads its own process group so a hung `cat` is killed with it.
+    const children = Array.from({ length: 16 }, () =>
+      spawn("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], {
+        env: {
+          ...process.env,
+          HOME: home,
+          OPENAI_BASE_URL: "http://127.0.0.1:9/v1",
+          OPENAI_API_KEY: "cmux-vm-edge-placeholder",
+        },
+        stdio: "ignore",
+        detached: true,
+      }),
+    );
+    try {
+      const exited = children.map((child) => new Promise<number | null>((resolve) => child.on("exit", resolve)));
+      const timedOut = new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 5_000));
+      expect(await Promise.race([Promise.all(exited), timedOut])).toEqual(Array(16).fill(0));
+      const parsed = Bun.TOML.parse(readFileSync(config, "utf8")) as Record<string, unknown>;
+      expect(parsed.model_provider).toBe("cmux");
+      expect(parsed.hooks).toEqual({ x: 1 });
+      expect(readdirSync(path.dirname(config))).toEqual(["config.toml"]);
+    } finally {
+      for (const child of children) {
+        try {
+          process.kill(-child.pid!, "SIGKILL");
+        } catch {}
+      }
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 15_000);
+
   test("concurrent OpenCode starts wait for one authenticated config and preserve a user file", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "cmux-opencode-concurrent-"));
     let requests = 0;
