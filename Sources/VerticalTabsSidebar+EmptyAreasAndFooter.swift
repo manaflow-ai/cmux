@@ -79,12 +79,20 @@ extension EnvironmentValues {
 ///
 /// Only actions fold. Update and upgrade pills report state, so they stay put.
 enum SidebarFooterFoldPolicy {
+    /// - Parameter isPopoverShown: whether a foldable footer button has its
+    ///   popover open. Moving the pointer into a popover leaves the footer, so
+    ///   without this the anchor button fades out from under its own popover.
+    ///   The titlebar row does the same through `isPopoverShown`.
     static func showsFoldableActions(
         density: InterfaceDensity,
         isHoveringFooter: Bool,
-        isShowingShortcutHints: Bool
+        isShowingShortcutHints: Bool,
+        isPopoverShown: Bool
     ) -> Bool {
-        !density.foldsActionsBehindHover || isHoveringFooter || isShowingShortcutHints
+        !density.foldsActionsBehindHover
+            || isHoveringFooter
+            || isShowingShortcutHints
+            || isPopoverShown
     }
 }
 

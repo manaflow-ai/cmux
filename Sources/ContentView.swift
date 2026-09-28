@@ -15495,6 +15495,11 @@ struct SidebarFooterButtons: View {
     private var interfaceDensityRawValue = InterfaceDensity.defaultValue.rawValue
     @State private var isHoveringFooter = false
     @State private var isHoveringFoldedSlots = false
+    /// Owns the account and help popovers so compact density can keep their
+    /// anchor buttons visible while a popover is open. The pointer leaves the
+    /// footer when it enters a popover, so hover alone would fade the anchor.
+    @State private var isAccountPopoverPresented = false
+    @State private var isHelpPopoverPresented = false
 
     private var presentationMode: WorkspacePresentationModeSettings.Mode {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode)
@@ -15520,7 +15525,8 @@ struct SidebarFooterButtons: View {
         SidebarFooterFoldPolicy.showsFoldableActions(
             density: interfaceDensity,
             isHoveringFooter: isHoveringFooter || isHoveringFoldedSlots,
-            isShowingShortcutHints: showModifierHoldHints && modifierKeyMonitor.isModifierPressed
+            isShowingShortcutHints: showModifierHoldHints && modifierKeyMonitor.isModifierPressed,
+            isPopoverShown: isAccountPopoverPresented || isHelpPopoverPresented
         ) ? 1 : 0
     }
 
@@ -15535,13 +15541,16 @@ struct SidebarFooterButtons: View {
             if shows(.account) || shows(.mobileConnect) || shows(.help) {
                 HStack(spacing: 0) {
                     if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
-                        SidebarAccountMenuButton()
+                        SidebarAccountMenuButton(isPopoverPresented: $isAccountPopoverPresented)
                     }
                     if shows(.mobileConnect), CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
                         SidebarMobileConnectButton()
                     }
                     if shows(.help) {
-                        SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
+                        SidebarHelpMenuButton(
+                            onSendFeedback: onSendFeedback,
+                            isPopoverPresented: $isHelpPopoverPresented
+                        )
                     }
                 }
                 .opacity(foldableActionsOpacity)
@@ -15623,7 +15632,14 @@ private struct SidebarHelpMenuButton: View {
 
     let onSendFeedback: () -> Void
 
-    @State private var isPopoverPresented = false
+    /// The footer owns this so compact density can keep the button visible
+    /// while its popover is open; the pointer is inside the popover by then.
+    @Binding var isPopoverPresented: Bool
+
+    init(onSendFeedback: @escaping () -> Void, isPopoverPresented: Binding<Bool>) {
+        self.onSendFeedback = onSendFeedback
+        _isPopoverPresented = isPopoverPresented
+    }
 
     private var iconSize: CGFloat {
 #if DEBUG

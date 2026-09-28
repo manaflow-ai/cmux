@@ -621,11 +621,27 @@ final class WorkspaceContentViewVisibilityTests {
 
     @Test
     func compactDensityFoldsOnlySidebarFooterActions() {
-        #expect(SidebarFooterFoldPolicy.showsFoldableActions(density: .comfortable, isHoveringFooter: false, isShowingShortcutHints: false))
-        #expect(SidebarFooterFoldPolicy.showsFoldableActions(density: .standard, isHoveringFooter: false, isShowingShortcutHints: false))
-        #expect(!SidebarFooterFoldPolicy.showsFoldableActions(density: .compact, isHoveringFooter: false, isShowingShortcutHints: false))
-        #expect(SidebarFooterFoldPolicy.showsFoldableActions(density: .compact, isHoveringFooter: true, isShowingShortcutHints: false))
-        #expect(SidebarFooterFoldPolicy.showsFoldableActions(density: .compact, isHoveringFooter: false, isShowingShortcutHints: true))
+        func shows(
+            _ density: InterfaceDensity,
+            hovering: Bool = false,
+            hints: Bool = false,
+            popover: Bool = false
+        ) -> Bool {
+            SidebarFooterFoldPolicy.showsFoldableActions(
+                density: density,
+                isHoveringFooter: hovering,
+                isShowingShortcutHints: hints,
+                isPopoverShown: popover
+            )
+        }
+        #expect(shows(.comfortable))
+        #expect(shows(.standard))
+        #expect(!shows(.compact))
+        #expect(shows(.compact, hovering: true))
+        #expect(shows(.compact, hints: true))
+        // Moving the pointer into an open footer popover leaves the footer, so
+        // hover has already ended. The anchor button has to stay visible.
+        #expect(shows(.compact, popover: true))
     }
 
     @Test

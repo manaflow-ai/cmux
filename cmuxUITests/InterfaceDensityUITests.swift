@@ -57,9 +57,23 @@ final class InterfaceDensityUITests: XCTestCase {
         attachScreenshot(of: app, name: "compact, pointer over titlebar")
         XCTAssertEqual(bell.frame.width, 20, accuracy: 0.5, "Compact keeps the 20pt minimum hit target.")
 
-        hoverSidebarFooter(in: app)
+        // The footer fold is a fade, not a removal: folded footer buttons stay
+        // hit-testable on purpose, because hover is the only way to reveal them
+        // and VoiceOver cannot hover. So accessibility cannot tell folded from
+        // shown here, and a hittable check after the hover would pass even if
+        // the footer never folded. What this step can pin is the reachability
+        // contract, before and after the hover; the fade itself is covered by
+        // `compactDensityFoldsOnlySidebarFooterActions` and by the screenshots.
         let help = sidebarHelpButton(in: app)
-        XCTAssertTrue(revealed(help, in: app, after: "hovering the sidebar footer"), "Hovering the sidebar footer reveals its folded actions.")
+        XCTAssertTrue(
+            waitForHittable(help),
+            "Folded footer actions stay reachable for people who cannot hover."
+        )
+        hoverSidebarFooter(in: app)
+        XCTAssertTrue(
+            waitForHittable(help),
+            "Hovering the sidebar footer keeps its actions reachable."
+        )
         attachScreenshot(of: app, name: "compact, pointer over sidebar footer")
     }
 

@@ -12,8 +12,15 @@ struct SidebarAccountMenuButton: View {
     private let signInTitle = String(localized: "settings.account.signIn", defaultValue: "Sign In…")
     @Environment(\.cmuxInterfaceDensity) private var density
     private var buttonSize: CGFloat { SidebarFooterButtonMetrics.buttonSize(for: density) }
-    @State private var isPopoverPresented = false
+    /// The sidebar footer owns this so compact density can keep the button
+    /// visible while its popover is open; the pointer is inside the popover by
+    /// then, so footer hover has already ended.
+    @Binding var isPopoverPresented: Bool
     @State private var popoverGroup = CmuxPopoverGroup()
+
+    init(isPopoverPresented: Binding<Bool>) {
+        _isPopoverPresented = isPopoverPresented
+    }
 #if DEBUG
     @AppStorage(SidebarFooterProfileIconDebugSettings.sizeKey)
     private var debugIconSize = SidebarFooterProfileIconDebugSettings.defaultSize
