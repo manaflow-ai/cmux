@@ -58,12 +58,18 @@ protocol AgentSessionPanelHost: AnyObject {
     /// The workspace the journal attributes a closed panel's sessions to.
     var agentSessionWorkspaceID: UUID { get }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] { get }
+    /// Hook bindings that can name the agent session a panel carries.
+    func agentSessionBindingsForClose(panelId: UUID) -> [SurfaceResumeBindingSnapshot]
     var restoredAgentLifecycle: RestoredAgentLifecycleCoordinator { get }
     var deferredAgentResumeRestoresByPanelId: [UUID: DeferredAgentResumeRestore] { get }
     var agentSessionCloseJournal: AgentSessionCloseJournal { get }
 }
 
 extension AgentSessionPanelHost {
+    func agentSessionBindingsForClose(panelId: UUID) -> [SurfaceResumeBindingSnapshot] {
+        surfaceResumeBindingsByPanelId[panelId].map { [$0] } ?? []
+    }
+
     /// Records the end of the recoverable agent sessions this panel carries,
     /// so crash recovery never reopens a terminal the user closed. Call it
     /// before the panel's bindings and restore state are discarded. Skipped
@@ -73,11 +79,10 @@ extension AgentSessionPanelHost {
         guard AppDelegate.shared?.isTerminatingApp != true else { return }
         let recoverable = Set(AgentSessionRecovery.recoverableKinds.map(\.rawValue))
         var sessions: [(kind: String, sessionID: String)] = []
-        if let binding = surfaceResumeBindingsByPanelId[panelId],
-           binding.isAgentHookBinding,
-           let kind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-           recoverable.contains(kind),
-           let sessionID = binding.checkpointId {
+        for binding in agentSessionBindingsForClose(panelId: panelId) where binding.isAgentHookBinding {
+            guard let kind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                  recoverable.contains(kind),
+                  let sessionID = binding.checkpointId else { continue }
             sessions.append((kind, sessionID))
         }
         let restoredAgents = [
@@ -107,4 +112,10 @@ extension Workspace: AgentSessionPanelHost {
 
 extension DockSplitStore: AgentSessionPanelHost {
     var agentSessionWorkspaceID: UUID { workspaceId }
+
+    /// The effective binding, plus the agent-hook binding the Dock keeps
+    /// aside while process detection shows another one (a tmux binding).
+    func agentSessionBindingsForClose(panelId: UUID) -> [SurfaceResumeBindingSnapshot] {
+        [surfaceResumeBindingsByPanelId[panelId], managedAgentResumeBindingsByPanelId[panelId]].compactMap { $0 }
+    }
 }

@@ -298,17 +298,22 @@ struct AgentSessionRecoveryAppTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let sessionID = "5d1c7a52-0d0e-4b1f-9a4e-2f0f7a9c1e03"
+        // A second pane whose hook binding the Dock keeps aside while process
+        // detection shows a tmux binding.
+        let managedSessionID = "5d1c7a52-0d0e-4b1f-9a4e-2f0f7a9c1e04"
         let journalURL = root.appendingPathComponent("journal.sqlite3")
         let store = try AgentJournalStore(databaseURL: journalURL)
-        _ = try store.append(AgentJournalEventDraft(
-            kind: .sessionStarted,
-            occurredAtMs: Int64(Date().addingTimeInterval(-60).timeIntervalSince1970 * 1000),
-            source: "claude",
-            agentKey: "claude_code",
-            sessionId: sessionID,
-            workspaceId: UUID().uuidString,
-            surfaceId: UUID().uuidString
-        ))
+        for id in [sessionID, managedSessionID] {
+            _ = try store.append(AgentJournalEventDraft(
+                kind: .sessionStarted,
+                occurredAtMs: Int64(Date().addingTimeInterval(-60).timeIntervalSince1970 * 1000),
+                source: "claude",
+                agentKey: "claude_code",
+                sessionId: id,
+                workspaceId: UUID().uuidString,
+                surfaceId: UUID().uuidString
+            ))
+        }
         store.close()
 
         let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
@@ -325,16 +330,27 @@ struct AgentSessionRecoveryAppTests {
             checkpointId: sessionID, source: "agent-hook", updatedAt: Date().timeIntervalSince1970
         )
 
-        dock.forceCloseDockTabIds.insert(tabID)
-        defer { dock.forceCloseDockTabIds.remove(tabID) }
+        let managedPanelID = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: false))
+        let managedTabID = try #require(dock.surfaceId(forPanelId: managedPanelID))
+        dock.managedAgentResumeBindingsByPanelId[managedPanelID] = SurfaceResumeBindingSnapshot(
+            name: "Claude Code", kind: "claude", command: "claude --resume \(managedSessionID)",
+            checkpointId: managedSessionID, source: "agent-hook", updatedAt: Date().timeIntervalSince1970
+        )
+
+        dock.forceCloseDockTabIds.formUnion([tabID, managedTabID])
+        defer { dock.forceCloseDockTabIds.subtract([tabID, managedTabID]) }
         #expect(dock.bonsplitController.closeTab(tabID))
+        #expect(dock.bonsplitController.closeTab(managedTabID))
         dock.reconcilePanels()
         #expect(dock.panels[panelID] == nil)
+        #expect(dock.panels[managedPanelID] == nil)
 
         let reader = AgentJournalSessionTailReader(databaseURL: journalURL)
         func hasEnded() -> Bool {
             let tails = (try? reader.sessionTails(occurredAtOrAfterMs: 0)) ?? []
-            return tails.first { $0.sessionId == sessionID }?.hasEnded == true
+            return [sessionID, managedSessionID].allSatisfy { id in
+                tails.first { $0.sessionId == id }?.hasEnded == true
+            }
         }
         for _ in 0..<100 where !hasEnded() {
             try await Task.sleep(for: .milliseconds(50))
