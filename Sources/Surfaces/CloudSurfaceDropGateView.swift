@@ -1,5 +1,6 @@
 import CmuxCloud
 import AppKit
+import Bonsplit
 
 /// Intercepts only forbidden live surface drags, leaving ordinary hit testing alone.
 @MainActor
@@ -27,8 +28,15 @@ final class CloudSurfaceDropGateView: NSView {
     func rejection(for pasteboard: NSPasteboard) -> SurfaceTransferRejection? {
         guard isActive, let workspace,
               DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboard.types) else { return nil }
-        guard let transfer = sourceResolver.transfer(from: pasteboard),
-              let source = sourceResolver.source(for: transfer) else {
+        guard let transfer = sourceResolver.transfer(from: pasteboard) else {
+            return workspace.surfaceOwnershipPolicy.rejection(for: nil)
+        }
+        // A tab already in this workspace is being reordered or split within it.
+        if transfer.isFromCurrentProcess,
+           workspace.panelIdFromSurfaceId(TabID(uuid: transfer.tabId)) != nil {
+            return nil
+        }
+        guard let source = sourceResolver.source(for: transfer) else {
             return workspace.surfaceOwnershipPolicy.rejection(for: nil)
         }
         return workspace.surfaceDropRejection(transfer, source: source)
@@ -39,19 +47,27 @@ final class CloudSurfaceDropGateView: NSView {
               WindowInputRoutingContext(event: NSApp.currentEvent).allowsPaneDropHitTesting else { return nil }
         let pasteboard = NSPasteboard(name: .drag)
         guard sourceResolver.transfer(from: pasteboard) != nil else { return nil }
-        return rejection(for: pasteboard) == nil ? nil : self
+        let rejection = rejection(for: pasteboard)
+#if DEBUG
+        dlog("cloud.dropGate.drag hitTest rejected=\(rejection != nil ? 1 : 0)")
+#endif
+        return rejection == nil ? nil : self
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        update(sender)
+        update(sender, phase: "entered")
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        update(sender)
+        update(sender, phase: "updated")
     }
 
-    private func update(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        feedback.update(rejection(for: sender.draggingPasteboard), over: self)
+    private func update(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
+        let rejection = rejection(for: sender.draggingPasteboard)
+#if DEBUG
+        dlog("cloud.dropGate.drag \(phase) rejected=\(rejection != nil ? 1 : 0)")
+#endif
+        feedback.update(rejection, over: self)
         return []
     }
 
