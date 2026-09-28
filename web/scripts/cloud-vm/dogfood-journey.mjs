@@ -545,7 +545,8 @@ try {
     });
     // Is the machine asleep? What the control plane says, and whether the
     // terminal still runs commands.
-    const shown = await api("GET", `/api/vm/${encodeURIComponent(vmId)}`);
+    const shown = await api("GET", `/api/vm/${encodeURIComponent(vmId)}`)
+      .catch((error) => ({ status: 0, json: null, text: error.message }));
     result.statusAfterPause = shown.json?.status ?? `http ${shown.status}`;
     await typeLine(terminal, `echo ${marker}-$((2+2))`).catch((error) => note(`terminal write while paused failed: ${error.message.slice(0, 120)}`));
     result.terminalLiveWhilePaused = await waitForScreen(localSocket, terminal, `${marker}-4`, 5_000)
@@ -570,6 +571,11 @@ try {
       await typeLine(terminal, `echo ${marker}-$((1+2))`);
       await waitForScreen(localSocket, terminal, `${marker}-3`, 30_000);
     });
+    // Was the line typed while paused kept and run after waking, or lost?
+    if (!result.terminalLiveWhilePaused) {
+      result.pausedKeystrokesRanAfterResume = await waitForScreen(localSocket, terminal, `${marker}-4`, 1_000)
+        .then(() => true, () => false);
+    }
     await saveScreen(localSocket, terminal, "02-after-resume");
   }
 
