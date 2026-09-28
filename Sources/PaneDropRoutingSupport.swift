@@ -309,14 +309,16 @@ final class PaneDropZoneOverlayAnimator {
             return
         }
 
-        // Retargeting snaps to the new zone; sliding the frame lags the pointer.
-        applyFrame(targetFrame)
         bringToFront()
-        guard overlayView.alphaValue < 1 else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.18
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            overlayView.animator().alphaValue = 1
+            if needsFrameUpdate {
+                overlayView.animator().frame = targetFrame
+            }
+            if overlayView.alphaValue < 1 {
+                overlayView.animator().alphaValue = 1
+            }
         }
     }
 
