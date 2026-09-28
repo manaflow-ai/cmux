@@ -404,7 +404,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             return String(format: "extracting(%.0f%%)", extracting.progress * 100)
         case .installing(let installing):
             if let blockers = installing.relaunchBlockers {
-                return "installing(auto=\(installing.isAutoUpdate), waiting agents=\(blockers.busyAgentCount) commands=\(blockers.runningCommandCount))"
+                return "installing(auto=\(installing.isAutoUpdate), held agents=\(blockers.agents.count) risky=\(blockers.riskyAgents.count) commands=\(blockers.runningCommandCount))"
             }
             return "installing(auto=\(installing.isAutoUpdate))"
         }

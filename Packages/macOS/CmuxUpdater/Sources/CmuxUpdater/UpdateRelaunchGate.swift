@@ -1,48 +1,102 @@
-/// What an update relaunch would interrupt right now, as reported by the host app.
-public struct UpdateRelaunchBlockers: Equatable, Sendable {
-    /// Coding agents that are mid-turn. They finish on their own, so an automatic install waits
-    /// for them.
-    public var busyAgentCount: Int
-    /// Other foreground commands in local terminals (a dev server, a build). Relaunching would
-    /// stop them for good, so an automatic install waits for them too.
-    public var runningCommandCount: Int
+/// How safely an agent session survives an update relaunch, as the host classifies it.
+public enum UpdateResumeSafety: String, Equatable, Sendable {
+    /// Idle, waiting for input, or between tool calls. Resumes with no loss.
+    case safe
+    /// A model request in flight, or waiting on a background task or subagent. Resumes and
+    /// re-issues the work.
+    case care
+    /// A foreground command is running under it (a build, a test, ssh, a long wait loop), or a
+    /// permission prompt or question is unanswered. A relaunch would cut that off.
+    case risky
+}
 
-    /// Nothing would be interrupted.
-    public static let empty = UpdateRelaunchBlockers(busyAgentCount: 0, runningCommandCount: 0)
+/// One agent session as an update relaunch would find it.
+public struct UpdateRelaunchAgent: Equatable, Sendable, Identifiable {
+    /// A stable id for the session's pane.
+    public var id: String
+    /// The agent's display name, such as "Claude Code".
+    public var name: String
+    /// Where it runs, such as its workspace title.
+    public var location: String
+    public var safety: UpdateResumeSafety
+    /// What it is doing, such as "Bash: swift build" or "Thinking".
+    public var activity: String
 
-    /// Creates a blocker report.
-    public init(busyAgentCount: Int, runningCommandCount: Int) {
-        self.busyAgentCount = busyAgentCount
-        self.runningCommandCount = runningCommandCount
-    }
-
-    /// Whether the relaunch would interrupt nothing.
-    public var isEmpty: Bool {
-        busyAgentCount == 0 && runningCommandCount == 0
+    /// Creates an agent entry.
+    public init(id: String, name: String, location: String, safety: UpdateResumeSafety, activity: String) {
+        self.id = id
+        self.name = name
+        self.location = location
+        self.safety = safety
+        self.activity = activity
     }
 }
 
-/// Holds an automatically downloaded update's relaunch until a quiet moment: nothing would be
-/// interrupted and nobody has touched the keyboard or mouse for ``quietPeriod``.
+/// What an update relaunch would interrupt right now, as reported by the host app.
+public struct UpdateRelaunchBlockers: Equatable, Sendable {
+    /// Every live agent session, with how safely it resumes.
+    public var agents: [UpdateRelaunchAgent]
+    /// Other foreground commands in local terminals (a dev server, a build). Relaunching would
+    /// stop them for good.
+    public var runningCommandCount: Int
+
+    /// Nothing would be interrupted.
+    public static let empty = UpdateRelaunchBlockers(agents: [], runningCommandCount: 0)
+
+    /// Creates a blocker report.
+    public init(agents: [UpdateRelaunchAgent], runningCommandCount: Int) {
+        self.agents = agents
+        self.runningCommandCount = runningCommandCount
+    }
+
+    /// Agents a relaunch would cut off mid-command or mid-question.
+    public var riskyAgents: [UpdateRelaunchAgent] { agents.filter { $0.safety == .risky } }
+    /// Agents that resume mid-task and re-issue their work.
+    public var careAgents: [UpdateRelaunchAgent] { agents.filter { $0.safety == .care } }
+
+    /// Whether relaunching now needs the user's say-so: a risky agent or a running command.
+    /// Safe and care agents resume on their own.
+    public var needsConfirmation: Bool {
+        !riskyAgents.isEmpty || runningCommandCount > 0
+    }
+}
+
+/// Holds an update relaunch until relaunching is safe or the user decides.
 ///
-/// Only automatic installs wait here. An explicit Install and Relaunch, Restart Now or Install
-/// Now is the user's consent and relaunches right away (#15084). There is no timeout: an
-/// automatic install never stops a busy agent or a running command. Until a quiet moment comes,
-/// the pill offers Install Now, and quitting cmux still installs the update.
+/// Nothing here depends on a perfect idle signal. The host classifies every agent session
+/// (``UpdateResumeSafety``): safe and care agents are resumed after the relaunch, so only risky
+/// agents and other running commands hold it. The gate has three modes:
 ///
-/// When the moment comes, the gate asks the host to prepare (a fresh session capture, so every
-/// agent is saved with its resume binding), then checks again, because an agent can start a turn
-/// or the user can come back while the capture runs. Only a check that still passes relaunches.
+/// - ``Mode/quietMoment``: an automatic install. It relaunches when nothing is risky and nobody
+///   has touched the keyboard or mouse for ``quietPeriod``. There is no timeout; until then the
+///   pill offers Install Now, and quitting cmux still installs the update.
+/// - ``Mode/askUser``: the user asked to install while something is risky. The popover lists
+///   the agents and offers Wait, Update When These Finish, and Update Anyway. It never
+///   relaunches on its own.
+/// - ``Mode/whenClear``: the user chose Update When These Finish. It relaunches as soon as
+///   nothing is risky.
 ///
-/// While waiting, the gate publishes ``UpdateState/installing(_:)`` carrying the current
-/// ``UpdateRelaunchBlockers``; Install Now and Later are that state's existing
-/// `retryTerminatingApplication` and `dismiss` actions.
+/// Before relaunching on its own, the gate asks the host to prepare (a fresh session capture,
+/// so every agent is saved with its resume binding), then checks again, because an agent can
+/// start a command or the user can come back while the capture runs.
+///
+/// While holding, the gate publishes ``UpdateState/installing(_:)`` carrying the current
+/// ``UpdateRelaunchBlockers``. Install Now / Update Anyway and Later / Wait are that state's
+/// `retryTerminatingApplication` and `dismiss` actions; Update When These Finish is
+/// `updateWhenClear`.
 @MainActor
 final class UpdateRelaunchGate {
-    /// How often a waiting gate re-reads the host's blockers and input idle time.
+    /// How often a holding gate re-reads the host's blockers and input idle time.
     static let recheckInterval: Duration = .seconds(2)
     /// How long the keyboard and mouse must be untouched before an automatic relaunch.
     static let quietPeriod: Duration = .seconds(60)
+
+    /// What a hold waits for.
+    enum Mode: Equatable {
+        case quietMoment
+        case askUser
+        case whenClear
+    }
 
     private let clock: any UpdateClock
     private let log: any UpdateLogging
@@ -58,13 +112,15 @@ final class UpdateRelaunchGate {
     }
 
     private final class Pending {
+        var mode: Mode
         let relaunch: () -> Void
         let later: () -> Void
-        var published: UpdateRelaunchBlockers?
+        var published: (UpdateRelaunchBlockers, Mode)?
         var isPreparing = false
         var installNowRequested = false
 
-        init(relaunch: @escaping () -> Void, later: @escaping () -> Void) {
+        init(mode: Mode, relaunch: @escaping () -> Void, later: @escaping () -> Void) {
+            self.mode = mode
             self.relaunch = relaunch
             self.later = later
         }
@@ -89,18 +145,30 @@ final class UpdateRelaunchGate {
     /// Whether a relaunch is currently held.
     var isWaiting: Bool { pending != nil }
 
-    /// Whether an automatic relaunch may proceed now.
-    nonisolated static func isQuietMoment(_ readiness: Readiness, quietPeriod: Duration) -> Bool {
-        readiness.blockers.isEmpty && readiness.idle >= quietPeriod
+    /// The current hold's mode, if any.
+    var mode: Mode? { pending?.mode }
+
+    /// Whether a hold in `mode` may relaunch on its own now.
+    nonisolated static func mayRelaunch(_ readiness: Readiness, mode: Mode, quietPeriod: Duration) -> Bool {
+        switch mode {
+        case .askUser:
+            return false
+        case .whenClear:
+            return !readiness.blockers.needsConfirmation
+        case .quietMoment:
+            return !readiness.blockers.needsConfirmation && readiness.idle >= quietPeriod
+        }
     }
 
-    /// Publishes a waiting state through `publish` and, at the next quiet moment, runs `prepare`
-    /// and then `relaunch` if it is still quiet. Install Now runs `prepare` and `relaunch`
-    /// without waiting; Later runs `later` instead. Each hold runs at most one of `relaunch` or
-    /// `later`: a new hold defers the old one, and ``cancel()`` (the update session ended) runs
-    /// neither. `isShown` reports whether the published waiting state is still the visible one;
-    /// once something else replaced it, the hold ends without touching the newer state.
+    /// Publishes a holding state through `publish` and relaunches when `mode` allows it (see
+    /// the type's discussion), running `prepare` first. Install Now runs `prepare` and
+    /// `relaunch` without waiting; Later runs `later` instead. Each hold runs at most one of
+    /// `relaunch` or `later`: a new hold defers the old one, and ``cancel()`` (the update
+    /// session ended) runs neither. `isShown` reports whether the published state is still the
+    /// visible one; once something else replaced it, the hold ends without touching the newer
+    /// state.
     func hold(
+        mode: Mode,
         readiness: @escaping @MainActor () -> Readiness,
         isShown: @escaping @MainActor () -> Bool,
         publish: @escaping @MainActor (UpdateState) -> Void,
@@ -111,10 +179,11 @@ final class UpdateRelaunchGate {
         if let previous = pending {
             finish(previous, relaunching: false)
         }
-        let request = Pending(relaunch: relaunch, later: later)
+        let request = Pending(mode: mode, relaunch: relaunch, later: later)
         pending = request
-        log.append("automatic update install waiting for a quiet moment")
-        publishWaiting(request, blockers: readiness().blockers, publish: publish, prepare: prepare)
+        log.append("update relaunch held (mode=\(mode))")
+        let actions = Actions(publish: publish, prepare: prepare)
+        publishHold(request, blockers: readiness().blockers, actions: actions)
         let interval = recheckInterval
         waitTask = Task { @MainActor [weak self, clock] in
             while !Task.isCancelled {
@@ -125,51 +194,52 @@ final class UpdateRelaunchGate {
                 }
                 guard let self, self.pending === request else { return }
                 guard isShown() else {
-                    self.log.append("update relaunch gate: waiting state replaced; ending hold")
+                    self.log.append("update relaunch gate: held state replaced; ending hold")
                     self.cancel()
                     return
                 }
                 let current = readiness()
-                guard Self.isQuietMoment(current, quietPeriod: self.quietPeriod) else {
-                    self.publishWaiting(request, blockers: current.blockers, publish: publish, prepare: prepare)
+                guard Self.mayRelaunch(current, mode: request.mode, quietPeriod: self.quietPeriod) else {
+                    self.publishHold(request, blockers: current.blockers, actions: actions)
                     continue
                 }
-                self.log.append("update relaunch gate: quiet moment; preparing to relaunch")
+                self.log.append("update relaunch gate: clear to relaunch; preparing")
                 request.isPreparing = true
                 await prepare()
                 request.isPreparing = false
                 guard self.pending === request else { return }
-                // The capture takes a moment: an agent may have started a turn, or the user may
-                // be back. Relaunch only if it is still quiet.
+                // The capture takes a moment: an agent may have started a command, or the user
+                // may be back. Relaunch only if it is still clear.
                 let after = readiness()
-                if request.installNowRequested || Self.isQuietMoment(after, quietPeriod: self.quietPeriod) {
+                if request.installNowRequested
+                    || Self.mayRelaunch(after, mode: request.mode, quietPeriod: self.quietPeriod) {
                     self.log.append("update relaunch gate: relaunching")
                     self.finish(request, relaunching: true)
                     return
                 }
                 self.log.append(
-                    "update relaunch gate: activity during prepare (agents=\(after.blockers.busyAgentCount), commands=\(after.blockers.runningCommandCount)); waiting again"
+                    "update relaunch gate: activity during prepare (risky=\(after.blockers.riskyAgents.count), commands=\(after.blockers.runningCommandCount)); holding again"
                 )
-                self.publishWaiting(request, blockers: after.blockers, publish: publish, prepare: prepare)
+                self.publishHold(request, blockers: after.blockers, actions: actions)
             }
         }
     }
 
-    private func publishWaiting(
-        _ request: Pending,
-        blockers current: UpdateRelaunchBlockers,
-        publish: @MainActor (UpdateState) -> Void,
-        prepare: @escaping @MainActor () async -> Void
-    ) {
-        guard request.published != current else { return }
-        request.published = current
-        publish(.installing(.init(
+    private struct Actions {
+        let publish: @MainActor (UpdateState) -> Void
+        let prepare: @MainActor () async -> Void
+    }
+
+    private func publishHold(_ request: Pending, blockers current: UpdateRelaunchBlockers, actions: Actions) {
+        if let published = request.published, published.0 == current, published.1 == request.mode { return }
+        request.published = (current, request.mode)
+        actions.publish(.installing(.init(
             isAutoUpdate: true,
             retryTerminatingApplication: { [weak self, weak request] in
                 guard let self, let request, self.pending === request else { return }
                 self.log.append("update relaunch gate: install now")
                 guard !request.isPreparing else {
-                    // The capture for a quiet moment is already running; relaunch when it ends.
+                    // A capture for a clear moment is already running; relaunch when it ends.
                     request.installNowRequested = true
                     return
                 }
@@ -177,7 +247,7 @@ final class UpdateRelaunchGate {
                 self.waitTask = nil
                 request.isPreparing = true
                 Task { @MainActor [weak self] in
-                    await prepare()
+                    await actions.prepare()
                     self?.finish(request, relaunching: true)
                 }
             },
@@ -186,7 +256,13 @@ final class UpdateRelaunchGate {
                 self.log.append("update relaunch gate: later")
                 self.finish(request, relaunching: false)
             },
-            relaunchBlockers: current
+            relaunchBlockers: current,
+            updateWhenClear: request.mode == .askUser ? { [weak self, weak request] in
+                guard let self, let request, self.pending === request else { return }
+                self.log.append("update relaunch gate: update when these finish")
+                request.mode = .whenClear
+                self.publishHold(request, blockers: current, actions: actions)
+            } : nil
         )))
     }
 
