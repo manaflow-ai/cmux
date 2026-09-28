@@ -13821,9 +13821,9 @@ final class GhosttySurfaceScrollView: NSView {
     /// Applies the style chosen from "Show scroll bars" in place of the one
     /// AppKit resolves, which is legacy for Automatic with a mouse connected.
     private func applyTerminalScrollerStyle() {
-        let style = TerminalScrollerStylePolicy.style(
+        let style = TerminalScrollerStyle(
             showScrollBarsPreference: UserDefaults.standard.string(
-                forKey: TerminalScrollerStylePolicy.showScrollBarsDefaultsKey
+                forKey: TerminalScrollerStyle.showScrollBarsDefaultsKey
             )
         )
         scrollView.scrollerStyle = style == .legacy ? .legacy : .overlay
