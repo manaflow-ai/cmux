@@ -280,7 +280,7 @@ class Refusal(unittest.TestCase):
         api = FakeAPI(clock, refusing_run(refused_at=0, seconds=600, steps=[]), marker=True,
                       finished=lambda seconds: True)
         target = rescue.sweep_target(listed(RUN_ID), "manaflow-ai/cmux", late=False)
-        rescue.follow(api, target, seconds=90, queue_rounds="0", light_retry=False,
+        rescue.follow(api, target, seconds=90, queue_rounds="0",
                       now=clock.now, sleep=clock.sleep, log=lambda text: None)
         self.assertEqual(api.calls.count("rerun-failed"), 1)
 
