@@ -4961,6 +4961,82 @@ describe("VM Effect workflows", () => {
     ]);
   });
 
+  dbTest("resets Base again after a reset was refused for credits", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+
+    let createCalls = 0;
+    let refuseCredit = false;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "freestyle" as const,
+            providerVmId: `provider-vm-base-credit-retry-${createCalls}`,
+            status: "running" as const,
+            image: "snapshot-test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const noOpBilling = noOpVmBillingGateway();
+    const billing: VmBillingGatewayShape = {
+      ...noOpBilling,
+      reserveCreate: (input) =>
+        refuseCredit
+          ? Effect.fail(new VmCreateCreditsInsufficientError({
+            itemId: "cmux-vm-create-credit",
+            billingCustomerId: "team-base-credit-retry",
+            amount: 1,
+          }))
+          : noOpBilling.reserveCreate(input),
+      refundCreate: () => Effect.void,
+    };
+    const layer = providerLayer(provider, billing);
+    const request = {
+      userId: "user-base-credit-retry",
+      billingCustomerType: "team" as const,
+      billingTeamId: "team-base-credit-retry",
+      billingPlanId: "free",
+      maxActiveVms: 3,
+      provider: "freestyle" as const,
+      image: "snapshot-test",
+      imageVersion: "test-version",
+    };
+
+    const first = await Effect.runPromise(openBaseVm(request).pipe(Effect.provide(layer)));
+
+    refuseCredit = true;
+    const refused = await Effect.runPromise(resetBaseVm({ ...request, reason: "credit refusal" })
+      .pipe(Effect.flip, Effect.provide(layer)));
+    expect(refused).toBeInstanceOf(VmCreateCreditsInsufficientError);
+
+    // The refused reset released the generation it had claimed, so the user is
+    // back on the machine they started with and may reset again once they have
+    // credits. Nothing in the refusal is supposed to cost them the ability to
+    // reset: the generation it burned must not be handed out a second time.
+    refuseCredit = false;
+    const reset = await Effect.runPromise(resetBaseVm({ ...request, reason: "after credits returned" })
+      .pipe(Effect.provide(layer)));
+
+    expect(reset.providerVmId).not.toBe(first.providerVmId);
+
+    const generations = await sql<{ generation: number; state: string }[]>`
+      select generation, state from cloud_vm_base_generations order by generation
+    `;
+    expect(generations).toEqual([
+      { generation: 1, state: "retained" },
+      { generation: 2, state: "failed" },
+      { generation: 3, state: "active" },
+    ]);
+  });
+
   dbTest("reuses an idempotency key after a terminal failed row", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
