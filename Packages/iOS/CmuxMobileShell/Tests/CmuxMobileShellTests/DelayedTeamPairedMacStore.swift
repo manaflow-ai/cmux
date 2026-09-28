@@ -44,6 +44,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
     private var backupCancellationStartWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var backupCancellationBlockers: [Int: CheckedContinuation<Void, Never>] = [:]
     private var backupCancellationObservedCancellation: [Int: Bool] = [:]
+    private var backupRefreshBlocked = false
+    private var backupRefreshStarted = false
+    private var backupRefreshStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var backupRefreshBlocker: CheckedContinuation<Void, Never>?
 
     init(recordsByTeam: [String: [MobilePairedMac]], blockedTeams: Set<String>) {
         self.recordsByTeam = recordsByTeam
@@ -252,7 +256,34 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
     }
     func removeAll() async throws {}
 
-    func refreshFromBackup(stackUserID _: String?) async {}
+    func refreshFromBackup(stackUserID _: String?) async {
+        backupRefreshStarted = true
+        let waiters = backupRefreshStartWaiters
+        backupRefreshStartWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        if backupRefreshBlocked {
+            await withCheckedContinuation { continuation in
+                backupRefreshBlocker = continuation
+            }
+        }
+    }
+
+    func blockBackupRefresh() {
+        backupRefreshBlocked = true
+    }
+
+    func waitUntilBackupRefreshStarted() async {
+        if backupRefreshStarted { return }
+        await withCheckedContinuation { continuation in
+            backupRefreshStartWaiters.append(continuation)
+        }
+    }
+
+    func releaseBackupRefresh() {
+        backupRefreshBlocked = false
+        backupRefreshBlocker?.resume()
+        backupRefreshBlocker = nil
+    }
 
     func cancelInFlightRestores() async {
         backupCancellationCallCount += 1
