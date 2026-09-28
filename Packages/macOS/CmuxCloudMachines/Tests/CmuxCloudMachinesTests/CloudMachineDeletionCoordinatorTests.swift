@@ -176,6 +176,23 @@ struct CloudMachineDeletionCoordinatorTests {
         #expect(creates.finish(completion(machine: "bound", cancelled: true), from: attempt).cleanupMachineIDs.isEmpty)
     }
 
+    @Test func deletionLeavesTheMachinesOwnWorkspacesForTheCallerToClose() throws {
+        let creates = makeCreates()
+        let deletions = CloudMachineDeletionCoordinator()
+        let bound = request()
+        let boundWorkspaceID = try #require(bound.presentationWorkspaceID)
+        let boundAttempt = creates.reserve(bound)
+        let producer = creates.reserve(request())
+        _ = creates.receive("OK machine=doomed\n", from: producer)
+        #expect(deletions.begin("doomed"))
+
+        let retired = creates.retireCreates(producing: "doomed", presentedIn: [boundWorkspaceID])
+        #expect(Set(retired.cancelOperationIDs) == [boundAttempt.operationID, producer.operationID])
+        // Closing a create's presentation keeps any pane the person added and
+        // unbinds it, which would hide it from the deletion's whole-workspace close.
+        #expect(retired.closedOperations.map(\.id) == [producer.operationID])
+    }
+
     @Test func closingTheMachinesWorkspacesStillCleansUpAnotherMachine() throws {
         let creates = makeCreates()
         let deletions = CloudMachineDeletionCoordinator()
