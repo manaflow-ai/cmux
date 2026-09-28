@@ -187,7 +187,8 @@ extension GhosttyApp {
             case .fileURLs(let fileURLs):
                 let target = await requestTerminalSurface
                     .resolvedImageTransferTargetAsync()
-                guard requestSurfaceIdentity.matches(requestTerminalSurface) else {
+                guard !operation.isCancelled,
+                      requestSurfaceIdentity.matches(requestTerminalSurface) else {
                     preparedContent.cleanupTransferredTemporaryFiles(
                         using: terminalPasteboard
                     )

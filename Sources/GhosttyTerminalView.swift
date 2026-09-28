@@ -9966,6 +9966,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+
+
 #if DEBUG
     fileprivate enum DebugDropPayloadKind {
         case fileURLs

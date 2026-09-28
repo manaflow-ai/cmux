@@ -4,8 +4,10 @@ extension TerminalSSHSessionDetector {
     static let defaultDetectionTimeout: TimeInterval = 0.25
 
     static func defaultDetectionTimeoutSleep(_ timeout: TimeInterval) async {
-        let nanoseconds = UInt64(max(0, timeout) * 1_000_000_000)
-        try? await Task.sleep(nanoseconds: nanoseconds)
+        let milliseconds = Int64(max(0, timeout) * 1_000)
+        try? await ContinuousClock().sleep(
+            for: .milliseconds(milliseconds)
+        )
     }
 
     /// Resolves an ad-hoc SSH session without making the caller wait for a
@@ -15,6 +17,11 @@ extension TerminalSSHSessionDetector {
     /// completes the request independently; a worker that is wedged in
     /// `KERN_PROCARGS2` is intentionally abandoned and its late result is
     /// ignored.
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     static func detectAsync(
         forTTY ttyName: String,
         timeout: TimeInterval = defaultDetectionTimeout,

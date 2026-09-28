@@ -20,15 +20,23 @@ extension TerminalSSHSessionDetector {
             }
             guard byteCount > 0 else { return [] }
             let count = min(Int(byteCount) / MemoryLayout<pid_t>.stride, pids.count)
-            let snapshots = pids.prefix(count).compactMap { pid in
-                processSnapshot(
-                    for: pid,
-                    ttyName: ttyName,
-                    ttyDevice: UInt32(ttyDevice)
-                )
-            }
             if byteCount < Int32(pids.count * MemoryLayout<pid_t>.stride) {
-                return snapshots
+                return pids.prefix(count).compactMap { pid in
+                    processSnapshot(
+                        for: pid,
+                        ttyName: ttyName,
+                        ttyDevice: UInt32(ttyDevice)
+                    )
+                }
+            }
+            if capacity == 4096 {
+                return pids.compactMap { pid in
+                    processSnapshot(
+                        for: pid,
+                        ttyName: ttyName,
+                        ttyDevice: UInt32(ttyDevice)
+                    )
+                }
             }
             capacity *= 2
         }
