@@ -57,7 +57,9 @@ passing tour only means no step failed; a frame that shows a blank window, the
 wrong screen, a system dialog over the app or the old behavior is a finding.
 Open the run link for all frames and the accessibility trees. When no tour
 reaches the change, add or extend one (with `paths` for the files it covers)
-in the same PR, so the next push shows it. For evidence no tour can produce
+in the same PR; the next push that changes app code shows it (a push that
+changes no app code gets no new build, so no media, and
+`gh workflow run pr-media.yml --repo manaflow-ai/cmux -f pr=<n> -f allow_compile=true` is the way to see a tour-only edit). For evidence no tour can produce
 (a drag, a recording from a fleet dogfood), upload it with `scripts/pr-media.py`;
 the workflow uploads through the same tool.
 

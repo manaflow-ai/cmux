@@ -175,6 +175,11 @@ class GateTests(StubbedTest):
         self.assertFalse(self.gate([{"name": "Dogfood build #42", "status": "in_progress", "conclusion": None},
                                     admission], run_status="completed"))
 
+    def test_a_skipped_macos_caller_means_no_build_to_load(self) -> None:
+        jobs = [{"name": "Dogfood build #42", "status": "completed", "conclusion": "success"},
+                {"name": "macos", "status": "completed", "conclusion": "skipped"}]
+        self.assertFalse(self.gate(jobs))  # at once, though the run is still going
+
     def test_a_skipped_dogfood_job_means_no_app_change(self) -> None:
         self.assertFalse(self.gate([{"name": "Dogfood build #42", "status": "completed", "conclusion": "skipped"}]))
 
@@ -224,6 +229,66 @@ class RefusedTests(StubbedTest):
         self.assertIn(f"- name: {media.REFUSE_STEP}", (ROOT / ".github/workflows/test-e2e.yml").read_text())
 
 
+class UploadRetryTests(unittest.TestCase):
+    def test_a_lost_race_is_retried(self) -> None:
+        calls = []
+
+        class Tool:
+            MediaError = RuntimeError
+
+            @staticmethod
+            def put_file(*args):
+                calls.append(args)
+                if len(calls) < 3:
+                    raise RuntimeError("409")
+
+        media.upload(Tool, "o/r", "1/x/t/a.png", Path("a.png"), "m", sleep=lambda _: None)
+        self.assertEqual(len(calls), 3)
+
+
+class TourCacheTests(StubbedTest):
+    def run_tour(self, conclusion: str, media_made: dict) -> dict:
+        import tempfile
+        self.stub({})
+
+        class FakeDispatch:
+            def __init__(self, repository):
+                self.run_id, self.tested = "7", None
+
+            def start(self, command):
+                return 0
+
+            def cancel(self, *_):
+                pass
+
+            def wait(self):
+                return {"conclusion": conclusion}
+
+        originals = (media.Dispatch, media.refused_to_compile, media.tour_media)
+        media.Dispatch = FakeDispatch
+        media.refused_to_compile = lambda *_: False
+        media.tour_media = lambda *_: media_made
+        self.addCleanup(lambda: (setattr(media, "Dispatch", originals[0]),
+                                 setattr(media, "refused_to_compile", originals[1]),
+                                 setattr(media, "tour_media", originals[2])))
+        import signal
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            self.addCleanup(signal.signal, signum, signal.getsignal(signum))
+        with tempfile.TemporaryDirectory() as tmp:
+            media.tour("o/r", "t", Path(tmp) / "s.json", HEAD, Path(tmp) / "out", False)
+            return json.loads((Path(tmp) / "out/manifest.json").read_text())
+
+    def test_only_a_verdict_with_media_is_cached(self) -> None:
+        made = {"gif": "tour.gif", "shots": [], "failures": []}
+        self.assertIn("run_url", self.run_tour("success", made))
+        self.assertIn("run_url", self.run_tour("failure", made))
+        for conclusion, found in (("cancelled", made), ("success", {"shots": [], "note": "no frames"})):
+            with self.subTest(conclusion=conclusion):
+                manifest = self.run_tour(conclusion, found)
+                self.assertNotIn("run_url", manifest)
+                self.assertIn("log_url", manifest)
+
+
 class PublishTests(StubbedTest):
     def comment(self, body: str) -> list[list[dict]]:
         return [[{"id": 5, "user": {"login": "github-actions[bot]"}, "body": body}]]
@@ -238,6 +303,8 @@ class PublishTests(StubbedTest):
         stub.uploads = []
 
         class Tool:
+            MediaError = RuntimeError
+
             @staticmethod
             def put_file(repo, branch, path, local, message):
                 stub.uploads.append((repo, branch, path, local.read_bytes()))

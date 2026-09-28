@@ -107,8 +107,9 @@ jobs:
     needs: plan
     if: ${{ needs.plan.outputs.run != '' && needs.plan.outputs.run != '[]' }}
     runs-on: ubuntu-24.04 # github-hosted-required: holds actions write and mostly waits for the tour run
-    # A tour dispatch can wait up to 50 minutes for the compile it adopts.
-    timeout-minutes: 120
+    # A tour dispatch can wait up to 50 minutes for the compile it adopts,
+    # then up to 90 for the run (pr_media.RUN_WAIT_SECONDS).
+    timeout-minutes: 150
     # A newer push to the same pull request replaces this tour's media.
     concurrency:
       group: pr-media-${{ needs.plan.outputs.pr }}-${{ matrix.tour }}

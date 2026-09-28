@@ -220,6 +220,11 @@ def app_build_gate(repository: str, run_id: str, attempt: str, pr: int,
         if dogfood and dogfood.get("status") == "completed" and dogfood.get("conclusion") != "success":
             return False
         admission = next((job for job in jobs if str(job.get("name", "")).endswith(ADMISSION_JOB_SUFFIX)), None)
+        # A skipped `macos` caller lists no admission job: this push changed
+        # nothing the app is built from (or only the CLI), so there is no build
+        # of it to load (dispatch-focused-test.py skips_macos).
+        if any(job.get("name") == "macos" and job.get("conclusion") == "skipped" for job in jobs):
+            return False
         if dogfood and dogfood.get("status") == "completed" and admission:
             return admission.get("conclusion") != "skipped"
         run = gh_json([f"repos/{repository}/actions/runs/{run_id}"]) or {}
@@ -488,17 +493,21 @@ def tour(repository: str, name: str, scenario: Path, head_sha: str, out: Path, a
         manifest["run_url"] = f"https://github.com/{repository}/actions/runs/{dispatch.run_id}"
         try:
             run = dispatch.wait()
-            if run.get("conclusion") == "failure" and refused_to_compile(repository, dispatch.run_id):
-                # Not a result of the tour: keep it uncached so the next attempt tries again.
-                manifest.update(log_url=manifest.pop("run_url"), note=(
-                    "the tour's runner could not load CI's build, and the tour does not compile "
-                    "its own; the next CI attempt of this head tries again"))
-            else:
-                manifest["result"] = ("passed" if run.get("conclusion") == "success"
-                                      else (run.get("conclusion") or "unfinished"))
+            conclusion = run.get("conclusion")
+            if conclusion == "failure" and refused_to_compile(repository, dispatch.run_id):
+                manifest["note"] = ("the tour's runner could not load CI's build, and the tour does not "
+                                    "compile its own; the next CI attempt of this head tries again")
+            elif conclusion in ("success", "failure"):
+                manifest["result"] = "passed" if conclusion == "success" else "failure"
                 manifest.update(tour_media(dispatch.run_id, name, head_sha, out, repository))
+            else:
+                manifest["note"] = f"the tour run ended {conclusion or 'unfinished'}; the next CI attempt tries again"
         except Exception as error:  # a manifest with the run link beats no media section at all
             manifest["note"] = f"media could not be made: {str(error)[:200]}"
+        # Only a verdict with media is cached (published() keys on run_url);
+        # anything else stays linked but runs again on the next attempt.
+        if manifest["result"] == "not run" or not (manifest.get("gif") or manifest.get("shots")):
+            manifest["log_url"] = manifest.pop("run_url")
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps(manifest, indent=2), flush=True)
     return 0
@@ -522,6 +531,20 @@ def uploader():
     sys.modules[spec.name] = module  # its dataclasses look their module up
     spec.loader.exec_module(module)
     return module
+
+
+def upload(tool, repository: str, path: str, local: Path, message: str, attempts: int = 4,
+           sleep: Callable[[float], None] = time.sleep) -> None:
+    """put_file, retried: publish jobs of several PRs and people's uploads move
+    the media branch at once, so a lost race or a 5xx is routine."""
+    for attempt in range(attempts):
+        try:
+            tool.put_file(repository, MEDIA_BRANCH, path, local, message)
+            return
+        except tool.MediaError:
+            if attempt == attempts - 1:
+                raise
+            sleep(3 + 4 * attempt)
 
 
 def section(repository: str, pr: int | str, head_sha: str, manifests: list[dict]) -> str:
@@ -587,8 +610,8 @@ def publish(repository: str, pr: int, head_sha: str, tours: list[str], media: Pa
             for file in [name for name in names if name]:
                 if not re.fullmatch(r"[A-Za-z0-9._-]+", file) or not (folder / file).is_file():
                     continue
-                tool.put_file(repository, MEDIA_BRANCH, f"{prefix}/{tour_name}/{file}", folder / file,
-                              f"PR #{pr} media: {tour_name} at {head_sha[:8]}")
+                upload(tool, repository, f"{prefix}/{tour_name}/{file}", folder / file,
+                       f"PR #{pr} media: {tour_name} at {head_sha[:8]}")
         else:
             manifest = published(repository, pr, head_sha, tour_name)
         if manifest:
