@@ -514,7 +514,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // A snapshot with the exact installed cursor is a valid no-op only when
         // its revisioned graph and every pending receipt agree. This is important after a
         // rename: a delayed equal-cursor predecessor must not look current.
-        if let current = cloudState, current.cursor == incoming.cursor {
+        // Two missing cursors (a legacy daemon) carry no ordering at all, so
+        // they are not equal; the snapshot decision below handles them.
+        if let current = cloudState, let currentCursor = current.cursor, currentCursor == incoming.cursor {
             guard current.hasSameRevisionedContent(as: incoming), incomingPassesPendingRenameFence(incoming) else {
                 // A pending rename's predecessor is refused outright; only a
                 // content conflict can arm recovery.
@@ -548,6 +550,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                currentCursor.generation != incomingCursor.generation,
                let requestVersion,
                 requestVersion != cloudStateInstallVersion {
+                return false
+            }
+            // Without cursors only the install version orders reads: a read
+            // that started before a newer install must not overwrite it.
+            if let current = cloudState, current.cursor == nil, incoming.cursor == nil,
+               let requestVersion, requestVersion != cloudStateInstallVersion, incoming != current {
                 return false
             }
             guard incomingPassesPendingRenameFence(incoming) else {
