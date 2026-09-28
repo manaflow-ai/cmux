@@ -418,6 +418,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         // they are the history rows that scrolled through between producer
         // captures, replayed ahead of the visible-grid repaint.
         let carriesScrollback = full || (carryScrollbackSpans && scrolledRows > 0)
+        let includedSpans = rowSpans.filter { includedRows.contains($0.row) }
+        let includedScrollbackSpans = carriesScrollback ? scrollbackSpans : []
         return try MobileTerminalRenderGridFrame(
             surfaceID: surfaceID,
             stateSeq: stateSeq,
@@ -429,8 +431,13 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             cursor: cursor,
             full: full,
             clearedRows: full ? [] : Array(includedRows.sorted()),
-            styles: styles,
-            rowSpans: rowSpans.filter { includedRows.contains($0.row) },
+            // A delta ships only the styles its own spans reference plus
+            // style 0, which replay and visual snapshots use to erase cleared
+            // cells. Full frames keep the whole table.
+            styles: full
+                ? styles
+                : Self.styles(styles, referencedBy: [includedSpans, includedScrollbackSpans]),
+            rowSpans: includedSpans,
             // Deltas only carry autowrap; DECOM needs a full snapshot because
             // restoring it homes the cursor and requires scroll-region state.
             activeScreen: activeScreen,
@@ -442,7 +449,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalConfigTheme: full ? terminalConfigTheme : nil,
             terminalThemeRevision: full ? terminalThemeRevision : nil,
             scrollbackRows: carriesScrollback ? scrollbackRows : 0,
-            scrollbackSpans: carriesScrollback ? scrollbackSpans : [],
+            scrollbackSpans: includedScrollbackSpans,
             anchor: anchor,
             scrolledRows: full ? 0 : scrolledRows,
             historyRows: historyRows,
@@ -450,6 +457,15 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             deltaBaseHistoryRows: deltaBaseHistoryRows,
             deltaBaseRenderRevision: deltaBaseRenderRevision
         )
+    }
+
+    private static func styles(_ styles: [Style], referencedBy spanGroups: [[RowSpan]]) -> [Style] {
+        var referenced: Set<Int> = [0]
+        for spans in spanGroups {
+            for span in spans { referenced.insert(span.styleID) }
+        }
+        let kept = styles.filter { referenced.contains($0.id) }
+        return kept.isEmpty ? [.default] : kept
     }
 
     public static func normalizedPlainRows(from text: String, maxRows: Int) -> [String] {
