@@ -421,6 +421,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // Agent PID / lifecycle / hibernation.
         "set_agent_pid",
         "set_agent_lifecycle",
+        "set_agent_reply",
         "agent_hibernation",
         "clear_agent_pid",
         // Log / progress.
@@ -572,6 +573,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "list_meta_blocks",
         "set_agent_pid",
         "set_agent_lifecycle",
+        "set_agent_reply",
         "agent_hibernation",
         "clear_agent_pid",
         "log",

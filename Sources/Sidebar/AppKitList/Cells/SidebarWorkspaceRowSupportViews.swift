@@ -325,7 +325,7 @@ final class SidebarRowIconTextLine: NSView {
         if entry.format == .markdown {
             markdownTextView.isHidden = false
             markdownTextView.configure(
-                markdown: entry.sidebarDisplayText,
+                markdown: entry.sidebarRowText,
                 font: font,
                 color: color,
                 explicitURL: entry.url,
@@ -335,7 +335,7 @@ final class SidebarRowIconTextLine: NSView {
             textView.isHidden = true
             metadataButton.isHidden = false
             metadataButton.configure(
-                title: entry.sidebarDisplayText,
+                title: entry.sidebarRowText,
                 font: font,
                 color: color,
                 underlined: true,
@@ -345,7 +345,7 @@ final class SidebarRowIconTextLine: NSView {
         } else {
             metadataButton.isHidden = true
             textView.isHidden = false
-            textView.stringValue = entry.sidebarDisplayText
+            textView.stringValue = entry.sidebarRowText
             textView.font = font
             textView.textColor = color
         }

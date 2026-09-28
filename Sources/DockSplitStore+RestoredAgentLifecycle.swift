@@ -260,7 +260,21 @@ extension DockSplitStore {
         panelId: UUID
     ) {
         mutateAgentRuntime(panelId: panelId) {
-            $0.statusEntries[key] = entry
+            // Keep the pane's reply time across status changes, as the
+            // workspace does (`Workspace.setStatusEntry`).
+            let lastReplyAt = entry.lastReplyAt ?? $0.statusEntries[key]?.lastReplyAt
+            $0.statusEntries[key] = entry.withLastReplyAt(lastReplyAt)
+        }
+    }
+
+    /// Dock counterpart of `Workspace.recordAgentReply`.
+    func recordAgentReply(key: String, at date: Date?, panelId: UUID) {
+        guard let current = agentRuntimeStatusEntry(key: key, panelId: panelId),
+              SidebarStatusEntry.shouldReplaceLastReply(current.lastReplyAt, with: date) else {
+            return
+        }
+        mutateAgentRuntime(panelId: panelId) {
+            $0.statusEntries[key] = current.withLastReplyAt(date)
         }
     }
 

@@ -28273,6 +28273,12 @@ struct CMUXCLI {
                     color: "#8E8E93",
                     pid: claudePid
                 )
+                clearAgentLastReply(
+                    client: client,
+                    agentKey: Self.claudeCodeStatusKey,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
             }
             printClaudeHookAck()
 
@@ -28475,6 +28481,16 @@ struct CMUXCLI {
                         color: "#8E8E93"
                     )
                 }
+                // Also covers a turn left open on background agents: its
+                // visible reply is done even though the turn is not.
+                publishAgentLastReply(
+                    client: client,
+                    agentKey: Self.claudeCodeStatusKey,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    transcriptPath: hookTranscriptPath,
+                    payloadCarriesReply: claudeAssistantMessageFromHookPayload(parsedInput.object) != nil
+                )
                 if let completion {
                     let title = String(
                         localized: "cli.claude-hook.notification.title",
@@ -29202,6 +29218,18 @@ struct CMUXCLI {
                 telemetry.breadcrumb("claude-hook.pre-tool-use.nested-suppressed")
                 printClaudeHookAck()
                 return
+            }
+            // Any text Claude wrote before this tool call is already in the
+            // transcript. A subagent's tool call (it carries `agent_id`) says
+            // nothing about when the main agent last replied.
+            if parsedInput.rawObject?["agent_id"] == nil {
+                publishAgentLastReply(
+                    client: client,
+                    agentKey: Self.claudeCodeStatusKey,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    transcriptPath: hookTranscriptPath
+                )
             }
 
             // AskUserQuestion and ExitPlanMode are blocking "needs input" tools:
@@ -37323,6 +37351,16 @@ export default CMUXSessionRestore;
                     setAgentNeedsInputStatus(def: def, workspaceId: workspaceId, surfaceId: surfaceId, client: client)
                 } else {
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+                }
+                if codexFailure == nil, antigravityFailure == nil {
+                    publishAgentLastReply(
+                        client: client,
+                        agentKey: def.statusKey,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        transcriptPath: hookTranscriptPath,
+                        payloadCarriesReply: lastMsg != nil || grokAssistantMessage != nil
+                    )
                 }
             }
             if def.name == "cursor" {

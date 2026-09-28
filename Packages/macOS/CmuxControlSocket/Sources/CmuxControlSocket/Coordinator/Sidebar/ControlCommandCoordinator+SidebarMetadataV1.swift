@@ -388,6 +388,44 @@ extension ControlCommandCoordinator {
         return "OK"
     }
 
+    /// `set_agent_reply` — record when an agent last replied with visible
+    /// text (`<unix-ms>`), or forget it (`clear`) when a new session starts
+    /// in the pane. The row shows it beside the agent's status, so a turn
+    /// that is still running or waiting on background agents still says
+    /// when it last spoke. Parse + bus enqueue; zero main hops.
+    nonisolated func sidebarSetAgentReply(_ args: String, context: (any ControlCommandContext)?) -> String {
+        let parsed = sidebarParseOptions(args)
+        let usage = "set_agent_reply <key> <unix-ms|clear> [--tab=<id>] [--panel=<id>]"
+        guard parsed.positional.count >= 2 else {
+            return "ERROR: Usage: \(usage)"
+        }
+        let key = parsed.positional[0]
+        let rawValue = parsed.positional[1]
+        let repliedAt: Date?
+        if rawValue.lowercased() == "clear" {
+            repliedAt = nil
+        } else if let milliseconds = Int64(rawValue), milliseconds > 0 {
+            repliedAt = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
+        } else {
+            return "ERROR: Usage: \(usage)"
+        }
+        let targetResolution = sidebarParseMutationTabTarget(options: parsed.options)
+        guard let target = targetResolution.target else {
+            return targetResolution.error ?? "ERROR: No tab selected"
+        }
+        let panelResolution = sidebarParseOptionalPanelIdOption(options: parsed.options, usage: usage)
+        if let error = panelResolution.error {
+            return error
+        }
+        context?.controlSidebarScheduleAgentReply(
+            target: target,
+            key: key,
+            repliedAt: repliedAt,
+            panelID: panelResolution.panelId
+        )
+        return "OK"
+    }
+
     /// `agent_hibernation` — the global hibernation toggle (the seam witness
     /// applies the settings write in its own single main hop so the change
     /// notification still posts on the main thread and the reply stays

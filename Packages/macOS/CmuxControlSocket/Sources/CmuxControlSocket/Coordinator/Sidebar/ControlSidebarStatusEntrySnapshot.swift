@@ -17,6 +17,9 @@ public struct ControlSidebarStatusEntrySnapshot: Sendable, Equatable {
     public let priority: Int
     /// The render format (non-`plain` is appended to the listing line).
     public let format: ControlSidebarMetadataFormat
+    /// When the agent behind the entry last replied, in Unix milliseconds
+    /// (appended to the listing line as `last_reply_ms=`).
+    public let lastReplyAtMs: Int64?
 
     /// Creates a snapshot.
     ///
@@ -28,6 +31,7 @@ public struct ControlSidebarStatusEntrySnapshot: Sendable, Equatable {
     ///   - urlAbsoluteString: The optional absolute URL string.
     ///   - priority: The display priority.
     ///   - format: The render format.
+    ///   - lastReplyAtMs: When the agent last replied, in Unix milliseconds.
     public init(
         key: String,
         value: String,
@@ -35,7 +39,8 @@ public struct ControlSidebarStatusEntrySnapshot: Sendable, Equatable {
         color: String?,
         urlAbsoluteString: String?,
         priority: Int,
-        format: ControlSidebarMetadataFormat
+        format: ControlSidebarMetadataFormat,
+        lastReplyAtMs: Int64? = nil
     ) {
         self.key = key
         self.value = value
@@ -44,5 +49,6 @@ public struct ControlSidebarStatusEntrySnapshot: Sendable, Equatable {
         self.urlAbsoluteString = urlAbsoluteString
         self.priority = priority
         self.format = format
+        self.lastReplyAtMs = lastReplyAtMs
     }
 }

@@ -77,6 +77,15 @@ public protocol ControlSidebarContext: AnyObject {
         panelID: UUID?
     )
 
+    /// Enqueues the `set_agent_reply` mutation: when the agent keyed `key`
+    /// last replied with visible text, or `nil` to forget it (a new session).
+    nonisolated func controlSidebarScheduleAgentReply(
+        target: ControlSidebarTabTarget,
+        key: String,
+        repliedAt: Date?,
+        panelID: UUID?
+    )
+
     /// Parses an agent lifecycle CLI token, returning the canonical raw value
     /// (the app owns the `AgentHibernationLifecycleState` token table).
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String?

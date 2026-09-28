@@ -34,10 +34,44 @@ extension Workspace {
         return agentStatusEntriesByPanelId[panelId]?[key]
     }
 
+    /// A report without its own reply time keeps the one the pane (or, for
+    /// a workspace-scoped report, the workspace) already had for `key`, so a
+    /// status change never erases when the agent last replied.
     func setStatusEntry(_ entry: SidebarStatusEntry, key: String, panelId: UUID?) {
+        let ownsPanel = panelId.map { panels[$0] != nil } ?? false
+        var entry = entry
+        if entry.lastReplyAt == nil {
+            let previous = ownsPanel
+                ? panelId.flatMap { agentStatusEntriesByPanelId[$0]?[key] }
+                : statusEntries[key]
+            entry = entry.withLastReplyAt(previous?.lastReplyAt)
+        }
         statusEntries[key] = entry
-        if let panelId, panels[panelId] != nil {
+        if let panelId, ownsPanel {
             agentStatusEntriesByPanelId[panelId, default: [:]][key] = entry
+        }
+    }
+
+    /// Records when the agent reporting `key` last replied with visible text
+    /// (`nil` forgets it for a new session). Only moves forward, so a late
+    /// hook cannot roll the time back. Needs an existing status entry: the
+    /// time is shown beside it and dropped with it.
+    func recordAgentReply(key: String, at date: Date?, panelId: UUID?) {
+        if let panelId, panels[panelId] != nil {
+            guard let current = agentStatusEntriesByPanelId[panelId]?[key],
+                  SidebarStatusEntry.shouldReplaceLastReply(current.lastReplyAt, with: date) else {
+                return
+            }
+            let updated = current.withLastReplyAt(date)
+            agentStatusEntriesByPanelId[panelId]?[key] = updated
+            // The workspace entry is this pane's copy when the pane wrote
+            // last; updating it also refreshes the row.
+            if statusEntries[key] == current {
+                statusEntries[key] = updated
+            }
+        } else if let current = statusEntries[key],
+                  SidebarStatusEntry.shouldReplaceLastReply(current.lastReplyAt, with: date) {
+            statusEntries[key] = current.withLastReplyAt(date)
         }
     }
 
