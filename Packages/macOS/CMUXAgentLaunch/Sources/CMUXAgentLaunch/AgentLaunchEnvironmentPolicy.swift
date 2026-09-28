@@ -193,8 +193,14 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
             // exact command text, never a URL or credential. They cross into
             // the durable restore record only as an agreeing pair, so a marker
             // inherited from an ancestor `sr claude` session proves nothing.
-            selected.merge(SubrouterClaudeResumeRouting().capturedEnvironment(in: env)) { _, marker in
+            let router = SubrouterClaudeResumeRouting()
+            selected.merge(router.capturedEnvironment(in: env)) { _, marker in
                 marker
+            }
+            // The account a routed launch was pinned to, recorded by the
+            // wrapper. It only picks the launcher's `--account` on restore.
+            selected.merge(router.capturedAccountEnvironment(in: env)) { _, account in
+                account
             }
         }
         return selected
@@ -251,6 +257,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         )
         selected.removeValue(forKey: SubrouterCodexResumeRouting.environmentKey)
         selected.removeValue(forKey: SubrouterCodexResumeRouting.launchBoundEnvironmentKey)
+        selected.removeValue(forKey: SubrouterClaudeResumeRouting.accountEnvironmentKey)
         return selected
     }
 
