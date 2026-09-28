@@ -166,7 +166,8 @@ extension GhosttyNSView {
             toolTip: Self.agentKeyHintToolTip(
                 keys: keys,
                 action: hint.action,
-                needsCommand: ghostty_surface_mouse_captured(surface)
+                needsCommand: ghostty_surface_mouse_captured(surface),
+                physicalKeys: AgentKeyHintPhysicalKeyboardStore.shared.advice(forAgentKeys: keys)
             )
         )
     }
@@ -229,19 +230,107 @@ extension GhosttyNSView {
         Self.ghosttyMouseCursor(for: ghosttyMouseShape).set()
     }
 
-    /// "Click to press ⌃O (expand)", with ⌘-click when the agent owns the mouse.
-    static func agentKeyHintToolTip(keys: [String], action: String, needsCommand: Bool) -> String {
+    /// "Click to press ⌃O (expand)", with ⌘-click when the agent owns the
+    /// mouse, then a line for each group of keyboards where other physical
+    /// keys produce the chord: "On your keyboard: ⇪O (Caps Lock is your
+    /// Control key)".
+    static func agentKeyHintToolTip(
+        keys: [String],
+        action: String,
+        needsCommand: Bool,
+        physicalKeys: [PhysicalKeyAdvice] = []
+    ) -> String {
         let shortcut = keys.map(agentKeyHintDisplay).joined(separator: " ")
+        let press: String
         if needsCommand {
-            return String(
+            press = String(
                 localized: "terminal.agentKeyHint.commandClickToPress",
                 defaultValue: "⌘-click to press \(shortcut) (\(action))"
             )
+        } else {
+            press = String(
+                localized: "terminal.agentKeyHint.clickToPress",
+                defaultValue: "Click to press \(shortcut) (\(action))"
+            )
+        }
+        return ([press] + physicalKeys.map(agentKeyHintPhysicalKeysLine)).joined(separator: "\n")
+    }
+
+    /// "On your keyboard: ⇪O (Caps Lock is your Control key)", or "On
+    /// <keyboard name>: ..." when other keyboards press the printed keys.
+    static func agentKeyHintPhysicalKeysLine(_ advice: PhysicalKeyAdvice) -> String {
+        let keys = advice.chords.map(\.glyphs).joined(separator: " ")
+        var reasons = advice.notes.map { note in
+            let physical = agentKeyHintKeyName(note.physical)
+            let sends = agentKeyHintKeyName(note.sends)
+            return String(
+                localized: "terminal.agentKeyHint.physicalKeys.keyIsYourKey",
+                defaultValue: "\(physical) is your \(sends) key"
+            )
+        }
+        var rightHand: [PhysicalKey] = []
+        for key in advice.chords.flatMap(\.rightHandModifiers) where !rightHand.contains(key) {
+            rightHand.append(key)
+        }
+        for key in rightHand {
+            let name = agentKeyHintKeyName(key)
+            reasons.append(String(
+                localized: "terminal.agentKeyHint.physicalKeys.rightHandKey",
+                defaultValue: "use the right \(name) key"
+            ))
+        }
+        if advice.viaKarabinerRule {
+            reasons.append(String(
+                localized: "terminal.agentKeyHint.physicalKeys.karabinerRule",
+                defaultValue: "a Karabiner-Elements rule sends it"
+            ))
+        }
+        let reason = reasons.joined(separator: ", ")
+        let names = advice.keyboardNames.filter { !$0.isEmpty }
+        if advice.appliesToEveryKeyboard || names.isEmpty {
+            if reason.isEmpty {
+                return String(
+                    localized: "terminal.agentKeyHint.physicalKeys.yourKeyboard",
+                    defaultValue: "On your keyboard: \(keys)"
+                )
+            }
+            return String(
+                localized: "terminal.agentKeyHint.physicalKeys.yourKeyboardWithReason",
+                defaultValue: "On your keyboard: \(keys) (\(reason))"
+            )
+        }
+        let keyboards = names.joined(separator: ", ")
+        if reason.isEmpty {
+            return String(
+                localized: "terminal.agentKeyHint.physicalKeys.namedKeyboard",
+                defaultValue: "On \(keyboards): \(keys)"
+            )
         }
         return String(
-            localized: "terminal.agentKeyHint.clickToPress",
-            defaultValue: "Click to press \(shortcut) (\(action))"
+            localized: "terminal.agentKeyHint.physicalKeys.namedKeyboardWithReason",
+            defaultValue: "On \(keyboards): \(keys) (\(reason))"
         )
+    }
+
+    /// A key's localized name ("Caps Lock", "Control"), or its glyph for
+    /// keys that read fine as one.
+    static func agentKeyHintKeyName(_ key: PhysicalKey) -> String {
+        switch key.name {
+        case .control?:
+            String(localized: "terminal.agentKeyHint.keyName.control", defaultValue: "Control")
+        case .option?:
+            String(localized: "terminal.agentKeyHint.keyName.option", defaultValue: "Option")
+        case .shift?:
+            String(localized: "terminal.agentKeyHint.keyName.shift", defaultValue: "Shift")
+        case .command?:
+            String(localized: "terminal.agentKeyHint.keyName.command", defaultValue: "Command")
+        case .capsLock?:
+            String(localized: "terminal.agentKeyHint.keyName.capsLock", defaultValue: "Caps Lock")
+        case .escape?:
+            String(localized: "terminal.agentKeyHint.keyName.escape", defaultValue: "Escape")
+        case nil:
+            key.glyph
+        }
     }
 
     /// `ctrl+shift+o` as `⌃⇧O`, `escape` as `⎋`.
