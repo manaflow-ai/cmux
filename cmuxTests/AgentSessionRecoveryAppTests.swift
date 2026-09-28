@@ -121,6 +121,40 @@ struct AgentSessionRecoveryAppTests {
         #expect(plainCommand.contains("plain"))
     }
 
+    /// A routed Claude session resumes through `cmux restore`, the path a
+    /// normal restore takes, from a panel carrying its restore record. That
+    /// path checks the launcher on PATH, authorizes the wrapper, and reapplies
+    /// the observed permission mode.
+    @Test
+    func routedSessionsResumeThroughTheRestoreVerb() throws {
+        let candidate = AgentRecoveryCandidate(
+            kind: "claude",
+            sessionId: "0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11",
+            workspaceId: nil,
+            cwd: "/tmp",
+            launchCommand: AgentLaunchCommand(
+                launcher: "claude",
+                arguments: ["claude", "--model", "opus"],
+                environment: [
+                    SubrouterClaudeResumeRouting.environmentKey: "sr claude proxy --resume",
+                    SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: "sr claude proxy --resume",
+                ],
+                launcherPrefix: ["sr", "claude", "proxy", "--account", "me@example.com"]
+            ),
+            permissionMode: "acceptEdits",
+            lastActivity: Date()
+        )
+        let launch = try #require(AgentSessionRecovery.launch(for: candidate))
+        guard case let .restoreVerb(input, agent) = launch else {
+            Issue.record("Expected the restore verb, got \(launch)")
+            return
+        }
+        #expect(input.hasSuffix(" restore claude 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11\n"))
+        #expect(agent.sessionId == candidate.sessionId)
+        #expect(agent.permissionMode == "acceptEdits")
+        #expect(agent.launchCommand?.launcherPrefix == candidate.launchCommand?.launcherPrefix)
+    }
+
     /// Closing a Claude pane kills the agent before its own end hook reports,
     /// so the journal kept the session open and the next crash recovery
     /// reopened a pane the user had closed.
