@@ -1287,6 +1287,51 @@ struct PortScannerPortRetirementTests {
         #expect(scanned == false, "a disabled scanner must not read any process's ports")
     }
 
+    /// Ports that open while the detail is hidden are never seen, so showing
+    /// the detail again has to rescan the panels without waiting for a command.
+    @Test("Showing the ports detail again rescans registered panels")
+    func reenabledPortScanningRescansRegisteredPanels() async throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyName = "ttys904"
+        let listenerPID = Int(getpid())
+        let listeningPort = 4324
+        let runner = PortLifecycleCommandRunner(
+            ttyName: ttyName,
+            sessionLeaderPID: 1,
+            pid: listenerPID,
+            port: listeningPort
+        )
+        let listenerIdentity = try #require(AgentPIDProcessIdentity(pid: pid_t(listenerPID)))
+        let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: listenerIdentity)
+        let scanner = PortScanner(
+            commandRunner: runner,
+            listeningPortsProvider: { runner.listeningPorts(pid: $0) },
+            ttySessionIdentityProvider: { _ in sessionIdentity },
+            burstOffsets: Self.fastBurstOffsets,
+            coalesceDelay: Self.fastCoalesceDelay
+        )
+        scanner.setScanningEnabled(false)
+        let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
+
+        await MainActor.run {
+            scanner.onPortsUpdated = { publishedWorkspaceId, publishedPanelId, ports in
+                guard publishedWorkspaceId == workspaceId, publishedPanelId == panelId else { return }
+                publishedPorts.withLock { $0.append(ports) }
+            }
+            scanner.registerTTY(workspaceId: workspaceId, panelId: panelId, ttyName: ttyName)
+        }
+        scanner.kick(workspaceId: workspaceId, panelId: panelId)
+        scanner.setScanningEnabled(true)
+
+        let didPublishListeningPort = await Self.waitForPublication(
+            in: publishedPorts,
+            matching: { $0 == [listeningPort] },
+            pollInterval: .milliseconds(25)
+        )
+        #expect(didPublishListeningPort, "re-enabling the scanner never rescanned the panel")
+    }
+
     /// Drives the whole scanner — TTY registration, kick, coalesce, burst,
     /// reconcile, publish — so a break anywhere in that chain surfaces even
     /// when every individual stage still passes its own test.

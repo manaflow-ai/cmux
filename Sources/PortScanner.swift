@@ -245,7 +245,24 @@ final class PortScanner: @unchecked Sendable {
         queue.async { [self] in
             guard scanningEnabled != enabled else { return }
             scanningEnabled = enabled
-            if !enabled {
+            if enabled {
+                // Ports that opened or closed while hidden were never seen, so
+                // rescan every panel once instead of waiting for its next command.
+                guard !ttyNames.isEmpty else {
+                    updateAgentScanTimerLocked()
+                    return
+                }
+                pendingKicks.formUnion(ttyNames.keys)
+                scansRemainingForPendingKicks = Self.minimumScansPerKick
+                if !burstActive {
+                    startCoalesce()
+                }
+            } else {
+                // Invalidate the running burst the same way unregistering the
+                // last panel does, so its remaining timers never scan.
+                burstGeneration &+= 1
+                scheduledBurstTimers.values.forEach { $0.cancel() }
+                scheduledBurstTimers.removeAll()
                 pendingKicks.removeAll()
                 scansRemainingForPendingKicks = 0
                 coalesceTimer?.cancel()

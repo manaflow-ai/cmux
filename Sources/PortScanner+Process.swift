@@ -543,7 +543,7 @@ extension PortScanner {
     /// at the current scale: the libproc calls measure about 1.25us per process,
     /// so a scan holds one thread for well under a millisecond every couple of
     /// seconds, and scans never overlap. Give it its own queue if that stops
-    /// being true — if scans start running concurrently, or if a process with a
+    /// being true: if scans start running concurrently, or if a process with a
     /// very large descriptor table makes one scan slow, since the cost is per
     /// descriptor rather than per PID.
     func scanListeningPorts(pidsCsv: String) -> PortListenerScanResult {
