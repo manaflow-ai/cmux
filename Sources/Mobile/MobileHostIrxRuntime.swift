@@ -361,7 +361,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         hadLiveDiscoveryThisRun = false
         setSettingsPhase(.idle)
         if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
-        await outgoingDeviceClient?.enforce(nil)
+        await outgoingDeviceClient?.enforce(nil, releaseAll: true)
         if let oldControl, let metadata = await oldControl.snapshot().cache.device?.descriptor.metadata,
            metadata.pairingEnabled || metadata.capabilities.contains("cmux.mac-host.v1"), scope == nil || !pairingEnabled() {
             let withdrawn = V2DeviceMetadata(appVersion: metadata.appVersion,
