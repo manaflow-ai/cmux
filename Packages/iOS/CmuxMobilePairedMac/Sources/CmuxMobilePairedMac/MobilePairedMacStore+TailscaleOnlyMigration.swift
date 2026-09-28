@@ -70,7 +70,7 @@ extension MobilePairedMacStore {
                 stackUserID: nil,
                 directAddressesRawJSON: row.directAddressesRawJSON
             ).directAddresses
-            let merged = Self.appendingTailscaleAddresses(from: grants, to: existing)
+            let merged = existing.appendingTailscaleAddresses(from: grants)
             try exec(
                 """
                 UPDATE paired_macs SET connection_method = 'direct', direct_addresses = ?
@@ -92,13 +92,13 @@ extension MobilePairedMacStore {
         }
     }
 
-    /// Appends each Tailscale host and port not already present as an enabled
-    /// Direct address labeled "Tailscale".
-    public static func appendingTailscaleAddresses(
-        from routes: [CmxAttachRoute],
-        to addresses: [MobilePairedMacDirectAddress]
-    ) -> [MobilePairedMacDirectAddress] {
-        var merged = addresses
+}
+
+public extension [MobilePairedMacDirectAddress] {
+    /// Appends each Tailscale host and port not already present as an
+    /// enabled Direct address labeled "Tailscale".
+    func appendingTailscaleAddresses(from routes: [CmxAttachRoute]) -> [MobilePairedMacDirectAddress] {
+        var merged = self
         for route in routes {
             guard route.kind == .tailscale, case let .hostPort(host, port) = route.endpoint,
                   !merged.contains(where: { $0.address == host && $0.port == port }) else { continue }

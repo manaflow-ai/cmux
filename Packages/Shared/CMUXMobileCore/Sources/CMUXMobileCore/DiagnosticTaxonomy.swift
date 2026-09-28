@@ -880,6 +880,7 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
 
 /// The user's configured connection method, mirrored from the settings picker
 /// without account, address, or grant details.
+/// The connection method a diagnostics payload attributes an event to.
 public enum DiagnosticConnectionMethod: Int, Sendable, Codable, CaseIterable {
     case iroh = 0
     /// The former Tailscale Only method, folded into Direct. Kept so older

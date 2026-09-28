@@ -185,8 +185,8 @@ extension MobileShellComposite {
                     ))?.first {
                         MacPairingKey($0) == MacPairingKey(macDeviceID: ticket.macDeviceID, instanceTag: instanceTag)
                     }?.directAddresses ?? []
-                    let merged = MobilePairedMacStore.appendingTailscaleAddresses(
-                        from: userAuthorizedTailscaleRoutes, to: current)
+                    let merged = current.appendingTailscaleAddresses(
+                        from: userAuthorizedTailscaleRoutes)
                     if merged != current {
                         try? await pairedMacStore.setDirectAddresses(
                             macDeviceID: ticket.macDeviceID,
