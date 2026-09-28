@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Browser view duplication retains resource provenance before navigation.
@@ -32,11 +33,8 @@ extension Workspace {
             catalog.restore([SurfaceProjectionRecord(panelID: newPanel.id, resource: resource,
                 remoteWorkspaceID: record?.remoteWorkspaceID)], workspaceID: id)
             if let model = browser.cloudAccess.model, let url = browser.cloudAccess.remoteURL {
-                newPanel.prepareCloudBrowserStore(machineID: resource.machine.rawValue)
                 let configuredURL = browser.cloudRestoreURL(on: url)
-                newPanel.cloudAccess.configure(model: model, url: configuredURL, resourceID: resource)
-                newPanel.showCloudAddress(configuredURL)
-                model.connect()
+                newPanel.configureCloudBrowser(model: model, url: configuredURL, resourceID: resource)
             } else {
                 newPanel.restoreCloudResource(resource, preferredURL: browser.currentURLForTabDuplication)
             }

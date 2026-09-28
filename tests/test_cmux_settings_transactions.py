@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Production helper transaction tests on owned temporary JSONC files.
 
-The validation seam is injected only for deterministic interleavings. Canonical
-schema rejection is exercised by JSONConfigTransactionTests and CLI doctor tests.
+ConfigTransactionTests inject the validation seam for deterministic
+interleavings. The later classes run the real validation path against a fake
+`cmux config validate`; canonical schema rejection is exercised by
+JSONConfigTransactionTests and CLI doctor tests.
 """
 import argparse
 import contextlib
@@ -35,7 +37,7 @@ class ConfigTransactionTests(unittest.TestCase):
         self.config = self.root / 'cmux.json'
         self.config.write_text('{\n // keep\n "computerUse": {"showInMenuBar": true}\n}\n')
         self.receipt = self.root / 'undo.json'
-        self.validation = patch.object(helper, 'validate_candidate', return_value=True)
+        self.validation = patch.object(helper, 'candidate_issues', return_value=[])
         self.validation.start()
         self.addCleanup(self.validation.stop)
 
@@ -84,8 +86,8 @@ class ConfigTransactionTests(unittest.TestCase):
         external = b'{"computerUse":{"showInMenuBar":true,"enabled":false}}'
         def validate(*_):
             self.config.write_bytes(external)
-            return True
-        with patch.object(helper, 'validate_candidate', side_effect=validate):
+            return []
+        with patch.object(helper, 'candidate_issues', side_effect=validate):
             with self.assertRaises(SystemExit):
                 self.set_value()
         self.assertEqual(self.config.read_bytes(), external)
@@ -96,8 +98,8 @@ class ConfigTransactionTests(unittest.TestCase):
             replacement = self.root / 'replacement'
             replacement.write_bytes(before)
             os.replace(replacement, self.config)
-            return True
-        with patch.object(helper, 'validate_candidate', side_effect=validate):
+            return []
+        with patch.object(helper, 'candidate_issues', side_effect=validate):
             with self.assertRaises(SystemExit):
                 self.set_value()
         self.assertEqual(self.config.read_bytes(), before)
@@ -112,8 +114,8 @@ class ConfigTransactionTests(unittest.TestCase):
         def validate(*_):
             self.config.unlink()
             self.config.symlink_to(other)
-            return True
-        with patch.object(helper, 'validate_candidate', side_effect=validate):
+            return []
+        with patch.object(helper, 'candidate_issues', side_effect=validate):
             with self.assertRaises(SystemExit):
                 self.set_value()
         self.assertEqual(target.read_bytes(), before)
@@ -130,8 +132,10 @@ class ConfigTransactionTests(unittest.TestCase):
 
     def test_malformed_and_rejected_candidate_preserve_bytes(self):
         before = self.config.read_bytes()
-        with patch.object(helper, 'validate_candidate', return_value=False):
-            self.assertEqual(helper.cmd_set(self.args()), 1)
+        rejected = [{'path': '$.computerUse.showInMenuBar', 'message': 'fixture rejection'}]
+        with patch.object(helper, 'introduced_issues', return_value=rejected):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                helper.cmd_set(self.args())
         self.assertEqual(self.config.read_bytes(), before)
         self.config.write_text('{broken')
         with self.assertRaises(SystemExit):
@@ -222,6 +226,128 @@ class ConfigTransactionTests(unittest.TestCase):
     def test_json_types_are_not_conflated_for_undo(self):
         self.assertFalse(helper.same_owned_value({'present': True, 'value': True}, {'present': True, 'value': 1}))
         self.assertFalse(helper.same_owned_value({'present': False}, {'present': True, 'value': None}))
+
+
+
+FAKE_CLI = r"""#!/usr/bin/env python3
+import json, sys
+candidate = json.load(open(sys.argv[sys.argv.index('--path') + 1]))
+issues = [{'path': '$.' + key, 'message': 'is not a recognized setting'}
+          for key in candidate if key not in ('computerUse', 'notifications')]
+menu_bar = candidate.get('computerUse', {}).get('showInMenuBar', False)
+if not isinstance(menu_bar, bool):
+    issues.append({'path': '$.computerUse.showInMenuBar', 'message': 'expected boolean, got string'})
+status = 'error' if issues else 'ok'
+print(json.dumps({'ok': not issues, 'findings': [{'status': status, 'issues': issues}]}))
+sys.exit(1 if issues else 0)
+"""
+
+
+class FakeValidatorTestCase(unittest.TestCase):
+    """Runs the helper's real validation path against a fake `cmux config validate`."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        cli = self.root / 'fake-cmux'
+        cli.write_text(FAKE_CLI)
+        cli.chmod(0o755)
+        environment = patch.dict(os.environ, {'CMUX_CLI_BIN': str(cli), 'LC_ALL': 'en_US.UTF-8'})
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.config = self.root / 'cmux.json'
+        # A key from a newer build: an issue that predates any write here.
+        self.config.write_text('{\n "futureSetting": true,\n "computerUse": {"showInMenuBar": true}\n}\n')
+
+
+class CandidateValidationTests(FakeValidatorTestCase):
+
+    def set_value(self, value):
+        args = argparse.Namespace(file=str(self.config), key='computerUse.showInMenuBar',
+                                  value=value, scope='global', receipt=None)
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            try:
+                code = helper.cmd_set(args)
+            except SystemExit as error:
+                code = error.code
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_unrelated_pre_existing_issue_does_not_block_a_valid_change(self):
+        code, stdout, stderr = self.set_value('false')
+        self.assertEqual((code, stderr), (0, ''))
+        self.assertEqual(json.loads(stdout)['status'], 'persisted')
+        root = helper.load_settings(self.config)
+        self.assertFalse(root['computerUse']['showInMenuBar'])
+        self.assertTrue(root['futureSetting'])
+
+    def test_issue_introduced_by_the_change_is_refused_as_structured_json(self):
+        before = self.config.read_bytes()
+        code, stdout, stderr = self.set_value('"yes"')
+        self.assertEqual((code, stdout), (1, ''))
+        payload = json.loads(stderr)
+        self.assertEqual(payload['status'], 'conflict')
+        self.assertEqual(payload['code'], 'invalid_config')
+        self.assertEqual(payload['key'], 'computerUse.showInMenuBar')
+        self.assertEqual(payload['message'], helper.mutation_message('invalidCandidate'))
+        self.assertEqual(payload['issues'], [
+            {'path': '$.computerUse.showInMenuBar', 'message': 'expected boolean, got string'},
+        ])
+        self.assertEqual(self.config.read_bytes(), before)
+
+
+    def test_validator_failure_without_issues_refuses_even_when_baseline_fails_too(self):
+        # An older CLI rejecting a flag, or a crash, fails both runs the same way.
+        (self.root / 'fake-cmux').write_text('#!/bin/sh\necho "error: unknown option --scope" >&2\nexit 2\n')
+        before = self.config.read_bytes()
+        code, stdout, stderr = self.set_value('false')
+        self.assertEqual((code, stdout), (1, ''))
+        payload = json.loads(stderr)
+        self.assertEqual(payload['code'], 'invalid_config')
+        self.assertEqual(payload['issues'], [{'path': '$', 'message': 'error: unknown option --scope'}])
+        self.assertEqual(self.config.read_bytes(), before)
+
+
+class ReceiptAndMessageTests(FakeValidatorTestCase):
+
+    def test_existing_receipt_is_a_structured_conflict_and_config_is_unchanged(self):
+        receipt = self.root / 'undo.json'
+        receipt.write_text('keep')
+        before = self.config.read_bytes()
+        args = argparse.Namespace(file=str(self.config), key='computerUse.showInMenuBar',
+                                  value='false', scope='global', receipt=str(receipt))
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as raised:
+                helper.cmd_set(args)
+        self.assertEqual(raised.exception.code, 1)
+        payload = json.loads(stderr.getvalue())
+        self.assertEqual(payload['code'], 'receipt_exists')
+        self.assertEqual(payload['message'], helper.mutation_message('receiptExists'))
+        self.assertEqual(self.config.read_bytes(), before)
+        self.assertEqual(receipt.read_text(), 'keep')
+
+    def test_unwritable_receipt_is_a_structured_conflict_and_config_is_unchanged(self):
+        before = self.config.read_bytes()
+        args = argparse.Namespace(file=str(self.config), key='computerUse.showInMenuBar',
+                                  value='false', scope='global',
+                                  receipt=str(self.root / 'missing' / 'undo.json'))
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            helper.cmd_set(args)
+        payload = json.loads(stderr.getvalue())
+        self.assertEqual(payload['code'], 'receipt_unwritable')
+        self.assertEqual(payload['message'], helper.mutation_message('receiptInvalid'))
+        self.assertEqual(self.config.read_bytes(), before)
+
+    def test_every_locale_has_every_message_as_a_complete_sentence(self):
+        catalog = json.loads((SCRIPTS / 'config_mutation_messages.json').read_text(encoding='utf-8'))
+        self.assertEqual(set(catalog), {'en', 'de', 'fr', 'ar', 'es', 'zh-Hant', 'zh-Hans', 'ko', 'ja'})
+        for locale, messages in catalog.items():
+            self.assertEqual(set(messages), set(catalog['en']), locale)
+            for key, message in messages.items():
+                self.assertFalse(message.rstrip().endswith((':', '：')), f'{locale}.{key}')
 
 
 if __name__ == '__main__':

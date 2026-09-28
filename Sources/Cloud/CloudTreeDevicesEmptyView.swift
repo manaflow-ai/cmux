@@ -1,27 +1,31 @@
+import CmuxCloud
 import CmuxFoundation
 import SwiftUI
 
-/// The empty section receives a snapshot and the same setters as its menu.
+/// Persistent device controls receive a snapshot and the same setters as the menu.
 struct CloudTreeDevicesEmptyView: View {
     let section: CloudTreeDevicesSection
     let actions: CloudTreeNodeActions
     let style: CloudTreeStyle
+    var contentInset: CGFloat = 0
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
     @State private var hoveredAction: String?
 
+    /// One row height per inline row, plus the 2 pt inset above and below.
     static func rowHeight(for section: CloudTreeDevicesSection, style: CloudTreeStyle) -> CGFloat {
-        let rows = 1 + (section.discoveryEnabled ? 0 : 1) + (section.incomingAccessEnabled ? 0 : 1)
-        return CGFloat(rows) * style.rowHeight + 4
+        CGFloat(section.inlineRowCount) * style.rowHeight + 4
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(String(localized: "devices.empty.title", defaultValue: "No other Macs yet"))
-                .cmuxFont(size: style.detailSize, design: style.fontDesign)
-                .foregroundStyle(.secondary)
-                .padding(.leading, scaled(style.iconSlot > 0 ? style.iconSlot + style.iconGap : 0))
-                .padding(.trailing, style.rowGrid.trailingPadding)
-                .frame(height: scaled(style.rowHeight))
+            if section.count == 0 {
+                Text(String(localized: "devices.empty.title", defaultValue: "No other Macs yet"))
+                    .cmuxFont(size: style.detailSize, design: style.fontDesign)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, scaled(textInset))
+                    .padding(.trailing, scaled(style.rowGrid.trailingPadding))
+                    .frame(height: scaled(style.rowHeight))
+            }
             if !section.discoveryEnabled {
                 actionRow(
                     String(localized: "devices.discovery.toggle", defaultValue: "Discover other Macs"),
@@ -61,6 +65,7 @@ struct CloudTreeDevicesEmptyView: View {
                 style: style, icon: symbol, tint: .secondary,
                 title: title, titleDimmed: !hovered
             )
+            .padding(.leading, scaled(contentInset))
             .frame(height: scaled(style.rowHeight))
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -69,6 +74,7 @@ struct CloudTreeDevicesEmptyView: View {
         .background(
             RoundedRectangle(cornerRadius: 4, style: .continuous)
                 .fill(hovered ? Color.primary.opacity(0.06) : Color.clear)
+                .padding(.horizontal, scaled(6))
         )
         .disabled(managed)
         .onHover { hoveredAction = $0 ? identifier : nil }
@@ -76,6 +82,10 @@ struct CloudTreeDevicesEmptyView: View {
             ? String(localized: "devices.managed", defaultValue: "Disabled by your administrator.")
             : title)
         .accessibilityIdentifier(identifier)
+    }
+
+    private var textInset: CGFloat {
+        contentInset + (style.iconSlot > 0 ? style.iconSlot + style.iconGap : 0)
     }
 
     private func scaled(_ value: CGFloat) -> CGFloat {

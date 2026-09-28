@@ -25,6 +25,8 @@ Retention, by the first matching key prefix:
                            (#14015: 3 of 2,665 app jobs hit). On 2026-09-24
                            these were 141 GiB of a 143 GiB bucket after five
                            days, about 35 GiB a day.
+  git-seed-                1 day. One main checkout's objects per seeded
+                           commit; restores read only the newest pointer.
   everything else          30 days. Keyed by content (a Package.resolved or
                            toolchain hash), so an old key stays exact for a
                            pull request whose base still has that input.
@@ -51,6 +53,7 @@ import r2_cache_census as census  # noqa: E402
 RETENTION_DAYS = (
     ("admission-derived-data-", 1),
     ("xcode-compilation-", 1),
+    ("git-seed-", 1),
     ("", 30),
 )
 ARCHIVE = re.compile(r"^(v1/[^/]+)/objects/(?P<name>[A-Za-z0-9._-]+)\.(?:tar\.zst|tar\.gz)$")

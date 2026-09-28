@@ -82,6 +82,31 @@ struct JSONConfigTransactionTests {
         #expect(store.snapshotValue(for: legacy) == "Fixture Display")
     }
 
+    @Test func validatedMutationRefusesOnlyIssuesItIntroduces() async throws {
+        let file = try fixture()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        // Issues the mutation doesn't touch: a key from a newer build and an
+        // invalid value on another path.
+        try Data(#"{"futureSetting":true,"app":{"appearance":"invalid"}}"#.utf8).write(to: file)
+        let store = JSONConfigStore(fileURL: file)
+        let menuBar = SettingCatalog().computerUse.showInMenuBar
+        let receipt = try await store.setWithReceipt(false, for: menuBar)
+        #expect(store.snapshotValue(for: menuBar) == false)
+        _ = try await store.undo(receipt)
+        #expect(store.snapshotValue(for: menuBar))
+
+        let before = try Data(contentsOf: file)
+        let mistypedBadge = JSONKey<String>(id: badge.id, defaultValue: "")
+        do {
+            _ = try await store.setWithReceipt("yes", for: mistypedBadge)
+            Issue.record("introduced semantic issue accepted")
+        } catch JSONConfigMutationError.invalidCandidate(let issues) {
+            #expect(!issues.isEmpty)
+            #expect(issues.allSatisfy { $0.path == "$.notifications.dockBadge" })
+        }
+        #expect(try Data(contentsOf: file) == before)
+    }
+
     @Test func undoRejectsRetargetedSymlink() async throws {
         let file = try fixture()
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }

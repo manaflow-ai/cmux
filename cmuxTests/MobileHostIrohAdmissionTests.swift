@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAgentChat
 import CmuxIrohTransport
+@testable import CmuxMobileHost
 import CmuxMobileRPC
 import CmuxSettings
 import Darwin

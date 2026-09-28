@@ -7,7 +7,7 @@ import { canonicalJSON, hash } from "./crypto";
 import { DASHBOARD_AUTHORITY_HEADER, DashboardClaimsSchema, type DashboardClaims } from "./dashboard-auth";
 import { acknowledgeDelivery, DeliveryStateSchema, deliveryUsage, emptyDeliveryState, prepareDelivery } from "./delivery";
 import type { Environment } from "./environment";
-import { OperationError } from "./errors";
+import { failureDiagnostics, OperationError } from "./errors";
 import { observe } from "./observability";
 import { unwrap, type UserUsage } from "./user-usage-object";
 
@@ -42,6 +42,7 @@ export class DashboardControl {
       const claims = DashboardClaimsSchema.parse(JSON.parse(header));
       const broker = this.services.broker(claims.authority.teamId); // Checks this DO's actual namespace identity.
       this.assertLive(claims);
+      await this.assertTeamAccess(broker, claims);
       if (this.ctx.getWebSockets().length >= 4096) throw new OperationError("rate_limited", 429, true, 5000);
       const sessionId = crypto.randomUUID();
       const deviceKey = await hash(canonicalJSON({ purpose: "dashboard-tab", userId: claims.authority.userId,
@@ -50,6 +51,7 @@ export class DashboardControl {
       try {
         await this.services.reserve({ sessionId, identity: claims.authority }, deviceKey);
         this.assertLive(claims);
+        await this.assertTeamAccess(broker, claims);
         const pair = new WebSocketPair(), client = pair[0], server = pair[1];
         this.ctx.acceptWebSocket(server, ["dashboard", "user:" + claims.authority.userId, "device:" + deviceKey]);
         this.save(server, { kind: "dashboard", sessionId, claims, deviceKey, delivery: emptyDeliveryState(),
@@ -64,7 +66,7 @@ export class DashboardControl {
       } finally { this.services.opening.delete(sessionId); }
     } catch (error) {
       const failure = errorResponse(error, requestId).failure;
-      observe(this.ctx, this.env, { event: "iroh.dashboard.failure", requestId, code: failure.code, status: failure.status });
+      observe(this.ctx, this.env, { event: "iroh.dashboard.failure", requestId, code: failure.code, status: failure.status, ...failureDiagnostics(error) });
       return httpFailure(error, requestId);
     }
   }
@@ -166,6 +168,12 @@ export class DashboardControl {
   private assertLive(claims: DashboardClaims): void {
     if (claims.authority.environment !== this.env.ENVIRONMENT || claims.authority.projectId !== this.env.STACK_PROJECT_ID) throw new OperationError("environment_mismatch", 403);
     if (claims.expiresAt <= Math.floor(Date.now() / 1000)) throw new OperationError("ticket_expired", 401, true);
+  }
+  private async assertTeamAccess(broker: TeamBroker, claims: DashboardClaims): Promise<void> {
+    if (!await broker.dependencies.verifyTeamMember(claims.authority.teamId, claims.authority.userId)) {
+      throw new OperationError("team_access_revoked", 403);
+    }
+    this.assertLive(claims);
   }
   private load(ws: WebSocket): Attachment { return AttachmentSchema.parse(ws.deserializeAttachment()); }
   private save(ws: WebSocket, value: Attachment): void { ws.serializeAttachment(AttachmentSchema.parse(value)); }

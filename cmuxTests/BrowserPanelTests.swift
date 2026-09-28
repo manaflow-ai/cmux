@@ -1394,6 +1394,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
     private struct TabStripPassThroughFixture {
         let host: WindowBrowserHostView
         let pointInHost: NSPoint
+        let pointInWindow: NSPoint
     }
 
     private func installTabStripPassThroughFixture(in window: NSWindow) -> TabStripPassThroughFixture? {
@@ -1430,7 +1431,30 @@ final class WindowBrowserHostViewTests: XCTestCase {
         )
         let pointInWindow = contentView.convert(pointInContent, to: nil)
         let pointInHost = host.convert(pointInWindow, from: nil)
-        return TabStripPassThroughFixture(host: host, pointInHost: pointInHost)
+        return TabStripPassThroughFixture(host: host, pointInHost: pointInHost, pointInWindow: pointInWindow)
+    }
+
+    /// Leaves a hover event for another window as `NSApp.currentEvent`, the
+    /// state earlier suites leave behind when a real mouseEntered for one of
+    /// their windows was the last event AppKit dequeued.
+    private func leaveStaleHoverEventAsCurrentEvent(for window: NSWindow) {
+        guard let staleHover = NSEvent.enterExitEvent(
+            with: .mouseEntered,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            trackingNumber: 0,
+            userData: nil
+        ) else {
+            XCTFail("Failed to create a mouseEntered event")
+            return
+        }
+        NSApp.postEvent(staleHover, atStart: true)
+        _ = NSApp.nextEvent(matching: .any, until: .distantPast, inMode: .default, dequeue: true)
+        XCTAssertEqual(NSApp.currentEvent?.type, .mouseEntered)
     }
 
     func testHostViewPassesThroughUnderlyingTabStripInSecondWindowBelowTitlebarBand() {
@@ -1459,12 +1483,43 @@ final class WindowBrowserHostViewTests: XCTestCase {
             return
         }
 
+        let otherWindow = NSWindow(
+            contentRect: NSRect(x: 64, y: 64, width: 200, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { otherWindow.orderOut(nil) }
+        leaveStaleHoverEventAsCurrentEvent(for: otherWindow)
+
+        // `hitTest(_:)` would route on that stale hover, and hover events
+        // deliberately skip this unregistered tab-strip fallback. The
+        // regression is about clicks, so hit-test with the click itself.
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
         XCTAssertNil(
-            firstFixture.host.hitTest(firstFixture.pointInHost),
+            firstFixture.host.performHitTest(
+                at: firstFixture.pointInHost,
+                currentEvent: makeMouseEvent(
+                    type: .leftMouseDown,
+                    location: firstFixture.pointInWindow,
+                    window: firstWindow
+                ),
+                dragPasteboard: pasteboard
+            ),
             "Browser portal should defer to the minimal tab strip in the original window just below the titlebar interaction band"
         )
         XCTAssertNil(
-            secondFixture.host.hitTest(secondFixture.pointInHost),
+            secondFixture.host.performHitTest(
+                at: secondFixture.pointInHost,
+                currentEvent: makeMouseEvent(
+                    type: .leftMouseDown,
+                    location: secondFixture.pointInWindow,
+                    window: secondWindow
+                ),
+                dragPasteboard: pasteboard
+            ),
             "Browser portal should defer to the minimal tab strip in later-created windows just below the titlebar interaction band"
         )
     }
@@ -3275,6 +3330,45 @@ final class WindowBrowserSlotViewTests: XCTestCase {
         advanceAnimations()
         XCTAssertEqual(slot.layer?.masksToBounds, true)
     }
+
+    func testRetargetingDropZoneOverlaySnapsFrame() {
+        // Hosted in a window so a layer-backed `animator().frame` would
+        // install live geometry animations.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        container.wantsLayer = true
+        window.contentView = container
+        let slot = WindowBrowserSlotView(frame: container.bounds)
+        container.addSubview(slot)
+
+        slot.setDropZoneOverlay(zone: .right)
+        advanceAnimations()
+        slot.setDropZoneOverlay(zone: .left)
+
+        guard let overlay = container.subviews.first(where: {
+            String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
+        }) else {
+            XCTFail("Expected browser slot drop-zone overlay")
+            return
+        }
+
+        XCTAssertEqual(overlay.frame.origin.x, 4, accuracy: 0.5, "Retargeting should not slide the overlay")
+        XCTAssertEqual(overlay.frame.size.width, 96, accuracy: 0.5)
+        let geometryKeys: Set<String> = ["frameOrigin", "frameSize", "position", "bounds", "bounds.origin", "bounds.size"]
+        let layerAnimationKeys = Set(overlay.layer?.animationKeys() ?? [])
+        let geometryAnimations = (overlay.layer?.animationKeys() ?? []).filter { key in
+            if geometryKeys.contains(key) { return true }
+            guard let keyPath = (overlay.layer?.animation(forKey: key) as? CAPropertyAnimation)?.keyPath else { return false }
+            return geometryKeys.contains(keyPath)
+        }
+        XCTAssertTrue(geometryAnimations.isEmpty, "Retargeting should not animate the overlay frame: \(layerAnimationKeys)")
+    }
 }
 
 
@@ -3366,8 +3460,8 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         let portal = WindowBrowserPortal(window: window)
         defer { portal.tearDown() }
-        let mainWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        let dockWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let mainWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
+        let dockWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let dockContext = BrowserPaneDropContext(
             workspaceId: UUID(),
             panelId: UUID(),
@@ -3582,7 +3676,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 160, height: 120))
         contentView.addSubview(anchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         portal.synchronizeWebViewForAnchor(anchor)
 
@@ -3688,7 +3782,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         contentView.addSubview(anchor1)
         contentView.addSubview(anchor2)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor1, visibleInUI: true)
         let firstSuperview = webView.superview
 
@@ -3731,7 +3825,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 120, y: 20, width: 260, height: 150))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -3770,7 +3864,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: -30, y: 0, width: 220, height: 120))
         clipView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         clipView.layoutSubtreeIfNeeded()
@@ -3806,7 +3900,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 20, width: 220, height: 160))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -3829,7 +3923,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
     func testPortalSlotPinPreservesSideDockedInspectorManagedWebViewFrameOnRehost() {
         let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 240, height: 160))
-        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 132, height: 160), configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 132, height: 160), configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let inspectorContainer = NSView(frame: NSRect(x: 132, y: 0, width: 108, height: 160))
         let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
         inspectorView.autoresizingMask = [.width, .height]
@@ -3872,7 +3966,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -4074,7 +4168,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -4189,7 +4283,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -4258,7 +4352,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         portal.synchronizeWebViewForAnchor(anchor)
 
@@ -4289,7 +4383,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         portal.synchronizeWebViewForAnchor(anchor)
 
@@ -4561,7 +4655,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
         contentView.addSubview(anchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
 
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
         XCTAssertNotNil(webView.superview)
@@ -4586,7 +4680,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
         contentView.addSubview(anchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
 
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)

@@ -156,6 +156,55 @@ def test_known_failure_is_tolerated_but_new_failure_blocks() -> None:
     assert "RATCHET_NEW_FAILURE FooTests/testBad()" in messages
 
 
+def test_changed_suites_run_rejects_a_passing_known_failure() -> None:
+    inventory = {"FooTests/testFixed()", "BarTests/testGood()"}
+    selectors = ["FooTests", "BarTests"]
+    results = {
+        "FooTests/testFixed()": "Passed",
+        "BarTests/testGood()": "Passed",
+    }
+    known = {"FooTests/testFixed()": {"classification": "test bug"}}
+
+    # A main shard only reports it: a flaky entry may pass on any one run.
+    passed, messages = accounting.check_run(
+        inventory=inventory,
+        selectors=selectors,
+        results=results,
+        known=known,
+        log_text="** TEST SUCCEEDED **\n",
+        xcode_status=0,
+    )
+    assert passed is True
+    assert "RATCHET_KNOWN_NOW_PASSING FooTests/testFixed()" in messages
+
+    # A PR that edited the suite must drop the entry, or its green run proves
+    # nothing about the fix.
+    passed, messages = accounting.check_run(
+        inventory=inventory,
+        selectors=selectors,
+        results=results,
+        known=known,
+        log_text="** TEST SUCCEEDED **\n",
+        xcode_status=0,
+        changed_suites=True,
+    )
+    assert passed is False
+    assert "RATCHET_KNOWN_NOW_PASSING FooTests/testFixed()" in messages
+    assert any("app-host-known-failures.json" in line for line in messages)
+
+    # Once the entry is gone, the same run passes.
+    passed, _ = accounting.check_run(
+        inventory=inventory,
+        selectors=selectors,
+        results=results,
+        known={},
+        log_text="** TEST SUCCEEDED **\n",
+        xcode_status=0,
+        changed_suites=True,
+    )
+    assert passed is True
+
+
 def test_zero_matching_selector_never_passes() -> None:
     passed, messages = accounting.check_run(
         inventory={"FooTests/testOne()"},
@@ -456,6 +505,29 @@ def test_catalog_requires_campaign_classification() -> None:
         assert "invalid classification" in str(error)
     else:
         raise AssertionError("invalid classification was accepted")
+
+
+def test_inventory_refuses_hung_or_empty_enumeration() -> None:
+    # What xcodebuild -enumerate-tests wrote (exit 0) when the runner hung on cmux9s.
+    hung = {
+        "errors": [
+            "cmux DEV (65703) encountered an error. (Underlying Error: The test runner hung before establishing connection.)"
+        ],
+        "values": [{"children": [{"kind": "target", "name": "cmuxTests"}], "kind": "plan", "name": "cmux-unit"}],
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        for payload, expected in ((hung, "hung before establishing connection"), ({"values": []}, "found no tests")):
+            source = Path(tmp) / "enumeration.json"
+            output = Path(tmp) / "inventory.json"
+            source.write_text(json.dumps(payload), encoding="utf-8")
+            assert accounting.main(["inventory", str(source), "--output", str(output)]) == 2
+            assert not output.exists()
+            try:
+                accounting.write_inventory(source, output)
+            except ValueError as error:
+                assert expected in str(error), error
+            else:
+                raise AssertionError(f"inventory accepted {payload}")
 
 
 if __name__ == "__main__":

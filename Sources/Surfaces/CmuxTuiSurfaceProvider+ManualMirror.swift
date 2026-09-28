@@ -1,3 +1,6 @@
+import CmuxCloud
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import CmuxRemoteSession
 import Foundation
@@ -130,7 +133,7 @@ extension CmuxTuiSurfaceProvider {
             let existingExplicitInput = created.surface.onExplicitInput
             created.surface.onExplicitInput = { [weak session] in
                 existingExplicitInput?()
-                session?.claimGeometry()
+                session?.noteExplicitInput()
             }
             manualMirrorSessions[created.panelID] = session
             session.reconnect(socketPath: connected.socketPath)

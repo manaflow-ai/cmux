@@ -148,6 +148,11 @@ Give a million developers composable primitives and they'll collectively find th
 
 For more info on how to configure cmux, [head over to our docs](https://cmux.com/docs/getting-started?utm_source=readme).
 
+To theme cmux (colors, fonts, transparency, sidebar, and more), see [Customizing cmux's look](docs/customizing-appearance.md).
+
+For shell watcher churn and managed-Mac process audit volume, see the supported
+[`CMUX_NO_GIT_WATCH=1` mitigation](docs/shell-integration.md) and its Git/PR update trade-offs.
+
 ## Keyboard Shortcuts
 
 ### Workspaces
@@ -322,6 +327,37 @@ If you need to reapply the last saved snapshot manually, use:
 - `⌘ ⇧ O`
 - `cmux restore-session`
 
+Each cmux install (stable, nightly, rc, staging, and tagged debug builds) keeps its own
+saved session. To bring a session from one install into another, for example after trying
+nightly and switching back to stable, run this from the install you want to open it in:
+
+```bash
+cmux restore-session --from nightly          # or stable, rc, staging, debug:<tag>
+cmux restore-session --export ~/session.json # write this install's saved session to a file
+cmux restore-session --export ~/session.json --force # replace an existing export file
+cmux restore-session --from ~/session.json   # reopen an exported file
+```
+
+The imported session opens as additional windows next to the ones you have, like
+`cmux restore-session`; the other install's saved file is only read. Agent resume carries
+over because hook session mappings in `~/.cmuxterm/` are shared by every install. Browser
+cookies and logins are per install and do not move.
+
+`--from <channel>` restores another install's own session file with the same trust as your
+own session, including automatic agent resume. `--from <path>` treats the file as untrusted:
+layout, working directories, text scrollback, and http(s) browser tabs restore, but nothing in
+the file runs automatically. Built-in agents (Claude Code, Codex, Amp, and the rest) resume with
+the command cmux builds from the agent kind and session id, ignoring launch arguments stored in
+the file, and only when the working directory already exists on this Mac. Custom agent resume
+commands, resume bindings, and tmux start commands are kept for manual restore only (approved
+resume prefixes never apply to them): the CLI reports how many were held back, and in each
+terminal `cmux surface resume show` shows the command and `cmux restore --surface` runs it.
+Terminal control sequences in the scrollback (clipboard, notifications, links, titles), draft
+attachments, non-http(s) browser pages and profiles, SSH/cloud connections, and workspace
+environment variables from the file are dropped. A snapshot saved by a newer cmux
+(newer session format) is refused with an error; if a downgraded cmux finds one in its own
+session file, it keeps a copy next to it as `session-<bundle id>.schema-v<N>.json`.
+
 Under the hood, cmux writes a versioned snapshot under
 `~/Library/Application Support/cmux/` and agent hooks write session mappings
 under `~/.cmuxterm/`. On restore, cmux rebuilds the layout first, then runs the
@@ -484,7 +520,7 @@ On first launch, macOS may ask you to confirm opening an app from an identified 
 
 ## License
 
-cmux is open source under [GPL-3.0-or-later](LICENSE).
+cmux is open source under [GPL-3.0-or-later](LICENSE). The cmux server software (`web/`, the Cloudflare workers, and the relay services listed in [LICENSE](LICENSE)) uses the [Business Source License 1.1](web/LICENSE) instead: you can read, modify, and run it for non-production use, and production use or self-hosting requires a commercial license.
 
 If your organization cannot comply with GPL, commercial terms may be available
 for portions for which Manaflow controls the necessary rights. They do not

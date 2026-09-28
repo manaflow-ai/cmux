@@ -117,7 +117,7 @@ public actor JSONConfigStore {
     ///
     /// Creates the parent directory and the file if missing. Keeps the
     /// syntax-only validation contract; use ``setWithReceipt(_:for:)`` for
-    /// full canonical global-config validation and conditional undo.
+    /// canonical global-config validation and conditional undo.
     ///
     /// - Throws: Errors from `FileManager` or `JSONSerialization` writing the file.
     public func set<Value>(_ value: Value, for key: JSONKey<Value>) async throws {
@@ -127,7 +127,9 @@ public actor JSONConfigStore {
     /// Persists a value and returns a local conditional-undo receipt.
     ///
     /// Validates the complete candidate against the canonical global config
-    /// schema before publication.
+    /// schema before publication and refuses only issues this change
+    /// introduces. Issues the file already has, such as a key from a newer
+    /// build, don't block it.
     ///
     /// - Parameters:
     ///   - value: The explicit value to install, including an explicit default.
@@ -157,7 +159,7 @@ public actor JSONConfigStore {
     /// an explicit pin.
     ///
     /// Validates the complete candidate against the canonical global config
-    /// schema before publication.
+    /// schema before publication and refuses only issues this reset introduces.
     ///
     /// - Parameter key: The setting to reset.
     /// - Returns: A local receipt; runtime application is not observed.
@@ -169,7 +171,7 @@ public actor JSONConfigStore {
     /// Restores the receipt's prior value only while the path still holds the
     /// value the receipt installed.
     ///
-    /// The comparison, full canonical validation, and publication run inside
+    /// The comparison, canonical validation, and publication run inside
     /// the same cooperative writer lock as every other mutation.
     ///
     /// - Parameter receipt: A receipt produced for this store's resolved target.
@@ -456,9 +458,7 @@ public actor JSONConfigStore {
         // from disk here also refreshes the cache if an external edit landed
         // before this mutation.
         guard !Self.jsonObjectsEqual(document.root, candidateRoot) else {
-            if validateSemantics {
-                try Self.validateGlobalCandidate(candidateRoot)
-            }
+            // Nothing changes, so the mutation introduces no issue to refuse.
             cachedRoot = document.root
             cacheValid = true
             cachedRootResolvedPath = writeURL.path
@@ -495,7 +495,7 @@ public actor JSONConfigStore {
             throw JSONConfigStoreReadError.notADictionary
         }
         if validateSemantics {
-            try Self.validateGlobalCandidate(writtenRoot)
+            try Self.validateGlobalCandidate(writtenRoot, baseline: document.root)
         }
 
         let parent = writeURL.deletingLastPathComponent()
@@ -535,9 +535,14 @@ public actor JSONConfigStore {
         return receipt
     }
 
-    /// Rejects a complete candidate that the canonical global schema refuses.
-    private static func validateGlobalCandidate(_ root: [String: Any]) throws {
-        let issues = CmuxConfigSemanticValidator(scope: .global).validate(jsonObject: root)
+    /// Rejects a complete candidate that has canonical global-schema issues
+    /// the on-disk `baseline` doesn't already have.
+    private static func validateGlobalCandidate(
+        _ root: [String: Any],
+        baseline: [String: Any]
+    ) throws {
+        let issues = CmuxConfigSemanticValidator(scope: .global)
+            .issuesIntroduced(by: root, over: baseline)
         guard issues.isEmpty else {
             throw JSONConfigMutationError.invalidCandidate(issues)
         }
