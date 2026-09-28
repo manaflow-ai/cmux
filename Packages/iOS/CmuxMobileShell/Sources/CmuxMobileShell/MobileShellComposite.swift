@@ -547,6 +547,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             } else {
                 resetWorkspaceChangesState()
             }
+            if supportedHostCapabilities.contains(MobileTerminalViewSetRPC.capability),
+               !oldValue.contains(MobileTerminalViewSetRPC.capability) {
+                // Capabilities can arrive after the event subscription.
+                syncTerminalViewSet(force: true)
+            }
         }
     }
     /// Authenticated phone-forwarding readiness from the focused Mac. `nil`
