@@ -1,5 +1,6 @@
 {
   "name": "cmux-cloudflare-relay",
+  "license": "BUSL-1.1",
   "private": true,
   "scripts": {
     "build": "worker-build --release --no-panic-recovery",
