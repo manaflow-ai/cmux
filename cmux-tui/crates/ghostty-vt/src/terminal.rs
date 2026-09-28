@@ -4800,6 +4800,21 @@ mod tests {
     }
 
     #[test]
+    fn replay_restores_the_osc_title() {
+        let mut host = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        host.vt_write(b"\x1b]2;renamed tab\x07");
+        let mut mirror = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        mirror.apply_vt_replay(&host.vt_replay().unwrap()).unwrap();
+        assert_eq!(mirror.title().as_deref(), Some("renamed tab"));
+
+        let mut theme_portable = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        theme_portable
+            .apply_vt_replay(&host.vt_replay_bounded_theme_portable_with_aliases(1 << 20).unwrap())
+            .unwrap();
+        assert_eq!(theme_portable.title(), mirror.title());
+    }
+
+    #[test]
     fn replay_preflight_reserves_mouse_suffix_at_exact_boundary() {
         let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
         terminal.vt_write(b"\x1b[?1006h\x1b[?1015h\x1b[?1006h");
