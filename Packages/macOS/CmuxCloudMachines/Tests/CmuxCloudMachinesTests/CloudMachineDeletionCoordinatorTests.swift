@@ -154,6 +154,48 @@ struct CloudMachineDeletionCoordinatorTests {
         #expect(late.finished == nil)
     }
 
+    @Test(arguments: [false, true])
+    func cancelledCreateCleanupFollowsWhenItsReceiptArrived(duringDeletion: Bool) {
+        let creates = makeCreates()
+        let deletions = CloudMachineDeletionCoordinator()
+        let attempt = creates.reserve(request())
+        _ = creates.cancel(attempt.operationID)
+        #expect(deletions.begin("listed"))
+        _ = creates.retireCreates(producing: "listed")
+
+        if duringDeletion {
+            #expect(creates.receive("OK machine=listed\n", from: attempt).cleanupMachineIDs.isEmpty, "the deletion owns the destroy")
+        }
+        #expect(deletions.finish("listed", result: .failed) == .restored)
+        creates.machineDeletionFailed("listed")
+        let late = creates.finish(completion(machine: "listed", cancelled: true), from: attempt)
+        // A receipt seen during the deletion never destroys the machine after it fails.
+        // One that first names the machine afterwards carries out the person's cancel.
+        #expect(late.cleanupMachineIDs == (duringDeletion ? [] : ["listed"]))
+    }
+
+    @Test func accountEndReleasesAPendingDeletionWithoutASecondDestroy() {
+        let creates = makeCreates()
+        let deletions = CloudMachineDeletionCoordinator()
+        let departed = creates.reserve(request())
+        #expect(deletions.begin("base"))
+        _ = creates.retireCreates(producing: "base")
+        #expect(deletions.endAccount())
+        _ = creates.endAccount()
+
+        // The departed account's create names the machine its deletion owned.
+        #expect(creates.receive("OK machine=base\n", from: departed).cleanupMachineIDs.isEmpty)
+        #expect(creates.finish(completion(machine: "base", cancelled: true), from: departed).cleanupMachineIDs.isEmpty)
+
+        // The delete failed on the server after the switch; setting up Base opens the machine.
+        let setup = creates.reserve(CloudMachineCreateRequest(
+            arguments: ["vm", "base", "open"], isBaseSetup: true, presentationWorkspaceID: nil, retainsPendingProjection: false
+        ))
+        #expect(creates.receive("OK machine=base\n", from: setup).cancelOperationIDs.isEmpty)
+        let opened = creates.finish(completion(machine: "base"), from: setup)
+        #expect(opened.finished?.outcome == .created(machineID: "base", workspaceID: nil))
+    }
+
     @Test func cancelledCreateCleanupJoinsDeletionOnce() {
         let creates = makeCreates()
         let deletions = CloudMachineDeletionCoordinator()
