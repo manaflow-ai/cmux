@@ -128,3 +128,28 @@ The tab shows attached people, a ring on the owner, the grid size, and a
 dashed-box glyph when this viewer does not match. The size panel has the mode
 control, a size map, one row per participant (counts switch, priority order,
 disconnect), and "Disconnect other clients".
+
+## Mac ↔ iPhone payloads
+
+The Mac is the host of local terminals and the relay of Cloud terminals. The phone
+sees one shape for both.
+
+- `mobile.terminal.viewport` gains `device_kind`, `device_name` and
+  `counts_override` (`null` clears it). The Mac sets `user_id` from the
+  authenticated connection. The phone's participant id is `mobile:<client_id>`.
+- `mobile.terminal.replay` results gain `size_state` (the wire object above) and
+  `self_participant_id`.
+- Push event `mobile.terminal.size_state {surface_id, state, self_participant_id}`
+  on every published change.
+- Push event `mobile.terminal.detached {surface_id, reason, by, at}`; `at` is
+  ISO 8601. After it the Mac drops the phone's viewport and input for that surface
+  until `mobile.terminal.reattach {surface_id, as_viewer}`, which answers like
+  `replay`. `as_viewer: true` sets `counts_override: false`.
+- `mobile.terminal.size_policy.set {surface_id, policy}` and
+  `mobile.terminal.participant.disconnect {surface_id, participant_id}` let the
+  phone use the same size panel.
+
+For a Cloud terminal the Mac forwards the phone to cmux-tui as an attached-view
+lease with the same identity, forwards `size-state` as
+`mobile.terminal.size_state` (participant ids are the host's ids), and maps a
+`detached` for that lease to `mobile.terminal.detached`.
