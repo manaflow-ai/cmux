@@ -31368,6 +31368,15 @@ struct CMUXCLI {
                 }
             }
 
+            // Register before parsing or publishing any result. The transcript
+            // and lease can change while a socket notification is in flight;
+            // installing the source only after parsing leaves that change
+            // between the read and the wait, where it can sleep for 30 seconds.
+            let changeWatcher = CodexTranscriptChangeWatcher(
+                transcriptPath: transcriptPath,
+                leasePath: leasePath
+            )
+
             if transcriptPath == nil {
                 transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
             }
@@ -31419,7 +31428,7 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return nil }
-            waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: min(30, remaining))
+            changeWatcher.wait(timeout: min(30, remaining))
         }
         return nil
     }
@@ -31490,13 +31499,43 @@ struct CMUXCLI {
         )
     }
 
-    private func waitForCodexTranscriptChange(path: String?, leasePath: String?, timeout: TimeInterval) {
-        guard timeout > 0 else { return }
+    /// Watches monitor inputs from before parsing until the next wait.
+    ///
+    /// The monitor publishes socket commands while parsing a transcript. Keeping
+    /// the sources alive across that work prevents a write during the command
+    /// reply from falling into the gap between parsing and watcher registration.
+    private final class CodexTranscriptChangeWatcher {
+        private let semaphore = DispatchSemaphore(value: 0)
+        private var sources: [DispatchSourceFileSystemObject] = []
 
-        let semaphore = DispatchSemaphore(value: 0)
-        var sources: [DispatchSourceFileSystemObject] = []
+        init(transcriptPath: String?, leasePath: String?) {
+            addFileSource(
+                path: transcriptPath,
+                eventMask: [.write, .extend, .delete, .rename]
+            )
+            addFileSource(
+                path: leasePath,
+                eventMask: [.write, .delete, .rename]
+            )
+        }
 
-        func addFileSource(path: String?, eventMask: DispatchSource.FileSystemEvent) {
+        func wait(timeout: TimeInterval) {
+            guard timeout > 0 else { return }
+            if sources.isEmpty {
+                _ = semaphore.wait(timeout: .now() + timeout)
+            } else {
+                _ = semaphore.wait(timeout: .now() + timeout)
+            }
+        }
+
+        deinit {
+            sources.forEach { $0.cancel() }
+        }
+
+        private func addFileSource(
+            path: String?,
+            eventMask: DispatchSource.FileSystemEvent
+        ) {
             guard let path, !path.isEmpty else { return }
             let expandedPath = NSString(string: path).expandingTildeInPath
             let fd = open(expandedPath, O_EVTONLY)
@@ -31506,8 +31545,9 @@ struct CMUXCLI {
                 eventMask: eventMask,
                 queue: DispatchQueue.global(qos: .utility)
             )
-            source.setEventHandler {
-                semaphore.signal()
+            let signal = semaphore
+            source.setEventHandler { [signal] in
+                signal.signal()
             }
             source.setCancelHandler {
                 close(fd)
@@ -31515,17 +31555,6 @@ struct CMUXCLI {
             source.resume()
             sources.append(source)
         }
-
-        addFileSource(path: path, eventMask: [.write, .extend, .delete, .rename])
-        addFileSource(path: leasePath, eventMask: [.write, .delete, .rename])
-
-        guard !sources.isEmpty else {
-            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
-            return
-        }
-
-        _ = semaphore.wait(timeout: .now() + timeout)
-        sources.forEach { $0.cancel() }
     }
 
     private func extractMessageText(from message: [String: Any]) -> String? {
