@@ -346,7 +346,7 @@ public final class UpdateStateModel {
             return String(localized: "update.preparingUpdate", defaultValue: "Extracting and preparing the update")
         case let .installing(install):
             if let blockers = install.relaunchBlockers {
-                return Self.relaunchBlockersDescription(blockers)
+                return Self.relaunchBlockersDescription(blockers, askingUser: install.updateWhenClear != nil)
             }
             return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installingAndRestarting", defaultValue: "Installing update and preparing to restart")
         case .notFound:
@@ -377,25 +377,48 @@ public final class UpdateStateModel {
         }
     }
 
-    /// Explains what an automatically installed update is waiting for before it relaunches:
-    /// busy agents and running commands first, then a quiet minute with no input.
-    public nonisolated static func relaunchBlockersDescription(_ blockers: UpdateRelaunchBlockers) -> String {
-        if blockers.busyAgentCount > 0 {
-            return String(
-                localized: "update.autoInstall.waitingAgents",
-                defaultValue: "Installs after \(blockers.busyAgentCount) agents finish and you step away. Workspaces and agents resume where they left off."
-            )
+    /// Summarizes a held relaunch for the popover, above its list of agents. `askingUser` is
+    /// set when the user asked to install and risky agents need their say-so.
+    public nonisolated static func relaunchBlockersDescription(
+        _ blockers: UpdateRelaunchBlockers,
+        askingUser: Bool
+    ) -> String {
+        var sentences: [String] = []
+        if blockers.needsConfirmation {
+            sentences.append(askingUser
+                ? String(localized: "update.relaunch.confirmRisky", defaultValue: "Relaunching now stops what these are running.")
+                : String(localized: "update.autoInstall.waitingRisky", defaultValue: "Installs after these finish and you step away."))
+        } else {
+            sentences.append(String(
+                localized: "update.autoInstall.waitingQuiet",
+                defaultValue: "Installs the next time you step away for a minute. Workspaces and agents resume where they left off."
+            ))
         }
-        if blockers.runningCommandCount > 0 {
-            return String(
-                localized: "update.autoInstall.waitingCommands",
-                defaultValue: "Installs after \(blockers.runningCommandCount) running commands finish and you step away. Install Now stops them."
-            )
+        let careCount = blockers.careAgents.count
+        if careCount > 0 {
+            sentences.append(String(
+                localized: "update.relaunch.resumesMidTask",
+                defaultValue: "\(careCount) agents will be resumed mid-task."
+            ))
         }
-        return String(
-            localized: "update.autoInstall.waitingQuiet",
-            defaultValue: "Installs the next time you step away for a minute. Workspaces and agents resume where they left off."
-        )
+        return sentences.joined(separator: " ")
+    }
+
+    /// The label for the running-commands row of a held relaunch.
+    public nonisolated static func runningCommandsLabel(_ count: Int) -> String {
+        String(localized: "update.relaunch.runningCommands", defaultValue: "\(count) running commands")
+    }
+
+    /// The chip text for an agent's resume safety.
+    public nonisolated static func safetyLabel(_ safety: UpdateResumeSafety) -> String {
+        switch safety {
+        case .safe:
+            return String(localized: "update.safety.safe", defaultValue: "Safe")
+        case .care:
+            return String(localized: "update.safety.care", defaultValue: "Resumes")
+        case .risky:
+            return String(localized: "update.safety.risky", defaultValue: "Risky")
+        }
     }
 
     /// The detected-background-update title, when one should be shown.

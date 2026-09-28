@@ -20480,41 +20480,21 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
             let isRemote = workspace.isRemoteWorkspace || workspace.isRemoteTmuxMirror
             for panelId in workspace.panels.keys {
                 activity.append(UpdateRelaunchPanelActivity(
+                    panelId: panelId,
+                    location: workspace.title,
                     agentLifecycles: workspace.agentLifecycleStatesByPanelId[panelId] ?? [:],
                     shellActivity: workspace.panelShellActivityStates[panelId],
                     isRemote: isRemote
                 ))
             }
             if let dock = workspace._dockSplit {
-                activity += dock.updateRelaunchPanelActivity(isRemote: isRemote)
+                activity += dock.updateRelaunchPanelActivity(location: workspace.title, isRemote: isRemote)
             }
         }
         for dock in existingWindowDocks {
-            activity += dock.updateRelaunchPanelActivity(isRemote: false)
+            activity += dock.updateRelaunchPanelActivity(location: "", isRemote: false)
         }
         return Self.updateRelaunchBlockers(panels: activity)
-    }
-
-    /// Counts what an update relaunch would interrupt. A panel with a mid-turn agent is a busy
-    /// agent. A local panel running some other foreground command is a running command; panels
-    /// with agent lifecycle state are left to the agent count, and remote panels are skipped
-    /// because their processes live on the remote host. Manual `cmux workspace loading` keys
-    /// are not agents and are ignored.
-    nonisolated static func updateRelaunchBlockers(
-        panels: [UpdateRelaunchPanelActivity]
-    ) -> UpdateRelaunchBlockers {
-        var blockers = UpdateRelaunchBlockers.empty
-        for panel in panels {
-            let agentStates = panel.agentLifecycles
-                .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
-                .values
-            if agentStates.contains(.running) {
-                blockers.busyAgentCount += 1
-            } else if agentStates.isEmpty, !panel.isRemote, panel.shellActivity == .commandRunning {
-                blockers.runningCommandCount += 1
-            }
-        }
-        return blockers
     }
 
     func attemptUpdate() {
@@ -20534,25 +20514,6 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 }
 
 /// One terminal panel's agent and shell activity, as read by ``AppDelegate/updaterRelaunchBlockers()``.
-struct UpdateRelaunchPanelActivity: Sendable {
-    var agentLifecycles: [String: AgentHibernationLifecycleState]
-    var shellActivity: PanelShellActivityState?
-    var isRemote: Bool
-}
-
-extension DockSplitStore {
-    /// Dock panels keep agent lifecycle in their runtime map and shell state on the panel.
-    func updateRelaunchPanelActivity(isRemote: Bool) -> [UpdateRelaunchPanelActivity] {
-        panels.map { panelId, panel in
-            UpdateRelaunchPanelActivity(
-                agentLifecycles: agentRuntimeByPanelId[panelId]?.agentLifecycleStates ?? [:],
-                shellActivity: (panel as? TerminalPanel)?.shellActivity.state,
-                isRemote: isRemote || terminalLinkIsRemoteTerminal(panelId)
-            )
-        }
-    }
-}
-
 // MARK: - CmuxAppKitSupportUI seam conformance
 
 extension AppDelegate: WindowDecorating {}

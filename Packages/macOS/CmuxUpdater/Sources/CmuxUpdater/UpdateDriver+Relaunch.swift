@@ -9,16 +9,29 @@ extension UpdateDriver {
     /// moment to capture every agent session before the relaunch save (see
     /// ``UpdateActionDelegate/updaterPrepareForRelaunch()``).
     ///
-    /// An install the user asked for relaunches as soon as that capture finishes (#15084). An
-    /// automatic install waits in ``UpdateRelaunchGate`` for a quiet moment first.
+    /// An install the user asked for relaunches as soon as that capture finishes when only
+    /// safe and care agents would be resumed (#15084). With a risky agent or a running command
+    /// it asks first, in the popover. An automatic install waits in ``UpdateRelaunchGate`` for
+    /// a quiet moment.
     func handleShouldPostponeRelaunch(installHandler: @escaping () -> Void) -> Bool {
         if automaticInstallRequested {
             automaticInstallRequested = false
-            holdAutomaticRelaunch(install: installHandler)
+            holdRelaunch(mode: .quietMoment, install: installHandler)
         } else {
-            relaunchAfterPreparing(install: installHandler)
+            relaunchOnRequest(install: installHandler)
         }
         return true
+    }
+
+    /// An install the user asked for: relaunch now, unless something risky needs their say-so.
+    private func relaunchOnRequest(install: @escaping () -> Void) {
+        let blockers = currentReadiness().blockers
+        if blockers.needsConfirmation {
+            log.append("install requested with \(blockers.riskyAgents.count) risky agent(s), \(blockers.runningCommandCount) command(s); asking")
+            holdRelaunch(mode: .askUser, install: install)
+        } else {
+            relaunchAfterPreparing(install: install)
+        }
     }
 
     /// Starts installing an update Sparkle downloaded in the background, for a user who turned
@@ -59,11 +72,12 @@ extension UpdateDriver {
         }
     }
 
-    /// Holds an automatic install's relaunch until a quiet moment. Later leaves the downloaded
+    /// Holds the relaunch in `mode` (see ``UpdateRelaunchGate``). Later leaves the downloaded
     /// update on "Restart to Complete Update"; Sparkle still installs it when cmux quits.
-    private func holdAutomaticRelaunch(install: @escaping () -> Void) {
+    private func holdRelaunch(mode: UpdateRelaunchGate.Mode, install: @escaping () -> Void) {
         let once = InstallOnce(install)
         relaunchGate.hold(
+            mode: mode,
             readiness: { [weak self] in
                 self?.currentReadiness() ?? .init(blockers: .empty, idle: .zero)
             },
@@ -89,7 +103,7 @@ extension UpdateDriver {
                     install()
                     return
                 }
-                self.relaunchAfterPreparing(install: install)
+                self.relaunchOnRequest(install: install)
             },
             dismiss: {}
         )))
