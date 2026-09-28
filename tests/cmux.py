@@ -678,7 +678,11 @@ class cmux:
             cmd += f" --priority={priority}"
         if tab:
             cmd += f" --tab={tab}"
-        cmd += f" -- {_quote_option_value(markdown)}"
+        # The handler reads everything after " -- " verbatim (quotes would be
+        # stored literally) and turns the two characters backslash-n back into
+        # a line break, matching `cmux set-meta-block`.
+        body = (markdown or "").strip("\r\n").replace("\r\n", "\n").replace("\r", "\n")
+        cmd += " -- " + body.replace("\n", "\\n")
         response = self._send_command(cmd)
         if not response.startswith("OK"):
             raise cmuxError(response)
