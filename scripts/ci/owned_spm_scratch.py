@@ -70,13 +70,10 @@ def toolchain_fingerprint(workspace: Path) -> str:
 
 
 def tree_stats(root: Path) -> tuple[int, float]:
-    """Bytes under ROOT and the newest modification time in it. A build writes
-    inside its package's directory, so the newest time is when a job last used it."""
+    """Bytes under ROOT and its newest file modification time, falling back to
+    ROOT's time only when empty. Package directory changes aren't build writes."""
     total = 0
-    try:
-        newest = root.stat().st_mtime
-    except OSError:
-        newest = 0.0
+    newest = None
     for base, _, files in os.walk(root):
         for name in files:
             try:
@@ -84,7 +81,12 @@ def tree_stats(root: Path) -> tuple[int, float]:
             except OSError:
                 continue
             total += info.st_size
-            newest = max(newest, info.st_mtime)
+            newest = info.st_mtime if newest is None else max(newest, info.st_mtime)
+    if newest is None:
+        try:
+            newest = root.stat().st_mtime
+        except OSError:
+            newest = 0.0
     return total, newest
 
 
