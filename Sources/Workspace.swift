@@ -357,6 +357,7 @@ extension Workspace {
         // processes (e.g. claude_code "Running"). Don't restore them across app
         // restarts because the processes that set them are gone.
         statusEntries.removeAll()
+        agentStatusEntriesByPanelId.removeAll()
         // The hibernated-agents row is derived from panes, not reported state.
         refreshAgentHibernationStatusEntry()
         clearAllAgentPIDs(refreshPorts: false)
@@ -3027,6 +3028,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { sidebarMetadata.statusEntries }
         set { sidebarMetadata.statusEntries = newValue }
     }
+    /// Each pane's own copy of the agent status it last reported, keyed by
+    /// panel then status key. `statusEntries` keeps one entry per key (last
+    /// writer wins), so two panes running the same agent would otherwise hide
+    /// each other; the row resolves the most urgent pane from these instead.
+    var agentStatusEntriesByPanelId: [UUID: [String: SidebarStatusEntry]] = [:]
     var metadataBlocks: [String: SidebarMetadataBlock] {
         get { sidebarMetadata.metadataBlocks }
         set { sidebarMetadata.metadataBlocks = newValue }
@@ -3227,6 +3233,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         restoredAgentLifecycle.snapshotsByPanelId
     }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// Journals agent sessions ended by closing their terminal. Tests point it
+    /// at a private journal.
+    var agentSessionCloseJournal = AgentSessionCloseJournal()
     /// In-memory compare-and-claim state held while a CLI restore hands the
     /// validated binding to its child process.
     @ObservationIgnored var surfaceResumeRestoreClaimsByPanelId: [
@@ -4061,6 +4070,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             autoCloseEmptyPanes: true,
             contentViewLifecycle: .keepAllAlive,
             newTabPosition: .current,
+            tabBarVisibility: Self.tabBarVisibility(defaults: closeTabWarningDefaults),
             appearance: appearance
         )
         self.bonsplitController = BonsplitController(
@@ -4409,6 +4419,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard configuration.allowCloseTabs != allowCloseTabs else { return }
         configuration.allowCloseTabs = allowCloseTabs
         bonsplitController.configuration = configuration
+    }
+
+    /// Re-applies the `app.tabBarVisibility` setting to this workspace's
+    /// split controller after the setting changes.
+    func refreshTabBarVisibility() {
+        let visibility = Self.tabBarVisibility(defaults: closeTabWarningDefaults)
+        var configuration = bonsplitController.configuration
+        guard configuration.tabBarVisibility != visibility else { return }
+        configuration.tabBarVisibility = visibility
+        bonsplitController.configuration = configuration
+    }
+
+    /// Resolves the `app.tabBarVisibility` setting to bonsplit's visibility
+    /// mode for pane split controllers. Minimal mode keeps the bar: there the
+    /// top pane's tab bar is the titlebar row (traffic-light inset and window
+    /// drag area), so hiding it would put content under the window controls.
+    static func tabBarVisibility(defaults: UserDefaults) -> TabBarVisibility {
+        if WorkspacePresentationModeSettings.isMinimal(defaults: defaults) { return .always }
+        return AppCatalogSection().tabBarVisibility.value(in: defaults).bonsplitVisibility
     }
 
     /// Whether a built-in tab bar button should be drawn at all.
@@ -6475,6 +6504,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     func resetSidebarContext(reason: String = "unspecified") {
         statusEntries.removeAll()
+        agentStatusEntriesByPanelId.removeAll()
         // The hibernated-agents row is derived from panes, not reported state.
         refreshAgentHibernationStatusEntry()
         clearAllAgentPIDs(refreshPorts: false)
@@ -6691,8 +6721,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
-        sidebarStatusEntriesVisibleForDisplay().sorted { lhs, rhs in
+        let keysNeedingInput = sidebarStatusKeysNeedingInput()
+        return sidebarStatusEntriesVisibleForDisplay().sorted { lhs, rhs in
             if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
+            let lhsNeedsInput = keysNeedingInput.contains(lhs.key)
+            if lhsNeedsInput != keysNeedingInput.contains(rhs.key) { return lhsNeedsInput }
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
             return lhs.key < rhs.key
         }
@@ -14967,4 +15000,16 @@ extension Workspace: BonsplitDelegate {
     }
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.
+}
+
+extension PaneTabBarVisibility {
+    /// The bonsplit tab-bar visibility mode matching this setting value.
+    var bonsplitVisibility: TabBarVisibility {
+        switch self {
+        case .always:
+            return .always
+        case .multipleTabs:
+            return .multipleTabs
+        }
+    }
 }
