@@ -5583,6 +5583,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         var onDidMoveToWindow: (() -> Void)?
         var onGeometryChanged: (() -> Void)?
         private var windowArrivalCallbackTask: Task<Void, Never>?
+        private var windowArrivalCallbackPending = false
         private(set) var geometryRevision: UInt64 = 0
         private var lastReportedGeometryState: GeometryState?
         private var hasPendingGeometryNotification = false
@@ -6112,6 +6113,17 @@ struct WebViewRepresentable: NSViewRepresentable {
             isWindowPortalHosting = isHosting
         }
 
+        func setWindowArrivalCallback(_ callback: (() -> Void)?) {
+            onDidMoveToWindow = callback
+            windowArrivalCallbackPending = callback != nil
+        }
+
+        func markWindowArrivalCallbackHandledIfAttached() {
+            if window != nil {
+                windowArrivalCallbackPending = false
+            }
+        }
+
         func clearStaleHostedInspectorOwnershipState() {
             hostedInspectorDockConfigurationSyncScheduler.cancel()
             hostedInspectorFrontendWebView = nil
@@ -6429,10 +6441,12 @@ struct WebViewRepresentable: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if window == nil {
+                windowArrivalCallbackPending = false
                 cancelHostedWebKitPresentationRefresh()
                 notifyHostedWebKitHidden(reason: "viewDidMoveToWindow")
                 clearActiveDividerCursor(restoreArrow: false)
             } else {
+                windowArrivalCallbackPending = onDidMoveToWindow != nil
                 scheduleHostedInspectorDividerReapply(reason: "viewDidMoveToWindow")
                 scheduleHostedInspectorDockConfigurationSync(reason: "viewDidMoveToWindow")
                 scheduleHostedWebKitPresentationRefresh(
@@ -6452,6 +6466,9 @@ struct WebViewRepresentable: NSViewRepresentable {
             super.viewDidMoveToSuperview()
             scheduleHostedInspectorDividerReapply(reason: "viewDidMoveToSuperview")
             scheduleHostedInspectorDockConfigurationSync(reason: "viewDidMoveToSuperview")
+            if window != nil {
+                windowArrivalCallbackPending = onDidMoveToWindow != nil
+            }
             scheduleWindowArrivalCallbackIfNeeded()
             notifyGeometryChangedIfNeeded()
 #if DEBUG
@@ -6464,18 +6481,21 @@ struct WebViewRepresentable: NSViewRepresentable {
         /// Coalesce both lifecycle signals and retry on the next main-actor turn,
         /// once the final window and geometry are observable.
         private func scheduleWindowArrivalCallbackIfNeeded() {
-            guard window != nil, onDidMoveToWindow != nil,
+            guard window != nil, windowArrivalCallbackPending,
+                  onDidMoveToWindow != nil,
                   windowArrivalCallbackTask == nil else { return }
             windowArrivalCallbackTask = Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.windowArrivalCallbackTask = nil
                 guard self.window != nil else { return }
+                self.windowArrivalCallbackPending = false
                 self.onDidMoveToWindow?()
             }
         }
 
         override func layout() {
             super.layout()
+            scheduleWindowArrivalCallbackIfNeeded()
             if enforceAdaptiveBottomDockIfNeeded(reason: "host.layout") {
                 updateHostedInspectorDockControlAvailabilityIfNeeded(reason: "host.layout")
                 notifyGeometryChangedIfNeeded()
@@ -7301,7 +7321,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     private static func clearPortalCallbacks(for host: NSView) {
         guard let host = host as? HostContainerView else { return }
-        host.onDidMoveToWindow = nil
+        host.setWindowArrivalCallback(nil)
         host.onGeometryChanged = nil
         host.clearLocalInlineCallbacks()
     }
@@ -7480,7 +7500,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         // page still belongs to an automation preload or previous pane host.
         // Complete that deferred handoff on window arrival, even if SwiftUI
         // has no further state change to trigger updateNSView.
-        host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator, weak panel, paneId, paneOwnershipOverride] in
+        host.setWindowArrivalCallback { [weak host, weak webView, weak coordinator, weak panel, paneId, paneOwnershipOverride] in
             guard let host, host.window != nil,
                   let webView, let coordinator,
                   let panel,
@@ -7674,6 +7694,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             details: Self.attachContext(webView: webView, host: host)
         )
 #endif
+        host.markWindowArrivalCallbackHandledIfAttached()
         return !shouldPreserveExternalFullscreenHost
     }
 
@@ -7756,7 +7777,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
         let activeOmnibarSuggestions = coordinator.desiredPortalVisibleInUI ? omnibarSuggestions : nil
 
-        host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator, weak portalAnchorView, weak browserPanel = panel] in
+        host.setWindowArrivalCallback { [weak host, weak webView, weak coordinator, weak portalAnchorView, weak browserPanel = panel] in
             guard let host, let webView, let coordinator, let portalAnchorView, let browserPanel else { return }
             guard coordinator.attachGeneration == generation else { return }
             guard let currentPaneDropContext = currentPaneDropContext(),
