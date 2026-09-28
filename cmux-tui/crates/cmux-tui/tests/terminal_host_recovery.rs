@@ -4782,3 +4782,56 @@ fn template_completion_failure_after_adoption_retry_is_retried() {
     harness.restart();
     assert_template_bound_and_listed(&harness, &parked);
 }
+
+/// The Cloud supervisor restarts the daemon (crash, in-place upgrade) with
+/// the template settings still set, against the registry the first
+/// adoption wrote. The adopted template must be restored in its existing
+/// placement, not placed a second time: a second placement makes every
+/// later resource projection invalid, so the template completion loops
+/// forever and every public mutation reports an indeterminate outcome.
+#[test]
+fn adopted_template_terminal_is_restored_in_place_after_a_daemon_restart() {
+    let mut harness = RecoveryHarness::start("template-restart");
+    let parked = park_template_host(&mut harness);
+    harness.adopt_template_terminal = true;
+    harness.restart();
+    assert_template_bound_and_listed(&harness, &parked);
+    let before = request(&harness.socket, serde_json::json!({"id": 1, "cmd": "list-workspaces"}));
+    assert_eq!(before["workspaces"][0]["screens"].as_array().unwrap().len(), 1, "{before}");
+
+    harness.signal_daemon(libc::SIGTERM);
+    let mut daemon = harness.child.take().unwrap();
+    daemon.wait().unwrap();
+    let _ = fs::remove_file(&harness.socket);
+    harness.restart();
+
+    let created = resource_request(
+        &harness.socket,
+        "template-restart-create",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"after restart",
+            "initial_content":"terminal",
+        }),
+        Some("template-restart-create"),
+    );
+    assert!(created["value"]["terminal_id"].is_string(), "{created}");
+    let after = request(&harness.socket, serde_json::json!({"id": 2, "cmd": "list-workspaces"}));
+    let workspaces = after["workspaces"].as_array().unwrap();
+    assert_eq!(workspaces.len(), 2, "{after}");
+    assert_eq!(workspaces[0]["name"], "Cloud", "{after}");
+    assert_eq!(workspaces[0]["screens"].as_array().unwrap().len(), 1, "{after}");
+    assert_eq!(
+        workspaces[0]["screens"][0]["panes"][0]["tabs"][0]["content_resource_id"],
+        before["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["content_resource_id"],
+        "{after}"
+    );
+    assert_eq!(wait_for_host_records(&harness.host_root(), 2).len(), 2);
+    assert!(
+        wait_for_host_records(&harness.host_root(), 2)
+            .iter()
+            .any(|(_, record)| record.host_pid == parked.host_pid)
+    );
+}
