@@ -1271,6 +1271,20 @@ struct AgentHibernationTests {
             lastActivityAt: Date(timeIntervalSince1970: 0)
         ))
         expectFalse(panel.isAgentHibernated)
+
+        // Session restore and process-termination hibernation call the panel
+        // directly, so the panel itself refuses a relay-origin agent.
+        expectFalse(panel.enterAgentHibernation(
+            agent: agent,
+            lastActivityAt: Date(timeIntervalSince1970: 0),
+            hibernatedAt: Date(timeIntervalSince1970: 1)
+        ))
+        expectFalse(panel.beginAgentHibernationTermination(
+            agent: agent,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        ))
+        expectFalse(panel.isAgentHibernated)
+        expectFalse(panel.isAgentHibernationTerminating)
     }
 
 }

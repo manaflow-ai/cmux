@@ -31,6 +31,10 @@ extension TerminalPanel {
             completeAgentHibernationTermination()
             return true
         }
+        // Waking types the local restore verb, which a relay-origin agent never
+        // gets; hibernating one (including from a restored snapshot) would strand
+        // the pane. Every hibernation entry point funnels through this panel.
+        guard !agent.requiresRemoteHostExecution else { return false }
         let state = AgentHibernationPanelState(
             agent: agent,
             hibernatedAt: hibernatedAt,
@@ -49,7 +53,8 @@ extension TerminalPanel {
         lastActivityAt: Date,
         committedAt: Date = .now
     ) -> Bool {
-        guard case .live = agentHibernationPhase else { return false }
+        guard case .live = agentHibernationPhase,
+              !agent.requiresRemoteHostExecution else { return false }
         onRequestAgentHibernationTerminationRetry = nil
         let state = AgentHibernationPanelState(
             agent: agent,
