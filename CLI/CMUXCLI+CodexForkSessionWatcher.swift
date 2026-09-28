@@ -127,12 +127,13 @@ struct CodexForkSessionWatcher {
             URL(fileURLWithPath: $0).standardizedFileURL.path
         })
         guard !ownerRolloutPaths.isEmpty else { return nil }
+        let timestampFormatter = ISO8601DateFormatter()
         var candidates: [CodexForkSessionCandidate] = []
         var scanned = 0
         while let item = enumerator.nextObject() as? URL, scanned < Self.maximumRollouts {
             scanned += 1
             guard item.pathExtension.lowercased() == "jsonl",
-                  let metadata = readMetadata(at: item),
+                  let metadata = readMetadata(at: item, timestampFormatter: timestampFormatter),
                   metadata.parentSessionID == parentSessionID,
                   metadata.sessionID != parentSessionID,
                   !excludingSessionIDs.contains(metadata.sessionID) else {
@@ -170,7 +171,10 @@ struct CodexForkSessionWatcher {
         let timestamp: Date?
     }
 
-    private static func readMetadata(at url: URL) -> Metadata? {
+    private static func readMetadata(
+        at url: URL,
+        timestampFormatter: ISO8601DateFormatter
+    ) -> Metadata? {
         guard let handle = FileHandle(forReadingAtPath: url.path) else { return nil }
         defer { try? handle.close() }
         guard let data = try? handle.read(upToCount: Self.maximumMetadataBytes),
@@ -183,7 +187,7 @@ struct CodexForkSessionWatcher {
         }
         let parentSessionID = normalized(payload["forked_from_id"] as? String)
             ?? normalized(payload["parent_thread_id"] as? String)
-        let timestamp = (payload["timestamp"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) }
+        let timestamp = (payload["timestamp"] as? String).flatMap(timestampFormatter.date(from:))
         return Metadata(sessionID: sessionID, parentSessionID: parentSessionID, timestamp: timestamp)
     }
 
@@ -231,12 +235,25 @@ struct CodexForkSessionWatcher {
             guard descriptor >= 0 else { return false }
             defer { close(descriptor) }
             let bytes = Array(launchID.utf8)
-            return bytes.withUnsafeBytes { buffer in
+            let written = bytes.withUnsafeBytes { buffer in
                 Darwin.write(descriptor, buffer.baseAddress, bytes.count) == bytes.count
             }
+            if !written { try? fileManager.removeItem(at: claimURL) }
+            return written
         } catch {
             return false
         }
+    }
+
+    /// Releases this launch's claim after the synthetic SessionStart failed.
+    func releaseClaim(for child: ChildSession) {
+        guard !launchID.isEmpty else { return }
+        let claimURL = claimsDirectory.appendingPathComponent("\(child.sessionID).claim", isDirectory: false)
+        guard let contents = try? String(contentsOf: claimURL, encoding: .utf8),
+              contents == launchID else {
+            return
+        }
+        try? fileManager.removeItem(at: claimURL)
     }
 
     private func pruneClaims() {
@@ -319,13 +336,14 @@ extension CMUXCLI {
             environment: environment
         )
         if let child = watcher.wait() {
-            launchCodexForkSessionStart(
+            let didBind = launchCodexForkSessionStart(
                 child: child,
                 parentSessionID: parentSessionID,
                 environment: environment,
                 client: client
             )
-            return
+            if didBind { return }
+            watcher.releaseClaim(for: child)
         }
 
         _ = try? client.sendV2(method: "surface.resume.clear", params: [
@@ -353,7 +371,7 @@ extension CMUXCLI {
         parentSessionID: String,
         environment: [String: String],
         client: SocketClient
-    ) {
+    ) -> Bool {
         let executable = CommandLine.arguments.first ?? "cmux"
         let process = Process()
         if executable.hasPrefix("/") {
@@ -367,8 +385,9 @@ extension CMUXCLI {
         childEnvironment[CodexForkSessionWatcher.forkSessionEnvironmentKey] = "1"
         process.environment = childEnvironment
         let input = Pipe()
+        let output = Pipe()
         process.standardInput = input
-        process.standardOutput = FileHandle.nullDevice
+        process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
@@ -387,8 +406,14 @@ extension CMUXCLI {
             }
             try? input.fileHandleForWriting.close()
             process.waitUntilExit()
+            let result = try? JSONSerialization.jsonObject(
+                with: output.fileHandleForReading.readDataToEndOfFile()
+            ) as? [String: Any]
+            return process.terminationStatus == 0
+                && result?["cmux_fork_binding"] as? String == "bound"
         } catch {
             try? input.fileHandleForWriting.close()
+            return false
         }
     }
 

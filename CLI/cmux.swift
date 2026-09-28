@@ -32149,6 +32149,7 @@ struct CMUXCLI {
         )
     }
 
+    @discardableResult
     private func publishAgentSurfaceResumeBinding(
         client: SocketClient,
         workspaceId: String,
@@ -32163,9 +32164,9 @@ struct CMUXCLI {
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil,
         telemetry: CLISocketSentryTelemetry? = nil
-    ) {
+    ) -> Bool {
         guard ProcessInfo.processInfo.environment[agentHookRelayOriginEnvironmentKey] != "1" else {
-            return
+            return false
         }
         if kind == "hermes-agent" {
             var stateEnvironment = ProcessInfo.processInfo.environment
@@ -32188,11 +32189,11 @@ struct CMUXCLI {
                     responseTimeout: responseTimeout,
                     deadline: deadline
                 )
-                return
+                return false
             case .unavailable:
                 // A temporary snapshot failure must not replace or clear a
                 // previously verified durable Hermes checkpoint.
-                return
+                return false
             }
         }
         var codexEvidenceProvenance: AgentResumeEvidenceProvenance?
@@ -32208,7 +32209,7 @@ struct CMUXCLI {
                     existing: nil,
                     telemetry: telemetry
                 )
-                return
+                return false
             }
             switch codexResumeBindingVerification(
                 sessionId: sessionId,
@@ -32224,7 +32225,7 @@ struct CMUXCLI {
                         existing: nil,
                         telemetry: telemetry
                     )
-                    return
+                    return false
                 }
                 codexEvidenceProvenance = evidence.provenance
             case .missing:
@@ -32243,7 +32244,7 @@ struct CMUXCLI {
                     responseTimeout: responseTimeout,
                     deadline: deadline
                 )
-                return
+                return false
             case .unavailable:
                 logCodexResumeBindingRejection(
                     reason: "rollout-store-unavailable",
@@ -32252,7 +32253,7 @@ struct CMUXCLI {
                     existing: nil,
                     telemetry: telemetry
                 )
-                return
+                return false
             }
         } else if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
             clearAgentSurfaceResumeBinding(
@@ -32263,7 +32264,7 @@ struct CMUXCLI {
                 responseTimeout: responseTimeout,
                 deadline: deadline
             )
-            return
+            return false
         }
         let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, launchCommand: launchCommand)
         // Pin to the launch directory, not drift-prone runtime cwd.
@@ -32297,7 +32298,7 @@ struct CMUXCLI {
                     responseTimeout: responseTimeout
                 )
             }
-            return
+            return false
         }
         var params: [String: Any] = [
             "workspace_id": workspaceId,
@@ -32326,12 +32327,17 @@ struct CMUXCLI {
             // store mutation; no client-side get/set preflight can close that race.
             params["resume_evidence_provenance"] = codexEvidenceProvenance.logValue
         }
-        _ = try? client.sendV2(
-            method: "surface.resume.set",
-            params: params,
-            responseTimeout: responseTimeout,
-            deadline: deadline
-        )
+        do {
+            try client.sendV2(
+                method: "surface.resume.set",
+                params: params,
+                responseTimeout: responseTimeout,
+                deadline: deadline
+            )
+            return true
+        } catch {
+            return false
+        }
     }
 
     @discardableResult
@@ -35842,12 +35848,25 @@ export default CMUXSessionRestore;
             }
 
         case .sessionStart:
+            let isCodexForkSession = def.name == "codex"
+                && env[CodexHookInvocation.forkSessionEnvironmentKey] == "1"
+            func printCodexForkSessionStartResult(bound: Bool) {
+                if isCodexForkSession {
+                    let result = ["cmux_fork_binding": bound ? "bound" : "failed"]
+                    if let data = try? JSONSerialization.data(withJSONObject: result),
+                       let line = String(data: data, encoding: .utf8) {
+                        print(line)
+                    }
+                } else if !bound {
+                    print("{}")
+                }
+            }
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 reportTargetResolutionFailure()
                 emitJournal(.sessionStarted, workspaceId: nil, surfaceId: nil, unattributedReason: "target-unresolved")
                 didSendFeedTelemetry = true
-                print("{}")
+                printCodexForkSessionStartResult(bound: false)
                 return
             }
             let workspaceId = target.workspaceId
@@ -35868,7 +35887,7 @@ export default CMUXSessionRestore;
                         isSubagent: true,
                         detail: "nested-session-start"
                     )
-                    print("{}")
+                    printCodexForkSessionStartResult(bound: false)
                     return
                 }
             }
@@ -35931,14 +35950,14 @@ export default CMUXSessionRestore;
                 if !acceptedSessionStart {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
                     didSendFeedTelemetry = true
-                    print("{}")
+                    printCodexForkSessionStartResult(bound: false)
                     return
                 }
             }
             if codexSessionStartWentStaleAfterAccept() {
                 telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
                 didSendFeedTelemetry = true
-                print("{}")
+                printCodexForkSessionStartResult(bound: false)
                 return
             }
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
@@ -35946,7 +35965,7 @@ export default CMUXSessionRestore;
                 if codexSessionStartWentStaleAfterAccept() {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
                     didSendFeedTelemetry = true
-                    print("{}")
+                    printCodexForkSessionStartResult(bound: false)
                     return
                 }
                 try? recordAgentTurnDiffBaseline(
@@ -35963,17 +35982,21 @@ export default CMUXSessionRestore;
             if !sessionId.isEmpty {
                 if suppressVisibleMutations {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.nested-suppressed")
+                    if isCodexForkSession {
+                        printCodexForkSessionStartResult(bound: false)
+                        return
+                    }
                 } else {
                     if codexSessionStartWentStaleAfterAccept() {
                         telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
                         didSendFeedTelemetry = true
-                        print("{}")
+                        printCodexForkSessionStartResult(bound: false)
                         return
                     }
                     if !AgentHookNotificationPolicy.preservesDedupeAcrossSessionStart(agentName: def.name) {
                         try? store.clearNotificationEmission(sessionId: sessionId)
                     }
-                    publishAgentSurfaceResumeBinding(
+                    let didPublishBinding = publishAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -35985,12 +36008,16 @@ export default CMUXSessionRestore;
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         telemetry: telemetry
                     )
+                    if isCodexForkSession && !didPublishBinding {
+                        printCodexForkSessionStartResult(bound: false)
+                        return
+                    }
                 }
             }
             if codexSessionStartWentStaleAfterAccept() {
                 telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
                 didSendFeedTelemetry = true
-                print("{}")
+                printCodexForkSessionStartResult(bound: false)
                 return
             }
             if !relayOrigin, let pid, !suppressVisibleMutations {
@@ -36016,6 +36043,7 @@ export default CMUXSessionRestore;
                     )
                 }
             }
+            printCodexForkSessionStartResult(bound: true)
 
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))

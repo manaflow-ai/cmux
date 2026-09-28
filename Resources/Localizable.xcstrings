@@ -29121,6 +29121,72 @@
             "state": "translated",
             "value": "cmux가 새 포크 세션을 식별하지 못해 이 패널을 부모 세션에 연결하지 않았습니다. 부모 패널에서 포크를 다시 시작하세요."
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao prepoznati novu sesiju račvanja, pa ovo okno nije povezano s nadređenom sesijom. Ponovo pokrenite račvanje iz nadređenog okna."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke identificere den nye forgreningssession, så denne rude blev ikke bundet til forældresessionen. Start forgreningen igen fra forældreruden."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non ha potuto identificare la nuova sessione fork, quindi questo riquadro non è stato collegato alla sessione principale. Avvia di nuovo il fork dal riquadro principale."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចកំណត់អត្តសញ្ញាណសម័យ fork ថ្មីបានទេ ដូច្នេះផ្ទាំងនេះមិនត្រូវបានភ្ជាប់ទៅសម័យមេឡើយ។ ចាប់ផ្ដើម fork ម្ដងទៀតពីផ្ទាំងមេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke identifisere den nye forgreningsøkten, så denne ruten ble ikke bundet til den overordnede økten. Start forgreningen på nytt fra den overordnede ruten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł zidentyfikować nowej sesji forka, więc ten panel nie został powiązany z sesją nadrzędną. Uruchom fork ponownie z panelu nadrzędnego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu identificar a nova sessão bifurcada, então este painel não foi vinculado à sessão principal. Inicie o fork novamente no painel principal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось определить новый сеанс форка, поэтому эта панель не была привязана к родительскому сеансу. Запустите форк снова из родительской панели."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถระบุเซสชันที่แยกใหม่ได้ จึงไม่ได้ผูกบานหน้าต่างนี้กับเซสชันหลัก เริ่มการแยกอีกครั้งจากบานหน้าต่างหลัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux yeni fork oturumunu belirleyemedi, bu nedenle bu panel üst oturuma bağlanmadı. Fork'u üst panelden yeniden başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося визначити новий сеанс форка, тому цю панель не прив’язано до батьківського сеансу. Запустіть форк ще раз із батьківської панелі."
+          }
         }
       }
     },
@@ -29180,6 +29246,72 @@
             "state": "translated",
             "value": "포크를 사용할 수 없음"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Račvanje nije dostupno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork ikke tilgængelig"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork non disponibile"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចប្រើការបំបែកបាន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork utilgjengelig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork niedostępny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork indisponível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Форк недоступен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถใช้การแยกสาขาได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Форк недоступний"
+          }
         }
       }
     },
@@ -29195,49 +29327,115 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex フォーク"
+            "value": "エージェントフォーク"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex-Fork"
+            "value": "Agent-Fork"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fork Codex"
+            "value": "Fork d’agent"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تفريع Codex"
+            "value": "تفريع الوكيل"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fork de Codex"
+            "value": "Fork del agente"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex 分支"
+            "value": "代理程式分支"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex 分支"
+            "value": "代理分支"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex 포크"
+            "value": "에이전트 포크"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Račvanje agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentfork"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork dell'agente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបំបែកភ្នាក់ងារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentforgrening"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Форк агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแยกสาขาของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan çatalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Форк агента"
           }
         }
       }
