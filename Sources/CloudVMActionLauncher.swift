@@ -238,21 +238,19 @@ final class CloudVMActionLauncher {
     /// still enforces the account's server-side authorization.
     func destroyMachineBestEffort(_ machineID: String) {
         let id = machineID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !id.isEmpty else { return }
+        guard MachineDeleteCoordinator.shared.canBegin(id) else { return }
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
-        _ = start(
+        // The socket's destroy retires the machine; an early CLI exit lists it again.
+        if start(
             socketPath: socketPath,
             preferredWindow: nil,
             arguments: ["vm", "rm", id],
             presentsFailureAlert: false,
             allowDuringAuthTransition: true,
-            onCompletion: { completion in
-                guard completion.succeeded || completion.indicatesCloudVMNotFound else { return }
-                AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: id)
-            }
-        )
+            onCompletion: { _ in MachineDeleteCoordinator.shared.launchEnded(id) }
+        ) { MachineDeleteCoordinator.shared.begin(id) }
     }
 
     @discardableResult

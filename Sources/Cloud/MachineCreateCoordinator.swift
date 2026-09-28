@@ -175,6 +175,9 @@ final class MachineCreateCoordinator {
         apply(lifecycle.endAccount(cleanupCreatedMachines: cleanupCreatedMachines))
     }
 
+    /// Stops creates that produced a machine the person began deleting; the delete owns the destroy.
+    func machineDeletionBegan(_ machineID: String) { apply(lifecycle.retireCreates(producing: machineID)) }
+
     /// Retires acknowledged pending rows; retained aliases survive every later refresh.
     func reconcileAuthoritativeState(machineIDs: Set<String>, catalogMachineIDs: Set<String>) {
         if lifecycle.reconcile(machineIDs: machineIDs.union(catalogMachineIDs)) {
