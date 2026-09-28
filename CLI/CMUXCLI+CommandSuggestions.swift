@@ -135,6 +135,7 @@ extension CMUXCLI {
         "login",
         "logout",
         "local-tmux",
+        "local-zellij",
         "markdown",
         "mark-notification-read",
         "memory",

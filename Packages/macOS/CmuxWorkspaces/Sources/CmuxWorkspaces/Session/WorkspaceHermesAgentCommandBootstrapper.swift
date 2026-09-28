@@ -51,6 +51,9 @@ struct WorkspaceHermesAgentCommandBootstrapper {
         if let localTmuxCommand = LocalTmuxRestoreCommandPolicy().restorableCommand(rawCommand) {
             return localTmuxCommand
         }
+        if let localZellijCommand = LocalZellijRestoreCommandPolicy().restorableCommand(rawCommand) {
+            return localZellijCommand
+        }
         guard let command = rawCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
               !command.isEmpty,
               terminalCommandLooksLikeOMXHud(command) else {
