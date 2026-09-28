@@ -174,11 +174,11 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
     private func evaluate(
         _ script: String,
         in webView: WKWebView,
-        contentWorld: WKContentWorld = .page
+        contentWorld: WKContentWorld? = nil
     ) -> Any? {
         var result: Any?
         var finished = false
-        webView.evaluateJavaScript(script, in: nil, in: contentWorld) { outcome in
+        webView.evaluateJavaScript(script, in: nil, in: contentWorld ?? .page) { outcome in
             result = try? outcome.get()
             finished = true
         }

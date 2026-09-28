@@ -55,7 +55,12 @@ public final class BrowserPageRestorationState {
     // MARK: Live page
 
     public func recordLiveFormState(_ snapshot: BrowserFormStateSnapshot) {
-        liveFormState = snapshot.isEmpty ? nil : snapshot
+        liveFormState = snapshot.isEmpty && !snapshot.hasUnrestorableInput ? nil : snapshot
+    }
+
+    /// Whether the current document holds typed input a restore would lose.
+    public var hasUnrestorableLiveInput: Bool {
+        liveFormState?.hasUnrestorableInput ?? false
     }
 
     /// Call when a main-frame navigation submits a form. WebKit keeps the

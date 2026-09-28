@@ -21,78 +21,8 @@ public protocol BrowserHiddenWebViewDiscardManagerDelegate: AnyObject {
 
 @MainActor
 public final class BrowserHiddenWebViewDiscardManager {
-    public static let systemMemoryPressureReason = "system_memory_pressure"
-    public static let memoryBudgetReason = "hidden_memory_budget"
-
-    public struct BlockerSnapshot {
-        public let isClosing: Bool
-        public let isVisibleInUI: Bool
-        public let shouldRenderWebView: Bool
-        public let hasPendingRemoteNavigation: Bool
-        public let hasCurrentURL: Bool
-        public let isLoading: Bool
-        public let webViewIsLoading: Bool
-        public let hasActiveMainFrameProvisionalNavigation: Bool
-        public let hasRecoverableWebContentTermination: Bool
-        public let isDownloading: Bool
-        public let activeDownloadCount: Int
-        public let preferredDeveloperToolsVisible: Bool
-        public let isDeveloperToolsVisible: Bool
-        public let isElementFullscreenActive: Bool
-        public let isReactGrabActive: Bool
-        public var isDesignModeActive = false
-        public let isVisualAutomationCaptureActive: Bool
-        public let isMobileBrowserStreamActive: Bool
-        public let hasPopups: Bool
-        public let isCapturingMedia: Bool
-        public let isPlayingMedia: Bool
-
-        public init(
-            isClosing: Bool,
-            isVisibleInUI: Bool,
-            shouldRenderWebView: Bool,
-            hasPendingRemoteNavigation: Bool,
-            hasCurrentURL: Bool,
-            isLoading: Bool,
-            webViewIsLoading: Bool,
-            hasActiveMainFrameProvisionalNavigation: Bool,
-            hasRecoverableWebContentTermination: Bool = false,
-            isDownloading: Bool,
-            activeDownloadCount: Int,
-            preferredDeveloperToolsVisible: Bool,
-            isDeveloperToolsVisible: Bool,
-            isElementFullscreenActive: Bool,
-            isReactGrabActive: Bool,
-            isDesignModeActive: Bool = false,
-            isVisualAutomationCaptureActive: Bool,
-            isMobileBrowserStreamActive: Bool = false,
-            hasPopups: Bool,
-            isCapturingMedia: Bool,
-            isPlayingMedia: Bool
-        ) {
-            self.isClosing = isClosing
-            self.isVisibleInUI = isVisibleInUI
-            self.shouldRenderWebView = shouldRenderWebView
-            self.hasPendingRemoteNavigation = hasPendingRemoteNavigation
-            self.hasCurrentURL = hasCurrentURL
-            self.isLoading = isLoading
-            self.webViewIsLoading = webViewIsLoading
-            self.hasActiveMainFrameProvisionalNavigation = hasActiveMainFrameProvisionalNavigation
-            self.hasRecoverableWebContentTermination = hasRecoverableWebContentTermination
-            self.isDownloading = isDownloading
-            self.activeDownloadCount = activeDownloadCount
-            self.preferredDeveloperToolsVisible = preferredDeveloperToolsVisible
-            self.isDeveloperToolsVisible = isDeveloperToolsVisible
-            self.isElementFullscreenActive = isElementFullscreenActive
-            self.isReactGrabActive = isReactGrabActive
-            self.isDesignModeActive = isDesignModeActive
-            self.isVisualAutomationCaptureActive = isVisualAutomationCaptureActive
-            self.isMobileBrowserStreamActive = isMobileBrowserStreamActive
-            self.hasPopups = hasPopups
-            self.isCapturingMedia = isCapturingMedia
-            self.isPlayingMedia = isPlayingMedia
-        }
-    }
+    public nonisolated static let systemMemoryPressureReason = "system_memory_pressure"
+    public nonisolated static let memoryBudgetReason = "hidden_memory_budget"
 
     public weak var delegate: (any BrowserHiddenWebViewDiscardManagerDelegate)?
 
@@ -135,14 +65,15 @@ public final class BrowserHiddenWebViewDiscardManager {
     public func blockers(
         for snapshot: BlockerSnapshot,
         now: Date = Date(),
-        allowingRecoverableWebContentTermination: Bool = false
+        urgency: BrowserHiddenWebViewDiscardUrgency = .routine
     ) -> [String] {
         var blockers: [String] = []
         if !BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: policyDefaults) {
             blockers.append("policy_disabled")
         }
         if isSystemSleeping { blockers.append("system_sleeping") }
-        if snapshot.hasRecoverableWebContentTermination && !allowingRecoverableWebContentTermination {
+        let isUnderPressure = urgency == .systemMemoryPressure
+        if snapshot.hasRecoverableWebContentTermination && !isUnderPressure {
             blockers.append("webcontent_recovery")
         }
         if snapshot.isClosing { blockers.append("closing") }
@@ -151,8 +82,7 @@ public final class BrowserHiddenWebViewDiscardManager {
         if !snapshot.shouldRenderWebView { blockers.append("not_rendered") }
         if snapshot.hasPendingRemoteNavigation { blockers.append("pending_remote_navigation") }
         if !snapshot.hasCurrentURL { blockers.append("no_url") }
-        let allowsRecoverableDiscard = snapshot.hasRecoverableWebContentTermination &&
-            allowingRecoverableWebContentTermination
+        let allowsRecoverableDiscard = snapshot.hasRecoverableWebContentTermination && isUnderPressure
         if (snapshot.isLoading || snapshot.webViewIsLoading) && !allowsRecoverableDiscard {
             blockers.append("loading")
         }
@@ -160,6 +90,8 @@ public final class BrowserHiddenWebViewDiscardManager {
         if snapshot.isDownloading || snapshot.activeDownloadCount != 0 { blockers.append("download") }
         if snapshot.isCapturingMedia { blockers.append("media_capture") }
         if snapshot.isPlayingMedia { blockers.append("media_playback") }
+        if snapshot.isPictureInPictureActive { blockers.append("picture_in_picture") }
+        if snapshot.hasUnrestorableFormInput && !isUnderPressure { blockers.append("form_input") }
         if snapshot.preferredDeveloperToolsVisible || snapshot.isDeveloperToolsVisible {
             blockers.append("developer_tools")
         }
@@ -175,7 +107,7 @@ public final class BrowserHiddenWebViewDiscardManager {
     public func scheduleIfNeeded(
         reason: String,
         now: Date = Date(),
-        allowingRecoverableWebContentTermination: Bool = false
+        urgency: BrowserHiddenWebViewDiscardUrgency = .routine
     ) {
         // Under the memory budget, hidden time alone never discards a pane;
         // the budget coordinator picks the pane hidden longest.
@@ -183,11 +115,7 @@ public final class BrowserHiddenWebViewDiscardManager {
             cancel()
             return
         }
-        armDiscardCountdown(
-            reason: reason,
-            now: now,
-            allowingRecoverableWebContentTermination: allowingRecoverableWebContentTermination
-        )
+        armDiscardCountdown(reason: reason, now: now, urgency: urgency)
     }
 
     /// Discards the pane once it has been hidden for the delay, counted from
@@ -195,18 +123,16 @@ public final class BrowserHiddenWebViewDiscardManager {
     private func armDiscardCountdown(
         reason: String,
         now: Date,
-        allowingRecoverableWebContentTermination: Bool
+        urgency: BrowserHiddenWebViewDiscardUrgency
     ) {
         scheduleGeneration &+= 1
         discardTimer?.cancel()
         discardTimer = nil
 
         guard let delegate else { return }
-        guard blockers(
-            for: delegate.hiddenWebViewDiscardSnapshot,
-            now: now,
-            allowingRecoverableWebContentTermination: allowingRecoverableWebContentTermination
-        ).isEmpty else { return }
+        guard blockers(for: delegate.hiddenWebViewDiscardSnapshot, now: now, urgency: urgency).isEmpty else {
+            return
+        }
 
         let observedWebViewInstanceID = delegate.hiddenWebViewDiscardWebViewInstanceID
         let generation = scheduleGeneration
@@ -245,28 +171,18 @@ public final class BrowserHiddenWebViewDiscardManager {
     @discardableResult
     public func requestImmediateDiscardIfSafe(reason: String, now: Date = Date()) -> Bool {
         guard let delegate else { return false }
-        let allowsRecoverableWebContentTermination = reason == Self.systemMemoryPressureReason
-        guard blockers(
-            for: delegate.hiddenWebViewDiscardSnapshot,
-            now: now,
-            allowingRecoverableWebContentTermination: allowsRecoverableWebContentTermination
-        ).isEmpty else { return false }
+        let urgency = BrowserHiddenWebViewDiscardUrgency(reason: reason)
+        guard blockers(for: delegate.hiddenWebViewDiscardSnapshot, now: now, urgency: urgency).isEmpty else {
+            return false
+        }
         // A deferred pressure discard keeps its countdown in either mode.
         guard delegate.hiddenWebViewDiscardHiddenAt != nil else {
-            armDiscardCountdown(
-                reason: reason,
-                now: now,
-                allowingRecoverableWebContentTermination: allowsRecoverableWebContentTermination
-            )
+            armDiscardCountdown(reason: reason, now: now, urgency: urgency)
             return false
         }
         // Memory pressure bypasses the hidden-duration delay, not the WebKit post-wake crash guard.
         guard !isInPostWakeDiscardDelay(now: now) else {
-            armDiscardCountdown(
-                reason: reason,
-                now: now,
-                allowingRecoverableWebContentTermination: allowsRecoverableWebContentTermination
-            )
+            armDiscardCountdown(reason: reason, now: now, urgency: urgency)
             return false
         }
 

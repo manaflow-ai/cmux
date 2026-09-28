@@ -2511,26 +2511,23 @@ final class BrowserPanel: Panel, ObservableObject {
     var reactGrabMessageHandler: ReactGrabMessageHandler?
     var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
     var sameDocumentNavigationMessageHandler: BrowserSameDocumentNavigationMessageHandler?; var documentReadyMessageHandler: BrowserDocumentReadyMessageHandler?
-    /// Whether the live page currently has any actively-playing `<video>` or
-    /// `<audio>` element, in the main frame or any iframe, reported by the
-    /// injected media-playback hook. Keeps an actively-playing pane alive in the
-    /// background instead of being discarded after the hidden delay
-    /// (https://github.com/manaflow-ai/cmux/issues/5409).
-    private(set) var isPlayingMedia: Bool = false {
+    /// Playing `<video>`/`<audio>` and Picture in Picture across the live page's
+    /// frames, reported by the injected media-playback hook. Either keeps a
+    /// hidden pane alive (https://github.com/manaflow-ai/cmux/issues/5409).
+    private(set) var mediaPlaybackFrames = BrowserMediaPlaybackFrames() {
         didSet {
-            guard oldValue != isPlayingMedia else { return }
+            guard oldValue.isPlaying != mediaPlaybackFrames.isPlaying
+                || oldValue.isPictureInPictureActive != mediaPlaybackFrames.isPictureInPictureActive else { return }
             reevaluateHiddenWebViewDiscardScheduling(reason: "media_playback_changed")
         }
     }
+    var isPlayingMedia: Bool { mediaPlaybackFrames.isPlaying }
     /// Live media activity. ``Workspace`` publishes it to tab/sidebar surfaces.
     private(set) var mediaActivity = BrowserMediaActivity()
     var isPlayingAudio: Bool { mediaActivity.isPlayingAudio }
     var isUsingMicrophone: Bool { mediaActivity.isUsingMicrophone }
     var isUsingCamera: Bool { mediaActivity.isUsingCamera }
     var onMediaActivityChanged: ((BrowserMediaActivity) -> Void)?
-    /// Frame ids reporting playing media; keeps hidden panes alive while non-empty.
-    private var playingMediaFrameIDs: Set<String> = []
-    private var audibleMediaFrameIDs: Set<String> = []
     var mediaPlaybackMessageHandler: BrowserMediaPlaybackMessageHandler?
     let pageRestoration = BrowserPageRestorationState()
 
@@ -2551,21 +2548,18 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     /// Folds a per-frame playback report into retention and audio-glyph state.
-    func applyMediaPlaybackReport(frameID: String, isPlaying: Bool, isAudible: Bool) {
-        if isPlaying { playingMediaFrameIDs.insert(frameID) } else { playingMediaFrameIDs.remove(frameID) }
-        if isPlaying && isAudible { audibleMediaFrameIDs.insert(frameID) } else { audibleMediaFrameIDs.remove(frameID) }
-        isPlayingMedia = !playingMediaFrameIDs.isEmpty
+    func applyMediaPlaybackReport(_ report: BrowserMediaPlaybackReport) {
+        mediaPlaybackFrames.apply(report)
         refreshAudioMediaActivity(reason: "media_audibility_changed")
     }
 
     /// Clears tracked frames after a webview bind or main-frame navigation.
     func resetMediaPlaybackTracking() {
-        (playingMediaFrameIDs, audibleMediaFrameIDs) = ([], [])
-        isPlayingMedia = false
+        mediaPlaybackFrames = BrowserMediaPlaybackFrames()
         refreshAudioMediaActivity(reason: "media_playback_reset")
     }
 
-    private func refreshAudioMediaActivity(reason: String) { setMediaActivity(isPlayingAudio: !audibleMediaFrameIDs.isEmpty && !isMuted, reason: reason) }
+    private func refreshAudioMediaActivity(reason: String) { setMediaActivity(isPlayingAudio: mediaPlaybackFrames.isAudible && !isMuted, reason: reason) }
 
     /// Clears page-owned media state before a terminated WebView is detached.
     /// WebKit can publish stale capture/playback callbacks while it is tearing
@@ -2575,12 +2569,8 @@ final class BrowserPanel: Panel, ObservableObject {
         suppressHiddenWebViewDiscardReevaluation = true
         defer { suppressHiddenWebViewDiscardReevaluation = false }
 
-        let changed = !playingMediaFrameIDs.isEmpty ||
-            !audibleMediaFrameIDs.isEmpty ||
-            isPlayingMedia ||
-            mediaActivity != BrowserMediaActivity()
-        (playingMediaFrameIDs, audibleMediaFrameIDs) = ([], [])
-        isPlayingMedia = false
+        let changed = mediaPlaybackFrames != BrowserMediaPlaybackFrames() || mediaActivity != BrowserMediaActivity()
+        mediaPlaybackFrames = BrowserMediaPlaybackFrames()
         setMediaActivity(
             isPlayingAudio: false,
             isUsingMicrophone: false,
@@ -2777,17 +2767,10 @@ final class BrowserPanel: Panel, ObservableObject {
         isClosingWebViewLifecycle = false
     }
 
-    private func hiddenWebViewDiscardBlockers() -> [String] {
-        hiddenWebViewDiscardManager.blockers(for: hiddenWebViewDiscardSnapshot)
-    }
-
     private func hiddenWebViewDiscardBlockers(
-        allowingRecoverableWebContentTermination: Bool
+        urgency: BrowserHiddenWebViewDiscardUrgency = .routine
     ) -> [String] {
-        hiddenWebViewDiscardManager.blockers(
-            for: hiddenWebViewDiscardSnapshot,
-            allowingRecoverableWebContentTermination: allowingRecoverableWebContentTermination
-        )
+        hiddenWebViewDiscardManager.blockers(for: hiddenWebViewDiscardSnapshot, urgency: urgency)
     }
 
     private func scheduleHiddenWebViewDiscardIfNeeded(reason: String, now: Date = Date()) {
@@ -2814,12 +2797,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     @discardableResult
     func discardHiddenWebViewForMemory(reason: String, now: Date = Date()) -> Bool {
-        let allowsRecoverableWebContentTermination =
-            reason == BrowserHiddenWebViewDiscardManager.systemMemoryPressureReason
-        let blockers = hiddenWebViewDiscardBlockers(
-            allowingRecoverableWebContentTermination: allowsRecoverableWebContentTermination
-        )
-        guard blockers.isEmpty else { return false }
+        let urgency = BrowserHiddenWebViewDiscardUrgency(reason: reason)
+        guard hiddenWebViewDiscardBlockers(urgency: urgency).isEmpty else { return false }
 
         dropWebViewForDiscard(reason: reason, now: now)
         return true
@@ -6027,8 +6006,10 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isVisualAutomationCaptureActive: activeVisualAutomationCaptureCount > 0,
             isMobileBrowserStreamActive: !mobileBrowserStreamSignalHandlers.isEmpty,
             hasPopups: !popupControllers.isEmpty,
-            isCapturingMedia: webView.cameraCaptureState != .none || webView.microphoneCaptureState != .none,
-            isPlayingMedia: isPlayingMedia
+            isCapturingMedia: webView.cmuxIsCapturingMedia,
+            isPlayingMedia: isPlayingMedia,
+            isPictureInPictureActive: mediaPlaybackFrames.isPictureInPictureActive,
+            hasUnrestorableFormInput: pageRestoration.hasUnrestorableLiveInput
         )
     }
 

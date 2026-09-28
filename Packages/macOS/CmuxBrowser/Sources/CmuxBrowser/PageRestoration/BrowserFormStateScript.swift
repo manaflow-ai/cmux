@@ -14,13 +14,18 @@ public enum BrowserFormStateScript {
 
     /// Document-start observer. After input settles, and when the page is
     /// hidden, it reports every control whose value differs from its default,
-    /// keyed by a locator the restore script can resolve again.
+    /// keyed by a locator the restore script can resolve again, and whether
+    /// the page holds typed input the restore cannot replay: a changed
+    /// password, payment or file field, a value past the size limits, or an
+    /// edit to rich text or a shadow-root control. Rich-text edits stay
+    /// counted until the document goes away.
     public static let observerSource = #"""
     (() => {
       try {
         const MAX_FIELDS = 200;
         const MAX_VALUE = 65536;
         const EXCLUDED_TYPES = new Set(["password", "hidden", "file", "button", "submit", "reset", "image"]);
+        const NON_INPUT_TYPES = new Set(["hidden", "button", "submit", "reset", "image"]);
         const isSensitiveAutocomplete = (raw) => String(raw || "").toLowerCase().split(/\s+/).some((token) =>
           token === "off" || token === "one-time-code" || token.startsWith("cc-") || token.endsWith("-password"));
         const isEligible = (el) => {
@@ -76,23 +81,40 @@ public enum BrowserFormStateScript {
           if (el.value === el.defaultValue || el.value.length > MAX_VALUE) return null;
           return { v: el.value };
         };
+        const isChanged = (el) => {
+          if (el.disabled) return false;
+          if (el instanceof HTMLSelectElement) return selectState(el) !== null;
+          if (el instanceof HTMLInputElement) {
+            if (NON_INPUT_TYPES.has(el.type)) return false;
+            if (el.type === "file") return !!el.files && el.files.length > 0;
+            if (el.type === "checkbox" || el.type === "radio") return el.checked !== el.defaultChecked;
+          }
+          return el.value !== el.defaultValue;
+        };
+        let editedUntrackedContent = false;
         const collect = () => {
           const fields = [];
           const seen = new Set();
+          let unrestorable = editedUntrackedContent;
           for (const el of document.querySelectorAll("input, textarea, select")) {
-            if (fields.length >= MAX_FIELDS) break;
-            if (!isEligible(el)) continue;
+            if (!isChanged(el)) continue;
+            if (!isEligible(el) || fields.length >= MAX_FIELDS) {
+              unrestorable = true;
+              continue;
+            }
             const state = fieldState(el);
-            if (!state) continue;
-            const key = keyFor(el);
-            if (seen.has(key)) continue;
+            const key = state ? keyFor(el) : null;
+            if (!state || seen.has(key)) {
+              unrestorable = true;
+              continue;
+            }
             seen.add(key);
             state.k = key;
             fields.push(state);
           }
-          return fields;
+          return { fields, unrestorable };
         };
-        let lastReported = "[]";
+        let lastReported = JSON.stringify({ fields: [], unrestorable: false });
         let timer = null;
         let unloading = false;
         const flush = () => {
@@ -101,20 +123,32 @@ public enum BrowserFormStateScript {
             timer = null;
           }
           if (unloading) return;
-          let fields = [];
-          try { fields = collect(); } catch (_) {}
-          const serialized = JSON.stringify(fields);
+          let state = { fields: [], unrestorable: editedUntrackedContent };
+          try { state = collect(); } catch (_) {}
+          const serialized = JSON.stringify(state);
           if (serialized === lastReported) return;
           lastReported = serialized;
           try {
-            window.webkit.messageHandlers["\#(messageHandlerName)"].postMessage({ url: String(location.href), fields });
+            window.webkit.messageHandlers["\#(messageHandlerName)"].postMessage({
+              url: String(location.href),
+              fields: state.fields,
+              unrestorable: state.unrestorable
+            });
           } catch (_) {}
         };
         const schedule = () => {
           if (timer !== null) clearTimeout(timer);
           timer = setTimeout(flush, 250);
         };
-        document.addEventListener("input", schedule, true);
+        document.addEventListener("input", (event) => {
+          // The first composed path entry is the edited node even inside an
+          // open shadow root, which the form scan above cannot reach.
+          const origin = typeof event.composedPath === "function" ? event.composedPath()[0] : event.target;
+          if (origin && (origin.isContentEditable || (origin.getRootNode && origin.getRootNode() !== document))) {
+            editedUntrackedContent = true;
+          }
+          schedule();
+        }, true);
         document.addEventListener("change", schedule, true);
         document.addEventListener("visibilitychange", () => {
           if (document.visibilityState === "hidden") flush();

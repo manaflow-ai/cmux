@@ -61,6 +61,25 @@ struct BrowserPageRestorationStateTests {
         #expect(restoration.liveFormState == nil)
     }
 
+    @Test("A report of only unrestorable input is kept until the page clears it")
+    func unrestorableOnlyReportIsKept() {
+        let restoration = BrowserPageRestorationState()
+        restoration.recordLiveFormState(BrowserFormStateSnapshot(documentURL: pageURL, fields: [], hasUnrestorableInput: true))
+        #expect(restoration.hasUnrestorableLiveInput)
+
+        restoration.recordLiveFormState(BrowserFormStateSnapshot(documentURL: pageURL, fields: []))
+        #expect(!restoration.hasUnrestorableLiveInput)
+        #expect(restoration.liveFormState == nil)
+    }
+
+    @Test("A new document forgets the previous document's unrestorable input")
+    func commitClearsUnrestorableInput() {
+        let restoration = BrowserPageRestorationState()
+        restoration.recordLiveFormState(BrowserFormStateSnapshot(documentURL: pageURL, fields: [], hasUnrestorableInput: true))
+        restoration.noteDocumentCommitted(isDiscardRestoreCommit: false)
+        #expect(!restoration.hasUnrestorableLiveInput)
+    }
+
     @Test("A snapshot finishing after the discard attaches to its capture")
     func lateSnapshotAttaches() {
         let restoration = BrowserPageRestorationState()

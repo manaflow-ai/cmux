@@ -86,6 +86,28 @@ struct BrowserFormStateSnapshotTests {
         )
         #expect(snapshot.fields.count == BrowserFormStateSnapshot.maxFieldCount)
         #expect(snapshot.fields.first?.key == "id:f0")
+        #expect(snapshot.hasUnrestorableInput)
+    }
+
+    @Test("Input the observer or the caps leave out counts as unrestorable")
+    func unrestorableInput() throws {
+        let plain = try #require(
+            BrowserFormStateSnapshot(messageBody: ["url": "https://example.com/", "fields": [["k": "id:a", "v": "x"]]] as [String: Any])
+        )
+        #expect(!plain.hasUnrestorableInput)
+
+        let flagged = try #require(
+            BrowserFormStateSnapshot(messageBody: ["url": "https://example.com/", "fields": [] as [Any], "unrestorable": true] as [String: Any])
+        )
+        #expect(flagged.isEmpty)
+        #expect(flagged.hasUnrestorableInput)
+
+        let oversized = String(repeating: "x", count: BrowserFormStateSnapshot.maxValueLength + 1)
+        let capped = try #require(
+            BrowserFormStateSnapshot(messageBody: ["url": "https://example.com/", "fields": [["k": "id:big", "v": oversized]]] as [String: Any])
+        )
+        #expect(capped.isEmpty)
+        #expect(capped.hasUnrestorableInput)
     }
 
     @Test("Input stays on its origin; file URLs must be the same file")

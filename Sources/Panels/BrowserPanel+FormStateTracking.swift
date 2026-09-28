@@ -27,7 +27,13 @@ extension BrowserPanel {
         let boundWebViewInstanceID = webViewInstanceID
         let handler = BrowserFormStateMessageHandler { [weak self] snapshot in
             guard let self, boundWebViewInstanceID == self.webViewInstanceID else { return }
+            let hadUnrestorableInput = self.pageRestoration.hasUnrestorableLiveInput
             self.pageRestoration.recordLiveFormState(snapshot)
+            // Input a restore would lose keeps a hidden pane from a routine
+            // discard, so a timer armed without it must be re-evaluated.
+            if self.pageRestoration.hasUnrestorableLiveInput != hadUnrestorableInput {
+                self.reevaluateHiddenWebViewDiscardScheduling(reason: "form_input_changed")
+            }
         }
         pageRestoration.formStateMessageHandler = handler
         webView.configuration.userContentController.add(
