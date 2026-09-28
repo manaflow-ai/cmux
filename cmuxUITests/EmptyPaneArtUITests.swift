@@ -1,11 +1,11 @@
 import XCTest
 
-/// With `emptyPane.artFile` set, a pane left empty by closing its last tab
+/// With `emptyPane.artFile` set, a pane left empty by closing its last surface
 /// shows the user's art above the Terminal and Browser buttons.
 ///
 /// The settings come in through the launch-argument defaults domain, the same
 /// defaults keys cmux.json writes: the art file, and keeping the workspace open
-/// when the tab-strip close button closes its last tab (otherwise the window
+/// when the Close shortcut closes its last surface (otherwise the workspace
 /// closes instead of leaving an empty pane). The art mixes a lolcat-style
 /// truecolor banner, 16-color text and chafa-style half blocks so the
 /// screenshot shows each.
@@ -20,7 +20,6 @@ final class EmptyPaneArtUITests: SettingsUITestCase {
         app.launchArguments += settingsLaunchArguments + [
             "-emptyPaneArtFile", artURL.path,
             "-closeWorkspaceOnLastSurfaceShortcut", "NO",
-            "-warnBeforeClosingTabXButton", "NO",
         ]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = "ui-empty-pane-art-\(UUID().uuidString.prefix(8))"
@@ -34,24 +33,14 @@ final class EmptyPaneArtUITests: SettingsUITestCase {
         XCTAssertTrue(poll(timeout: 10) { terminal.frame.height > 100 }, "Expected a laid-out terminal")
         RunLoop.current.run(until: Date().addingTimeInterval(1.0))
 
-        // The selected tab sits in the pane's tab strip right above the
-        // terminal; its close button is the trailing 16 pt accessory inside
-        // 6 pt of padding (Bonsplit TabBarMetrics).
-        let terminalFrame = terminal.frame
-        let tab = try XCTUnwrap(
-            app.buttons.allElementsBoundByIndex.first { element in
-                let frame = element.frame
-                return frame.height >= 20 && frame.height <= 40
-                    && abs(frame.maxY - terminalFrame.minY) <= 20
-                    && frame.minX >= terminalFrame.minX - 4
-                    && frame.minX < terminalFrame.midX
-            },
-            "Expected the terminal's tab above \(terminalFrame)"
-        )
-        tab.hover()
-        tab.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
-            .withOffset(CGVector(dx: tab.frame.width - 14, dy: 0))
-            .click()
+        // Close the launch terminal with the Close shortcut. With the workspace
+        // kept open on its last surface, that leaves an empty pane.
+        terminal.click()
+        app.typeKey("w", modifierFlags: .command)
+        let confirm = app.buttons["Close"]
+        if confirm.waitForExistence(timeout: 2) {
+            confirm.click()
+        }
 
         let art = app.descendants(matching: .any)["EmptyPanelArt"]
         let appeared = art.waitForExistence(timeout: 15)
