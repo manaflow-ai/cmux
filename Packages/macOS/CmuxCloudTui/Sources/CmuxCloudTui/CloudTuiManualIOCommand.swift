@@ -152,6 +152,24 @@ public struct CloudTuiManualIOCommand: Sendable {
         ]
     }
 
+    /// Records explicit activity (focus-click, keyboard, paste or mouse input)
+    /// for the latest-input policy.
+    ///
+    /// - Parameters:
+    ///   - surfaceID: the numeric cmux-tui surface.
+    ///   - view: a relay sub-view (`mobile:<client_id>`), or `nil` for this
+    ///     connection's own participant.
+    ///   - requestID: correlation id.
+    public func noteSizeActivity(surfaceID: UInt64, view: String? = nil, requestID: UInt64 = 1) -> [String: Any] {
+        var command: [String: Any] = [
+            "id": requestID,
+            "cmd": "note-size-activity",
+            "surface": surfaceID,
+        ]
+        if let view { command["view"] = view }
+        return command
+    }
+
     /// Asks for the current size state.
     public func getSizeState(surfaceID: UInt64, requestID: UInt64 = 1) -> [String: Any] {
         [

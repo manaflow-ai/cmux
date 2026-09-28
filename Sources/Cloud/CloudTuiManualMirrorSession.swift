@@ -456,6 +456,12 @@ final class CloudTuiManualMirrorSession {
     /// user is typing in must be the authoritative geometry owner. An owner
     /// already confirmed, or a server without claims, sends its keys alone.
     func noteExplicitInput() {
+        if sizingRelay.isSupported {
+            // Activity only matters when it moves ownership to this Mac.
+            if let me = sizingRelay.selfParticipantID, sizingRelay.state?.owners == [me] { return }
+            sendSharingFocusActivity()
+            return
+        }
         guard (!geometryClaimed && !claimUnsupported) || geometryClaimBlockedByPeer else { return }
         claimGeometry()
     }

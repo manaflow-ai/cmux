@@ -191,6 +191,10 @@ extension TerminalController {
     }
 
     private func noteMobileSizingActivity(surfaceID: UUID, clientID: String) {
+        if let relay = cloudSizingRelaysBySurfaceID[surfaceID]?.value, relay.relaysPhones {
+            relay.relayPhoneActivity(clientID: clientID)
+            return
+        }
         guard var host = localSizingHostsBySurfaceID[surfaceID] else { return }
         let previous = host.state
         guard host.noteActivity(LocalTerminalSizingHost.phoneParticipantID(clientID: clientID)) else { return }
@@ -357,7 +361,9 @@ extension TerminalController {
         }
         guard let clientID = v2String(params, "client_id") else { return nil }
         let needsGate = hasDetachedMobileClients
-        guard needsGate || (isInput && !localSizingHostsBySurfaceID.isEmpty) else { return nil }
+        guard needsGate || (isInput && (!localSizingHostsBySurfaceID.isEmpty || !cloudSizingRelaysBySurfaceID.isEmpty)) else {
+            return nil
+        }
         guard let surfaceID = mobileCanonicalTerminalTarget(params: params)?.surfaceID else { return nil }
         if needsGate, let error = mobileClientDetachedError(surfaceID: surfaceID, clientID: clientID) {
             return error

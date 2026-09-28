@@ -166,9 +166,21 @@ extension CloudTuiManualMirrorSession: CloudSizingPhoneRelaying, TerminalSharing
         return true
     }
 
-    /// Under shared sizing an explicit claim is focus activity for this Mac.
+    /// Explicit focus or input on this Mac pane (`note-size-activity`).
+    /// `set-client-sizing` is not used here: under shared sizing its
+    /// `enabled: false` means counts false.
     func sendSharingFocusActivity() {
-        _ = sendSizing(commandBuilder.claimGeometry(surfaceID: remoteSurfaceID, requestID: takeRequestID()))
+        _ = sendSizing(commandBuilder.noteSizeActivity(surfaceID: remoteSurfaceID, requestID: takeRequestID()))
+    }
+
+    func relayPhoneActivity(clientID: String) {
+        // Activity only matters when it moves ownership to this phone.
+        if let phone = sizingRelay.hostParticipantID(clientID: clientID), sizingRelay.state?.owners == [phone] { return }
+        _ = sendSizing(commandBuilder.noteSizeActivity(
+            surfaceID: remoteSurfaceID,
+            view: CloudTerminalSizingRelay.viewKey(clientID: clientID),
+            requestID: takeRequestID()
+        ))
     }
 
     // MARK: Store actions (TerminalSharingSurfaceControlling)

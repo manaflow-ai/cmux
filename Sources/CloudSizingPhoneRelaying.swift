@@ -16,6 +16,8 @@ protocol CloudSizingPhoneRelaying: AnyObject {
     func relayPhones(_ phones: [String: TerminalSizingParticipant])
     /// Forwards a phone's counts override.
     func relayPhoneCountsOverride(clientID: String, value: Bool?)
+    /// Forwards a phone's explicit input as activity.
+    func relayPhoneActivity(clientID: String)
     /// The host participant id a phone should treat as itself.
     func relayHostParticipantID(clientID: String) -> String?
 }
