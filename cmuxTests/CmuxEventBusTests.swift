@@ -98,10 +98,10 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(snapshot.replay.compactMap { $0["name"] as? String }, ["one", "two"])
         XCTAssertEqual(snapshot.replay.compactMap { CmuxEventBus.int64($0["seq"]) }, [1, 2])
         XCTAssertEqual((snapshot.ack["resume"] as? [String: Any])?["gap"] as? Bool, false)
-
         secondBus.publish(name: "three", category: "test", source: "second")
         secondBus.flushEventLogForTesting()
-        XCTAssertEqual(secondBus.latestSequence, CmuxEventSequenceStore.defaultBlockSize + 1)
+        let expectedSequence = Int64(CmuxEventSequenceStore.defaultBlockSize + 1)
+        XCTAssertEqual(secondBus.latestSequence, expectedSequence)
     }
 
     func testDurableReplayRebasesSequenceAfterAnOlderBootSegment() async throws {
