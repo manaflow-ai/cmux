@@ -168,7 +168,9 @@ extension Workspace {
     /// Keys a local agent PID still owns are left alone.
     func clearRelayHostAgentStatus() {
         guard showsRelayHostAgentStatus else { return }
-        let localAgentKeys = Set(agentPIDs.keys)
+        // PID keys can be session-qualified (`codex.<session-id>`); compare
+        // them in status-key form so a local agent keeps its status.
+        let localAgentKeys = Set(agentPIDs.keys.map { agentStatusKey(forAgentPIDKey: $0) })
         for statusKey in AgentHibernationLifecycleStatusKeys.allowedStatusKeys
             where !localAgentKeys.contains(statusKey) {
             removeStatusEntry(forKey: statusKey)
