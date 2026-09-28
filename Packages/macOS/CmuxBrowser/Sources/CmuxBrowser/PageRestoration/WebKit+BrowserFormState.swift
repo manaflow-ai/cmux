@@ -1,17 +1,25 @@
-/// Scripts that keep a discarded pane's unsaved form input.
-///
-/// Both run in an isolated content world: they share the DOM with the page
-/// but not its JavaScript globals, so page script can neither read the
-/// reported values nor post fake reports. The observer is passive (capture
-/// phase listeners, no prototype or global changes) and main frame only.
-public enum BrowserFormStateScript {
+public import WebKit
+
+// The scripts that keep a discarded pane's unsaved form input.
+//
+// Both run in an isolated content world: they share the DOM with the page
+// but not its JavaScript globals, so page script can neither read the
+// reported values nor post fake reports. The observer is passive (capture
+// phase listeners, no prototype or global changes) and main frame only.
+
+extension WKContentWorld {
+    /// Isolated world shared by the form-state observer, its message handler
+    /// and the restore call.
+    @MainActor
+    public static var browserFormState: WKContentWorld {
+        .world(name: browserFormStateName)
+    }
+
     /// Name shared by the content world and the script message handler.
-    public static let messageHandlerName = "cmuxFormState"
+    fileprivate static let browserFormStateName = "cmuxFormState"
+}
 
-    /// How long the restore script waits for late-rendered controls, such as
-    /// a single-page app that builds its form after the document loads.
-    public static let restoreTimeoutMilliseconds = 5_000
-
+extension WKUserScript {
     /// Document-start observer. After input settles, and when the page is
     /// hidden, it reports every control whose value differs from its default,
     /// keyed by a locator the restore script can resolve again, and whether
@@ -19,7 +27,17 @@ public enum BrowserFormStateScript {
     /// password, payment or file field, a value past the size limits, or an
     /// edit to rich text or a shadow-root control. Rich-text edits stay
     /// counted until the document goes away.
-    public static let observerSource = #"""
+    @MainActor
+    public static func browserFormStateObserver() -> WKUserScript {
+        WKUserScript(
+            source: browserFormStateObserverSource,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true,
+            in: .browserFormState
+        )
+    }
+
+    private static let browserFormStateObserverSource = #"""
     (() => {
       try {
         const MAX_FIELDS = 200;
@@ -129,7 +147,7 @@ public enum BrowserFormStateScript {
           if (serialized === lastReported) return;
           lastReported = serialized;
           try {
-            window.webkit.messageHandlers["\#(messageHandlerName)"].postMessage({
+            window.webkit.messageHandlers["\#(WKContentWorld.browserFormStateName)"].postMessage({
               url: String(location.href),
               fields: state.fields,
               unrestorable: state.unrestorable
@@ -174,13 +192,60 @@ public enum BrowserFormStateScript {
       return true;
     })();
     """#
+}
+
+extension WKUserContentController {
+    /// Routes reports from ``WKUserScript/browserFormStateObserver()`` to
+    /// `handler`.
+    @MainActor
+    public func addBrowserFormStateHandler(_ handler: BrowserFormStateMessageHandler) {
+        add(handler, contentWorld: .browserFormState, name: WKContentWorld.browserFormStateName)
+    }
+
+    @MainActor
+    public func removeBrowserFormStateHandler() {
+        removeScriptMessageHandler(forName: WKContentWorld.browserFormStateName, contentWorld: .browserFormState)
+    }
+}
+
+extension WKWebView {
+    /// Refills the current document's controls from `formState`: only
+    /// controls the page has not changed itself, dispatching `input` and
+    /// `change` so frameworks see the values, and waiting a bounded time for
+    /// controls rendered later.
+    ///
+    /// - Parameter onFailure: Called on the main actor if the script fails.
+    @MainActor
+    public func restoreBrowserFormState(
+        _ formState: BrowserFormStateSnapshot,
+        onFailure: @escaping @MainActor @Sendable (any Error) -> Void
+    ) {
+        callAsyncJavaScript(
+            Self.browserFormStateRestoreFunctionBody,
+            arguments: [
+                "fields": formState.restorePayload,
+                "timeoutMs": Self.browserFormStateRestoreTimeoutMilliseconds
+            ],
+            in: nil,
+            in: .browserFormState
+        ) { result in
+            guard case .failure(let error) = result else { return }
+            Task { @MainActor in
+                onFailure(error)
+            }
+        }
+    }
+
+    /// How long the restore script waits for late-rendered controls, such as
+    /// a single-page app that builds its form after the document loads.
+    private static let browserFormStateRestoreTimeoutMilliseconds = 5_000
 
     /// Body for `callAsyncJavaScript` with arguments `fields` (the snapshot's
     /// ``BrowserFormStateSnapshot/restorePayload``) and `timeoutMs`. Fills
     /// controls the page has not changed itself, dispatches `input` and
     /// `change` so frameworks see the values, waits up to `timeoutMs` for
     /// controls rendered later, and resolves to the number restored.
-    public static let restoreFunctionBody = #"""
+    private static let browserFormStateRestoreFunctionBody = #"""
     const pending = new Map();
     for (const field of fields) pending.set(field.k, field);
     let restored = 0;

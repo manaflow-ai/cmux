@@ -3,22 +3,10 @@ import Foundation
 import WebKit
 
 extension BrowserPanel {
-    /// Isolated content world shared by the form-state observer, its message
-    /// handler and the restore call, so page JavaScript can neither read the
-    /// reported input nor post fake reports.
-    static let formStateContentWorld = WKContentWorld.world(name: BrowserFormStateScript.messageHandlerName)
-
     /// Main-frame observer that reports unsaved form input, which a discarded
     /// pane restores after its page comes back.
     static func installFormStateUserScript(into configuration: WKWebViewConfiguration) {
-        configuration.userContentController.addUserScript(
-            WKUserScript(
-                source: BrowserFormStateScript.observerSource,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true,
-                in: formStateContentWorld
-            )
-        )
+        configuration.userContentController.addUserScript(.browserFormStateObserver())
     }
 
     func setupFormStateMessageHandler(for webView: WKWebView) {
@@ -36,39 +24,22 @@ extension BrowserPanel {
             }
         }
         pageRestoration.formStateMessageHandler = handler
-        webView.configuration.userContentController.add(
-            handler,
-            contentWorld: Self.formStateContentWorld,
-            name: BrowserFormStateScript.messageHandlerName
-        )
+        webView.configuration.userContentController.addBrowserFormStateHandler(handler)
     }
 
     func tearDownFormStateMessageHandler(for webView: WKWebView) {
-        webView.configuration.userContentController.removeScriptMessageHandler(
-            forName: BrowserFormStateScript.messageHandlerName,
-            contentWorld: Self.formStateContentWorld
-        )
+        webView.configuration.userContentController.removeBrowserFormStateHandler()
         pageRestoration.formStateMessageHandler = nil
     }
 
     /// Refills the restored document's unsaved input once it has loaded.
     func applyPendingFormRestore(to webView: WKWebView) {
         guard let formState = pageRestoration.takePendingFormRestore(for: webView.url) else { return }
-        webView.callAsyncJavaScript(
-            BrowserFormStateScript.restoreFunctionBody,
-            arguments: [
-                "fields": formState.restorePayload,
-                "timeoutMs": BrowserFormStateScript.restoreTimeoutMilliseconds
-            ],
-            in: nil,
-            in: Self.formStateContentWorld
-        ) { result in
+        webView.restoreBrowserFormState(formState) { error in
 #if DEBUG
-            if case .failure(let error) = result {
-                cmuxDebugLog("browser.discard.formRestore failed error=\(error.localizedDescription)")
-            }
+            cmuxDebugLog("browser.discard.formRestore failed error=\(error.localizedDescription)")
 #else
-            _ = result
+            _ = error
 #endif
         }
     }

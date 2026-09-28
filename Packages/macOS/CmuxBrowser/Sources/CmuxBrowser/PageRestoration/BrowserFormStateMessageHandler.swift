@@ -1,8 +1,9 @@
 public import Foundation
 public import WebKit
 
-/// Receives unsaved form input from the injected ``BrowserFormStateScript``
-/// observer and forwards it to the owning panel on the main actor.
+/// Receives unsaved form input from the injected
+/// ``WKUserScript/browserFormStateObserver()`` and forwards it to the
+/// owning panel on the main actor.
 ///
 /// Mirrors ``BrowserMediaPlaybackMessageHandler``: a thin `NSObject` adapter
 /// so the panel never conforms to `WKScriptMessageHandler` itself.
