@@ -23,8 +23,11 @@ class BrowserFixtureSocketTestCase: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
-        socketPath = "/tmp/cmux-debug-\(UUID().uuidString).sock"
-        diagnosticsPath = "/tmp/cmux-ui-test-browser-fixtures-\(UUID().uuidString).json"
+        // XCTest can connect to app-owned sockets inside its sandbox's temporary directory.
+        // Keep the basename short enough for sockaddr_un.sun_path.
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+        socketPath = temporaryDirectory.appendingPathComponent("bf-\(UUID().uuidString.prefix(8)).sock").path
+        diagnosticsPath = temporaryDirectory.appendingPathComponent("browser-fixtures-\(UUID().uuidString).json").path
         launchTag = "ui-tests-browser-\(UUID().uuidString.prefix(8))"
         try? FileManager.default.removeItem(atPath: socketPath)
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
@@ -273,7 +276,7 @@ class BrowserFixtureSocketTestCase: XCTestCase {
     // MARK: - Socket plumbing (mirrors AutomationSocketUITests)
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        let ready = waitForControlSocketReady(
+        waitForControlSocketReady(
             pingTimeout: timeout,
             socketFileExists: {
                 self.socketCandidates().contains { FileManager.default.fileExists(atPath: $0) }
@@ -289,16 +292,6 @@ class BrowserFixtureSocketTestCase: XCTestCase {
                 return false
             }
         )
-        if ready { return true }
-
-        let diagnostics = loadDiagnostics()
-        guard controlSocketDiagnosticsReportReady(diagnostics),
-              let expectedPath = diagnostics["socketExpectedPath"],
-              socketCandidates().contains(expectedPath) else {
-            return false
-        }
-        socketPath = expectedPath
-        return true
     }
 
     private func socketCandidates() -> [String] {
