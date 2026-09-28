@@ -116,6 +116,10 @@ final class KitSession: CloudTerminalSession, @unchecked Sendable {
         try client.createTerminal(name: name)
     }
 
+    func createTerminal(inWorkspace workspaceID: String, name: String?) async throws -> String {
+        try client.createTerminal(inWorkspace: workspaceID, name: name)
+    }
+
     func attach(terminalID: String, output: @escaping @Sendable (CloudTerminalOutputEvent) -> Void) async throws {
         client.setOutputHandler { event in
             output(Self.map(event))
