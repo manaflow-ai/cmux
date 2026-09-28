@@ -448,31 +448,13 @@ extension TerminalController {
                 return v2Error(id: id, code: "invalid_params", message: "vm.destroy requires `id`. Run `cmux vm ls` to find one, then `cmux vm rm <id>`.")
             }
             return v2CloudCall(id: id, method: method, params: params) {
-                do {
-                    try await VMClient.shared.destroy(id: vmId)
-                } catch let error as VMClientError {
-                    // Delete is idempotent from the person's perspective. A
-                    // stale sidebar row can point at a machine the backend has
-                    // already forgotten; treat that 404 as success so the
-                    // normal CLI completion path dismisses the operation and
-                    // never traps the person in an error sheet.
-                    if case .httpStatus(404, _) = error {
-                        await MainActor.run {
-                            AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: vmId)
-                        }
-                        return ["ok": true, "already_gone": true]
-                    }
-                    throw error
-                }
-                // Same cleanup as the Machines panel's delete confirm. Every
-                // entrypoint (panel, tree, CLI, socket) funnels through this
-                // handler, so this is the one place the app learns a machine
-                // died before the next 45 s list poll: close its workspaces
-                // and its URL-backed panes now, not up to 45 s later.
-                await MainActor.run {
-                    AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: vmId)
-                }
-                return ["ok": true]
+                // Every entrypoint (panel, tree, CLI, socket) funnels through this
+                // handler. The coordinator hides the machine and closes its
+                // workspaces before the request, joins a delete already in flight,
+                // and treats a 404 as success so a stale row never traps the person
+                // in an error sheet.
+                let alreadyGone = try await MachineDeleteCoordinator.shared.destroy(id: vmId)
+                return alreadyGone ? ["ok": true, "already_gone": true] : ["ok": true]
             }
         case "vm.exec":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
