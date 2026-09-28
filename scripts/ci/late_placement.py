@@ -31,7 +31,7 @@ test-without-building on admission's uploaded product, as it does on
 Blacksmith (about 350 s against 240 to 400 s), so waiting for a mini buys
 nothing. When the picker owned some of this run's gui-token jobs and the gui
 runners idle now cannot take them all, this counts the gui-label jobs already
-queued (gui_backlog(): the jobs of in-flight CI runs, newest runs first,
+queued (gui_backlog(): the jobs of in-flight CI runs, oldest runs first,
 stopping once the answer cannot change). The run keeps on the gui label only
 the jobs that start within GUI_QUEUE_ROUNDS gui job lengths (the idle runners
 plus that many rounds of the online ones, less the backlog), and gives the
@@ -44,6 +44,7 @@ to label. Any failure prints a warning and outputs {} (no change).
 """
 from __future__ import annotations
 
+import concurrent.futures
 import datetime as dt
 import importlib.util
 import json
@@ -71,6 +72,7 @@ GUI_QUEUE_ROUNDS = 1
 # jobs queue only once its admission finished (p50 about 9 minutes), so a run younger than BACKLOG_MIN_AGE has none,
 # and one older than the window has finished its shards.
 BACKLOG_LOOKUPS = 30
+BACKLOG_READERS = 8
 BACKLOG_WINDOW_MINUTES = 120
 BACKLOG_MIN_AGE_MINUTES = 4
 
@@ -108,7 +110,8 @@ def place(jobs: Sequence[str], *, owned_jobs: str, idle: int, root: str, gui: bo
 
 
 def gui_backlog(github: Any, label: str, *, exclude_run_id: int | None, enough: int, now: dt.datetime) -> int:
-    """Jobs queued on `label` in the CI runs still in flight, stopping at `enough` (one request per run).
+    """Jobs queued on `label` in the CI runs still in flight (one request per run), read BACKLOG_READERS runs
+    at a time and stopping after the batch that reaches `enough`, so the count may pass it.
 
     GitHub lists a run as `queued` while any of its jobs is, even with others
     running, so both `queued` and `in_progress` runs are read. Oldest first,
@@ -123,13 +126,19 @@ def gui_backlog(github: Any, label: str, *, exclude_run_id: int | None, enough: 
             created = pool.parse_time(str(run.get("created_at") or ""))
             if run.get("id") != exclude_run_id and created is not None and created <= newest:
                 runs[run.get("id")] = run
-    queued = 0
-    for run in sorted(runs.values(), key=lambda run: str(run.get("created_at")))[:BACKLOG_LOOKUPS]:
-        if queued >= enough:
-            break
+    def queued_in(run: Mapping[str, Any]) -> int:
         jobs = github.get(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page={pool.PAGE_SIZE}").get("jobs") or []
-        queued += sum(1 for job in jobs if isinstance(job, Mapping) and job.get("status") == "queued"
-                      and label in (job.get("labels") or []))
+        return sum(1 for job in jobs if isinstance(job, Mapping) and job.get("status") == "queued"
+                   and label in (job.get("labels") or []))
+
+    # Read BACKLOG_READERS runs at a time: one by one, 30 job lists under load outran the step's minute.
+    ordered = sorted(runs.values(), key=lambda run: str(run.get("created_at")))[:BACKLOG_LOOKUPS]
+    queued = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=BACKLOG_READERS) as readers:
+        for start in range(0, len(ordered), BACKLOG_READERS):
+            if queued >= enough:
+                break
+            queued += sum(readers.map(queued_in, ordered[start:start + BACKLOG_READERS]))
     return queued
 
 
