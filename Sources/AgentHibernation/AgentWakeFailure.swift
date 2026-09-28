@@ -36,4 +36,7 @@ struct AgentWakeFailure {
     /// command when one exists, otherwise the typed startup input.
     let commandText: String
     let agent: SessionRestorableAgentSnapshot
+    /// False while something still runs in the pane, where typing the resume
+    /// command again would feed it to that program instead of the shell.
+    var canRetry: Bool = true
 }

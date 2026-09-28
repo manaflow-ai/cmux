@@ -26,9 +26,11 @@ struct AgentWakeFailureBanner: View {
                 }
                 .textSelection(.enabled)
                 Spacer(minLength: 0)
-                Button(retryTitle, action: onRetry)
-                    .controlSize(.small)
-                    .accessibilityIdentifier("agent-wake-failure-retry")
+                if failure.canRetry {
+                    Button(retryTitle, action: onRetry)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("agent-wake-failure-retry")
+                }
                 Button(showsCommand ? hideCommandTitle : showCommandTitle) {
                     showsCommand.toggle()
                 }

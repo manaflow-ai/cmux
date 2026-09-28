@@ -228,6 +228,24 @@ struct AgentWakeVerificationWorkspaceTests {
 
     @MainActor
     @Test
+    func aResumeCommandEndingLateCountsAsAResumedAgent() throws {
+        let workspace = Workspace()
+        defer { clearNotifications(workspace) }
+        let panel = try #require(workspace.focusedTerminalPanel)
+
+        workspace.beginAgentWakeVerification(panelId: panel.id, agent: agent)
+        // An agent without hooks ran and the user quit it: not a failed wake.
+        workspace.noteAgentWakeCommandEnded(
+            panelId: panel.id,
+            now: Date().addingTimeInterval(Workspace.agentWakeQuickExitSeconds + 5)
+        )
+
+        #expect(panel.agentWakeFailure == nil)
+        #expect(workspace.statusEntries[Workspace.agentWakeFailedStatusKey] == nil)
+    }
+
+    @MainActor
+    @Test
     func closingThePanelClearsVerificationAndSidebarRow() throws {
         let workspace = Workspace()
         defer { clearNotifications(workspace) }

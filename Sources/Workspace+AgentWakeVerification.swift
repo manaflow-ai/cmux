@@ -14,6 +14,10 @@ import Foundation
 extension Workspace {
     static let agentWakeFailedStatusKey = "agent.wakeFailed"
     static let agentWakeVerificationSeconds: TimeInterval = 90
+    /// A resume command that fails exits quickly (launcher missing, session
+    /// gone). One that returns later ran the agent, which the user then quit;
+    /// an agent without hooks never reports, so that ending counts as success.
+    static let agentWakeQuickExitSeconds: TimeInterval = 20
 
     /// Starts (or restarts) the wake check for `panelId`.
     func beginAgentWakeVerification(
@@ -49,8 +53,10 @@ extension Workspace {
     }
 
     /// The restored resume command returned to the shell prompt.
-    func noteAgentWakeCommandEnded(panelId: UUID) {
-        applyAgentWakeVerificationEvent(.commandEnded, panelId: panelId)
+    func noteAgentWakeCommandEnded(panelId: UUID, now: Date = Date()) {
+        guard let verification = agentWakeVerificationsByPanelId[panelId] else { return }
+        let ranAWhile = now.timeIntervalSince(verification.startedAt) >= Self.agentWakeQuickExitSeconds
+        applyAgentWakeVerificationEvent(ranAWhile ? .agentReported : .commandEnded, panelId: panelId)
     }
 
     /// Fails a pending wake check directly. The normal paths are the
@@ -72,6 +78,7 @@ extension Workspace {
               verification.state.failureReason != nil,
               let terminalPanel = terminalPanel(for: panelId),
               !terminalPanel.isAgentHibernated,
+              panelShellActivityStates[panelId] != .commandRunning,
               let startupInput = verification.agent.resumeStartupInput() else {
             return
         }
@@ -106,7 +113,8 @@ extension Workspace {
     }
 
     private func resolveAgentWakeVerificationDeadline(panelId: UUID, token: UUID) {
-        guard let verification = agentWakeVerificationsByPanelId[panelId],
+        guard !isRetiredFromOwningTabManager,
+              let verification = agentWakeVerificationsByPanelId[panelId],
               verification.token == token,
               verification.state == .pending else {
             return
@@ -154,7 +162,8 @@ extension Workspace {
             reason: reason,
             agentDisplayName: verification.agent.agentDisplayName,
             commandText: verification.commandText,
-            agent: verification.agent
+            agent: verification.agent,
+            canRetry: panelShellActivityStates[panelId] != .commandRunning
         )
         if let terminalPanel = terminalPanel(for: panelId) {
             terminalPanel.onRequestAgentWakeRetry = { [weak self] in
@@ -189,7 +198,7 @@ extension Workspace {
         }
     }
 
-    private func refreshAgentWakeFailureStatusEntry() {
+    func refreshAgentWakeFailureStatusEntry() {
         let key = Self.agentWakeFailedStatusKey
         let failedCount = agentWakeVerificationsByPanelId.values.filter {
             $0.state.failureReason != nil
