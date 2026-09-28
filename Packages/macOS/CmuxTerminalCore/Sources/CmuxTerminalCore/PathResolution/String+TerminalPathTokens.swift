@@ -204,8 +204,8 @@ extension String {
         if let labelColon = body.firstIndex(of: ":") {
             let suffixStart = body.index(after: labelColon)
             let suffix = body[suffixStart...].trimmingCharacters(in: .whitespacesAndNewlines)
-            if !suffix.isEmpty, let suffixOffset = body.distance(from: body.startIndex, to: suffixStart),
-               column >= bodyStart + suffixOffset {
+            let suffixOffset = body.distance(from: body.startIndex, to: suffixStart)
+            if !suffix.isEmpty, column >= bodyStart + suffixOffset {
                 return String(suffix)
             }
         }
