@@ -148,7 +148,11 @@ def decode_swift_escapes(value: str) -> str:
         raise ValueError("interpolated defaultValue requires manual catalog review")
     result: list[str] = []
     index = 0
-    escapes = {"n": "\n", "r": "\r", "t": "\t", '"': '"', "\\": "\\", "0": "\0"}
+    # A backslash before a newline is Swift's line continuation: prose wrapped
+    # to fit the source is one line in the binary, so it must be one line in the
+    # catalog too. Indentation is already stripped by the caller, which is the
+    # order the compiler uses. A single-line literal cannot reach this entry.
+    escapes = {"n": "\n", "r": "\r", "t": "\t", '"': '"', "\\": "\\", "0": "\0", "\n": ""}
     while index < len(value):
         if value[index] != "\\":
             result.append(value[index])
