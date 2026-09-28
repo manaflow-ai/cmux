@@ -1,5 +1,6 @@
 {
   "name": "@cmux/iroh-v2",
+  "license": "BUSL-1.1",
   "private": true,
   "type": "module",
   "scripts": {
