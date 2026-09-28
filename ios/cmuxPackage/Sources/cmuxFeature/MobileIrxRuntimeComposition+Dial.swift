@@ -99,7 +99,21 @@ extension MobileIrxRuntimeComposition {
         }
         let intent = dialIntentByPeer[peerHex] ?? .automatic
         if case let .direct(candidates) = intent {
-            let connection = try await dialDirectQuic(peerHex: peerHex, candidates: candidates)
+            // Entries saved before Direct QUIC pin the Mac's Iroh port; new
+            // entries carry the Direct QUIC marker. Each set dials its own
+            // wire protocol, and no other path may substitute.
+            let quic = candidates.filter { $0.transport == .directQuic }
+            let legacy = candidates.filter { $0.transport == .iroh }
+            if !quic.isEmpty {
+                do {
+                    let connection = try await dialDirectQuic(peerHex: peerHex, candidates: quic)
+                    return try await admit(connection, peerHex: peerHex, intent: intent, scope: scope, epoch: currentEpoch)
+                } catch where !legacy.isEmpty {
+                    // Fall through to the legacy pinned entries.
+                }
+            }
+            guard !legacy.isEmpty else { throw CompositionError.directDialUnavailable }
+            let connection = try await dialPinnedIroh(peerHex: peerHex, candidates: legacy, scope: scope, epoch: currentEpoch)
             return try await admit(connection, peerHex: peerHex, intent: intent, scope: scope, epoch: currentEpoch)
         }
         guard let supervisor = endpointSupervisor, let cache, !cache.authorityRevoked else {
@@ -131,6 +145,34 @@ extension MobileIrxRuntimeComposition {
         let address = try supervisor.dialAddress(peerEndpointIDHex: peerHex, relayURL: relay, directAddresses: direct)
         let connection = try await supervisor.dial(address: address, credentials: credentials)
         return try await admit(connection, peerHex: peerHex, intent: intent, scope: scope, epoch: currentEpoch)
+    }
+
+    /// Pinned Iroh dial for pre-Direct QUIC address entries: a direct-only
+    /// endpoint, no relay, exactly these addresses.
+    private func dialPinnedIroh(
+        peerHex: String,
+        candidates: [CmxIrohDirectDialCandidate],
+        scope: AuthenticatedTeamScope,
+        epoch currentEpoch: UInt64
+    ) async throws -> IrxConnection {
+        guard !forceRelayOnly, let identity else { throw CompositionError.directDialUnavailable }
+        guard let cache, !cache.authorityRevoked else { throw CompositionError.notSignedIn }
+        if directEndpointSupervisor == nil {
+            directEndpointSupervisor = IrxEndpointSupervisor(configuration: IrxEndpointConfiguration(
+                identity: identity, pathMode: .directOnly, initialRemoteBiStreams: 0,
+                initialRemoteUniStreams: 0), journal: journal, diagnosticLog: diagnosticLog)
+        }
+        guard let supervisor = directEndpointSupervisor else { throw CompositionError.directDialUnavailable }
+        let direct = candidates.prefix(16).compactMap { candidate -> String? in
+            guard let port = candidate.port, port != 0,
+                  let address = try? CmxIrohCustomPrivateAddress(candidate.address) else { return nil }
+            return address.socketAddress(port: port)
+        }
+        guard !direct.isEmpty else { throw CompositionError.directDialUnavailable }
+        try await assertScope(scope, epoch: currentEpoch)
+        let address = try supervisor.dialAddress(
+            peerEndpointIDHex: peerHex, relayURL: nil, directAddresses: Array(direct))
+        return try await supervisor.dial(address: address, credentials: [])
     }
 
     /// Reaches the Mac with Network.framework QUIC at exactly the method's

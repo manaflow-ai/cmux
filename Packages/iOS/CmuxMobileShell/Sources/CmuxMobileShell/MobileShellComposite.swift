@@ -10192,7 +10192,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ? Self.tailscaleDirectQuicCandidates(from: ticket.routes.filter { route in
                 Self.userTailscalePairingAuthorization(
                     for: route, authorizations: userTailscalePairingAuthorizations) != nil
-            })
+            }, fromFreshCode: true)
             : nil
         let methodPinnedDialCandidates: [CmxIrohDirectDialCandidate]?
         if let freshTailscaleDirectQuicCandidates {

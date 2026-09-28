@@ -919,6 +919,55 @@ import Testing
         #expect(factory.attemptedPins() == [nil, [CmxIrohDirectDialCandidate(address: "100.82.214.112", port: 50906)]])
     }
 
+    /// Entries saved before Direct QUIC carry no transport marker and stay
+    /// on the pinned Iroh dial; marked entries route to Direct QUIC.
+    @Test func directCandidatesCarryTheirSavedTransport() async throws {
+        let clock = TestClock()
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "test-mac", displayName: "Test Mac", routes: [try iroh()],
+            instanceTag: "default", markActive: true,
+            stackUserID: "user-1", teamID: nil, now: clock.now
+        )
+        try await pairedStore.setConnectionMethod(
+            macDeviceID: "test-mac", instanceTag: "default",
+            rawValue: MobileConnectionMethod.direct.rawValue, stackUserID: "user-1"
+        )
+        try await pairedStore.setDirectAddresses(
+            macDeviceID: "test-mac", instanceTag: "default",
+            rawJSON: MobilePairedMac.encodeDirectAddresses([
+                MobilePairedMacDirectAddress(address: "192.168.1.10", port: 58465),
+                MobilePairedMacDirectAddress(
+                    address: "100.64.0.9", port: 58466,
+                    transport: MobilePairedMacDirectAddress.directQuicTransport),
+            ]),
+            stackUserID: "user-1"
+        )
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: KindRecordingTransportFactory(
+                    router: LivenessHostRouter(), box: TransportBox()),
+                now: { clock.now }, supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(suiteName: "transport-map-\(UUID().uuidString)")!,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+
+        let candidates = store.irohMethodPinnedDialCandidates(
+            forMacDeviceID: "test-mac", instanceTag: "default"
+        )
+        #expect(candidates == [
+            CmxIrohDirectDialCandidate(address: "192.168.1.10", port: 58465, transport: .iroh),
+            CmxIrohDirectDialCandidate(address: "100.64.0.9", port: 58466, transport: .directQuic),
+        ])
+    }
+
     /// An account-wide automatic-Iroh backoff (armed by a failed Automatic
     /// attempt) must not strip a Tailscale pairing's pinned identity route:
     /// the exact user-selected dial is attempted, not failed unseen.

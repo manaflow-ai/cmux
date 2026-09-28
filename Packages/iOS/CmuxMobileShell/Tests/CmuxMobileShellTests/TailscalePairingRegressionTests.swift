@@ -92,7 +92,7 @@ import Testing
         #expect(factory.attemptedKinds() == [.iroh])
         #expect(factory.attemptedAuthorizationModes() == [.transportAdmission])
         #expect(factory.attemptedPins() == [
-            [CmxIrohDirectDialCandidate(address: host, port: UInt16(port))],
+            [CmxIrohDirectDialCandidate(address: host, port: UInt16(port), transport: .directQuic)],
         ])
     }
 

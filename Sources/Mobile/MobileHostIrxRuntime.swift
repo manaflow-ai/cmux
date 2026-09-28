@@ -770,17 +770,13 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         guard isCurrent(token), !Task.isCancelled else { return }
         var next = listenerState
         next.phase = healthy ? .ready : .starting
-        // Users reach the Mac on the Direct QUIC pairing port; without that
-        // listener the Iroh port is the only direct port.
-        let directPort = directQuicPort ?? port
-        next.preferredPort = directQuicPort == nil
-            ? MobileHostService.configuredPort()
-            : Self.directQuicCandidatePorts(
-                configuredPort: MobileHostService.configuredPort()
-            ).first.map(Int.init)
-        next.boundPort = healthy ? directPort : nil
-        next.localSocketAddresses = healthy
-            ? addresses.map { Self.replacingPort(in: $0, with: directPort) } : []
+        // `preferredPort`/`boundPort` keep their original IROH semantics:
+        // Settings compares them to the configured port to detect a pending
+        // port change. The Direct QUIC pairing port travels separately.
+        next.preferredPort = MobileHostService.configuredPort()
+        next.boundPort = healthy ? port : nil
+        next.directQuicPort = directQuicPort
+        next.localSocketAddresses = healthy ? addresses : []
         listenerState = next
         if healthy { publishRoute(relayURL: relayURL) }
         else if publishesPublicHostStatus { MobileHostPublicStatusCache.update(irohIdentity: nil) }
@@ -924,6 +920,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             return
         }
         directQuicPort = Int(boundPort)
+        listenerState.directQuicPort = Int(boundPort)
         Self.journal.record("direct-quic", "listening", ["port": String(boundPort)])
         await refreshListenerState(token: token)
         guard isCurrent(token), directQuicListener === listener else { return }
@@ -945,12 +942,6 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         }
     }
 
-    /// `host:port` or `[v6]:port` with its port swapped.
-    nonisolated static func replacingPort(in socketAddress: String, with port: Int?) -> String {
-        guard let port, let separator = socketAddress.lastIndex(of: ":") else { return socketAddress }
-        return String(socketAddress[..<separator]) + ":\(port)"
-    }
-
     /// Advertises this Mac's numeric Tailscale addresses on the Direct QUIC
     /// port, so Tailscale Only phones and Tailscale pairing codes can reach it.
     private func publishTailscaleRoutes(token: UUID) async {
@@ -970,6 +961,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         directQuicListener?.cancel(); directQuicListener = nil
         if directQuicPort != nil, publishesPublicHostStatus { MobileHostPublicStatusCache.update(routes: []) }
         directQuicPort = nil
+        listenerState.directQuicPort = nil
     }
 
     private func legacyAcceptor(token: UUID) -> CmxIrohGrantPeer? {

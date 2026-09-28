@@ -209,11 +209,15 @@ public final class DirectQuicCarrierConnection: IrxCarrierConnection, @unchecked
         guard let key = try? Curve25519.Signing.PublicKey(rawRepresentation: clientKey),
               key.isValidSignature(hello.suffix(64), for: Self.signedMessage(role: "client", exporter: exporter))
         else { throw DirectQuicError.handshakeFailed("invalid client proof") }
+        // Authenticated BEFORE the reply leaves: the client may open its
+        // control lane the moment it reads the proof, and stream order is
+        // not cross-stream order, so publishing afterward would let
+        // `adoptInbound` reset a valid first lane.
+        lock.withLock { peerEndpointIDHex = clientKey.hexString }
         let proof = try identity.sign(Self.signedMessage(role: "server", exporter: exporter))
         try await stream.writeAll(identity.publicKeyData + proof)
         try? await stream.finish()
         try? await stream.stop(errorCode: 0)
-        lock.withLock { peerEndpointIDHex = clientKey.hexString }
         // Only one handshake per connection.
         handshakeStreams.finish()
     }
