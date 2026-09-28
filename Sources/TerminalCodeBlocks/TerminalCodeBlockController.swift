@@ -26,6 +26,7 @@ final class TerminalCodeBlockController {
     private static let transcriptTailBytes = 768 * 1024
     /// Right inset of pills and cards from the pane edge, clear of the scroller.
     private static let edgeInset: CGFloat = 14
+    private static let minimumTrayWidth: CGFloat = 200
     /// Delay between a new split's first prompt report and the paste, so the
     /// shell's line editor has turned bracketed paste on.
     private static let promptPasteDelay: TimeInterval = 0.25
@@ -253,6 +254,10 @@ final class TerminalCodeBlockController {
         shownAnchor = anchor
         guard let pillView else { return }
         let size = pillView.fittingSize
+        guard size.width + 2 * Self.edgeInset <= surfaceView.bounds.width else {
+            hidePill()
+            return
+        }
         let centerTop = geometry.rowTop(row) + geometry.pitch / 2
         let center = surfaceView.convert(
             NSPoint(x: surfaceView.bounds.maxX, y: surfaceView.bounds.height - centerTop),
@@ -355,12 +360,17 @@ final class TerminalCodeBlockController {
         guard let host, let container = trayView else { return }
         let surfaceView = host.surfaceView
         let size = container.fittingSize
+        // Cards shrink with a narrow pane; below a usable width they hide
+        // rather than spill over the neighbouring pane.
+        let available = surfaceView.bounds.width - 2 * Self.edgeInset
+        container.isHidden = available < Self.minimumTrayWidth
+        let width = min(size.width, max(available, 0))
         let topRight = surfaceView.convert(NSPoint(x: surfaceView.bounds.maxX, y: surfaceView.bounds.maxY), to: host)
         let isFlipped = host.isFlipped
         container.frame = NSRect(
-            x: topRight.x - size.width - Self.edgeInset,
+            x: topRight.x - width - Self.edgeInset,
             y: isFlipped ? topRight.y + 10 : topRight.y - size.height - 10,
-            width: size.width,
+            width: width,
             height: size.height
         ).integral
     }

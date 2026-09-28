@@ -149,7 +149,7 @@ struct TerminalCodeBlockTray: View {
                 )
             }
         }
-        .fixedSize()
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -209,7 +209,7 @@ struct TerminalCodeBlockCard: View {
             }
         }
         .padding(10)
-        .frame(width: TerminalCodeBlockStyle.cardWidth)
+        .frame(minWidth: 0, idealWidth: TerminalCodeBlockStyle.cardWidth, maxWidth: TerminalCodeBlockStyle.cardWidth)
         .background(
             RoundedRectangle(cornerRadius: TerminalCodeBlockStyle.cardCornerRadius, style: .continuous)
                 .fill(TerminalCodeBlockStyle.surface)
@@ -243,11 +243,12 @@ struct TerminalCodeBlockReviewView: View {
                 .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            ScrollView([.vertical, .horizontal]) {
+            // Long lines wrap so no part of the command is out of view.
+            ScrollView(.vertical) {
                 Text(verbatim: block.text)
                     .font(.system(size: 12, design: .monospaced))
                     .textSelection(.enabled)
-                    .fixedSize()
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -268,10 +269,14 @@ struct TerminalCodeBlockReviewView: View {
         .frame(width: 460)
     }
 
-    /// Fits short commands, scrolls long ones.
+    /// Fits short commands, scrolls long ones. Counts wrapped rows: about
+    /// 55 monospaced characters fit the 460 pt popover.
     private var codeHeight: CGFloat {
         let lineHeight: CGFloat = 15
-        return min(240, CGFloat(max(1, block.lineCount)) * lineHeight + 18)
+        let columns = 55
+        let rows = block.text.split(separator: "\n", omittingEmptySubsequences: false)
+            .reduce(0) { $0 + max(1, ($1.count + columns - 1) / columns) }
+        return min(240, CGFloat(max(1, rows)) * lineHeight + 18)
     }
 }
 
