@@ -28,6 +28,7 @@ public struct TerminalSection: View {
     @State private var textEditingGestures: DefaultsValueModel<Bool>
     @State private var passwordInputIndicator: DefaultsValueModel<Bool>
     @State private var passwordInputDots: DefaultsValueModel<Bool>
+    @State private var predictiveLocalEcho: DefaultsValueModel<Bool>
     @State private var adaptiveDefaultTheme: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
@@ -60,6 +61,7 @@ public struct TerminalSection: View {
         _textEditingGestures = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGestures))
         _passwordInputIndicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputIndicator))
         _passwordInputDots = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputDots))
+        _predictiveLocalEcho = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.predictiveLocalEcho))
         _adaptiveDefaultTheme = State(
             initialValue: DefaultsValueModel(
                 store: defaultsStore,
@@ -101,6 +103,7 @@ public struct TerminalSection: View {
             textEditingGestures,
             passwordInputIndicator,
             passwordInputDots,
+            predictiveLocalEcho,
             adaptiveDefaultTheme,
             autoResume,
             hibernation,
@@ -485,6 +488,17 @@ public struct TerminalSection: View {
                     .controlSize(.small)
                     .disabled(!passwordInputIndicator.current)
                     .accessibilityIdentifier("SettingsTerminalPasswordInputDotsToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.predictiveLocalEcho"),
+                String(localized: "settings.terminal.predictiveLocalEcho", defaultValue: "Predictive Local Echo"),
+                subtitle: String(localized: "settings.terminal.predictiveLocalEcho.subtitle", defaultValue: "In terminals on another machine, typed characters appear right away when the connection is slow. They stay underlined until the remote host confirms them. Local terminals, password prompts and full-screen apps are excluded.")
+            ) {
+                Toggle("", isOn: Binding(get: { predictiveLocalEcho.current }, set: { predictiveLocalEcho.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalPredictiveLocalEchoToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(

@@ -1649,7 +1649,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             CloudWorkspaceRenameService(environment: cloudRenameEnvironment)
         )
         TerminalPredictionCenter.shared.bindEnabledSetting(
-            userDefaultsKey: SettingCatalog().betaFeatures.predictedEcho.userDefaultsKey
+            userDefaultsKey: SettingCatalog().terminal.predictiveLocalEcho.userDefaultsKey
         )
         SurfaceCatalog.shared.register(LocalSurfaceProvider.shared)
         SurfaceCatalog.shared.focusProjection = { projection in

@@ -75,7 +75,6 @@ NOT_IN_CMUX_JSON = frozenset({
     "remoteTmux.beta.enabled",
     "rightSidebar.beta.dock.enabled",
     "rightSidebar.beta.feed.enabled",
-    "terminal.beta.predictedEcho.enabled",
     # Device discovery and pairing state.
     "devices.discovery.enabled",
     "devices.incomingAccess.enabled",
