@@ -76,6 +76,9 @@ struct BrowserInlineHostAttachmentTests {
         #expect(waitUntil { host.window === visibleWindow })
         #expect(waitUntil { panel.webView.isDescendant(of: host) })
         #expect(waitUntil { panel.webView.window === visibleWindow })
+        #expect(preloadWindow.contentView === preloadContent)
+        #expect(preloadContent.window === preloadWindow)
+        #expect(panel.webView.superview === host.localInlineSlotViewForDebug())
         #expect(waitUntil(timeout: 15) {
             host.layoutSubtreeIfNeeded()
             let presentationView = panel.webView.cmuxBrowserViewportPresentationView
