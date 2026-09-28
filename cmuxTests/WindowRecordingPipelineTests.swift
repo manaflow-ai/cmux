@@ -63,7 +63,14 @@ import Testing
         return context.makeImage()!
     }
 
-    private static func pixel(_ image: CGImage, x: Int, y: Int) -> (r: Int, g: Int, b: Int)? {
+    /// Tuples are not `Equatable`, and the caption test compares pixels.
+    private struct Pixel: Equatable {
+        let r: Int
+        let g: Int
+        let b: Int
+    }
+
+    private static func pixel(_ image: CGImage, x: Int, y: Int) -> Pixel? {
         var bytes = [UInt8](repeating: 0, count: 4)
         guard let context = CGContext(
             data: &bytes,
@@ -79,7 +86,7 @@ import Testing
         }
         context.draw(image, in: CGRect(x: -x, y: -(image.height - 1 - y), width: image.width, height: image.height))
         // 32BGRA little endian: bytes are B, G, R, then the skipped alpha.
-        return (r: Int(bytes[2]), g: Int(bytes[1]), b: Int(bytes[0]))
+        return Pixel(r: Int(bytes[2]), g: Int(bytes[1]), b: Int(bytes[0]))
     }
 
     private static func geometry(params: [String: Any] = [:], width: Int, height: Int) throws
@@ -214,8 +221,10 @@ import Testing
 
         #expect(FileManager.default.fileExists(atPath: url.path))
         let asset = AVURLAsset(url: url)
-        let duration = try await asset.load(.duration).seconds
-        #expect(duration > 0.4)
+        // The clip's encoded length, not a measured time: the frames above
+        // are stamped up to 0.5 s, so a clip timed by capture spans past 0.4 s.
+        let clipSeconds = try await asset.load(.duration).seconds
+        #expect(clipSeconds > 0.4)
         let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
         let size = try await track.load(.naturalSize)
         #expect(Int(size.width) == 160)
@@ -424,5 +433,38 @@ import Testing
         #expect(recent.count == 8)
         #expect(recent.first?.id == "clip-4")
         #expect(recent.last?.id == "clip-11")
+    }
+
+    /// A timed-out `record start` whose call already ended must not reach into
+    /// whatever is recorded now.
+    @Test func abandoningAStartThatIsNoLongerRunningChangesNothing() async throws {
+        let registry = WindowRecordingRegistry()
+        await registry.remember(Self.finished(id: "a"))
+
+        await registry.abandonStart(token: UUID())
+
+        let status = try await registry.status(id: nil)
+        #expect(status.id == "a")
+        #expect(status.state == .finished)
+    }
+
+    /// The session a timed-out start opened ends as failed, with a reason the
+    /// caller can read from `record status`, and a later stop keeps that verdict.
+    @Test func anAbandonedSessionStopsRecordingAndStaysFailed() async throws {
+        let session = WindowRecordingSession(
+            id: "abandoned",
+            request: try WindowRecordingRequest.make(params: [:]),
+            outputURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-abandoned-\(UUID().uuidString).mp4"),
+            windowID: 0,
+            windowHandle: nil
+        )
+
+        await session.abandon(reason: "timed out")
+
+        #expect(await session.isRecording == false)
+        let stopped = await session.stop()
+        #expect(stopped.state == .failed)
+        #expect(stopped.error == "timed out")
     }
 }

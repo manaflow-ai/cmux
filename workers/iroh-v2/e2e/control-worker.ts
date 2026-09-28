@@ -2,11 +2,27 @@ import production, { TeamControl as ProductionTeamControl, UserUsage as Producti
 import type { Environment } from "../src/environment";
 import { TeamStore } from "../src/storage/team-store";
 import { objectName } from "../src/routing";
+import { TEAM_SOCKET_LIMIT } from "../src/team-control";
 
 const TEAM_ID = "team-control";
 
 /** Test-only fixture. It seeds the local TeamStore and leaves all routing/auth code production. */
 export class TestTeamControl extends ProductionTeamControl {
+  #socketLimit = TEAM_SOCKET_LIMIT;
+
+  protected override socketLimit(): number { return this.#socketLimit; }
+
+  /** Test-only: 4096 live sockets are not reachable here, so the suite lowers the cap instead. */
+  setSocketLimit(limit: number): void { this.#socketLimit = limit; }
+  restoreSocketLimit(): void { this.#socketLimit = TEAM_SOCKET_LIMIT; }
+
+  /** Test-only: the team revision without a socket round trip, so cap tests can read it directly. */
+  teamRevision(): number {
+    return new TeamStore(this.ctx.storage, {
+      environment: this.env.ENVIRONMENT, projectId: this.env.STACK_PROJECT_ID, teamId: TEAM_ID,
+    }, { initialize: false }).readRevision();
+  }
+
   constructor(ctx: DurableObjectState, env: Environment) {
     super(ctx, env);
     ctx.blockConcurrencyWhile(async () => {

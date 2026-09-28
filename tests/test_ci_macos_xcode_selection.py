@@ -55,6 +55,10 @@ EXEMPT = {
     ("cmux-tui.yml", "lint"): "Rust only; no Xcode",
     ("cmux-tui.yml", "test"): "Rust only; no Xcode",
     ("cmux-tui.yml", "cdp-browser-smoke"): "Rust only; no Xcode",
+    ("cmux-tui-build-package.yml", "build"):
+        "Rust release binaries linked against the runner's default macOS SDK, "
+        "as the nightly and release callers always have; pinning it would "
+        "change published artifacts",
     ("relay-publish-npm.yml", "smoke"): "npm package smoke test; no Xcode",
 }
 
