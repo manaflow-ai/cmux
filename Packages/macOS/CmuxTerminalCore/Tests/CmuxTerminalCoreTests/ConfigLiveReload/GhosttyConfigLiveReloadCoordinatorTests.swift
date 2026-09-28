@@ -1,32 +1,43 @@
 import CmuxFoundation
+import os
 import Testing
 @testable import CmuxTerminalCore
 
 /// Snapshot reader whose result the test replaces between file events.
-private actor ScriptedSnapshotReader: GhosttyConfigLiveReloadSnapshotReading {
-    private var current: GhosttyConfigLiveReloadSnapshot
-    private var upcoming: [GhosttyConfigLiveReloadSnapshot] = []
-    private(set) var readCount = 0
+private final class ScriptedSnapshotReader: GhosttyConfigLiveReloadSnapshotReading, Sendable {
+    private struct State {
+        var current: GhosttyConfigLiveReloadSnapshot
+        var upcoming: [GhosttyConfigLiveReloadSnapshot] = []
+        var readCount = 0
+    }
+
+    private let state: OSAllocatedUnfairLock<State>
 
     init(_ initial: GhosttyConfigLiveReloadSnapshot) {
-        current = initial
+        state = OSAllocatedUnfairLock(initialState: State(current: initial))
+    }
+
+    var readCount: Int {
+        state.withLock { $0.readCount }
     }
 
     func set(_ snapshot: GhosttyConfigLiveReloadSnapshot) {
-        current = snapshot
+        state.withLock { $0.current = snapshot }
     }
 
     /// Makes the next reads return `snapshots` in order, then the last one.
     func setSequence(_ snapshots: [GhosttyConfigLiveReloadSnapshot]) {
-        upcoming = snapshots
+        state.withLock { $0.upcoming = snapshots }
     }
 
-    func snapshot() async -> GhosttyConfigLiveReloadSnapshot {
-        readCount += 1
-        if !upcoming.isEmpty {
-            current = upcoming.removeFirst()
+    func snapshot() -> GhosttyConfigLiveReloadSnapshot {
+        state.withLock { state in
+            state.readCount += 1
+            if !state.upcoming.isEmpty {
+                state.current = state.upcoming.removeFirst()
+            }
+            return state.current
         }
-        return current
     }
 }
 
@@ -91,9 +102,22 @@ private actor GatedClock: FileWatchClock {
     }
 }
 
+/// Stands in for the app's reload: counts requests and, like
+/// `GhosttyApp`, reports the config file read to the coordinator.
 @MainActor
 private final class ReloadCounter {
     var count = 0
+    /// When `true`, each reload reads the files at once. When `false`, the
+    /// test decides when the in-flight reload reads them.
+    var loadsImmediately = true
+    weak var coordinator: GhosttyConfigLiveReloadCoordinator?
+
+    func reload() {
+        count += 1
+        if loadsImmediately {
+            coordinator?.noteConfigurationFilesWillLoad()
+        }
+    }
 }
 
 private extension GhosttyConfigLiveReloadSnapshot {
@@ -116,14 +140,16 @@ private extension GhosttyConfigLiveReloadSnapshot {
         clock: any FileWatchClock = ImmediateClock(),
         counter: ReloadCounter
     ) -> GhosttyConfigLiveReloadCoordinator {
-        GhosttyConfigLiveReloadCoordinator(
+        let coordinator = GhosttyConfigLiveReloadCoordinator(
             snapshotReader: reader,
             changeSource: source,
             debounce: .milliseconds(300),
             clock: clock
         ) {
-            counter.count += 1
+            counter.reload()
         }
+        counter.coordinator = coordinator
+        return coordinator
     }
 
     @Test func startRecordsBaselineAndWatchesEveryResolvedPath() async {
@@ -150,7 +176,7 @@ private extension GhosttyConfigLiveReloadSnapshot {
         coordinator.start()
         #expect(await outcomes.next() == .baselineRecorded)
 
-        await reader.set(edited)
+        reader.set(edited)
         await source.emitChange()
 
         #expect(await outcomes.next() == .reloaded)
@@ -187,25 +213,26 @@ private extension GhosttyConfigLiveReloadSnapshot {
         #expect(await outcomes.next() == .baselineRecorded)
 
         // An atomic save: write temp file, rename over the config, touch dir.
-        await reader.set(edited)
+        reader.set(edited)
         await source.emitChange()
         _ = await sleeps.next()
         await source.emitChange()
         _ = await sleeps.next()
         await clock.releaseAll()
 
+        // Initial read, one evaluation, and the reload's own file read.
         #expect(await outcomes.next() == .reloaded)
-        #expect(await reader.readCount == 2)
+        #expect(reader.readCount == 3)
 
         // The superseded debounce must not have queued a second evaluation:
         // the next outcome belongs to the next real edit.
-        await reader.set(original)
+        reader.set(original)
         await source.emitChange()
         _ = await sleeps.next()
         await clock.releaseAll()
 
         #expect(await outcomes.next() == .reloaded)
-        #expect(await reader.readCount == 3)
+        #expect(reader.readCount == 5)
         #expect(counter.count == 2)
         coordinator.stop()
     }
@@ -222,11 +249,12 @@ private extension GhosttyConfigLiveReloadSnapshot {
         #expect(await outcomes.next() == .baselineRecorded)
 
         // `cmux themes set` writes the config, then reloads it. The write's
-        // event arrives first and is still debouncing when the reload
-        // notification lands.
-        await reader.set(edited)
+        // event arrives first and is still debouncing when that reload reads
+        // the files and finishes.
+        reader.set(edited)
         await source.emitChange()
         _ = await sleeps.next()
+        coordinator.noteConfigurationFilesWillLoad()
         coordinator.noteConfigurationDidReload()
         #expect(await outcomes.next() == .baselineRecorded)
         await clock.releaseAll()
@@ -234,6 +262,99 @@ private extension GhosttyConfigLiveReloadSnapshot {
         // The debounced evaluation sees nothing new: no second reload.
         #expect(await outcomes.next() == .unchanged)
         #expect(counter.count == 0)
+        coordinator.stop()
+    }
+
+    /// The `cmux themes` preview writes the theme file and reloads it. When
+    /// the preview's reload reads the files before the watcher evaluates, the
+    /// write's own event must not reload a second time, even while that
+    /// reload's fanout is still running.
+    @Test func themePreviewWriteReloadsOnceWhileItsReloadIsStillApplying() async {
+        let reader = ScriptedSnapshotReader(original)
+        let source = ManualChangeSource()
+        let clock = GatedClock()
+        let counter = ReloadCounter()
+        let coordinator = makeCoordinator(reader: reader, source: source, clock: clock, counter: counter)
+        var outcomes = coordinator.outcomes.makeAsyncIterator()
+        var sleeps = clock.sleepStarted.makeAsyncIterator()
+        coordinator.start()
+        #expect(await outcomes.next() == .baselineRecorded)
+
+        reader.set(edited)
+        await source.emitChange()
+        _ = await sleeps.next()
+        coordinator.noteConfigurationFilesWillLoad()
+        await clock.releaseAll()
+
+        #expect(await outcomes.next() == .unchanged)
+        coordinator.noteConfigurationDidReload()
+        #expect(await outcomes.next() == .baselineRecorded)
+        #expect(counter.count == 0)
+        coordinator.stop()
+    }
+
+    /// Saves during a reload the watcher started: one that lands after the
+    /// in-flight reload read the files requests exactly one more reload, and
+    /// one that lands before that read is covered by it.
+    @Test func saveDuringAWatcherReloadRequestsExactlyOneMore() async {
+        let reader = ScriptedSnapshotReader(original)
+        let source = ManualChangeSource()
+        let counter = ReloadCounter()
+        counter.loadsImmediately = false
+        let coordinator = makeCoordinator(reader: reader, source: source, counter: counter)
+        var outcomes = coordinator.outcomes.makeAsyncIterator()
+        coordinator.start()
+        #expect(await outcomes.next() == .baselineRecorded)
+        let edited2 = GhosttyConfigLiveReloadSnapshot.fixture(contents: ["/cfg/config": "font-size = 17\n"])
+
+        reader.set(edited)
+        await source.emitChange()
+        #expect(await outcomes.next() == .reloaded)
+        #expect(counter.count == 1)
+
+        // The in-flight reload reads the files, then the user saves again.
+        coordinator.noteConfigurationFilesWillLoad()
+        reader.set(edited2)
+        await source.emitChange()
+        #expect(await outcomes.next() == .reloaded)
+        #expect(counter.count == 2)
+
+        // A save that lands before the queued reload reads the files is
+        // covered by that read: its event does not request a third.
+        reader.set(edited)
+        coordinator.noteConfigurationFilesWillLoad()
+        await source.emitChange()
+        #expect(await outcomes.next() == .unchanged)
+        coordinator.noteConfigurationDidReload()
+        #expect(await outcomes.next() == .baselineRecorded)
+        #expect(counter.count == 2)
+        coordinator.stop()
+    }
+
+    /// A reload that finishes after a save it did not read must not swallow
+    /// that save: the files it loaded are older than the edit.
+    @Test func saveLandingWhileAReloadIsInFlightStillReloads() async {
+        let reader = ScriptedSnapshotReader(original)
+        let source = ManualChangeSource()
+        let clock = GatedClock()
+        let counter = ReloadCounter()
+        let coordinator = makeCoordinator(reader: reader, source: source, clock: clock, counter: counter)
+        var outcomes = coordinator.outcomes.makeAsyncIterator()
+        var sleeps = clock.sleepStarted.makeAsyncIterator()
+        coordinator.start()
+        #expect(await outcomes.next() == .baselineRecorded)
+
+        // A reload already read the original files; the user saves an edit
+        // before that reload's fanout finishes.
+        reader.set(edited)
+        await source.emitChange()
+        _ = await sleeps.next()
+        coordinator.noteConfigurationDidReload()
+        #expect(await outcomes.next() == .baselineRecorded)
+        await clock.releaseAll()
+
+        #expect(await outcomes.next() == .reloaded)
+        #expect(counter.count == 1)
         coordinator.stop()
     }
 
@@ -246,7 +367,8 @@ private extension GhosttyConfigLiveReloadSnapshot {
         coordinator.start()
         #expect(await outcomes.next() == .baselineRecorded)
 
-        await reader.set(edited)
+        reader.set(edited)
+        coordinator.noteConfigurationFilesWillLoad()
         coordinator.noteConfigurationDidReload()
         #expect(await outcomes.next() == .baselineRecorded)
         await source.emitChange()
@@ -265,7 +387,7 @@ private extension GhosttyConfigLiveReloadSnapshot {
         coordinator.start()
         #expect(await outcomes.next() == .baselineRecorded)
 
-        await reader.set(.fixture(
+        reader.set(.fixture(
             paths: ["/cfg/config", "/cfg/colors.conf"],
             contents: ["/cfg/config": "config-file = colors.conf\n", "/cfg/colors.conf": "background = #000\n"]
         ))
@@ -275,7 +397,7 @@ private extension GhosttyConfigLiveReloadSnapshot {
         #expect(await source.cancelledCount == 1)
 
         // Events from the re-armed subscription (the include) are delivered.
-        await reader.set(.fixture(
+        reader.set(.fixture(
             paths: ["/cfg/config", "/cfg/colors.conf"],
             contents: ["/cfg/config": "config-file = colors.conf\n", "/cfg/colors.conf": "background = #111\n"]
         ))
@@ -294,13 +416,16 @@ private extension GhosttyConfigLiveReloadSnapshot {
         coordinator.start()
         #expect(await outcomes.next() == .baselineRecorded)
 
-        // The evaluation adds an include; the include is written before its
-        // watcher attaches, so only the re-read after re-arming can see it.
-        await reader.setSequence([
-            .fixture(
-                paths: ["/cfg/config", "/cfg/colors.conf"],
-                contents: ["/cfg/config": "config-file = colors.conf\n"]
-            ),
+        // The evaluation and the reload it starts both read an added include
+        // that does not exist yet; the include is written before its watcher
+        // attaches, so only the re-read after re-arming can see it.
+        let includeAdded = GhosttyConfigLiveReloadSnapshot.fixture(
+            paths: ["/cfg/config", "/cfg/colors.conf"],
+            contents: ["/cfg/config": "config-file = colors.conf\n"]
+        )
+        reader.setSequence([
+            includeAdded,
+            includeAdded,
             .fixture(
                 paths: ["/cfg/config", "/cfg/colors.conf"],
                 contents: ["/cfg/config": "config-file = colors.conf\n", "/cfg/colors.conf": "background = #000\n"]
@@ -310,7 +435,7 @@ private extension GhosttyConfigLiveReloadSnapshot {
 
         #expect(await outcomes.next() == .reloaded)
         #expect(counter.count == 2)
-        #expect(await reader.readCount == 3)
+        #expect(reader.readCount == 5)
         coordinator.stop()
     }
 
