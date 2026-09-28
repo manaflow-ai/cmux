@@ -24,8 +24,9 @@ struct SessionSnapshotImportTrustReport: Equatable, Sendable {
 /// Restore policy for a session snapshot read from an arbitrary file
 /// (`cmux restore-session --from <path>`).
 ///
-/// A file can carry anything, so nothing in it may run automatically or
-/// reach outside the restored windows. Mirrors, and is stricter than, the
+/// A file can carry anything, so no command from it may run automatically or
+/// reach outside the restored windows. The one automatic launch is a
+/// built-in agent resume whose command cmux generates itself (below). Mirrors, and is stricter than, the
 /// policy for public CLI/socket-created surface resume bindings: layout,
 /// working directories, text, and http(s) pages restore; command-bearing
 /// state is either reconstructed by cmux from known values or kept for

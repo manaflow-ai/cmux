@@ -114,11 +114,28 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         guard fileManager.fileExists(atPath: fileURL.path) else {
             return .failure(.fileNotFound(fileURL))
         }
+        // Only read regular files of a bounded size: a FIFO or device node
+        // would block the reader forever and an unbounded file would be read
+        // whole into memory. `fileExists` follows symlinks, so check the
+        // resolved target.
+        let resolvedPath = fileURL.resolvingSymlinksInPath().path
+        guard let attributes = try? fileManager.attributesOfItem(atPath: resolvedPath),
+              attributes[.type] as? FileAttributeType == .typeRegular else {
+            return .failure(.notASessionSnapshot(fileURL))
+        }
+        if let size = (attributes[.size] as? NSNumber)?.int64Value,
+           size > Self.maximumImportableSnapshotBytes {
+            return .failure(.notASessionSnapshot(fileURL))
+        }
         guard let data = try? Data(contentsOf: fileURL) else {
             return .failure(.unreadable(fileURL))
         }
         return importableSnapshot(data: data, fileURL: fileURL)
     }
+
+    /// Upper bound on a snapshot file accepted for import. Real snapshots
+    /// (scrollback included) are a few MiB at most.
+    static let maximumImportableSnapshotBytes: Int64 = 256 * 1024 * 1024
 
     private func importableSnapshot(
         data: Data,
@@ -215,6 +232,9 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
                 // Without overwrite, create the file exclusively (O_EXCL) so
                 // a file that appears after the check above is never replaced.
                 try data.write(to: destination, options: overwrite ? .atomic : .withoutOverwriting)
+                // The export carries scrollback and working directories;
+                // keep it private to the user like the live snapshot.
+                try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
                 return .success(sourceURL)
             } catch {
                 if !overwrite && itemExists(at: destination) {
@@ -269,6 +289,15 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
             return nil
         }
         return url
+    }
+
+    public func preserveNewerSchemaSnapshotBeforeReplacing(fileURL: URL) -> Bool {
+        switch preserveNewerSchemaSnapshotOutcome(fileURL: fileURL) {
+        case .notNeeded, .preserved:
+            return true
+        case .failed:
+            return false
+        }
     }
 
     public func load(fileURL: URL? = nil) -> SnapshotValue? {

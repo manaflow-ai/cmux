@@ -94,6 +94,22 @@ final class CLIRestoreSessionTransferTests {
         #expect(params?["source"] == nil)
     }
 
+    @Test func channelNameWinsOverSameNamedFileInCurrentDirectory() throws {
+        let (result, payloads) = try runAgainstMockServer(
+            label: "from-collide",
+            arguments: ["restore-session", "--from", "nightly"],
+            reply: ["restored": true, "source_path": "/support/session-com.cmuxterm.app.nightly.json", "window_count": 1],
+            prepareWorkDirectory: { directory in
+                try Data("{}".utf8).write(to: directory.appendingPathComponent("nightly"))
+            }
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let params = payloads.first?["params"] as? [String: Any]
+        #expect(params?["source"] as? String == "nightly")
+        #expect(params?["path"] == nil)
+    }
+
     @Test func exportSendsSessionExportWithForce() throws {
         let (result, payloads) = try runAgainstMockServer(
             label: "export",
@@ -124,6 +140,8 @@ final class CLIRestoreSessionTransferTests {
         (["restore-session", "--from", "nightly", "--export", "/tmp/x.json"], "not both"),
         (["restore-session", "--force"], "--force only applies to --export"),
         (["restore-session", "--from"], "--from requires a value"),
+        (["restore-session", "--export", "--force"], "--export requires a value"),
+        (["restore-session", "--from", "--export", "/tmp/x.json"], "--from requires a value"),
     ])
     func conflictingFlagsFailBeforeConnecting(arguments: [String], expected: String) throws {
         let result = runCLI(socketPath: makeSocketPath("noconn"), arguments: arguments)

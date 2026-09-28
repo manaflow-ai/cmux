@@ -85,6 +85,14 @@ public protocol SessionSnapshotStoring<SnapshotValue>: Sendable {
     @discardableResult
     func preserveNewerSchemaSnapshot(fileURL: URL) -> URL?
 
+    /// Preserves a newer-schema snapshot at `fileURL` like
+    /// ``preserveNewerSchemaSnapshot(fileURL:)``.
+    ///
+    /// - Returns: Whether `fileURL` may now be overwritten or removed: true
+    ///   when nothing needed preserving or the side file was written, false
+    ///   when a newer-schema snapshot could not be copied aside.
+    func preserveNewerSchemaSnapshotBeforeReplacing(fileURL: URL) -> Bool
+
     /// Copies the snapshot file at `fileURL` into the rotated history
     /// directory, then prunes history to its retention limit. Skips the copy
     /// when the newest history entry holds identical bytes. Returns the new

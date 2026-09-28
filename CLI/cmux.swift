@@ -8696,7 +8696,15 @@ struct CMUXCLI {
     ) throws {
         let (fromValue, afterFrom) = parseOption(commandArgs, name: "--from")
         let (exportValue, afterExport) = parseOption(afterFrom, name: "--export")
-        let force = afterExport.contains("--force")
+        // `--export --force` must not write a file named `--force`, and
+        // `--from --export x` must not treat `--export` as a channel.
+        for (flag, value) in [("--from", fromValue), ("--export", exportValue)] {
+            if let value, value.hasPrefix("--") {
+                throw CLIError(message: "restore-session: \(flag) requires a value")
+            }
+        }
+        let beforeTerminator = afterExport.prefix { $0 != "--" }
+        let force = beforeTerminator.contains("--force")
         let remaining = afterExport.filter { $0 != "--" && $0 != "--force" }
         if let unknown = remaining.first {
             if unknown == "--from" || unknown == "--export" {
@@ -8769,23 +8777,45 @@ struct CMUXCLI {
 
     /// `session.import` params for `restore-session --from <value>`: a value
     /// that looks like a file path (contains `/`, starts with `~` or `.`, or
-    /// ends in `.json`) is sent as an absolute `path`; anything else is a
-    /// channel name or bundle id the app resolves (`source`).
+    /// ends in `.json`) is sent as an absolute `path`. A channel name or
+    /// bundle id (`source`) wins over a same-named file in the current
+    /// directory, so `--from nightly` never silently becomes an untrusted
+    /// file import; `./nightly` names the file. Any other bare name is a file
+    /// when it exists, otherwise a source the app resolves.
     func restoreSessionImportParams(_ rawValue: String) throws -> [String: Any] {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else {
             throw CLIError(message: "restore-session: --from requires a channel or a file path")
         }
         let resolvedPath = resolvePath(value)
-        let looksLikePath = value.contains("/")
+        let explicitPath = value.contains("/")
             || value.hasPrefix("~")
             || value.hasPrefix(".")
             || value.lowercased().hasSuffix(".json")
-            || FileManager.default.fileExists(atPath: resolvedPath)
-        if looksLikePath {
+        if explicitPath {
+            return ["path": resolvedPath]
+        }
+        if Self.restoreSessionLooksLikeChannel(value) {
+            return ["source": value]
+        }
+        if FileManager.default.fileExists(atPath: resolvedPath) {
             return ["path": resolvedPath]
         }
         return ["source": value]
+    }
+
+    /// Whether `value` names an install channel (`stable`, `release`,
+    /// `nightly`, `rc`, `staging`, `debug`, `debug:<tag>`, `dev:<tag>`) or a
+    /// cmux bundle identifier. Mirrors `SessionSnapshotFileLocation`.
+    static func restoreSessionLooksLikeChannel(_ value: String) -> Bool {
+        let lowered = value.lowercased()
+        if ["stable", "release", "nightly", "rc", "staging", "debug"].contains(lowered) {
+            return true
+        }
+        if lowered.hasPrefix("debug:") || lowered.hasPrefix("dev:") {
+            return true
+        }
+        return value == "com.cmuxterm.app" || value.hasPrefix("com.cmuxterm.app.")
     }
 
     /// Sends a session transfer request (`session.import` / `session.export`)

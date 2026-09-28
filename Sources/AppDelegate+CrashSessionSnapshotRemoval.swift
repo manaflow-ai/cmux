@@ -38,10 +38,15 @@ extension AppDelegate {
                case .loaded = sessionSnapshotStore.loadOutcome(fileURL: backupURL) {
                 return
             }
+            // Never replace a newer build's backup unless it was copied aside.
+            guard sessionSnapshotStore.preserveNewerSchemaSnapshotBeforeReplacing(fileURL: backupURL) else {
+                return
+            }
             _ = sessionSnapshotStore.save(prunedSnapshot, fileURL: backupURL)
         case .missing:
-            if !preserveExistingBackup && !Self.hasCrashOnlyPrimarySnapshotRemovalMarker() {
-                sessionSnapshotStore.preserveNewerSchemaSnapshot(fileURL: backupURL)
+            if !preserveExistingBackup,
+               !Self.hasCrashOnlyPrimarySnapshotRemovalMarker(),
+               sessionSnapshotStore.preserveNewerSchemaSnapshotBeforeReplacing(fileURL: backupURL) {
                 sessionSnapshotStore.removeSnapshot(fileURL: backupURL)
             }
         case .unusable:

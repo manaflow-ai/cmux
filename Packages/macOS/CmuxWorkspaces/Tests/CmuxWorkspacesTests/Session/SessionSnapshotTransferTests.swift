@@ -220,6 +220,26 @@ struct SessionSnapshotTransferTests {
         #expect(repository.importableSnapshot(fileURL: empty).failure == .noWindows(empty))
     }
 
+    @Test("import never reads a FIFO, a directory, or a symlink to one")
+    func importRejectsNonRegularFiles() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let repository = makeRepository(appSupport: dir, bundleIdentifier: "com.cmuxterm.app")
+
+        // Reading a FIFO with no writer would block forever.
+        let fifo = dir.appendingPathComponent("pipe.json")
+        #expect(mkfifo(fifo.path, 0o600) == 0)
+        #expect(repository.importableSnapshot(fileURL: fifo).failure == .notASessionSnapshot(fifo))
+
+        let link = dir.appendingPathComponent("link.json")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: fifo)
+        #expect(repository.importableSnapshot(fileURL: link).failure == .notASessionSnapshot(link))
+
+        let directory = dir.appendingPathComponent("folder.json", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        #expect(repository.importableSnapshot(fileURL: directory).failure == .notASessionSnapshot(directory))
+    }
+
     // MARK: - Export and round trip
 
     @Test("export then import round-trips the saved snapshot byte for byte")
@@ -236,6 +256,8 @@ struct SessionSnapshotTransferTests {
 
         #expect(source == nightly.defaultSnapshotFileURL())
         #expect(try Data(contentsOf: destination) == Data(contentsOf: source))
+        let permissions = try FileManager.default.attributesOfItem(atPath: destination.path)[.posixPermissions] as? NSNumber
+        #expect(permissions?.intValue == 0o600)
         let imported = try stable.importableSnapshot(fileURL: destination).get()
         #expect(imported.snapshot == saved)
         #expect(imported.fileURL == destination)
