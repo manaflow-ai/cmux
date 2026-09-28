@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxCore
 import CmuxMobileRPC
+import CmuxMobileHost
 import CmuxSurfaceCatalogModel
 import Foundation
 import OSLog
@@ -53,7 +54,7 @@ enum DeviceLinkError: Error, LocalizedError, Equatable {
 final class DeviceLink {
     typealias Phase = DeviceLinkReconnectPolicy.Phase
 
-    static let eventTopics: Set<String> = ["mobile.sync.delta", "workspace.updated", "terminal.bytes", "terminal.updated", DeviceWorkspaceLayoutHost.eventTopic]
+    static let eventTopics: Set<String> = ["mobile.sync.delta", "workspace.updated", "terminal.bytes", "terminal.updated", DeviceTerminalGridPublisher.eventTopic, DeviceWorkspaceLayoutHost.eventTopic]
 
     let instance: SurfaceDeviceInstanceID
     private(set) var record: DeviceDirectoryRecord
@@ -417,7 +418,10 @@ final class DeviceLink {
         }
     }
 
-    private func handle(_ envelope: MobileEventEnvelope) {
+    /// Route one host event: layout snapshots to `onLayoutChange`, sync
+    /// deltas to the mirror, and every other topic to the terminal fan-out,
+    /// which drops the topics it does not decode.
+    func handle(_ envelope: MobileEventEnvelope) {
         switch envelope.topic {
         case DeviceWorkspaceLayoutHost.eventTopic:
             guard let payload = envelope.payloadJSON,
@@ -426,12 +430,8 @@ final class DeviceLink {
             onLayoutChange?(snapshot)
         case "mobile.sync.delta":
             applyDelta(envelope.payloadJSON)
-        case "terminal.bytes", "terminal.updated":
-            if let decoded = DeviceTerminalEvent.decode(envelope) {
-                terminalEvents.send(decoded.event, surfaceID: decoded.surfaceID)
-            }
         default:
-            break
+            terminalEvents.receive(envelope)
         }
     }
 

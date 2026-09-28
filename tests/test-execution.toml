@@ -57,6 +57,11 @@ requirements = ["cmux-cli"]
 serial = true
 
 [[test]]
+path = "tests/test_cli_hook_enqueue_wall_clock.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_simulator_contract.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -152,6 +157,11 @@ path = "tests/test_claude_wrapper_subrouter_resume_marker.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_claude_wrapper_generated_settings_fast_path.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_claude_teams_test_utils.py"
 lane = "macos-cli-no-socket"
 
@@ -241,6 +251,12 @@ path = "tests/test_issue_10926_watcher_pid_reuse_guard.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_issue_15066_zsh_watcher_sleep.py"
+lane = "macos-cli-no-socket"
+# This test starts disowned watcher processes and verifies their teardown; run it alone.
+serial = true
+
+[[test]]
 path = "tests/test_issue_15067_bash_watcher_churn.py"
 lane = "linux-guard"
 
@@ -278,6 +294,10 @@ lane = "macos-shell"
 
 [[test]]
 path = "tests/test_shell_no_git_watch.py"
+lane = "macos-shell"
+
+[[test]]
+path = "tests/test_workspace_initial_command_shim_root_owner.py"
 lane = "macos-shell"
 
 [[test]]
@@ -493,6 +513,10 @@ path = "tests/test_ci_warm_distance.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_owned_spm_scratch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_owned_pool_rescue.py"
 lane = "linux-guard"
 
@@ -502,6 +526,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pr_runner_pool.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ui_fuzzer_engine.py"
 lane = "linux-guard"
 
 [[test]]
@@ -686,6 +714,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_package_resolved_policy_remote_inputs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pr_media.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1384,4 +1416,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_config_schema_embed.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ui_tests_dispatch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_media.py"
 lane = "linux-guard"
