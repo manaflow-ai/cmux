@@ -54,10 +54,11 @@ public struct CodexTeamsWatcherInvocation: Sendable, Equatable {
             "--max-auto-depth",
             String(maxAutoDepth),
         ]
+        // The password travels only in the environment: other local users can
+        // read a process's arguments, but not its environment.
         var environment = environment
         if let socketPassword,
            !socketPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            arguments.insert(contentsOf: ["--password", socketPassword], at: 2)
             environment[Self.socketPasswordEnvironmentKey] = socketPassword
         }
         if let ownerPID {
