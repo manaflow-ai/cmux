@@ -2,7 +2,6 @@ import CmuxCloud
 import AppKit
 import Bonsplit
 import CmuxSurfaceCatalogModel
-import CmuxSettings
 import CmuxWorkspaces
 import Foundation
 
@@ -25,15 +24,9 @@ extension Workspace {
     /// manager when the user acts again, so no automatic loop is reintroduced.
     func recreateCloudMachine(_ machine: SurfaceMachineID) {
         guard let machineID = machine.cloudMachineID, !machineID.isEmpty else { return }
-        let socketPath = TerminalController.shared.activeSocketPath(
-            preferredPath: SocketControlSettings.socketPath()
-        )
-        _ = CloudVMActionLauncher.shared.start(
-            socketPath: socketPath,
+        CloudVMActionLauncher.shared.recreate(
+            machineID: machineID,
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
-            arguments: ["vm", "fork", machineID],
-            successTitle: String(localized: "cloudPane.recreate.success", defaultValue: "Machine recreated"),
-            presentsFailureAlert: true,
             onCompletion: { [weak self] completion in
                 guard completion.succeeded else { return }
                 guard let self, let failureID = self.cloudPaneCreationFailureStore.failure?.id else { return }

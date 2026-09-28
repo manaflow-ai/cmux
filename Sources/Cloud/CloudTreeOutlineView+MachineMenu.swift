@@ -21,7 +21,7 @@ extension CloudTreeOutlineView.Coordinator {
         items.append(contentsOf: machineReorderMenuItems(id: id))
         if info?.linkFailure == .recreateRequired {
             items.append(item(String(localized: "machines.menu.recreate", defaultValue: "Recreate")) {
-                actions.runCommand(id, ["vm", "fork"])
+                actions.recreate(id)
             })
             if let error = info?.linkError {
                 items.append(item(CloudErrorCopy.title) { CloudErrorCopy.copy(error) })

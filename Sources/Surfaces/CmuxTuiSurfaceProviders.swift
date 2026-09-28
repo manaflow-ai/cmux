@@ -82,6 +82,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     var manualMirrorSessions: [UUID: CloudTuiManualMirrorSession] = [:]
     /// Attach loops of reserved panes (restored, or a workspace opened as a whole), by panel id.
     var restoredAttachTasks: [UUID: Task<Void, Never>] = [:]
+    var restoredRetryResetTasks: [UUID: Task<Void, Never>] = [:]
     /// Numeric cmux-tui surface ids are process-local. Re-read the legacy tree
     /// when the link socket generation changes or an attachment disconnects,
     /// then reuse the result for the rest of that socket generation.
@@ -193,6 +194,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         refreshCoordinator.cancel()
         for task in browserPaneTasks.values { task.cancel() }
         browserPaneTasks.removeAll()
+        for task in restoredRetryResetTasks.values { task.cancel() }
+        restoredRetryResetTasks.removeAll()
         refreshGeneration &+= 1
         CloudNotificationSyncHub.shared.unregister(machineID: machineID)
         notificationSync?.retire()
@@ -811,7 +814,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             remoteTabID: createdPlacement?.tabID ?? selectedView?.tabID
         )
     }
-
     func recordCreatedTerminal(
         _ created: CmuxTuiSnapshotParser.CreatedTerminalPath,
         workspaceID: String,
@@ -861,18 +863,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         scheduleRefresh()
         return resource
     }
-
     /// A new workspace in the machine's cmux-tui session (`workspace create`),
     /// called directly — not as a side effect of creating a terminal.
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
         let receipt = try await createRemoteWorkspaceReceipt(name: name)
         return info.remoteWorkspaces?.first(where: { $0.id == receipt.workspace.id }) ?? receipt.workspace
     }
-
     func createRemoteWorkspaceReceipt(name: String?) async throws -> SurfaceWorkspaceCreationReceipt {
         try await createRemoteWorkspaceReceipt(name: name, expectedRevision: nil)
     }
-
     /// Uses the daemon's revision fence for the name lookup/create, including
     /// races with another Mac or a guest CLI, without serializing unrelated I/O.
     func getOrCreateRemoteWorkspace(name: String) async throws -> (workspace: SurfaceRemoteWorkspace, existing: Bool) {
@@ -899,7 +898,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         throw ProviderError.invalidSnapshot(machineID)
     }
-
     private func createRemoteWorkspaceReceipt(name: String?, expectedRevision: UInt64?) async throws -> SurfaceWorkspaceCreationReceipt {
         let generation = lifecycleGeneration
         try Task.checkCancellation()
@@ -1225,6 +1223,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func projectionDidEnd(_ projection: SurfaceProjection) {
         browserPaneTasks.removeValue(forKey: projection.panelID)?.cancel()
         restoredAttachTasks.removeValue(forKey: projection.panelID)?.cancel()
+        restoredRetryResetTasks.removeValue(forKey: projection.panelID)?.cancel()
         materializedPanels.remove(projection.panelID)
         manualMirrorSessions.removeValue(forKey: projection.panelID)?.stop()
     }
@@ -1233,6 +1232,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
         browserPaneTasks.removeValue(forKey: projection.panelID)?.cancel()
         restoredAttachTasks.removeValue(forKey: projection.panelID)?.cancel()
+        restoredRetryResetTasks.removeValue(forKey: projection.panelID)?.cancel()
         materializedPanels.remove(projection.panelID)
         manualMirrorSessions.removeValue(forKey: projection.panelID)?.stop()
         SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)

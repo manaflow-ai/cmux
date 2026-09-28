@@ -834,6 +834,7 @@ public actor VMClient {
     private let isDisabledByManagedPolicy: (@Sendable () -> Bool)?
     private var attachRetryLedger = CloudVMRetryLedger()
     private var attachInFlight: [String: Task<VMCmuxRemoteEndpoint, Error>] = [:]
+    private var attachSessionKey: String?
 
     public init(
         session: URLSession = .shared,
@@ -1759,10 +1760,17 @@ public actor VMClient {
         deviceFingerprint: String? = nil,
         clientCapabilities: [String] = []
     ) async throws -> VMCmuxRemoteEndpoint {
+        let identity = await auth.authenticatedSessionIdentity
+        let teamID = await auth.resolvedTeamID
+        let sessionKey = "\(identity?.accountID ?? "<none>"):\(identity?.generation ?? 0):\(teamID ?? "<none>")"
+        if attachSessionKey != sessionKey {
+            attachRetryLedger.removeAll()
+            attachSessionKey = sessionKey
+        }
         let capabilities = Self.sanitizedClientCapabilities(clientCapabilities)
-        let key = [id, deviceFingerprint ?? "", capabilities.joined(separator: ",")].joined(separator: "\u{0}")
+        let key = [sessionKey, id, deviceFingerprint ?? "", capabilities.joined(separator: ",")].joined(separator: "\u{0}")
         if let inFlight = attachInFlight[key] { return try await inFlight.value }
-        if case .blocked(let error) = attachRetryLedger.admission(key: key, machineID: id, now: .now) {
+        if case .blocked(let error) = attachRetryLedger.admission(machineID: id, now: .now) {
             throw VMClientError.typedHTTPStatus(error)
         }
         let task = Task<VMCmuxRemoteEndpoint, Error> { [weak self] in
@@ -1777,11 +1785,16 @@ public actor VMClient {
         defer { if attachInFlight[key] == task { attachInFlight[key] = nil } }
         do {
             let endpoint = try await task.value
+            if let identity {
+                guard await auth.isAuthenticatedSessionIdentityCurrent(identity), await auth.resolvedTeamID == teamID else { throw CancellationError() }
+            } else {
+                guard await auth.isAuthenticated else { throw CancellationError() }
+            }
             attachRetryLedger.recordSuccess(machineID: id)
             return endpoint
         } catch let VMClientError.typedHTTPStatus(error) {
+            guard attachSessionKey == sessionKey else { throw CancellationError() }
             attachRetryLedger.recordFailure(
-                key: key,
                 machineID: id,
                 error: error,
                 now: .now,

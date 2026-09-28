@@ -129,8 +129,8 @@ public struct CloudVMRetryLedger: Sendable, Equatable {
         self.policy = policy
     }
 
-    public mutating func admission(key: String, machineID: String, now: Date) -> Admission {
-        guard let entry = entries[key] else { return .allowed }
+    public mutating func admission(machineID: String, now: Date) -> Admission {
+        guard let entry = entries[machineID] else { return .allowed }
         if entry.retryAt == nil || now.timeIntervalSince(entry.startedAt) >= policy.maximumElapsedSeconds {
             return .blocked(entry.error)
         }
@@ -140,7 +140,6 @@ public struct CloudVMRetryLedger: Sendable, Equatable {
 
     @discardableResult
     public mutating func recordFailure(
-        key: String,
         machineID: String,
         error: CloudVMHTTPError,
         now: Date,
@@ -159,16 +158,20 @@ public struct CloudVMRetryLedger: Sendable, Equatable {
         } else {
             retryAt = nil
         }
-        entries[key] = Entry(attempts: attempts, startedAt: startedAt, retryAt: retryAt, error: error)
+        entries[machineID] = Entry(attempts: attempts, startedAt: startedAt, retryAt: retryAt, error: error)
         return decision
     }
 
     public mutating func recordSuccess(machineID: String) {
-        entries = entries.filter { !$0.key.hasPrefix(machineID + "\u{0}") }
+        entries.removeValue(forKey: machineID)
     }
 
     public mutating func reset(machineID: String) {
         recordSuccess(machineID: machineID)
+    }
+
+    public mutating func removeAll() {
+        entries.removeAll()
     }
 }
 
@@ -192,37 +195,23 @@ public func formattedCloudVMHTTPError(status: Int, body: String) -> String {
 private func formattedCloudVMHTTPError(status: Int, object: [String: Any]) -> String {
     let errorCode = cloudVMString(object["error"]) ?? "http_\(status)"
     let ui = object["ui"] as? [String: Any]
-    let displayTitle = cloudVMString(ui?["title"])
-    let message = cloudVMString(object["message"])
-        ?? cloudVMString(object["reason"])
-        ?? defaultCloudVMMessage(status: status, errorCode: errorCode)
-    let displayMessage = cloudVMString(ui?["message"]) ?? message
-    let action = cloudVMString(object["action"])
-        ?? defaultCloudVMAction(status: status, errorCode: errorCode, response: object)
+    let message = defaultCloudVMMessage(status: status, errorCode: errorCode)
+    let action = defaultCloudVMAction(status: status, errorCode: errorCode, response: object)
     let retryAfterSeconds = cloudVMInt(object["retryAfterSeconds"])
         ?? cloudVMInt(ui?["retryAfterSeconds"])
-    let details = cloudVMDetails(from: object)
+    let retryable = cloudVMBool(object["retryable"]) ?? cloudVMBool(ui?["retryable"]) ?? status == 429
 
     var lines: [String] = [
-        "\(displayTitle ?? "Cloud VM request failed") (HTTP \(status): \(errorCode))",
-        displayMessage,
+        "Cloud VM request failed (HTTP \(status))",
+        message,
     ]
-    if let retryAfterSeconds, retryAfterSeconds > 0, errorCode != "vm_requires_recreate", errorCode != "vm_recreate_required" {
+    if retryable, let retryAfterSeconds, retryAfterSeconds > 0 {
         lines.append("Retrying is safe. Next automatic retry is in about \(retryAfterSeconds)s when this request is part of an attach loop.")
     }
     if !action.isEmpty {
         lines.append("")
         lines.append("What to do:")
-        lines.append(contentsOf: indentedActionLines(action))
-    }
-    if !details.isEmpty {
-        lines.append("")
-        lines.append("Details:")
-        lines.append(contentsOf: details.map { "  \($0)" })
-    }
-    if let traceId = cloudVMString(object["traceId"]) ?? cloudVMString(ui?["traceId"]) {
-        lines.append("")
-        lines.append(cloudVMReferenceLine(traceId: traceId))
+        lines.append("  \(action)")
     }
     return lines.joined(separator: "\n")
 }
@@ -285,23 +274,6 @@ public func defaultCloudVMAction(status: Int, errorCode: String, response: [Stri
     }
 }
 
-private func cloudVMDetails(from object: [String: Any]) -> [String] {
-    let allowedKeys = Set(["amount", "code", "duration", "durationMs", "field", "idempotencyKeySet", "imageRequested", "limit", "operation", "phase", "provider", "providerCode", "providerMessage", "retryable", "retryAfterSeconds", "status", "type", "vmId"])
-    var details: [String: Any] = [:]
-    if let nestedDetails = object["details"] as? [String: Any] {
-        for (key, value) in nestedDetails where allowedKeys.contains(key) && !cloudVMIsNull(value) { details[key] = value }
-    }
-    for (key, value) in object where allowedKeys.contains(key) && !cloudVMIsNull(value) { details[key] = value }
-    return details.keys.sorted().compactMap { key in
-        guard let value = details[key] else { return nil }
-        return "\(key): \(cloudVMValueDescription(value))"
-    }
-}
-
-private func indentedActionLines(_ action: String) -> [String] {
-    action.split(separator: "\n", omittingEmptySubsequences: false).map { "  \($0)" }
-}
-
 func cloudVMString(_ value: Any?) -> String? {
     guard let string = value as? String else { return nil }
     let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -323,19 +295,4 @@ private func cloudVMBool(_ value: Any?) -> Bool? {
     return nil
 }
 
-private func cloudVMValueDescription(_ value: Any) -> String {
-    if let string = value as? String { return limitedSingleLine(string) }
-    if let number = value as? NSNumber { return number.stringValue }
-    if cloudVMIsNull(value) { return "null" }
-    if JSONSerialization.isValidJSONObject(value), let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), let encoded = String(data: data, encoding: .utf8) { return limitedSingleLine(encoded) }
-    return limitedSingleLine(String(describing: value))
-}
-
 func cloudVMIsNull(_ value: Any) -> Bool { value is NSNull }
-
-private func limitedSingleLine(_ value: String, maxCharacters: Int = 1200) -> String {
-    let singleLine = value.replacingOccurrences(of: "\n", with: "\\n").replacingOccurrences(of: "\r", with: "\\r")
-    guard singleLine.count > maxCharacters else { return singleLine }
-    let index = singleLine.index(singleLine.startIndex, offsetBy: maxCharacters)
-    return String(singleLine[..<index]) + "..."
-}

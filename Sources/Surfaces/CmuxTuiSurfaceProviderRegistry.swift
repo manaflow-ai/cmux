@@ -3,7 +3,6 @@ import CmuxFoundation
 import CmuxSettings
 import CmuxSurfaceCatalogModel
 import Foundation
-
 /// Owns one ``CmuxTuiSurfaceProvider`` per cloud machine and keeps the catalog's machine
 /// list in step with the control plane: registers a provider for every machine the
 /// account can see, unregisters deleted ones, and drives refreshes on the same 45 s
@@ -202,7 +201,6 @@ final class CmuxTuiSurfaceProviderRegistry {
         discoveryInFlight?.cancel()
         discoveryInFlight = nil
         isRetired = false
-        sessionRejected = false
         accessEpoch &+= 1
         creationEpoch = UUID()
         pendingMachineCreationIDs.removeAll(); hasCompletedInitialRefresh = false; refreshedMachineIDs.removeAll()
@@ -262,6 +260,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         let epoch = accessEpoch
         await teardownInFlight?.value
         guard epoch == accessEpoch, let catalog else { return }
+        sessionRejected = false
         start(catalog: catalog)
     }
     /// Starts the periodic fleet read when background Cloud work is allowed and
@@ -535,6 +534,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     }
     /// Synchronous publication fence shared by team switching and full teardown.
     private func invalidateAccess() {
+        sessionRejected = false
         networkObserver = nil
         isRetired = true
         accessEpoch &+= 1

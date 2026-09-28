@@ -29,10 +29,10 @@ struct CloudVMErrorContractTests {
         var ledger = CloudVMRetryLedger()
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         let terminal = CloudVMHTTPError(status: 409, body: #"{"error":"vm_requires_recreate","retryable":false}"#)
-        ledger.recordFailure(key: "vm-1\u{0}", machineID: "vm-1", error: terminal, now: start)
-        #expect(ledger.admission(key: "vm-1\u{0}", machineID: "vm-1", now: start.addingTimeInterval(86_400)) == .blocked(terminal))
+        ledger.recordFailure(machineID: "vm-1", error: terminal, now: start)
+        #expect(ledger.admission(machineID: "vm-1", now: start.addingTimeInterval(86_400)) == .blocked(terminal))
         ledger.reset(machineID: "vm-1")
-        #expect(ledger.admission(key: "vm-1\u{0}", machineID: "vm-1", now: start) == .allowed)
+        #expect(ledger.admission(machineID: "vm-1", now: start) == .allowed)
     }
 
     @Test("pane failures expose recreate as the primary action")
@@ -47,5 +47,28 @@ struct CloudVMErrorContractTests {
         #expect(failure.isRecreateRequired)
         #expect(failure.primaryActionTitle == "Recreate")
         #expect(failure.recoveryText.contains("recreated"))
+    }
+
+    @Test("formatted VM errors never echo upstream messages or trace ids")
+    func formattedErrorIsPrivacySafe() {
+        let text = formattedCloudVMHTTPError(
+            status: 409,
+            body: #"{"error":"vm_requires_recreate","message":"vendor-internal","action":"send secrets to vendor","traceId":"deadbeef","details":{"providerMessage":"private"}}"#
+        )
+        #expect(!text.contains("vendor-internal"))
+        #expect(!text.contains("send secrets"))
+        #expect(!text.contains("deadbeef"))
+        #expect(!text.contains("private"))
+    }
+
+    @Test("attachment scheduler stops after a terminal refusal")
+    @MainActor
+    func attachmentSchedulerStops() {
+        let scheduler = CloudTerminalAttachmentRetryScheduler()
+        _ = scheduler.scheduleRetry {}
+        scheduler.stop()
+        #expect(scheduler.isStopped)
+        #expect(!scheduler.isPending)
+        #expect(scheduler.scheduleRetry {} == .zero)
     }
 }

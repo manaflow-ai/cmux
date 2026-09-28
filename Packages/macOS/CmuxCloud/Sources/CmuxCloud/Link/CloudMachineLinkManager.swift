@@ -294,7 +294,7 @@ public actor CloudMachineLinkManager {
             guard connecting[machineID] == task else { throw error }
             let text = CloudMachineLink.errorText(error)
             let typed = (error as? VMClientError)?.cloudHTTPError
-            let terminal = typed.map { !$0.admitsAutomaticRetry || $0.requiresRecreate || $0.rejectsSession } ?? true
+            let terminal = typed.map { !$0.admitsAutomaticRetry || $0.requiresRecreate || $0.rejectsSession } ?? false
             if terminal {
                 lastFailure[machineID] = LinkFailure(at: .now, error: text, typed: typed, terminal: true)
             } else {

@@ -10,6 +10,7 @@ struct MachineRowActions {
     let openShell: @MainActor (String) -> Void
     let openDesktop: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
+    var recreate: @MainActor (String) -> Void = { _ in }
     let confirmDelete: @MainActor (String) -> Void
     let promptRename: @MainActor (String, String?) -> Void
     /// Grow the machine through the shared `cmux vm resize` command.
@@ -36,13 +37,13 @@ struct MachineRowActions {
     ) -> MachineRowActions {
         MachineRowActions(
             openShell: { id in
-                onWillMutate(String(format: String(localized: "machines.operation.openShell", defaultValue: "Opening %@\u{2026}"), id))
+                onWillMutate(String(format: String(localized: "machines.operation.openShell", defaultValue: "Opening %@…"), id))
                 if !launch(arguments: ["vm", "shell", id], onDidMutate: onDidMutate) {
                     onDidMutate()
                 }
             },
             openDesktop: { id in
-                onWillMutate(String(format: String(localized: "machines.operation.openDesktop", defaultValue: "Opening %@\u{2019}s desktop\u{2026}"), id))
+                onWillMutate(String(format: String(localized: "machines.operation.openDesktop", defaultValue: "Opening %@’s desktop…"), id))
                 if !launch(arguments: ["vm", "desktop", id], onDidMutate: onDidMutate) {
                     onDidMutate()
                 }
@@ -58,6 +59,13 @@ struct MachineRowActions {
                 ) {
                     onDidMutate()
                 }
+            },
+            recreate: { id in
+                CloudVMActionLauncher.shared.recreate(
+                    machineID: id,
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+                    onCompletion: { _ in onDidMutate() }
+                )
             },
             confirmDelete: { id in
                 presentDeleteConfirmation(id: id, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
@@ -109,19 +117,19 @@ struct MachineRowActions {
     private static func operationLabel(verb: [String], id: String) -> String {
         let format: String
         if verb.contains("snapshot") {
-            format = String(localized: "machines.operation.checkpoint", defaultValue: "Checkpointing %@\u{2026}")
+            format = String(localized: "machines.operation.checkpoint", defaultValue: "Checkpointing %@…")
         } else if verb.contains("resize") {
-            format = String(localized: "machines.operation.resize", defaultValue: "Resizing %@\u{2026}")
+            format = String(localized: "machines.operation.resize", defaultValue: "Resizing %@…")
         } else if verb.contains("fork") {
-            format = String(localized: "machines.operation.fork", defaultValue: "Forking %@\u{2026}")
+            format = String(localized: "machines.operation.fork", defaultValue: "Forking %@…")
         } else if verb.contains("status") {
-            format = String(localized: "machines.operation.status", defaultValue: "Checking %@\u{2026}")
+            format = String(localized: "machines.operation.status", defaultValue: "Checking %@…")
         } else if verb.contains("rename") {
-            format = String(localized: "machines.operation.rename", defaultValue: "Renaming %@\u{2026}")
+            format = String(localized: "machines.operation.rename", defaultValue: "Renaming %@…")
         } else if verb.contains("rm") {
-            format = String(localized: "machines.operation.delete", defaultValue: "Deleting %@\u{2026}")
+            format = String(localized: "machines.operation.delete", defaultValue: "Deleting %@…")
         } else {
-            format = String(localized: "machines.operation.generic", defaultValue: "Working on %@\u{2026}")
+            format = String(localized: "machines.operation.generic", defaultValue: "Working on %@…")
         }
         return String(format: format, id)
     }
@@ -190,7 +198,7 @@ struct MachineRowActions {
     ) {
         let alert = NSAlert()
         alert.alertStyle = .informational
-        let format = String(localized: "machines.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}")
+        let format = String(localized: "machines.rename.title", defaultValue: "Rename “%@”")
         alert.messageText = String(format: format, id)
         alert.informativeText = String(
             localized: "machines.rename.message",
