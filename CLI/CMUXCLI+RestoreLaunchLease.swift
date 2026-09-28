@@ -44,10 +44,12 @@ extension CMUXCLI {
                 // Older apps do not understand the pending hint. Return any
                 // claim they issued before rejecting this contender.
                 if let claimID = response["claim_id"] as? String {
+                    // A late admission reply must still allow the rollback to
+                    // be sent, without extending the admission/retarget budget.
                     releaseRestoreLaunchAdmission(RestoreLaunchAdmissionClaim(
                         workspaceID: (params["workspace_id"] as? String) ?? workspaceID, surfaceID: surfaceID,
                         kind: record.kind, sessionID: sessionID, claimID: claimID
-                    ), client: client, deadline: deadline)
+                    ), client: client, deadline: Date.now.addingTimeInterval(0.5))
                 }
             }
             throw restoreLaunchConflictError(kind: record.kind, sessionID: sessionID, processID: processID)

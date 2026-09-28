@@ -65,7 +65,7 @@ def exercise(cli: Path, reports_owner: bool, owner_cli: Path, launching: bool = 
                     requests.append(method)
                     if method == "surface.resume.get":
                         if retargeting.is_set() and presentation == "slow-retarget":
-                            finished.wait(timeout=10)
+                            finished.wait()
                             return
                         current_workspace = str(uuid.uuid4()) if retargeting.is_set() else workspace
                         result = {"workspace_id": current_workspace, "surface_id": surface,
@@ -89,7 +89,7 @@ def exercise(cli: Path, reports_owner: bool, owner_cli: Path, launching: bool = 
                                 result["live_owner_pid"] = owner_pid
                     elif method == "agent.restore.release":
                         if presentation == "slow-release":
-                            finished.wait(timeout=10)
+                            finished.wait()
                             return
                         result = {"released": True}
                     else:
@@ -150,9 +150,12 @@ def exercise(cli: Path, reports_owner: bool, owner_cli: Path, launching: bool = 
             second = subprocess.Popen(command, env=environment, cwd=root,
                                       stdin=second_slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             try:
-                stdout, stderr = second.communicate(timeout=3)
+                # Leave startup headroom while still detecting the old 15s
+                # socket timeout. Stalled fixture replies remain held until
+                # cleanup, so they cannot make a missing deadline look correct.
+                stdout, stderr = second.communicate(timeout=10)
             except subprocess.TimeoutExpired as error:
-                raise AssertionError("Second restore hung behind a live lease owner for over 3 seconds") from error
+                raise AssertionError("Second restore waited on a live lease owner instead of rejecting") from error
             elapsed = time.monotonic() - started
             assert second.returncode != 0, (stdout, stderr)
             expected = ("another launch of this agent session is already starting" if launching
