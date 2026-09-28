@@ -72,7 +72,10 @@ class SelectToursTests(unittest.TestCase):
             scenario = json.loads(path.read_text())
             names.add(path.stem)
             self.assertRegex(path.stem, media.TOUR_NAME.pattern)
-            self.assertTrue(media.tour_globs(scenario), f"{path.name} has no paths globs")
+            # A tour without `paths` is still valid (a Dogfood-tours: line or an
+            # edit to its own file picks it); a present one must be globs.
+            if isinstance(scenario, dict) and "paths" in scenario:
+                self.assertTrue(media.tour_globs(scenario), f"{path.name} has an empty or malformed paths list")
         self.assertIn(media.DEFAULT_TOUR, names)
 
 
@@ -159,35 +162,132 @@ class StubbedTest(unittest.TestCase):
 class GateTests(StubbedTest):
     JOBS = "repos/o/r/actions/runs/9/attempts/1/jobs"
 
-    def gate(self, jobs: list[dict], run_status: str = "in_progress") -> bool:
+    def gate(self, jobs: list[dict], run_status: str = "in_progress") -> str:
         self.stub({self.JOBS: {"jobs": jobs}, "repos/o/r/actions/runs/9": {"status": run_status}})
         return media.app_build_gate("o/r", "9", "1", 42, sleep=lambda _: None)
 
     def test_an_app_pull_request_with_a_macos_build_passes(self) -> None:
         jobs = [{"name": "Dogfood build #42", "status": "completed", "conclusion": "success"},
                 {"name": "macos / macOS compile admission", "status": "in_progress", "conclusion": None}]
-        self.assertTrue(self.gate(jobs))
+        self.assertEqual(self.gate(jobs), media.BUILT)
 
     def test_media_waits_for_a_successful_dogfood_comment(self) -> None:
         admission = {"name": "macos / macOS compile admission", "status": "in_progress", "conclusion": None}
-        self.assertFalse(self.gate([{"name": "Dogfood build #42", "status": "completed", "conclusion": "failure"},
-                                    admission]))
-        self.assertFalse(self.gate([{"name": "Dogfood build #42", "status": "in_progress", "conclusion": None},
-                                    admission], run_status="completed"))
+        self.assertEqual(self.gate([{"name": "Dogfood build #42", "status": "completed", "conclusion": "failure"},
+                                    admission]), media.NO_BUILD)
+        self.assertEqual(self.gate([{"name": "Dogfood build #42", "status": "in_progress", "conclusion": None},
+                                    admission], run_status="completed"), media.NO_BUILD)
 
-    def test_a_skipped_macos_caller_means_no_build_to_load(self) -> None:
+    def test_a_skipped_macos_caller_reuses_an_earlier_build(self) -> None:
         jobs = [{"name": "Dogfood build #42", "status": "completed", "conclusion": "success"},
                 {"name": "macos", "status": "completed", "conclusion": "skipped"}]
-        self.assertFalse(self.gate(jobs))  # at once, though the run is still going
+        self.assertEqual(self.gate(jobs), media.REUSED)  # at once, though the run is still going
 
     def test_a_skipped_dogfood_job_means_no_app_change(self) -> None:
-        self.assertFalse(self.gate([{"name": "Dogfood build #42", "status": "completed", "conclusion": "skipped"}]))
+        self.assertEqual(self.gate([{"name": "Dogfood build #42", "status": "completed", "conclusion": "skipped"}]),
+                         media.NO_BUILD)
 
     def test_a_cli_only_pull_request_compiles_no_app(self) -> None:
         jobs = [{"name": "Dogfood build #42", "status": "completed", "conclusion": "success"}]
-        self.assertFalse(self.gate(jobs, run_status="completed"))
-        jobs.append({"name": "macos / macOS compile admission", "status": "completed", "conclusion": "skipped"})
-        self.assertFalse(self.gate(jobs))
+        self.assertEqual(self.gate(jobs, run_status="completed"), media.NO_BUILD)
+
+    def test_a_skipped_admission_leaves_the_fingerprint_lookup_to_decide(self) -> None:
+        jobs = [{"name": "Dogfood build #42", "status": "completed", "conclusion": "success"},
+                {"name": "macos / macOS compile admission", "status": "completed", "conclusion": "skipped"}]
+        self.assertEqual(self.gate(jobs), media.REUSED)
+
+
+class AdmittedBuildTests(StubbedTest):
+    def test_a_tour_only_push_loads_the_earlier_build_of_the_same_inputs(self) -> None:
+        earlier = "c" * 40
+        runs = {"workflow_runs": [
+            {"id": 9, "head_repository": {"full_name": "o/r"}},
+            {"id": 8, "head_repository": {"full_name": "o/r"}, "html_url": "https://github.com/o/r/actions/runs/8"}]}
+        self.stub({
+            "repos/o/r/actions/runs/9/artifacts?per_page": {"artifacts": [{"name": "build-inputs-fp1-1"}]},
+            "repos/o/r/actions/workflows/ci.yml/runs": runs,
+            "repos/o/r/actions/runs/8/jobs": {"jobs": [
+                {"name": "macos / macOS compile admission", "run_attempt": 1, "status": "completed",
+                 "conclusion": "success"}]},
+            "repos/o/r/actions/runs/8/artifacts?name=build-inputs-fp1-1": {"total_count": 1},
+            "repos/o/r/actions/runs/8": {"id": 8, "head_sha": earlier},
+        })
+        found = media.admitted_build_run("o/r", {"id": 9, "head_branch": "topic"}, "1")
+        self.assertEqual(found.get("head_sha"), earlier)
+
+    def test_no_fingerprint_means_no_earlier_build(self) -> None:
+        self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": []}})
+        self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "head_branch": "topic"}, "1"), {})
+
+    def test_only_this_attempts_fingerprint_counts(self) -> None:
+        stub = self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": [{"name": "build-inputs-fp1-1"}]}})
+        self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "head_branch": "t"}, "2"), {})
+        self.assertFalse([call for call in stub.calls if "workflows/ci.yml/runs" in call])
+
+    def test_an_api_error_in_the_lookup_means_no_earlier_build(self) -> None:
+        def refuse():
+            raise RuntimeError("HTTP 403")
+
+        self.stub({"repos/o/r/actions/runs/9/artifacts": {"artifacts": [{"name": "build-inputs-fp1-1"}]},
+                   "repos/o/r/actions/workflows/ci.yml/runs": refuse})
+        self.assertEqual(media.admitted_build_run("o/r", {"id": 9, "head_branch": "topic"}, "1"), {})
+
+    def test_the_section_names_the_build_the_tour_loaded(self) -> None:
+        manifest = {"tour": "t", "result": "passed", "build_sha": "c" * 40, "run_url": "https://x"}
+        self.assertIn(f"on the app CI built for `{'c' * 8}`", media.section("o/r", 1, HEAD, [manifest]))
+
+
+class PlanTests(StubbedTest):
+    EARLIER = "c" * 40
+
+    def plan(self, answers: dict[str, object], env: dict[str, str]) -> dict[str, str]:
+        import os
+        import tempfile
+        self.stub({"repos/o/r/pulls/42/files": [[{"filename": "Sources/App.swift"}]],
+                   "repos/o/r/pulls/42": {"head": {"sha": HEAD, "repo": {"full_name": "o/r"}}, "body": ""},
+                   **answers})
+        original = media.head_scenarios
+        media.head_scenarios = lambda _sha: scenarios(sidebar_and_chrome_tour=["Sources/**"])
+        self.addCleanup(setattr, media, "head_scenarios", original)
+        with tempfile.NamedTemporaryFile("r", suffix=".out") as out:
+            keys = {"GITHUB_OUTPUT": out.name, "PR": "42", "SOURCE_RUN_ID": "", **env}
+            saved = {key: os.environ.get(key) for key in keys}
+            os.environ.update(keys)
+            try:
+                media.plan("o/r")
+            finally:
+                for key, value in saved.items():
+                    os.environ.pop(key, None) if value is None else os.environ.__setitem__(key, value)
+            return dict(line.split("=", 1) for line in out.read().splitlines())
+
+    def test_a_manual_dispatch_without_a_ci_run_still_tours_the_head(self) -> None:
+        outputs = self.plan({"repos/o/r/actions/workflows/ci.yml/runs": {"workflow_runs": []}}, {})
+        self.assertEqual(outputs["build_sha"], HEAD)
+        self.assertEqual(json.loads(outputs["run"]), ["sidebar-and-chrome-tour"])
+
+    def test_a_tour_only_push_tours_the_earlier_build(self) -> None:
+        run = {"id": 9, "run_attempt": 1, "head_sha": HEAD, "head_branch": "topic", "event": "pull_request",
+               "path": media.CI_WORKFLOW_PATH, "head_repository": {"full_name": "o/r"},
+               "pull_requests": [{"number": 42}], "status": "completed"}
+        original = media.admitted_build_run
+        media.admitted_build_run = lambda _repo, _run, _attempt: {"head_sha": self.EARLIER}
+        self.addCleanup(setattr, media, "admitted_build_run", original)
+        outputs = self.plan({
+            "repos/o/r/actions/runs/9/attempts/1/jobs": {"jobs": [
+                {"name": "Dogfood build #42", "status": "completed", "conclusion": "success"},
+                {"name": "macos", "status": "completed", "conclusion": "skipped"}]},
+            "repos/o/r/actions/runs/9": run}, {"SOURCE_RUN_ID": "9", "SOURCE_RUN_ATTEMPT": "1"})
+        self.assertEqual(outputs["build_sha"], self.EARLIER)
+
+    def test_an_automatic_run_without_a_build_tours_nothing(self) -> None:
+        run = {"id": 9, "run_attempt": 1, "head_sha": HEAD, "event": "pull_request", "status": "completed",
+               "path": media.CI_WORKFLOW_PATH, "head_repository": {"full_name": "o/r"},
+               "pull_requests": [{"number": 42}]}
+        outputs = self.plan({
+            "repos/o/r/actions/runs/9/attempts/1/jobs": {"jobs": [
+                {"name": "Dogfood build #42", "status": "completed", "conclusion": "skipped"}]},
+            "repos/o/r/actions/runs/9": run}, {"SOURCE_RUN_ID": "9", "SOURCE_RUN_ATTEMPT": "1"})
+        self.assertEqual(outputs["run"], "[]")
 
 
 class CacheAndMergeTests(StubbedTest):
