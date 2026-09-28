@@ -82,6 +82,21 @@ struct CLILocalZellijLifecycleTests {
         #expect(try jsonObject(list.stdout)["count"] as? Int == 0, Comment(rawValue: list.stdout))
     }
 
+    @Test func failedDeleteKeepsTheRecordOfASessionThatIsStillListed() throws {
+        let fixture = try makeFixture("delete-fails", deleteFails: true)
+        defer { try? FileManager.default.removeItem(at: fixture.base) }
+        _ = try startSession("work", fixture)
+
+        // delete-session fails with unrelated "not found" output; the session
+        // is still listed, so close must fail and keep managing it.
+        let close = try runCLI(["local-zellij", "close", "work"], fixture)
+        let status = try runCLI(["local-zellij", "status", "work", "--json"], fixture)
+
+        #expect(close.status != 0, Comment(rawValue: close.stdout))
+        #expect(status.status == 0, Comment(rawValue: status.stderr))
+        #expect(try jsonObject(status.stdout)["state"] as? String == "live", Comment(rawValue: status.stdout))
+    }
+
     @Test func staleRecordNeverTouchesAnUnrelatedExitedSessionWithTheSameName() throws {
         let fixture = try makeFixture("stale")
         defer { try? FileManager.default.removeItem(at: fixture.base) }
@@ -255,7 +270,8 @@ struct CLILocalZellijLifecycleTests {
         _ label: String,
         holdDelete: Bool = false,
         failListAfterFirstCreate: Bool = false,
-        createdSessionsExit: Bool = false
+        createdSessionsExit: Bool = false,
+        deleteFails: Bool = false
     ) throws -> Fixture {
         // Keep the root short: zellij sockets live below it.
         let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
@@ -294,6 +310,10 @@ struct CLILocalZellijLifecycleTests {
             fi
             exit 0 ;;
           delete-session)
+            if [ -n "$FAKE_ZELLIJ_DELETE_FAILS" ]; then
+              echo "Error: config file not found" >&2
+              exit 1
+            fi
             grep -v "^$3 " "$FAKE_ZELLIJ_SESSIONS" > "$FAKE_ZELLIJ_SESSIONS.next"
             mv "$FAKE_ZELLIJ_SESSIONS.next" "$FAKE_ZELLIJ_SESSIONS"
             if [ -n "$FAKE_ZELLIJ_HOLD_DELETE" ]; then
@@ -321,6 +341,7 @@ struct CLILocalZellijLifecycleTests {
         if holdDelete { environment["FAKE_ZELLIJ_HOLD_DELETE"] = "1" }
         if failListAfterFirstCreate { environment["FAKE_ZELLIJ_FAIL_LIST_AFTER_FIRST_CREATE"] = "1" }
         if createdSessionsExit { environment["FAKE_ZELLIJ_CREATED_SESSIONS_EXIT"] = "1" }
+        if deleteFails { environment["FAKE_ZELLIJ_DELETE_FAILS"] = "1" }
         for key in ["CMUX_SOCKET", "CMUX_SOCKET_PATH", "CMUX_WORKSPACE_ID", "ZELLIJ", "ZELLIJ_SESSION_NAME"] {
             environment.removeValue(forKey: key)
         }

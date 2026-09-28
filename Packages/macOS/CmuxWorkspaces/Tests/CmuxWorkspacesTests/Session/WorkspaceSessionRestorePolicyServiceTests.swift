@@ -478,6 +478,20 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(service.localTmuxStartCommand(command) == command)
     }
 
+    @Test("local zellij restore accepts Unicode format characters inside quoted paths")
+    func localZellijRestoreAcceptsFormatCharactersInPaths() {
+        let service = makeService()
+        // U+200D joins emoji such as 👨‍💻; inside single quotes it is plain data.
+        let command = localZellijAttachCommand(
+            socketDirectory: "/Users/me/\u{1F468}\u{200D}\u{1F4BB}/.cmux/local-zellij/sock",
+            executable: "/opt/homebrew/bin/zellij",
+            sessionName: "work-3f2a9c1d"
+        )
+
+        #expect(service.localTmuxStartCommand(command) == command)
+        #expect(service.localTmuxStartCommand(command + "\u{2028}touch /tmp/pwn") == nil, "line separators stay rejected")
+    }
+
     private func localZellijAttachCommand(
         socketDirectory: String,
         executable: String,
