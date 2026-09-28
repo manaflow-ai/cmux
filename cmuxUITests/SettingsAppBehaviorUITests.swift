@@ -187,8 +187,11 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         search.click()
         search.typeText(languageLabel)
         XCTAssertTrue(sidebar.staticTexts[languageLabel].firstMatch.waitForExistence(timeout: 5))
-        search.typeKey("a", modifierFlags: .command)
-        search.typeText("Language")
+        // Typing into the search field can replace its accessibility
+        // element, so select and retype through the app, which sends the
+        // keys to the field that still has focus.
+        app.typeKey("a", modifierFlags: .command)
+        app.typeText("Language")
         XCTAssertTrue(sidebar.staticTexts[languageLabel].firstMatch.waitForExistence(timeout: 5))
     }
 
@@ -243,41 +246,18 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
     }
 
     func testMobilePushForwardingIsVisibleAndDefaultsToAlways() {
-        let app = XCUIApplication.cmuxTestApplication()
-        app.launchArguments += settingsLaunchArguments
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
-        // Headless CI leaves the app running in the background. Keep XCTest
-        // alive through that known launch failure, then restore fail-fast so
-        // every Settings assertion below remains a real regression failure.
-        continueAfterFailure = true
-        let launchOptions = XCTExpectedFailure.Options()
-        launchOptions.isStrict = false
-        XCTExpectFailure(
-            "Headless CI may launch the app without foreground activation",
-            options: launchOptions
-        ) {
-            app.launch()
-        }
-        continueAfterFailure = false
-        XCTAssertTrue(
-            poll(timeout: 10.0) {
-                app.state == .runningForeground || app.state == .runningBackground
-            },
-            "App failed to launch. state=\(app.state.rawValue)"
-        )
-        let window = app.windows["Settings"]
-        XCTAssertTrue(
-            poll(timeout: 8.0) { window.exists },
-            "Settings window did not open"
-        )
+        // Open Settings after launch activation, like the other tests: a
+        // window opened at launch ends up behind the main window, and its
+        // controls have no hit point.
+        let app = makeLaunchedApp()
+        let window = openSettings(app)
         navigate(window, to: "Mobile")
 
         let forwarding = toggle(
             window,
             id: "SettingsMobilePhonePushForwardingToggle"
         )
-        XCTAssertEqual(forwarding.value as? String, "1")
+        XCTAssertTrue(isOn(forwarding), "Forward Notifications to Phone should start on")
 
         let mode = requireElement(
             candidates: [
@@ -303,31 +283,31 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
 
         XCTAssertTrue(
             poll(timeout: 4.0) { subtitleText(window, Subtitle.minimal).exists },
-            "Expected the Minimal Mode subtitle at default"
+            "Expected the Minimal Mode subtitle"
         )
         let minimal = toggle(window, id: "SettingsMinimalModeToggle")
-        XCTAssertFalse(isOn(minimal), "Minimal Mode should start off (.standard)")
+        let initial = isOn(minimal)
 
         minimal.click()
         XCTAssertTrue(
-            poll(timeout: 4.0) { self.isOn(minimal) },
-            "Minimal Mode should be on after one click"
+            poll(timeout: 4.0) { self.isOn(minimal) != initial },
+            "Minimal Mode should flip after one click"
         )
         XCTAssertTrue(
             subtitleText(window, Subtitle.minimal).exists,
-            "The same subtitle should be shown while Minimal Mode is on"
+            "The same subtitle should be shown after Minimal Mode flips"
         )
 
         // Toggle back to confirm the bind is two-way and tracks the stored
-        // value, not a latch.
+        // value, not a latch, and to leave the machine's setting as it was.
         minimal.click()
         XCTAssertTrue(
-            poll(timeout: 4.0) { !self.isOn(minimal) },
-            "Minimal Mode should be off after a second click"
+            poll(timeout: 4.0) { self.isOn(minimal) == initial },
+            "Minimal Mode should return to its starting state after a second click"
         )
         XCTAssertTrue(
             subtitleText(window, Subtitle.minimal).exists,
-            "The same subtitle should be shown after Minimal Mode turns off"
+            "The same subtitle should be shown after Minimal Mode flips back"
         )
 
         closeSettings(app, window)
@@ -335,27 +315,39 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
 
     // MARK: - TIER 1: Inherit Working Directory toggle keeps its fixed subtitle
 
-    /// Default is `true`, so the toggle starts on; one click turns it off
-    /// and the row keeps the same subtitle.
+    /// Each click flips the toggle and the row keeps the same subtitle. The
+    /// test starts from whatever state the toggle is in: on the fleet
+    /// minis a value an earlier run left behind survives `resetDefaults`.
     func testInheritWorkingDirectoryToggleKeepsFixedSubtitle() {
         let app = makeLaunchedApp()
         let window = openAppSection(app)
 
         XCTAssertTrue(
             poll(timeout: 4.0) { subtitleText(window, Subtitle.inherit).exists },
-            "Expected the inherit subtitle at default"
+            "Expected the inherit subtitle"
         )
         let inherit = toggle(window, id: "SettingsWorkspaceInheritWorkingDirectoryToggle")
-        XCTAssertTrue(isOn(inherit), "Inherit Working Directory should start on (true)")
+        let initial = isOn(inherit)
 
         inherit.click()
         XCTAssertTrue(
-            poll(timeout: 4.0) { !self.isOn(inherit) },
-            "Inherit Working Directory should be off after one click"
+            poll(timeout: 4.0) { self.isOn(inherit) != initial },
+            "Inherit Working Directory should flip after one click"
         )
         XCTAssertTrue(
             subtitleText(window, Subtitle.inherit).exists,
-            "The same subtitle should be shown while inherit is off"
+            "The same subtitle should be shown after Inherit Working Directory flips"
+        )
+
+        // Flip back: the bind is two-way, and the machine keeps its setting.
+        inherit.click()
+        XCTAssertTrue(
+            poll(timeout: 4.0) { self.isOn(inherit) == initial },
+            "Inherit Working Directory should return to its starting state after a second click"
+        )
+        XCTAssertTrue(
+            subtitleText(window, Subtitle.inherit).exists,
+            "The same subtitle should be shown after Inherit Working Directory flips back"
         )
 
         closeSettings(app, window)
@@ -363,27 +355,38 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
 
     // MARK: - TIER 1: Command Palette Searches All Surfaces keeps its fixed subtitle
 
-    /// Default is `false`, so the toggle starts off; one click turns it on
-    /// and the row keeps the same subtitle.
+    /// Each click flips the toggle and the row keeps the same subtitle,
+    /// from whatever state it starts in (see the inherit test above).
     func testCommandPaletteAllSurfacesToggleKeepsFixedSubtitle() {
         let app = makeLaunchedApp()
         let window = openAppSection(app)
 
         XCTAssertTrue(
             poll(timeout: 4.0) { subtitleText(window, Subtitle.palette).exists },
-            "Expected the all-surfaces subtitle at default"
+            "Expected the all-surfaces subtitle"
         )
         let palette = toggle(window, id: "CommandPaletteSearchAllSurfacesToggle")
-        XCTAssertFalse(isOn(palette), "All-surfaces search should start off (false)")
+        let initial = isOn(palette)
 
         palette.click()
         XCTAssertTrue(
-            poll(timeout: 4.0) { self.isOn(palette) },
-            "All-surfaces search should be on after one click"
+            poll(timeout: 4.0) { self.isOn(palette) != initial },
+            "All-surfaces search should flip after one click"
         )
         XCTAssertTrue(
             subtitleText(window, Subtitle.palette).exists,
-            "The same subtitle should be shown while all-surfaces search is on"
+            "The same subtitle should be shown after All-surfaces search flips"
+        )
+
+        // Flip back: the bind is two-way, and the machine keeps its setting.
+        palette.click()
+        XCTAssertTrue(
+            poll(timeout: 4.0) { self.isOn(palette) == initial },
+            "All-surfaces search should return to its starting state after a second click"
+        )
+        XCTAssertTrue(
+            subtitleText(window, Subtitle.palette).exists,
+            "The same subtitle should be shown after All-surfaces search flips back"
         )
 
         closeSettings(app, window)
