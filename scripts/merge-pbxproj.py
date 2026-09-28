@@ -35,9 +35,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 CATCH_UP = ROOT / "scripts" / "ci" / "catch_up_pr.py"
 NORMALIZER = ROOT / "scripts" / "normalize-pbxproj.py"
-SOURCE_ENTRY_RE = re.compile(
-    r"^\s*[0-9A-Za-z]+ /\* .* \*/ = \{isa = PBX(?:BuildFile|FileReference);.*\};\s*$|"
-    r"^\s*[0-9A-Za-z]+ /\* .+\.(?:swift|m|mm|c|cc|cpp|h|metal)(?: in Sources)? \*/,\s*$"
+SECTION_BEGIN_RE = re.compile(r"/\* Begin ([A-Za-z0-9]+) section \*/")
+SECTION_END_RE = re.compile(r"/\* End ([A-Za-z0-9]+) section \*/")
+ARRAY_BEGIN_RE = re.compile(r"^\s*([A-Za-z0-9_]+) = \(\s*$")
+BUILD_FILE_RE = re.compile(r"^\s*[0-9A-Za-z]+ /\* .* \*/ = \{isa = PBXBuildFile;.*\};\s*$")
+FILE_REFERENCE_RE = re.compile(
+    r"^\s*[0-9A-Za-z]+ /\* .* \*/ = \{isa = PBXFileReference;.*\};\s*$"
+)
+SOURCE_CHILD_RE = re.compile(
+    r"^\s*[0-9A-Za-z]+ /\* .+\.(?:swift|m|mm|c|cc|cpp|h|metal) \*/,\s*$"
+)
+SOURCE_PHASE_RE = re.compile(
+    r"^\s*[0-9A-Za-z]+ /\* .+\.(?:swift|m|mm|c|cc|cpp|h|metal) in Sources \*/,\s*$"
 )
 
 
@@ -55,38 +64,92 @@ def load_mergers():
     return module
 
 
+def project_location(text: str) -> tuple[str | None, str | None]:
+    """The pbxproj section and innermost named array open at the end of text."""
+    section: str | None = None
+    arrays: list[str] = []
+    for line in text.splitlines():
+        if match := SECTION_BEGIN_RE.search(line):
+            section = match.group(1)
+        elif match := SECTION_END_RE.search(line):
+            if section == match.group(1):
+                section = None
+        if match := ARRAY_BEGIN_RE.match(line):
+            arrays.append(match.group(1))
+        elif line.strip() == ");" and arrays:
+            arrays.pop()
+    return section, arrays[-1] if arrays else None
+
+
+def safe_source_line(line: str, section: str | None, array: str | None) -> bool:
+    if not line.strip():
+        return True
+    if section == "PBXBuildFile" and array is None:
+        return BUILD_FILE_RE.fullmatch(line) is not None
+    if section == "PBXFileReference" and array is None:
+        return FILE_REFERENCE_RE.fullmatch(line) is not None
+    if section == "PBXGroup" and array == "children":
+        return SOURCE_CHILD_RE.fullmatch(line) is not None
+    if section == "PBXSourcesBuildPhase" and array == "files":
+        return SOURCE_PHASE_RE.fullmatch(line) is not None
+    return False
+
+
 def source_entry_union(module, base: str, ours: str, theirs: str) -> str:
-    """Union only source-file entries, never order-sensitive project arrays."""
+    """Union only source-file entries in their known order-insensitive containers."""
     merged = module.union_pbxproj(base, ours, theirs)
+    prefix = ""
     for part in module.split_conflicts(module.merge_file(base, ours, theirs)):
         if isinstance(part, str):
+            prefix += part
             continue
         ours_lines, base_lines, theirs_lines = part
         for side in (ours_lines, theirs_lines):
             slots = module.insertions(base_lines, side)
-            if slots is None or any(
-                line.strip() and SOURCE_ENTRY_RE.fullmatch(line) is None
-                for lines in slots for line in lines
-            ):
+            if slots is None:
                 raise ValueError(
                     "automatic union is limited to source-file project entries;"
                     " order-sensitive or unknown insertions need a person"
                 )
+            for slot, lines in enumerate(slots):
+                section, array = project_location(prefix + "".join(base_lines[:slot]))
+                if any(not safe_source_line(line, section, array) for line in lines):
+                    raise ValueError(
+                        "automatic union is limited to source-file project entries;"
+                        " order-sensitive or unknown insertions need a person"
+                    )
+        prefix += "".join(base_lines)
     return merged
 
 
 def conflict_text(module, base: str, ours: str, theirs: str) -> str:
     """The ordinary diff3 conflict, or an explicit whole-file semantic conflict."""
-    merged = module.merge_file(base, ours, theirs)
-    marker = "<" * module.MARKER_SIZE
-    if marker in merged:
+    try:
+        merged = module.merge_file(base, ours, theirs)
+    except ValueError:
+        merged = ""
+    if "<" * module.MARKER_SIZE in merged:
         return merged
-    width = module.MARKER_SIZE
+    return explicit_conflict(base, ours, theirs, module.MARKER_SIZE)
+
+
+def explicit_conflict(base: str, ours: str, theirs: str, width: int = 32) -> str:
+    """A visible whole-file conflict for failures before the merge helper is available."""
     return (
         f"{'<' * width} ours\n{ours.rstrip()}\n"
         f"{'|' * width} base\n{base.rstrip()}\n"
         f"{'=' * width}\n{theirs.rstrip()}\n"
         f"{'>' * width} theirs\n"
+    )
+
+
+def explicit_conflict_bytes(base: bytes, ours: bytes, theirs: bytes, width: int = 32) -> bytes:
+    """The byte-preserving equivalent used when one side is not UTF-8."""
+    return (
+        b"<" * width + b" ours\n" + ours.rstrip() + b"\n"
+        + b"|" * width + b" base\n" + base.rstrip() + b"\n"
+        + b"=" * width + b"\n" + theirs.rstrip() + b"\n"
+        + b">" * width + b" theirs\n"
     )
 
 
@@ -124,11 +187,31 @@ def main(argv: list[str]) -> int:
         return 2
     base_path, ours_path, theirs_path = (Path(p) for p in argv[1:4])
     name = argv[4] if len(argv) > 4 else str(ours_path)
+    base_bytes = ours_bytes = theirs_bytes = b""
+    try:
+        base_bytes = base_path.read_bytes()
+        ours_bytes = ours_path.read_bytes()
+        theirs_bytes = theirs_path.read_bytes()
+    except OSError as error:
+        if base_bytes and ours_bytes and theirs_bytes:
+            ours_path.write_bytes(explicit_conflict_bytes(base_bytes, ours_bytes, theirs_bytes))
+        print(f"merge-pbxproj: {name}: cannot read merge inputs ({error}); falling back", file=sys.stderr)
+        return 1
+    try:
+        base = base_bytes.decode("utf-8")
+        ours = ours_bytes.decode("utf-8")
+        theirs = theirs_bytes.decode("utf-8")
+    except UnicodeDecodeError as error:
+        ours_path.write_bytes(explicit_conflict_bytes(base_bytes, ours_bytes, theirs_bytes))
+        print(f"merge-pbxproj: {name}: merge input is not UTF-8 ({error}); falling back", file=sys.stderr)
+        return 1
     try:
         module = load_mergers()
-        base = base_path.read_text(encoding="utf-8")
-        ours = ours_path.read_text(encoding="utf-8")
-        theirs = theirs_path.read_text(encoding="utf-8")
+    except (OSError, ImportError, AttributeError) as error:
+        ours_path.write_text(explicit_conflict(base, ours, theirs), encoding="utf-8")
+        print(f"merge-pbxproj: {name}: cannot load merge helpers ({error}); falling back", file=sys.stderr)
+        return 1
+    try:
         merged = source_entry_union(module, base, ours, theirs)
     except ValueError as error:
         # A custom merge driver owns %A even when it returns failure: Git does
@@ -138,10 +221,11 @@ def main(argv: list[str]) -> int:
         ours_path.write_text(conflict_text(module, base, ours, theirs), encoding="utf-8")
         print(f"merge-pbxproj: {name}: {error}; falling back", file=sys.stderr)
         return 1
-    except (OSError, ImportError, AttributeError, UnicodeDecodeError) as error:
-        print(f"merge-pbxproj: {name}: cannot merge ({error}); falling back", file=sys.stderr)
-        return 1
-    settled = normalized(merged, name)
+    try:
+        settled = normalized(merged, name)
+    except (OSError, UnicodeDecodeError, subprocess.SubprocessError) as error:
+        print(f"merge-pbxproj: {name}: cannot validate the union ({error}); falling back", file=sys.stderr)
+        settled = None
     if settled is None:
         ours_path.write_text(conflict_text(module, base, ours, theirs), encoding="utf-8")
         return 1

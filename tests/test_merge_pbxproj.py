@@ -192,6 +192,23 @@ def test_a_side_carrying_conflict_markers_is_refused():
     assert "conflict-marker" in stderr, stderr
 
 
+def test_invalid_utf8_leaves_an_explicit_byte_preserving_conflict():
+    with tempfile.TemporaryDirectory() as directory:
+        paths = [Path(directory) / name for name in ("base", "ours", "theirs")]
+        payloads = [b"base\xff\n", b"ours\xfe\n", b"theirs\xfd\n"]
+        for path, payload in zip(paths, payloads):
+            path.write_bytes(payload)
+        result = subprocess.run(
+            [sys.executable, str(DRIVER), *(str(path) for path in paths), "project.pbxproj"],
+            capture_output=True,
+        )
+        assert result.returncode == 1
+        conflicted = paths[1].read_bytes()
+        assert b"<" * 32 in conflicted
+        assert all(payload.rstrip() in conflicted for payload in payloads)
+        assert b"Traceback" not in result.stderr
+
+
 def test_the_same_entry_added_differently_is_refused():
     """Two branches adding one file under different names is a disagreement.
 
@@ -270,10 +287,23 @@ def test_a_union_the_normalizer_rejects_is_refused():
 
 def test_order_sensitive_insertions_are_refused():
     """Distinct array entries are not a set when their execution order matters."""
-    base = project(["Alpha.swift"])
-    needle = "\t\t\tfiles = (\n"
-    ours = base.replace(needle, needle + f"\t\t\t\t{uuid('phase-a')} /* Generate Sources */,\n")
-    theirs = base.replace(needle, needle + f"\t\t\t\t{uuid('phase-b')} /* Lint Sources */,\n")
+    marker = "/* Begin XCBuildConfiguration section */"
+    target = f"""/* Begin PBXNativeTarget section */
+\t\t{uuid('target')} /* app */ = {{
+\t\t\tisa = PBXNativeTarget;
+\t\t\tbuildPhases = (
+\t\t\t\t{uuid('compile')} /* Compile */,
+\t\t\t);
+\t\t\tname = app;
+\t\t}};
+/* End PBXNativeTarget section */
+
+"""
+    base = project(["Alpha.swift"]).replace(marker, target + marker)
+    needle = "\t\t\tbuildPhases = (\n"
+    # The .swift suffix deliberately matches the old text-only allowlist.
+    ours = base.replace(needle, needle + f"\t\t\t\t{uuid('phase-a')} /* Consumer.swift */,\n")
+    theirs = base.replace(needle, needle + f"\t\t\t\t{uuid('phase-b')} /* Producer.swift */,\n")
     code, merged, stderr = run(base, ours, theirs)
     assert code == 1
     assert "<" * 32 in merged
