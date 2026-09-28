@@ -74,8 +74,8 @@ struct AgentPermissionRuleMatcherTests {
     }
 }
 
-@Suite("Agent permission grant store")
-struct AgentPermissionGrantStoreTests {
+@Suite("Agent permission grant registry")
+struct AgentPermissionGrantRegistryTests {
     private func makeStore() -> (AgentPermissionGrantStore, URL) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("grant-store-\(UUID().uuidString)", isDirectory: true)
@@ -86,39 +86,66 @@ struct AgentPermissionGrantStoreTests {
         let (store, directory) = makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         let now = Date(timeIntervalSince1970: 1_000_000)
-        let project = AgentPermissionGrant(rules: ["Bash(git:*)"], scope: .project(root: directory.path),
+        let registry = AgentPermissionGrantRegistry(store: store, now: now)
+        let project = AgentPermissionGrant(rules: ["Bash(git status)"], scope: .project(root: directory.path),
                                            grantedAt: now, expiresAt: now.addingTimeInterval(3600))
-        let session = AgentPermissionGrant(rules: ["Bash(make:*)"], scope: .session(id: "s1"),
-                                           grantedAt: now, expiresAt: nil)
+        let session = AgentPermissionGrant(rules: ["Bash(make test)"], scope: .session(id: "s1"),
+                                           grantedAt: now, expiresAt: now.addingTimeInterval(3600))
         let expired = AgentPermissionGrant(rules: ["Bash(ls:*)"], scope: .session(id: "s1"),
                                            grantedAt: now, expiresAt: now.addingTimeInterval(-1))
-        try store.add(project, now: now)
-        try store.add(session, now: now)
-        try store.add(expired, now: now.addingTimeInterval(-10))
+        try registry.add(project, now: now)
+        try registry.add(session, now: now)
+        try registry.add(expired, now: now.addingTimeInterval(-10))
 
         let inProject = AgentPermissionRequest(toolName: "Bash", command: "git status",
                                                cwd: directory.appendingPathComponent("sub").path)
-        #expect(store.match(inProject, sessionID: "other", now: now)?.grant.id == project.id)
+        #expect(registry.answer(inProject, sessionID: "other", now: now))
         let outside = AgentPermissionRequest(toolName: "Bash", command: "git status", cwd: "/")
-        #expect(store.match(outside, sessionID: "other", now: now) == nil)
+        #expect(!registry.answer(outside, sessionID: "other", now: now))
         let make = AgentPermissionRequest(toolName: "Bash", command: "make test", cwd: "/")
-        #expect(store.match(make, sessionID: "s1", now: now)?.rule == "Bash(make:*)")
-        #expect(store.match(make, sessionID: "s2", now: now) == nil)
+        #expect(registry.answer(make, sessionID: "s1", now: now))
+        #expect(!registry.answer(make, sessionID: "s2", now: now))
         let ls = AgentPermissionRequest(toolName: "Bash", command: "ls", cwd: "/")
-        #expect(store.match(ls, sessionID: "s1", now: now) == nil, "Expired grants never match")
-        #expect(store.match(inProject, sessionID: nil, now: now.addingTimeInterval(7200)) == nil)
+        #expect(!registry.answer(ls, sessionID: "s1", now: now), "Expired grants never match")
+        #expect(!registry.answer(inProject, sessionID: nil, now: now.addingTimeInterval(7200)))
+        #expect(registry.answer(inProject, sessionID: nil, now: now))
 
-        try store.recordUse(of: project.id, now: now)
-        try store.recordUse(of: project.id, now: now)
-        let recorded = try #require(store.grants(now: now).first { $0.id == project.id })
+        let recorded = try #require(registry.activeGrants(now: now).first { $0.id == project.id })
         #expect(recorded.useCount == 2)
-        #expect(store.grants(now: now).count == 2, "The expired grant was dropped on write")
+        #expect(recorded.lastUsedAt == now)
+        #expect(registry.activeGrants(now: now).count == 2)
+
+        // Use counts persist, and a new registry reloads them from disk.
+        let reloaded = AgentPermissionGrantRegistry(store: store, now: now)
+        #expect(reloaded.activeGrants(now: now).first { $0.id == project.id }?.useCount == 2)
 
         let attributes = try FileManager.default.attributesOfItem(atPath: store.fileURL.path)
         #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
 
-        #expect(try store.revoke(id: session.id, now: now) == 1)
-        #expect(try store.revoke(id: nil, now: now) == 1)
+        #expect(try registry.revoke(id: session.id, now: now) == 1)
+        #expect(try registry.revoke(id: nil, now: now) == 1)
+        #expect(registry.activeGrants(now: now).isEmpty)
         #expect(store.grants(now: now).isEmpty)
+    }
+
+    @Test func editingTheFileWhileRunningGrantsNothing() throws {
+        let (store, directory) = makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let registry = AgentPermissionGrantRegistry(store: store, now: now)
+        try store.save([AgentPermissionGrant(rules: ["Bash(make test)"], scope: .session(id: "s1"),
+                                             grantedAt: now, expiresAt: now.addingTimeInterval(60))])
+        let make = AgentPermissionRequest(toolName: "Bash", command: "make test", cwd: "/")
+        #expect(!registry.answer(make, sessionID: "s1", now: now))
+    }
+
+    @Test func oneApprovalAtATime() {
+        let (store, directory) = makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let registry = AgentPermissionGrantRegistry(store: store)
+        #expect(registry.beginApproval())
+        #expect(!registry.beginApproval())
+        registry.endApproval()
+        #expect(registry.beginApproval())
     }
 }

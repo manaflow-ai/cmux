@@ -4,22 +4,58 @@ import Foundation
 /// Batch agent permission grants on the CLI side.
 ///
 /// `cmux permissions request` only asks the app: the app shows an approval
-/// panel and writes the grant store after the user approves. The
-/// `PermissionRequest` hook reads that store and counts uses; neither path
-/// here ever adds a grant.
+/// panel and keeps the grant after the user approves. The
+/// `PermissionRequest` hook asks the app whether a grant covers the pending
+/// tool call (`permissions.match`); it never reads grants itself, and
+/// neither path here ever adds one.
 extension CMUXCLI {
-    /// The allow output for a Claude `PermissionRequest` covered by an
-    /// approved grant, or `nil` to continue to the normal Feed card.
-    static func agentPermissionGrantAnswer(
+    /// How long the hook waits for `permissions.match` before showing the
+    /// normal prompt.
+    static let agentPermissionMatchTimeout: TimeInterval = 1
+    /// How long `cmux permissions request` waits for the app: the app's
+    /// 100-second panel timeout plus margin, under Claude Code's two-minute
+    /// Bash timeout.
+    static let agentPermissionRequestTimeout: TimeInterval = 110
+
+    /// The allow output for a Claude `PermissionRequest` the app says an
+    /// approved grant covers, or `nil` to continue to the normal Feed card.
+    /// Any failure to reach the app in time means `nil`.
+    func agentPermissionGrantAnswer(
         source: String,
         hookEventName: String,
-        payload: [String: Any]
+        payload: [String: Any],
+        socketPath: String?,
+        socketPassword: String?
     ) -> String? {
-        guard source == "claude", hookEventName == "PermissionRequest" else { return nil }
-        return AgentPermissionHookAutoAnswer.answerClaudePermissionRequest(
-            payload: payload,
-            store: AgentPermissionGrantStore(fileURL: AgentPermissionGrantStore.defaultFileURL())
-        )
+        guard source == "claude", hookEventName == "PermissionRequest",
+              let socketPath,
+              let params = AgentPermissionHookAutoAnswer.matchParams(claudeHookPayload: payload) else {
+            return nil
+        }
+        // A dedicated connection, so a late reply can't be read as the
+        // answer to a later request.
+        let client = SocketClient(path: socketPath)
+        defer { client.close() }
+        do {
+            let deadline = Date.now.addingTimeInterval(Self.agentPermissionMatchTimeout)
+            try client.connectWithoutRetry(responseTimeout: Self.agentPermissionMatchTimeout)
+            try authenticateClientIfNeeded(
+                client,
+                explicitPassword: socketPassword,
+                socketPath: socketPath,
+                responseTimeout: Self.agentPermissionMatchTimeout,
+                deadline: deadline
+            )
+            let result = try client.sendV2(
+                method: "permissions.match",
+                params: params,
+                responseTimeout: Self.agentPermissionMatchTimeout,
+                deadline: deadline
+            )
+            return AgentPermissionHookAutoAnswer.output(forMatchResult: result)
+        } catch {
+            return nil
+        }
     }
 
     /// Agent session id the CLI defaults a session-scoped request to.
@@ -49,7 +85,9 @@ extension CMUXCLI {
                   [--reason <text>] [--expires <duration>]
               Ask for the rules (Claude permission syntax, e.g. 'Bash(git:*)',
               'Edit(//abs/dir/**)'). Waits for your answer and prints what was
-              approved. Defaults to the current agent session when one is known.
+              approved; exits 1 when denied, also with --json. Waits at most
+              100 seconds, and fails with "busy" while another request is open.
+              Defaults to the current agent session when one is known.
               --expires takes 30m, 2h, 7d, or seconds (default 24h, at most 30d).
           list
               List active grants with how many requests each answered.
@@ -79,8 +117,11 @@ extension CMUXCLI {
         switch sub {
         case "request":
             let params = try permissionsRequestParams(rest)
-            // The app waits up to ten minutes for the user's answer.
-            let payload = try client.sendV2(method: "permissions.request", params: params, responseTimeout: 630)
+            let payload = try client.sendV2(
+                method: "permissions.request",
+                params: params,
+                responseTimeout: Self.agentPermissionRequestTimeout
+            )
             if jsonOutput {
                 print(jsonString(payload))
             }
@@ -217,6 +258,11 @@ extension CMUXCLI {
             params["session_id"] = session
         }
         if let reason { params["reason"] = reason }
+        // Lets the approval panel name the workspace and tab asking.
+        let env = ProcessInfo.processInfo.environment
+        for (key, variable) in [("workspace_id", "CMUX_WORKSPACE_ID"), ("surface_id", "CMUX_SURFACE_ID")] {
+            if let value = env[variable], UUID(uuidString: value) != nil { params[key] = value }
+        }
         if let expires {
             guard let seconds = AgentPermissionGrantDuration.seconds(from: expires) else {
                 throw CLIError(message: String(

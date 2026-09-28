@@ -1162,6 +1162,7 @@ class TerminalController {
         preserveAcceptFailureStreak: Bool = false
     ) {
         self.tabManager = tabManager
+        Self.loadPermissionGrants()
         socketServer.start(
             socketPath: socketPath,
             accessMode: accessMode,
@@ -1875,6 +1876,8 @@ class TerminalController {
             return v2AsyncResultCall(id: request.id, timeoutSeconds: Self.permissionRequestTimeoutSeconds) {
                 await self.v2PermissionsRequest(params: request.params)
             }
+        case "permissions.match":
+            return v2Result(id: request.id, v2PermissionsMatch(params: request.params))
         case "permissions.list":
             return v2Result(id: request.id, v2PermissionsList())
         case "permissions.revoke":

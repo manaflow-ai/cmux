@@ -569133,55 +569133,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux permissions <subcommand> [options]\n\nAsk for a batch of agent permissions once, instead of one prompt per\ntool call. cmux shows an approval panel; nothing is granted until you\napprove it there.\n\nSubcommands:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      Ask for the rules (Claude permission syntax, e.g. 'Bash(git:*)',\n      'Edit(//abs/dir/**)'). Waits for your answer and prints what was\n      approved. Defaults to the current agent session when one is known.\n      --expires takes 30m, 2h, 7d, or seconds (default 24h, at most 30d).\n  list\n      List active grants with how many requests each answered.\n  revoke <id> | --all\n      Revoke one grant, or every grant.\n\nAll subcommands support --json for machine-readable output."
+            "value": "Usage: cmux permissions <subcommand> [options]\n\nAsk for a batch of agent permissions once, instead of one prompt per\ntool call. cmux shows an approval panel; nothing is granted until you\napprove it there.\n\nSubcommands:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      Ask for the rules (Claude permission syntax, e.g. 'Bash(git:*)',\n      'Edit(//abs/dir/**)'). Waits for your answer and prints what was\n      approved; exits 1 when denied, also with --json. Waits at most\n      100 seconds, and fails with \"busy\" while another request is open.\n      Defaults to the current agent session when one is known.\n      --expires takes 30m, 2h, 7d, or seconds (default 24h, at most 30d).\n  list\n      List active grants with how many requests each answered.\n  revoke <id> | --all\n      Revoke one grant, or every grant.\n\nAll subcommands support --json for machine-readable output."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux permissions <subcommand> [options]\n\nاطلب مجموعة من أذونات الوكيل مرة واحدة، بدلًا من طلب لكل\nاستدعاء أداة. يعرض cmux لوحة موافقة؛ ولا يُمنح أي شيء حتى\nتوافق عليه هناك.\n\nالأوامر الفرعية:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      يطلب القواعد (بصيغة أذونات Claude، مثل 'Bash(git:*)'\n      و'Edit(//abs/dir/**)'). ينتظر ردك ويطبع ما تمت الموافقة عليه.\n      الافتراضي هو جلسة الوكيل الحالية عند معرفتها.\n      يقبل --expires القيم 30m أو 2h أو 7d أو ثوانٍ (الافتراضي 24h، والحد الأقصى 30d).\n  list\n      يسرد الأذونات الممنوحة النشطة وعدد الطلبات التي أجاب عنها كل منها.\n  revoke <id> | --all\n      يلغي إذنًا ممنوحًا واحدًا أو جميعها.\n\nتدعم جميع الأوامر الفرعية --json لإخراج قابل للقراءة آليًا."
+            "value": "الاستخدام: cmux permissions <subcommand> [options]\n\nاطلب مجموعة من أذونات الوكيل مرة واحدة، بدلًا من طلب لكل\nاستدعاء أداة. يعرض cmux لوحة موافقة؛ ولا يُمنح أي شيء حتى\nتوافق عليه هناك.\n\nالأوامر الفرعية:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      يطلب القواعد (بصيغة أذونات Claude، مثل 'Bash(git:*)'\n      و'Edit(//abs/dir/**)'). ينتظر ردك ويطبع ما تمت الموافقة عليه.\n      يخرج بالرمز 1 عند الرفض، حتى مع --json. ينتظر 100 ثانية على الأكثر،\n      ويفشل بالخطأ \"busy\" ما دام طلب آخر مفتوحًا.\n      الافتراضي هو جلسة الوكيل الحالية عند معرفتها.\n      يقبل --expires القيم 30m أو 2h أو 7d أو ثوانٍ (الافتراضي 24h، والحد الأقصى 30d).\n  list\n      يسرد الأذونات الممنوحة النشطة وعدد الطلبات التي أجاب عنها كل منها.\n  revoke <id> | --all\n      يلغي إذنًا ممنوحًا واحدًا أو جميعها.\n\nتدعم جميع الأوامر الفرعية --json لإخراج قابل للقراءة آليًا."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux permissions <subcommand> [options]\n\nEinmalig einen Satz von Agenten-Berechtigungen anfragen, statt einer Abfrage pro\nWerkzeugaufruf. cmux zeigt ein Genehmigungsfenster; erst wenn du dort\nzustimmst, wird etwas freigegeben.\n\nUnterbefehle:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      Fragt die Regeln an (Claude-Berechtigungssyntax, z. B. 'Bash(git:*)',\n      'Edit(//abs/dir/**)'). Wartet auf deine Antwort und gibt aus, was\n      genehmigt wurde. Standard ist die aktuelle Agenten-Sitzung, falls bekannt.\n      --expires akzeptiert 30m, 2h, 7d oder Sekunden (Standard 24h, höchstens 30d).\n  list\n      Listet aktive Freigaben auf, mit der Anzahl beantworteter Anfragen.\n  revoke <id> | --all\n      Widerruft eine Freigabe oder alle Freigaben.\n\nAlle Unterbefehle unterstützen --json für maschinenlesbare Ausgabe."
+            "value": "Verwendung: cmux permissions <subcommand> [options]\n\nEinmalig einen Satz von Agenten-Berechtigungen anfragen, statt einer Abfrage pro\nWerkzeugaufruf. cmux zeigt ein Genehmigungsfenster; erst wenn du dort\nzustimmst, wird etwas freigegeben.\n\nUnterbefehle:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      Fragt die Regeln an (Claude-Berechtigungssyntax, z. B. 'Bash(git:*)',\n      'Edit(//abs/dir/**)'). Wartet auf deine Antwort und gibt aus, was\n      genehmigt wurde; endet bei Ablehnung mit Exit-Code 1, auch mit --json.\n      Wartet höchstens 100 Sekunden und schlägt mit \"busy\" fehl, solange eine\n      andere Anfrage offen ist. Standard ist die aktuelle Agenten-Sitzung, falls bekannt.\n      --expires akzeptiert 30m, 2h, 7d oder Sekunden (Standard 24h, höchstens 30d).\n  list\n      Listet aktive Freigaben auf, mit der Anzahl beantworteter Anfragen.\n  revoke <id> | --all\n      Widerruft eine Freigabe oder alle Freigaben.\n\nAlle Unterbefehle unterstützen --json für maschinenlesbare Ausgabe."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux permissions <subcommand> [options]\n\nSolicita una vez un conjunto de permisos de agente, en lugar de una consulta por\ncada llamada a herramienta. cmux muestra un panel de aprobación; no se concede\nnada hasta que lo apruebes ahí.\n\nSubcomandos:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      Solicita las reglas (sintaxis de permisos de Claude, p. ej. 'Bash(git:*)',\n      'Edit(//abs/dir/**)'). Espera tu respuesta e imprime lo que se\n      aprobó. Por defecto usa la sesión de agente actual cuando se conoce.\n      --expires acepta 30m, 2h, 7d o segundos (24h por defecto, 30d como máximo).\n  list\n      Lista las concesiones activas y cuántas solicitudes respondió cada una.\n  revoke <id> | --all\n      Revoca una concesión, o todas.\n\nTodos los subcomandos admiten --json para una salida legible por máquina."
+            "value": "Uso: cmux permissions <subcommand> [options]\n\nSolicita una vez un conjunto de permisos de agente, en lugar de una consulta por\ncada llamada a herramienta. cmux muestra un panel de aprobación; no se concede\nnada hasta que lo apruebes ahí.\n\nSubcomandos:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      Solicita las reglas (sintaxis de permisos de Claude, p. ej. 'Bash(git:*)',\n      'Edit(//abs/dir/**)'). Espera tu respuesta e imprime lo que se\n      aprobó; sale con 1 si se deniega, también con --json. Espera 100 segundos\n      como máximo y falla con \"busy\" mientras haya otra solicitud abierta.\n      Por defecto usa la sesión de agente actual cuando se conoce.\n      --expires acepta 30m, 2h, 7d o segundos (24h por defecto, 30d como máximo).\n  list\n      Lista las concesiones activas y cuántas solicitudes respondió cada una.\n  revoke <id> | --all\n      Revoca una concesión, o todas.\n\nTodos los subcomandos admiten --json para una salida legible por máquina."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation: cmux permissions <subcommand> [options]\n\nDemander une fois un ensemble d’autorisations d’agent, au lieu d’une demande par\nappel d’outil. cmux affiche un panneau d’approbation ; rien n’est accordé tant\nque vous n’y avez pas donné votre accord.\n\nSous-commandes:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      Demande les règles (syntaxe d’autorisation Claude, par ex. 'Bash(git:*)',\n      'Edit(//abs/dir/**)'). Attend votre réponse et affiche ce qui a été\n      approuvé. Par défaut, la session d’agent actuelle si elle est connue.\n      --expires accepte 30m, 2h, 7d ou des secondes (24h par défaut, 30d au plus).\n  list\n      Liste les autorisations actives et le nombre de demandes traitées par chacune.\n  revoke <id> | --all\n      Révoque une autorisation, ou toutes.\n\nToutes les sous-commandes prennent en charge --json pour une sortie lisible par machine."
+            "value": "Utilisation: cmux permissions <subcommand> [options]\n\nDemander une fois un ensemble d’autorisations d’agent, au lieu d’une demande par\nappel d’outil. cmux affiche un panneau d’approbation ; rien n’est accordé tant\nque vous n’y avez pas donné votre accord.\n\nSous-commandes:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      Demande les règles (syntaxe d’autorisation Claude, par ex. 'Bash(git:*)',\n      'Edit(//abs/dir/**)'). Attend votre réponse et affiche ce qui a été\n      approuvé ; se termine avec le code 1 en cas de refus, même avec --json.\n      Attend au plus 100 secondes et échoue avec \"busy\" tant qu’une autre\n      demande est ouverte. Par défaut, la session d’agent actuelle si elle est connue.\n      --expires accepte 30m, 2h, 7d ou des secondes (24h par défaut, 30d au plus).\n  list\n      Liste les autorisations actives et le nombre de demandes traitées par chacune.\n  revoke <id> | --all\n      Révoque une autorisation, ou toutes.\n\nToutes les sous-commandes prennent en charge --json pour une sortie lisible par machine."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法: cmux permissions <subcommand> [options]\n\nツール呼び出しごとに確認する代わりに、エージェントの権限を\nまとめて一度にリクエストします。cmux が承認パネルを表示し、\nそこで承認するまで何も許可されません。\n\nサブコマンド:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      ルールをリクエストします（Claude の権限構文。例: 'Bash(git:*)'、\n      'Edit(//abs/dir/**)'）。応答を待ち、承認された内容を表示します。\n      現在のエージェントセッションがわかる場合はそれが既定になります。\n      --expires には 30m、2h、7d または秒数を指定します（既定 24h、最大 30d）。\n  list\n      有効な許可と、それぞれが応答したリクエスト数を一覧表示します。\n  revoke <id> | --all\n      許可を 1 つ、またはすべて取り消します。\n\nすべてのサブコマンドは機械可読出力用の --json に対応しています。"
+            "value": "使用方法: cmux permissions <subcommand> [options]\n\nツール呼び出しごとに確認する代わりに、エージェントの権限を\nまとめて一度にリクエストします。cmux が承認パネルを表示し、\nそこで承認するまで何も許可されません。\n\nサブコマンド:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      ルールをリクエストします（Claude の権限構文。例: 'Bash(git:*)'、\n      'Edit(//abs/dir/**)'）。応答を待ち、承認された内容を表示します。\n      拒否されると --json 指定時も終了コード 1 で終了します。待機は最大 100 秒で、\n      別のリクエストが開いている間は \"busy\" で失敗します。\n      現在のエージェントセッションがわかる場合はそれが既定になります。\n      --expires には 30m、2h、7d または秒数を指定します（既定 24h、最大 30d）。\n  list\n      有効な許可と、それぞれが応答したリクエスト数を一覧表示します。\n  revoke <id> | --all\n      許可を 1 つ、またはすべて取り消します。\n\nすべてのサブコマンドは機械可読出力用の --json に対応しています。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux permissions <subcommand> [options]\n\n도구 호출마다 묻는 대신 에이전트 권한 묶음을 한 번에\n요청합니다. cmux가 승인 패널을 표시하며, 그곳에서 승인하기\n전에는 아무것도 허가되지 않습니다.\n\n하위 명령:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      규칙을 요청합니다(Claude 권한 구문, 예: 'Bash(git:*)',\n      'Edit(//abs/dir/**)'). 응답을 기다린 뒤 승인된 항목을 출력합니다.\n      현재 에이전트 세션을 알 수 있으면 기본값으로 사용합니다.\n      --expires에는 30m, 2h, 7d 또는 초를 지정합니다(기본값 24h, 최대 30d).\n  list\n      활성 허가와 각 허가가 응답한 요청 수를 나열합니다.\n  revoke <id> | --all\n      허가 하나 또는 모든 허가를 취소합니다.\n\n모든 하위 명령은 기계가 읽을 수 있는 출력을 위해 --json을 지원합니다."
+            "value": "사용법: cmux permissions <subcommand> [options]\n\n도구 호출마다 묻는 대신 에이전트 권한 묶음을 한 번에\n요청합니다. cmux가 승인 패널을 표시하며, 그곳에서 승인하기\n전에는 아무것도 허가되지 않습니다.\n\n하위 명령:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      규칙을 요청합니다(Claude 권한 구문, 예: 'Bash(git:*)',\n      'Edit(//abs/dir/**)'). 응답을 기다린 뒤 승인된 항목을 출력합니다.\n      거부되면 --json을 사용해도 종료 코드 1로 끝납니다. 최대 100초 동안 기다리며,\n      다른 요청이 열려 있는 동안에는 \"busy\"로 실패합니다.\n      현재 에이전트 세션을 알 수 있으면 기본값으로 사용합니다.\n      --expires에는 30m, 2h, 7d 또는 초를 지정합니다(기본값 24h, 최대 30d).\n  list\n      활성 허가와 각 허가가 응답한 요청 수를 나열합니다.\n  revoke <id> | --all\n      허가 하나 또는 모든 허가를 취소합니다.\n\n모든 하위 명령은 기계가 읽을 수 있는 출력을 위해 --json을 지원합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法: cmux permissions <subcommand> [options]\n\n一次请求一组代理权限，\n而不是每次调用工具都询问。cmux 会显示批准面板；\n在你于该处批准之前，不会授予任何权限。\n\n子命令:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      请求这些规则（Claude 权限语法，例如 'Bash(git:*)'、\n      'Edit(//abs/dir/**)'）。等待你的答复并列出已批准的内容。\n      如果已知当前代理会话，则默认使用该会话。\n      --expires 接受 30m、2h、7d 或秒数（默认 24h，最长 30d）。\n  list\n      列出有效的授权，以及每个授权已答复的请求数。\n  revoke <id> | --all\n      撤销一个授权，或撤销全部授权。\n\n所有子命令都支持 --json 以输出机器可读格式。"
+            "value": "用法: cmux permissions <subcommand> [options]\n\n一次请求一组代理权限，\n而不是每次调用工具都询问。cmux 会显示批准面板；\n在你于该处批准之前，不会授予任何权限。\n\n子命令:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      请求这些规则（Claude 权限语法，例如 'Bash(git:*)'、\n      'Edit(//abs/dir/**)'）。等待你的答复并列出已批准的内容。\n      被拒绝时以状态码 1 退出，使用 --json 时也是如此。最多等待 100 秒，\n      另一个请求尚未处理完时会以 \"busy\" 失败。\n      如果已知当前代理会话，则默认使用该会话。\n      --expires 接受 30m、2h、7d 或秒数（默认 24h，最长 30d）。\n  list\n      列出有效的授权，以及每个授权已答复的请求数。\n  revoke <id> | --all\n      撤销一个授权，或撤销全部授权。\n\n所有子命令都支持 --json 以输出机器可读格式。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法: cmux permissions <subcommand> [options]\n\n一次要求一組代理程式權限，\n而不是每次工具呼叫都詢問。cmux 會顯示核准面板；\n在你於該處核准之前，不會授予任何權限。\n\n子指令:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      要求這些規則（Claude 權限語法，例如 'Bash(git:*)'、\n      'Edit(//abs/dir/**)'）。等待你的回覆並列出已核准的項目。\n      若已知目前的代理程式工作階段，則預設使用該工作階段。\n      --expires 接受 30m、2h、7d 或秒數（預設 24h，最長 30d）。\n  list\n      列出有效的授權，以及每個授權已回應的要求數。\n  revoke <id> | --all\n      撤銷一個授權，或撤銷所有授權。\n\n所有子指令都支援 --json 以輸出機器可讀格式。"
+            "value": "用法: cmux permissions <subcommand> [options]\n\n一次要求一組代理程式權限，\n而不是每次工具呼叫都詢問。cmux 會顯示核准面板；\n在你於該處核准之前，不會授予任何權限。\n\n子指令:\n  request --rule <rule> [--rule <rule>...] [--session <id> | --project <dir>]\n          [--reason <text>] [--expires <duration>]\n      要求這些規則（Claude 權限語法，例如 'Bash(git:*)'、\n      'Edit(//abs/dir/**)'）。等待你的回覆並列出已核准的項目。\n      遭拒時以結束代碼 1 結束，使用 --json 時亦然。最多等待 100 秒，\n      另一個要求尚未處理完時會以 \"busy\" 失敗。\n      若已知目前的代理程式工作階段，則預設使用該工作階段。\n      --expires 接受 30m、2h、7d 或秒數（預設 24h，最長 30d）。\n  list\n      列出有效的授權，以及每個授權已回應的要求數。\n  revoke <id> | --all\n      撤銷一個授權，或撤銷所有授權。\n\n所有子指令都支援 --json 以輸出機器可讀格式。"
           }
         }
       }
@@ -570303,6 +570303,242 @@
           "stringUnit": {
             "state": "translated",
             "value": "單一要求中的規則過多。"
+          }
+        }
+      }
+    },
+    "agentPermissions.approval.requesterLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requested from"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مصدر الطلب"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angefragt von"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solicitado desde"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demandé depuis"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リクエスト元"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요청 위치"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求来源"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要求來源"
+          }
+        }
+      }
+    },
+    "agentPermissions.approval.requesterWorkspaceTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, tab %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@، علامة التبويب %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, Tab %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, pestaña %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, onglet %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@、タブ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, 탭 %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@，标签页 %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@，分頁 %2$@"
+          }
+        }
+      }
+    },
+    "socket.permissions.busy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another permission request is waiting for an answer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هناك طلب أذونات آخر ينتظر ردًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine andere Berechtigungsanfrage wartet bereits auf eine Antwort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otra solicitud de permisos está esperando una respuesta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une autre demande d’autorisation attend déjà une réponse."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の権限リクエストが応答を待っています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 권한 요청이 응답을 기다리고 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一个权限请求正在等待答复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一個權限要求正在等待回覆。"
+          }
+        }
+      }
+    },
+    "socket.permissions.invalidReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reason must not contain control or invisible formatting characters."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب ألا يحتوي reason على أحرف تحكم أو أحرف تنسيق غير مرئية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reason darf keine Steuerzeichen oder unsichtbaren Formatierungszeichen enthalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reason no debe contener caracteres de control ni caracteres de formato invisibles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reason ne doit pas contenir de caractères de contrôle ou de mise en forme invisibles."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reason に制御文字や不可視の書式文字を含めることはできません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reason에는 제어 문자나 보이지 않는 서식 문자를 포함할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reason 不得包含控制字符或不可见的格式字符。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reason 不得包含控制字元或不可見的格式字元。"
           }
         }
       }

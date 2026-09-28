@@ -3013,7 +3013,7 @@ final class SocketClient {
         let relayToken: Data
     }
 
-    private let path: String
+    let path: String
     private(set) var socketFD: Int32 = -1
     private var streamReadBuffer = Data()
     private var lastConfiguredReceiveTimeout: TimeInterval?
@@ -40405,10 +40405,12 @@ export default CMUXSessionRestore;
         )
         let hookEventName = classification.hookEventName
         let isActionable = classification.isActionable
-        if let grantedOutput = Self.agentPermissionGrantAnswer(
+        if let grantedOutput = agentPermissionGrantAnswer(
             source: source,
             hookEventName: hookEventName,
-            payload: stdinObj
+            payload: stdinObj,
+            socketPath: socketPath ?? client?.path,
+            socketPassword: socketPassword
         ) {
             print(grantedOutput)
             return

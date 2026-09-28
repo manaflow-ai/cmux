@@ -3,8 +3,8 @@ public import Foundation
 extension AgentPermissionGrant {
     /// The JSON-compatible form the `permissions.list` socket method returns.
     ///
-    /// Dates are ISO 8601 strings; `expires_at` and `last_used_at` are
-    /// omitted when unset.
+    /// Dates are ISO 8601 strings; `last_used_at` is omitted until the
+    /// grant answers a request.
     public var socketPayload: [String: Any] {
         let formatter = ISO8601DateFormatter()
         var payload: [String: Any] = [
@@ -22,7 +22,7 @@ extension AgentPermissionGrant {
             payload["root"] = root
         }
         if let reason { payload["reason"] = reason }
-        if let expiresAt { payload["expires_at"] = formatter.string(from: expiresAt) }
+        payload["expires_at"] = formatter.string(from: expiresAt)
         if let lastUsedAt { payload["last_used_at"] = formatter.string(from: lastUsedAt) }
         return payload
     }

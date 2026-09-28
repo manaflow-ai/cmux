@@ -148,10 +148,12 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "vault.checkpoints",
         "vault.checkpoint",
         "vault.fork",
-        // permissions.* read and write the agent grant store on disk, and
-        // `permissions.request` waits minutes for the user to answer the
-        // approval panel; only the panel hops to the main actor.
+        // permissions.* read and write the agent grant registry and its
+        // store on disk, `permissions.match` answers agent hooks that are
+        // blocking a tool call, and `permissions.request` waits for the user
+        // to answer the approval panel; only the panel hops to the main actor.
         "permissions.request",
+        "permissions.match",
         "permissions.list",
         "permissions.revoke",
         // `surface.read_text` reads a terminal's visible or full-scrollback

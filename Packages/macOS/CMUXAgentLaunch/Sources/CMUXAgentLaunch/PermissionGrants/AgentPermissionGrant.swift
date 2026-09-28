@@ -5,7 +5,8 @@ public import Foundation
 ///
 /// Rules use Claude Code's permission-rule syntax (`Bash(git:*)`,
 /// `Edit(//abs/dir/**)`, `WebFetch(domain:example.com)`). Only the cmux app
-/// creates grants, after the user approves them.
+/// creates grants, after the user approves them, and only the app answers
+/// permission requests from them.
 public struct AgentPermissionGrant: Codable, Sendable, Equatable, Identifiable {
     /// Who a grant covers.
     public enum Scope: Codable, Sendable, Equatable {
@@ -21,8 +22,8 @@ public struct AgentPermissionGrant: Codable, Sendable, Equatable, Identifiable {
     /// Why the grant was requested, shown in the approval dialog and audit list.
     public var reason: String?
     public var grantedAt: Date
-    /// `nil` means until revoked.
-    public var expiresAt: Date?
+    /// Every grant expires; see ``AgentPermissionGrantDuration``.
+    public var expiresAt: Date
     /// How many permission requests this grant has answered.
     public var useCount: Int
     public var lastUsedAt: Date?
@@ -33,7 +34,7 @@ public struct AgentPermissionGrant: Codable, Sendable, Equatable, Identifiable {
         scope: Scope,
         reason: String? = nil,
         grantedAt: Date = Date(),
-        expiresAt: Date?,
+        expiresAt: Date,
         useCount: Int = 0,
         lastUsedAt: Date? = nil
     ) {
@@ -48,7 +49,7 @@ public struct AgentPermissionGrant: Codable, Sendable, Equatable, Identifiable {
     }
 
     public func isExpired(at now: Date) -> Bool {
-        expiresAt.map { $0 <= now } ?? false
+        expiresAt <= now
     }
 
     /// Whether the grant covers a request from `sessionID` running in `cwd`.
@@ -62,32 +63,23 @@ public struct AgentPermissionGrant: Codable, Sendable, Equatable, Identifiable {
             return AgentPermissionPath.isSameOrDescendant(cwd, of: root)
         }
     }
-}
 
-/// Path comparison for grants: absolute, standardized, symlinks resolved.
-enum AgentPermissionPath {
-    /// Resolves symlinks through the deepest existing ancestor, so a file
-    /// that doesn't exist yet compares like its existing directory.
-    static func canonical(_ path: String) -> String? {
-        let expanded = (path as NSString).expandingTildeInPath
-        guard expanded.hasPrefix("/") else { return nil }
-        var existing = URL(fileURLWithPath: expanded).standardizedFileURL
-        var missing: [String] = []
-        while existing.path != "/", !FileManager.default.fileExists(atPath: existing.path) {
-            missing.insert(existing.lastPathComponent, at: 0)
-            existing.deleteLastPathComponent()
+    /// Whether a grant read back from disk is one the app could have
+    /// created: unexpired, within the longest duration, with valid rules and
+    /// scope. Anything else was hand-written and is dropped.
+    func isLoadable(now: Date) -> Bool {
+        guard !isExpired(at: now),
+              expiresAt <= now.addingTimeInterval(AgentPermissionGrantDuration.maximumSeconds),
+              !rules.isEmpty, rules.count <= AgentPermissionGrantProposal.maximumRuleCount,
+              rules.allSatisfy(AgentPermissionRuleMatcher.isValid),
+              reason.map({ AgentPermissionText.sanitizedReason($0) == $0 }) ?? true else {
+            return false
         }
-        var resolved = existing.resolvingSymlinksInPath()
-        for component in missing {
-            resolved.appendPathComponent(component)
+        switch scope {
+        case .session(let id):
+            return !id.isEmpty && !AgentPermissionText.containsInvisibleOrControl(id)
+        case .project(let root):
+            return root.hasPrefix("/") && root != "/" && !AgentPermissionText.containsInvisibleOrControl(root)
         }
-        return resolved.path
-    }
-
-    static func isSameOrDescendant(_ path: String, of root: String) -> Bool {
-        guard let path = canonical(path), let root = canonical(root) else { return false }
-        if path == root { return true }
-        let prefix = root.hasSuffix("/") ? root : root + "/"
-        return path.hasPrefix(prefix)
     }
 }

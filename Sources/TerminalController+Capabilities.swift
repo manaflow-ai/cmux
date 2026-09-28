@@ -48,6 +48,7 @@ extension TerminalController {
             "vault.checkpoint",
             "vault.fork",
             "permissions.request",
+            "permissions.match",
             "permissions.list",
             "permissions.revoke",
             "caffeine.status",

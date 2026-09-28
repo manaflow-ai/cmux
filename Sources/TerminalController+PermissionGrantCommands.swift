@@ -3,17 +3,37 @@ import Foundation
 
 /// Socket v2 surface for batch agent permission grants.
 ///
-/// `permissions.request` is only a proposal: it shows the approval panel and
-/// writes the grant store after the user clicks Approve Selected. The CLI and
-/// agents never write the store. All three methods run on the socket worker;
-/// only the panel itself runs on the main actor, and it doesn't activate the
-/// app. None of them is permitted through a remote relay.
+/// The app is the only authority: it holds approved grants in memory
+/// (``AgentPermissionGrantRegistry``, loaded from its own store at launch),
+/// adds them only when the user clicks Approve in the panel, and answers
+/// `permissions.match` for the `PermissionRequest` hook with allow or no
+/// match, never grant contents. `permissions.request` is only a proposal.
+/// All four methods run on the socket worker; only the panel itself runs on
+/// the main actor, and it doesn't activate the app. None of them is
+/// permitted through a remote relay.
 extension TerminalController {
     /// How long `permissions.request` waits for the user before denying.
-    nonisolated static let permissionRequestTimeoutSeconds: TimeInterval = 600
+    /// Under Claude Code's two-minute Bash timeout, so the waiting
+    /// `cmux permissions request` finishes first.
+    nonisolated static let permissionRequestTimeoutSeconds: TimeInterval = 100
 
-    private nonisolated static var permissionGrantStore: AgentPermissionGrantStore {
-        AgentPermissionGrantStore(fileURL: AgentPermissionGrantStore.defaultFileURL())
+    nonisolated static let permissionGrantRegistry = AgentPermissionGrantRegistry(
+        store: AgentPermissionGrantStore(fileURL: AgentPermissionGrantStore.defaultFileURL())
+    )
+
+    /// Loads approved grants off the main actor when the socket starts.
+    nonisolated static func loadPermissionGrants() {
+        Task.detached(priority: .utility) { _ = TerminalController.permissionGrantRegistry }
+    }
+
+    // MARK: permissions.match
+
+    /// Allow or no match for one pending tool call. A match counts a use.
+    nonisolated func v2PermissionsMatch(params: [String: Any]) -> V2CallResult {
+        .ok(["allow": AgentPermissionHookAutoAnswer.answer(
+            matchParams: params,
+            registry: Self.permissionGrantRegistry
+        )])
     }
 
     // MARK: permissions.request
@@ -26,13 +46,27 @@ extension TerminalController {
         case .failure(let error):
             return .err(code: "invalid_params", message: Self.permissionValidationMessage(error), data: nil)
         }
+        let registry = Self.permissionGrantRegistry
+        guard registry.beginApproval() else {
+            return .err(
+                code: "busy",
+                message: String(
+                    localized: "socket.permissions.busy",
+                    defaultValue: "Another permission request is waiting for an answer."
+                ),
+                data: nil
+            )
+        }
+        defer { registry.endApproval() }
         let decision = await AgentPermissionGrantApprovalPanel.requestDecision(for: proposal)
-        guard case .approved(let selected) = decision,
-              let grant = proposal.grant(approving: selected) else {
+        // A request that timed out while the user clicked grants nothing.
+        guard !Task.isCancelled,
+              case .approved(let selected) = decision,
+              let grant = proposal.grant(approving: selected, now: Date()) else {
             return .ok(["denied": true])
         }
         do {
-            try Self.permissionGrantStore.add(grant)
+            try registry.add(grant)
         } catch {
             return .err(
                 code: "internal_error",
@@ -49,7 +83,7 @@ extension TerminalController {
     // MARK: permissions.list
 
     nonisolated func v2PermissionsList() -> V2CallResult {
-        .ok(["grants": Self.permissionGrantStore.grants().map(\.socketPayload)])
+        .ok(["grants": Self.permissionGrantRegistry.activeGrants().map(\.socketPayload)])
     }
 
     // MARK: permissions.revoke
@@ -72,7 +106,7 @@ extension TerminalController {
             )
         }
         do {
-            let revoked = try Self.permissionGrantStore.revoke(id: id)
+            let revoked = try Self.permissionGrantRegistry.revoke(id: id)
             return .ok(["revoked": revoked])
         } catch {
             return .err(
@@ -111,6 +145,9 @@ extension TerminalController {
         case .invalidExpiry:
             return String(localized: "socket.permissions.invalidExpiry",
                           defaultValue: "expires_in_seconds must be between one minute and 30 days.")
+        case .invalidReason:
+            return String(localized: "socket.permissions.invalidReason",
+                          defaultValue: "reason must not contain control or invisible formatting characters.")
         }
     }
 }

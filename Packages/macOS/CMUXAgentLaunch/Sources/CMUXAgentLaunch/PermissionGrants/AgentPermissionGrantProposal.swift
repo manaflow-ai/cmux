@@ -25,6 +25,11 @@ public struct AgentPermissionGrantProposal: Sendable, Equatable {
     public var scope: AgentPermissionGrant.Scope
     public var reason: String?
     public var expiresIn: TimeInterval
+    /// The cmux workspace and surface the request says it came from
+    /// (`CMUX_WORKSPACE_ID`, `CMUX_SURFACE_ID`), shown so a session grant
+    /// names a place, not only an id. Claimed by the requester, not verified.
+    public var workspaceID: UUID?
+    public var surfaceID: UUID?
 
     /// Why a `permissions.request` payload was rejected.
     public enum ValidationError: Error, Sendable, Equatable {
@@ -40,11 +45,14 @@ public struct AgentPermissionGrantProposal: Sendable, Equatable {
 
     /// Validates socket parameters:
     /// `{rules: [String], scope: "session"|"project", session_id?, root?,
-    /// reason?, expires_in_seconds?}`.
+    /// reason?, expires_in_seconds?, workspace_id?, surface_id?}`.
     ///
-    /// Rules are trimmed and de-duplicated in order. A session scope needs a
-    /// `session_id`; a project scope needs an absolute `root` naming an
-    /// existing directory other than `/`, which is stored canonicalized.
+    /// Rules are trimmed and de-duplicated in order, and each must be a rule
+    /// ``AgentPermissionRuleMatcher`` understands, with no control or
+    /// format characters. The reason is collapsed onto one line. A session
+    /// scope needs a `session_id`; a project scope needs an absolute `root`
+    /// naming an existing directory other than `/`, which is stored
+    /// canonicalized.
     public static func parse(params: [String: Any]) -> Result<Self, ValidationError> {
         guard let rawRules = params["rules"] as? [Any], !rawRules.isEmpty else {
             return .failure(.missingRules)
@@ -53,9 +61,8 @@ public struct AgentPermissionGrantProposal: Sendable, Equatable {
         for raw in rawRules {
             guard let text = raw as? String else { return .failure(.invalidRule(String(describing: raw))) }
             let rule = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !rule.isEmpty, rule.count <= maximumRuleLength,
-                  !rule.contains(where: { $0.isNewline }),
-                  AgentPermissionRuleMatcher.parse(rule) != nil else {
+            guard !AgentPermissionText.containsInvisibleOrControl(text),
+                  AgentPermissionRuleMatcher.isValid(rule) else {
                 return .failure(.invalidRule(text))
             }
             if !rules.contains(where: { $0.rule == rule }) {
@@ -68,12 +75,13 @@ public struct AgentPermissionGrantProposal: Sendable, Equatable {
         switch (params["scope"] as? String)?.trimmingCharacters(in: .whitespaces).lowercased() {
         case "session":
             guard let id = (params["session_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !id.isEmpty else {
+                  !id.isEmpty, !AgentPermissionText.containsInvisibleOrControl(id) else {
                 return .failure(.missingSessionID)
             }
             scope = .session(id: id)
         case "project":
             guard let raw = params["root"] as? String, raw.hasPrefix("/"),
+                  !AgentPermissionText.containsInvisibleOrControl(raw),
                   let root = AgentPermissionPath.canonical(raw), root != "/" else {
                 return .failure(.invalidProjectRoot)
             }
@@ -98,10 +106,22 @@ public struct AgentPermissionGrantProposal: Sendable, Equatable {
             expiresIn = seconds.rounded()
         }
 
-        let reason = (params["reason"] as? String)
-            .map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(maximumReasonLength)) }
-            .flatMap { $0.isEmpty ? nil : $0 }
-        return .success(Self(rules: rules, scope: scope, reason: reason, expiresIn: expiresIn))
+        var reason: String?
+        if let raw = params["reason"] as? String {
+            guard let sanitized = AgentPermissionText.sanitizedReason(raw) else {
+                return .failure(.invalidReason)
+            }
+            let cut = String(sanitized.prefix(maximumReasonLength)).trimmingCharacters(in: .whitespaces)
+            reason = cut.isEmpty ? nil : cut
+        }
+        return .success(Self(
+            rules: rules,
+            scope: scope,
+            reason: reason,
+            expiresIn: expiresIn,
+            workspaceID: (params["workspace_id"] as? String).flatMap { UUID(uuidString: $0) },
+            surfaceID: (params["surface_id"] as? String).flatMap { UUID(uuidString: $0) }
+        ))
     }
 
     /// The rules the approval UI checks before the user changes anything:
@@ -111,6 +131,7 @@ public struct AgentPermissionGrantProposal: Sendable, Equatable {
     }
 
     /// The grant that approving `selected` creates, keeping request order.
+    /// Pass the approval time as `now`: the expiry counts from then.
     /// - Returns: `nil` when none of the selected rules were requested.
     public func grant(approving selected: Set<String>, now: Date = Date()) -> AgentPermissionGrant? {
         let approved = rules.map(\.rule).filter { selected.contains($0) }

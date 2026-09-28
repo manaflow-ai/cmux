@@ -1,12 +1,12 @@
-import Darwin
 public import Foundation
 
-/// The approved permission grants, in an owner-only JSON file that the app
-/// writes and hook processes read.
+/// The cmux app's persistence for approved grants: an owner-only JSON file.
 ///
-/// Every read-modify-write holds an exclusive `flock` on a sibling lock file,
-/// so concurrent hook processes recording uses never lose one another's
-/// updates. Expired grants are dropped on every write.
+/// Only the app reads and writes it, through
+/// ``AgentPermissionGrantRegistry``; hooks ask the app over the socket
+/// instead. The file is untrusted on load: grants that fail
+/// ``AgentPermissionGrant/isLoadable(now:)`` (no expiry, an expiry past the
+/// longest duration, invalid rules or scope) are dropped.
 public struct AgentPermissionGrantStore: Sendable {
     public let fileURL: URL
 
@@ -23,80 +23,41 @@ public struct AgentPermissionGrantStore: Sendable {
             .appendingPathComponent("agent-permission-grants.json", isDirectory: false)
     }
 
-    private struct File: Codable {
+    private struct File: Encodable {
         var version = 1
         var grants: [AgentPermissionGrant]
     }
 
-    /// Active grants, oldest first.
+    private struct LoadedFile: Decodable {
+        var grants: [LoadedGrant]
+    }
+
+    /// One grant, or `nil` when it doesn't decode, so one bad entry never
+    /// discards the rest.
+    private struct LoadedGrant: Decodable {
+        var grant: AgentPermissionGrant?
+
+        init(from decoder: any Decoder) throws {
+            grant = try? AgentPermissionGrant(from: decoder)
+        }
+    }
+
+    /// The loadable grants on disk, oldest first.
     public func grants(now: Date = Date()) -> [AgentPermissionGrant] {
-        read().filter { !$0.isExpired(at: now) }
-    }
-
-    public func add(_ grant: AgentPermissionGrant, now: Date = Date()) throws {
-        try update(now: now) { $0.append(grant) }
-    }
-
-    /// Removes one grant, or every grant when `id` is `nil`.
-    /// - Returns: How many grants were removed.
-    @discardableResult
-    public func revoke(id: UUID?, now: Date = Date()) throws -> Int {
-        var removed = 0
-        try update(now: now) { grants in
-            let before = grants.count
-            grants.removeAll { id == nil || $0.id == id }
-            removed = before - grants.count
-        }
-        return removed
-    }
-
-    /// The first active grant with a rule allowing `request` from `sessionID`,
-    /// and that rule.
-    public func match(
-        _ request: AgentPermissionRequest,
-        sessionID: String?,
-        now: Date = Date()
-    ) -> (grant: AgentPermissionGrant, rule: String)? {
-        for grant in grants(now: now) where grant.covers(sessionID: sessionID, cwd: request.cwd, now: now) {
-            if let rule = grant.rules.first(where: { AgentPermissionRuleMatcher.allows(rule: $0, request: request) }) {
-                return (grant, rule)
-            }
-        }
-        return nil
-    }
-
-    /// Counts one answered request against a grant, for the audit list.
-    public func recordUse(of id: UUID, now: Date = Date()) throws {
-        try update(now: now) { grants in
-            guard let index = grants.firstIndex(where: { $0.id == id }) else { return }
-            grants[index].useCount += 1
-            grants[index].lastUsedAt = now
-        }
-    }
-
-    private func read() -> [AgentPermissionGrant] {
         guard let data = try? Data(contentsOf: fileURL) else { return [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return (try? decoder.decode(File.self, from: data).grants) ?? []
+        let loaded = (try? decoder.decode(LoadedFile.self, from: data).grants) ?? []
+        return loaded.compactMap(\.grant).filter { $0.isLoadable(now: now) }
     }
 
-    private func update(now: Date, _ mutate: (inout [AgentPermissionGrant]) -> Void) throws {
-        let directory = fileURL.deletingLastPathComponent()
+    /// Replaces the file with `grants`, owner-only.
+    public func save(_ grants: [AgentPermissionGrant]) throws {
         try FileManager.default.createDirectory(
-            at: directory,
+            at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
-        let lockPath = fileURL.path + ".lock"
-        let lock = open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
-        guard lock >= 0 else { throw CocoaError(.fileWriteNoPermission) }
-        defer { close(lock) }
-        guard flock(lock, LOCK_EX) == 0 else { throw CocoaError(.fileLocking) }
-        defer { flock(lock, LOCK_UN) }
-
-        var grants = read().filter { !$0.isExpired(at: now) }
-        mutate(&grants)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

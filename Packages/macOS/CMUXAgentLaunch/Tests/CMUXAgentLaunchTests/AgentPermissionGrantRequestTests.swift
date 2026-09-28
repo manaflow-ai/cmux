@@ -112,45 +112,59 @@ struct AgentPermissionGrantRequestTests {
 
 @Suite("Agent permission hook auto-answer")
 struct AgentPermissionHookAutoAnswerTests {
-    @Test func matchingRequestIsAllowedAndCounted() throws {
+    private func payload(_ tool: String, _ input: [String: Any], session: String = "s1") -> [String: Any] {
+        ["hook_event_name": "PermissionRequest", "session_id": session, "cwd": "/tmp",
+         "tool_name": tool, "tool_input": input, "permission_suggestions": [["type": "addRules"]]]
+    }
+
+    @Test func matchParamsCarryOnlyMatchableFields() throws {
+        let params = try #require(AgentPermissionHookAutoAnswer.matchParams(claudeHookPayload: payload(
+            "Edit", ["file_path": "/tmp/a", "old_string": "secret", "new_string": "x"]
+        )))
+        #expect(params["tool_name"] as? String == "Edit")
+        #expect(params["session_id"] as? String == "s1")
+        #expect(params["cwd"] as? String == "/tmp")
+        #expect((params["tool_input"] as? [String: Any])?.keys.sorted() == ["file_path"])
+        #expect(params["permission_suggestions"] == nil)
+        #expect(AgentPermissionHookAutoAnswer.matchParams(claudeHookPayload: payload("ExitPlanMode", ["plan": "x"])) == nil)
+        #expect(AgentPermissionHookAutoAnswer.matchParams(claudeHookPayload: payload("AskUserQuestion", [:])) == nil)
+        #expect(AgentPermissionHookAutoAnswer.matchParams(claudeHookPayload: ["tool_input": [:]]) == nil)
+    }
+
+    @Test func appAnswersMatchingRequestsAndCountsThem() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("grant-hook-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = AgentPermissionGrantStore(fileURL: directory.appendingPathComponent("grants.json"))
+        let registry = AgentPermissionGrantRegistry(
+            store: AgentPermissionGrantStore(fileURL: directory.appendingPathComponent("grants.json"))
+        )
         let now = Date(timeIntervalSince1970: 1_000_000)
-        func payload(_ tool: String, _ input: [String: Any], session: String = "s1") -> [String: Any] {
-            ["hook_event_name": "PermissionRequest", "session_id": session, "cwd": "/tmp",
-             "tool_name": tool, "tool_input": input]
+        func answer(_ payload: [String: Any]) throws -> Bool {
+            let params = try #require(AgentPermissionHookAutoAnswer.matchParams(claudeHookPayload: payload))
+            return AgentPermissionHookAutoAnswer.answer(matchParams: params, registry: registry, now: now)
         }
 
-        #expect(AgentPermissionHookAutoAnswer.answerClaudePermissionRequest(
-            payload: payload("Bash", ["command": "git status"]), store: store, now: now
-        ) == nil, "A missing store means no grants")
+        #expect(try !answer(payload("Bash", ["command": "git status"])), "No grants yet")
+        let grant = AgentPermissionGrant(rules: ["Bash(git status)"], scope: .session(id: "s1"),
+                                         grantedAt: now, expiresAt: now.addingTimeInterval(60))
+        try registry.add(grant, now: now)
 
-        let grant = AgentPermissionGrant(rules: ["Bash(git:*)", "ExitPlanMode", "AskUserQuestion"],
-                                         scope: .session(id: "s1"), grantedAt: now, expiresAt: nil)
-        try store.add(grant, now: now)
-
-        let output = try #require(AgentPermissionHookAutoAnswer.answerClaudePermissionRequest(
-            payload: payload("Bash", ["command": "git status"]), store: store, now: now
+        #expect(try answer(payload("Bash", ["command": "git status"])))
+        #expect(registry.activeGrants(now: now).first?.useCount == 1)
+        #expect(try !answer(payload("Bash", ["command": "git status && rm -rf /"])))
+        #expect(try !answer(payload("Bash", ["command": "git status"], session: "s2")))
+        // A caller skipping matchParams still can't have questions answered.
+        #expect(!AgentPermissionHookAutoAnswer.answer(
+            matchParams: payload("ExitPlanMode", ["plan": "x"]), registry: registry, now: now
         ))
+        #expect(registry.activeGrants(now: now).first?.useCount == 1)
+
+        let output = try #require(AgentPermissionHookAutoAnswer.output(forMatchResult: ["allow": true]))
         let decoded = try #require(JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any])
         let specific = try #require(decoded["hookSpecificOutput"] as? [String: Any])
         #expect(specific["hookEventName"] as? String == "PermissionRequest")
         #expect((specific["decision"] as? [String: Any])?["behavior"] as? String == "allow")
-        #expect(store.grants(now: now).first?.useCount == 1)
-        #expect(store.grants(now: now).first?.lastUsedAt == now)
-
-        for unanswered in [
-            payload("Bash", ["command": "git status && rm -rf /"]),
-            payload("Bash", ["command": "git status"], session: "s2"),
-            payload("ExitPlanMode", ["plan": "x"]),
-            payload("AskUserQuestion", ["questions": []]),
-        ] {
-            #expect(AgentPermissionHookAutoAnswer.answerClaudePermissionRequest(
-                payload: unanswered, store: store, now: now
-            ) == nil)
-        }
-        #expect(store.grants(now: now).first?.useCount == 1)
+        #expect(AgentPermissionHookAutoAnswer.output(forMatchResult: ["allow": false]) == nil)
+        #expect(AgentPermissionHookAutoAnswer.output(forMatchResult: [:]) == nil)
     }
 }

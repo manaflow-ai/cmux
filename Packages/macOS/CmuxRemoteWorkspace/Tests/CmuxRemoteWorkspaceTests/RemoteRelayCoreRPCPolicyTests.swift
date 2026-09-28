@@ -25,7 +25,7 @@ struct RemoteRelayCoreRPCPolicyTests {
     }
 
     @Test("agent permission grant methods never pass a remote relay", arguments: [
-        "permissions.request", "permissions.list", "permissions.revoke"
+        "permissions.request", "permissions.match", "permissions.list", "permissions.revoke"
     ])
     func permissionGrantMethodsAreLocalOnly(method: String) {
         let policy = RemoteRelayCommandPolicy()
