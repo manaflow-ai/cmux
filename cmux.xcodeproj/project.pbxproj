@@ -408,6 +408,7 @@
 		B1F0C0060000000000000001 /* BrowserDeveloperToolsDockControlNormalizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0060000000000000002 /* BrowserDeveloperToolsDockControlNormalizerTests.swift */; };
 		B1F0C0070000000000000001 /* BrowserDeveloperToolsLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0070000000000000002 /* BrowserDeveloperToolsLifecycleTests.swift */; };
 		B75040020000000000000001 /* BrowserDiscardedWebViewRestoreRetryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75040020000000000000002 /* BrowserDiscardedWebViewRestoreRetryTests.swift */; };
+		8DBF5C461522F374EDC9D079 /* BrowserDiscardPageStateRestoreTests+Automation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE215D03C059527E6512A56D /* BrowserDiscardPageStateRestoreTests+Automation.swift */; };
 		B871FCD53CB8D64CF0872CE5 /* BrowserDiscardPageStateRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5904AAC8086DB4BAE438A7F4 /* BrowserDiscardPageStateRestoreTests.swift */; };
 		B75040010000000000000001 /* BrowserDiscardRestoreHeal.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75040010000000000000002 /* BrowserDiscardRestoreHeal.swift */; };
 		B75040030000000000000001 /* BrowserDiscardRestoreHealPredicateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75040030000000000000002 /* BrowserDiscardRestoreHealPredicateTests.swift */; };
@@ -4616,6 +4617,7 @@
 		B1F0C0060000000000000002 /* BrowserDeveloperToolsDockControlNormalizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDeveloperToolsDockControlNormalizerTests.swift; sourceTree = "<group>"; };
 		B1F0C0070000000000000002 /* BrowserDeveloperToolsLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDeveloperToolsLifecycleTests.swift; sourceTree = "<group>"; };
 		B75040020000000000000002 /* BrowserDiscardedWebViewRestoreRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDiscardedWebViewRestoreRetryTests.swift; sourceTree = "<group>"; };
+		CE215D03C059527E6512A56D /* BrowserDiscardPageStateRestoreTests+Automation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserDiscardPageStateRestoreTests+Automation.swift"; sourceTree = "<group>"; };
 		5904AAC8086DB4BAE438A7F4 /* BrowserDiscardPageStateRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserDiscardPageStateRestoreTests.swift"; sourceTree = "<group>"; };
 		B75040010000000000000002 /* BrowserDiscardRestoreHeal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDiscardRestoreHeal.swift; sourceTree = "<group>"; };
 		B75040030000000000000002 /* BrowserDiscardRestoreHealPredicateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDiscardRestoreHealPredicateTests.swift; sourceTree = "<group>"; };
@@ -12393,6 +12395,7 @@
 				751E2E409D9D8EED12988A80 /* SplitSpaceTests.swift */,
 				D0C6C5413708B2C95D6C1CC3 /* NarrowWindowSidePanelFitTests.swift */,
 				2D4316FCA6BA8B1260D8FFB6 /* CloudEqualCursorConflictRecoveryTests.swift */,
+				CE215D03C059527E6512A56D /* BrowserDiscardPageStateRestoreTests+Automation.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16038,6 +16041,7 @@
 				B1F0C0060000000000000001 /* BrowserDeveloperToolsDockControlNormalizerTests.swift in Sources */,
 				B1F0C0070000000000000001 /* BrowserDeveloperToolsLifecycleTests.swift in Sources */,
 				B75040020000000000000001 /* BrowserDiscardedWebViewRestoreRetryTests.swift in Sources */,
+				8DBF5C461522F374EDC9D079 /* BrowserDiscardPageStateRestoreTests+Automation.swift in Sources */,
 				B871FCD53CB8D64CF0872CE5 /* BrowserDiscardPageStateRestoreTests.swift in Sources */,
 				B75040030000000000000001 /* BrowserDiscardRestoreHealPredicateTests.swift in Sources */,
 				C59240010000000000000003 /* BrowserDownloadFilenameResolverTests.swift in Sources */,

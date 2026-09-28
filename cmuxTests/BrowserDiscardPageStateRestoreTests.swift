@@ -17,7 +17,7 @@ import XCTest
 /// URL loses all three.
 @MainActor
 final class BrowserDiscardPageStateRestoreTests: XCTestCase {
-    private var fixtureDirectory: URL!
+    var fixtureDirectory: URL!
     private var hostWindow: NSWindow!
     /// The stored `browser.autoRestoreUnloadedPages` key, spelled out so a
     /// rename that would drop users' saved choice fails here.
@@ -242,8 +242,8 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
     /// Loads page A, then a scrolled page B with typed form input, and returns
     /// the hosted panel showing B. `makePanel` builds the panel for page A; a
     /// local workspace panel by default.
-    private func loadScrolledFormPage(
-        makePanel: ((URL) -> BrowserPanel)? = nil
+    func loadScrolledFormPage(
+        makePanel: ((URL) throws -> BrowserPanel)? = nil
     ) throws -> (panel: BrowserPanel, pageA: URL, pageB: URL) {
         let pageA = fixtureDirectory.appendingPathComponent("a.html")
         let pageB = fixtureDirectory.appendingPathComponent("b.html")
@@ -257,7 +257,7 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         </body></html>
         """.write(to: pageB, atomically: true, encoding: .utf8)
 
-        let panel = makePanel?(pageA)
+        let panel = try makePanel?(pageA)
             ?? BrowserPanel(workspaceId: UUID(), initialURL: pageA, isRemoteWorkspace: false)
         host(panel.webView)
         waitForPage(panel, url: pageA)
@@ -303,7 +303,7 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
 
     /// Delivers WebKit's process termination callback for the panel's web
     /// view, which the panel must keep until a later recovery replaces it.
-    private func terminateWebContent(of panel: BrowserPanel) throws -> WKWebView {
+    func terminateWebContent(of panel: BrowserPanel) throws -> WKWebView {
         let webView = panel.webView
         let delegate = try XCTUnwrap(webView.navigationDelegate as? BrowserNavigationDelegate)
         delegate.webViewWebContentProcessDidTerminate(webView)
@@ -364,13 +364,13 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         XCTAssertNotEqual(panel.webView.url?.standardizedFileURL, page.standardizedFileURL, file: file, line: line)
     }
 
-    private func host(_ webView: WKWebView) {
+    func host(_ webView: WKWebView) {
         webView.frame = hostWindow.contentView?.bounds ?? .zero
         webView.autoresizingMask = [.width, .height]
         hostWindow.contentView?.addSubview(webView)
     }
 
-    private func evaluate(_ script: String, in webView: WKWebView) -> Any? {
+    func evaluate(_ script: String, in webView: WKWebView) -> Any? {
         var result: Any?
         var finished = false
         webView.evaluateJavaScript(script) { value, _ in
@@ -384,7 +384,7 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         return result
     }
 
-    private func waitForPage(
+    func waitForPage(
         _ panel: BrowserPanel,
         url: URL,
         timeout: TimeInterval = 5,
@@ -399,7 +399,7 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         }
     }
 
-    private func waitUntil(
+    func waitUntil(
         _ description: String,
         timeout: TimeInterval = 5,
         file: StaticString = #filePath,
