@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Tie the cmux-capture skill to the code it describes.
+
+The reference page documents flags, response fields, recording states and
+error codes. Each of those lives in Swift, and a doc that drifts from it sends
+an agent after a field that no longer exists. These checks read both sides and
+compare them; they need no build and no running app.
+"""
+
+from __future__ import annotations
+
+import re
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parent.parent
+REFERENCE = ROOT / "skills" / "cmux-capture" / "references" / "commands.md"
+SKILL = ROOT / "skills" / "cmux-capture" / "SKILL.md"
+RECORD_CLI = ROOT / "CLI" / "CMUXCLI+Record.swift"
+SHOT_CLI = ROOT / "CLI" / "CMUXCLI+Screenshot.swift"
+SESSION = ROOT / "Sources" / "WindowRecordingSession.swift"
+SHOT_METHOD = ROOT / "Sources" / "TerminalController+WindowScreenshotMethod.swift"
+
+FLAG = re.compile(r"--[a-z][a-z-]*")
+SECTION = re.compile(r"^## (.+)$", re.MULTILINE)
+
+
+def reference_text() -> str:
+    return REFERENCE.read_text(encoding="utf-8")
+
+
+def section(name: str, text: str) -> str:
+    """The body of one `## name` section."""
+    matches = list(SECTION.finditer(text))
+    for index, match in enumerate(matches):
+        if match.group(1) != name:
+            continue
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        return text[match.end():end]
+    raise AssertionError(f"{REFERENCE.name} has no '## {name}' section")
+
+
+def fenced_block(body: str) -> str:
+    start = body.index("```") + 3
+    return body[start:body.index("```", start)]
+
+
+def backticked(body: str) -> set[str]:
+    return set(re.findall(r"`([^`]+)`", body))
+
+
+class CaptureSkillTests(unittest.TestCase):
+    def test_documented_flags_exist_in_the_cli_help(self) -> None:
+        text = reference_text()
+        for name, cli in (("Screenshot", SHOT_CLI), ("Recording", RECORD_CLI)):
+            documented = set(FLAG.findall(fenced_block(section(name, text))))
+            help_text = cli.read_text(encoding="utf-8")
+            missing = sorted(flag for flag in documented if flag not in help_text)
+            self.assertEqual([], missing, f"{name}: flags documented but not in {cli.name}")
+
+    def test_limits_table_names_only_real_flags(self) -> None:
+        text = reference_text()
+        both = SHOT_CLI.read_text(encoding="utf-8") + RECORD_CLI.read_text(encoding="utf-8")
+        documented = set(FLAG.findall(section("Limits", text)))
+        missing = sorted(flag for flag in documented if flag not in both)
+        self.assertEqual([], missing, "limits table names flags no command takes")
+
+    def test_documented_recording_states_match_the_enum(self) -> None:
+        source = SESSION.read_text(encoding="utf-8")
+        body = source[source.index("enum State: String"):]
+        cases = set(re.findall(r"^\s*case ([a-z]+)$", body[:body.index("}")], re.MULTILINE))
+        row = [
+            line for line in section("Recording", reference_text()).splitlines()
+            if line.startswith("| `id`, `state` |")
+        ]
+        self.assertEqual(1, len(row), "the status table lost its state row")
+        documented = backticked(row[0]) - {"id", "state"}
+        self.assertEqual(cases, documented, "documented states differ from WindowRecordingStatus.State")
+
+    def test_documented_screenshot_formats_match_the_enum(self) -> None:
+        request = ROOT / "Packages" / "macOS" / "CmuxFoundation" / "Sources" / "CmuxFoundation" \
+            / "WindowCapture" / "WindowScreenshotRequest.swift"
+        body = request.read_text(encoding="utf-8")
+        body = body[body.index("public enum Format: String"):]
+        cases = set(re.findall(r"^\s*case ([a-z]+)$", body[:body.index("/// Extensions")], re.MULTILINE))
+        row = [
+            line for line in section("Screenshot", reference_text()).splitlines()
+            if line.startswith("| `format` |")
+        ]
+        self.assertEqual(1, len(row), "the screenshot table lost its format row")
+        # The row also names the file extension a jpeg gets, which is not a
+        # format value, so only the values before the semicolon are compared.
+        documented = backticked(row[0].split(";")[0]) - {"format"}
+        self.assertEqual(cases, documented, "documented formats differ from WindowScreenshotRequest.Format")
+
+    def test_documented_response_fields_are_emitted(self) -> None:
+        text = reference_text()
+        for name, source, extra in (
+            ("Screenshot", SHOT_METHOD, set()),
+            # `seconds` and `max_seconds` are written with a computed value, so
+            # their keys are matched from the payload literal the same way.
+            ("Recording", SESSION, set()),
+        ):
+            emitted = set(re.findall(r'payload\["([a-z_]+)"\]', source.read_text(encoding="utf-8")))
+            emitted |= set(re.findall(r'^\s+"([a-z_]+)":', source.read_text(encoding="utf-8"), re.MULTILINE))
+            emitted |= extra
+            rows = [
+                line for line in section(name, text).splitlines()
+                if line.startswith("| `") and " | " in line
+            ]
+            documented: set[str] = set()
+            for row in rows:
+                documented |= backticked(row.split("|")[1])
+            missing = sorted(field for field in documented if field not in emitted)
+            self.assertEqual([], missing, f"{name}: fields documented but never put in the response")
+
+    def test_documented_error_codes_are_returned(self) -> None:
+        returned = set()
+        for source in (SHOT_METHOD, ROOT / "Sources" / "TerminalController+WindowRecording.swift"):
+            body = source.read_text(encoding="utf-8")
+            returned |= set(re.findall(r'return "([a-z_]+)"', body))
+            returned |= set(re.findall(r'code: "([a-z_]+)"', body))
+        rows = [
+            line for line in section("Error codes", reference_text()).splitlines()
+            if line.startswith("| `")
+        ]
+        documented = {row.split("|")[1].strip().strip("`") for row in rows}
+        missing = sorted(code for code in documented if code not in returned)
+        self.assertEqual([], missing, "error codes documented but never returned")
+
+    def test_skill_points_at_its_reference(self) -> None:
+        self.assertIn("references/commands.md", SKILL.read_text(encoding="utf-8"))
+
+
+if __name__ == "__main__":
+    unittest.main()
