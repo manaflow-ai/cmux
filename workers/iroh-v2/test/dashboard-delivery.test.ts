@@ -24,13 +24,21 @@ type OutputCall = { revision: number; bytes: number; messages: number };
  * whose local revision has fallen behind the user object fails here the same
  * way it fails in the Durable Object.
  */
-function outputLedger() {
+function outputLedger(options: { refuseFirstCharge?: boolean } = {}) {
   const calls: OutputCall[] = [];
   let committed: OutputCall = { revision: 0, bytes: 0, messages: 0 };
+  let refusalsLeft = options.refuseFirstCharge ? 1 : 0;
   return {
     calls,
     setOutput(_userId: string, _sessionId: string, revision: number, bytes: number, messages: number) {
       calls.push({ revision, bytes, messages });
+      if (refusalsLeft > 0) {
+        // The per-user aggregate cap is a sum over every socket that user holds,
+        // so it can refuse one large frame and still have room for the much
+        // smaller error frame that follows it at the same revision.
+        refusalsLeft -= 1;
+        return { ok: false as const, code: "slow_consumer" as const, status: 429, retryable: true };
+      }
       if (revision === committed.revision && bytes === committed.bytes && messages === committed.messages) {
         return { ok: true as const, value: undefined };
       }
@@ -44,7 +52,7 @@ function outputLedger() {
   };
 }
 
-function connection() {
+function connection(options: { refuseFirstCharge?: boolean } = {}) {
   const now = Math.floor(Date.now() / 1000);
   const claims: DashboardClaims = {
     version: 2, audience: "cmux-iroh-dashboard-v2", authority, origin: "https://cmux.com",
@@ -87,7 +95,7 @@ function connection() {
     close(code: number, reason: string) { closes.push({ code, reason }); },
   } as unknown as WebSocket;
 
-  const ledger = outputLedger();
+  const ledger = outputLedger(options);
   const control = new DashboardControl(
     { waitUntil: () => {} } as unknown as DurableObjectState,
     { ENVIRONMENT: environment, STACK_PROJECT_ID: projectId } as unknown as Environment,
@@ -144,4 +152,22 @@ test("an accepted dashboard frame advances the ledger and the connection togethe
   expect(connected.attachment().outputRevision).toBe(1);
   expect(connected.attachment().delivery.sequence).toBe(1);
   expect(connected.closes).toEqual([]);
+});
+
+test("a dashboard frame whose charge is refused after the send closes the connection", async () => {
+  const connected = connection({ refuseFirstCharge: true });
+  await connected.request("fresh-directory");
+
+  // The directory frame is already on the wire, so the refused charge cannot be
+  // taken back. Leaving the socket open would let the error reply below fit the
+  // headroom this frame just overran, and the connection would go on delivering
+  // large frames that are never charged, so the connection has to go instead.
+  const frames = connected.frames.map(text => JSON.parse(text) as Record<string, unknown>);
+  expect(frames).toHaveLength(1);
+  expect(frames[0]!.schemaId).toBe("dashboard.directory.v1");
+  expect(connected.closes).toEqual([{ code: 1013, reason: "slow_consumer" }]);
+  // Nothing is recorded for the frame whose charge was refused, and the closed
+  // connection sends no second frame at the revision it did not commit.
+  expect(connected.attachment().outputRevision).toBe(0);
+  expect(connected.outputs.map(call => call.revision)).toEqual([1]);
 });
