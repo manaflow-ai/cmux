@@ -747,7 +747,7 @@ final class FocusFlashPatternTests: XCTestCase {
         let pulse = FocusFlashPattern.pulse
         XCTAssertEqual(pulse.values, [0, 1, 0])
         XCTAssertEqual(pulse.keyTimes, [0, 0.3, 1])
-        XCTAssertEqual(pulse.duration, 0.4, accuracy: 0.0001)
+        XCTAssertEqual(pulse.duration, 0.6, accuracy: 0.0001)
         XCTAssertEqual(pulse.curves, [.easeOut, .easeIn])
         XCTAssertEqual(FocusFlashPattern.ringInset, Double(PanelOverlayRingMetrics.inset), accuracy: 0.0001)
         XCTAssertEqual(FocusFlashPattern.ringCornerRadius, Double(PanelOverlayRingMetrics.cornerRadius), accuracy: 0.0001)
@@ -771,16 +771,16 @@ final class FocusFlashPatternTests: XCTestCase {
         XCTAssertEqual(segments.count, 2)
 
         XCTAssertEqual(segments[0].delay, 0.0, accuracy: 0.0001)
-        XCTAssertEqual(segments[0].duration, 0.12, accuracy: 0.0001)
+        XCTAssertEqual(segments[0].duration, 0.18, accuracy: 0.0001)
         XCTAssertEqual(segments[0].targetOpacity, 1, accuracy: 0.0001)
         XCTAssertEqual(segments[0].curve, .easeOut)
 
-        XCTAssertEqual(segments[1].delay, 0.12, accuracy: 0.0001)
-        XCTAssertEqual(segments[1].duration, 0.28, accuracy: 0.0001)
+        XCTAssertEqual(segments[1].delay, 0.18, accuracy: 0.0001)
+        XCTAssertEqual(segments[1].duration, 0.42, accuracy: 0.0001)
         XCTAssertEqual(segments[1].targetOpacity, 0, accuracy: 0.0001)
         XCTAssertEqual(segments[1].curve, .easeIn)
-        XCTAssertEqual(pulse.opacity(at: 0.12), 1, accuracy: 0.0001)
-        XCTAssertEqual(pulse.opacity(at: 0.4), 0, accuracy: 0.0001)
+        XCTAssertEqual(pulse.opacity(at: 0.18), 1, accuracy: 0.0001)
+        XCTAssertEqual(pulse.opacity(at: 0.6), 0, accuracy: 0.0001)
     }
 }
 

@@ -259,7 +259,7 @@ struct FocusFlashPattern: Equatable {
     static let pulse = FocusFlashPattern(
         values: [0, 1, 0],
         keyTimes: [0, 0.3, 1],
-        duration: 0.4,
+        duration: 0.6,
         curves: [.easeOut, .easeIn]
     )
     static let doubleBlink = FocusFlashPattern(
