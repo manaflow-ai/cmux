@@ -267,10 +267,34 @@ struct CloudMachineDeletionCoordinatorTests {
         let cancelled = creates.cancel(attempt.operationID)
         #expect(cancelled.cleanupMachineIDs == ["abandoned"])
         // The adapter routes cleanup through deletion, which hides the machine once.
-        #expect(deletions.begin("abandoned"))
+        #expect(deletions.beginCleanup("abandoned"))
         #expect(creates.retireCreates(producing: "abandoned").cancelOperationIDs.isEmpty)
+        #expect(!deletions.beginCleanup("abandoned"))
         #expect(!deletions.begin("abandoned"))
         #expect(deletions.projection.hiddenMachineIDs == ["abandoned"])
+    }
+
+    @Test func cleanupReportsOnlyItsFirstRequestAndRollsBackLikeADelete() {
+        let owner = CloudMachineDeletionCoordinator()
+        #expect(owner.beginCleanup("cleanup"))
+        #expect(owner.projection.hiddenMachineIDs == ["cleanup"])
+        #expect(owner.projection.pendingMachineIDs == ["cleanup"], "a cleanup can still come back")
+        #expect(owner.isPending("cleanup"))
+        #expect(owner.beginRequest("cleanup"), "the cleanup's request detaches its presentations")
+        #expect(!owner.beginRequest("cleanup"), "a joined request detaches nothing again")
+        #expect(owner.finish("cleanup", result: .deleted) == .retired)
+
+        #expect(owner.begin("deleted"))
+        #expect(!owner.beginRequest("deleted"), "a delete detached when it began")
+
+        // A cleanup whose CLI exits first, or whose account ends, never reports a request.
+        #expect(owner.beginCleanup("exited"))
+        #expect(owner.finish("exited", result: .failed) == .restored)
+        #expect(!owner.beginRequest("exited"))
+        #expect(owner.beginCleanup("departed"))
+        #expect(owner.endAccount())
+        #expect(!owner.beginRequest("departed"))
+        #expect(owner.projection.hiddenMachineIDs.isEmpty)
     }
 
     @Test func accountTransitionClearsDeletionsWithoutRollback() {

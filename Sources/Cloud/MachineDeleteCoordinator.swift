@@ -19,7 +19,6 @@ final class MachineDeleteCoordinator {
     private let didHide: @MainActor (String) -> Void
     private let didRetire: @MainActor (String) -> Void
     private let didRestore: @MainActor (String) -> Void
-    private let runLater: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
     private var requests: [String: Request] = [:]
     private var accountEpoch: UInt64 = 0
     private var accessDidEndObserver: NSObjectProtocol?
@@ -27,25 +26,21 @@ final class MachineDeleteCoordinator {
     /// - Parameters:
     ///   - notificationCenter: Where `.cmuxCloudVMAccessDidEnd` is posted.
     ///   - destroyMachine: Sends the provider destroy request.
-    ///   - didHide: Detaches the machine's local presentations once it is hidden.
+    ///   - didHide: Detaches the machine's local presentations: when a delete begins,
+    ///     and when a create cleanup's request starts.
     ///   - didRetire: Closes the machine's registrations once its delete is confirmed.
     ///   - didRestore: Lets creates keep the machine once its failed delete lists it again.
-    ///   - runLater: Runs work on a later main-actor turn.
     init(
         notificationCenter: NotificationCenter = .default,
         destroyMachine: @escaping @MainActor (String) async throws -> Void = { try await VMClient.shared.destroy(id: $0) },
         didHide: @escaping @MainActor (String) -> Void = { MachineDeleteCoordinator.detachLocalPresentations(of: $0) },
         didRetire: @escaping @MainActor (String) -> Void = { AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: $0) },
-        didRestore: @escaping @MainActor (String) -> Void = { MachineCreateCoordinator.shared.machineDeletionFailed($0) },
-        runLater: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { work in
-            Task { @MainActor in work() }
-        }
+        didRestore: @escaping @MainActor (String) -> Void = { MachineCreateCoordinator.shared.machineDeletionFailed($0) }
     ) {
         self.destroyMachine = destroyMachine
         self.didHide = didHide
         self.didRetire = didRetire
         self.didRestore = didRestore
-        self.runLater = runLater
         accessDidEndObserver = notificationCenter.addObserver(
             forName: .cmuxCloudVMAccessDidEnd, object: nil, queue: .main
         ) { [weak self] _ in
@@ -83,22 +78,18 @@ final class MachineDeleteCoordinator {
         return true
     }
 
-    /// Hides the machine a cancelled create announced, for that create's cleanup,
-    /// and detaches its local presentations on a later main-actor turn.
+    /// Hides the machine a cancelled create announced, for that create's cleanup.
+    /// Its local presentations detach when the cleanup's destroy request starts.
     ///
     /// The create coordinator requests cleanup while it applies the cancel: before
     /// the create's card closes, and for Cmd+W inside the close of the card's
-    /// workspace. Closing the card first unbinds any pane the person added, so the
-    /// later detach keeps that workspace instead of closing it whole or again.
+    /// workspace. The request reaches the socket after both, so the card's close has
+    /// unbound any pane the person added and the detach keeps that workspace
+    /// instead of closing it whole or again. A cleanup whose CLI exits first lists
+    /// the machine again with its presentations.
     /// - Parameter machineID: The exact provider machine identifier.
     func beginCleanup(_ machineID: String) {
-        guard deletions.begin(machineID) else { return }
-        runLater { [weak self] in
-            // Skip a machine listed again: a failed delete keeps its presentations,
-            // and an ended account already closed its Cloud workspaces.
-            guard let self, self.hiddenMachineIDs.contains(machineID) else { return }
-            self.didHide(machineID)
-        }
+        deletions.beginCleanup(machineID)
     }
 
     /// Stops the machine's creates, then closes its local workspaces and
@@ -133,6 +124,8 @@ final class MachineDeleteCoordinator {
     func destroy(id machineID: String) async throws -> Bool {
         if hiddenMachineIDs.contains(machineID), !deletions.isPending(machineID) { return true }
         begin(machineID)
+        // A create's cleanup detaches the machine only once its request starts.
+        if deletions.beginRequest(machineID) { didHide(machineID) }
         if let request = requests[machineID] { return try await request.task.value }
         let epoch = accountEpoch
         let token = UUID()

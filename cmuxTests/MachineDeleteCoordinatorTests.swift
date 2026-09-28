@@ -71,16 +71,14 @@ struct MachineDeleteCoordinatorTests {
         #expect(launches.cancellations == 1)
     }
 
-    @Test func createCleanupDetachesOnlyAfterTheTransitionThatRequestedIt() throws {
+    @Test func createCleanupDetachesOnlyAfterTheTransitionThatRequestedIt() async throws {
         var steps: [String] = []
-        var later: [@MainActor () -> Void] = []
         let deletions = MachineDeleteCoordinator(
             notificationCenter: NotificationCenter(),
             destroyMachine: { _ in },
             didHide: { steps.append("detach \($0)") },
             didRetire: { _ in },
-            didRestore: { _ in },
-            runLater: { later.append($0) }
+            didRestore: { _ in }
         )
         let launches = MachineCreateCoordinatorTests.LaunchRecorder()
         let creates = MachineCreateCoordinator(
@@ -110,31 +108,10 @@ struct MachineDeleteCoordinatorTests {
         creates.cancelOperations(forPresentationWorkspace: closingWorkspaceID)
         #expect(steps == ["clean up m2"], "Detaching inside the close would close the workspace again")
 
-        later.forEach { $0() }
+        // Each cleanup's `vm.destroy` request reaches the socket after its transition.
+        _ = try await deletions.destroy(id: "m1")
+        _ = try await deletions.destroy(id: "m2")
         #expect(steps == ["clean up m2", "detach m1", "detach m2"])
-    }
-
-    @Test func createCleanupDetachesNothingOnceTheMachineIsListedAgain() {
-        var detached: [String] = []
-        var later: [@MainActor () -> Void] = []
-        let accountEvents = NotificationCenter()
-        let deletions = MachineDeleteCoordinator(
-            notificationCenter: accountEvents,
-            destroyMachine: { _ in },
-            didHide: { detached.append($0) },
-            didRetire: { _ in },
-            didRestore: { _ in },
-            runLater: { later.append($0) }
-        )
-        deletions.beginCleanup("m1")
-        deletions.beginCleanup("m1")
-        #expect(later.count == 1, "A repeated cleanup is a no-op")
-        deletions.launchEnded("m1")
-        deletions.beginCleanup("m2")
-        accountEvents.post(name: .cmuxCloudVMAccessDidEnd, object: nil)
-
-        later.forEach { $0() }
-        #expect(detached.isEmpty, "A machine listed again by the later turn detaches nothing")
     }
 
     @Test func createCleanupDetachesOnlyOnceItsDestroyRequestStarts() async throws {

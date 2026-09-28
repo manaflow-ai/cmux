@@ -22,6 +22,8 @@ public final class CloudMachineDeletionCoordinator {
     @ObservationIgnored private var entries: [String: Entry] = [:]
 
     private enum Entry: Equatable {
+        /// Hidden for a cancelled create's cleanup whose destroy request has not started.
+        case awaitingRequest
         /// The destroy request has not reported an outcome.
         case pending
         /// Confirmed gone; hidden until the account ends.
@@ -31,11 +33,12 @@ public final class CloudMachineDeletionCoordinator {
     /// Creates an empty owner for one application session.
     public init() {}
 
-    /// Reports whether a destroy request for the machine still awaits its outcome.
+    /// Reports whether the machine's deletion still awaits an outcome, including a
+    /// cleanup whose destroy request has not started.
     /// - Parameter machineID: The exact provider machine identifier.
     /// - Returns: False once an outcome arrived or the account ended.
     public func isPending(_ machineID: String) -> Bool {
-        entries[machineID] == .pending
+        entries[machineID] == .pending || entries[machineID] == .awaitingRequest
     }
 
     /// Hides the machine from every list before any destroy request starts.
@@ -43,8 +46,31 @@ public final class CloudMachineDeletionCoordinator {
     /// - Returns: False when the machine is already being or has been deleted.
     @discardableResult
     public func begin(_ machineID: String) -> Bool {
-        guard !machineID.isEmpty, entries[machineID] == nil else { return false }
+        begin(machineID, as: .pending)
+    }
+
+    /// Hides the machine a cancelled create announced, for that create's cleanup.
+    /// Its presentations stay until ``beginRequest(_:)`` reports the cleanup's request.
+    /// - Parameter machineID: The exact provider machine identifier.
+    /// - Returns: False when the machine is already being or has been deleted.
+    @discardableResult
+    public func beginCleanup(_ machineID: String) -> Bool {
+        begin(machineID, as: .awaitingRequest)
+    }
+
+    /// Records that a destroy request for the machine starts.
+    /// - Parameter machineID: The exact provider machine identifier.
+    /// - Returns: True only for a cleanup's first request, when the caller detaches
+    ///   the machine's presentations.
+    public func beginRequest(_ machineID: String) -> Bool {
+        guard entries[machineID] == .awaitingRequest else { return false }
         entries[machineID] = .pending
+        return true
+    }
+
+    private func begin(_ machineID: String, as entry: Entry) -> Bool {
+        guard !machineID.isEmpty, entries[machineID] == nil else { return false }
+        entries[machineID] = entry
         var next = projection
         next.hiddenMachineIDs.insert(machineID)
         next.pendingMachineIDs.insert(machineID)
@@ -59,7 +85,7 @@ public final class CloudMachineDeletionCoordinator {
     /// - Returns: Effects to apply, or ``CloudMachineDeletionTransition/ignored``
     ///   for a duplicate outcome or one that outlived its account.
     public func finish(_ machineID: String, result: CloudMachineDeletionResult) -> CloudMachineDeletionTransition {
-        guard entries[machineID] == .pending else { return .ignored }
+        guard isPending(machineID) else { return .ignored }
         var next = projection
         next.pendingMachineIDs.remove(machineID)
         let transition: CloudMachineDeletionTransition

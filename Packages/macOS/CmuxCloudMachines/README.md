@@ -102,8 +102,11 @@ same machine stops without a second destroy request, even one whose receipt has
 not named the machine yet. It closes no presentation in those workspaces, since
 the adapter closes them whole, panes the person added included; a window's last
 tab stays open, emptied and unbound. A cancelled create's `cleanupMachineIDs`
-start deletions too, which close workspaces only after the create's presentation
-has closed, so a pane the person added there stays open. After a failure the
+start deletions too, through `beginCleanup`, which hides the machine at once. Its
+presentations close only when `beginRequest` reports the cleanup's destroy request,
+after the create's presentation has closed, so a pane the person added there stays
+open. A cleanup whose CLI exits before the request lists the machine again with its
+presentations. After a failure the
 adapter calls `machineDeletionFailed(_:)`, so a create whose receipt first names
 the restored machine keeps it. The creates the delete stopped stay stopped, and
 receipts seen while it ran request nothing, so no create retries the destroy on
