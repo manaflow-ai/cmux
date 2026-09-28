@@ -24,6 +24,8 @@ type Services = {
   enqueue(ws: WebSocket, bytes: number, action: () => Promise<void>): Promise<void>;
   changed(result: BrokerResult, teamId: string): void;
   opening: Set<string>;
+  /** Supplied by the owning object rather than imported, which would make the module graph cyclic. */
+  limit(): number;
 };
 
 /** Browser sockets live in the existing team DO and share its queues and user budgets. */
@@ -43,7 +45,7 @@ export class DashboardControl {
       const broker = this.services.broker(claims.authority.teamId); // Checks this DO's actual namespace identity.
       this.assertLive(claims);
       await this.assertTeamAccess(broker, claims);
-      if (this.ctx.getWebSockets().length >= 4096) throw new OperationError("rate_limited", 429, true, 5000);
+      if (this.ctx.getWebSockets().length >= this.services.limit()) throw new OperationError("rate_limited", 429, true, 5000);
       const sessionId = crypto.randomUUID();
       const deviceKey = await hash(canonicalJSON({ purpose: "dashboard-tab", userId: claims.authority.userId,
         teamId: claims.authority.teamId, origin: claims.origin, clientInstanceId: claims.clientInstanceId }));
