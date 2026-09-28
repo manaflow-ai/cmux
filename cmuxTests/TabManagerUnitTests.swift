@@ -1247,7 +1247,13 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         try runGit(["add", "README.md"], in: repoURL)
         try runGit(["commit", "-m", "Initial commit"], in: repoURL)
 
-        let manager = TabManager()
+        let suiteName = "TabManagerPullRequestProbeTests.inherited-background-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        settings.set(true, for: SettingCatalog().app.workspaceInheritWorkingDirectory)
+        settings.set(true, for: SidebarCatalogSection().watchGitStatus)
+        let manager = TabManager(autoWelcomeIfNeeded: false, settings: settings)
         guard let workspace = manager.selectedWorkspace else {
             XCTFail("Expected selected workspace")
             return
