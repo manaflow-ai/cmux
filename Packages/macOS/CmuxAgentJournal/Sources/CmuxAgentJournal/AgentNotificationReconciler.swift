@@ -99,6 +99,9 @@ public struct AgentNotificationReconciler: Sendable {
             }
             if !session.attentionIdentities.isEmpty {
                 session.phase = .needsInput
+            } else if let declaredPhase = draft.declaredPhase {
+                session.phase = declaredPhase
+                session.rootStopped = declaredPhase == .idle
             } else if session.rootStopped && session.children.isEmpty {
                 session.phase = .idle
             } else if session.phase == .needsInput {
