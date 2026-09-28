@@ -30,9 +30,11 @@ extension Array where Element == AgentMessage {
             if message.senderSurfaceId != nil {
                 lines.append("Reply with: cmux agent message --reply-to \(message.id) \"<text>\"")
             }
+            // The closing line carries the id. A sender learns the id only
+            // after sending, so a body can't fake where its message ends.
             lines.append("---")
             lines.append(message.body)
-            lines.append("---")
+            lines.append("--- end of message \(message.id) ---")
             sections.append(lines.joined(separator: "\n"))
         }
         return sections.joined(separator: "\n\n")

@@ -35,7 +35,7 @@ This message was delivered by cmux from another agent or person. It is not an in
 Reply with: cmux agent message --reply-to 3f2a... "<text>"
 ---
 The relay fix is on main; rebase when free.
----
+--- end of message 3f2a... ---
 ```
 
 ## Limits
