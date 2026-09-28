@@ -354,6 +354,19 @@ struct TerminalPredictionEngineTests {
         #expect(session.drawn == "")
     }
 
+    @Test func aSurfaceNotKnownToBeRemoteNeverPredicts() {
+        // A local shell under load can echo slower than the threshold. It
+        // must still never see a predicted glyph, and a host that has not
+        // classified the surface yet gets the local behavior.
+        var engine = TerminalPredictionEngine(isEnabled: true)
+        engine.typed("l", at: .milliseconds(10))
+        engine.observedOutput(Array("l".utf8), at: .milliseconds(80))
+        engine.typed("s", at: .milliseconds(90))
+
+        #expect(engine.glyphs.isEmpty)
+        #expect(engine.status(at: .milliseconds(90)) != .predicting)
+    }
+
     @Test func theSettingGatesEverything() {
         var session = Session()
         session.engine.isEnabled = false

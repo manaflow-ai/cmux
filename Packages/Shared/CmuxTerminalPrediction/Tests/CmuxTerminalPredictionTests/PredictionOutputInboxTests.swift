@@ -70,6 +70,15 @@ struct PredictionOutputInboxTests {
         #expect(drained[kept]?.count == 1)
     }
 
+    @Test func aSurfaceThatWasNeverAcceptedDepositsNothing() {
+        // Local terminals register too. Their output must not be copied or
+        // hop to the main actor just because prediction is turned on.
+        let inbox = PredictionOutputInbox()
+
+        #expect(!inbox.deposit(surfaceID: UUID(), bytes: [0x61], at: .zero))
+        #expect(inbox.drain().isEmpty)
+    }
+
     @Test func concurrentDepositsScheduleExactlyOneDrain() {
         let inbox = PredictionOutputInbox()
         let surface = UUID()
