@@ -3,8 +3,31 @@ import Foundation
 
 /// `cmux session move <id> --to <ssh-destination|local>`: stop-state move of a
 /// Claude session, its data and its code state, resumed in a new workspace.
+/// `cmux session restore` (crash recovery from the agent journal) is dispatched
+/// from here too; see `runSessionRestoreCommand`.
 extension CMUXCLI {
     func sessionCommandUsage() -> String {
+        sessionMoveUsage() + "\n\n" + sessionRestoreUsage()
+    }
+
+    func sessionRestoreUsage() -> String {
+        String(localized: "cli.session.help", defaultValue: """
+        Usage: cmux session restore [--list] [--session <id>]...
+
+        Reopen Claude sessions that were running when cmux last quit unexpectedly.
+        cmux finds them in the agent journal, skips any that are running or already
+        open, and resumes each in its own workspace through the launcher that started
+        it.
+
+        Without --session, restore acts only after an unexpected quit.
+
+        Options:
+          --list            Show the sessions without restoring them.
+          --session <id>    Restore only this session (repeatable).
+        """)
+    }
+
+    private func sessionMoveUsage() -> String {
         String(
             localized: "cli.session.usage",
             // One literal so the localization tooling reads the English source.
@@ -16,9 +39,19 @@ extension CMUXCLI {
         commandArgs: [String],
         socketPath: String,
         explicitPassword: String?,
+        jsonOutput: Bool,
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
+        if commandArgs.first == "restore" {
+            try runSessionRestoreCommand(
+                commandArgs: commandArgs,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
         guard commandArgs.first == "move" else {
             if commandArgs.first == "help" || commandArgs.isEmpty {
                 print(sessionCommandUsage())

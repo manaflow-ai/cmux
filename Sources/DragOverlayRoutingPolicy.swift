@@ -241,6 +241,10 @@ enum DragOverlayRoutingPolicy {
     /// drags, such as a right-sidebar tool, also publish file-promise types, and
     /// treating those as files would insert text instead of splitting the pane.
     static func hasFileDropPayload(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+        // Cloud rows move workspace/surface identities. An incidental URL
+        // representation must not turn them into Finder-style file drags.
+        guard pasteboardTypes?.contains(.cloudSidebarRow) != true,
+              !hasSurfaceResourceTransfer(pasteboardTypes) else { return false }
         if hasFilePreviewTransfer(pasteboardTypes) { return true }
         return hasFileURL(pasteboardTypes) && !hasBonsplitTabTransfer(pasteboardTypes)
     }

@@ -32,5 +32,9 @@ let package = Package(
                 .enableUpcomingFeature("InternalImportsByDefault"),
             ]
         ),
+        .testTarget(
+            name: "CmuxMobileHostTests",
+            dependencies: ["CmuxMobileHost"]
+        ),
     ]
 )

@@ -2,6 +2,7 @@ import AppKit
 import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxMobileRPC
+import CmuxTerminal
 import Foundation
 @preconcurrency import Network
 import Testing
@@ -14,6 +15,63 @@ import Testing
 
 @MainActor
 extension MobileHostAuthorizationTests {
+    @Test("A Mac mirror receives a resized grid even when a render tick is coalesced globally", .timeLimit(.minutes(1)))
+    func macGridResizeSurvivesGlobalRenderUpdate() async throws {
+        let service = MobileHostService.shared
+        service.debugResetMobileLifecycleStateForTesting()
+        let observer = MobileTerminalRenderObserver.shared
+        observer.stop()
+        observer.start()
+        let fixture = TerminalPortalGeometryFixture()
+        defer {
+            observer.stop()
+            service.debugResetMobileLifecycleStateForTesting()
+            fixture.close()
+        }
+        fixture.bind()
+        try await fixture.requireCommit()
+        let before = try #require(fixture.surface.rawSizingSample())
+        let transport = RecordingMobileHostByteTransport()
+        let connectionID = UUID()
+        let session = MobileHostConnection(id: connectionID, transport: transport,
+            authorizeRequest: { _ in nil }, onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) }, onClose: { _ in })
+        let registry = MobileHostConnectionRegistry.shared
+        try #require(registry.insert(session, id: connectionID, authorization: .stackBearer, limit: 4))
+        await session.subscribe(streamID: "mac-resize", topics: ["terminal.updated", "device.terminal.grid"])
+        await drainMobileHostMainQueue()
+
+        fixture.anchor.setFrameSize(NSSize(width: 320, height: 200))
+        fixture.portal.synchronizeHostedViewForAnchor(fixture.anchor)
+        try await fixture.requireCommit()
+        let after = try #require(fixture.surface.rawSizingSample())
+        try #require(after.columns != before.columns || after.rows != before.rows)
+        // A global post-parser tick suppresses named terminal.updated frames.
+        // The Mac geometry channel must still deliver the settled dimensions.
+        NotificationCenter.default.post(name: .ghosttyDidTick, object: nil)
+        await drainMobileHostMainQueue()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        var found = false
+        repeat {
+            let buffers = await transport.waitForSentBufferCount(1)
+            for var buffer in buffers {
+                for data in try MobileSyncFrameCodec.decodeFrames(from: &buffer) {
+                    guard let message = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          message["topic"] as? String == "device.terminal.grid",
+                          let payload = message["payload"] as? [String: Any],
+                          payload["surface_id"] as? String == fixture.surface.id.uuidString,
+                          payload["columns"] as? Int == after.columns,
+                          payload["rows"] as? Int == after.rows else { continue }
+                    found = true
+                }
+            }
+            if !found { await Task.yield() }
+        } while !found && ContinuousClock.now < deadline
+        await session.close(reason: "Mac resize regression complete")
+        registry.remove(id: connectionID)
+        #expect(found, "The live Mac mirror must receive its new grid without reopening or requesting phone render grids")
+    }
+
     @Test func testMobileHostConnectionRunOwnsTransportUntilRemoteClose() async {
         let connectionID = UUID()
         let transport = GatedMobileHostByteTransport()
