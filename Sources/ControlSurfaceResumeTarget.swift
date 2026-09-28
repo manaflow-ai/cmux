@@ -64,7 +64,7 @@ enum ControlSurfaceResumeTarget {
     }
 
     func hasRestorableAgentSession(_ sessionID: String) -> Bool {
-        guard let restoredAgent else { return false }
+        guard let restoredAgent = restorableAgent else { return false }
         return ManagedAgentSessionIdentity.sessionIDsMatch(
             kind: restoredAgent.kind.rawValue,
             lhs: sessionID,
