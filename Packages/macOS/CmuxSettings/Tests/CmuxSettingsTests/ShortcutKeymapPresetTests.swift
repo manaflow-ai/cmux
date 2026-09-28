@@ -221,6 +221,42 @@ struct ShortcutKeymapPresetTests {
         #expect(back.changes.allSatisfy { $0.write == nil })
     }
 
+    /// Browser and iTerm2 write the same two numbered actions, so a file on one
+    /// of them satisfies the other's number-row check. Detection has to come
+    /// apart on the rest, in both directions, or picking a style in Settings
+    /// would show the wrong one as current.
+    @Test func browserAndITerm2AreNotMistakenForEachOther() {
+        #expect(ShortcutKeymapPreset.active(in: snapshot(applied(.browser))) == .browser)
+        #expect(ShortcutKeymapPreset.active(in: snapshot(applied(.iTerm2))) == .iTerm2)
+    }
+
+    /// Switching between the two presets that share the number row has to land
+    /// on exactly the target's override set, with nothing of the other left
+    /// behind and the shared rows not rewritten on the way through.
+    @Test func iTerm2RoundTripsThroughBrowser() {
+        let start = snapshot(applied(.iTerm2))
+
+        let toBrowser = ShortcutKeymapPreset.browser.plan(from: start)
+        // The two numbered actions already hold the right values, so the plan
+        // leaves them alone and only settles what the presets disagree about.
+        #expect(!toBrowser.changes.contains { $0.action == .selectSurfaceByNumber })
+        #expect(!toBrowser.changes.contains { $0.action == .selectWorkspaceByNumber })
+
+        var bindings = applied(.iTerm2)
+        for change in toBrowser.changes {
+            if let write = change.write { bindings[change.action] = write } else { bindings[change.action] = nil }
+        }
+        #expect(bindings == applied(.browser))
+        #expect(ShortcutKeymapPreset.active(in: snapshot(bindings)) == .browser)
+
+        let back = ShortcutKeymapPreset.iTerm2.plan(from: snapshot(bindings))
+        for change in back.changes {
+            if let write = change.write { bindings[change.action] = write } else { bindings[change.action] = nil }
+        }
+        #expect(bindings == applied(.iTerm2))
+        #expect(ShortcutKeymapPreset.active(in: snapshot(bindings)) == .iTerm2)
+    }
+
     /// Whether two bindings can fire on the same keystroke sequence. A chord
     /// overlaps a single stroke equal to its prefix; numbered actions stand for
     /// their `1…9` family.

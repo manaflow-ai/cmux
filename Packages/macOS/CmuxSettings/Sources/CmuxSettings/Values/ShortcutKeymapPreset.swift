@@ -25,6 +25,15 @@ public enum ShortcutKeymapPreset: String, CaseIterable, Sendable {
     /// Cmd-1…9 selects a tab. The system owns Cmd-Tab, so Ctrl-Tab stands in
     /// for it, the same substitution Chrome and Firefox make on macOS.
     ///
+    /// Ctrl-Tab already cycled surfaces before this preset existed, through a
+    /// hardcoded legacy handler that no action owns. Binding it properly is
+    /// still worth doing: it puts the stroke in Settings and the View menu
+    /// where it can be seen and rebound, and it fixes Caps Lock, because the
+    /// legacy matcher compares raw modifier flags while a configured stroke
+    /// goes through `normalizedModifierFlags`, which drops Caps Lock. The cost
+    /// is that Cmd-Shift-[ and Cmd-Shift-] stop cycling surfaces and end up
+    /// unbound, since an action carries one binding.
+    ///
     /// cmux already agrees with a browser on Cmd-T, Cmd-W, Cmd-Shift-T,
     /// Cmd-L, Cmd-R, Cmd-F and Cmd-[ / Cmd-], so this preset only writes the
     /// two tab-cycling keys and the number row.
@@ -77,9 +86,11 @@ public enum ShortcutKeymapPreset: String, CaseIterable, Sendable {
         case .browser:
             return [
                 // The tab bar holds surfaces, so a browser's tab keys drive
-                // the surface actions. Cmd-Shift-[ and Cmd-Shift-] stop
-                // cycling surfaces: an action carries one binding, and Tab
-                // cycling is the key people arrive expecting.
+                // the surface actions. Ctrl-Tab already worked through the
+                // legacy handler; binding it here is what makes it visible,
+                // rebindable and correct with Caps Lock on. Cmd-Shift-[ and
+                // Cmd-Shift-] go unbound in the trade, because an action
+                // carries one binding.
                 .nextSurface: .stroke("ctrl+tab"),
                 .prevSurface: .stroke("ctrl+shift+tab"),
                 // Cmd-1…9 picks a tab in a browser, so it moves off
