@@ -2863,6 +2863,7 @@
 		3042D5DC7CAA74E5701F26EB /* SessionRemoteWorkspaceSnapshot+TuiSSH.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D0FC4CB20C73A387037AF91 /* SessionRemoteWorkspaceSnapshot+TuiSSH.swift */; };
 		0A1107110000000000000022 /* SessionRestorableAgentSnapshot+Commands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000023 /* SessionRestorableAgentSnapshot+Commands.swift */; };
 		112950000000000000000004 /* SessionRestorableAgentSnapshot+ForkVerb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112950000000000000000003 /* SessionRestorableAgentSnapshot+ForkVerb.swift */; };
+		A7195A3AFC945E508844DC05 /* SessionRestorableAgentSnapshot+HibernationLaunchFidelity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68B75C6322ED3E5FFEDEAE09 /* SessionRestorableAgentSnapshot+HibernationLaunchFidelity.swift */; };
 		806600000000000000000002 /* SessionRestorableAgentSnapshotPermissionModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 806600000000000000000001 /* SessionRestorableAgentSnapshotPermissionModeTests.swift */; };
 		C54860090000000000000001 /* SessionRestoreIdentityExclusions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860090000000000000002 /* SessionRestoreIdentityExclusions.swift */; };
 		9758E0059758E0059758E005 /* SessionSnapshotCodingTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9758E0069758E0069758E006 /* SessionSnapshotCodingTrust.swift */; };
@@ -6898,6 +6899,7 @@
 		0D0FC4CB20C73A387037AF91 /* SessionRemoteWorkspaceSnapshot+TuiSSH.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTui/SessionRemoteWorkspaceSnapshot+TuiSSH.swift"; sourceTree = "<group>"; };
 		0A1107110000000000000023 /* SessionRestorableAgentSnapshot+Commands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionRestorableAgentSnapshot+Commands.swift"; sourceTree = "<group>"; };
 		112950000000000000000003 /* SessionRestorableAgentSnapshot+ForkVerb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionRestorableAgentSnapshot+ForkVerb.swift"; sourceTree = "<group>"; };
+		68B75C6322ED3E5FFEDEAE09 /* SessionRestorableAgentSnapshot+HibernationLaunchFidelity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionRestorableAgentSnapshot+HibernationLaunchFidelity.swift"; sourceTree = "<group>"; };
 		806600000000000000000001 /* SessionRestorableAgentSnapshotPermissionModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestorableAgentSnapshotPermissionModeTests.swift; sourceTree = "<group>"; };
 		C54860090000000000000002 /* SessionRestoreIdentityExclusions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestoreIdentityExclusions.swift; sourceTree = "<group>"; };
 		9758E0069758E0069758E006 /* SessionSnapshotCodingTrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSnapshotCodingTrust.swift; sourceTree = "<group>"; };
@@ -10939,6 +10941,7 @@
 				2DA313712597F71E6015ABBC /* TerminalSSHSessionDetectionTimeoutGate.swift */,
 				7611B3AEEB664825A7DD8733 /* TerminalSSHSessionDetector+Async.swift */,
 				61BF07E91B28C5740AD10DD9 /* TerminalSSHSessionDetector+ProcessInfo.swift */,
+				68B75C6322ED3E5FFEDEAE09 /* SessionRestorableAgentSnapshot+HibernationLaunchFidelity.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14641,6 +14644,7 @@
 				3042D5DC7CAA74E5701F26EB /* SessionRemoteWorkspaceSnapshot+TuiSSH.swift in Sources */,
 				0A1107110000000000000022 /* SessionRestorableAgentSnapshot+Commands.swift in Sources */,
 				112950000000000000000004 /* SessionRestorableAgentSnapshot+ForkVerb.swift in Sources */,
+				A7195A3AFC945E508844DC05 /* SessionRestorableAgentSnapshot+HibernationLaunchFidelity.swift in Sources */,
 				C54860090000000000000001 /* SessionRestoreIdentityExclusions.swift in Sources */,
 				9758E0059758E0059758E005 /* SessionSnapshotCodingTrust.swift in Sources */,
 				A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */,

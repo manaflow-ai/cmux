@@ -316,6 +316,11 @@ struct SubrouterClaudeRestoreRoutingTests {
         // A plain `claude --resume` without Subrouter's private settings starts
         // "Not logged in"; the caller must report the missing launcher instead.
         #expect(planner.invocation(for: request, ambientEnvironment: ambientEnvironment) == nil)
+        #expect(planner.missingRoutedLauncher(for: request, ambientEnvironment: ambientEnvironment) == "sr")
+        #expect(plannerWithSubrouterOnPath().missingRoutedLauncher(
+            for: request,
+            ambientEnvironment: ambientEnvironment
+        ) == nil)
     }
 
     @Test("A cmux launcher such as claude-teams is never rerouted through Subrouter")
