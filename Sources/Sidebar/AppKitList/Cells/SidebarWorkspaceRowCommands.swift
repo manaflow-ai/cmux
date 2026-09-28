@@ -79,7 +79,7 @@ struct SidebarWorkspaceRowCommands {
                     group.liveAnchorWorkspaceId.map { (group.id, $0) }
                 }
             )
-            let visibleRangeIds = tabManager.tabs[lower...upper].compactMap { tab -> UUID? in
+            let visibleRangeIds = tabManager.automaticSidebarRangeIds(betweenTabIndex: anchorIndex, and: index) ?? tabManager.tabs[lower...upper].compactMap { tab -> UUID? in
                 if let gid = tab.groupId,
                    collapsedGroupIds.contains(gid),
                    anchorIdsByGroup[gid] != tab.id {

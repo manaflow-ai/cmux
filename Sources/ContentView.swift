@@ -11857,15 +11857,17 @@ struct VerticalTabsSidebar: View, Equatable {
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
         let manualWorkspaceGroups = isPresented ? tabManager.workspaceGroups : []
-        // The observer revision re-runs this pass when a workspace changes
-        // automatic section without any other sidebar invalidation.
+        // Automatic sections come from the observer's cached inputs, so this
+        // body reads no live workspace state for them; its revision re-runs
+        // this pass when a workspace changes section or section title.
+        let groupByMode = tabManager.sidebarGroupBy.mode
         let _ = autoGroupingObserver.revision
         let grouping = SidebarWorkspaceGroupingProjection(
             tabs: tabs,
             manualGroups: manualWorkspaceGroups,
-            mode: tabManager.sidebarGroupBy.mode,
+            mode: groupByMode,
             collapsedSectionKeys: tabManager.sidebarGroupBy.collapsedSectionKeys,
-            unreadCount: { notificationStore.unreadCount(forTabId: $0) }
+            automaticInputs: groupByMode.isAutomatic ? autoGroupingObserver.inputs(for: tabs, mode: groupByMode) : []
         )
         let workspaceGroups = grouping.groups
         // "Move to Group" lists the real groups in every mode.
@@ -12530,10 +12532,11 @@ struct VerticalTabsSidebar: View, Equatable {
                 dragAutoScrollController.stop()
             },
             isValidWorkspaceDrag: {
-                dragState.currentWorkspaceDragId != nil
+                tabManager.sidebarGroupBy.mode == .manual && dragState.currentWorkspaceDragId != nil
             },
             updateWorkspaceDrag: { point, targets, pasteboardWorkspaceId in
-                updateWorkspaceReorderDropForTable(
+                guard tabManager.sidebarGroupBy.mode == .manual else { return nil }
+                return updateWorkspaceReorderDropForTable(
                     point: point,
                     targets: targets,
                     pasteboardWorkspaceId: pasteboardWorkspaceId,
@@ -12606,7 +12609,8 @@ struct VerticalTabsSidebar: View, Equatable {
                         destinationManager: tabManager,
                         focus: true,
                         focusWindow: true,
-                        insertionIndexOverride: insertionIndex
+                        // A drawn-order slot is not a `tabs` index while an automatic Group By shows.
+                        insertionIndexOverride: tabManager.sidebarGroupBy.mode.isAutomatic ? nil : insertionIndex
                       ) else {
                     return nil
                 }
@@ -13072,7 +13076,7 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func scheduleWorkspaceSnapshotRefresh(workspaceId: UUID) {
-        autoGroupingObserver.scheduleRecompute()
+        autoGroupingObserver.scheduleRecompute(workspaceId: workspaceId)
         workspaceSnapshotRefreshCoalescer.schedule(workspaceId: workspaceId) { workspaceIds in
             refreshWorkspaceSnapshots(workspaceIds: workspaceIds)
         }
@@ -13093,6 +13097,7 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func refreshWorkspaceSnapshots() {
+        autoGroupingObserver.scheduleFullRecompute()
         let tabs = tabManager.tabs
         let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         let settings = tabItemSettingsStore.snapshot
@@ -14303,7 +14308,8 @@ struct VerticalTabsSidebar: View, Equatable {
                         destinationManager: tabManager,
                         focus: true,
                         focusWindow: true,
-                        insertionIndexOverride: insertionIndex
+                        // A drawn-order slot is not a `tabs` index while an automatic Group By shows.
+                        insertionIndexOverride: tabManager.sidebarGroupBy.mode.isAutomatic ? nil : insertionIndex
                       ) else {
                     return nil
                 }
@@ -14331,7 +14337,7 @@ struct VerticalTabsSidebar: View, Equatable {
         SidebarWorkspaceReorderDropOverlay(
             targetBridge: workspaceReorderDropTargetBridge,
             isValidDrag: {
-                dragState.currentWorkspaceDragId != nil
+                tabManager.sidebarGroupBy.mode == .manual && dragState.currentWorkspaceDragId != nil
             },
             updateDrag: { point, targets in
                 updateWorkspaceReorderDrop(point: point, targets: targets, renderContext: renderContext)
@@ -14826,7 +14832,9 @@ struct VerticalTabsSidebar: View, Equatable {
                     group.liveAnchorWorkspaceId.map { (group.id, $0) }
                 }
             )
-            let visibleRangeIds = tabManager.tabs[lower...upper].compactMap { candidate -> UUID? in
+            // An automatic Group By draws rows out of `tabs` order; range over what is drawn.
+            let visibleRangeIds = tabManager.automaticSidebarRangeIds(betweenTabIndex: anchorIndex, and: index)
+                ?? tabManager.tabs[lower...upper].compactMap { candidate -> UUID? in
                 if let groupId = candidate.groupId,
                    collapsedGroupIds.contains(groupId),
                    anchorIdsByGroup[groupId] != candidate.id {
@@ -17416,7 +17424,7 @@ struct SidebarTabDropDelegate: DropDelegate {
     /// so the existing drop-indicator and frame-anchor machinery can activate.
     /// The native source completion clears the mirrored presentation.
     private func activateForeignDragIfNeeded() {
-        guard dragState.draggedTabId == nil,
+        guard dragState.draggedTabId == nil, tabManager.sidebarGroupBy.mode == .manual,
               acceptsLiveSidebarPayload(),
               let foreignId = dragState.currentWorkspaceDragId,
               isCrossWindowDrag(foreignId),
@@ -17790,6 +17798,7 @@ struct SidebarTabDropDelegate: DropDelegate {
     }
 
     func updateDropIndicator(pointerX: CGFloat, pointerY: CGFloat?) {
+        guard tabManager.sidebarGroupBy.mode == .manual else { dragState.clearDropIndicator(); return }
         if let draggedTabId = effectiveDraggedTabId, isCrossWindowDrag(draggedTabId) {
             updateCrossWindowDropIndicator(pointerY: pointerY)
             return

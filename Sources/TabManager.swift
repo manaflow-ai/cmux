@@ -4229,12 +4229,10 @@ class TabManager: ObservableObject {
         direction: WorkspaceCycleDirection,
         scope: WorkspaceCycleScope
     ) {
+        // An automatic Group By cycles "within group" inside the drawn section.
         guard let currentId = selectedTabId,
-              let destinationId = workspaces.cycleDestination(
-                from: currentId,
-                direction: direction,
-                scope: scope
-              ) else {
+              let destinationId = automaticSidebarSectionCycleDestination(from: currentId, direction: direction, scope: scope)
+                ?? workspaces.cycleDestination(from: currentId, direction: direction, scope: scope) else {
             return
         }
 #if DEBUG
@@ -6331,7 +6329,7 @@ extension TabManager {
     ) -> Int {
         var hasher = Hasher()
         hasher.combine(selectedTabId)
-        hasher.combine(tabs.count)
+        hasher.combine(tabs.count); hasher.combine(sidebarGroupBy.mode)
         let notificationStore = AppDelegate.shared?.notificationStore
         // Workspace groups participate in the session snapshot, so changes
         // that only touch group metadata (rename / collapse / pin a group,
@@ -6893,7 +6891,7 @@ extension TabManager {
             excludingStableIdentities: excludingStableIdentities,
             deferBrowserPanels: deferBrowserPanels
         )
-        if let mode = snapshot.sidebarGroupBy { sidebarGroupBy.mode = mode }
+        sidebarGroupBy.mode = snapshot.sidebarGroupBy ?? .manual
         let restoredGroups: [WorkspaceGroup] = {
             guard let groupSnapshots = snapshot.workspaceGroups else { return [] }
             let workspaceIdsByGroupId: [UUID: [UUID]] = {

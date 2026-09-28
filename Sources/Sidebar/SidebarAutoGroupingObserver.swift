@@ -2,30 +2,36 @@ import CmuxNotifications
 import Foundation
 import Observation
 
-/// Tells the workspace sidebar when an automatic Group By section changes.
+/// Owns the automatic Group By inputs for one window's workspace sidebar.
 ///
-/// The sidebar body regroups whenever it renders, but a workspace can move to
-/// another section (an agent starts, asks for input, an unread arrives, an SSH
-/// host connects) without anything that re-renders the body. This observer
-/// recomputes the workspace to section-key map on those signals and bumps
-/// `revision`, which the body reads, only when that map actually changed.
+/// Grouping facts are read here, outside the sidebar body, so the body never
+/// touches live workspace state (such as the Observable cloud binding) to draw
+/// sections: it reads `inputs(for:mode:)` from this cache plus `revision`.
 ///
-/// Triggers are events, not polling: the sidebar forwards its per-workspace
-/// publisher, agent-runtime and cloud-binding observations through
-/// `scheduleRecompute()`, and unread summary changes arrive from the window's
-/// `SidebarUnreadModel`. In manual mode the unread subscription is dropped and
-/// scheduled work is ignored.
+/// A workspace can move to another section (an agent starts, asks for input,
+/// an unread arrives, an SSH host connects, a Cloud VM gets its name) without
+/// anything else re-rendering the body. The sidebar forwards its existing
+/// per-workspace publisher, agent-runtime and cloud-binding observations to
+/// `scheduleRecompute(workspaceId:)`, and membership changes to
+/// `scheduleFullRecompute()`. Status mode also follows unread summary changes
+/// from the window's `SidebarUnreadModel`. Only dirty workspaces are re-read,
+/// and `revision` bumps only when some input (section key or title) changed.
+/// In manual mode every subscription is dropped and scheduled work is ignored.
 @MainActor
 @Observable
 final class SidebarAutoGroupingObserver {
-    /// Bumped when some workspace changed section. The sidebar body reads it.
+    /// Bumped when some workspace's grouping input changed. The body reads it.
     private(set) var revision: UInt64 = 0
 
     @ObservationIgnored private weak var tabManager: TabManager?
     @ObservationIgnored private weak var unreadModel: SidebarUnreadModel?
     @ObservationIgnored private var unreadObservation: SidebarUnreadObservation?
-    @ObservationIgnored private var signature: [UUID: String] = [:]
+    @ObservationIgnored private var lastUnreadCounts: [UUID: Int] = [:]
+    @ObservationIgnored private var inputsByWorkspaceId: [UUID: SidebarAutoGroupingInput] = [:]
+    @ObservationIgnored private var inputsMode: SidebarGroupByMode = .manual
     @ObservationIgnored private var trackedMode: SidebarGroupByMode = .manual
+    @ObservationIgnored private var dirtyWorkspaceIds: Set<UUID> = []
+    @ObservationIgnored private var needsFullRecompute = false
     @ObservationIgnored private var recomputeTask: Task<Void, Never>?
     @ObservationIgnored private var modeObservationGeneration: UInt64 = 0
 
@@ -47,15 +53,84 @@ final class SidebarAutoGroupingObserver {
         unreadModel = nil
     }
 
-    /// Coalesces a section recompute onto the next main-actor turn. A no-op
+    /// Grouping inputs for `tabs` in order. Cached inputs for the requested
+    /// mode are used as is; a workspace the cache has not seen yet (it was
+    /// just added) is read directly until the next recompute stores it.
+    func inputs(for tabs: [Workspace], mode: SidebarGroupByMode) -> [SidebarAutoGroupingInput] {
+        let cached = inputsMode == mode ? inputsByWorkspaceId : [:]
+        let notificationStore = TerminalNotificationStore.shared
+        return tabs.map { workspace in
+            cached[workspace.id] ?? SidebarAutoGroupingInput(
+                workspace: workspace,
+                mode: mode,
+                unreadCount: { notificationStore.unreadCount(forTabId: $0) }
+            )
+        }
+    }
+
+    /// Marks one workspace for a re-read on the next main-actor turn. A no-op
     /// in manual mode, so callers can forward every workspace change.
-    func scheduleRecompute() {
-        guard trackedMode.isAutomatic, recomputeTask == nil else { return }
+    func scheduleRecompute(workspaceId: UUID) {
+        guard trackedMode.isAutomatic else { return }
+        dirtyWorkspaceIds.insert(workspaceId)
+        scheduleFlush()
+    }
+
+    /// Re-reads every workspace, for membership or settings changes.
+    func scheduleFullRecompute() {
+        guard trackedMode.isAutomatic else { return }
+        needsFullRecompute = true
+        scheduleFlush()
+    }
+
+    /// Applies pending work now. Internal so tests can drive it without a run loop.
+    func flushPendingRecompute() {
+        recomputeTask?.cancel()
+        recomputeTask = nil
+        defer {
+            dirtyWorkspaceIds.removeAll()
+            needsFullRecompute = false
+        }
+        guard trackedMode.isAutomatic, let tabManager else { return }
+        var changed = false
+        if needsFullRecompute || inputsMode != trackedMode {
+            var next: [UUID: SidebarAutoGroupingInput] = [:]
+            next.reserveCapacity(tabManager.tabs.count)
+            for workspace in tabManager.tabs {
+                next[workspace.id] = input(for: workspace)
+            }
+            changed = inputsMode != trackedMode || next != inputsByWorkspaceId
+            inputsByWorkspaceId = next
+            inputsMode = trackedMode
+        } else {
+            for workspaceId in dirtyWorkspaceIds {
+                let next = tabManager.workspacesById[workspaceId].map { input(for: $0) }
+                guard inputsByWorkspaceId[workspaceId] != next else { continue }
+                inputsByWorkspaceId[workspaceId] = next
+                changed = true
+            }
+        }
+        if changed {
+            revision &+= 1
+        }
+    }
+
+    private func scheduleFlush() {
+        guard recomputeTask == nil else { return }
         recomputeTask = Task { @MainActor [weak self] in
             guard let self, !Task.isCancelled else { return }
             self.recomputeTask = nil
-            self.recompute()
+            self.flushPendingRecompute()
         }
+    }
+
+    private func input(for workspace: Workspace) -> SidebarAutoGroupingInput {
+        let notificationStore = TerminalNotificationStore.shared
+        return SidebarAutoGroupingInput(
+            workspace: workspace,
+            mode: trackedMode,
+            unreadCount: { notificationStore.unreadCount(forTabId: $0) }
+        )
     }
 
     /// Re-arms itself on every mode change so switching to or from manual
@@ -74,53 +149,53 @@ final class SidebarAutoGroupingObserver {
             }
         }
         guard mode != trackedMode else { return }
-        if mode.isAutomatic {
-            // Host and Status keys differ, so a direct switch between the two
-            // starts from a fresh baseline.
-            trackedMode = mode
-            startAutomaticTracking()
-        } else {
+        guard mode.isAutomatic else {
             stopAutomaticTracking()
+            return
+        }
+        trackedMode = mode
+        // Host never reads unread state, so only Status follows it.
+        if mode == .status {
+            startUnreadTracking()
+        } else {
+            stopUnreadTracking()
+        }
+        needsFullRecompute = true
+        flushPendingRecompute()
+    }
+
+    private func startUnreadTracking() {
+        guard unreadObservation == nil, let unreadModel else { return }
+        lastUnreadCounts = unreadModel.snapshot.summaryByWorkspaceId.mapValues(\.unreadCount)
+        unreadObservation = unreadModel.observeSummaryChanges(owner: self) { observer, snapshot in
+            observer.unreadSummariesDidChange(snapshot)
         }
     }
 
-    private func startAutomaticTracking() {
-        signature = currentSignature()
-        guard unreadObservation == nil, let unreadModel else { return }
-        unreadObservation = unreadModel.observeSummaryChanges(owner: self) { observer, _ in
-            observer.scheduleRecompute()
+    private func stopUnreadTracking() {
+        unreadObservation?.cancel()
+        unreadObservation = nil
+        lastUnreadCounts = [:]
+    }
+
+    /// Marks only the workspaces whose unread count changed.
+    private func unreadSummariesDidChange(_ snapshot: SidebarUnreadSnapshot) {
+        let counts = snapshot.summaryByWorkspaceId.mapValues(\.unreadCount)
+        for workspaceId in Set(counts.keys).union(lastUnreadCounts.keys)
+        where counts[workspaceId] != lastUnreadCounts[workspaceId] {
+            scheduleRecompute(workspaceId: workspaceId)
         }
+        lastUnreadCounts = counts
     }
 
     private func stopAutomaticTracking() {
         trackedMode = .manual
-        unreadObservation?.cancel()
-        unreadObservation = nil
+        stopUnreadTracking()
         recomputeTask?.cancel()
         recomputeTask = nil
-        signature = [:]
-    }
-
-    private func recompute() {
-        let next = currentSignature()
-        guard next != signature else { return }
-        signature = next
-        revision &+= 1
-    }
-
-    private func currentSignature() -> [UUID: String] {
-        guard let tabManager else { return [:] }
-        let grouping = SidebarAutoGrouping(mode: tabManager.sidebarGroupBy.mode)
-        let notificationStore = TerminalNotificationStore.shared
-        var result: [UUID: String] = [:]
-        result.reserveCapacity(tabManager.tabs.count)
-        for workspace in tabManager.tabs {
-            let input = SidebarWorkspaceGroupingProjection.autoGroupingInput(
-                for: workspace,
-                unreadCount: { notificationStore.unreadCount(forTabId: $0) }
-            )
-            result[workspace.id] = grouping.sectionKey(for: input)
-        }
-        return result
+        dirtyWorkspaceIds.removeAll()
+        needsFullRecompute = false
+        inputsByWorkspaceId = [:]
+        inputsMode = .manual
     }
 }

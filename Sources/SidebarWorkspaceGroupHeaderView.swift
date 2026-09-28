@@ -80,7 +80,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     /// Notification Badge color setting; nil falls back to the cmux accent.
     let notificationBadgeColorHex: String?
     /// A derived automatic Group By section: it only collapses, so the plus
-    /// button is hidden and the group-editing menu items are disabled.
+    /// button is hidden and the header has no context menu.
     let isAutomaticSection: Bool
     /// Shared group-header actions used by both the lazy SwiftUI row and the
     /// retained AppKit table cell.
@@ -313,124 +313,122 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             )
         }
         .contextMenu {
-            Button(
-                String(
-                    localized: "workspaceGroup.plus.contextMenu.newWorkspace",
-                    defaultValue: "New Workspace in Group"
-                ),
-                action: actions.onTapPlus
-            )
-            .disabled(isAutomaticSection)
-            .onAppear {
-                contextMenuVisible = true
-                onContextMenuAppear()
-            }
-            .onDisappear {
-                contextMenuVisible = false
-                onContextMenuDisappear()
-            }
-            Divider()
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.rename",
-                    defaultValue: "Rename Group..."
-                ),
-                action: actions.onRename
-            )
-            .disabled(isAutomaticSection)
-            Button(
-                isPinned
-                    ? String(
-                        localized: "workspaceGroup.contextMenu.unpin",
-                        defaultValue: "Unpin Group"
-                    )
-                    : String(
-                        localized: "workspaceGroup.contextMenu.pin",
-                        defaultValue: "Pin Group"
-                    ),
-                action: actions.onTogglePinned
-            )
-            .disabled(isAutomaticSection)
-            Divider()
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.markRead",
-                    defaultValue: "Mark Group as Read"
-                ),
-                action: actions.onMarkRead
-            )
-            .disabled(!canMarkRead)
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.markUnread",
-                    defaultValue: "Mark Group as Unread"
-                ),
-                action: actions.onMarkUnread
-            )
-            .disabled(!canMarkUnread)
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.clearLatestNotifications",
-                    defaultValue: "Clear Latest Notifications"
-                ),
-                action: actions.onClearLatestNotifications
-            )
-            .disabled(!hasLatestNotifications)
-            Divider()
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.markAllRead",
-                    defaultValue: "Mark All Workspaces in Group as Read"
-                ),
-                action: actions.onMarkAllRead
-            )
-            .disabled(!canMarkAllRead)
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.markAllUnread",
-                    defaultValue: "Mark All Workspaces in Group as Unread"
-                ),
-                action: actions.onMarkAllUnread
-            )
-            .disabled(!canMarkAllUnread)
-            Divider()
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.editConfig",
-                    defaultValue: "Edit Group Config..."
-                ),
-                action: actions.onEditConfig
-            )
-            .disabled(isAutomaticSection)
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.openDocs",
-                    defaultValue: "Open Workspace Groups Docs"
-                ),
-                action: actions.onOpenDocs
-            )
-            Divider()
-            if !isAutomaticSection && (!isPinned || memberCount > 0) {
+            // A derived Group By section is not a manual group: no menu.
+            if !isAutomaticSection {
                 Button(
                     String(
-                        localized: "workspaceGroup.contextMenu.ungroup",
-                        defaultValue: "Ungroup Workspaces"
+                        localized: "workspaceGroup.plus.contextMenu.newWorkspace",
+                        defaultValue: "New Workspace in Group"
                     ),
-                    action: actions.onUngroup
+                    action: actions.onTapPlus
                 )
-            }
-            Button(
-                role: .destructive,
-                action: actions.onDelete
-            ) {
-                Text(
+                .onAppear {
+                    contextMenuVisible = true
+                    onContextMenuAppear()
+                }
+                .onDisappear {
+                    contextMenuVisible = false
+                    onContextMenuDisappear()
+                }
+                Divider()
+                Button(
                     String(
-                        localized: "workspaceGroup.contextMenu.delete",
-                        defaultValue: "Delete Group"
-                    )
+                        localized: "workspaceGroup.contextMenu.rename",
+                        defaultValue: "Rename Group..."
+                    ),
+                    action: actions.onRename
                 )
+                Button(
+                    isPinned
+                        ? String(
+                            localized: "workspaceGroup.contextMenu.unpin",
+                            defaultValue: "Unpin Group"
+                        )
+                        : String(
+                            localized: "workspaceGroup.contextMenu.pin",
+                            defaultValue: "Pin Group"
+                        ),
+                    action: actions.onTogglePinned
+                )
+                Divider()
+                Button(
+                    String(
+                        localized: "workspaceGroup.contextMenu.markRead",
+                        defaultValue: "Mark Group as Read"
+                    ),
+                    action: actions.onMarkRead
+                )
+                .disabled(!canMarkRead)
+                Button(
+                    String(
+                        localized: "workspaceGroup.contextMenu.markUnread",
+                        defaultValue: "Mark Group as Unread"
+                    ),
+                    action: actions.onMarkUnread
+                )
+                .disabled(!canMarkUnread)
+                Button(
+                    String(
+                        localized: "workspaceGroup.contextMenu.clearLatestNotifications",
+                        defaultValue: "Clear Latest Notifications"
+                    ),
+                    action: actions.onClearLatestNotifications
+                )
+                .disabled(!hasLatestNotifications)
+                Divider()
+                Button(
+                    String(
+                        localized: "workspaceGroup.contextMenu.markAllRead",
+                        defaultValue: "Mark All Workspaces in Group as Read"
+                    ),
+                    action: actions.onMarkAllRead
+                )
+                .disabled(!canMarkAllRead)
+                Button(
+                    String(
+                        localized: "workspaceGroup.contextMenu.markAllUnread",
+                        defaultValue: "Mark All Workspaces in Group as Unread"
+                    ),
+                    action: actions.onMarkAllUnread
+                )
+                .disabled(!canMarkAllUnread)
+                Divider()
+                Button(
+                    String(
+                        localized: "workspaceGroup.contextMenu.editConfig",
+                        defaultValue: "Edit Group Config..."
+                    ),
+                    action: actions.onEditConfig
+                )
+                Button(
+                    String(
+                        localized: "workspaceGroup.contextMenu.openDocs",
+                        defaultValue: "Open Workspace Groups Docs"
+                    ),
+                    action: actions.onOpenDocs
+                )
+                Divider()
+                if !isPinned || memberCount > 0 {
+                    Button(
+                        String(
+                            localized: "workspaceGroup.contextMenu.ungroup",
+                            defaultValue: "Ungroup Workspaces"
+                        ),
+                        action: actions.onUngroup
+                    )
+                }
+                Button(
+                    role: .destructive,
+                    action: actions.onDelete
+                ) {
+                    Text(
+                        String(
+                            localized: "workspaceGroup.contextMenu.delete",
+                            defaultValue: "Delete Group"
+                        )
+                    )
+                }
             }
-            .disabled(isAutomaticSection)
         }
     }
 }

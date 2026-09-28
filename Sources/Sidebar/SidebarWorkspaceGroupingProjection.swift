@@ -31,14 +31,17 @@ struct SidebarWorkspaceGroupingProjection {
     ///   - manualGroups: The window's real workspace groups.
     ///   - mode: The window's Group By mode.
     ///   - collapsedSectionKeys: Automatic sections the user collapsed.
-    ///   - unreadCount: Unread count for a workspace id, used by Status mode.
+    ///   - automaticInputs: One input per workspace in `tabs` order for the
+    ///     active automatic mode; ignored in manual mode. The sidebar passes the
+    ///     observer's cached inputs so its body never reads live workspace state
+    ///     for grouping.
     @MainActor
     init(
         tabs: [Workspace],
         manualGroups: [WorkspaceGroup],
         mode: SidebarGroupByMode,
         collapsedSectionKeys: Set<String>,
-        unreadCount: (UUID) -> Int
+        automaticInputs: [SidebarAutoGroupingInput]
     ) {
         self.mode = mode
         let manualGroupsById = Dictionary(uniqueKeysWithValues: manualGroups.map { ($0.id, $0) })
@@ -67,10 +70,10 @@ struct SidebarWorkspaceGroupingProjection {
             return
         }
 
-        let sections = SidebarAutoGrouping(mode: mode).sections(
-            for: tabs.map { Self.autoGroupingInput(for: $0, unreadCount: unreadCount) }
-        )
         let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        let sections = SidebarAutoGrouping(mode: mode).sections(
+            for: automaticInputs.filter { tabsById[$0.workspaceId] != nil }
+        )
         var sectionGroups: [WorkspaceGroup] = []
         var membership: [UUID: UUID?] = [:]
         var members: [UUID: [UUID]] = [:]
@@ -110,43 +113,5 @@ struct SidebarWorkspaceGroupingProjection {
             orderedGroups: sectionGroups,
             effectiveMembership: membership
         )
-    }
-
-    /// Builds the automatic-grouping facts for one live workspace.
-    @MainActor
-    static func autoGroupingInput(
-        for workspace: Workspace,
-        unreadCount: (UUID) -> Int
-    ) -> SidebarAutoGroupingInput {
-        // Panel close removes its lifecycle entry, so no live-panel filter is
-        // needed. Reading `panels` here would also subscribe the sidebar body
-        // to pane bookkeeping through Observation.
-        let lifecycleStates = workspace.agentLifecycleStatesByPanelId.values.flatMap(\.values)
-        return SidebarAutoGroupingInput(
-            workspaceId: workspace.id,
-            host: host(for: workspace),
-            status: SidebarAutoGroupingStatus(
-                agentLifecycleStates: lifecycleStates,
-                unreadCount: unreadCount(workspace.id)
-            )
-        )
-    }
-
-    @MainActor
-    private static func host(for workspace: Workspace) -> SidebarAutoGroupingHost {
-        if let vmID = workspace.cloudVMID {
-            let name = workspace.cloudBindingState.machineNames[vmID]?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return .cloud(vmID: vmID, label: name?.isEmpty == false ? name : nil)
-        }
-        if let configuration = workspace.remoteConfiguration {
-            return .remote(target: configuration.displayTarget)
-        }
-        // A remote tmux mirror has no remote configuration, but it lives on
-        // the host its control connection attached to.
-        if workspace.isRemoteTmuxMirror, let host = workspace.remoteTmuxSessionMirror?.host {
-            return .remote(target: host.port.map { "\(host.destination):\($0)" } ?? host.destination)
-        }
-        return .local
     }
 }

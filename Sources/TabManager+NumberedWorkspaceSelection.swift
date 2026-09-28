@@ -11,17 +11,8 @@ extension TabManager {
     @discardableResult
     func selectWorkspaceByNumber(_ digit: Int) -> Int? {
         let workspaceIds: [UUID]
-        if sidebarGroupBy.mode.isAutomatic {
-            let notificationStore = TerminalNotificationStore.shared
-            workspaceIds = SidebarWorkspaceRenderItem.numberedWorkspaceIds(
-                from: SidebarWorkspaceGroupingProjection(
-                    tabs: tabs,
-                    manualGroups: workspaceGroups,
-                    mode: sidebarGroupBy.mode,
-                    collapsedSectionKeys: sidebarGroupBy.collapsedSectionKeys,
-                    unreadCount: { notificationStore.unreadCount(forTabId: $0) }
-                ).renderItems
-            )
+        if let projection = automaticSidebarGroupingProjection() {
+            workspaceIds = SidebarWorkspaceRenderItem.numberedWorkspaceIds(from: projection.renderItems)
         } else {
             let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
             workspaceIds = SidebarWorkspaceRenderItem.numberedWorkspaceIds(

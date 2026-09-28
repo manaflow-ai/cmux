@@ -16,7 +16,7 @@ extension ControlCommandCoordinator {
     func sidebarGroupBy(_ params: [String: JSONValue]) -> ControlCallResult {
         let mode = string(params, "mode")?.lowercased()
         if hasNonNull(params, "mode"), mode == nil {
-            return .err(code: "invalid_params", message: "mode must be a string: manual, host or status", data: nil)
+            return .err(code: "invalid_params", message: "mode must be one of manual, host, status", data: nil)
         }
         guard let context else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)

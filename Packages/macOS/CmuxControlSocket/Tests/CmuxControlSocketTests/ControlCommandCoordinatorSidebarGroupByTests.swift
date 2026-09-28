@@ -87,9 +87,16 @@ struct ControlCommandCoordinatorSidebarGroupByTests {
         let result = coordinator.handle(request(["mode": .int(2)]))
         #expect(result == .err(
             code: "invalid_params",
-            message: "mode must be a string: manual, host or status",
+            message: "mode must be one of manual, host, status",
             data: nil
         ))
+        #expect(context.lastRouting == nil)
+    }
+
+    @Test func emptyModeIsInvalidParams() {
+        let (coordinator, context) = makeCoordinator()
+        #expect(coordinator.handle(request(["mode": .string("  ")]))
+            == .err(code: "invalid_params", message: "mode must be one of manual, host, status", data: nil))
         #expect(context.lastRouting == nil)
     }
 

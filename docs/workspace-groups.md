@@ -155,8 +155,8 @@ Inside a section, workspaces keep their manual order. Host and Status only chang
 
 - A manual group's anchor workspace shows as an ordinary row, and **Move to Group** / **Remove from Group** still act on your manual groups.
 - Section headers only collapse and expand. They have no `+` button, and rename, pin, ungroup, delete and config actions are unavailable.
-- Drag reordering is off, because a drop position in a section does not map to your manual order. Dropping tabs onto a workspace still works.
-- `⌘1`…`⌘9` follow the drawn order.
+- Drag reordering is off, because a drop position in a section does not map to your manual order. Dropping tabs onto a workspace still works; dropping a tab between rows makes a new workspace at the default position.
+- `⌘1`…`⌘9`, Shift-click ranges and next/previous workspace in group follow the drawn sections, and the collapse-group shortcut collapses the focused workspace's section.
 
 The mode is saved per window with the session; collapsed sections are not.
 
