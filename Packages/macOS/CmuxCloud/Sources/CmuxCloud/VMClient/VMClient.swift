@@ -1823,8 +1823,8 @@ public actor VMClient {
             if let deviceFingerprint, !deviceFingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 body["deviceFingerprint"] = deviceFingerprint
             }
-            if !capabilities.isEmpty {
-                body["clientCapabilities"] = capabilities
+            if !clientCapabilities.isEmpty {
+                body["clientCapabilities"] = clientCapabilities
             }
             // Terminal and metadata traffic uses the user-space WireGuard hub.
             // Do not start or require the browser Network Extension here.

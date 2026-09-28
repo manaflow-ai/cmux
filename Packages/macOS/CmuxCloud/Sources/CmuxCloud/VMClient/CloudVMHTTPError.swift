@@ -199,7 +199,7 @@ private func formattedCloudVMHTTPError(status: Int, object: [String: Any]) -> St
     let action = defaultCloudVMAction(status: status, errorCode: errorCode, response: object)
     let retryAfterSeconds = cloudVMInt(object["retryAfterSeconds"])
         ?? cloudVMInt(ui?["retryAfterSeconds"])
-    let retryable = cloudVMBool(object["retryable"]) ?? cloudVMBool(ui?["retryable"]) ?? status == 429
+    let retryable = cloudVMBool(object["retryable"]) ?? cloudVMBool(ui?["retryable"]) ?? (status == 429)
 
     var lines: [String] = [
         "Cloud VM request failed (HTTP \(status))",
