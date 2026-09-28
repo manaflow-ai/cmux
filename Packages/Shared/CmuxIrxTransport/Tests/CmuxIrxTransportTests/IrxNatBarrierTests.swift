@@ -239,13 +239,19 @@ struct IrxNatBarrierTests {
                 BarrierAdmit(
                     v: 1, session: "s-stale", keepaliveIntervalMs: 5000,
                     keepaliveDeadlineMs: 2000, natBarrier: true))
-            // The aborting client must never send ready; its abandoned lane
-            // may surface as EOF, which is equally "no ready arrived".
-            let readyResult = try? await withIrxDeadlineResult(.milliseconds(400)) {
-                try await control.reader.readControlFrame(IrxClientReady.self)
+            // The aborting client must never send ready. Read until the
+            // client's close ends the lane: EOF or a closed-connection error
+            // both mean the lane ended without a ready frame. The deadline
+            // only guards against a hang, and hitting it fails the test.
+            do {
+                let readyResult = try await withIrxDeadlineResult(.seconds(30)) {
+                    try await control.reader.readControlFrame(IrxClientReady.self)
+                }
+                if case .operation(.none) = readyResult { return true }
+                return false
+            } catch {
+                return true
             }
-            if case .operation(.some) = readyResult ?? .timeout { return false }
-            return true
         }
 
         let connection = try await client.connect(
@@ -257,12 +263,16 @@ struct IrxNatBarrierTests {
                 authorizesDirectPaths: true,
                 preAuthorization: { throw StaleDial() })
         }
-        let noReadyArrived = try await serverTask.value
-        #expect(noReadyArrived)
-        // The abort happened before any NAT-traversal authorization.
-        let events = clientJournal.tail().map(\.event)
-        #expect(!events.contains("nat-traversal-authorized"))
+        // The abort happened before any NAT-traversal authorization, and the
+        // client never reached the ready write (it journals right after it).
+        let clientEvents = clientJournal.tail()
+        #expect(!clientEvents.contains { $0.event == "nat-traversal-authorized" })
+        #expect(!clientEvents.contains {
+            $0.event == "nat-barrier" && $0.attributes["state"] == "client-ready-sent"
+        })
         await irx.close(code: .userRequested, origin: .local)
+        let laneEndedWithoutReady = try await serverTask.value
+        #expect(laneEndedWithoutReady)
     }
 
     @Test("real admission halves complete the barrier and order authorization")
