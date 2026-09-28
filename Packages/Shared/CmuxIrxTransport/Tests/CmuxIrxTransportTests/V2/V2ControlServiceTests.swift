@@ -14,13 +14,27 @@ import Testing
         )
     }
 
-    private func service(backend: V2TestBackend, store: V2TestStateStore = V2TestStateStore()) throws -> V2ControlService {
+    private func service(backend: V2TestBackend, store: V2TestStateStore = V2TestStateStore(), journal: IrxJournal? = nil) throws -> V2ControlService {
         let fixedNow = now
         return V2ControlService(
             configuration: try V2ControlConfiguration(baseURL: URL(string: "https://control.example.com")!, device: device()),
-            dependencies: V2ControlDependencies(connect: { try await backend.connect($0) }, http: { try await backend.http($0) }, stackAccessToken: { _ in "existing-stack-session" }, sign: { _ in Data(repeating: 1, count: 64) }, now: { Date(timeIntervalSince1970: Double(fixedNow)) }, jitter: { 0.5 }),
+            dependencies: V2ControlDependencies(connect: { try await backend.connect($0) }, http: { try await backend.http($0) }, stackAccessToken: { _ in "existing-stack-session" }, sign: { _ in Data(repeating: 1, count: 64) }, now: { Date(timeIntervalSince1970: Double(fixedNow)) }, jitter: { 0.5 }, journal: journal),
             store: store
         )
+    }
+
+    private func events(_ journal: IrxJournal, _ event: String) -> [IrxJournalEvent] {
+        journal.tail(IrxJournal.ringCapacity).filter { $0.component == "v2-control" && $0.event == event }
+    }
+
+    /// Journal writes trail the snapshot the test observed, so poll briefly.
+    private func journaled(_ journal: IrxJournal, _ event: String) async throws -> [IrxJournalEvent] {
+        for _ in 0..<200 {
+            let found = events(journal, event)
+            if !found.isEmpty { return found }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        return []
     }
 
     private func ready(_ service: V2ControlService) async throws -> V2ControlSnapshot {
@@ -370,5 +384,52 @@ import Testing
         _ = try await service.refreshRelayCredentials()
         #expect(await backend.sockets.count == 1)
         await service.stop()
+    }
+
+    @Test func credentialLifecycleIsJournaledFromReadyThroughRenewalAndShutdown() async throws {
+        let journal = IrxJournal(subsystem: "com.cmux.test", category: "v2-journal-test")
+        let backend = V2TestBackend(now: now)
+        let service = try service(backend: backend, journal: journal)
+        await service.start()
+        _ = try await ready(service)
+        #expect(try await journaled(journal, "session-ready").first?.attributes["http_mode"] == "false")
+        #expect(try await !journaled(journal, "maintenance-scheduled").isEmpty)
+        _ = try await service.refreshRelayCredentials()
+        _ = try await service.refreshAPITicket()
+        let schemas = events(journal, "refresh-succeeded").compactMap { $0.attributes["schema"] }
+        #expect(schemas.contains("relay.request.v1"))
+        #expect(schemas.contains("ticket.request.v1"))
+        #expect(schemas.contains("directory.request.v1"))
+        await service.stop()
+        // Stopping cancels the renewal sleep; the loop must say why it left.
+        let exits = try await journaled(journal, "maintenance-exited").compactMap { $0.attributes["reason"] }
+        #expect(exits.contains("sleep-cancelled") || exits.contains("cancelled") || exits.contains("run-superseded"))
+    }
+
+    @Test func serverCooldownsAreJournaledWithTheirSource() async throws {
+        let journal = IrxJournal(subsystem: "com.cmux.test", category: "v2-journal-cooldown-test")
+        let rateLimitedBackend = V2TestBackend(now: now)
+        let rateLimitedService = try service(backend: rateLimitedBackend, journal: journal)
+        await rateLimitedService.start()
+        _ = try await ready(rateLimitedService)
+        await rateLimitedBackend.currentSocket().rejectRelay(.rateLimited)
+        do { _ = try await rateLimitedService.refreshRelayCredentials(); Issue.record("Expected relay rate limit") }
+        catch V2ControlFailure.server(let error) { #expect(error.code == .rateLimited) }
+        await rateLimitedService.stop()
+        let rateLimited = events(journal, "cooldown-set").first { $0.attributes["source"] == "rate_limited" }
+        #expect(rateLimited?.attributes["schema"] == "relay.request.v1")
+        #expect(Int(rateLimited?.attributes["delay_s"] ?? "") ?? -1 >= 1)
+
+        let retiredBackend = V2TestBackend(now: now)
+        let retiredService = try service(backend: retiredBackend, journal: journal)
+        await retiredService.start()
+        _ = try await ready(retiredService)
+        await retiredBackend.currentSocket().rejectRelay(.clientUpgradeRequired)
+        do { _ = try await retiredService.refreshRelayCredentials(); Issue.record("Expected retired schema") }
+        catch V2ControlFailure.server(let error) { #expect(error.code == .clientUpgradeRequired) }
+        await retiredService.stop()
+        let retired = events(journal, "cooldown-set").first { $0.attributes["source"] == "upgrade_required" }
+        #expect(retired?.attributes["schema"] == "relay.request.v1")
+        #expect(Int(retired?.attributes["delay_s"] ?? "") ?? 0 >= 3600)
     }
 }

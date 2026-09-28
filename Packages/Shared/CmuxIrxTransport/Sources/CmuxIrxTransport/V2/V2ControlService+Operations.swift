@@ -34,6 +34,12 @@ extension V2ControlService {
         try assertCurrent(run)
         cache.ticket = response.ticket
         failure = nil
+        let issued = Int(dependencies.now().timeIntervalSince1970)
+        journal("refresh-succeeded", [
+            "schema": "ticket.request.v1",
+            "refresh_after_in_s": String(response.ticket.refreshAfter - issued),
+            "expires_in_s": String(response.ticket.expiresAt - issued),
+        ])
         try await persist(run: run)
         return response.ticket
     }
@@ -80,6 +86,13 @@ extension V2ControlService {
         try assertCurrent(run)
         cache.relayCredentials = response.credentials
         failure = nil
+        let issued = Int(dependencies.now().timeIntervalSince1970)
+        journal("refresh-succeeded", [
+            "schema": "relay.request.v1",
+            "count": String(response.credentials.count),
+            "refresh_after_in_s": String((response.credentials.map(\.refreshAfter).min() ?? issued) - issued),
+            "expires_in_s": String((response.credentials.map(\.expiresAt).min() ?? issued) - issued),
+        ])
         try await persist(run: run)
         return response.credentials
     }
@@ -147,6 +160,12 @@ extension V2ControlService {
             )
             cache.directory = directory
             failure = nil
+            journal("refresh-succeeded", [
+                "schema": "directory.request.v1",
+                "revision": String(directory.revision),
+                "bindings": String(directory.devices.count),
+                "expires_in_s": String(directory.permissionExpiresAt - Int(dependencies.now().timeIntervalSince1970)),
+            ])
             try await persist(run: run)
             return directory
         }

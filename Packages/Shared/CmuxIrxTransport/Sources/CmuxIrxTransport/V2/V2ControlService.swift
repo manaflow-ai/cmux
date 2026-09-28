@@ -167,7 +167,13 @@ public actor V2ControlService {
         try assertCurrent(run)
         let state = cache
         do { try await store.save(state) }
-        catch { throw V2ControlFailure.persistenceFailed }
+        catch {
+            // A failed save also skips publish, so downstream consumers never
+            // hear about state they would lose on relaunch. Without this event
+            // that outcome is indistinguishable from a renewal that never ran.
+            journal("persist-failed", ["error": String(describing: type(of: error))])
+            throw V2ControlFailure.persistenceFailed
+        }
         try assertCurrent(run)
         publish()
     }
@@ -309,15 +315,24 @@ public actor V2ControlService {
         failure = error
         if case .server(let response) = error {
             if response.code == .rateLimited {
-                cooldowns[operation(schema)] = dependencies.now().addingTimeInterval(max(1, Double(response.retryAfterMS ?? 60_000) / 1000))
+                let delay = max(1, Double(response.retryAfterMS ?? 60_000) / 1000)
+                cooldowns[operation(schema)] = dependencies.now().addingTimeInterval(delay)
+                journal("cooldown-set", ["schema": schema, "source": "rate_limited", "delay_s": String(Int(delay))])
             } else if response.code == .clientUpgradeRequired {
                 let attempt = retiredAttempts[schema, default: 0]
                 let delays: [TimeInterval] = [3600, 6 * 3600, 24 * 3600]
                 let delay = delays[min(attempt, delays.count - 1)] * (1 + 0.1 * dependencies.jitter())
                 retiredAttempts[schema] = attempt + 1
                 cooldowns[schema] = dependencies.now().addingTimeInterval(delay)
+                journal("cooldown-set", ["schema": schema, "source": "upgrade_required", "delay_s": String(Int(delay))])
             }
         }
         publish()
+    }
+
+    /// Records one credential-lifecycle event. Attributes are schema names,
+    /// failure codes, and durations only, never tokens or credential bodies.
+    func journal(_ event: String, _ attributes: [String: String] = [:]) {
+        dependencies.journal?.record("v2-control", event, attributes)
     }
 }

@@ -114,7 +114,8 @@ extension MobileIrxRuntimeComposition {
             sign: { data in
                 guard await auth.isAuthenticatedTeamScopeCurrent(scope) else { throw CompositionError.scopeChanged }
                 return try key.sign(data)
-            })
+            },
+            journal: journal)
         let service = V2ControlService(configuration: try V2ControlConfiguration(
             baseURL: configuration.baseURL, device: device), dependencies: dependencies, store: stateStore)
         try await assertScope(scope, epoch: currentEpoch)

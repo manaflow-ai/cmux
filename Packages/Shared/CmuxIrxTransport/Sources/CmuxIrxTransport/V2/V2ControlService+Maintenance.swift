@@ -31,7 +31,14 @@ extension V2ControlService {
     }
 
     func scheduleMaintenance(run: UUID) {
-        guard runID == run, status == .ready else { return }
+        guard runID == run, status == .ready else {
+            journal("maintenance-not-scheduled", [
+                "reason": runID == run ? "status" : "run-superseded",
+                "status": String(describing: status),
+            ])
+            return
+        }
+        journal("maintenance-scheduled", ["http_mode": String(httpMode)])
 #if DEBUG
         if let interval = verificationRenewalInterval, nextVerificationRenewalAt == nil {
             nextVerificationRenewalAt = dependencies.now().addingTimeInterval(interval)
@@ -53,9 +60,30 @@ extension V2ControlService {
             let verificationDue = TimeInterval.infinity
 #endif
             let next = min(ticketDue, relayDue, directoryDue, verificationDue)
+            journal("maintenance-planned", [
+                "sleep_s": String(Int(max(0, next - now))),
+                "ticket_in_s": String(Int(ticketDue - now)),
+                "relay_in_s": String(Int(relayDue - now)),
+                "directory_in_s": String(Int(directoryDue - now)),
+                // A renewal pushed past its refresh time by a cooldown is
+                // otherwise invisible; name the deferred schemas explicitly.
+                "deferred": deferredSchemas(now: now).joined(separator: ","),
+            ])
             do { try await dependencies.sleep(max(0, next - now)) }
-            catch { return }
-            guard runID == run, !Task.isCancelled, (socket != nil || httpMode) else { return }
+            catch {
+                journal("maintenance-exited", ["reason": "sleep-cancelled"])
+                return
+            }
+            guard runID == run, !Task.isCancelled else {
+                journal("maintenance-exited", ["reason": Task.isCancelled ? "cancelled" : "run-superseded"])
+                return
+            }
+            guard socket != nil || httpMode else {
+                // Nothing restarts maintenance until the next reconnect or
+                // foreground. Renewals stop here while status stays .ready.
+                journal("maintenance-exited", ["reason": "no-transport", "status": String(describing: status)])
+                return
+            }
             let deadline = dependencies.now().timeIntervalSince1970 + 0.1
 #if DEBUG
             let forceVerification = verificationDue <= deadline
@@ -87,15 +115,33 @@ extension V2ControlService {
                 }
             }
         }
+        journal("maintenance-exited", [
+            "reason": Task.isCancelled ? "cancelled" : (runID == run ? "status" : "run-superseded"),
+            "status": String(describing: status),
+        ])
     }
 
     private func due(_ timestamp: Int?, schema: String, now: TimeInterval) -> TimeInterval {
         max(Double(timestamp ?? Int(now)), cooldowns[schema]?.timeIntervalSince1970 ?? 0, cooldowns[operation(schema)]?.timeIntervalSince1970 ?? 0)
     }
 
+    /// Schemas whose next run is later than their own refresh time because a
+    /// schema or operation cooldown dominates.
+    private func deferredSchemas(now: TimeInterval) -> [String] {
+        let wanted: [(String, Int?)] = [
+            ("ticket.request.v1", cache.ticket?.refreshAfter),
+            ("relay.request.v1", cache.relayCredentials.map(\.refreshAfter).min()),
+            ("directory.request.v1", cache.directory.map { $0.permissionExpiresAt - 300 }),
+        ]
+        return wanted.compactMap { schema, refreshAfter in
+            due(refreshAfter, schema: schema, now: now) > Double(refreshAfter ?? Int(now)) ? schema : nil
+        }
+    }
+
     private func maintenanceFailed(_ error: any Error, schema: String, run: UUID) {
         guard runID == run, !Task.isCancelled else { return }
         let mapped = mapFailure(error)
+        journal("refresh-failed", ["schema": schema, "failure": mapped.diagnosticCode])
         // The receive owner already records server cooldowns. Do not count one
         // rejected schema twice or overwrite its long backoff with a short one.
         if case .server = mapped {} else { record(mapped, schema: schema) }

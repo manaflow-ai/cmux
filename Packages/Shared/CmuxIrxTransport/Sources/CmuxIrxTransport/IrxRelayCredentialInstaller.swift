@@ -76,17 +76,27 @@ actor IrxRelayCredentialInstaller {
         var failures = 0
         while !Task.isCancelled, !stopped, taskID == id {
             let observedRevision = revision
+            let unusable = desired.values.filter { !$0.isUsable(at: now()) }.count
             let pending = desired.values.filter {
                 $0.isUsable(at: now()) && installed[$0.relayURL] != $0
             }.sorted { $0.relayURL < $1.relayURL }
+            if unusable > 0 {
+                // Expired or not-yet-valid credentials silently shrink the
+                // fleet; make the drop visible next to the install outcomes.
+                journal.record("endpoint", "relay-credential-unusable", ["count": String(unusable)])
+            }
             guard !pending.isEmpty else { return }
             var failed = false
             for credential in pending {
                 guard !Task.isCancelled, !stopped, taskID == id else { return }
                 guard desired[credential.relayURL] == credential,
                       credential.isUsable(at: now()) else { continue }
+                // A started event with no matching outcome is the signature of
+                // a native install hung inside the driver.
+                journal.record("endpoint", "relay-credential-install-started", ["relay": credential.relayURL])
                 do {
                     guard try await install(credential, ownership: ownership) else {
+                        journal.record("endpoint", "relay-credential-install-superseded", ["relay": credential.relayURL])
                         if revision != observedRevision { break }
                         return
                     }

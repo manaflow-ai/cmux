@@ -87,6 +87,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private(set) var generationToken = UUID()
     private(set) var activationTask: Task<Void, Never>?
     private var controlTask: Task<Void, Never>?
+    private var renewalWatchdogTask: Task<Void, Never>?
     private var endpointTask: Task<Void, Never>?
     private var endpointRefreshPending = false
     private var relayAddressWatch: WatchHandle?
@@ -94,6 +95,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private var permissionExpiryTask: Task<Void, Never>?
     private var acceptLoop: Task<Void, Never>?
     private var lastLoggedControlState: String?
+    private var lastAppliedControlSequence: UInt64 = 0
     private var admission: V2InboundAdmissionAuthority?
     /// Compatibility publication for older iOS dialects. It shares the v2
     /// signing key but has its own filtered authority and broker lifecycle.
@@ -346,6 +348,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         deviceMetadataTask?.cancel(); deviceMetadataTask = nil
         activationTask?.cancel(); activationTask = nil
         controlTask?.cancel(); controlTask = nil
+        renewalWatchdogTask?.cancel(); renewalWatchdogTask = nil
         endpointTask?.cancel(); endpointTask = nil
         endpointRefreshPending = false
         relayAddressWatch = nil; relayAddressWatchGeneration = nil
@@ -459,7 +462,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             sign: { data in
                 guard await auth.isAuthenticatedTeamScopeCurrent(scope) else { throw V2ControlFailure.scopeMismatch }
                 return try key.sign(data)
-            })
+            },
+            journal: Self.journal)
         let service = V2ControlService(configuration: try .init(baseURL: configuration.baseURL, device: device),
             dependencies: dependencies, store: store)
         listenerState.preferredPort = preferredPort
@@ -507,6 +511,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 await self?.apply(snapshot, token: token)
             }
         }
+        startRenewalWatchdog(token: token, service: service)
         await service.start()
         guard isCurrent(token), !Task.isCancelled else { await service.stop(); throw V2ControlFailure.stopped }
         Self.journal.record("v2-host", "control-started", ["cached": String(restored != nil)])
@@ -535,6 +540,10 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
 
     private func apply(_ snapshot: V2ControlSnapshot, token: UUID) async {
         guard isCurrent(token), let admission else { return }
+        // Marked on exit, not entry: an apply stuck in one of its awaits must
+        // stay visible to the renewal watchdog as an unapplied sequence.
+        let appliedSequence = snapshot.sequence
+        defer { lastAppliedControlSequence = max(lastAppliedControlSequence, appliedSequence) }
         let status = String(describing: snapshot.status)
         let failure = snapshot.failure?.diagnosticCode ?? "none"
         let state = status + ":" + failure
@@ -606,13 +615,71 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         guard isCurrent(token) else { return }
         schedulePermissionExpiry(token: token)
         // Installing credentials does not replace the endpoint or its admitted sessions.
-        if previousCredentials != snapshot.cache.relayCredentials, let supervisor = endpointSupervisor {
-            await supervisor.rotateCredentials(Self.credentials(snapshot.cache))
-            guard isCurrent(token) else { return }
+        if previousCredentials != snapshot.cache.relayCredentials {
+            let now = Int(Date().timeIntervalSince1970)
+            Self.journal.record("v2-host", "credentials-received", [
+                "count": String(snapshot.cache.relayCredentials.count),
+                "expires_in_s": String((snapshot.cache.relayCredentials.map(\.expiresAt).max() ?? now) - now),
+                "supervisor": String(endpointSupervisor != nil),
+            ])
+            if let supervisor = endpointSupervisor {
+                await supervisor.rotateCredentials(Self.credentials(snapshot.cache))
+                guard isCurrent(token) else { return }
+            }
         }
         requestEndpointReady(token: token)
         if activeDeviceCapabilities != deviceCapabilities { updateDeviceHostingMetadata() }
         publishIrxSettingsUpdate()
+    }
+
+    /// Journals loudly when credential renewal has silently stopped: either the
+    /// service holds stale credentials past their refresh time, or the service
+    /// has newer snapshots than this runtime ever applied. Reads the service
+    /// directly, so a stalled `apply` pipeline cannot hide itself. Records
+    /// evidence only; recovery stays with the existing owners.
+    private func startRenewalWatchdog(token: UUID, service: V2ControlService) {
+        renewalWatchdogTask?.cancel()
+        renewalWatchdogTask = Task { @MainActor [weak self] in
+            let interval: TimeInterval = 300
+            var pendingSinceLastTick: UInt64?
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(interval)) }
+                catch { return }
+                guard let self, self.isCurrent(token) else { return }
+                let snapshot = await service.snapshot()
+                guard self.isCurrent(token), !Task.isCancelled else { return }
+                let now = Int(Date().timeIntervalSince1970)
+                var overdue: [String: String] = [:]
+                if !snapshot.cache.authorityRevoked, Self.pathMode != .directOnly,
+                   let refreshAfter = snapshot.cache.relayCredentials.map(\.refreshAfter).min(),
+                   now - refreshAfter > Int(interval) {
+                    overdue["relay_overdue_s"] = String(now - refreshAfter)
+                    let expires = snapshot.cache.relayCredentials.map(\.expiresAt).max() ?? now
+                    overdue["relay_expires_in_s"] = String(expires - now)
+                }
+                if !snapshot.cache.authorityRevoked, let ticket = snapshot.cache.ticket,
+                   now - ticket.refreshAfter > Int(interval) {
+                    overdue["ticket_overdue_s"] = String(now - ticket.refreshAfter)
+                }
+                if !overdue.isEmpty {
+                    overdue["status"] = String(describing: snapshot.status)
+                    overdue["failure"] = snapshot.failure?.diagnosticCode ?? "none"
+                    Self.journal.record("v2-host", "credential-renewal-overdue", overdue)
+                }
+                // A sequence that was already pending one full tick ago and
+                // still has not been applied means the snapshot consumer is
+                // stuck, not merely busy.
+                let applied = self.lastAppliedControlSequence
+                if let pending = pendingSinceLastTick, applied < pending {
+                    Self.journal.record("v2-host", "snapshot-apply-stalled", [
+                        "pending_sequence": String(pending),
+                        "applied_sequence": String(applied),
+                        "stalled_for_s": String(Int(interval)),
+                    ])
+                }
+                pendingSinceLastTick = snapshot.sequence > applied ? snapshot.sequence : nil
+            }
+        }
     }
 
     private func startLegacyCompatibility(token: UUID) {
@@ -685,7 +752,16 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         guard endpointTask == nil else { endpointRefreshPending = true; return }
         guard let supervisor = endpointSupervisor,
               let cache = cachedState, !cache.authorityRevoked,
-              Self.pathMode == .directOnly || Self.credentials(cache).contains(where: { $0.isUsable(at: Date()) }) else { return }
+              Self.pathMode == .directOnly || Self.credentials(cache).contains(where: { $0.isUsable(at: Date()) }) else {
+            // Without this event, a host with only expired credentials skips
+            // endpoint readiness forever and logs nothing.
+            let reason = endpointSupervisor == nil ? "no-supervisor"
+                : cachedState == nil ? "no-cache"
+                : cachedState?.authorityRevoked == true ? "revoked"
+                : "no-usable-credential"
+            Self.journal.record("v2-host", "endpoint-ready-skipped", ["reason": reason])
+            return
+        }
         endpointTask = Task { @MainActor [weak self] in
             defer {
                 if let self, self.generationToken == token {
