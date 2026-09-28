@@ -25,6 +25,7 @@ Usage (git passes these): merge-pbxproj.py %O %A %B %P
 """
 from __future__ import annotations
 
+import ast
 import importlib.util
 import re
 import subprocess
@@ -49,6 +50,7 @@ SOURCE_PHASE_RE = re.compile(
 )
 PBX_PATH_RE = re.compile(r"\bpath\s*=\s*([^;]+);")
 PBX_SOURCE_TREE_RE = re.compile(r"\bsourceTree\s*=\s*([^;]+);")
+PBX_COMMENT_RE = re.compile(r"^\s*[0-9A-Za-z]+ /\* (.*?) \*/")
 
 
 def load_mergers():
@@ -125,6 +127,42 @@ def safe_source_line(
     return False
 
 
+def openstep_scalar(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        try:
+            decoded = ast.literal_eval(value)
+            if isinstance(decoded, str):
+                return decoded
+        except (SyntaxError, ValueError):
+            pass
+    return value
+
+
+def logical_source_key(
+    line: str,
+    section: str | None,
+    array: str | None,
+) -> tuple[str, str, str] | None:
+    if section == "PBXFileReference" and array is None:
+        path = PBX_PATH_RE.search(line)
+        source_tree = PBX_SOURCE_TREE_RE.search(line)
+        if path and source_tree:
+            return (
+                section,
+                "",
+                f"{openstep_scalar(path.group(1))}\0{openstep_scalar(source_tree.group(1))}",
+            )
+    comment = PBX_COMMENT_RE.match(line)
+    if comment and (
+        (section == "PBXBuildFile" and array is None)
+        or (section == "PBXGroup" and array == "children")
+        or (section == "PBXSourcesBuildPhase" and array == "files")
+    ):
+        return section, array or "", comment.group(1)
+    return None
+
+
 def source_entry_union(module, base: str, ours: str, theirs: str) -> str:
     """Union only source-file entries in their known order-insensitive containers."""
     merged = module.union_pbxproj(base, ours, theirs)
@@ -134,9 +172,9 @@ def source_entry_union(module, base: str, ours: str, theirs: str) -> str:
             prefix += part
             continue
         ours_lines, base_lines, theirs_lines = part
-        file_references: list[dict[tuple[str, str], set[str]]] = []
+        logical_entries: list[dict[tuple[str, str, str], set[str]]] = []
         for side in (ours_lines, theirs_lines):
-            side_references: dict[tuple[str, str], set[str]] = {}
+            side_entries: dict[tuple[str, str, str], set[str]] = {}
             slots = module.insertions(base_lines, side)
             if slots is None:
                 raise ValueError(
@@ -152,17 +190,13 @@ def source_entry_union(module, base: str, ours: str, theirs: str) -> str:
                         "automatic union is limited to source-file project entries;"
                         " order-sensitive or unknown insertions need a person"
                     )
-                if section == "PBXFileReference" and depth == 2 and array is None:
-                    for line in lines:
-                        path = PBX_PATH_RE.search(line)
-                        source_tree = PBX_SOURCE_TREE_RE.search(line)
-                        if path and source_tree:
-                            key = (path.group(1).strip(), source_tree.group(1).strip())
-                            side_references.setdefault(key, set()).add(line.strip())
-            file_references.append(side_references)
-        ours_references, theirs_references = file_references
-        for key in ours_references.keys() & theirs_references.keys():
-            if ours_references[key] != theirs_references[key]:
+                for line in lines:
+                    if key := logical_source_key(line, section, array):
+                        side_entries.setdefault(key, set()).add(line.strip())
+            logical_entries.append(side_entries)
+        ours_entries, theirs_entries = logical_entries
+        for key in ours_entries.keys() & theirs_entries.keys():
+            if ours_entries[key] != theirs_entries[key]:
                 raise ValueError(
                     "both sides added the same logical file with different Xcode object IDs"
                 )

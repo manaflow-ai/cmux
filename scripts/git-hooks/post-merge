@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Migrate clone-local merge drivers after a trusted main fast-forward/pull.
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+HEAD_SHA="$(git rev-parse HEAD)"
+
+# This hook is tracked, so never run its installer merely because an arbitrary
+# checked-out branch asks. The current commit must exactly equal main fetched
+# from the canonical manaflow-ai/cmux remote already configured by the user.
+for remote in $(git remote); do
+    url="$(git remote get-url "$remote" 2>/dev/null || true)"
+    case "$url" in
+        *github.com:manaflow-ai/cmux.git|*github.com/manaflow-ai/cmux.git|*github.com/manaflow-ai/cmux)
+            trusted_ref="refs/remotes/$remote/main"
+            trusted_sha="$(git rev-parse --verify "$trusted_ref" 2>/dev/null || true)"
+            if [[ -n "$trusted_sha" && "$HEAD_SHA" == "$trusted_sha" ]]; then
+                exec /bin/bash "$REPO_ROOT/scripts/install-git-hooks.sh"
+            fi
+            ;;
+    esac
+done
+
+exit 0

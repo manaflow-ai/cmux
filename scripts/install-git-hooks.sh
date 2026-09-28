@@ -94,7 +94,14 @@ printf -v PBXPROJ_DRIVER '%q -I %q %%O %%A %%B %%P' \
     "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-pbxproj.py"
 git config merge.xcstrings-v2.name "Xcode string catalog (trusted key-wise three-way merge)"
 git config merge.xcstrings-v2.driver "$XCSTRINGS_DRIVER"
+# Neutralize the checkout-relative command installed by older setup versions.
+# A fork controls .gitattributes and could otherwise reactivate that legacy
+# driver name even though current main uses xcstrings-v2.
+git config merge.xcstrings.name "Xcode string catalog (trusted compatibility driver)"
+git config merge.xcstrings.driver "$XCSTRINGS_DRIVER"
 echo "==> .xcstrings merge driver installed (merge.xcstrings-v2.driver)."
 git config merge.pbxproj-v1.name "Xcode project file (trusted union of added entries)"
 git config merge.pbxproj-v1.driver "$PBXPROJ_DRIVER"
+git config merge.pbxproj.name "Xcode project file (trusted compatibility driver)"
+git config merge.pbxproj.driver "$PBXPROJ_DRIVER"
 echo "==> project.pbxproj merge driver installed (merge.pbxproj-v1.driver)."

@@ -77,7 +77,9 @@ class InstallGitHooksTests(unittest.TestCase):
 
         for key, name in (
             ("merge.xcstrings-v2.driver", "merge-xcstrings.py"),
+            ("merge.xcstrings.driver", "merge-xcstrings.py"),
             ("merge.pbxproj-v1.driver", "merge-pbxproj.py"),
+            ("merge.pbxproj.driver", "merge-pbxproj.py"),
         ):
             command = self.git("config", "--get", key).stdout.strip()
             words = shlex.split(command)
@@ -152,6 +154,29 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("python3 resolves inside the checkout", result.stderr)
         self.assertFalse(marker.exists())
+
+    def test_trusted_main_post_merge_migrates_legacy_driver_commands(self):
+        self.git("add", ".")
+        self.git(
+            "-c", "user.name=Merge Test",
+            "-c", "user.email=merge@example.invalid",
+            "commit", "-qm", "trusted main",
+        )
+        self.git("remote", "add", "upstream", "git@github.com:manaflow-ai/cmux.git")
+        self.git("update-ref", "refs/remotes/upstream/main", "HEAD")
+        self.git("config", "merge.xcstrings.driver", "python3 scripts/merge-xcstrings.py %O %A %B %P")
+        self.git("config", "merge.pbxproj.driver", "python3 scripts/merge-pbxproj.py %O %A %B %P")
+
+        result = subprocess.run(
+            ["bash", "scripts/git-hooks/post-merge"],
+            cwd=self.repo,
+            env=self.env,
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_merge_driver_installed()
 
     def test_global_hooks_path_warns_and_succeeds(self):
         global_hooks = self.root / "global-hooks"
