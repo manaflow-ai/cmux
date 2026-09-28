@@ -102,6 +102,9 @@ struct DockPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
             refreshAppearance(reason: "paneChromeSettingsDidChange")
         }
+        .onDisplayAccessibilityOptionsChange { _ in
+            refreshAppearance(reason: "displayAccessibilityOptionsDidChange")
+        }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
             refreshAppearance(reason: "ghosttyDefaultBackgroundDidChange")
         }
