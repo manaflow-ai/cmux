@@ -564654,6 +564654,131 @@
         }
       }
     },
+    "devices.link.error.notDiscoverable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac isn’t discoverable. On that Mac, turn on “Make this Mac discoverable” in Settings › Devices."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز Mac هذا غير قابل للاكتشاف. على ذلك الجهاز، فعّل «جعل جهاز Mac هذا قابلاً للاكتشاف» في الإعدادات › الأجهزة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac ist nicht auffindbar. Aktiviere auf diesem Mac unter „Einstellungen › Geräte“ die Option „Diesen Mac auffindbar machen“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac no es detectable. En ese Mac, activa «Hacer que este Mac sea detectable» en Ajustes › Dispositivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac n’est pas détectable. Sur ce Mac, activez « Rendre ce Mac détectable » dans Réglages › Appareils."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacは検出可能になっていません。そのMacの「設定 › デバイス」で「このMacを検出可能にする」をオンにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac을 검색할 수 없습니다. 해당 Mac의 설정 › 기기에서 “이 Mac을 검색할 수 있도록 설정”을 켜세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 无法被发现。请在该 Mac 的“设置 › 设备”中开启“允许发现此 Mac”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這部 Mac 無法被探索。請在該 Mac 的「設定 › 裝置」中開啟「允許探索此 Mac」。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac nije vidljiv. Na tom Macu uključite „Učini ovaj Mac vidljivim” u Postavke › Uređaji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac kan ikke findes. Slå “Gør denne Mac synlig” til på den Mac under Indstillinger › Enheder."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac non è individuabile. Su quel Mac, attiva “Rendi individuabile questo Mac” in Impostazioni › Dispositivi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះមិនអាចរកឃើញបានទេ។ នៅលើ Mac នោះ សូមបើក “ធ្វើឲ្យ Mac នេះអាចរកឃើញ” ក្នុងការកំណត់ › ឧបករណ៍។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Macen er ikke synlig. Slå på «Gjør denne Macen synlig» på den Macen under Innstillinger › Enheter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac nie jest wykrywalny. Na tym Macu włącz „Uczyń ten Mac wykrywalnym” w Ustawienia › Urządzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac não está detectável. Nesse Mac, ative “Tornar este Mac detectável” em Ajustes › Dispositivos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот Mac недоступен для обнаружения. На том Mac включите «Сделать этот Mac доступным для обнаружения» в разделе Настройки › Устройства."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้ไม่สามารถค้นพบได้ บน Mac เครื่องนั้น ให้เปิด “ทำให้ Mac เครื่องนี้ค้นพบได้” ในการตั้งค่า › อุปกรณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac keşfedilebilir değil. O Mac’te Ayarlar › Cihazlar bölümünden “Bu Mac’i keşfedilebilir yap” seçeneğini açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей Mac недоступний для виявлення. На тому Mac увімкніть «Зробити цей Mac доступним для виявлення» у розділі Налаштування › Пристрої."
+          }
+        }
+      }
+    },
     "settings.automation.pi": {
       "extractionState": "manual",
       "localizations": {
