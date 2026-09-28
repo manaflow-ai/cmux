@@ -489,7 +489,7 @@ On first launch, macOS may ask you to confirm opening an app from an identified 
 
 ## License
 
-cmux is open source under [GPL-3.0-or-later](LICENSE).
+cmux is open source under [GPL-3.0-or-later](LICENSE). The cmux server software (`web/`, the Cloudflare workers, and the relay services listed in [LICENSE](LICENSE)) uses the [Business Source License 1.1](web/LICENSE) instead: you can read, modify, and run it for non-production use, and production use or self-hosting requires a commercial license.
 
 If your organization cannot comply with GPL, commercial terms may be available
 for portions for which Manaflow controls the necessary rights. They do not
