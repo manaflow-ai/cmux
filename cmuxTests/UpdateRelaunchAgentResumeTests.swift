@@ -376,6 +376,24 @@ struct UpdateRelaunchAgentResumeTests {
         #expect(try restoredRecord(marked: false).record.continuationPrompt == nil)
     }
 
+    /// A nudge the restore never used expires, so a manual resume much later resumes plainly.
+    @Test("An unused continuation nudge expires")
+    func unusedContinuationNudgeExpires() {
+        let nudges = UpdateRelaunchContinuationNudges.shared
+        let panelId = UUID()
+        defer { nudges.consume(panelId: panelId) }
+        let marked = SessionTerminalPanelSnapshot(resumeWithContinuation: true)
+
+        nudges.registerRestoredPanel(panelId, snapshot: marked, resumesAgent: false, now: 100)
+        #expect(nudges.prompt(forPanel: panelId, now: 100) == nil)
+
+        nudges.registerRestoredPanel(panelId, snapshot: marked, resumesAgent: true, now: 100)
+        #expect(nudges.prompt(forPanel: panelId, now: 100 + UpdateRelaunchContinuationNudges.lifetime)
+            == UpdateRelaunchContinuationNudges.prompt)
+        #expect(nudges.prompt(forPanel: panelId, now: 101 + UpdateRelaunchContinuationNudges.lifetime) == nil)
+        #expect(nudges.prompt(forPanel: panelId, now: 100) == nil)
+    }
+
     private static let continuationBinding = SurfaceResumeBindingSnapshot(
         kind: "claude",
         command: "claude --resume 0198f073-0a5b-7000-8000-00000000a0c1",

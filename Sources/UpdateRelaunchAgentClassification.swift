@@ -123,8 +123,14 @@ final class UpdateRelaunchContinuationNudges {
     /// the terminate-path save that follows it.
     var midTaskPanelIds: Set<UUID> = []
 
-    /// Restored panels whose next agent resume carries ``prompt``.
-    private(set) var pendingPanelIds: Set<UUID> = []
+    /// How long after the relaunch restore a nudge stays usable. The restore types the resume
+    /// right away; a resume that never got through (the user interrupted it, or the session was
+    /// gone) must not greet a manual resume hours later.
+    static let lifetime: TimeInterval = 600
+
+    /// Restored panels whose next agent resume carries ``prompt``, with the uptime they were
+    /// restored at.
+    private(set) var pendingPanels: [UUID: TimeInterval] = [:]
 
     /// Whether a session save should mark `panelId`.
     func marksPanel(_ panelId: UUID) -> Bool? {
@@ -132,18 +138,28 @@ final class UpdateRelaunchContinuationNudges {
     }
 
     /// Records a restored panel that auto-resumes its agent from a marked snapshot.
-    func registerRestoredPanel(_ panelId: UUID, snapshot: SessionTerminalPanelSnapshot?, resumesAgent: Bool) {
+    func registerRestoredPanel(
+        _ panelId: UUID,
+        snapshot: SessionTerminalPanelSnapshot?,
+        resumesAgent: Bool,
+        now: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) {
         guard resumesAgent, snapshot?.resumeWithContinuation == true else { return }
-        pendingPanelIds.insert(panelId)
+        pendingPanels[panelId] = now
     }
 
-    /// The prompt for `panelId`'s next resume, if it has one.
-    func prompt(forPanel panelId: UUID) -> String? {
-        pendingPanelIds.contains(panelId) ? Self.prompt : nil
+    /// The prompt for `panelId`'s next resume, if it has a nudge that has not expired.
+    func prompt(forPanel panelId: UUID, now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> String? {
+        guard let restoredAt = pendingPanels[panelId] else { return nil }
+        guard now - restoredAt <= Self.lifetime else {
+            pendingPanels[panelId] = nil
+            return nil
+        }
+        return Self.prompt
     }
 
     /// Ends the nudge once a resume of `panelId` is admitted.
     func consume(panelId: UUID) {
-        pendingPanelIds.remove(panelId)
+        pendingPanels[panelId] = nil
     }
 }

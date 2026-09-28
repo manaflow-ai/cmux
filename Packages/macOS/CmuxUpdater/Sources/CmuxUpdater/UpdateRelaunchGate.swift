@@ -116,6 +116,7 @@ final class UpdateRelaunchGate {
         let relaunch: () -> Void
         let later: () -> Void
         var published: (UpdateRelaunchBlockers, Mode)?
+        var actions: Actions?
         var isPreparing = false
         var installNowRequested = false
 
@@ -183,6 +184,7 @@ final class UpdateRelaunchGate {
         pending = request
         log.append("update relaunch held (mode=\(mode))")
         let actions = Actions(publish: publish, prepare: prepare)
+        request.actions = actions
         publishHold(request, blockers: readiness().blockers, actions: actions)
         let interval = recheckInterval
         waitTask = Task { @MainActor [weak self, clock] in
@@ -264,6 +266,19 @@ final class UpdateRelaunchGate {
                 self.publishHold(request, blockers: current, actions: actions)
             } : nil
         )))
+    }
+
+    /// Switches a hold that would stop something risky to asking the user, for an install
+    /// requested somewhere that does not show what is running, such as the menu. Returns
+    /// whether the hold now asks; `false` means nothing risky holds it.
+    func askUser() -> Bool {
+        guard let request = pending, let actions = request.actions,
+              let blockers = request.published?.0, blockers.needsConfirmation else { return false }
+        guard request.mode != .askUser else { return true }
+        log.append("update relaunch gate: install requested while risky; asking")
+        request.mode = .askUser
+        publishHold(request, blockers: blockers, actions: actions)
+        return true
     }
 
     /// Ends a held relaunch without running either action, because the update session that

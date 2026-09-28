@@ -331,12 +331,16 @@ private final class CallCounter: @unchecked Sendable {
         // The menu shows none of what is running, so it asks like any install the user starts.
         controller.attemptUpdate()
 
+        guard case .installing(let asking) = controller.model.state else {
+            Issue.record("expected the held update to stay on screen")
+            return
+        }
         #expect(controller.driver.relaunchGate.mode == .askUser)
-        #expect(installing?.updateWhenClear != nil)
+        #expect(asking.updateWhenClear != nil)
         await tick()
         #expect(installs.count == 0)
 
-        installing?.retryTerminatingApplication()
+        asking.retryTerminatingApplication()
         await settle { installs.count == 1 }
     }
 
