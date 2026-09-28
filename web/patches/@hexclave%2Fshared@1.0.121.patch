@@ -1,0 +1,72 @@
+diff --git a/dist/esm/utils/promises.js b/dist/esm/utils/promises.js
+index b652e6dfbdba2b122dfa21b515220c300e2ef0a8..f35ba51705d146afcdd328695a3c8c4a40962272 100644
+--- a/dist/esm/utils/promises.js
++++ b/dist/esm/utils/promises.js
+@@ -120,8 +120,29 @@ function runAsynchronouslyWithAlert(...args) {
+ 		...args[1],
+ 		onError: (error) => {
+ 			const nodeEnv = getProcessEnv("NODE_ENV");
+-			if (KnownError.isKnownError(error) && nodeEnv?.includes("production")) alert(error.message);
+-			else alert(`An unhandled error occurred. Please ${nodeEnv === "development" ? `check the browser console for the full error.` : "report this to the developer."}\n\n${error}`);
++			const knownError = KnownError.isKnownError(error);
++			const productionLike = nodeEnv === undefined || nodeEnv.includes("production");
++			if (
++				knownError &&
++				productionLike &&
++				error.errorCode === "USER_EMAIL_ALREADY_EXISTS" &&
++				typeof window !== "undefined"
++			) {
++				const currentUrl = new URL(window.location.href);
++				const url = new URL("/handler/auth-error", currentUrl);
++				url.searchParams.set("code", "signup-pending");
++				for (const name of ["after_auth_return_to", "web_return_to", "native_app_return_to"]) {
++					const value = currentUrl.searchParams.get(name);
++					if (value) url.searchParams.set(name, value);
++				}
++				window.location.replace(url.toString());
++				return;
++			}
++			if (knownError && productionLike) alert(error.message);
++			else {
++				const development = nodeEnv === "development";
++				alert(`An unhandled error occurred. Please ${development ? "check the browser console for the full error." : "report this to the developer."}${development ? `\n\n${error}` : ""}`);
++			}
+ 			args[1]?.onError?.(error);
+ 		}
+ 	}, ...args.slice(2));
+diff --git a/dist/utils/promises.js b/dist/utils/promises.js
+index 1922c6665b6311c181f34555fd49cd45113b8046..3728f2d0a6a48b98c06ef9dc21176ec8a6546ae6 100644
+--- a/dist/utils/promises.js
++++ b/dist/utils/promises.js
+@@ -121,8 +121,29 @@ function runAsynchronouslyWithAlert(...args) {
+ 		...args[1],
+ 		onError: (error) => {
+ 			const nodeEnv = (0, __env_js.getProcessEnv)("NODE_ENV");
+-			if (___index_js.KnownError.isKnownError(error) && nodeEnv?.includes("production")) alert(error.message);
+-			else alert(`An unhandled error occurred. Please ${nodeEnv === "development" ? `check the browser console for the full error.` : "report this to the developer."}\n\n${error}`);
++			const knownError = ___index_js.KnownError.isKnownError(error);
++			const productionLike = nodeEnv === undefined || nodeEnv.includes("production");
++			if (
++				knownError &&
++				productionLike &&
++				error.errorCode === "USER_EMAIL_ALREADY_EXISTS" &&
++				typeof window !== "undefined"
++			) {
++				const currentUrl = new URL(window.location.href);
++				const url = new URL("/handler/auth-error", currentUrl);
++				url.searchParams.set("code", "signup-pending");
++				for (const name of ["after_auth_return_to", "web_return_to", "native_app_return_to"]) {
++					const value = currentUrl.searchParams.get(name);
++					if (value) url.searchParams.set(name, value);
++				}
++				window.location.replace(url.toString());
++				return;
++			}
++			if (knownError && productionLike) alert(error.message);
++			else {
++				const development = nodeEnv === "development";
++				alert(`An unhandled error occurred. Please ${development ? "check the browser console for the full error." : "report this to the developer."}${development ? `\n\n${error}` : ""}`);
++			}
+ 			args[1]?.onError?.(error);
+ 		}
+ 	}, ...args.slice(2));

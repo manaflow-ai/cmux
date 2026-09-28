@@ -32,7 +32,9 @@ struct MobileTaskModelProviderStrategyTests {
         await probe.setMinimumCommandTimeout(.seconds(20))
         await probe.setCommandOutput("""
         test-provider/host-next-999
+        {"name":"Host Next 999","variants":{"high":{}}}
         test-provider/host-second-998
+        {"name":"Host Second 998","variants":{"low":{}}}
         """)
         let strategy = makeStrategy(probe: probe)
 
@@ -42,25 +44,27 @@ struct MobileTaskModelProviderStrategyTests {
             models: [
                 MobileTaskModel(
                     id: "test-provider/host-next-999",
-                    displayName: "test-provider/host-next-999"
+                    displayName: "Host Next 999",
+                    efforts: [MobileTaskModelEffort(id: "high", displayName: "High")]
                 ),
                 MobileTaskModel(
                     id: "test-provider/host-second-998",
-                    displayName: "test-provider/host-second-998"
+                    displayName: "Host Second 998",
+                    efforts: [MobileTaskModelEffort(id: "low", displayName: "Low")]
                 ),
             ],
             source: .discovered
         ))
         let commands = await probe.commands
         #expect(commands.count == 1)
-        #expect(commands.first?.0 == "opencode models")
+        #expect(commands.first?.0 == "opencode models --verbose")
         #expect(commands.first?.1 == .seconds(30))
         #expect(await probe.readPaths.isEmpty)
     }
 
     @Test func claudeUsesControlStreamAsAuthoritativeCatalog() async {
         let probe = MobileTaskModelStrategyProbe()
-        await probe.setCommandOutput(#"{"type":"control_response","response":{"subtype":"success","request_id":"cmux-list-options","response":{"models":[{"value":"default","displayName":"Default"},{"value":"host-next-999","displayName":"Host Next 999"}]}}}"#)
+        await probe.setCommandOutput(#"{"type":"control_response","response":{"subtype":"success","request_id":"cmux-list-options","response":{"models":[{"value":"default","displayName":"Default","supportedEffortLevels":["low","medium","high"],"defaultEffortLevel":"medium"},{"value":"host-next-999","displayName":"Host Next 999"}]}}}"#)
 
         let result = await makeStrategy(probe: probe).models(for: .claude)
 
@@ -68,7 +72,17 @@ struct MobileTaskModelProviderStrategyTests {
             models: [
                 MobileTaskModel(id: "host-next-999", displayName: "Host Next 999"),
             ],
-            source: .discovered
+            source: .discovered,
+            defaultModel: MobileTaskModel(
+                id: "default",
+                displayName: "Default",
+                efforts: [
+                    MobileTaskModelEffort(id: "low", displayName: "Low"),
+                    MobileTaskModelEffort(id: "medium", displayName: "Medium"),
+                    MobileTaskModelEffort(id: "high", displayName: "High"),
+                ],
+                defaultEffortID: "medium"
+            )
         ))
         let commands = await probe.commands
         #expect(commands.count == 1)
@@ -80,13 +94,22 @@ struct MobileTaskModelProviderStrategyTests {
 
     @Test func codexUsesDebugCatalogAsAuthoritativeCatalog() async {
         let probe = MobileTaskModelStrategyProbe()
+        await probe.setFile(
+            path: "/Users/tester/.codex/config.toml",
+            data: Data(#"model = "gpt-5.6-sol""#.utf8)
+        )
         await probe.setCommandOutput("""
         {
           "models": [
             {
               "slug": "gpt-5.6-sol",
               "display_name": "GPT-5.6 Sol",
-              "visibility": "list"
+              "visibility": "list",
+              "supported_reasoning_levels": [
+                {"effort":"low"},
+                {"effort":"ultra"}
+              ],
+              "default_reasoning_level": "low"
             },
             {
               "slug": "gpt-hidden",
@@ -101,13 +124,30 @@ struct MobileTaskModelProviderStrategyTests {
 
         #expect(result == MobileTaskModelListResult(
             models: [
-                MobileTaskModel(id: "gpt-5.6-sol", displayName: "GPT-5.6 Sol"),
+                MobileTaskModel(
+                    id: "gpt-5.6-sol",
+                    displayName: "GPT-5.6 Sol",
+                    efforts: [
+                        MobileTaskModelEffort(id: "low", displayName: "Low"),
+                        MobileTaskModelEffort(id: "ultra", displayName: "Ultra"),
+                    ],
+                    defaultEffortID: "low"
+                ),
             ],
-            source: .discovered
+            source: .discovered,
+            defaultModel: MobileTaskModel(
+                id: "gpt-5.6-sol",
+                displayName: "GPT-5.6 Sol",
+                efforts: [
+                    MobileTaskModelEffort(id: "low", displayName: "Low"),
+                    MobileTaskModelEffort(id: "ultra", displayName: "Ultra"),
+                ],
+                defaultEffortID: "low"
+            )
         ))
         #expect(await probe.commands.map(\.0) == ["exec codex debug models"])
         #expect(await probe.commands.map(\.1) == [.seconds(5)])
-        #expect(await probe.readPaths.isEmpty)
+        #expect(await probe.readPaths == ["/Users/tester/.codex/config.toml"])
     }
 
     @Test func codexFallsBackToAgentOwnedCacheAfterDebugFailure() async {
@@ -126,7 +166,10 @@ struct MobileTaskModelProviderStrategyTests {
             source: .discovered
         ))
         #expect(await probe.commands.map(\.0) == ["exec codex debug models"])
-        #expect(await probe.readPaths == ["/Users/tester/.codex/models_cache.json"])
+        #expect(await probe.readPaths == [
+            "/Users/tester/.codex/models_cache.json",
+            "/Users/tester/.codex/config.toml",
+        ])
     }
 
     @Test func failedAgentDiscoveryReturnsNoInventedValues() async {
@@ -138,10 +181,27 @@ struct MobileTaskModelProviderStrategyTests {
 
         #expect(codex.source == .fallback)
         #expect(codex.models.isEmpty)
+        #expect(codex.error == .providerUnavailable)
         #expect(claude.source == .fallback)
         #expect(claude.models.isEmpty)
+        #expect(claude.error == .providerUnavailable)
         #expect(openCode.source == .fallback)
         #expect(openCode.models.isEmpty)
+        #expect(openCode.error == .providerUnavailable)
+    }
+
+    @Test func failedQueryIsDistinctFromMissingAgent() async {
+        let probe = MobileTaskModelStrategyProbe()
+        await probe.setCommandOutput("")
+        let strategy = makeStrategy(probe: probe)
+
+        let codex = await strategy.models(for: .codex)
+        let claude = await strategy.models(for: .claude)
+        let openCode = await strategy.models(for: .openCode)
+
+        #expect(codex.error == .queryFailed)
+        #expect(claude.error == .queryFailed)
+        #expect(openCode.error == .queryFailed)
     }
 
     private func makeStrategy(

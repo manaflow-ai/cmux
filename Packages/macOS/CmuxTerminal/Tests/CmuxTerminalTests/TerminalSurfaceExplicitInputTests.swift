@@ -93,9 +93,44 @@ struct TerminalSurfaceExplicitInputTests {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
 
-        #expect(fixture.surface.sendText("hello"))
+        #expect(fixture.surface.sendTextResult("hello") == .queued)
 
         #expect(fixture.paneHost.explicitInputCount == 1)
+    }
+
+    @Test func pasteReportsClipboardDeferralAndRetainsOneReplay() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.nativeView.shouldDeferRuntimeInput = true
+
+        #expect(fixture.surface.sendTextResult("literal\n世界") == .queued)
+        #expect(fixture.nativeView.deferredRuntimeInputs.count == 1)
+        #expect(fixture.surface.pendingSocketInputBytes == 0)
+
+        fixture.nativeView.shouldDeferRuntimeInput = false
+        fixture.nativeView.deferredRuntimeInputs.removeFirst()()
+        #expect(fixture.surface.pendingSocketInputBytes == "literal\n世界".utf8.count)
+    }
+
+    @Test func pasteReportsQueueFullWithoutAcceptingText() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.pendingSocketInputBytes = fixture.surface.maxPendingSocketInputBytes
+        var accepted = 0
+        fixture.surface.onExplicitInput = { accepted += 1 }
+
+        #expect(fixture.surface.sendTextResult("literal\n世界") == .inputQueueFull)
+        #expect(fixture.surface.pendingSocketInputBytes == fixture.surface.maxPendingSocketInputBytes)
+        #expect(accepted == 0)
+    }
+
+    @Test func pasteReportsClosedSurfaceWithoutQueueing() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.beginPortalCloseLifecycle(reason: "test.closed")
+
+        #expect(fixture.surface.sendTextResult("literal\n世界") == .surfaceUnavailable)
+        #expect(fixture.surface.pendingSocketInputBytes == 0)
     }
 
     @Test func parsedInputNotifiesPaneHostBeforeQueueingOnAColdSurface() {
@@ -182,6 +217,18 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(!fixture.surface.toggleKeyboardCopyMode())
 
         #expect(fixture.paneHost.explicitInputCount == 1)
+    }
+
+    @Test func losingFocusCancelsKeyboardCopyModeOnTheSurface() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.nativeView.isKeyboardCopyModeActive = true
+
+        fixture.surface.setFocus(true)
+        fixture.surface.setFocus(false)
+
+        #expect(fixture.nativeView.keyboardCopyModeCancellationCount == 1)
+        #expect(!fixture.nativeView.isKeyboardCopyModeActive)
     }
 
     @Test func mobileGesturesNotifyPaneHost() {

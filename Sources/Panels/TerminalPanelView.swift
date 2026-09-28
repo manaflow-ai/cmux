@@ -19,7 +19,7 @@ struct TerminalPanelView: View {
     private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
     @AppStorage(SessionContentWidthSettings.alignmentKey)
     private var storedSessionContentAlignment = SessionContentAlignment.center.rawValue
-    @State private var terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
+    @State private var terminalFontSize = GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
     let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
@@ -94,6 +94,9 @@ struct TerminalPanelView: View {
         @Bindable var textBoxState = panel.textBoxState
 
         return VStack(spacing: 0) {
+            if let recovery = panel.restoreRecovery.state {
+                AgentRestoreRecoveryView(state: recovery)
+            }
             // Layering contract: terminal find UI is mounted in GhosttySurfaceScrollView (AppKit portal layer)
             // via `searchState`. Rendering `SurfaceSearchOverlay` in this SwiftUI container can hide it.
             GhosttyTerminalView(
@@ -180,8 +183,8 @@ struct TerminalPanelView: View {
             }
         }
         .background(Color(nsColor: appearance.contentBackgroundColor))
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyTerminalFontSizeDidChange)) { _ in
+            terminalFontSize = GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
         }
     }
 
@@ -207,7 +210,9 @@ struct TerminalPanelView: View {
               let tabId = workspace.surfaceIdFromPanelId(panel.id) else {
             return false
         }
-        return workspace.bonsplitController.selectedTab(inPane: currentPane)?.id == tabId
+        // See the resolver in WorkspaceContentView: selectedTab would
+        // subscribe this update to every tab title in the pane.
+        return workspace.bonsplitController.selectedTabId(inPane: currentPane) == tabId
     }
 
     private var effectiveTerminalAgentContext: String {
@@ -304,15 +309,14 @@ private struct AgentHibernationPlaceholderView: View {
                     .controlSize(.small)
                     .accessibilityIdentifier("AgentHibernationTerminationRecoveryProgress")
             case .hibernated:
-                CmuxSystemSymbolImage(magnified: "pause.circle", pointSize: 34, weight: .regular)
-                    .foregroundStyle(.secondary)
+                CmuxSystemSymbolImage(magnified: "pause.circle", pointSize: 34, weight: .regular, tint: .secondary)
             case .failed:
                 CmuxSystemSymbolImage(
                     magnified: "exclamationmark.triangle",
                     pointSize: 34,
-                    weight: .regular
+                    weight: .regular,
+                    tint: .secondary
                 )
-                .foregroundStyle(.secondary)
             }
             VStack(spacing: 4) {
                 Text(title)

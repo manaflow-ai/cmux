@@ -20,6 +20,47 @@ const BROWSER_ID: &str = "browser_66666666666666666666666666666666";
 static NEXT_TEMP_DIR: AtomicU64 = AtomicU64::new(0);
 
 #[test]
+fn shorthand_help_is_discoverable_without_a_server() {
+    let root = local_cli(&["--help"]);
+    assert_success(&root);
+    assert!(stdout(&root).contains("help shorthands"));
+    let help = local_cli(&["help", "shorthands"]);
+    assert_success(&help);
+    for name in ["splitw", "neww", "capturep", "send-keys", "ws => workspace"] {
+        assert!(stdout(&help).contains(name), "{}", stdout(&help));
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn shorthand_public_requests_keep_typed_operations_and_literal_values() {
+    for (args, operation, field, expected) in [
+        (vec!["ws", "new", "--name", "term"], "workspace.create", "name", json!("term")),
+        (vec!["splitw", "-h", "-t", PANE_ID], "pane.split", "direction", json!("right")),
+        (vec!["selectp", "-L", "-t", PANE_ID], "pane.focus_direction", "direction", json!("left")),
+        (
+            vec!["term", TERMINAL_ID, "write", "--text", "--json"],
+            "terminal.input.write",
+            "text",
+            json!("--json"),
+        ),
+        (
+            vec!["send-keys", "-t", TERMINAL_ID, "C-c", "Enter"],
+            "terminal.input.keys",
+            "keys",
+            json!(["ctrl+c", "enter"]),
+        ),
+    ] {
+        let (output, requests) = fake_resource_cli(&args, FakeReply::Success(json!({"ok":true})));
+        assert_success(&output);
+        assert_eq!(requests.len(), 1);
+        assert_json_contains_string(&requests[0], operation);
+        assert!(json_has_key_value(&requests[0], field, &expected), "{}", requests[0]);
+        assert_mutation_has_idempotency_key(&requests[0]);
+    }
+}
+
+#[test]
 fn root_help_is_noun_first_and_does_not_publish_the_old_flat_api() {
     let output = local_cli(&["--help"]);
     assert_success(&output);
@@ -176,7 +217,6 @@ fn old_action_first_commands_are_all_usage_errors() {
         "send-key",
         "copy",
         "ids",
-        "notify",
         "list-agents",
         "report-agent",
         "vt-state",

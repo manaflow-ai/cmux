@@ -46,7 +46,7 @@ extension DockSplitStore {
             return false
         }
         if shouldFocus {
-            dock.focusPanel(panelID)
+            dock.focusPanelFromDockInteraction(panelID, window: nil)
         }
         panel.triggerFlash(reason: reason)
         return true
@@ -64,9 +64,24 @@ extension DockSplitStore {
                   mountedTerminal === terminal else {
                 return
             }
+            // The user (or a socket client) took over the pane: never replay a
+            // lost restore selector into a line they are typing.
+            self.restoredAgentLifecycle.clearStartupInput(panelId: terminal.id)
             ownerTabManager?.dismissNotificationOnTerminalInteraction(
                 tabId: self.workspaceId,
                 surfaceId: terminal.id
+            )
+        }
+        terminal.surface.onStartupRestoreAdmissionCancelled = { [weak self, weak terminal] in
+            guard let self, let terminal,
+                  let mountedTerminal = self.panels[terminal.id] as? TerminalPanel,
+                  mountedTerminal === terminal,
+                  let restore = self.deferredAgentResumeRestoresByPanelId[terminal.id] else {
+                return
+            }
+            self.cancelDeferredAgentResumeRestore(
+                panelId: terminal.id,
+                restore: restore
             )
         }
         terminal.onRequestWorkspacePaneFlash = { [weak self, weak terminal] reason in

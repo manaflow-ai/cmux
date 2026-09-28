@@ -1,3 +1,5 @@
+import CmuxBrowser
+import CmuxFoundation
 import CmuxSettings
 import Foundation
 
@@ -48,6 +50,7 @@ extension CmuxSettingsFileStore {
     }
 
     private static func defaultTemplateSections() -> [[String: Any]] {
+        let fileEditorSettings = FilePreviewEditorSettings(defaults: .standard)
         let shortcutsBindings = Dictionary(
             uniqueKeysWithValues: KeyboardShortcutSettings.publicShortcutActions.map { action in
                 (action.rawValue, shortcutTemplateValue(action.defaultShortcut, usesNumberedDigits: action.usesNumberedDigitMatching))
@@ -59,6 +62,7 @@ extension CmuxSettingsFileStore {
                 "app": [
                     "language": AppCatalogSection().language.defaultValue.rawValue,
                     "appearance": AppearanceSettings.defaultMode.rawValue,
+                    "accentColor": AppCatalogSection().accentColor.defaultValue.rawValue,
                     "appIcon": AppIconSettings.defaultMode.rawValue,
                     "windowTitleTemplate": WindowTitleTemplate.defaultRawValue,
                     "menuBarOnly": MenuBarOnlySettings.defaultMenuBarOnly,
@@ -68,8 +72,11 @@ extension CmuxSettingsFileStore {
                     "minimalMode": false,
                     "keepWorkspaceOpenWhenClosingLastSurface": !SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface.defaultValue,
                     "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
+                    "paneResizeStepPixels": SettingCatalog().app.paneResizeStepPixels.defaultValue,
                     "focusHistoryIncludesPanesAndTabs": SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue,
+                    "equalizeSplitsOnCreate": SettingCatalog().app.equalizeSplitsOnCreate.defaultValue,
                     "preferredEditor": "",
+                    "defaultWorkspacePath": AppCatalogSection().defaultWorkspacePath.defaultValue,
                     "openSupportedFilesInCmux": AppCatalogSection().openSupportedFilesInCmux.defaultValue,
                     "openMarkdownInCmuxViewer": AppCatalogSection().openMarkdownInCmuxViewer.defaultValue,
                     "reorderOnNotification": SettingCatalog().app.reorderOnNotification.defaultValue,
@@ -78,6 +85,8 @@ extension CmuxSettingsFileStore {
                     "confirmQuit": AppCatalogSection().confirmQuitMode.defaultValue.rawValue,
                     "warnBeforeClosingTab": AppCatalogSection().warnBeforeClosingTab.defaultValue,
                     "warnBeforeClosingTabXButton": AppCatalogSection().warnBeforeClosingTabXButton.defaultValue,
+                    "warnBeforeClosingWorkspace": AppCatalogSection().warnBeforeClosingWorkspace.defaultValue,
+                    "warnBeforeClosingWindow": AppCatalogSection().warnBeforeClosingWindow.defaultValue,
                     "hideTabCloseButton": AppCatalogSection().hideTabCloseButton.defaultValue,
                     "renameSelectsExistingName": AppCatalogSection().renameSelectsExistingName.defaultValue,
                     "commandPaletteSearchesAllSurfaces": AppCatalogSection().commandPaletteSearchesAllSurfaces.defaultValue,
@@ -90,6 +99,7 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "terminal": [
+                    "adaptiveDefaultTheme": SettingCatalog().terminal.adaptiveDefaultTheme.defaultValue,
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
                     "scrollSpeed": TerminalScrollSpeedSettings.defaultMultiplier,
                     "sessionContentMaxWidth": false,
@@ -123,6 +133,7 @@ extension CmuxSettingsFileStore {
                     "paneFlashColor": NSNull(),
                     "sound": NotificationSoundSettings.defaultValue,
                     "customSoundFilePath": NotificationSoundSettings.defaultCustomFilePath,
+                    "soundOverrides": [:],
                     "command": NotificationSoundSettings.defaultCustomCommand,
                     "hooksMode": "append",
                     "hooks": [],
@@ -133,6 +144,7 @@ extension CmuxSettingsFileStore {
                     "hideAllDetails": SettingCatalog().sidebar.hideAllDetails.defaultValue,
                     "wrapWorkspaceTitles": SidebarWorkspaceTitleWrapSettings.defaultWrap,
                     "showWorkspaceDescription": SettingCatalog().sidebar.showWorkspaceDescription.defaultValue,
+                    "workspaceDescriptionColor": NSNull(),
                     "beta": [
                         "workspaceTodos": [
                             "controls": [
@@ -164,6 +176,7 @@ extension CmuxSettingsFileStore {
                 "workspaceColors": [
                     "indicatorStyle": SettingCatalog().workspaceColors.indicatorStyle.defaultValue.rawValue,
                     "selectionColor": NSNull(),
+                    "subtleSelection": SettingCatalog().workspaceColors.subtleSelection.defaultValue,
                     "notificationBadgeColor": NSNull(),
                     "colors": Dictionary(
                         uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
@@ -184,7 +197,9 @@ extension CmuxSettingsFileStore {
                     "socketControlMode": SocketControlSettings.defaultMode.rawValue,
                     "socketPassword": "",
                     "claudeCodeIntegration": IntegrationsCatalogSection().claudeCodeHooksEnabled.defaultValue,
+                    "piIntegration": IntegrationsCatalogSection().piHooksEnabled.defaultValue,
                     "claudeBinaryPath": "",
+                    "codexIntegration": IntegrationsCatalogSection().codexHooksEnabled.defaultValue,
                     "ripgrepBinaryPath": "",
                     "suppressSubagentNotifications": IntegrationsCatalogSection().suppressSubagentNotifications.defaultValue,
                     "ampIntegration": IntegrationsCatalogSection().ampHooksEnabled.defaultValue,
@@ -212,6 +227,7 @@ extension CmuxSettingsFileStore {
                     "hostsToOpenInEmbeddedBrowser": [String](),
                     "urlsToAlwaysOpenExternally": [String](),
                     "insecureHttpHostsAllowedInEmbeddedBrowser": BrowserInsecureHTTPSettings.defaultAllowlistPatterns,
+                    "urlAllowlist": BrowserURLAllowlistPolicy.defaultPatterns,
                     "showImportHintOnBlankTabs": BrowserImportHintSettings.defaultShowOnBlankTabs,
                     "reactGrabVersion": ReactGrabSettings.defaultVersion,
                 ],
@@ -231,6 +247,11 @@ extension CmuxSettingsFileStore {
             [
                 "fileEditor": [
                     "wordWrap": FilePreviewWordWrapSettings.defaultEnabled,
+                    "syntaxHighlighting": fileEditorSettings.catalog.syntaxHighlighting.defaultValue,
+                    "lineNumbers": fileEditorSettings.catalog.lineNumbers.defaultValue,
+                    "indentGuides": fileEditorSettings.catalog.indentGuides.defaultValue,
+                    "currentLineHighlight": fileEditorSettings.catalog.currentLineHighlight.defaultValue,
+                    "tabWidth": fileEditorSettings.catalog.tabWidth.defaultValue,
                 ],
             ],
             [

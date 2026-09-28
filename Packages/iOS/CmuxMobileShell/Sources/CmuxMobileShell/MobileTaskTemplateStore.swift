@@ -31,14 +31,40 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     private static let lastMacDeviceIDKey = "cmux.mobile.taskComposer.lastMacDeviceID"
     private static let lastDirectoryPrefix = "cmux.mobile.taskComposer.lastDirectory."
     private static let recentDirectoriesPrefix = "cmux.mobile.taskComposer.recentDirectories.v1."
-    private static let composerDraftKey = "cmux.mobile.taskComposer.draft.v1"
+    private static let legacyComposerDraftKey = "cmux.mobile.taskComposer.draft.v1"
+    private static let composerDraftsKey = "cmux.mobile.taskComposer.drafts.v1"
     private static let recentDirectoryLimit = 20
+    private static let composerDraftLimit = 20
+
+    /// Draft-owned attachment bytes live under this directory, one
+    /// subdirectory per draft id, so deleting a draft is one folder removal.
+    private let attachmentFilesRootDirectory: URL
 
     /// Creates a task template store backed by `defaults`.
-    /// - Parameter defaults: The `UserDefaults` instance to persist into.
-    public init(defaults: UserDefaults, diagnosticLog: DiagnosticLog? = nil) {
+    /// - Parameters:
+    ///   - defaults: The `UserDefaults` instance to persist into.
+    ///   - attachmentFilesRootDirectory: Root for preserved draft attachment
+    ///     files; defaults to Application Support.
+    public init(
+        defaults: UserDefaults,
+        diagnosticLog: DiagnosticLog? = nil,
+        attachmentFilesRootDirectory: URL =
+            UserDefaultsMobileTaskTemplateStore.defaultComposerAttachmentsRootDirectory()
+    ) {
         self.defaults = defaults
         self.diagnosticLog = diagnosticLog
+        self.attachmentFilesRootDirectory = attachmentFilesRootDirectory
+    }
+
+    /// The production location for preserved draft attachment files.
+    public static func defaultComposerAttachmentsRootDirectory() -> URL {
+        let base = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? FileManager.default.temporaryDirectory
+        return base
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("composer-draft-attachments", isDirectory: true)
     }
 
     /// Returns all stored templates, seeding defaults on the first read.
@@ -147,34 +173,144 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
         defaults.set(data, forKey: Self.recentDirectoriesPrefix + macDeviceID)
     }
 
-    /// Returns the unsent task-composer draft, if one was saved.
-    public func composerDraft() -> MobileTaskComposerDraft? {
-        guard let data = defaults.data(forKey: Self.composerDraftKey) else { return nil }
+    /// Returns every unsent task-composer draft, newest first, adopting a
+    /// legacy single-slot draft into the collection on first read.
+    public func composerDrafts() -> [MobileTaskComposerSavedDraft] {
+        migrateLegacyComposerDraftIfNeeded()
+        guard let data = defaults.data(forKey: Self.composerDraftsKey) else { return [] }
         do {
-            return try decoder.decode(MobileTaskComposerDraft.self, from: data)
+            return try decoder.decode([MobileTaskComposerSavedDraft].self, from: data)
         } catch {
             diagnosticLog?.recordAppEvent(
                 .draftPersistenceFailed,
                 failure: .protocolViolation
             )
-            return nil
+            return []
         }
     }
 
-    /// Stores or clears the unsent task-composer draft.
-    public func setComposerDraft(_ draft: MobileTaskComposerDraft?) {
-        guard let draft else {
-            defaults.removeObject(forKey: Self.composerDraftKey)
+    /// Inserts or replaces one draft by id at the front of the collection,
+    /// dropping the oldest entries (and their attachment files) beyond the
+    /// bounded storage limit. Files owned by attachments the replacement no
+    /// longer references are deleted so removed attachments leave no bytes.
+    public func saveComposerDraft(_ draft: MobileTaskComposerSavedDraft) {
+        var drafts = composerDrafts()
+        if let previous = drafts.first(where: { $0.id == draft.id }) {
+            let keptPaths = Set(draft.content.attachments.map(\.relativePath))
+            for dropped in previous.content.attachments
+            where !keptPaths.contains(dropped.relativePath) {
+                guard let url = composerAttachmentFileURL(
+                    relativePath: dropped.relativePath
+                ) else { continue }
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+        drafts.removeAll { $0.id == draft.id }
+        drafts.insert(draft, at: 0)
+        if drafts.count > Self.composerDraftLimit {
+            let evicted = drafts.suffix(from: Self.composerDraftLimit)
+            drafts.removeLast(drafts.count - Self.composerDraftLimit)
+            removeAttachmentDirectories(draftIDs: Set(evicted.map(\.id)))
+        }
+        saveComposerDrafts(drafts)
+    }
+
+    /// Deletes the drafts with the provided ids in one persistence update,
+    /// including any preserved attachment files they own.
+    public func deleteComposerDrafts(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        removeAttachmentDirectories(draftIDs: ids)
+        var drafts = composerDrafts()
+        let countBefore = drafts.count
+        drafts.removeAll { ids.contains($0.id) }
+        guard drafts.count != countBefore else { return }
+        saveComposerDrafts(drafts)
+    }
+
+    /// Copies staged attachment bytes into draft-owned storage. An existing
+    /// copy of the same attachment is reused so per-leave persists stay cheap.
+    public func persistComposerAttachmentFile(
+        draftID: UUID,
+        attachmentID: UUID,
+        preferredExtension: String,
+        from sourceURL: URL
+    ) throws -> String {
+        let sanitizedExtension = preferredExtension
+            .filter { $0.isLetter || $0.isNumber }
+            .lowercased()
+        let fileName = attachmentID.uuidString
+            + "." + (sanitizedExtension.isEmpty ? "bin" : sanitizedExtension)
+        let relativePath = draftID.uuidString + "/" + fileName
+        let draftDirectory = attachmentFilesRootDirectory
+            .appendingPathComponent(draftID.uuidString, isDirectory: true)
+        let destination = draftDirectory.appendingPathComponent(fileName)
+        if FileManager.default.fileExists(atPath: destination.path) {
+            return relativePath
+        }
+        try FileManager.default.createDirectory(
+            at: draftDirectory,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.copyItem(at: sourceURL, to: destination)
+        return relativePath
+    }
+
+    /// Returns the location of preserved attachment bytes, or `nil` when the
+    /// path is invalid or the file no longer exists.
+    public func composerAttachmentFileURL(relativePath: String) -> URL? {
+        let components = relativePath.split(separator: "/")
+        guard components.count == 2,
+              !relativePath.contains(".."),
+              !relativePath.hasPrefix("/") else {
+            return nil
+        }
+        let url = attachmentFilesRootDirectory
+            .appendingPathComponent(String(components[0]), isDirectory: true)
+            .appendingPathComponent(String(components[1]))
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
+    private func removeAttachmentDirectories(draftIDs: Set<UUID>) {
+        for draftID in draftIDs {
+            let directory = attachmentFilesRootDirectory
+                .appendingPathComponent(draftID.uuidString, isDirectory: true)
+            try? FileManager.default.removeItem(at: directory)
+        }
+    }
+
+    /// Adopts the pre-collection single draft as the newest saved draft so an
+    /// update never discards what the user prepared on an older build.
+    private func migrateLegacyComposerDraftIfNeeded() {
+        guard let data = defaults.data(forKey: Self.legacyComposerDraftKey) else { return }
+        defaults.removeObject(forKey: Self.legacyComposerDraftKey)
+        guard let legacy = try? decoder.decode(MobileTaskComposerDraft.self, from: data),
+              !legacy.isEffectivelyEmpty else { return }
+        var drafts: [MobileTaskComposerSavedDraft] = []
+        if let existing = defaults.data(forKey: Self.composerDraftsKey),
+           let decoded = try? decoder.decode([MobileTaskComposerSavedDraft].self, from: existing) {
+            drafts = decoded
+        }
+        drafts.insert(
+            MobileTaskComposerSavedDraft(updatedAt: Date(), content: legacy),
+            at: 0
+        )
+        saveComposerDrafts(drafts)
+    }
+
+    private func saveComposerDrafts(_ drafts: [MobileTaskComposerSavedDraft]) {
+        guard !drafts.isEmpty else {
+            defaults.removeObject(forKey: Self.composerDraftsKey)
             return
         }
-        guard let data = try? encoder.encode(draft) else {
+        guard let data = try? encoder.encode(drafts) else {
             diagnosticLog?.recordAppEvent(
                 .draftPersistenceFailed,
                 failure: .protocolViolation
             )
             return
         }
-        defaults.set(data, forKey: Self.composerDraftKey)
+        defaults.set(data, forKey: Self.composerDraftsKey)
     }
 
     /// Removes every account-derived template, selection, directory, and draft.
@@ -185,7 +321,8 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
             Self.builtInProtectionMigrationKey,
             Self.lastTemplateIDKey,
             Self.lastMacDeviceIDKey,
-            Self.composerDraftKey,
+            Self.legacyComposerDraftKey,
+            Self.composerDraftsKey,
         ] + Self.legacyKeys
         for key in keys {
             defaults.removeObject(forKey: key)
@@ -196,6 +333,7 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(Self.recentDirectoriesPrefix) {
             defaults.removeObject(forKey: key)
         }
+        try? FileManager.default.removeItem(at: attachmentFilesRootDirectory)
     }
 
     private func seedIfNeeded() {

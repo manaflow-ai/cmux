@@ -43,6 +43,7 @@ struct ChatArtifactFailurePresentationTests {
             (.localStorageUnavailable, "Local storage unavailable", true),
             (.loadFailed, "Couldn't load file", true),
             (.tooLarge(limitBytes: 1_024), "File too large to preview", false),
+            (.unknown(code: "artifact_rev_gone"), "Unrecognized error", false),
         ]
 
         #expect(unreachable.title == "Mac unreachable")
@@ -60,6 +61,18 @@ struct ChatArtifactFailurePresentationTests {
             #expect(presentation.title != unreachable.title)
             #expect(presentation.message != unreachable.message)
         }
+    }
+
+    @Test
+    func unknownCopySurfacesTheCodeWithoutBlamingConnectivity() {
+        let coded = ChatArtifactFailurePresentation(error: .unknown(code: "artifact_rev_gone"), scope: .chat)
+        let uncoded = ChatArtifactFailurePresentation(error: .unknown(code: nil), scope: .chat)
+
+        // The Mac replied, so the copy must not send the user to check connectivity.
+        #expect(coded.message.contains("artifact_rev_gone"))
+        #expect(!coded.message.contains("Check the connection"))
+        #expect(!uncoded.message.contains("Check the connection"))
+        #expect(!uncoded.message.isEmpty)
     }
 
     @Test

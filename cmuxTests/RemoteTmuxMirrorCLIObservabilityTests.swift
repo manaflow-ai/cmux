@@ -17,6 +17,28 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct RemoteTmuxMirrorCLIObservabilityTests {
+    @Test func explicitSurfaceFocusSurvivesWorkspaceRestoration() throws {
+        let harness = try Harness(focusAwayFromMirror: true, addPeerSurface: true, connectedTransport: true)
+        defer { harness.tearDown() }
+        let manager = try #require(harness.appDelegate.tabManagerFor(windowId: harness.windowID))
+        let previousPanelID = try #require(harness.nonMirrorPanelID)
+        let peerSurfaceID = try #require(harness.peerSurfaceID)
+        let remoteSurfaceID = try #require(harness.mirror.panel(forPane: 11)?.id)
+        let other = manager.addWorkspace(autoWelcomeIfNeeded: false)
+
+        for (surfaceID, expectedPanelID) in [(peerSurfaceID, peerSurfaceID), (remoteSurfaceID, harness.outerPanelID)] {
+            manager.focusTab(harness.workspace.id, surfaceId: previousPanelID, suppressFlash: true)
+            manager.selectWorkspace(other)
+            #expect(TerminalController.shared.controlSurfaceFocus(
+                routing: harness.routing(), surfaceID: surfaceID
+            ) == .focused(windowID: harness.windowID, workspaceID: harness.workspace.id, surfaceID: surfaceID))
+            #expect(manager.selectedTabId == harness.workspace.id)
+            // Drain the deferred workspace-selection focus restoration.
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+            #expect(harness.workspace.focusedPanelId == expectedPanelID)
+        }
+    }
+
     @Test func multiPaneMirrorPublishesInnerPanesAndRoutesInput() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
@@ -122,6 +144,23 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         #expect(current.paneID == activePaneID.id)
         #expect(current.surfaceID == activeSurfaceID)
         #expect(current.surfaceTypeRawValue == PanelType.terminal.rawValue)
+    }
+
+    @Test func legacySocketReadTargetProjectsTheActiveInnerPane() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+
+        let activeTmuxPaneID = try #require(harness.mirror.paneIDsInOrder.last)
+        let activePanel = try #require(harness.mirror.panel(forPane: activeTmuxPaneID))
+        let target = try #require(
+            harness.workspace.controlSocketTerminalInputTarget(
+                for: harness.outerPanelID
+            )
+        )
+
+        #expect(target.surfaceID == activePanel.id)
+        #expect(target.panel === activePanel)
+        #expect(target.surface === activePanel.surface)
     }
 
     @Test func defaultTriggerFlashProjectsTheActiveInnerPane() throws {

@@ -16,23 +16,61 @@ cmux server start [START OPTIONS]
 cmux attach [START OPTIONS] [--terminal <terminal-id>]
 cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
+cmux wg hub --config <wg-quick file> --socket <unix socket>
 ```
 
 `relay` copies private protocol bytes between standard I/O and one session
-socket. Machine connectors use it as a transport primitive. `attach` opens the
+socket. Machine connectors use it as a transport primitive. `wg hub` owns one
+in-process WireGuard tunnel and serves SOCKS5 CONNECT on an owner-only Unix
+socket so several `remote connect --wireguard-hub <socket>` clients share one
+key; it prints one `hub-ready` JSON line when listening and removes the socket
+on SIGTERM or SIGINT. `attach` opens the
 complete session TUI. `attach --terminal <terminal-id>` resolves an exact ID
 from `cmux terminal list` and renders only that terminal, without session
 chrome or unrelated event traffic. Startup attach does not accept internal
 runtime identifiers, abbreviated identifiers, names, or `current`.
+
+Interactive and headless ownership are intentionally separate:
+
+| Form | Contract |
+| --- | --- |
+| `cmux` or `cmux --session NAME` | Create or attach an interactive session. |
+| `cmux server start --session NAME` | Start a headless owner. |
+| `cmux attach --session NAME` | Attach an existing owner and fail if it is absent. |
+
+The explicit split prevents two clients from silently creating competing
+owners. A future attach-or-create shortcut needs a readiness and concurrency
+contract before it can be added safely.
+
+Migration from tmux or Zellij keeps the owner and client steps visible. Run the
+owner in one terminal:
+
+```bash
+cmux server start --session agents
+```
+
+Then attach from another terminal:
+
+```bash
+cmux attach --session agents
+```
+
+Callers supervise the owner. A blind attach retry cannot distinguish a missing
+owner from an owner still starting.
 
 `server` is the local durable mux owner for exactly one named session:
 
 ```text
 cmux server start [START OPTIONS]
 cmux server status [--session <name>] [--socket <path>]
+cmux server stats [--session <name>] [--socket <path>] [--json]
 cmux server stop [--session <name>] [--socket <path>] [--force]
 cmux server reload-config [--session <name>] [--socket <path>]
 ```
+
+`server stats` prints the `server-stats` diagnostics (registry lock contention
+with holder sites, journal writer batches and commit latency, connection
+admission); see `docs/journal-operations.md` for how to read it.
 
 `server start` is the canonical foreground spelling of `--headless`.
 The shared `--session` and `--socket` routing options can also precede the
@@ -57,7 +95,11 @@ filesystem error text.
 
 Authenticated network operations use `remote connect|ssh|forward|rpc`,
 `remote enroll`, and `remote known-daemons`; they cannot accept local server
-targeting. `remote stop` manages only a replaceable SSH sidecar. A listener
+targeting. `remote connect --carrier` dials a `ws`/`wss` route with carrier
+authentication and no enrollment; only a daemon started with
+`--remote-ws-trusted-carrier` (or `CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1`), whose
+listener is reachable solely from a private network of authorized members,
+accepts it. `remote stop` manages only a replaceable SSH sidecar. A listener
 embedded by `server start` stops only through `server stop`, which also stops
 the local owner and its workspaces. `server start` accepts the explicit
 remote-listener flags when the owning process also serves authenticated
@@ -95,6 +137,50 @@ map every operational one-shot command and parameter in
 [`resource-operations-v2.json`](resource-operations-v2.json) to a public path.
 Sensitive renderer grants and connection-owned stream/viewer controls remain
 SDK and raw-only.
+
+## Shorthands
+
+`cmux help shorthands` lists the supported spellings. Every shorthand lowers to
+this same public resource grammar, with identical validation, idempotency keys,
+output modes, and exit codes. It never sends private protocol commands.
+
+| Short form | Canonical equivalent | Notes |
+| --- | --- | --- |
+| `ws`, `win` / `window`, `p`, `term`, `notif`, `srv` | `workspace`, `screen`, `pane`, `terminal`, `notification`, `server` | Resource positions, including nested paths |
+| `ls`, `new`, `get`, `rm`, `select` after a resource | `list`, `create`, `show`, `close`, `focus` | Only where the resource supports that action |
+| `pane split --right`, `p zoom`, `term read` | `pane current split --right`, `pane current zoom`, `terminal current read` | Omit `current` on instance actions |
+| `list-sessions` / `ls` | `session list` | Describes the selected local session, not every socket on the computer |
+| `list-windows` / `lsw` | `screen list` | `-t` / `--target` selects a workspace |
+| `list-panes` / `lsp` | `pane list` | `-t` / `--target` selects a screen |
+| `new-window` / `neww -n api` | `screen create --name api` | `-t` selects a workspace |
+| `split-window` / `splitw -h` | `pane current split --right` | Default / `-v` splits down; `-c` sets cwd; `-t` selects a pane |
+| `select-pane` / `selectp -L` | `pane current focus direction left` | One of `-L`, `-R`, `-U`, `-D`; `-t` selects a pane |
+| `select-window` / `selectw -t api` | `screen api focus` | Exact screen selector |
+| `rename-window` / `renamew -t api backend` | `screen api rename --name backend` | One new name |
+| `capture-pane` / `capturep -t term_…` | `terminal term_… screen read` | `-p` is accepted; uses normal cmux output |
+| `send-keys -t term_… C-c Enter` | `terminal term_… keys ctrl+c enter` | Named keys, including `C-`, `M-`, and `S-` modifiers |
+| `send-keys -l -- 'hello 世界'` | `terminal current write --text 'hello 世界'` | Literal arguments concatenate without inserted spaces |
+
+All `-t` values are cmux selectors. They do not interpret tmux numeric indexes,
+`%pane`, `@window`, or `session:window.pane` targets. Capture/input also accept a
+full `pane_…` ID, selecting its current tab's terminal. An omitted target uses
+`current` in the selected session, not a remembered client or shell.
+
+Explicit selector paths take precedence over shorthand actions. Use `name:` for
+names that collide with command words. Names, option values, key payloads, and
+argv after `--` are never rewritten. Resource aliases and action aliases are
+fixed spellings; partial prefixes are not automatically guessed.
+
+This is a bounded convenience vocabulary, not tmux script compatibility. Unknown
+flags, combined short flags, repeated targets, conflicting directions, arbitrary
+mixed text/key payloads, tmux formats, buffers, shell-command split arguments,
+and detached split flags are rejected. Use `send-keys -l` or `terminal write`
+for text, and `--help` for help (`splitw -h` means horizontal).
+
+There is no `new-session` alias because a cmux session owns a separate process.
+Use `cmux --session NAME` for interactive create/attach or
+`cmux server ensure --session NAME` to ensure a detached owner. `neww` creates a
+screen inside the selected session's workspace.
 
 ## Selectors
 
@@ -183,6 +269,12 @@ cmux workspace current run shell 'cargo test && printf ready'
 
 The client never reads or expands `$SHELL`.
 
+Both run forms accept `--on-exit <close|keep>`. `close` (the default)
+detaches every view when the process exits and leaves only the durable exit
+receipt. `keep` retains the tab and the final screen next to that receipt
+until the terminal is closed; after a daemon restart a kept-exited terminal
+degrades to the normal detach.
+
 ## Resource paths
 
 ```text
@@ -256,6 +348,7 @@ terminal <selector> focus <in|out>
 terminal <selector> screen read|wait
 terminal <selector> state read
 terminal <selector> history read|clear
+terminal <selector> output read [--after <offset>] [--max-bytes <n>]
 terminal <selector> process show|wait
 terminal <selector> viewport scroll
 
@@ -264,8 +357,13 @@ browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|attach|close
 browser <selector> mouse|wheel --pointer-frame-seq <decimal>
 
-notification list|create
+notification list
+notification create --title <text> --body <text> [--subtitle <text>] [--level <level>] [--terminal <term_id>]
+notification clear [--terminal <term_id>]
+notification ack --client <id> <notification-id>...
+notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 agent list|report
+agent plugin list|install|use|update|remove
 pairing request list
 pairing request <selector> respond <accept|reject>
 projection <selector> show|put
@@ -276,6 +374,42 @@ sidebar plugin list|install|use|update|remove
 provider authority install
 
 ```
+
+`notify` takes the flags of the macOS `cmux notify` so scripts and agent hooks
+work unchanged inside a machine: `--title` (default `Notification`, at most
+512 characters), `--subtitle` (at most 512), `--body` (at most 4096),
+`--clear`, `--surface`, `--workspace`, `--json`; `--window` and `--id-format`
+are accepted and ignored. The target defaults to the caller's own terminal
+(`CMUX_TUI_TERMINAL_ID`, which the daemon injects into every PTY); `--surface
+current` says the same, `--surface <term_id>` names another terminal of this
+session, and `--workspace` alone posts a session-level row with no terminal.
+A machine can only address its own session. `--clear` removes the retained
+rows for that target on the machine (`notification.clear`), so every attached
+client drops them. `--reply` is refused: a reply would type into a terminal,
+and that channel does not cross the link. Every row is bounded because each
+one is pushed to every attached client.
+
+`notification ack --client <id> <notification-id>...` records that one client
+install has read the listed notifications. `--client` is the durable client
+id (1 to 128 printable ASCII bytes) that the client also reports through
+`client-focus`. Read state is per client: every notification row carries
+`read_by`, the sorted client ids that acknowledged it, and a second client
+keeps its own unread state. The shared `unread` marker on the console tree is
+unchanged by an acknowledgement. Ids the bounded ledger no longer retains are
+returned under `unknown`, not rejected, so a late acknowledgement after
+eviction is complete.
+
+`terminal <selector> output read` returns a bounded plain-text window of the
+terminal's journaled output stream: `{text, start_offset, next_offset,
+complete}`. Offsets are `terminal.output` stream byte offsets; pass a previous
+`next_offset` as `--after` to resume exactly, and omit it to read from the
+earliest still-retained byte. `complete` is false when `--max-bytes` (default
+262144, maximum 4194304) truncated the window. The command works on live
+terminals and on exited ones under both exit policies; after exit, reads
+before the durable exit snapshot's coverage answer with the snapshot's screen
+projection (`start_offset` 0), so the read never needs unbounded record
+retention. Escape sequences never appear in `text`, though a window that
+starts mid-stream may carry escape-state artifacts at its leading edge.
 
 Workspace creation starts with one terminal unless `--empty` is present.
 `terminal <selector> project` requires destination `--workspace`, `--screen`,
@@ -306,6 +440,17 @@ remains available for transport testing.
 `sidebar plugin` commands read and write local plugin installation state. They
 never open a protocol connection or send a plugin ID to a session. Optional
 plugin names are slugs matching `[a-z0-9-_]+`.
+
+## Local agent plugins
+
+`agent plugin` commands read and write local installation state. They clone
+and build the selected package, validate its `kind = "agent"` manifest, and
+write the selected background command to `agents.plugin`. They do not open a
+protocol connection or send a plugin ID to a session. Run `cmux server
+reload-config` after changing the selection. The running plugin uses the
+generic journal producer and append operations over the server socket. Use
+`agent plugin use --builtin` to disable the selected userland plugin and return
+to no agent detector.
 
 `provider authority install` is a local Linux host-administration action. It
 installs the credential for an already running provider-managed session and is

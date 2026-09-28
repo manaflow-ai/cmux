@@ -29,6 +29,7 @@ func makeRoutingConnectedStore(
     routeKind: CmxAttachTransportKind = .debugLoopback,
     terminalLaneProvider: MobileTerminalLaneProvider? = nil,
     draftStore: (any TerminalDraftStoring)? = nil,
+    deliveredNotificationClearer: any DeliveredNotificationClearing = NoopDeliveredNotificationClearer(),
     rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
     taskModelCatalogClient: MobileTaskModelCatalogClient = .live()
 ) async throws -> MobileShellComposite {
@@ -55,6 +56,7 @@ func makeRoutingConnectedStore(
         ],
         pairedMacStore: pairedMacStore,
         identityProvider: StaticIdentityProvider(userID: "routing-user"),
+        deliveredNotificationClearer: deliveredNotificationClearer,
         pendingDismissQueue: pendingDismissQueue,
         draftStore: draftStore,
         taskModelCatalogClient: taskModelCatalogClient
@@ -139,6 +141,7 @@ func installFreshRemoteClient(on store: MobileShellComposite, router: RoutingHos
 func installSecondaryClient(
     on store: MobileShellComposite,
     macDeviceID: String,
+    instanceTag: String? = nil,
     router: RoutingHostRouter,
     supportedHostCapabilities: Set<String> = []
 ) throws {
@@ -164,11 +167,13 @@ func installSecondaryClient(
         ticket: ticket,
         allowsStackAuthFallback: true
     )
-    store.secondaryMacSubscriptions[macDeviceID.pairingKey] = SecondaryMacSubscription(
+    let ownerKey = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
+    store.secondaryMacSubscriptions[ownerKey] = SecondaryMacSubscription(
         macDeviceID: macDeviceID,
         client: client,
         route: route,
         ticket: ticket,
+        storedInstanceTag: instanceTag,
         supportedHostCapabilities: supportedHostCapabilities,
         actionCapabilities: .none
     )

@@ -8,11 +8,11 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite
+@Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct AccountSignInModelTests {
     @Test
-    func initialPresentationStartsOneAttemptAndKeepsItsFallbackURL() async {
+    func initialPresentationStartsOneAttemptAndKeepsItsFallbackURL() async throws {
         let flow = FakeAccountSignInFlow()
         let model = AccountSignInModel(flow: flow)
 
@@ -20,7 +20,7 @@ struct AccountSignInModelTests {
         model.startSignInIfNeeded()
 
         #expect(model.phase == .loading(.openingBrowser))
-        await Task.yield()
+        try await flow.waitForSignInStart()
 
         #expect(flow.startCount == 1)
         #expect(model.signInURL == flow.issuedURL)
@@ -28,14 +28,12 @@ struct AccountSignInModelTests {
     }
 
     @Test
-    func fallbackActionsKeepUsingIssuedURLAfterAttemptSettles() async {
+    func fallbackActionsKeepUsingIssuedURLAfterAttemptSettles() async throws {
         let flow = FakeAccountSignInFlow()
         let model = AccountSignInModel(flow: flow)
         model.presentSignIn()
-        await Task.yield()
+        try await flow.waitForSignInStart()
         flow.isPresentingSignIn = false
-
-        #expect(model.phase == .failed(.cancelled))
 
         model.openSignInInBrowser()
         #expect(model.browserOpenState == .opened)
@@ -48,11 +46,11 @@ struct AccountSignInModelTests {
     }
 
     @Test
-    func stackIdentityImmediatelyReplacesWaitingStateWithAvatarIdentity() async {
+    func stackIdentityImmediatelyReplacesWaitingStateWithAvatarIdentity() async throws {
         let flow = FakeAccountSignInFlow()
         let model = AccountSignInModel(flow: flow)
         model.presentSignIn()
-        await Task.yield()
+        try await flow.waitForSignInStart()
         let identity = AccountIdentity(
             id: "stack-user",
             displayName: "Stack User",
@@ -67,11 +65,53 @@ struct AccountSignInModelTests {
     }
 
     @Test
-    func typedFailureReplacesGenericFailureCopy() async {
+    func cancelledAttemptReturnsToTheSignInPrompt() async throws {
         let flow = FakeAccountSignInFlow()
         let model = AccountSignInModel(flow: flow)
         model.presentSignIn()
-        await Task.yield()
+        try await flow.waitForSignInStart()
+        #expect(model.phase == .loading(.waiting))
+
+        // The popup ended without a recorded failure (user hit Cancel):
+        // the pane offers the Sign In button again instead of parking on
+        // a "Sign-in canceled" error.
+        flow.isPresentingSignIn = false
+
+        #expect(model.phase == .idle)
+    }
+
+    @Test
+    func attemptStartedElsewhereDoesNotHijackAnIdlePane() {
+        let flow = FakeAccountSignInFlow()
+        let model = AccountSignInModel(flow: flow)
+
+        // Another surface (e.g. the Sign In workspace) is presenting the
+        // shared attempt. A gate that never asked keeps its plain prompt.
+        flow.isPresentingSignIn = true
+
+        #expect(model.phase == .idle)
+    }
+
+    @Test
+    func presentSignInAdoptsTheAttemptAlreadyPresenting() {
+        let flow = FakeAccountSignInFlow()
+        flow.isPresentingSignIn = true
+        let model = AccountSignInModel(flow: flow)
+
+        model.presentSignIn()
+
+        // The in-flight popup is reused, not torn down or ignored.
+        #expect(flow.startCount == 0)
+        #expect(model.phase == .loading(.waiting))
+        #expect(model.signInURL == flow.issuedURL)
+    }
+
+    @Test
+    func typedFailureReplacesGenericFailureCopy() async throws {
+        let flow = FakeAccountSignInFlow()
+        let model = AccountSignInModel(flow: flow)
+        model.presentSignIn()
+        try await flow.waitForSignInStart()
         flow.isPresentingSignIn = false
         flow.lastSignInFailure = .offline
 
@@ -79,13 +119,13 @@ struct AccountSignInModelTests {
     }
 
     @Test
-    func fallbackActionsExposeBrowserAndCopyFailures() async {
+    func fallbackActionsExposeBrowserAndCopyFailures() async throws {
         let flow = FakeAccountSignInFlow()
         flow.openSucceeds = false
         flow.copySucceeds = false
         let model = AccountSignInModel(flow: flow)
         model.presentSignIn()
-        await Task.yield()
+        try await flow.waitForSignInStart()
 
         model.openSignInInBrowser()
         #expect(model.browserOpenState == .failed)
@@ -97,11 +137,11 @@ struct AccountSignInModelTests {
     }
 
     @Test
-    func slowAndFinishingLoadingStagesAreObservable() async {
+    func slowAndFinishingLoadingStagesAreObservable() async throws {
         let flow = FakeAccountSignInFlow()
         let model = AccountSignInModel(flow: flow)
         model.presentSignIn()
-        await Task.yield()
+        try await flow.waitForSignInStart()
 
         flow.signInIsSlow = true
         #expect(model.phase == .loading(.waitingSlow))
@@ -151,11 +191,25 @@ private final class FakeAccountSignInFlow: AccountSignInFlow {
     private(set) var copiedURL: URL?
     var openSucceeds = true
     var copySucceeds = true
+    private let signInStarts = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+
+    var activeSignInURL: URL? {
+        isPresentingSignIn ? issuedURL : nil
+    }
 
     func startSignInForPane() -> URL? {
         startCount += 1
         isPresentingSignIn = true
+        signInStarts.continuation.yield(())
+        signInStarts.continuation.finish()
         return issuedURL
+    }
+
+    func waitForSignInStart() async throws {
+        // Both the model and this fixture use MainActor, so the waiter resumes
+        // after the model consumes the returned URL and completes its state update.
+        var iterator = signInStarts.stream.makeAsyncIterator()
+        _ = try #require(await iterator.next(), "Expected pane sign-in to start")
     }
 
     func openSignInURLInDefaultBrowser(_ url: URL) -> Bool {

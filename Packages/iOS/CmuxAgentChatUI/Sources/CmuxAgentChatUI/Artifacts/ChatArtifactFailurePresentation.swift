@@ -258,6 +258,14 @@ public struct ChatArtifactFailurePresentation: Equatable, Sendable {
                 systemImage: "doc.badge.ellipsis",
                 allowsRetry: false
             )
+        case .unknown(let code):
+            // The Mac replied, so this copy must not blame connectivity.
+            self = Self(
+                title: Self.localized("chat.artifact.failure.unknown.title", defaultValue: "Unrecognized error"),
+                message: Self.unknownMessage(code: code),
+                systemImage: "questionmark.circle",
+                allowsRetry: false
+            )
         }
     }
 
@@ -309,5 +317,19 @@ public struct ChatArtifactFailurePresentation: Equatable, Sendable {
             ByteCountFormatter.string(fromByteCount: actualSize, countStyle: .file),
             limitText
         )
+    }
+
+    private static func unknownMessage(code: String?) -> String {
+        guard let code else {
+            return localized(
+                "chat.artifact.failure.unknown.message",
+                defaultValue: "The Mac reported an error this app doesn't recognize. Update cmux on both devices."
+            )
+        }
+        let format = localized(
+            "chat.artifact.failure.unknown.message_with_code",
+            defaultValue: "The Mac reported an error this app doesn't recognize (%@). Update cmux on both devices."
+        )
+        return String.localizedStringWithFormat(format, code)
     }
 }

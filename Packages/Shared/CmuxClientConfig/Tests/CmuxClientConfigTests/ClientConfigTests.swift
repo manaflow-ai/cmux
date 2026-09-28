@@ -105,6 +105,7 @@ import Testing
 
     @Test func httpLoaderPostsToClientConfigRoute() async throws {
         RecordingClientConfigURLProtocol.recorder.reset()
+        RecordingClientConfigURLProtocol.response = .success
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [RecordingClientConfigURLProtocol.self]
         let loader = HTTPClientConfigLoader(
@@ -120,5 +121,21 @@ import Testing
         #expect(request?.httpMethod == "POST")
         #expect(request?.value(forHTTPHeaderField: "Content-Type") == "application/json")
         #expect(request?.value(forHTTPHeaderField: "Accept") == "application/json")
+    }
+
+    @Test func httpLoaderSurfacesRetryAfter() async throws {
+        RecordingClientConfigURLProtocol.recorder.reset()
+        RecordingClientConfigURLProtocol.response = .rateLimited(seconds: 45)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RecordingClientConfigURLProtocol.self]
+        let loader = HTTPClientConfigLoader(
+            apiBaseURL: "https://cmux.test",
+            session: URLSession(configuration: configuration)
+        )
+
+        await #expect(throws: ClientConfigError.rateLimited(retryAfterSeconds: 45)) {
+            _ = try await loader.load(ClientConfigRequest(distinctId: "user-1"))
+        }
+        #expect(RecordingClientConfigURLProtocol.recorder.requests.count == 1)
     }
 }

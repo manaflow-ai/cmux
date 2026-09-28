@@ -92,15 +92,18 @@ extension MobileCoreRPCSession {
             for try await chunk in stream {
                 try Task.checkCancellation()
                 guard !chunk.isEmpty else { continue }
-                guard chunk.count <= Self.maximumReceiveBufferByteCount - buffer.count else {
-                    throw MobileSyncFrameCodecError.frameTooLarge(buffer.count + chunk.count)
-                }
+                // The codec checks each frame's size, independent of how the
+                // transport groups adjacent frames into chunks.
                 buffer.append(chunk)
-                let frames = try MobileSyncFrameCodec.decodeFrames(
-                    from: &buffer,
-                    maximumDecodedFrameCount: Self.maximumDecodedFrameCountPerRead
-                )
-                for frame in frames { dispatch(frame: frame) }
+                while !Task.isCancelled, independentEventReader?.id == id {
+                    let frames = try MobileSyncFrameCodec.decodeFrames(
+                        from: &buffer,
+                        maximumDecodedFrameCount: Self.maximumDecodedFrameCountPerRead
+                    )
+                    for frame in frames { dispatch(frame: frame) }
+                    guard frames.count == Self.maximumDecodedFrameCountPerRead else { break }
+                    await Task.yield()
+                }
             }
         } catch {
             // The host falls back to control delivery after optional-lane failure.

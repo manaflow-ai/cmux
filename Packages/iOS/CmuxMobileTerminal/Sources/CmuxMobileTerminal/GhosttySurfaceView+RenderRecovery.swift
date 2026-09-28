@@ -38,6 +38,45 @@ extension GhosttySurfaceView {
             return recovered
         }
 
+        if let startedAt = localScrollApplyStartedAt,
+           now - startedAt >= effectiveOutputApplyTimeout {
+            let elapsedMs = Int((now - startedAt) * 1000)
+            // Replay reveal waits on this operation's interaction generation.
+            // Complete those waiters before replacing the queue; the old queue
+            // may still be blocked inside libghostty and must never be allowed
+            // to resolve a waiter belonging to the replacement generation.
+            localScrollApplyStartedAt = nil
+            localScrollApplyToken = nil
+            localScrollApplyInFlight = false
+            completePendingLocalScrollDrains(returning: false)
+            MobileDebugLog.anchormux(
+                "local_scroll.apply.TIMEOUT elapsedMs=\(elapsedMs)"
+            )
+            return recoverRenderPipeline(
+                reason: "local_scroll_timeout",
+                stalledMs: elapsedMs,
+                replay: .delegateWhenNoCaller
+            )
+        }
+
+        if let startedAt = localPixelScrollApplyStartedAt,
+           now - startedAt >= effectiveOutputApplyTimeout {
+            let elapsedMs = Int((now - startedAt) * 1000)
+            // Same waiter contract as the line pump above.
+            localPixelScrollApplyStartedAt = nil
+            localPixelScrollApplyToken = nil
+            localPixelScrollApplyInFlight = false
+            completePendingLocalScrollDrains(returning: false)
+            MobileDebugLog.anchormux(
+                "local_pixel_scroll.apply.TIMEOUT elapsedMs=\(elapsedMs)"
+            )
+            return recoverRenderPipeline(
+                reason: "local_pixel_scroll_timeout",
+                stalledMs: elapsedMs,
+                replay: .delegateWhenNoCaller
+            )
+        }
+
         if let pending = pendingVisibleSnapshot,
            now - pending.startedAt >= Self.visibleSnapshotTimeout {
             pendingVisibleSnapshot = nil
@@ -120,7 +159,12 @@ extension GhosttySurfaceView {
         _ = completePendingSurfaceOperations(returning: false)
         renderInFlight = false
         renderInFlightSince = nil
+        renderReplacementInFlight = false
         needsAnotherRender = false
+        pendingRenderRetryCount = 0
+        resetRenderAdmissionStatePreservingSuppression()
+        renderSubmission = nil
+        pendingRenderSubmission = nil
         needsDraw = false
         return true
     }
@@ -240,14 +284,20 @@ extension GhosttySurfaceView {
         surface = nil
         renderInFlight = false
         renderInFlightSince = nil
+        renderReplacementInFlight = false
         needsAnotherRender = false
+        pendingRenderRetryCount = 0
+        resetRenderAdmissionStatePreservingSuppression()
+        renderSubmission = nil
+        pendingRenderSubmission = nil
         needsDraw = true
+        hasAppliedOutput = false
+        surfaceHasReceivedOutput = false
         cellPixelSize = .zero
         lastRenderRect = .zero
-        lastRenderLayoutViewportHeight = nil
-        lastRenderHasSourceLayoutViewport = false
+        hostedContentBottomRowCount = nil
+        lastLayoutGeometrySyncSize = .zero
         lastAppliedContentScale = 0
-        resetLastAppliedContainerSize()
 
         surfaceGeneration &+= 1
         outputQueueGeneration &+= 1

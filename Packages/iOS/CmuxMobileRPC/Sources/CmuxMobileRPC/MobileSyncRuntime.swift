@@ -39,11 +39,23 @@ public protocol MobileSyncRuntime: Sendable {
     /// Optional Iroh-only source for independently framed server events.
     /// A nil provider preserves control-stream delivery for every route.
     var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? { get }
+    /// Whether ``independentEventByteStreamProvider`` reads every server
+    /// event lane the host opens (one per terminal surface) and forwards them
+    /// frame-aligned. Only then may the client ask the host to put each
+    /// terminal's render-grid output on its own stream; a single-lane reader
+    /// would never see a second stream.
+    var independentEventsMergeSurfaceLanes: Bool { get }
     /// Optional source for one independent, sequence-aware terminal lane per
     /// mounted surface. A nil provider preserves control/event delivery.
     var terminalLaneProvider: MobileTerminalLaneProvider? { get }
+    /// Optional source for a terminal input-only lane. It carries one empty
+    /// replay baseline, then fire-and-forget input frames without output.
+    var terminalInputLaneProvider: MobileTerminalLaneProvider? { get }
     /// Optional source for low-priority raw artifact bytes on an admitted Iroh peer.
     var artifactLaneProvider: MobileArtifactLaneProvider? { get }
+    /// Optional source for one dedicated simulator-stream v2 video lane per
+    /// Mac simulator panel. A nil provider keeps phones on the v1 event stream.
+    var simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? { get }
     /// Bounded deadline, in nanoseconds, for the render-grid liveness
     /// watchdog's subscription probe (an idempotent `mobile.events.subscribe`
     /// re-assert). A healthy idle terminal legitimately pushes no events, so
@@ -61,12 +73,20 @@ public protocol MobileSyncRuntime: Sendable {
     /// and settled as timed out so the automatic backoff retry loop keeps
     /// running.
     var reconnectAttemptDeadlineNanoseconds: UInt64 { get }
+
+    /// Suspends until a reconnect-attempt deadline of `nanoseconds` elapses,
+    /// throwing if cancelled first. The runtime owns the clock so the
+    /// deadline follows the same time source as ``now``.
+    func sleepUntilReconnectAttemptDeadline(nanoseconds: UInt64) async throws
 }
 
 public extension MobileSyncRuntime {
     var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? { nil }
+    var independentEventsMergeSurfaceLanes: Bool { false }
     var terminalLaneProvider: MobileTerminalLaneProvider? { nil }
+    var terminalInputLaneProvider: MobileTerminalLaneProvider? { nil }
     var artifactLaneProvider: MobileArtifactLaneProvider? { nil }
+    var simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? { nil }
 
     /// Returns a cached Stack access token for best-effort status probes.
     var stackAccessTokenForStatusProvider: @Sendable () async -> String? {
@@ -86,4 +106,9 @@ public extension MobileSyncRuntime {
     /// (transport connects bound themselves near 15s) while turning a hung
     /// dial into a settled, retryable failure within half a minute.
     var reconnectAttemptDeadlineNanoseconds: UInt64 { 30_000_000_000 }
+
+    /// Default deadline clock: the process's monotonic clock.
+    func sleepUntilReconnectAttemptDeadline(nanoseconds: UInt64) async throws {
+        try await RPCTaskTimeout.continuousClockSleep(nanoseconds: nanoseconds)
+    }
 }

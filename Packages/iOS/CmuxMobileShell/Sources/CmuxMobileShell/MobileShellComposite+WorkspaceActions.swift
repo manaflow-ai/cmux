@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobilePairedMac
 internal import CmuxMobileDiagnostics
 internal import CmuxMobileRPC
 public import CmuxMobileShellModel
@@ -449,10 +450,20 @@ extension MobileShellComposite {
     }
 
     private func workspaceGroupActionCapabilities(for id: MobileWorkspaceGroupPreview.ID) -> MobileWorkspaceActionCapabilities {
-        guard let anchorWorkspaceID = workspaceGroups.first(where: { $0.id == id })?.anchorWorkspaceID else {
+        guard let group = workspaceGroups.first(where: { $0.id == id }) else {
             return .none
         }
-        return workspaceActionCapabilities(for: anchorWorkspaceID)
+        if let capabilities = group.actionCapabilities {
+            // Group actions belong to the owning Mac, so this remains valid for
+            // a header-only group with no workspace row.
+            return capabilities
+        }
+        if let anchorWorkspaceID = group.liveAnchorWorkspaceID {
+            return workspaceActionCapabilities(for: anchorWorkspaceID)
+        }
+        // Legacy/preview groups without a capability snapshot fail closed; a
+        // stable empty-header identity must never be used as a workspace target.
+        return .none
     }
 
     private func macScopedWorkspaceMutationIsAuthorized(target: WorkspaceMutationTarget) -> Bool {
@@ -690,14 +701,63 @@ extension MobileShellComposite {
     }
 
     private func workspaceGroupMutationTarget(for id: MobileWorkspaceGroupPreview.ID) -> WorkspaceMutationTarget {
-        guard let anchorWorkspaceID = workspaceGroups.first(where: { $0.id == id })?.anchorWorkspaceID else {
+        guard let group = workspaceGroups.first(where: { $0.id == id }) else {
             return WorkspaceMutationTarget(
                 client: remoteClient,
                 isForeground: true,
                 macDeviceID: foregroundMacDeviceID
             )
         }
-        return workspaceMutationTarget(for: anchorWorkspaceID)
+        if let anchorWorkspaceID = group.liveAnchorWorkspaceID {
+            return workspaceMutationTarget(for: anchorWorkspaceID)
+        }
+        if let owner = workspaces.first(where: { workspace in
+            CmxMacAppInstanceIdentity(
+                macDeviceID: group.macDeviceID ?? "",
+                instanceTag: group.macInstanceTag
+            ) == CmxMacAppInstanceIdentity(
+                macDeviceID: workspace.macDeviceID ?? "",
+                instanceTag: workspace.macInstanceTag
+            )
+        }) {
+            return workspaceMutationTarget(for: owner.id)
+        }
+        if let macDeviceID = group.macDeviceID,
+           !macDeviceID.isEmpty {
+            let ownerKey = MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: group.macInstanceTag
+            )
+            if let subscription = secondaryMacSubscriptions[ownerKey] {
+                return WorkspaceMutationTarget(
+                    client: subscription.client,
+                    isForeground: false,
+                    macDeviceID: macDeviceID,
+                    ownerKey: ownerKey
+                )
+            }
+            let isForegroundOwner = foregroundMacDeviceID.map {
+                MacPairingKey(
+                    macDeviceID: $0,
+                    instanceTag: activeMacInstanceTag
+                ) == ownerKey
+            } ?? false
+            if !isForegroundOwner {
+                // A known owner with no live route must fail closed; never
+                // send a group mutation to the foreground Mac by accident.
+                return WorkspaceMutationTarget(
+                    client: nil,
+                    isForeground: false,
+                    macDeviceID: macDeviceID,
+                    ownerKey: ownerKey
+                )
+            }
+        }
+        return WorkspaceMutationTarget(
+            client: remoteClient,
+            isForeground: true,
+            macDeviceID: foregroundMacDeviceID
+        )
     }
 
     func workspaceMutationFailure(
@@ -763,7 +823,7 @@ extension MobileShellComposite {
         for id: MobileWorkspaceGroupPreview.ID,
         target: WorkspaceMutationTarget
     ) -> String? {
-        guard let anchorWorkspaceID = workspaceGroups.first(where: { $0.id == id })?.anchorWorkspaceID else {
+        guard let anchorWorkspaceID = workspaceGroups.first(where: { $0.id == id })?.liveAnchorWorkspaceID else {
             return workspaceMutationHostDisplayName(target: target, fallback: nil)
         }
         return workspaceMutationHostDisplayName(
@@ -812,25 +872,81 @@ extension MobileShellComposite {
 
     /// Persist the user's computer order for
     /// ``MobileWorkspaceSortMode/computerPriority``, highest priority first,
-    /// as Mac device ids. Device-local, like the mode.
-    public func setWorkspaceComputerPriority(_ deviceIDs: [String]) {
-        guard workspaceComputerPriority != deviceIDs else { return }
-        workspaceSortStore.setComputerPriority(deviceIDs)
-        workspaceComputerPriority = deviceIDs
+    /// as device-plus-build pairing ids. Device-local, like the mode.
+    public func setWorkspaceComputerPriority(_ computerIDs: [String]) {
+        guard workspaceComputerPriority != computerIDs else { return }
+        workspaceSortStore.setComputerPriority(computerIDs)
+        workspaceComputerPriority = computerIDs
         recomputeDerivedWorkspaceState()
-        recordAppEvent(.workspaceComputerOrderChanged, count: deviceIDs.count)
+        recordAppEvent(.workspaceComputerOrderChanged, count: computerIDs.count)
     }
 
-    /// The stored computer order expanded with each computer's stored alias
-    /// device ids, so a per-Mac state that reports an alias id still ranks
-    /// with its computer. Aliases follow their representative id directly,
-    /// keeping one physical Mac's entries adjacent in the expanded order.
+    /// Upgrade pre-build-scoped computer-order entries after paired Macs load.
+    /// A legacy bare device id expands to every currently stored pairing for
+    /// that physical device, preserving the user's order across Stable,
+    /// Nightly, and untagged rows without making the bare id a new wildcard.
+    func migrateLegacyWorkspaceComputerPriority(loadedMacs: [MobilePairedMac]) {
+        guard workspaceSortStore.needsComputerIdentityMigration else { return }
+        var migrated: [String] = []
+        for computerID in workspaceComputerPriority {
+            let identity = CmxMacAppInstanceIdentity(id: computerID)
+            guard identity.instanceTag == nil else {
+                if !migrated.contains(identity.id) { migrated.append(identity.id) }
+                continue
+            }
+            let matches = loadedMacs.filter {
+                CmxMacAppInstanceIdentity(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ).macDeviceID == identity.macDeviceID
+            }
+            if matches.isEmpty {
+                if !migrated.contains(identity.id) { migrated.append(identity.id) }
+                continue
+            }
+            for mac in matches.sorted(by: {
+                let lhsTag = CmxMacAppInstanceIdentity(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ).instanceTag
+                let rhsTag = CmxMacAppInstanceIdentity(
+                    macDeviceID: $1.macDeviceID,
+                    instanceTag: $1.instanceTag
+                ).instanceTag
+                if lhsTag == nil { return rhsTag != nil }
+                if rhsTag == nil { return false }
+                return lhsTag! < rhsTag!
+            }) {
+                let pairingID = CmxMacAppInstanceIdentity(
+                    macDeviceID: mac.macDeviceID,
+                    instanceTag: mac.instanceTag
+                ).id
+                if !migrated.contains(pairingID) { migrated.append(pairingID) }
+            }
+        }
+        workspaceSortStore.migrateLegacyComputerPriority(migrated)
+        workspaceComputerPriority = migrated
+    }
+
+    /// The stored computer order expanded with each app instance's stored
+    /// device aliases, so a per-Mac state that reports an alias id still ranks
+    /// with its computer. The instance tag stays attached to every alias;
+    /// otherwise prioritizing Nightly would also prioritize Stable.
     func expandedWorkspaceComputerPriority() -> [String] {
         var expanded: [String] = []
-        for deviceID in workspaceComputerPriority {
-            expanded.append(deviceID)
-            for alias in pairedMacAliasIDs(for: deviceID) where !expanded.contains(alias) {
-                expanded.append(alias)
+        for computerID in workspaceComputerPriority {
+            let identity = MobilePairedMac.pairingIdentity(from: computerID)
+            for aliasDeviceID in pairedMacAliasIDs(
+                for: identity.macDeviceID,
+                instanceTag: identity.instanceTag
+            ) {
+                let aliasComputerID = MobilePairedMac.pairingID(
+                    macDeviceID: aliasDeviceID,
+                    instanceTag: identity.instanceTag
+                )
+                if !expanded.contains(aliasComputerID) {
+                    expanded.append(aliasComputerID)
+                }
             }
         }
         return expanded

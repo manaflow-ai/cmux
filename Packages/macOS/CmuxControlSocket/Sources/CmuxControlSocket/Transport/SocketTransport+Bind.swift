@@ -107,12 +107,27 @@ extension SocketTransport {
                 attributes: [.posixPermissions: 0o700]
             )
             return nil
-        } catch let error as NSError {
-            if error.domain == NSPOSIXErrorDomain {
-                return Int32(error.code)
-            }
-            return EIO
+        } catch {
+            return Self.posixErrnoCode(from: error as NSError) ?? EIO
         }
+    }
+
+    /// The underlying POSIX `errno` in an error's `NSUnderlyingErrorKey`
+    /// chain, or nil when none exists. `FileManager` wraps `mkdir(2)`
+    /// failures in Cocoa-domain errors; unwrapping keeps the real errno
+    /// (EACCES vs ENOENT vs EIO) visible in bind-failure telemetry instead of
+    /// collapsing every wrapped failure to EIO.
+    private static func posixErrnoCode(from error: NSError) -> Int32? {
+        var current: NSError? = error
+        var remainingDepth = 8
+        while let nsError = current, remainingDepth > 0 {
+            if nsError.domain == NSPOSIXErrorDomain {
+                return Int32(nsError.code)
+            }
+            current = nsError.userInfo[NSUnderlyingErrorKey] as? NSError
+            remainingDepth -= 1
+        }
+        return nil
     }
 
     /// Raw `bind(2)`; nil when the path does not fit in `sockaddr_un`.

@@ -3,6 +3,7 @@ public import Foundation
 extension CmxIrohClientRuntime {
     func performSignOut(
         pendingRevocation: CmxIrohPendingRevocation?,
+        bindingAuthorization: CmxIrohBindingRequestAuthorization?,
         revision: UInt64
     ) async -> CmxIrohClientSignOutPreparation {
         async let wasPersisted = Self.persist(pendingRevocation, to: pendingRevocations)
@@ -10,7 +11,8 @@ extension CmxIrohClientRuntime {
         let (persisted, _) = await (wasPersisted, networkTeardown)
         let preparation = CmxIrohClientSignOutPreparation(
             pendingRevocation: pendingRevocation,
-            wasPersisted: persisted
+            wasPersisted: persisted,
+            bindingAuthorization: bindingAuthorization
         )
 
         guard lifecyclePhase == .signingOut,
@@ -112,7 +114,7 @@ extension CmxIrohClientRuntime {
     }
 
     static func isConnectivity(_ error: any Error) -> Bool {
-        (error as? CmxIrohTrustBrokerClientError) == .connectivity
+        (error as? CmxIrohTrustBrokerClientError)?.isConnectivity == true
     }
 
     /// Failures that may fall back to the verified offline policy cache.

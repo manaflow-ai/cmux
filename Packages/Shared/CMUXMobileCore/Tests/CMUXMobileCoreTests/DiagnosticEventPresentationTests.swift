@@ -7,6 +7,30 @@ import Testing
         DiagnosticEventPresentation(locale: Locale(identifier: "en"))
     }
 
+    @Test func taskModelResultDoesNotDecodeProviderAsFailure() {
+        let event = DiagnosticEvent(
+            .appFeatureAction,
+            ms: 6,
+            a: DiagnosticAppEventKind.taskModelListResultObserved.rawValue,
+            b: DiagnosticTaskModelProvider.codex.rawValue,
+            c: DiagnosticTaskModelSource.discovered.rawValue
+        )
+        let presentation = englishPresentation
+        let fields = presentation.describe(event).fields
+        #expect(presentation.failureKind(of: event) == nil)
+        #expect(fields.contains(.init(key: "provider", value: "codex")))
+        #expect(fields.contains(.init(key: "source", value: "discovered")))
+        #expect(fields.contains(.init(key: "effort_count", value: "6")))
+        #expect(!fields.contains { $0.key == "failure" })
+
+        let failed = DiagnosticEvent(
+            .appFeatureAction,
+            a: DiagnosticAppEventKind.taskModelListLoadFailed.rawValue,
+            b: DiagnosticFailureKind.timedOut.rawValue
+        )
+        #expect(presentation.failureKind(of: failed) == .timedOut)
+    }
+
     /// Case names are shipped telemetry vocabulary (Sentry grouping keys), so a
     /// rename is a breaking change this test makes visible.
     @Test func pinsEventCodeNames() {
@@ -18,7 +42,6 @@ import Testing
         #expect(DiagnosticEventPresentation().name(DiagnosticEventCode.hostAuthenticationFailed) == "hostAuthenticationFailed")
         #expect(DiagnosticEventPresentation().name(DiagnosticEventCode.appFeatureAction) == "appFeatureAction")
     }
-
     @Test func pinsTaxonomyNames() {
         #expect(DiagnosticEventPresentation().name(DiagnosticFailureKind.policyUnavailable) == "policyUnavailable")
         #expect(DiagnosticEventPresentation().name(DiagnosticFailureKind.identityMismatch) == "identityMismatch")
@@ -46,7 +69,7 @@ import Testing
                 c: 1
             )
         )
-        #expect(plan.name == "Transport dial plan built")
+        #expect(plan.name == "Direct dial plan assembled")
         #expect(plan.fields == [
             .init(key: "public_paths", value: "2"),
             .init(key: "private_fallback_paths", value: "0"),
@@ -75,7 +98,7 @@ import Testing
             b: 2,
             c: 0
         ))
-        #expect(join.name == "Private address candidate joined")
+        #expect(join.name == "Private addresses joined broker port")
         #expect(join.fields.contains(
             .init(key: "join", value: "Broker ports missing or stale")
         ))
@@ -89,7 +112,7 @@ import Testing
             a: DiagnosticLANDiscoveryOutcome.policyDenied.rawValue,
             b: 0
         ))
-        #expect(lan.name == "LAN discovery completed")
+        #expect(lan.name == "LAN discovery resolved")
         #expect(lan.fields.contains(
             .init(key: "outcome", value: "Local Network permission denied")
         ))
@@ -111,7 +134,7 @@ import Testing
             a: DiagnosticLANPublicationState.policyDenied.rawValue,
             b: 0
         ))
-        #expect(publication.name == "LAN publication state changed")
+        #expect(publication.name == "LAN advertisement state changed")
         #expect(publication.fields.contains(
             .init(key: "state", value: "Local Network permission denied")
         ))
@@ -172,8 +195,8 @@ import Testing
             .init(key: "session", value: "9"),
         ])
         let closeSummary = englishPresentation.summary(close)
-        #expect(closeSummary.contains("Session"))
-        #expect(closeSummary.contains("9"))
+        #expect(!closeSummary.contains("Session"))
+        #expect(!closeSummary.contains("9"))
     }
 
     @Test func describesLifecycleAndReachability() {
@@ -208,6 +231,7 @@ import Testing
 
     @Test func everyEventCodeHasAReadableTitle() {
         let expected: [DiagnosticEventCode: String] = [
+            .terminalWorkStarted: "Terminal phase started", .terminalWorkFinished: "Terminal phase completed",
             .connect: "Connection attempt started",
             .pairOk: "Pairing succeeded",
             .pairFail: "Pairing failed",
@@ -260,15 +284,16 @@ import Testing
             .browserInputReplayed: "Browser input replayed",
             .browserEditableFocus: "Browser editable focus",
             .browserPanelCreateResolved: "Browser panel create resolved",
-            .transportDialPlanBuilt: "Transport dial plan built",
-            .transportPrivateAddressJoin: "Private address candidate joined",
-            .transportLANDiscovery: "LAN discovery completed",
-            .transportDialLegSucceeded: "Direct dial leg succeeded",
+            .transportDialPlanBuilt: "Direct dial plan assembled",
+            .transportPrivateAddressJoin: "Private addresses joined broker port",
+            .transportLANDiscovery: "LAN discovery resolved",
+            .transportDialLegSucceeded: "Direct dial leg connected",
             .transportDialLegFailed: "Direct dial leg failed",
-            .lanPublicationState: "LAN publication state changed",
+            .lanPublicationState: "LAN advertisement state changed",
             .transportDialSessionLinked: "Transport dial linked to session",
             .transportDialCancelled: "Transport dial cancelled",
             .transportCloseReason: "Remote close reason",
+            .terminalTrace: "Terminal operation trace",
             .simulatorStreamLifecycle: "Simulator stream state changed",
             .simulatorFrameLifecycle: "Simulator frame pipeline changed",
             .simulatorInputLifecycle: "Simulator input state changed",
@@ -593,6 +618,48 @@ import Testing
         ] {
             #expect(!described.fields.contains { ["a", "b", "c", "ms"].contains($0.key) })
         }
+    }
+
+    /// A shared report must state the configured connection method and the
+    /// transport actually carrying the foreground connection in words, so a
+    /// support thread never needs a Settings screenshot to interpret dials.
+    @Test func describesConnectionMethodAndForegroundTransport() {
+        let configured = englishPresentation.describe(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            a: DiagnosticAppEventKind.connectionMethodConfigured.rawValue,
+            c: DiagnosticConnectionMethod.tailscale.rawValue
+        ))
+        #expect(configured.fields == [
+            .init(key: "operation", value: "connectionMethodConfigured"),
+            .init(key: "method", value: "Tailscale Only"),
+        ])
+        #expect(englishPresentation.summary(configured)
+            .contains("Method: Tailscale Only"))
+
+        let changed = englishPresentation.describe(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            a: DiagnosticAppEventKind.connectionMethodPreferenceChanged.rawValue,
+            c: DiagnosticConnectionMethod.automatic.rawValue
+        ))
+        #expect(changed.fields == [
+            .init(key: "operation", value: "connectionMethodPreferenceChanged"),
+            .init(key: "method", value: "Auto-Connect (Iroh)"),
+        ])
+
+        let transport = englishPresentation.describe(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            a: DiagnosticAppEventKind.foregroundTransportSelected.rawValue,
+            c: DiagnosticTransportKind.tailscale.rawValue
+        ))
+        #expect(transport.fields == [
+            .init(key: "operation", value: "foregroundTransportSelected"),
+            .init(key: "transport", value: "Tailscale"),
+        ])
+        #expect(englishPresentation.summary(transport)
+            .contains("Transport: Tailscale"))
     }
 
     @Test func extractsFailureAndTransportKinds() {

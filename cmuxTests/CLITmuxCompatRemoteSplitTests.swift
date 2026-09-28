@@ -73,6 +73,57 @@ import Testing
         #expect(!result.stderr.contains("already applied"), Comment(rawValue: result.stderr))
     }
 
+    /// Regression for #12682: Claude Code 2.1.272 passes a whole tmux command as
+    /// one argument (`tmux "display-message -p #{pane_id}"`). The shim must split
+    /// it like tmux does and lowercase only the command name, not its flags.
+    @Test func singleArgumentCommandStringIsSplitShellStyle() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITmuxCompatRemoteSplitBundleToken.self)
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tmux-compat-single-arg-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let socketPath = Self.makeSocketPath("tmuxone")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let state = ServerState()
+        _ = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line), let id = payload["id"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            return Self.v2Response(id: id, ok: false, error: ["code": "unsupported", "message": "unused"])
+        }
+
+        let environment = [
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+            "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
+            "HOME": tmpDir.path,
+            "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        for arguments in [
+            ["__tmux-compat", "show-options -v extended-keys"],
+            ["__tmux-compat", "-L", "cmux", "SHOW-OPTIONS -v 'extended-keys'"],
+        ] {
+            let result = Self.runProcess(
+                executablePath: cliPath,
+                arguments: arguments,
+                environment: environment,
+                timeout: 30
+            )
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status == 0, Comment(rawValue: result.stderr))
+            #expect(
+                result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "on",
+                Comment(rawValue: "stdout=\(result.stdout) stderr=\(result.stderr)")
+            )
+        }
+    }
+
     private final class CapturedRespawn: @unchecked Sendable {
         private let lock = NSLock()
         private var commandValue: String?
@@ -197,18 +248,19 @@ import Testing
     /// expression like `cd … && … claude` makes it try to exec the `cd` builtin as a
     /// binary, the pane exits immediately, and the teammate never gets a visible pane
     /// (it falls back to in-process). The fix runs every tmux respawn shell-command
-    /// through a POSIX shell (/bin/sh) so Ghostty execs the shell, not the expression.
+    /// through a POSIX login shell (/bin/sh -lc) so profile/path_helper runs
+    /// before Ghostty execs the shell, not the expression.
     /// `tmux_start_command` stays the raw command so `#{pane_start_command}` / OMX-HUD
     /// detection keep reporting it.
     @Test func respawnPaneRunsShellExpressionsThroughLoginShell() throws {
-        let shellPrefix = "/bin/sh -c "
+        let shellPrefix = "/bin/sh -lc "
 
         // Claude Code teammate command: spaced `cd … && … claude` shell expression.
         let teammate = "cd /tmp/work && env CLAUDECODE=1 /opt/claude --agent-id alice@team --agent-name alice"
         let teammateResult = try respawnPaneForwardedCommand(teammate)
         #expect(
             teammateResult.command.hasPrefix(shellPrefix),
-            "teammate command must run through /bin/sh -c, got: \(teammateResult.command)"
+            "teammate command must run through /bin/sh -lc, got: \(teammateResult.command)"
         )
         #expect(
             teammateResult.command.contains(teammate),
@@ -272,8 +324,8 @@ import Testing
             extraEnvironment: ["CMUX_CLAUDE_TEAMS_SANDBOXED": "1"]
         )
         #expect(
-            inTeams.command.hasPrefix("/bin/sh -c "),
-            "claude-teams respawn must still run through /bin/sh -c, got: \(inTeams.command)"
+            inTeams.command.hasPrefix("/bin/sh -lc "),
+            "claude-teams respawn must still run through /bin/sh -lc, got: \(inTeams.command)"
         )
         #expect(
             inTeams.command.contains("export CLAUDE_CODE_SANDBOXED="),
@@ -351,7 +403,7 @@ import Testing
         )
         #expect(inTeams.startCommand == teammate)
 
-        let unchangedCommand = "/bin/sh -c '\(teammate)'"
+        let unchangedCommand = "/bin/sh -lc '\(teammate)'"
         let inOMO = try respawnPaneForwardedCommand(teammate)
         #expect(
             inOMO.command == unchangedCommand,
@@ -531,44 +583,17 @@ import Testing
         environment: [String: String],
         timeout: TimeInterval
     ) -> ProcessRunResult {
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-        process.environment = environment
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        do {
-            try process.run()
-        } catch {
-            return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
-        }
-
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
-        if timedOut {
-            process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
-                kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
-            }
-        }
-
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let result = CLINotifyProcessIntegrationRegressionTests.runProcess(
+            executablePath: executablePath,
+            arguments: arguments,
+            environment: environment,
+            timeout: timeout
+        )
         return ProcessRunResult(
-            status: process.isRunning ? SIGKILL : process.terminationStatus,
-            stdout: stdout,
-            stderr: stderr,
-            timedOut: timedOut
+            status: result.status,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            timedOut: result.timedOut
         )
     }
 }

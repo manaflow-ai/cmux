@@ -29,14 +29,18 @@ enum WorkspaceListConnectionChrome: Equatable {
         connectionRequiresReauth: Bool,
         connectionRecoveryFailed: Bool,
         isRecoveringConnection: Bool,
+        isRecoveringWorkspaceList: Bool = false,
         connectionStatus: MobileMacConnectionStatus,
         tailscalePairingRequired: Bool = false,
         isInitialConnectionLoading: Bool = false,
-        initialConnectionTimedOut: Bool = false
+        initialConnectionTimedOut: Bool = false,
+        hasLiveTransportPath: Bool = false
     ) {
         if hasStore && connectionRequiresReauth {
             self = .recoveryBanner
-        } else if hasStore && tailscalePairingRequired {
+        } else if isRecoveringWorkspaceList {
+            self = .statusLine(.reconnecting)
+        } else if hasStore && tailscalePairingRequired && !hasLiveTransportPath {
             // Keep the workspace content visible while directing the user to
             // the scanner from the existing reconnect action. Tailscale setup
             // guidance belongs in the empty state, not in blocking chrome.
@@ -45,8 +49,16 @@ enum WorkspaceListConnectionChrome: Equatable {
             self = .macStatusRow
         } else if connectionStatus == .reconnecting || (hasStore && isRecoveringConnection) {
             self = .statusLine(.reconnecting)
-        } else if connectionStatus == .unavailable || (hasStore && connectionRecoveryFailed) {
-            self = .statusLine(.notConnected)
+        } else if connectionStatus == .unavailable
+            || (hasStore && connectionRecoveryFailed && connectionStatus != .connected) {
+            // Status truthfulness: while any live path still serves (an
+            // established control session or a terminal lane delivering
+            // output), the app must never claim Not Connected. The truthful
+            // degraded state is Reconnecting: control recovery keeps its
+            // automatic retries armed. A stale recovery-failed flag also
+            // must not override a connected aggregate (a healthy secondary
+            // Mac keeps the visible list healthy).
+            self = .statusLine(hasLiveTransportPath ? .reconnecting : .notConnected)
         } else {
             self = .none
         }
@@ -55,6 +67,12 @@ enum WorkspaceListConnectionChrome: Equatable {
     var statusLine: WorkspaceConnectionStatusLine? {
         if case .statusLine(let line) = self { return line }
         return nil
+    }
+
+    /// The empty-state actions are only useful when the list is idle. During
+    /// an active reconnect, the picker status line owns the recovery surface.
+    var showsWorkspaceEmptyState: Bool {
+        self != .statusLine(.reconnecting)
     }
 
     /// Whether the toolbar shows the Mac-update hint indicator. The hint is a

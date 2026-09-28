@@ -139,6 +139,7 @@ Event fields:
 | `surface_id` | Surface UUID when known. |
 | `pane_id` | Pane UUID when known. |
 | `window_id` | Window UUID when known. |
+| `automation_origin` | Optional rule id and ordered rule chain when an in-process automation action produced the event. |
 | `payload` | Event-specific JSON object. |
 
 ### Heartbeat
@@ -188,6 +189,33 @@ and in-memory replay buffer moving. Clients can read those files for recent
 auditing, but should treat the socket `ack.resume.gap` contract plus snapshot
 commands as the source of truth for catch-up after long outages. Feed still
 writes its specialized long-term audit log to `~/.cmuxterm/workstream.jsonl`.
+
+## Submitted prompt size
+
+`agent.hook.UserPromptSubmit` and its matching `feed.item.*` event expose
+`payload.prompt_length` when the producer captured the original prompt size.
+It counts **Unicode extended grapheme clusters** (Swift `String.count`), not UTF-8
+bytes, Unicode scalars, JSON characters, or the compacted preview. ASCII prompts
+of 18,635 and 85 bytes therefore report 18,635 and 85. For example, `é`, `中`,
+`e` followed by a combining acute accent, and `👩‍💻` each count as one character.
+Whitespace is counted before normalization; a supplied empty prompt reports zero.
+
+The hook CLI measures the original string before compaction and carries only its
+integer count alongside the existing bounded preview. Event telemetry continues
+to redact `tool_input`, `context`, and `extra_fields`; the size field carries no
+prompt or tool-input text. Attribution remains on the same event's `session_id`,
+`workspace_id`, and `surface_id`.
+
+Only integral JSON numbers from 0 through 1,048,576 are accepted, matching the
+hook CLI's 1 MiB input ceiling. Booleans, strings, fractions, negatives, and larger
+values are rejected. Missing prompts, older producers without original-size
+metadata, and invalid metadata omit `prompt_length`: absence means unknown,
+not zero. A compacted preview cannot recover an unknown original length. Counts
+are producer-reported metadata, not proof of delivery or authenticated claims.
+
+`tool_input_length` retains its existing meaning for every hook: the character
+count of the stored JSON representation of tool input, after compaction. It is
+not a prompt-size field. Other tool-event length semantics are unchanged.
 
 ## CLI
 
@@ -381,3 +409,21 @@ can correlate events without receiving prompt/tool payloads by default.
 
 Consumers should treat the stream as local-sensitive data and avoid forwarding
 it to third-party services without an explicit user opt-in.
+
+## Automation origin
+
+Events emitted while an automation action is executing carry an envelope field
+such as:
+
+```json
+{
+  "automation_origin": {
+    "rule_id": "surface-needs-input",
+    "chain": ["surface-needs-input"],
+    "depth": 1
+  }
+}
+```
+
+The automation engine uses this bounded chain to stop a rule from triggering
+itself or participating in a cycle. Other event consumers may ignore the field.

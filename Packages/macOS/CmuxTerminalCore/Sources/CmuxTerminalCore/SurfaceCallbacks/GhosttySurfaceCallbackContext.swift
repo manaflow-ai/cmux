@@ -63,11 +63,24 @@ public final class GhosttySurfaceCallbackContext {
     /// The stable identity of the surface this context was created for.
     public let surfaceId: UUID
 
+    /// The model identity used to authenticate callbacks from this runtime.
+    public let sourceSurfaceIdentifier: ObjectIdentifier
+
     /// The terminal process generation that owns this callback context.
     public let terminalLifecycleID: UUID
 
+    /// The immutable title that overrides runtime OSC title updates, if any.
+    public let titleOverride: String?
+
     /// Runs after renderer activity consumes an armed presentation repair.
     private let rendererMailboxDidDrainHandler: @Sendable (UUID) -> Void
+
+    /// Runs after a tokened render is assigned to the host layer.
+    private let rendererFramePresentedHandler: @Sendable (UUID, UInt64) -> Void
+
+    /// Runs after a tokened render is discarded or fails before host-layer presentation.
+    private let rendererFrameFailedHandler:
+        @Sendable (UUID, UInt64, ghostty_render_presentation_status_e) -> Void
 
     /// Lock-free so the unarmed renderer callback path neither allocates nor locks.
     private let rendererPresentationRepairArmed = AtomicBooleanGate(false)
@@ -87,22 +100,37 @@ public final class GhosttySurfaceCallbackContext {
     ///   - surfaceController: The surface model owning the runtime surface.
     ///   - terminalLifecycleID: The terminal process generation that owns the
     ///     native runtime surface.
+    ///   - titleOverride: An immutable title derived from the runtime's launch
+    ///     metadata, or `nil` to use Ghostty's OSC title updates.
     ///   - rendererMailboxDidDrain: Called with only the stable surface id after
     ///     an armed repair observes renderer activity following a mailbox drain.
+    ///   - rendererFramePresented: Called after a tokened frame reaches the host layer.
+    ///   - rendererFrameFailed: Called when a tokened frame is discarded or fails.
     ///   - maximumRuntimeClipboardRequests: Maximum simultaneous native
     ///     clipboard requests accepted for this surface.
     public init(
         surfaceHost: any TerminalSurfaceHosting,
         surfaceController: any TerminalSurfaceControlling,
         terminalLifecycleID: UUID,
+        titleOverride: String? = nil,
         rendererMailboxDidDrain: @escaping @Sendable (UUID) -> Void = { _ in },
+        rendererFramePresented: @escaping @Sendable (UUID, UInt64) -> Void = { _, _ in },
+        rendererFrameFailed: @escaping @Sendable (
+            UUID,
+            UInt64,
+            ghostty_render_presentation_status_e
+        ) -> Void = { _, _, _ in },
         maximumRuntimeClipboardRequests: Int = 32
     ) {
         self.surfaceHost = surfaceHost
         self.surfaceController = surfaceController
         self.surfaceId = surfaceController.surfaceId
+        self.sourceSurfaceIdentifier = ObjectIdentifier(surfaceController)
         self.terminalLifecycleID = terminalLifecycleID
+        self.titleOverride = titleOverride
         self.rendererMailboxDidDrainHandler = rendererMailboxDidDrain
+        self.rendererFramePresentedHandler = rendererFramePresented
+        self.rendererFrameFailedHandler = rendererFrameFailed
         self.maximumRuntimeClipboardRequests = max(
             0,
             maximumRuntimeClipboardRequests
@@ -131,6 +159,19 @@ public final class GhosttySurfaceCallbackContext {
         ) else { return false }
         rendererMailboxDidDrainHandler(surfaceId)
         return true
+    }
+
+    /// Delivers a tokened host-layer presentation to the owning surface.
+    public func rendererFrameDidPresent(token: UInt64) {
+        rendererFramePresentedHandler(surfaceId, token)
+    }
+
+    /// Delivers a tokened presentation failure to the owning surface.
+    public func rendererFrameDidFail(
+        token: UInt64,
+        status: ghostty_render_presentation_status_e
+    ) {
+        rendererFrameFailedHandler(surfaceId, token, status)
     }
 
     /// Binds this callback context to the native surface that owns its userdata.

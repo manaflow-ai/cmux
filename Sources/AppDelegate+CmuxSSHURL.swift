@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxFoundation
 import CmuxSettings
@@ -243,7 +244,13 @@ struct TerminalDefaultFileOpenRequest: Equatable {
         if isTerminalShellScript(fileURL: fileURL, contentType: contentType) {
             return true
         }
-        return contentType?.conforms(to: .unixExecutable) == true || isExecutable
+        if contentType?.conforms(to: .unixExecutable) == true {
+            return true
+        }
+        // cmux is also an Open With viewer for text and source files, so the executable bit
+        // alone must not run a typed text file such as a chmod +x script.py or notes.md.
+        // Extensionless scripts and binaries are typed as executables or plain data and still run.
+        return isExecutable && contentType?.conforms(to: .text) != true
     }
 
     private static func isTerminalShellScript(fileURL: URL, contentType: UTType?) -> Bool {
@@ -591,6 +598,23 @@ extension AppDelegate {
         let target = request.originalURL.host ?? request.originalURL.path
         cmuxDebugLog("sshURL.prompt target=\(target) destinationLength=\(request.destination.count) hasPort=\(request.port != nil)")
 #endif
+        // `DisableRemoteConnections` (MDM): refuse before the trust dialog and
+        // the window bootstrap. The CLI would fail closed downstream, but only
+        // with a generic exit-status alert.
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+#if DEBUG
+            cmuxDebugLog("sshURL.blocked_managed_policy")
+#endif
+            let alert = NSAlert()
+            alert.messageText = ManagedRemoteConnectionsPolicy.disabledMessage
+            alert.informativeText = String(
+                localized: "managedPolicy.remoteConnections.sshURLRefused",
+                defaultValue: "cmux cannot open SSH links while remote connections are disabled by your organization's device policy."
+            )
+            alert.alertStyle = .informational
+            alert.runModal()
+            return
+        }
 
         deferInitialMainWindowBootstrapForExternalConfirmation()
         guard confirmCmuxSSHURLRequest(request) else {

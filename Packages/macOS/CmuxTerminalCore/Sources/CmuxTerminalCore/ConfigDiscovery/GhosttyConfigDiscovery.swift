@@ -20,7 +20,7 @@ public struct GhosttyConfigDiscovery {
     /// own identifier.
     public static let releaseBundleIdentifier = CmuxGhosttyConfigPathResolver.releaseBundleIdentifier
 
-    private let fileReader: any GhosttyConfigFileReading
+    let fileReader: any GhosttyConfigFileReading
     private let fontProbe: any GhosttyFontProbing
     private let pathResolver: CmuxGhosttyConfigPathResolver
 
@@ -181,12 +181,17 @@ public struct GhosttyConfigDiscovery {
     }
 
     /// Whether cmux should apply its managed default appearance across the
-    /// resolved config paths (delegates to ``GhosttyConfig``).
+    /// resolved config paths when enabled and no theme or terminal colors are set
+    /// (delegates to ``GhosttyConfig``).
     public func shouldApplyManagedDefaultAppearance(
-        configPaths: [String]? = nil
+        configPaths: [String]? = nil,
+        adaptiveDefaultThemeEnabled: Bool = false
     ) -> Bool {
         let configPaths = configPaths ?? loadedGhosttyConfigScanPaths()
-        return GhosttyConfig.shouldApplyManagedDefaultAppearance(configPaths: configPaths)
+        return GhosttyConfig.shouldApplyManagedDefaultAppearance(
+            configPaths: configPaths,
+            adaptiveDefaultThemeEnabled: adaptiveDefaultThemeEnabled
+        )
     }
 
     /// Computes the resolved plain-theme override cmux must inject when the

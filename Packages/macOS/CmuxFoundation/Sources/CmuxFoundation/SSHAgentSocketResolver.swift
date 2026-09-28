@@ -26,13 +26,7 @@ public struct SSHAgentSocketResolver: Sendable {
     /// - Parameter option: An option such as `ForwardAgent=yes` or `ForwardAgent yes`.
     /// - Returns: The normalized option key, or `nil` when the option has no key.
     public func optionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
+        parsedOption(option)?.key
     }
 
     /// Reads the first non-empty value for an OpenSSH-style option.
@@ -47,21 +41,49 @@ public struct SSHAgentSocketResolver: Sendable {
     public func optionValue(named key: String, in options: [String]) -> String? {
         let loweredKey = key.lowercased()
         for option in options {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            let parts = trimmed.split(
-                maxSplits: 1,
-                omittingEmptySubsequences: true,
-                whereSeparator: { $0 == "=" || $0.isWhitespace }
-            )
-            if parts.count == 2, parts[0].lowercased() == loweredKey {
-                let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty {
-                    return value
-                }
+            if let parsed = parsedOption(option),
+               parsed.key == loweredKey,
+               let value = parsed.value {
+                return value
             }
         }
         return nil
+    }
+
+    /// Parses the key and optional value forms accepted by OpenSSH's `-o` argument.
+    private func parsedOption(_ option: String) -> (key: String, value: String?)? {
+        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let separator = trimmed.firstIndex(where: { $0 == "=" || $0.isWhitespace }) else {
+            return (trimmed.lowercased(), nil)
+        }
+
+        let key = trimmed[..<separator]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !key.isEmpty else { return nil }
+
+        var value = trimmed[separator...]
+        value = value.drop(while: { $0.isWhitespace })
+        if value.first == "=" {
+            value = value.dropFirst()
+        }
+        let rawValue = value
+            .drop(while: { $0.isWhitespace })
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawValue.isEmpty else { return (key, nil) }
+
+        let normalizedValue: String
+        if rawValue.count >= 2,
+           let quote = rawValue.first,
+           (quote == "\"" || quote == "'"),
+           rawValue.last == quote {
+            normalizedValue = String(rawValue.dropFirst().dropLast())
+        } else {
+            normalizedValue = rawValue
+        }
+        guard !normalizedValue.isEmpty else { return (key, nil) }
+        return (key, normalizedValue)
     }
 
     /// Returns whether an option list contains a key.
@@ -88,6 +110,31 @@ public struct SSHAgentSocketResolver: Sendable {
         return options.filter { option in
             optionKey(option) != loweredKey
         }
+    }
+
+    /// Returns SSH options that disable PTY allocation for a non-interactive lane.
+    ///
+    /// Removing caller and host-provided ``RequestTTY`` values and appending a
+    /// command-line `no` override prevents OpenSSH configuration from
+    /// re-enabling a PTY. Mosh management and SCP both use this policy, while
+    /// their separately built interactive SSH paths retain the caller's intent.
+    ///
+    /// - Parameter options: OpenSSH-style options used by a non-interactive lane.
+    /// - Returns: The options with one effective `RequestTTY=no` override.
+    public func nonInteractiveOptions(from options: [String]) -> [String] {
+        removingOptions(named: "RequestTTY", from: options) + ["RequestTTY=no"]
+    }
+
+    /// Returns SSH options for Mosh's non-PTY management connections.
+    ///
+    /// Mosh allocates the interactive terminal itself; this compatibility
+    /// wrapper preserves the existing API while sharing the generic
+    /// non-interactive policy with SCP.
+    ///
+    /// - Parameter options: OpenSSH-style options used by a Mosh management lane.
+    /// - Returns: The options with one effective `RequestTTY=no` override.
+    public func moshManagementOptions(from options: [String]) -> [String] {
+        nonInteractiveOptions(from: options)
     }
 
     /// Normalizes a candidate SSH agent socket path and expands `~`.

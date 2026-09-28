@@ -8,7 +8,6 @@ struct TerminalPickerMenuValue: Equatable {
     let selectedName: String?
     let canCreateWorkspace: Bool
     let hasActiveBrowser: Bool
-    let isChatMode: Bool
     let browserStreamRows: [BrowserStreamPickerRow]
     let supportsBrowserStream: Bool
     let activeBrowserStreamPanelID: String?
@@ -24,7 +23,6 @@ struct TerminalPickerMenuValue: Equatable {
         selectedMacSurfaceID: MobileSurfacePreview.ID? = nil,
         canCreateWorkspace: Bool,
         hasActiveBrowser: Bool,
-        isChatMode: Bool,
         browserStreamRows: [BrowserStreamPickerRow] = [],
         supportsBrowserStream: Bool = false,
         activeBrowserStreamPanelID: String? = nil,
@@ -45,7 +43,6 @@ struct TerminalPickerMenuValue: Equatable {
         } ?? selection?.name
         self.canCreateWorkspace = canCreateWorkspace
         self.hasActiveBrowser = hasActiveBrowser
-        self.isChatMode = isChatMode
         self.browserStreamRows = browserStreamRows
         self.supportsBrowserStream = supportsBrowserStream
         self.activeBrowserStreamPanelID = activeBrowserStreamPanelID

@@ -532,6 +532,55 @@ fn control_socket_round_trip() {
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
+#[cfg(unix)]
+#[test]
+fn process_info_reports_live_foreground_cwd() {
+    let target = std::env::temp_dir()
+        .canonicalize()
+        .unwrap()
+        .join(format!("cmux-foreground-cwd-{}", std::process::id()));
+    std::fs::create_dir_all(&target).unwrap();
+    // The top-level PTY child changes directory and then replaces itself, so
+    // the live foreground process group leader's cwd diverges from every
+    // piece of recorded spawn metadata.
+    let script = format!("cd '{}' && exec sleep 30", target.display());
+    let mux = Mux::new(unique_session("test-foreground-cwd"), shell_opts(&script));
+    let surface = mux.new_workspace(None, None).unwrap();
+
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+
+    let target_path = target.to_string_lossy().into_owned();
+    let request_id = AtomicU64::new(1);
+    let observed = wait_for(
+        || {
+            let id = request_id.fetch_add(1, Ordering::Relaxed);
+            let response = socket_request(
+                &mut writer,
+                &mut reader,
+                serde_json::json!({"id": id, "cmd": "process-info", "surface": surface.id}),
+            );
+            let data = response["data"].clone();
+            assert!(
+                data.as_object().is_some_and(|data| data.contains_key("foreground_cwd")),
+                "process-info omitted foreground_cwd: {data}"
+            );
+            (data["foreground_cwd"].as_str() == Some(target_path.as_str())).then_some(data)
+        },
+        Duration::from_secs(10),
+    );
+    let observed = observed.expect("foreground_cwd never reported the live subshell directory");
+    // The compatibility cwd field keeps its recorded value instead of
+    // adopting the live foreground directory.
+    assert_ne!(observed["cwd"].as_str(), Some(target_path.as_str()));
+
+    mux.close_surface(surface.id).unwrap();
+    cmux_tui_core::server::cleanup(&sock_path);
+    std::fs::remove_dir(&target).unwrap();
+}
+
 #[test]
 fn control_socket_read_screen_reports_rendered_viewport_after_scrollback_clear() {
     let mut output = String::new();
@@ -1195,6 +1244,51 @@ fn byte_attach_between_transmit_and_place_keeps_the_unplaced_image() {
     mirror.vt_write(b"\x1b_Ga=p,i=76,p=5,c=1,r=1,q=2;\x1b\\");
     assert_eq!(mirror.kitty_graphics_snapshot().unwrap().placements.len(), 1);
     let _ = mux.close_surface(surface.id);
+}
+
+#[test]
+fn attach_and_resize_replays_restore_the_osc_title() {
+    let mux = Mux::new(unique_session("test-attach-osc-title"), shell_opts("cat"));
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+    surface.try_with_terminal(|terminal| terminal.vt_write(b"\x1b]2;renamed tab\x07")).unwrap();
+
+    let attach = surface.attach_stream().unwrap();
+    let mut initial =
+        ghostty_vt::Terminal::new(attach.cols, attach.rows, 1000, ghostty_vt::Callbacks::default())
+            .unwrap();
+    initial
+        .apply_vt_replay(&ghostty_vt::VtReplay {
+            bytes: attach.replay.to_vec(),
+            kitty_image_aliases: attach.kitty_image_aliases.clone(),
+            kitty_state: attach.kitty_state,
+        })
+        .unwrap();
+    assert_eq!(initial.title().as_deref(), Some("renamed tab"));
+
+    mux.resize_surface(surface.id, 21, 4).unwrap();
+    let (cols, rows, replay, aliases, kitty_state) =
+        match attach.stream.recv_timeout(Duration::from_secs(2)) {
+            Ok(AttachFrame::Resized { cols, rows, replay, kitty_image_aliases, kitty_state })
+            | Ok(AttachFrame::ResizedWithColors {
+                cols,
+                rows,
+                replay,
+                kitty_image_aliases,
+                kitty_state,
+                ..
+            }) => (cols, rows, replay, kitty_image_aliases, kitty_state),
+            other => panic!("missing ordered resize replay: {other:?}"),
+        };
+    let mut resized =
+        ghostty_vt::Terminal::new(cols, rows, 1000, ghostty_vt::Callbacks::default()).unwrap();
+    resized
+        .apply_vt_replay(&ghostty_vt::VtReplay {
+            bytes: replay.to_vec(),
+            kitty_image_aliases: aliases,
+            kitty_state,
+        })
+        .unwrap();
+    assert_eq!(resized.title().as_deref(), Some("renamed tab"));
 }
 
 #[test]

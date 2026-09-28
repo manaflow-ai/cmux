@@ -64,6 +64,7 @@ function waitForUsableSession(
   timeout = "15",
   event = '{"seq":101,"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"phone-a","transport":"iroh","stream_id":"events"}}',
   expectedClientID = "phone-a",
+  graceSeconds = "0",
 ) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-admission-test-"));
   const argsPath = path.join(tempRoot, "args");
@@ -94,6 +95,7 @@ function waitForUsableSession(
         CMUX_TEST_ARGS: argsPath,
         CMUX_TEST_EVENT: event,
         CMUX_TEST_STATUS: String(status),
+        CMUX_ATTACH_READY_GRACE_SECONDS: graceSeconds,
       },
     );
     result.eventArgs = fs.existsSync(argsPath) ? fs.readFileSync(argsPath, "utf8").trim() : "";
@@ -169,10 +171,11 @@ function extractShellFunction(source, name) {
 
 function resolveIOSAPIBaseURL(target, extraEnv = {}) {
   const source = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
+  const productionGuard = extractShellFunction(source, "cmux_ios_require_production_origin");
   const resolver = extractShellFunction(source, "cmux_ios_resolve_api_base_url");
   return run(
     "bash",
-    ["-c", `${resolver}; cmux_ios_resolve_api_base_url "$1"`, "ios-origin-test", target],
+    ["-c", `${productionGuard}; ${resolver}; cmux_ios_resolve_api_base_url "$1"`, "ios-origin-test", target],
     {
       CMUX_IOS_API_BASE_URL: "",
       CMUX_DEV_API_BASE_URL: "",
@@ -186,10 +189,11 @@ function resolveIOSAPIBaseURL(target, extraEnv = {}) {
 
 function resolveIOSIrohBrokerBaseURL(extraEnv = {}) {
   const source = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
+  const productionGuard = extractShellFunction(source, "cmux_ios_require_production_origin");
   const resolver = extractShellFunction(source, "cmux_ios_resolve_iroh_broker_base_url");
   return run(
     "bash",
-    ["-c", `${resolver}; cmux_ios_resolve_iroh_broker_base_url`, "ios-origin-test"],
+    ["-c", `${productionGuard}; ${resolver}; cmux_ios_resolve_iroh_broker_base_url`, "ios-origin-test"],
     {
       CMUX_IOS_IROH_BROKER_BASE_URL: "",
       CMUX_IROH_BROKER_BASE_URL: "",
@@ -545,7 +549,7 @@ test("dogfood readiness rejects an event from another client", () => {
 });
 
 test("dogfood readiness fails when a usable RPC session misses its deadline", () => {
-  const result = waitForUsableSession(1);
+  const result = waitForUsableSession(1, "100", "1");
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /did not establish a usable RPC session.*readiness deadline/i);
@@ -573,6 +577,14 @@ test("dogfood readiness writes a secret-free identity and latency receipt", () =
     workspace_count: 2,
     stream_id: "events",
     transport: "iroh",
+    tooling_checkout_sha: "0123456789abcdef0123456789abcdef01234567",
+    installed_bundle: {
+      bundle_id: "dev.cmux.ios.iosrdy",
+      target: "physical_device",
+      target_id: "phone-a",
+      source: "legacy_receipt_writer",
+      executable_sha256: null,
+    },
   });
   assert.equal(result.directoryMode, 0o700);
   assert.equal(result.receiptMode, 0o600);
@@ -586,6 +598,21 @@ test("macOS and iOS reloads share the dev API backend override", () => {
   assert.match(macReload, /CMUX_DEV_API_BASE_URL_VALUE=.*cmux_attach_resolve_dev_api_base_url/);
   assert.match(macReload, /CMUX_API_BASE_URL="\$CMUX_DEV_API_BASE_URL_VALUE"/);
   assert.match(iosReload, /explicit_base_url=.*CMUX_DEV_API_BASE_URL/);
+});
+
+test("tagged macOS launches require a personal credential file by default", () => {
+  const macReload = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
+
+  assert.match(macReload, /tagged launches require authenticated dev credentials/u);
+  assert.match(macReload, /cmuxterm-dev\.env.*cmux\.env/su);
+  assert.match(macReload, /AUTH_PROFILE="personal"/u);
+});
+
+test("bundle launches clear inherited tagged runtime state", () => {
+  const launcher = fs.readFileSync(path.join(repoRoot, "scripts/launch-bundle-app.swift"), "utf8");
+
+  assert.match(launcher, /runtimeEnvironmentPrefixes = \["CMUX_", "GHOSTTY_"\]/u);
+  assert.match(launcher, /removeValue\(forKey: "CMUXD_UNIX_PATH"\)/u);
 });
 
 test("iOS Simulator defaults to its tagged localhost API", () => {
@@ -635,6 +662,22 @@ test("iOS production-auth builds keep production service origins", () => {
   assert.equal(broker.stdout, "https://cmux.com");
 });
 
+test("iOS production-auth rejects staging origin overrides", () => {
+  const api = resolveIOSAPIBaseURL("physical_device", {
+    PROD_AUTH: "1",
+    CMUX_DEV_API_BASE_URL: "https://cmux-staging.vercel.app",
+  });
+  assert.notEqual(api.status, 0);
+  assert.match(api.stderr, /--prod-auth cannot use the API origin/u);
+
+  const broker = resolveIOSIrohBrokerBaseURL({
+    PROD_AUTH: "1",
+    CMUX_IROH_BROKER_BASE_URL: "https://cmux-staging.vercel.app",
+  });
+  assert.notEqual(broker.status, 0);
+  assert.match(broker.stderr, /--prod-auth cannot use the Iroh broker origin/u);
+});
+
 test("tagged reloads share a dedicated Iroh broker", () => {
   const macReload = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
   const iosReload = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
@@ -663,22 +706,22 @@ test("cloud physical-device archives bake staging origins with override escape h
   assert.match(workflow, /CMUX_IROH_BROKER_BASE_URL="\$iroh_broker_base_url"/);
 });
 
-test("physical-device mint rejects a ticket with only plaintext Tailscale routes", async () => {
+test("physical-device mint accepts the authenticated Tailscale fallback", async () => {
   const result = await mintAttachURL(
     "physical_device",
     [attachPayload("tailscale"), attachPayload("tailscale")],
     2,
   );
-  assert.equal(result.status, 2);
-  assert.equal(result.stdout, "");
-  assert.equal(result.callCount, 2);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, attachPayload("tailscale").attach_url);
+  assert.equal(result.callCount, 1);
 });
 
-test("physical-device mint waits for asynchronous Iroh publication", async () => {
+test("physical-device mint waits when no route is published yet", async () => {
   const payload = attachPayload("iroh");
   const result = await mintAttachURL(
     "physical_device",
-    [attachPayload("tailscale"), payload],
+    [attachPayload("none"), payload],
     2,
   );
   assert.equal(result.status, 0, result.stderr);

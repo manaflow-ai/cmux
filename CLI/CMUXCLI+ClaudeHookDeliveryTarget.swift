@@ -25,7 +25,7 @@
 import Foundation
 
 extension CMUXCLI {
-    struct ClaudeHookDeliveryTarget {
+    struct AgentHookDeliveryTarget {
         let workspaceId: String
         let surfaceId: String
         /// Resolved from the hook's own identity (live pid target, session
@@ -53,18 +53,19 @@ extension CMUXCLI {
         var allowsPidProbe: Bool = true
     }
 
-    private enum LiveAgentDeliveryTargetProbeResult {
+    /// Shared live-identity probe result used by Claude and generic agent hooks.
+    enum LiveAgentDeliveryTargetProbeResult {
         case notAttempted
         case unsupported
         case failed
-        case resolved(ClaudeHookDeliveryTarget)
+        case resolved(AgentHookDeliveryTarget)
     }
 
     func resolveClaudeHookDeliveryTarget(
         mappedSession: ClaudeHookSessionRecord?,
         routing: ClaudeHookRoutingContext,
         client: SocketClient
-    ) throws -> ClaudeHookDeliveryTarget? {
+    ) throws -> AgentHookDeliveryTarget? {
         let pidProbeAllowed = routing.allowsPidProbe && routing.preferCallerTTYRouting
         let rehomeAllowed = routing.preferCallerTTYRouting
         if pidProbeAllowed {
@@ -190,7 +191,7 @@ extension CMUXCLI {
                 return rehomed
             }
         }
-        return ClaudeHookDeliveryTarget(
+        return AgentHookDeliveryTarget(
             workspaceId: workspaceId,
             surfaceId: resolvedSurface.surfaceId,
             isAuthoritative: resolvedSurface.isAuthoritative
@@ -201,7 +202,7 @@ extension CMUXCLI {
     /// to live identity. An older app may fall back; a present resolver's
     /// rejection must fail closed unless the caller supplies corroborated
     /// surface identity (handled by the caller).
-    private func liveAgentPidDeliveryTarget(
+    func liveAgentPidDeliveryTarget(
         pid: Int?,
         client: SocketClient
     ) -> LiveAgentDeliveryTargetProbeResult {
@@ -233,7 +234,7 @@ extension CMUXCLI {
               isUUID(surfaceId) else {
             return .failed
         }
-        return .resolved(ClaudeHookDeliveryTarget(
+        return .resolved(AgentHookDeliveryTarget(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             isAuthoritative: true
@@ -246,7 +247,7 @@ extension CMUXCLI {
         surfaceId: String?,
         claimedWorkspaceId: String?,
         client: SocketClient
-    ) -> ClaudeHookDeliveryTarget? {
+    ) -> AgentHookDeliveryTarget? {
         guard case .resolved(let target) = liveAgentSurfaceDeliveryTarget(
             surfaceId: surfaceId,
             claimedWorkspaceId: claimedWorkspaceId,
@@ -255,7 +256,7 @@ extension CMUXCLI {
         return target
     }
 
-    private func liveAgentSurfaceDeliveryTarget(
+    func liveAgentSurfaceDeliveryTarget(
         surfaceId: String?,
         claimedWorkspaceId: String?,
         client: SocketClient
@@ -286,7 +287,7 @@ extension CMUXCLI {
               isUUID(workspaceId) else {
             return .failed
         }
-        return .resolved(ClaudeHookDeliveryTarget(
+        return .resolved(AgentHookDeliveryTarget(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             isAuthoritative: true

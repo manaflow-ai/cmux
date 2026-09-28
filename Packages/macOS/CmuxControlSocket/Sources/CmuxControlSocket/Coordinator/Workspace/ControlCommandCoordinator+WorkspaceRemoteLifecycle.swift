@@ -31,6 +31,9 @@ extension ControlCommandCoordinator {
         }
 
         return context.controlResolveOnMain { seam in
+            if let error = seam.controlRemoteRelayDispatchError(method: "workspace.remote.terminal_session_launching", params: params) {
+                return error
+            }
             let resolution = seam.controlWorkspaceRemoteTerminalSessionLaunching(
                 workspaceID: workspaceID,
                 surfaceID: surfaceID,
@@ -175,6 +178,9 @@ extension ControlCommandCoordinator {
         }
 
         let result: ControlCallResult = context.controlResolveOnMain { seam -> ControlCallResult in
+            if let error = seam.controlRemoteRelayDispatchError(method: "workspace.remote.terminal_session_connected", params: params) {
+                return error
+            }
             let resolution: ControlWorkspaceRemoteTerminalSessionConnectedResolution
             if let authority {
                 switch authority {

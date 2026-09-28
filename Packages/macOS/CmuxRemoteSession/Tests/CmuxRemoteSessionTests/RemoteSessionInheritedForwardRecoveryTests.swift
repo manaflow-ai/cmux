@@ -295,9 +295,11 @@ struct RemoteSessionInheritedForwardRecoveryTests {
         #expect(await statuses.next() == readyStatus)
         #expect(await clock.nextRequestedDelay() == 2_000)
         await clock.resumeNextSleep()
-        #expect(await statuses.next()?.state == .error)
+        let firstRecoveryStatus = try #require(await statuses.next())
+        #expect(firstRecoveryStatus.state != .error)
         #expect(await clock.nextRequestedDelay() == 2_000)
-        #expect(await statuses.next()?.state == .error)
+        let secondRecoveryStatus = try #require(await statuses.next())
+        #expect(secondRecoveryStatus.state != .error)
 
         let requests = runner.requests
         #expect(
@@ -380,11 +382,14 @@ struct RemoteSessionInheritedForwardRecoveryTests {
     private static func isMetadataOwnershipProbe(
         _ request: RemoteProcessRequest
     ) -> Bool {
-        request.arguments.last?.contains("tr -d") == true &&
-            request.arguments.last?.contains("auth_file=") == true &&
-            request.arguments.last?.contains(
-                "relay-startup-cancellation"
-            ) == true
+        guard request.arguments.last == "sh -s",
+              let stdin = request.stdin,
+              let script = String(data: stdin, encoding: .utf8) else {
+            return false
+        }
+        return script.contains("tr -d") &&
+            script.contains("auth_file=") &&
+            script.contains("relay-startup-cancellation")
     }
 
     private static func runShellScript(

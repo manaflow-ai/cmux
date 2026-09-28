@@ -70,13 +70,17 @@ public struct PortScanSnapshotReconciler<Key: Hashable & Sendable>: Sendable {
     ///   - completenessByKey: Whether each key's missing observations are
     ///     authoritative enough to advance removal. Missing entries are treated
     ///     as incomplete.
+    ///   - completenessByPort: Optional per-port overrides for missing
+    ///     observations. These allow a key with unrelated incomplete evidence
+    ///     to retire ports whose owning process was inspected authoritatively.
     /// - Returns: The reconciled stable snapshot.
     @discardableResult
     public mutating func reconcile(
         scannedPorts: [Key: [Int]],
         scannedKeys: Set<Key>,
         trackedKeys: Set<Key>,
-        completenessByKey: [Key: PortScanCompleteness]
+        completenessByKey: [Key: PortScanCompleteness],
+        completenessByPort: [Key: [Int: PortScanCompleteness]] = [:]
     ) -> [Key: [Int]] {
         snapshot = snapshot.filter { trackedKeys.contains($0.key) }
         missingObservationCounts = missingObservationCounts.filter { trackedKeys.contains($0.key) }
@@ -89,74 +93,72 @@ public struct PortScanSnapshotReconciler<Key: Hashable & Sendable>: Sendable {
             let observed = Set((scannedPorts[key] ?? []).filter { $0 > 0 && $0 <= 65_535 })
             let previous = Set(snapshot[key] ?? [])
 
-            switch completenessByKey[key, default: .incomplete] {
-            case .incomplete:
-                let unbounded = previous.union(observed)
-                var incompletePorts = incompletePortsByKey[key] ?? []
-                incompletePorts.formUnion(observed.subtracting(previous))
-                incompletePorts.formIntersection(unbounded)
-                var observationSequences = incompletePortObservationSequenceByKey[key] ?? [:]
-                for port in observed.intersection(incompletePorts).sorted() {
-                    observationSequence &+= 1
-                    observationSequences[port] = observationSequence
-                }
-                let retainedIncompletePorts = Set(incompletePorts.sorted { lhs, rhs in
-                    let lhsSequence = observationSequences[lhs, default: 0]
-                    let rhsSequence = observationSequences[rhs, default: 0]
-                    return lhsSequence == rhsSequence ? lhs < rhs : lhsSequence > rhsSequence
-                }.prefix(maximumIncompletePortsPerKey))
-                let retained = unbounded.subtracting(incompletePorts.subtracting(retainedIncompletePorts))
-                if retained.isEmpty {
-                    snapshot.removeValue(forKey: key)
-                } else {
-                    snapshot[key] = retained.sorted()
-                }
-                storeIncompletePorts(
-                    retainedIncompletePorts,
-                    observationSequences: observationSequences,
-                    for: key
-                )
-                var counts = (missingObservationCounts[key] ?? [:]).filter {
-                    retained.contains($0.key)
-                }
-                for port in observed {
-                    counts.removeValue(forKey: port)
-                }
-                if counts.isEmpty {
-                    missingObservationCounts.removeValue(forKey: key)
-                } else {
-                    missingObservationCounts[key] = counts
-                }
-
-            case .complete:
-                var retained = observed
-                var nextCounts: [Int: Int] = [:]
-                for port in previous.subtracting(observed) {
+            // A scan can be incomplete for one process while still providing
+            // authoritative negative evidence for a different listener PID.
+            // Use the per-port verdict when supplied and retain the historical
+            // key-wide verdict as the conservative fallback.
+            let defaultCompleteness = completenessByKey[key, default: .incomplete]
+            let portCompleteness = completenessByPort[key] ?? [:]
+            var retained = observed
+            var nextCounts = missingObservationCounts[key] ?? [:]
+            var incompletePorts = incompletePortsByKey[key] ?? []
+            var observationSequences = incompletePortObservationSequenceByKey[key] ?? [:]
+            for port in observed {
+                nextCounts.removeValue(forKey: port)
+            }
+            for port in previous.subtracting(observed) {
+                switch portCompleteness[port, default: defaultCompleteness] {
+                case .incomplete:
+                    retained.insert(port)
+                case .complete:
+                    // A trusted owner-specific miss upgrades a port that was
+                    // learned during an incomplete scan, allowing the normal
+                    // bounded removal window to apply to it as well.
+                    incompletePorts.remove(port)
+                    observationSequences.removeValue(forKey: port)
                     let missCount = (missingObservationCounts[key]?[port] ?? 0) + 1
                     if missCount <= missingPortRetentionLimit {
                         retained.insert(port)
                         nextCounts[port] = missCount
+                    } else {
+                        nextCounts.removeValue(forKey: port)
                     }
                 }
-                if retained.isEmpty {
-                    snapshot.removeValue(forKey: key)
-                } else {
-                    snapshot[key] = retained.sorted()
-                }
-                if nextCounts.isEmpty {
-                    missingObservationCounts.removeValue(forKey: key)
-                } else {
-                    missingObservationCounts[key] = nextCounts
-                }
-                var incompletePorts = incompletePortsByKey[key] ?? []
-                incompletePorts.subtract(observed)
-                incompletePorts.formIntersection(retained)
-                storeIncompletePorts(
-                    incompletePorts,
-                    observationSequences: incompletePortObservationSequenceByKey[key] ?? [:],
-                    for: key
-                )
             }
+
+            if defaultCompleteness == .incomplete {
+                incompletePorts.formUnion(observed.subtracting(previous))
+            } else {
+                incompletePorts.subtract(observed)
+            }
+            incompletePorts.formIntersection(retained)
+            for port in observed.intersection(incompletePorts).sorted() {
+                observationSequence &+= 1
+                observationSequences[port] = observationSequence
+            }
+            let retainedIncompletePorts = Set(incompletePorts.sorted { lhs, rhs in
+                let lhsSequence = observationSequences[lhs, default: 0]
+                let rhsSequence = observationSequences[rhs, default: 0]
+                return lhsSequence == rhsSequence ? lhs < rhs : lhsSequence > rhsSequence
+            }.prefix(maximumIncompletePortsPerKey))
+            retained.subtract(incompletePorts.subtracting(retainedIncompletePorts))
+
+            if retained.isEmpty {
+                snapshot.removeValue(forKey: key)
+            } else {
+                snapshot[key] = retained.sorted()
+            }
+            nextCounts = nextCounts.filter { retained.contains($0.key) }
+            if nextCounts.isEmpty {
+                missingObservationCounts.removeValue(forKey: key)
+            } else {
+                missingObservationCounts[key] = nextCounts
+            }
+            storeIncompletePorts(
+                retainedIncompletePorts,
+                observationSequences: observationSequences,
+                for: key
+            )
         }
 
         return snapshot

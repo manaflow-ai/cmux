@@ -9,6 +9,7 @@ import Foundation
 public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCodable {
     // MARK: App
     case openSettings
+    case openTeamPicker
     case reloadConfiguration
     case showHideAllWindows
     case globalSearch
@@ -21,6 +22,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case toggleSidebar
     case newTab
     case newBrowserWorkspace
+    case newCloudWorkspace
+    case newCloudMachine
     case saveLayoutTemplate
     case openFolder
     case reopenPreviousSession
@@ -33,12 +36,17 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case jumpToUnread
     case toggleUnread
     case markOldestUnreadAndJumpNext
+    /// Marks every notification read without removing notification rows.
+    case markAllNotificationsRead
+    /// Removes every notification row and its unread indicators.
+    case clearAllNotifications
     case focusRightSidebar
     case switchRightSidebarToFiles
     case switchRightSidebarToFind
     case switchRightSidebarToSessions
     case switchRightSidebarToFeed
     case switchRightSidebarToDock
+    case switchRightSidebarToMachines
     case triggerFlash
 
     // MARK: Navigation
@@ -73,6 +81,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case moveWorkspaceDown
     case focusHistoryBack
     case focusHistoryForward
+    /// Toggles focus between the current position and the one it last left.
+    case focusHistoryLast
     case selectWorkspaceByNumber
     case renameTab
     case renameWorkspace
@@ -102,6 +112,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case attachTextBoxFile
     /// Sends a Ctrl-F keystroke through to the focused terminal.
     case sendCtrlFToTerminal
+    /// Pastes the path of the newest screenshot into the focused terminal.
+    case pasteLastScreenshot
     /// Clears the focused terminal's visible screen while preserving scrollback.
     case clearScreenKeepScrollback
 
@@ -114,6 +126,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case focusNextPane
     case splitRight
     case splitDown
+    case newPaneAutoLayout
     case toggleSplitZoom
     /// Increases every terminal font size in the selected workspace.
     case increaseWorkspaceTerminalFontSize
@@ -122,6 +135,14 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     /// Resets every terminal font size in the selected workspace.
     case resetWorkspaceTerminalFontSize
     case equalizeSplits
+    /// Moves the focused pane's controlling divider left by one resize step.
+    case resizePaneLeft = "resize-pane-left"
+    /// Moves the focused pane's controlling divider right by one resize step.
+    case resizePaneRight = "resize-pane-right"
+    /// Moves the focused pane's controlling divider up by one resize step.
+    case resizePaneUp = "resize-pane-up"
+    /// Moves the focused pane's controlling divider down by one resize step.
+    case resizePaneDown = "resize-pane-down"
     case splitBrowserRight
     case splitBrowserDown
     case toggleRightSidebar = "toggleFileExplorer"
@@ -150,6 +171,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     // MARK: Browser & Find
     case openDiffViewer
     case saveFilePreview
+    /// Toggles soft wrapping while a file-editor text view owns focus.
+    case toggleFileEditorWordWrap
     case openBrowser
     case focusBrowserAddressBar
     case browserBack
@@ -275,7 +298,8 @@ extension ShortcutAction {
     public var defaultFocusWhenClause: ShortcutWhenClause {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
-             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
+             .switchRightSidebarToMachines:
             return .atom(.sidebarFocus)
         case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias:
             return .atom(.sidebarFocus)
@@ -283,7 +307,7 @@ extension ShortcutAction {
             return .key(ShortcutContextKnownKey.commandPaletteVisible.rawValue)
         case .renameTab, .renameWorkspace:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
-        case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
+        case .sendCtrlFToTerminal, .pasteLastScreenshot, .clearScreenKeepScrollback:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .focusHistoryBack, .focusHistoryForward:
             return .not(.atom(.browserFocus))
@@ -299,6 +323,8 @@ extension ShortcutAction {
             return .or(.atom(.browserFocus), .atom(.markdownFocus))
         case .browserZoomIn, .browserZoomOut, .browserZoomReset:
             return .or(.atom(.browserFocus), .atom(.filePreviewTextEditorFocus))
+        case .toggleFileEditorWordWrap:
+            return .atom(.filePreviewTextEditorFocus)
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .atom(.markdownFocus)
         case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,

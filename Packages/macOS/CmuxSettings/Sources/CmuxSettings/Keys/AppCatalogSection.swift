@@ -9,6 +9,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "appearanceMode"
     )
 
+    /// Accent for cmux-drawn chrome: cmux's fixed blue or the macOS accent.
+    /// See ``CmuxAccentColorMode``.
+    public let accentColor = DefaultsKey<CmuxAccentColorMode>(
+        id: "app.accentColor",
+        defaultValue: CmuxAccentColorMode.defaultValue,
+        userDefaultsKey: CmuxAccentColorMode.userDefaultsKey
+    )
+
     public let language = DefaultsKey<AppLanguage>(
         id: "app.language",
         defaultValue: .system,
@@ -41,6 +49,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "newWorkspacePlacement"
     )
 
+    /// Folder the Open Folder panel starts in. Empty keeps the active
+    /// workspace's directory. Supports a leading `~`.
+    public let defaultWorkspacePath = DefaultsKey<String>(
+        id: "app.defaultWorkspacePath",
+        defaultValue: "",
+        userDefaultsKey: "defaultWorkspacePath"
+    )
+
     public let workspaceInheritWorkingDirectory = DefaultsKey<Bool>(
         id: "app.workspaceInheritWorkingDirectory",
         defaultValue: true,
@@ -70,12 +86,28 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "paneFirstClickFocus.enabled"
     )
 
+    /// Number of points moved by each keyboard pane-resize step.
+    public let paneResizeStepPixels = DefaultsKey<Int>(
+        id: "app.paneResizeStepPixels",
+        defaultValue: PaneResizeStepSettings.defaultPixels,
+        userDefaultsKey: PaneResizeStepSettings.key
+    )
+
     /// Whether focus history includes pane and tab changes within a workspace.
     /// Defaults to workspace-only navigation.
     public let focusHistoryIncludesPanesAndTabs = DefaultsKey<Bool>(
         id: "app.focusHistoryIncludesPanesAndTabs",
         defaultValue: false,
         userDefaultsKey: "focusHistoryIncludesPanesAndTabs"
+    )
+
+    /// Whether creating a split rebalances the panes along the new split's
+    /// axis so they share the space evenly. Defaults to off, which keeps the
+    /// halve-the-source-pane behavior.
+    public let equalizeSplitsOnCreate = DefaultsKey<Bool>(
+        id: "app.equalizeSplitsOnCreate",
+        defaultValue: false,
+        userDefaultsKey: "equalizeSplitsOnCreate"
     )
 
     public let preferredEditor = DefaultsKey<String>(
@@ -140,7 +172,68 @@ public struct AppCatalogSection: SettingCatalogSection {
     public let warnBeforeClosingTab = DefaultsKey<Bool>(
         id: "app.warnBeforeClosingTab",
         defaultValue: true,
-        userDefaultsKey: "warnBeforeClosingTabShortcut"
+        userDefaultsKey: "warnBeforeClosingTabShortcut",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.warnBeforeClosingTab",
+                defaultValue: "Warn Before Closing Tab"
+            ),
+            section: .app,
+            searchID: "warn-before-closing-tab",
+            searchKeywords: ["close", "tab", "confirmation", "command-w", "cmd-w", "terminal", "surface"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "warnBeforeClosingTab",
+                    keywords: ["warn", "close", "tab", "confirmation", "cmd-w"]
+                )
+            ))
+        )
+    )
+
+    /// Gates the "Close workspace?" prompts (running processes, multi-workspace
+    /// close). The "Close pinned workspace?" prompt is not gated by it.
+    public let warnBeforeClosingWorkspace = DefaultsKey<Bool>(
+        id: "app.warnBeforeClosingWorkspace",
+        defaultValue: true,
+        userDefaultsKey: "warnBeforeClosingWorkspace",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.warnBeforeClosingWorkspace",
+                defaultValue: "Warn Before Closing Workspace"
+            ),
+            section: .app,
+            searchID: "warn-before-closing-workspace",
+            searchKeywords: ["close", "workspace", "confirmation", "command-shift-w", "cmd-shift-w", "agent", "running"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "warnBeforeClosingWorkspace",
+                    keywords: ["warn", "close", "workspace", "confirmation", "cmd-shift-w"]
+                )
+            ))
+        )
+    )
+
+    /// Gates the "Close window?" prompts (the Close Window command, and closing
+    /// every workspace in a window at once).
+    public let warnBeforeClosingWindow = DefaultsKey<Bool>(
+        id: "app.warnBeforeClosingWindow",
+        defaultValue: true,
+        userDefaultsKey: "warnBeforeClosingWindow",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.warnBeforeClosingWindow",
+                defaultValue: "Warn Before Closing Window"
+            ),
+            section: .app,
+            searchID: "warn-before-closing-window",
+            searchKeywords: ["close", "window", "confirmation", "command-control-w", "cmd-ctrl-w", "running"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "warnBeforeClosingWindow",
+                    keywords: ["warn", "close", "window", "confirmation", "cmd-ctrl-w"]
+                )
+            ))
+        )
     )
 
     public let warnBeforeClosingTabXButton = DefaultsKey<Bool>(
@@ -152,13 +245,43 @@ public struct AppCatalogSection: SettingCatalogSection {
     public let hideTabCloseButton = DefaultsKey<Bool>(
         id: "app.hideTabCloseButton",
         defaultValue: false,
-        userDefaultsKey: "hideTabCloseButton"
+        userDefaultsKey: "hideTabCloseButton",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.hideTabCloseButton",
+                defaultValue: "Hide Tab Close Button"
+            ),
+            section: .app,
+            searchID: "hide-tab-close-button",
+            searchKeywords: ["hide", "x", "button", "close", "tab", "terminal", "surface"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "hideTabCloseButton",
+                    keywords: ["hide", "close", "tab", "x", "button"]
+                )
+            ))
+        )
     )
 
     public let renameSelectsExistingName = DefaultsKey<Bool>(
         id: "app.renameSelectsExistingName",
         defaultValue: true,
-        userDefaultsKey: "commandPalette.renameSelectAllOnFocus"
+        userDefaultsKey: "commandPalette.renameSelectAllOnFocus",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.renameSelectsName",
+                defaultValue: "Rename Selects Existing Name"
+            ),
+            section: .app,
+            searchID: "rename-selects-name",
+            searchKeywords: ["rename", "select", "all", "existing", "title", "command", "palette", "workspace", "name", "text", "selection"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "renameSelectsExistingName",
+                    keywords: ["rename", "select", "name", "title", "command", "palette"]
+                )
+            ))
+        )
     )
 
     public let commandPaletteSearchesAllSurfaces = DefaultsKey<Bool>(

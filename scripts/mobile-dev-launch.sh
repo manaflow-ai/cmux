@@ -88,7 +88,11 @@ EXPECTED_ACCOUNT=""
 CHECK_AUTH_CONTRACT=0
 ATTACH_TTL_SECONDS="${CMUX_ATTACH_TTL_SECONDS:-600}"
 ATTACH_MINT_MAX_ATTEMPTS="${CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20}"
-ATTACH_READY_TIMEOUT_SECONDS="${CMUX_ATTACH_READY_TIMEOUT_SECONDS:-15}"
+# Stack session restore and the first control-plane snapshot can take longer
+# than the attach handshake itself on a physical device. Keep the default
+# bounded, but leave enough room for a cold auth bootstrap before declaring the
+# install unusable; callers can still tighten or extend it explicitly.
+ATTACH_READY_TIMEOUT_SECONDS="${CMUX_ATTACH_READY_TIMEOUT_SECONDS:-60}"
 
 usage() { sed -n '2,58p' "$0"; }
 
@@ -384,15 +388,22 @@ if [[ "$TARGET" == "simulator" ]]; then
   if [[ "$DETACH" -ne 1 ]]; then
     launch_args+=(--console-pty)
   fi
+  SIMULATOR_LAUNCH_UPTIME_NS=""
+  if [[ -n "${CMUX_IROH_SOAK_PROFILE:-}" ]]; then
+    SIMULATOR_LAUNCH_UPTIME_NS="$(/usr/bin/python3 "$SCRIPT_DIR/lib/mach-clock-ns.py")"
+  fi
+  SIMCTL_CHILD_CMUX_IROH_UI_LAUNCH_UPTIME_NS="$SIMULATOR_LAUNCH_UPTIME_NS" \
   SIMCTL_CHILD_CMUX_UITEST_STACK_EMAIL="$CMUX_UITEST_STACK_EMAIL" \
   SIMCTL_CHILD_CMUX_UITEST_STACK_PASSWORD="$CMUX_UITEST_STACK_PASSWORD" \
-  SIMCTL_CHILD_CMUX_DEV_AUTH_REPLACE_SESSION="1" \
+  SIMCTL_CHILD_CMUX_DEV_AUTH_REPLACE_SESSION="${CMUX_DEV_AUTH_REPLACE_SESSION:-1}" \
   SIMCTL_CHILD_CMUX_SIMULATOR_DEVICE_ID="$SIMULATOR_DEVICE_ID" \
   SIMCTL_CHILD_CMUX_UITEST_MOCK_DATA="0" \
   SIMCTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
   SIMCTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$DOGFOOD_CLIENT_ID" \
   SIMCTL_CHILD_CMUX_IROH_RELEASE_GATE_MODE="$IROH_RELEASE_GATE_MODE" \
   SIMCTL_CHILD_CMUX_IROH_RELEASE_GATE_SCENARIO="${CMUX_IROH_RELEASE_GATE_SCENARIO:-standard}" \
+  SIMCTL_CHILD_CMUX_IROH_SOAK_PROFILE="${CMUX_IROH_SOAK_PROFILE:-}" \
+  SIMCTL_CHILD_CMUX_IROH_V2_VERIFY_RENEW_INTERVAL_SECONDS="${CMUX_IROH_V2_VERIFY_RENEW_INTERVAL_SECONDS:-}" \
   SIMCTL_CHILD_CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH="${CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH:-0}" \
     xcrun simctl "${launch_args[@]}" "$SIM_UDID" "$BUNDLE_ID"
 else
@@ -413,7 +424,7 @@ else
   LAUNCH_ERR="$(mktemp "${TMPDIR:-/tmp}/cmux-mdl-launch-err.XXXXXX")"
   if ! DEVICECTL_CHILD_CMUX_UITEST_STACK_EMAIL="$CMUX_UITEST_STACK_EMAIL" \
   DEVICECTL_CHILD_CMUX_UITEST_STACK_PASSWORD="$CMUX_UITEST_STACK_PASSWORD" \
-  DEVICECTL_CHILD_CMUX_DEV_AUTH_REPLACE_SESSION="1" \
+  DEVICECTL_CHILD_CMUX_DEV_AUTH_REPLACE_SESSION="${CMUX_DEV_AUTH_REPLACE_SESSION:-1}" \
   DEVICECTL_CHILD_CMUX_UITEST_MOCK_DATA="0" \
   DEVICECTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
   DEVICECTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$DOGFOOD_CLIENT_ID" \
@@ -460,6 +471,11 @@ if [[ -n "$READINESS_CURSOR" && -z "$IROH_RELEASE_GATE_MODE" ]]; then
     RECEIPT_TARGET="simulator_injection"
     RECEIPT_TARGET_ID="$SIM_UDID"
   fi
+  INSTALLED_BUNDLE_METADATA="$(cmux_attach_installed_bundle_metadata \
+    "$RECEIPT_TARGET" "$RECEIPT_TARGET_ID" "$BUNDLE_ID")" || {
+    echo "error: authenticated session passed but installed bundle metadata could not be inspected" >&2
+    exit 1
+  }
   RECEIPT_DIR="${CMUX_READINESS_RECEIPT_DIR:-/tmp/cmux-ios-dogfood-readiness}"
   RECEIPT_PATH="$RECEIPT_DIR/${slug}-$(cmux_attach__slug "$RECEIPT_TARGET_ID").json"
   cmux_attach_write_readiness_receipt \
@@ -473,7 +489,8 @@ if [[ -n "$READINESS_CURSOR" && -z "$IROH_RELEASE_GATE_MODE" ]]; then
     "$(cmux_attach_socket_path "$TAG")" \
     "$READINESS_LATENCY_MS" \
     "${CMUX_DOGFOOD_LAUNCH_ATTEMPT_COUNT:-1}" \
-    "$READY_EVENT"
+    "$READY_EVENT" \
+    "$INSTALLED_BUNDLE_METADATA"
   echo "==> usable RPC session established between $BUNDLE_ID and tagged Mac '$TAG'"
   echo "==> readiness receipt: $RECEIPT_PATH"
   if [[ "$TARGET" == "device" ]]; then

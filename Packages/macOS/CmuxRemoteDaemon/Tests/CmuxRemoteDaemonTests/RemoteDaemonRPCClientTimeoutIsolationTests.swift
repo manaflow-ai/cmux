@@ -22,7 +22,10 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
             remotePath: "/fake/cmuxd-remote",
             strings: RemoteDaemonStrings(
                 missingPersistentPTYCapability: "missing persistent PTY",
-                missingRequiredFunctionality: "missing functionality"
+                missingRequiredFunctionality: "missing functionality",
+                cloudNotificationClearWorkspaceInvalid: "invalid workspace",
+                cloudNotificationClearWorkspaceDenied: "workspace denied",
+                cloudNotificationClearSurfaceInvalid: "invalid surface"
             )
         ) { _ in
             unexpectedTermination.signal()
@@ -31,6 +34,7 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
         client.transportExecutableOverride = executable
 
         try client.start()
+        #expect(client.daemonVersion == "0.64.22")
         let existingAttachment = try client.attachPTY(
             sessionID: "existing-session",
             attachmentID: "existing-attachment",
@@ -85,7 +89,10 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
             remotePath: "/fake/cmuxd-remote",
             strings: RemoteDaemonStrings(
                 missingPersistentPTYCapability: "missing persistent PTY",
-                missingRequiredFunctionality: "missing functionality"
+                missingRequiredFunctionality: "missing functionality",
+                cloudNotificationClearWorkspaceInvalid: "invalid workspace",
+                cloudNotificationClearWorkspaceDenied: "workspace denied",
+                cloudNotificationClearSurfaceInvalid: "invalid surface"
             )
         ) { _ in
             unexpectedTermination.signal()
@@ -200,7 +207,7 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
         }
         if IFS= read -r line; then
           id=$(read_id "$line")
-          printf '{"id":%s,"ok":true,"result":{"capabilities":["proxy.stream.push"]}}\\n' "$id"
+          printf '{"id":%s,"ok":true,"result":{"version":"0.64.22","capabilities":["proxy.stream.push"]}}\\n' "$id"
         else
           exit 1
         fi

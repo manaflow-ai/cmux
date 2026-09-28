@@ -25,6 +25,10 @@
   <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo video</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
+<p align="center">
+  <a href="https://cmux.com/docs/getting-started">Docs</a> · <a href="https://cmux.com/blog">Blog</a> · <a href="https://cmux.com/docs/changelog">Changelog</a> · <a href="https://cmux.com/community">Community</a>
+</p>
+
 ## Features
 
 <table>
@@ -144,6 +148,11 @@ Give a million developers composable primitives and they'll collectively find th
 
 For more info on how to configure cmux, [head over to our docs](https://cmux.com/docs/getting-started?utm_source=readme).
 
+To theme cmux (colors, fonts, transparency, sidebar, and more), see [Customizing cmux's look](docs/customizing-appearance.md).
+
+For shell watcher churn and managed-Mac process audit volume, see the supported
+[`CMUX_NO_GIT_WATCH=1` mitigation](docs/shell-integration.md) and its Git/PR update trade-offs.
+
 ## Keyboard Shortcuts
 
 ### Workspaces
@@ -182,6 +191,7 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 | ⌘ D | Split right |
 | ⌘ ⇧ D | Split down |
 | ⌥ ⌘ ← → ↑ ↓ | Focus pane directionally |
+| ⌃ ⇧ H J K L | Resize pane left/down/up/right |
 | ⌘ ⇧ H | Flash focused panel |
 
 ### Browser
@@ -207,6 +217,8 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 | ⌘ ⇧ U | Jump to latest unread |
 | ⌥ ⌘ U | Toggle current item unread state |
 | ⌃ ⌘ U | Mark current item as oldest unread and jump to next latest unread |
+| — | Mark all notifications read (unbound by default; configure in Settings or `cmux.json`) |
+| — | Clear all notifications (unbound by default; configure in Settings or `cmux.json`) |
 
 ### Find
 
@@ -240,7 +252,7 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 
 ## Nightly Builds
 
-[Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
+[Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg) (universal; updates then switch to your Mac's architecture automatically)
 
 cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. Built automatically from the latest `main` commit and auto-updates via its own Sparkle feed.
 
@@ -255,8 +267,11 @@ state:
 - Terminal scrollback (best effort)
 - Browser URL and navigation history
 
-cmux does not checkpoint arbitrary live process state. tmux, vim, shells, and
-unsupported terminal apps reopen as normal terminals.
+cmux does not checkpoint arbitrary live process state. Ordinary terminals,
+tmux, vim, shells, and unsupported terminal apps reopen as normal terminals.
+For live detach/reattach across cmux quit, crashes, and updates, opt in to the
+local tmux owner with `cmux local-tmux`; see [`docs/local-tmux.md`](docs/local-tmux.md)
+for its lifecycle and machine-sleep limits.
 
 Supported agent sessions can resume when hooks have saved a native session ID.
 Install hooks after installing the agent CLI so its binary is on `PATH`:
@@ -311,6 +326,37 @@ If you need to reapply the last saved snapshot manually, use:
 - `File > Reopen Previous Session`
 - `⌘ ⇧ O`
 - `cmux restore-session`
+
+Each cmux install (stable, nightly, rc, staging, and tagged debug builds) keeps its own
+saved session. To bring a session from one install into another, for example after trying
+nightly and switching back to stable, run this from the install you want to open it in:
+
+```bash
+cmux restore-session --from nightly          # or stable, rc, staging, debug:<tag>
+cmux restore-session --export ~/session.json # write this install's saved session to a file
+cmux restore-session --export ~/session.json --force # replace an existing export file
+cmux restore-session --from ~/session.json   # reopen an exported file
+```
+
+The imported session opens as additional windows next to the ones you have, like
+`cmux restore-session`; the other install's saved file is only read. Agent resume carries
+over because hook session mappings in `~/.cmuxterm/` are shared by every install. Browser
+cookies and logins are per install and do not move.
+
+`--from <channel>` restores another install's own session file with the same trust as your
+own session, including automatic agent resume. `--from <path>` treats the file as untrusted:
+layout, working directories, text scrollback, and http(s) browser tabs restore, but nothing in
+the file runs automatically. Built-in agents (Claude Code, Codex, Amp, and the rest) resume with
+the command cmux builds from the agent kind and session id, ignoring launch arguments stored in
+the file, and only when the working directory already exists on this Mac. Custom agent resume
+commands, resume bindings, and tmux start commands are kept for manual restore only (approved
+resume prefixes never apply to them): the CLI reports how many were held back, and in each
+terminal `cmux surface resume show` shows the command and `cmux restore --surface` runs it.
+Terminal control sequences in the scrollback (clipboard, notifications, links, titles), draft
+attachments, non-http(s) browser pages and profiles, SSH/cloud connections, and workspace
+environment variables from the file are dropped. A snapshot saved by a newer cmux
+(newer session format) is refused with an error; if a downgraded cmux finds one in its own
+session file, it keeps a copy next to it as `session-<bundle id>.schema-v<N>.json`.
 
 Under the hood, cmux writes a versioned snapshot under
 `~/Library/Application Support/cmux/` and agent hooks write session mappings
@@ -371,7 +417,15 @@ Yes. Terminal rendering uses your Ghostty config, so themes, fonts, colors, and 
 
 ### Are my sessions saved?
 
-Yes. cmux restores your windows, workspaces, panes, working directories, and scrollback when you relaunch, and the state survives a full computer restart, not just quitting the app. Agent sessions like Claude Code, Codex, and OpenCode come back too. See [session restore](https://cmux.com/docs/session-restore).
+cmux restores windows, workspaces, panes, working directories, and best-effort
+scrollback when you relaunch. Supported agent integrations can resume from
+their saved session IDs. Those are reconstructed app state and resume commands;
+they do not keep arbitrary live processes running. Use `cmux local-tmux` for
+live local detach/reattach across cmux quit, crashes, and updates. A local tmux
+server cannot survive logout, restart, shutdown, or power loss; use
+`cmux ssh-tmux`, `cmux mosh-tmux`, or a persistent cloud VM when the owner must
+remain online while this Mac is offline. See [session restore](https://cmux.com/docs/session-restore)
+and [`docs/local-tmux.md`](docs/local-tmux.md).
 
 ### How does it compare to tmux?
 
@@ -400,6 +454,9 @@ We want to hear it. Open an [issue](https://github.com/manaflow-ai/cmux/issues) 
 </a>
 
 ## Contributing
+
+For code contributions, start with the [contributor guide](CONTRIBUTING.md) and
+[fast local checks](CONTRIBUTING.md#fast-checks-before-building-or-pushing).
 
 Ways to get involved:
 
@@ -436,9 +493,34 @@ cmux is free, open source, and always will be. If you'd like to support developm
 - **Early access: Voice mode**
 - **My personal iMessage/WhatsApp**
 
+## Install
+
+### DMG (recommended)
+
+<a href="https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg">
+  <img src="./docs/assets/macos-badge.png" alt="Download cmux for macOS" width="180" />
+</a>
+
+Open the `.dmg` and drag cmux to your Applications folder. cmux auto-updates via Sparkle, so you only need to download once.
+
+### Homebrew
+
+```bash
+brew tap manaflow-ai/cmux
+brew install --cask cmux
+```
+
+To update later:
+
+```bash
+brew upgrade --cask cmux
+```
+
+On first launch, macOS may ask you to confirm opening an app from an identified developer. Click **Open** to proceed.
+
 ## License
 
-cmux is open source under [GPL-3.0-or-later](LICENSE).
+cmux is open source under [GPL-3.0-or-later](LICENSE). The cmux server software (`web/`, the Cloudflare workers, and the relay services listed in [LICENSE](LICENSE)) uses the [Business Source License 1.1](web/LICENSE) instead: you can read, modify, and run it for non-production use, and production use or self-hosting requires a commercial license.
 
 If your organization cannot comply with GPL, commercial terms may be available
 for portions for which Manaflow controls the necessary rights. They do not

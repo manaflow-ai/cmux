@@ -21,6 +21,8 @@ SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-hermes-agent-wrapper"
 SOURCE_TUI_PYTHON_WRAPPER = ROOT / "Resources" / "bin" / "cmux-hermes-python-wrapper"
 SOURCE_TUI_SITECUSTOMIZE = ROOT / "Resources" / "bin" / "cmux-hermes-sitecustomize.py"
 SESSION_ID = "01JZ123456789ABCDEFGHJKMNP"
+# How long run_wrapper lets the wrapper run before it reports a hang.
+WRAPPER_HANG_GUARD_SECONDS = 5
 
 
 @dataclass
@@ -103,7 +105,8 @@ def run_wrapper(
     hooks_disabled: bool = False,
     installer_exit_code: int = 0,
     installer_blocks: bool = False,
-    installer_timeout_seconds: float = 1,
+    installer_timeout_seconds: float | None = None,
+    installer_start_delay_seconds: float = 0,
     cli_available: bool = True,
     active_profile: str | None = None,
     profile_names: tuple[str, ...] = (),
@@ -280,9 +283,23 @@ if [[ -n "${FAKE_TUI_SESSION_IDS:-}" ]]; then
     : > "$TMPDIR/hermes-tui-active-session-extra.json"
   fi
   IFS=',' read -r -a fake_tui_session_ids <<< "$FAKE_TUI_SESSION_IDS"
+  first_tui_session=1
   for fake_tui_session_id in "${fake_tui_session_ids[@]}"; do
     printf '{"session_id":"%s"}\\n' "$fake_tui_session_id" > "$active_session_file"
-    sleep 0.25
+    if (( first_tui_session == 1 && ${#fake_tui_session_ids[@]} > 1 )); then
+      # Wait for the observable lifecycle event before replacing the
+      # authoritative active-session file. This keeps the fixture deterministic
+      # on loaded runners without synchronizing on the watcher's process shape.
+      for _ in {1..200}; do
+        if [[ -f "${FAKE_CMUX_CALLS_LOG:-}" ]] &&
+           /usr/bin/grep -a -q 'session-start' "$FAKE_CMUX_CALLS_LOG"; then
+          break
+        fi
+        /bin/sleep 0.01
+      done
+      first_tui_session=0
+    fi
+    /bin/sleep 0.25
   done
 fi
 if [[ "${FAKE_SAMPLE_TUI_WATCHER_CPU:-0}" == "1" ]]; then
@@ -315,6 +332,11 @@ fi
                 bundled_cli,
                 """#!/usr/bin/env bash
 set -euo pipefail
+# Stand-in for a cold start on a loaded runner: nothing is recorded until the
+# installer process gets going.
+if [[ -n "${FAKE_INSTALLER_START_DELAY:-}" ]]; then
+  /bin/sleep "$FAKE_INSTALLER_START_DELAY"
+fi
 printf '\\036' >> "$FAKE_CMUX_CALLS_LOG"
 printf '%s\\0' "$@" >> "$FAKE_CMUX_CALLS_LOG"
 fake_cmux_payload_b64="$(/usr/bin/base64 | tr -d '\\n')"
@@ -369,7 +391,17 @@ exit 0
             env["FAKE_INSTALLER_GATE"] = str(installer_gate)
         else:
             env.pop("FAKE_INSTALLER_GATE", None)
+        # The wrapper kills its installer at this deadline and launches Hermes
+        # anyway. Only the deadline tests pass one; every other run gives the
+        # installer as long as the hang guard, so a check waits for the
+        # installer to finish instead of racing its start on a busy runner.
+        if installer_timeout_seconds is None:
+            installer_timeout_seconds = WRAPPER_HANG_GUARD_SECONDS
         env["CMUX_HERMES_AGENT_HOOK_INSTALL_TIMEOUT_SECONDS"] = str(installer_timeout_seconds)
+        if installer_start_delay_seconds:
+            env["FAKE_INSTALLER_START_DELAY"] = str(installer_start_delay_seconds)
+        else:
+            env.pop("FAKE_INSTALLER_START_DELAY", None)
         if tui_session_ids:
             env["FAKE_TUI_SESSION_IDS"] = ",".join(tui_session_ids)
         else:
@@ -407,7 +439,7 @@ exit 0
             text=True,
             start_new_session=True,
         )
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + WRAPPER_HANG_GUARD_SECONDS
         launch_observed = not installer_blocks
         if installer_blocks:
             while time.monotonic() < deadline:
@@ -488,8 +520,13 @@ def decoded_launch_argv(environment: dict[str, str]) -> list[str]:
     return [part.decode("utf-8") for part in raw.split(b"\0") if part]
 
 
-def assert_instrumented(argv: list[str], label: str, failures: list[str]) -> None:
-    result = run_wrapper(argv)
+def assert_instrumented(
+    argv: list[str],
+    label: str,
+    failures: list[str],
+    **run_options: object,
+) -> None:
+    result = run_wrapper(argv, **run_options)
     expected_call = [
         "--socket",
         result.socket_path,
@@ -536,6 +573,18 @@ def test_session_entrypoints(failures: list[str]) -> None:
     )
     for label, argv in entrypoints:
         assert_instrumented(argv, label, failures)
+
+
+def test_slow_starting_installer_is_still_observed(failures: list[str]) -> None:
+    # A busy CI runner can take over a second just to start the installer.
+    # Launch-path checks must see the installer's call however long it takes
+    # to start; only test_stalled_installer_is_bounded exercises the deadline.
+    assert_instrumented(
+        ["--continue"],
+        "slow installer start",
+        failures,
+        installer_start_delay_seconds=1.5,
+    )
 
 
 def test_tui_active_session_file_bridges_lifecycle(failures: list[str]) -> None:
@@ -685,6 +734,39 @@ def test_tui_gateway_registers_hooks_for_every_turn(failures: list[str]) -> None
         f"across turns: {result.tui_gateway_events}",
         failures,
     )
+
+
+def test_tui_python_wrapper_prefers_symlinked_venv_interpreter(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-hermes-python-test-") as td:
+        tmp = Path(td)
+        source_root = tmp / "hermes"
+        venv_bin = source_root / "venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        selected = tmp / "selected-interpreter"
+        selected.write_text(
+            "#!/bin/sh\n"
+            "printf '%s\\0' \"$@\" > \"$FAKE_SELECTED_ARGS\"\n",
+            encoding="utf-8",
+        )
+        selected.chmod(0o755)
+        (venv_bin / "python3").symlink_to(selected)
+        (venv_bin / "python").symlink_to(venv_bin / "python3")
+        args_log = tmp / "args"
+        env = os.environ.copy()
+        env["HERMES_PYTHON_SRC_ROOT"] = str(source_root)
+        env["FAKE_SELECTED_ARGS"] = str(args_log)
+        result = subprocess.run(
+            [str(SOURCE_TUI_PYTHON_WRAPPER), "-m", "tui_gateway.entry"],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        expect(result.returncode == 0, f"symlinked venv interpreter: wrapper failed: {result.stderr}", failures)
+        expect(
+            read_nul_values(args_log) == ["-m", "tui_gateway.entry"],
+            "symlinked venv interpreter: wrapper did not execute the venv Python",
+            failures,
+        )
 
 
 def test_tui_gateway_rejects_retired_cmux_python_wrapper(failures: list[str]) -> None:
@@ -919,9 +1001,11 @@ def main() -> int:
         failures.append(f"missing Hermes launch wrapper: {SOURCE_WRAPPER}")
     else:
         test_session_entrypoints(failures)
+        test_slow_starting_installer_is_still_observed(failures)
         test_tui_active_session_file_bridges_lifecycle(failures)
         test_tui_bridge_fails_closed_on_untrusted_session_files(failures)
         test_tui_gateway_registers_hooks_for_every_turn(failures)
+        test_tui_python_wrapper_prefers_symlinked_venv_interpreter(failures)
         test_tui_gateway_rejects_retired_cmux_python_wrapper(failures)
         test_bundled_wrappers_ignore_path_bash_shadow(failures)
         test_explicit_classic_cli_skips_tui_watcher(failures)

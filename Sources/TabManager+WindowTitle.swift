@@ -23,7 +23,7 @@ extension TabManager {
     func updateWindowTitle(for tab: Workspace?) {
         let title = windowTitle(for: tab)
         guard let targetWindow = window else { return }
-        targetWindow.title = title
+        windowTitleWriter.apply(title, to: targetWindow)
     }
 
     /// The name to display for `tab` across window chrome — the custom title

@@ -141,13 +141,13 @@ browser surface still has one live tab. When a browser tab becomes hidden, the
 client sends `release-surface-size`; detaching or disconnecting also removes
 its report. Internal server-only resizes do not update client reports.
 
-Size-aware creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `new-workspace`, `new-screen`, `split`, and `run`. Their rules are:
+Optional-size creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `new-workspace`, `new-screen`, `new-pane`, `new-pane-right`, `split`, and `run`. The `split` command uses `dir:"right"` or `dir:"down"`; receipt operations may use `split-right` or `split-down`. `create-terminal` and `create-surface-with-receipt` also accept dimensions but require the pair. `attach-surface` requires the pair when `attach-initial-size` is used. Their rules are:
 
 | Input | Behavior |
 | --- | --- |
 | both `cols` and `rows` supplied | Clamp each to `1..10000`, use the pair for the new surface or surfaces, and record the effective grid as the latest client size |
 | neither supplied | Use the latest active client size, or the configured server default when no client reports remain |
-| only one supplied | Preserve protocol-v6 behavior: the incomplete pair is ignored; clients must always send both |
+| only one supplied | Optional-size commands ignore the incomplete pair. `create-terminal`, `create-surface-with-receipt`, and `attach-surface` are strict exceptions: they return an error and require `cols` and `rows` together. |
 
 `resize-surface` requires both fields and clamps each to `1..10000`. Attached
 clients retain the report until release; an unattached one-shot report is
@@ -161,6 +161,17 @@ requesting connection. An explicit `client` may be used by an authorized
 controller. Omitting `client` and `exclusive` releases any owner and freezes
 the terminal. For browsers, the same command retains the legacy include,
 exclude, and exclusive reducer controls.
+
+### Relay attachment sizing boundary
+
+The Rust `chatmux-relay` wrapper can have several relay viewers for one
+terminal. When its local owner leaves, disconnects, or receives an
+unsuccessful report response, the wrapper closes that attachment and does not
+issue a replacement claim from another relay socket. The core server has no
+generation token for ordering such a cross-socket hand-off, so geometry stays
+frozen until a newly attached relay viewer makes an explicit report and
+`set-client-sizing` claim. This relay boundary preserves the core server rule;
+it does not elect a survivor implicitly.
 
 Frontends report their grid after a surface becomes visible and whenever that viewport changes. They release the report when the surface becomes hidden, even if its attach stream remains cached. A frontend must not re-report merely because another client changed the authoritative surface size. See [`render.md`](render.md#sizing-and-multi-client-presentation) for presentation guidance.
 
@@ -300,6 +311,62 @@ Example:
 {"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":12}}
 ```
 
+### server-stats
+
+| Field | Value |
+| --- | --- |
+| name | `server-stats` |
+| status | implemented |
+| since | protocol 12, capability `server-stats-v1` |
+
+Reports where the daemon spends its time so an operator or agent can locate a
+bottleneck without sampling the process: registry mutex contention with the
+source site that holds it, journal writer batch shape and commit latency, and
+control-socket admission. Counters accumulate since daemon start. The command
+reads atomics and never touches SQLite or the journal, so it is safe to poll.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  schema:uint32,
+  uptime_ms:uint64,
+  registry_lock:object{
+    wait_us:histogram, hold_us:histogram,
+    contended_acquisitions:uint64, stalls:uint64,
+    holder:object{site:string,held_for_us:uint64}|null,
+    last_stall:object{waiter:string,blocker:string|null,waited_us:uint64}|null,
+    top_sites:array<object{site:string,acquisitions:uint64,hold_total_us:uint64,hold_max_us:uint64}>
+  },
+  journal_writer:object{
+    batches:uint64, terminal_events:uint64, durable_events:uint64,
+    batch_size:histogram, commit_us:histogram, commit_lock_wait_us:histogram,
+    receipt_wait_us:histogram, commit_failures:uint64, deadline_expiries:uint64,
+    terminal_queued:uint64, durable_queued:uint64,
+    phase:"idle"|"waiting_lock"|"committing", phase_for_us:uint64
+  }|null,
+  connections:object{active:uint64,peak:uint64,limit:uint64,accepted:uint64,refused:uint64}
+}
+histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
+```
+
+`schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
+events. Percentiles are log-linear bucket upper bounds and overestimate by at
+most 25%. `site` values are `file:line` of the code that acquired the registry
+lock. `contended_acquisitions` counts waits of at least 1 ms and `stalls`
+counts waits of at least 100 ms. `journal_writer` is `null` for ephemeral
+sessions. `connections.refused` counts sockets dropped at `limit`; for hook
+producers each one is a lost event.
+
+Errors: `bad request: ...`.
+
+CLI mapping: `cmux server stats [--session <name>] [--socket <path>]`; plain
+stdout renders the object as nested `key: value` lines; `--json` prints the
+exact result object. Against a server without `server-stats-v1` the CLI exits
+1 with `server.stats_unsupported`.
+
 ### set-client-info
 
 | Field | Value |
@@ -388,6 +455,64 @@ Example:
 ```json
 {"id":4,"cmd":"list-clients"}
 {"id":4,"ok":true,"data":[{"client":1,"transport":"unix","name":"host","kind":"tui","connected_seconds":12,"attached":[7],"sizes":[{"surface":7,"cols":120,"rows":36,"size_participating":true}],"self":true}]}
+```
+
+### machine-listening-tcp
+
+| Field | Value |
+| --- | --- |
+| name | `machine-listening-tcp` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `machine-listening-tcp-v1` |
+
+Returns the host's listening TCP socket table. The daemon runs a fixed `ss -H -ltn` command, with fixed `netstat -ltn` compatibility when `ss` is absent. The request accepts no command text. A Cloud client uses this command through its authenticated private cmux-tui link. Routine port discovery does not call the web control plane or the VM provider.
+
+Params: none.
+
+Result:
+
+```text
+object{stdout:string}
+```
+
+Example:
+
+```json
+{"id":8,"cmd":"machine-listening-tcp"}
+{"id":8,"ok":true,"data":{"stdout":"LISTEN 0 128 0.0.0.0:3000 0.0.0.0:*\\n"}}
+```
+
+### machine-usage
+
+| Field | Value |
+| --- | --- |
+| name | `machine-usage` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `machine-usage-v1` |
+
+Returns the machine-level model spend readout hosted by this daemon. Inside a cmux Cloud VM the daemon polls coderouter for the trailing-window totals of the machine's model traffic; anywhere else, or while coderouter has no ready totals, `usage` is null and frontends hide the readout. Servers advertise `machine-usage-v1` in `identify.capabilities`.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  usage:object{
+    vm_id:string,
+    period_days:uint32,
+    total_tokens:uint64,
+    api_equivalent_usd:float64,
+    as_of:string|null
+  }|null
+}
+```
+
+Example:
+
+```json
+{"id":9,"cmd":"machine-usage"}
+{"id":9,"ok":true,"data":{"usage":{"vm_id":"3f1c...","period_days":30,"total_tokens":184220,"api_equivalent_usd":1.23,"as_of":"2026-09-01T00:00:00Z"}}}
 ```
 
 ### register-browser-provider / get-browser-provider
@@ -551,7 +676,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Requests that attached TUI frontends re-read the cmux-tui config from the same source as startup config loading (`CMUX_TUI_CONFIG`, then legacy `CMUX_MUX_CONFIG`, then `cmux-tui.json` with legacy `mux.json` fallback) and redraw. Headless servers acknowledge the command but have no TUI state to update.
+Requests the server owner and attached TUI frontends to re-read the cmux-tui config from the same source as startup config loading (`CMUX_TUI_CONFIG`, then legacy `CMUX_MUX_CONFIG`, then `cmux-tui.json` with legacy `mux.json` fallback). Interactive owners redraw; headless owners apply server-owned settings without a TUI frame.
 
 Params: none.
 
@@ -561,7 +686,7 @@ Result:
 object{reloaded:true,path:string|null}
 ```
 
-Live reapply: theme/colors, tab display settings, sidebar width settings, scrollbar placement, and keybindings apply on the next TUI frame. Browser config updates local server launch options for future browser surfaces when a local TUI is present; existing browser runtimes, already-open browser surfaces, and remote headless servers may require restart for browser endpoint/profile/binary changes.
+Live reapply: theme/colors, tab display settings, sidebar width settings, scrollbar placement, and keybindings apply on the next TUI frame. Browser config updates server launch options for future browser surfaces; existing browser runtimes and already-open browser surfaces may require restart for browser endpoint/profile/binary changes.
 
 Errors: `bad request: ...`.
 
@@ -1097,7 +1222,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Creates a new PTY tab in a pane and makes it the active tab. If `pane` is absent, the active pane of the active screen is used. If the selected workspace exists but has no screens, the command materializes its first screen, pane, and terminal and preserves `cwd`. If the session has no workspaces, the command creates a workspace containing the tab; that legacy fallback ignores `cwd`. The new tab inherits the active surface working directory of the target pane when `cwd` is absent. Initial dimensions follow [Sizing](#sizing).
+Creates a new PTY tab in a pane and makes it the active tab. If `pane` is absent, the active pane of the active screen is used. If the selected workspace exists but has no screens, the command materializes its first screen, pane, and terminal and preserves `cwd`. If the session has no workspaces, the command creates a workspace containing the tab; that legacy fallback ignores `cwd`. The new tab inherits the active surface working directory of the target pane when `cwd` is absent. When there is nothing to inherit, the terminal starts in the directory the session daemon was launched from, and falls back to the user home directory only when that directory no longer exists. Initial dimensions follow [Sizing](#sizing).
 
 Params:
 
@@ -1850,19 +1975,27 @@ CLI mapping: verb `zoom-pane`; flags `[--pane <id>] [--mode toggle|on|off]`; pla
 | status | implemented |
 | since | protocol 6 |
 
-Returns PTY child metadata for a surface.
+Returns PTY child metadata for a surface. `pid`, `command`, and `cwd` are
+recorded spawn and shell-reported metadata. `foreground_cwd` is read live at
+request time: it is the working directory of the process group leader that
+currently owns the PTY (the `tcgetpgrp` value of the child's controlling
+terminal), so it tracks a foreground subshell that changed directory. It is
+null whenever the lookup fails: no live child, the leader exited, the child
+detached from the terminal, the platform denied the read, or an unsupported
+platform. The field is additive within protocol 12; current daemons always
+emit it, and clients treat a missing field from an older daemon as null.
 
 Params: `object{surface:Id}`.
 
 Result:
 
 ```text
-object{pid:uint32|null,command:string|null,cwd:string|null}
+object{pid:uint32|null,command:string|null,cwd:string|null,foreground_cwd?:string|null}
 ```
 
 Errors: `unknown surface <id>`, `browser surface does not support PTY/VT socket commands`, `bad request: ...`.
 
-CLI mapping: verb `process-info`; flags `--surface <id>`; plain stdout prints `pid=<v> command=<v> cwd=<v>`; JSON stdout prints the exact result object.
+CLI mapping: verb `process-info`; flags `--surface <id>`; plain stdout prints `pid=<v> command=<v> cwd=<v> foreground_cwd=<v>`; JSON stdout prints the exact result object.
 
 ### set-default-colors
 
@@ -2761,6 +2894,65 @@ Example:
 {"id":25,"ok":true,"data":{}}
 ```
 
+### report-focus
+
+| Field | Value |
+| --- | --- |
+| name | `report-focus` |
+| status | implemented |
+| since | protocol 12, capability `client-focus-v1` |
+
+Reports one client's focus. Records it as the session's last reported focus (the adoption default a later `client-focus` query falls back to) and remembers it per `client_id` so that client's own later `client-focus` query restores it. A report only writes this memory; it never moves the live session focus, so clients that are already attached stay where they are. The memory is in-process and bounded; a server restart degrades to the tree's own focus.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `client_id` | `string` | required | 1-128 bytes, ASCII graphic |
+| `pane` | `Id` | required | Must be a live pane |
+| `tab` | `usize` | default null | Tab index within the pane |
+
+Result:
+
+```text
+object{}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `bad request: invalid client_id` | Empty, oversized, or non-graphic id |
+| `unknown pane ...` | Pane is not alive |
+
+### client-focus
+
+| Field | Value |
+| --- | --- |
+| name | `client-focus` |
+| status | implemented |
+| since | protocol 12, capability `client-focus-v1` |
+
+The focus last reported by `client_id` via `report-focus`, falling back to the session's last reported focus from any client, or nulls when neither exists or the pane no longer does.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `client_id` | `string` | required | 1-128 bytes, ASCII graphic |
+
+Result:
+
+```text
+object{pane: Id | null, tab: usize | null}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `bad request: invalid client_id` | Empty, oversized, or non-graphic id |
+
 ### move-tab
 
 | Field | Value |
@@ -2769,7 +2961,16 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Moves an existing tab, identified by `surface`, into `pane` at zero-based `index`. Moving a tab to its current pane and current index is an `ok:true` no-op. This command is documented from the consumer-side landed contract; it is not present in this branch's `server.rs`, so out-of-range index behavior and event emission could not be verified here.
+Moves an existing tab, identified by `surface`, into `pane` at zero-based
+`index`. The destination index uses the pre-move tab list's insertion
+coordinates. For a same-pane move, the server removes the tab, subtracts one
+from `index` when it is greater than the tab's current index, then clamps the
+adjusted index to the last valid position in the shortened list. For example,
+with tabs `[A,B,C]`, moving `A` with `index:2` produces `[B,A,C]`, while
+`index:3` produces `[B,C,A]`; `index:0` and `index:1` leave the order unchanged.
+A same-pane no-op returns `ok:true` and leaves the active tab unchanged. A
+cross-pane move removes the tab from its source, collapses an empty source
+pane, and inserts it at the clamped destination index.
 
 Params:
 
@@ -2789,10 +2990,8 @@ Errors:
 
 | Error | Condition |
 | --- | --- |
-| `unknown surface <id>` | Surface id does not exist |
-| `unknown pane <id>` | Destination pane does not exist |
+| `unknown surface/pane` | The surface, destination pane, or the surface's current pane does not exist |
 | `bad request: ...` | Missing fields or wrong JSON type |
-| unverified error string | Non-same-position out-of-range index behavior could not be checked in this branch |
 
 CLI mapping:
 
@@ -2808,6 +3007,27 @@ Example:
 
 ```json
 {"id":26,"cmd":"move-tab","surface":1,"pane":2,"index":0}
+{"id":26,"ok":true,"data":{}}
+```
+
+### move-tab-to-workspace
+
+| Field | Value |
+| --- | --- |
+| name | `move-tab-to-workspace` |
+| status | implemented |
+| since | protocol 12 |
+
+Move an existing tab without restarting its terminal or browser. `surface` is
+required. Optional `workspace` is a numeric workspace ID; omission creates a new
+workspace. Existing nonempty destinations use their active pane. Empty and new
+destinations create a screen and pane in the same durable transaction as the
+move. The destination becomes selected. Unknown source/destination IDs fail.
+Provider-owned workspace creation is rejected. The server advertises
+`tab-workspace-move-v1`; clients hide these UI actions for older owners.
+
+```json
+{"id":26,"cmd":"move-tab-to-workspace","surface":1}
 {"id":26,"ok":true,"data":{}}
 ```
 
@@ -2989,6 +3209,15 @@ Protocol v7 adds `mode`. `mode:"bytes"`, including the default when the field is
 
 Servers advertising the `attach-initial-size` capability accept paired `cols` and `rows`. The pair records the attaching client's initial viewer-size claim before initial state is generated. Supplying only one dimension is an error. Clients must not send either field to a server that omits the capability, including an older protocol-v7 server.
 
+Servers advertising `attach-identity-v1` accept paired `expected_generation`
+and `expected_terminal_id`. Both must match before any stream or lease is
+created. With this pair, clients may omit `surface`: the daemon resolves the
+public terminal ID in the same attachment operation. The first `vt-state`
+identifies its numeric surface. Clients must wait for the successful attach
+response and lease before sending input. Creation receipts keep their existing
+shape; their generation and terminal ID provide the identity fence. Older
+servers require the existing separate surface-resolution path.
+
 When both peers negotiate `view-attachment-lease-v1` through `identify` and
 `set-client-info`, the response includes an opaque `lease`. The lease names
 this exact connection-local attach stream. Use it with
@@ -3002,7 +3231,9 @@ Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `surface` | `Id` | required | Must identify a live PTY or negotiated browser surface |
+| `surface` | `Id` | required unless identity pair supplied | Must identify a live PTY or negotiated browser surface |
+| `expected_generation` | `string` | default null | `attach-identity-v1`; paired with `expected_terminal_id` |
+| `expected_terminal_id` | `string` | default null | Public terminal ID, validated against the live surface |
 | `mode` | `string` | default `"bytes"` | Protocol 7: `"bytes"` or `"render"` |
 | `cols` | `uint16` | default null | `attach-initial-size` capability; paired with `rows`, clamped to at least 1 |
 | `rows` | `uint16` | default null | `attach-initial-size` capability; paired with `cols`, clamped to at least 1 |
@@ -3508,7 +3739,7 @@ object{
   agents: array<object{
     surface: Id,
     state: "working"|"blocked"|"idle"|"done"|"unknown",
-    source: "detected"|"socket"|"hook",
+    source: "plugin"|"detected"|"socket"|"hook",
     session: string|null,
     updated_at_ms: uint64
   }>
@@ -3555,9 +3786,11 @@ to `session.events`. The server generates an internal mutation identity for
 this raw command.
 
 Each live terminal has at most one current agent projection. Hook reports have
-authority over socket reports. A socket report received after a hook retains
-the hook value while still advancing the resource revision and publishing that
-retained value. Restart restores the current projection. Closing the terminal
+authority over socket reports. A socket report that does not change the
+effective projection is a replay-equivalent no-op at the current revision and
+does not publish another event. A socket report received after an unchanged
+hook therefore retains the hook value without advancing the resource
+revision. Restart restores the current projection. Closing the terminal
 deletes it, so historical reports cannot recreate an agent. Browser surfaces,
 surfaces without durable terminal identity, and terminal-less default reports
 are rejected.
@@ -3568,7 +3801,7 @@ Params:
 | --- | --- | --- | --- |
 | `surface` | `IdRef` | required | Surface associated with the agent |
 | `state` | `string` | required | `"working"`, `"blocked"`, `"idle"`, `"done"`, or `"unknown"` |
-| `source` | `string` | required | `"socket"` or `"hook"` |
+| `source` | `string` | required | `"socket"` or `"hook"` for `report-agent`; list responses can also contain `"detected"` or `"plugin"` |
 | `session` | `string` | default null | Optional upstream agent session id |
 
 Result:
@@ -3639,3 +3872,70 @@ Protocol v9 adds `new-pane`; its implemented result is `{surface}`. A future res
 `viewport-column-resize-v1` is additive within protocol v9. Clients must require the capability before sending `set-viewport-pane-width` or interpreting `Screen.viewport_base_width`.
 
 `layout-undo-v1` is additive within protocol v9. Clients must require the capability before sending `undo-layout`. A binding must preserve both result variants and must not set `confirm_close` without the exact revision returned by the confirmation preview.
+
+## Temporary terminal image paste
+
+`paste-image` is an authenticated, lease-bound control operation gated by
+`terminal-image-paste-v1` on protocol 12. A protocol-12 daemon without that
+capability must not receive image data. Each request contains `surface`, the
+exact public `terminal_id`, the current attachment `lease`, a 32-hex-character
+`upload_id`, and one operation:
+
+| `op` | Additional fields | Effect |
+| --- | --- | --- |
+| `begin` | `mime`, `size` | Reserve bounded capacity and create a private daemon-owned file. |
+| `chunk` | `offset`, `data` | Append one sequential, standard-base64 chunk (at most 48 KiB decoded). |
+| `commit` | none | Verify byte count and MIME, then invoke the authoritative terminal paste operation once. |
+| `cancel` | none | Remove an unpublished upload; idempotent when already absent. |
+
+Success is `{ "accepted": true }`. Request IDs use the normal control envelope.
+Await each acknowledgement before sending the next operation. The connection,
+lease, surface, terminal, and authoritative workspace must still match. No
+destination path is accepted and no image path or content is returned in an
+acknowledgement. Stable error codes begin with `image-`; clients must treat a
+lost commit acknowledgement as uncertain delivery and must not retry it blindly.
+
+The policy is 20 MiB per PNG/JPEG/GIF/WebP image, eight images per connection,
+32 retained uploads and 128 MiB reserved per daemon. Pending uploads expire in
+two minutes; committed uploads expire in ten minutes. Ownership receipts permit
+restart cleanup with a twelve-minute expiry from creation and recurring bounded
+recovery sweeps. Receipts match a persistent random file ownership marker as well
+as inode identity; the filesystem must support extended attributes. See
+[Cloud image paste](../../docs/cloud-image-paste.md) for cleanup and compatibility.
+
+## Guest browser opening
+
+### url-open
+
+A private, Unix-classified control request with `terminal_id` and `url` strings.
+Only HTTP(S) URLs up to 16 KiB and a live terminal in this daemon are accepted.
+The result is `{opened:boolean}`. At most 16 requests remain pending; a missing
+frontend, disconnect, declined delivery, or five-second deadline returns false.
+This command never starts guest Chrome, creates a resource, or writes a journal
+entry. The guest OS opener prints the URL and exits successfully on false.
+Several frontend subscriptions for the same terminal also return false: the
+guest request cannot identify a physical Mac, so the daemon never guesses.
+
+### url-open-subscribe
+
+A private frontend connection registers up to 256 exact `terminal_ids`. It
+receives `{url_open_ready:true}`, then targeted `url-open` control events
+containing `request_id`, `terminal_id`, and the original `url`. It must keep the
+connection open (`raw command --stream`); disconnect rejects pending requests.
+Subscriptions and requests are transient and are never replayed.
+
+### url-open-claim
+
+The frontend sends the random `request_id` capability on the authenticated mux
+connection before opening anything. `{claimed:false}` means it expired, was
+already claimed, or no longer exists. A delayed event therefore cannot open a
+stale authentication page. The source terminal is mapped to a live Mac panel;
+no guest-supplied Mac workspace or surface selector is accepted.
+
+### url-open-result
+
+The frontend sends `request_id` and `opened` after actual delivery. The result
+is `{accepted:boolean}`. The URL follows terminal-link policy, including browser
+preferences and host allowlists, with focus disabled. Local Mac v2 socket methods
+and the SSH relay authorization allowlist are unchanged. These operations are
+exposed only in the SDKs' existing private `raw` namespace.

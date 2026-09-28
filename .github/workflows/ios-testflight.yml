@@ -2,7 +2,10 @@ name: iOS TestFlight (CMUX INTERNAL)
 
 on:
   # Poll main every 20 minutes and batch merges into one upload. The decide job
-  # skips scheduled runs when main is unchanged or the changes do not affect iOS.
+  # skips scheduled runs when main is unchanged or the changes do not affect iOS,
+  # and INTERNAL polls wait until IOS_TESTFLIGHT_INTERNAL_MIN_COMMITS (default 5)
+  # iOS-relevant commits are pending or the oldest is
+  # IOS_TESTFLIGHT_INTERNAL_MAX_AGE_MINUTES (default 180) old.
   # Manual dispatch remains available for intentional rebuilds.
   schedule:
     # Check current main for a cmux INTERNAL upload every 20 minutes.
@@ -19,6 +22,11 @@ on:
         description: Optional one-time MARKETING_VERSION override (for example 1.0.1)
         required: false
         default: ""
+      prepare_only:
+        description: Export a signed candidate for migration testing without uploading to TestFlight
+        required: false
+        default: false
+        type: boolean
       variant:
         description: >-
           Upload variant. internal (default) ships dev.cmux.app.internal /
@@ -43,13 +51,21 @@ permissions:
   # decide reads this workflow's prior run history to find the last uploaded SHA.
   actions: read
 
+# r2-cache.sh reads and writes through this URL. Without it every restore is
+# a miss and every save prints "nothing saved", so the package and
+# compilation caches from #14180 never filled (09-24/25: 0 hits, 344 misses).
+env:
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+
 jobs:
   decide:
     name: Order main uploads and resolve prior build
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 360
     outputs:
-      should_build: ${{ steps.decide.outputs.should_build }}
+      # The batch step, when it runs, has the last word on scheduled INTERNAL
+      # polls; every other run keeps the decide script's answer.
+      should_build: ${{ steps.batch.outputs.should_build || steps.decide.outputs.should_build }}
       last_uploaded_sha: ${{ steps.decide.outputs.last_uploaded_sha }}
       variant: ${{ steps.decide.outputs.variant }}
     steps:
@@ -91,6 +107,23 @@ jobs:
             // uploaded monotonically, so wait on a cheap Linux runner until every
             // earlier main-push run has finished its upload job. Assignment can
             // continue independently after the upload completes.
+            //
+            // The 20-minute internal poll never waits: each waiting run lists
+            // every run ahead of it once a minute, so waiting polls cost API
+            // calls quadratically. A poll is idempotent, so it leaves and the
+            // next one builds whatever main is by then. Manual dispatches and
+            // the DEMO schedule still wait, because dropping one loses a build.
+            const isInternalPoll =
+              context.eventName === 'schedule' && variant === 'internal';
+            const skipPoll = (reason) => {
+              core.notice(`skipping this upload poll: ${reason}; the next poll retries`);
+              core.setOutput('should_build', 'false');
+              core.setOutput('last_uploaded_sha', '');
+              core.setOutput('variant', variant);
+            };
+            // The last main run listing the ordering check read, reused below
+            // to find a failed build of the same iOS inputs.
+            let recentMainRuns = [];
             if (context.ref === 'refs/heads/main') {
               const currentRunId = Number(context.runId);
               const maxWaits = 300;
@@ -104,6 +137,7 @@ jobs:
                     branch: 'main',
                     per_page: 100,
                   });
+                  recentMainRuns = runs.data.workflow_runs || [];
                   const earlierActiveRuns = runs.data.workflow_runs.filter(
                     (run) =>
                       Number(run.id) < currentRunId &&
@@ -117,6 +151,26 @@ jobs:
                       run_id: run.id,
                       per_page: 100,
                     });
+                    // A run can corrupt into queued limbo: no job ever starts
+                    // and GitHub rejects cancel, force-cancel, and rerun. Such
+                    // a run would block ordering for the full timeout, so skip
+                    // runs whose jobs never started after a generous pickup
+                    // window. Missing created_at parses to NaN and is treated
+                    // as fresh, never skipped.
+                    const anyJobStarted = jobs.data.jobs.some(
+                      (job) => job.status !== 'queued'
+                    );
+                    const createdAtMs = Date.parse(run.created_at ?? '');
+                    const stuckMinutes = Number.isFinite(createdAtMs)
+                      ? (Date.now() - createdAtMs) / 60_000
+                      : 0;
+                    if (!anyJobStarted && stuckMinutes >= 120) {
+                      core.warning(
+                        `ignoring defunct earlier TestFlight run ${run.id}: ` +
+                        `no job started after ${Math.round(stuckMinutes)} minutes`
+                      );
+                      continue;
+                    }
                     const uploadJob = jobs.data.jobs.find(
                       (job) => job.name === 'Upload to TestFlight'
                     );
@@ -125,6 +179,13 @@ jobs:
                     }
                   }
                 } catch (error) {
+                  if (isInternalPoll) {
+                    // The run page is public, so the notice stays generic. The
+                    // API's own message is only shown with debug logging on.
+                    core.debug(`ordering check failed: ${error.message}`);
+                    skipPoll('could not inspect earlier runs');
+                    return;
+                  }
                   if (wait === maxWaits - 1) {
                     core.setFailed(
                       `timed out ordering main TestFlight uploads after GitHub API errors: ${error.message}`
@@ -140,6 +201,10 @@ jobs:
                   continue;
                 }
                 if (blockingRuns.length === 0) break;
+                if (isInternalPoll) {
+                  skipPoll(`earlier run(s) ${blockingRuns.join(', ')} have not finished uploading`);
+                  return;
+                }
                 if (wait === maxWaits - 1) {
                   core.setFailed(
                     `timed out waiting for earlier main TestFlight upload run(s): ${blockingRuns.join(', ')}`
@@ -176,6 +241,7 @@ jobs:
             // is necessarily a normal immediate beta cut and SHOULD count as the
             // last canonical upload.
             let lastUploadedSha = null;
+            let lastUploadedRunId = 0;
             let uploadHistoryKnown = true;
             try {
               const perPage = 100;
@@ -217,6 +283,7 @@ jobs:
                       id: artifact.id,
                       createdAt,
                       headSha: run.head_sha,
+                      runId: Number(run.id),
                     };
                   }
                 }
@@ -233,6 +300,7 @@ jobs:
                 considerArtifacts(response.data.artifacts || []);
               }
               lastUploadedSha = latestArtifact?.headSha || null;
+              lastUploadedRunId = latestArtifact?.runId || 0;
             } catch {
               uploadHistoryKnown = false;
               core.warning('could not resolve last uploaded sha; skipping scheduled upload');
@@ -247,6 +315,7 @@ jobs:
               'ios/',
               'Packages/iOS/',
               'Packages/Shared/',
+              'Packages/macOS/CmuxPhonePush/',
               'Sources/Mobile/',
               'vendor/stack-auth-swift-sdk-prerelease/',
               'ghostty',
@@ -295,6 +364,62 @@ jobs:
                 }
               }
             }
+
+            // While main does not build for iOS, every poll would archive the
+            // same broken inputs again on macOS. Skip an internal poll when the
+            // newest upload attempt since the last successful upload failed
+            // and no iOS-relevant path changed since that attempt's commit.
+            // Any lookup error fails open and builds.
+            if (shouldBuild && isInternalPoll) {
+              const failedRun = recentMainRuns
+                .filter(
+                  (run) =>
+                    Number(run.id) < Number(context.runId) &&
+                    Number(run.id) > lastUploadedRunId &&
+                    run.status === 'completed' &&
+                    run.conclusion === 'failure' &&
+                    run.head_sha
+                )
+                .sort((a, b) => Number(b.id) - Number(a.id))[0];
+              if (failedRun) {
+                try {
+                  const jobs = await github.rest.actions.listJobsForWorkflowRun({
+                    owner,
+                    repo,
+                    run_id: failedRun.id,
+                    per_page: 100,
+                  });
+                  const uploadFailed = jobs.data.jobs.some(
+                    (job) =>
+                      job.name === 'Upload to TestFlight' &&
+                      job.conclusion === 'failure'
+                  );
+                  let sameInputs = false;
+                  if (uploadFailed && failedRun.head_sha === context.sha) {
+                    sameInputs = true;
+                  } else if (uploadFailed) {
+                    const compare = await github.rest.repos.compareCommits({
+                      owner,
+                      repo,
+                      base: failedRun.head_sha,
+                      head: context.sha,
+                    });
+                    const files = compare.data.files || [];
+                    sameInputs =
+                      files.length < 300 &&
+                      !files.some((file) => touchesIOS(file.filename));
+                  }
+                  if (sameInputs) {
+                    shouldBuild = false;
+                    reason =
+                      `upload run ${failedRun.id} failed at ${failedRun.head_sha} ` +
+                      'and no iOS-relevant path changed since';
+                  }
+                } catch (e) {
+                  core.warning(`could not check the last failed upload: ${e.message}`);
+                }
+              }
+            }
             core.setOutput('should_build', shouldBuild ? 'true' : 'false');
             core.setOutput('last_uploaded_sha', lastUploadedSha || '');
             core.setOutput('variant', variant);
@@ -310,6 +435,67 @@ jobs:
               ])
               .write();
 
+      # Batch scheduled INTERNAL polls: on a busy day nearly every 20-minute
+      # poll finds an iOS-relevant merge, and each upload is a cold Release
+      # archive on the macOS pool PR CI shares. Runs only when the rules above
+      # already chose to upload against a known prior upload; manual dispatch
+      # and the twice-daily DEMO lane are never batched.
+      - name: Check out the upload batching policy
+        # Batching only delays uploads; a failure here must fall back to the
+        # decide job's answer instead of stopping scheduled uploads.
+        continue-on-error: true
+        if: >-
+          steps.decide.outputs.should_build == 'true' &&
+          github.event_name == 'schedule' &&
+          steps.decide.outputs.variant == 'internal' &&
+          steps.decide.outputs.last_uploaded_sha != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # Commits and trees only: the batch counts first-parent commits and
+          # their changed paths, which never needs file contents.
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            .github/workflows/ios-testflight.yml
+            ios/scripts/fetch-testflight-notes-history.sh
+            scripts/ci/ios_upload_batch_decision.py
+          sparse-checkout-cone-mode: false
+
+      - name: Batch INTERNAL uploads by iOS commit count and age
+        # fetch-testflight-notes-history.sh deepens history in a loop; the upload
+        # job bounds the same script at 5 minutes. Without a bound here a
+        # pathological deepen would hold a runner for the job's 360-minute budget.
+        timeout-minutes: 5
+        # Batching only delays uploads; a failure here must fall back to the
+        # decide job's answer instead of stopping scheduled uploads.
+        continue-on-error: true
+        id: batch
+        if: >-
+          steps.decide.outputs.should_build == 'true' &&
+          github.event_name == 'schedule' &&
+          steps.decide.outputs.variant == 'internal' &&
+          steps.decide.outputs.last_uploaded_sha != ''
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LAST_UPLOADED_SHA: ${{ steps.decide.outputs.last_uploaded_sha }}
+          MIN_COMMITS: ${{ vars.IOS_TESTFLIGHT_INTERNAL_MIN_COMMITS }}
+          MAX_AGE_MINUTES: ${{ vars.IOS_TESTFLIGHT_INTERNAL_MAX_AGE_MINUTES }}
+        run: |
+          set -euo pipefail
+          ./ios/scripts/fetch-testflight-notes-history.sh "$LAST_UPLOADED_SHA"
+          python3 scripts/ci/ios_upload_batch_decision.py \
+            --event "$EVENT_NAME" \
+            --base "$LAST_UPLOADED_SHA" \
+            --paths-from-workflow .github/workflows/ios-testflight.yml \
+            --min-commits "$MIN_COMMITS" \
+            --max-age-minutes "$MAX_AGE_MINUTES" \
+            --default-min-commits 5 \
+            --default-max-age-minutes 180 \
+            --output-name should_build \
+            --github-output "$GITHUB_OUTPUT" \
+            --summary "$GITHUB_STEP_SUMMARY"
+
   upload:
     name: Upload to TestFlight
     needs: decide
@@ -317,12 +503,24 @@ jobs:
     # blocks publishing arbitrary code by dispatching the workflow against a
     # feature branch (the ASC secrets are only meant to ship reviewed main).
     if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
+    # Saves the iOS compilation cache. Every R2 cache writer declares this
+    # environment (#14147); the guard in test_ci_pull_request_caches_are_read_only.py
+    # enforces it.
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     outputs:
       final_build_number: ${{ steps.upload.outputs.final_build_number }}
       bundle_id: ${{ steps.distribution.outputs.bundle_id }}
       assign_internal_group: ${{ steps.distribution.outputs.assign_internal_group }}
+      # Whether Apple accepted the build, as distinct from whether this job
+      # finished. Four steps run after the upload -- summary, build metadata,
+      # the dSYM artifact, the Sentry dSYM push -- and a failure in any of them
+      # reddens the job for something the IPA is already past. The two dSYM
+      # steps below gate on this same `steps.upload.outcome`; exporting it lets
+      # assign-internal-group do likewise instead of reading the job result.
+      uploaded: ${{ github.event.inputs.prepare_only != 'true' && steps.upload.outcome || 'skipped' }}
+      notes_artifact_id: ${{ steps.notes_request.outputs.artifact-id }}
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
@@ -335,11 +533,13 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          submodules: recursive
-          # Full history so generate-testflight-notes.sh can walk the commit
-          # range since the last beta.
-          fetch-depth: 0
-          fetch-tags: true
+          # Shallow and without submodules: the iOS archive needs only the
+          # prebuilt GhosttyKit.xcframework, keyed by the ghostty gitlink in
+          # this commit. The ghostty source is fetched (depth 1) only on the
+          # from-source fallback below, and the notes range is fetched by
+          # "Fetch TestFlight notes history". A full recursive clone took
+          # ~12 min of macOS runner time per run.
+          fetch-depth: 1
 
       - name: Resolve TestFlight distribution
         id: distribution
@@ -353,33 +553,83 @@ jobs:
             --github-env "$GITHUB_ENV" \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Fetch TestFlight notes history
+        # The only history the upload reads: generate-testflight-notes.sh walks
+        # last_uploaded_sha..HEAD for the "What to Test" notes. The override
+        # path uploads with --skip-notes, and a first run has no base.
+        # Notes are best effort: a hung fetch must not hold or fail the upload.
+        if: ${{ needs.decide.outputs.last_uploaded_sha != '' && steps.distribution.outputs.upload_mode != 'marketing_version_override' }}
+        timeout-minutes: 5
+        continue-on-error: true
+        env:
+          LAST_UPLOADED_SHA: ${{ needs.decide.outputs.last_uploaded_sha }}
+        run: ./ios/scripts/fetch-testflight-notes-history.sh "$LAST_UPLOADED_SHA"
+
       - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      # The verified prebuilt is the happy path (same pattern as
+      # reload-build.yml). Zig and the ghostty source are fetched only when it
+      # fails, immediately before the ensure-ghosttykit.sh from-source build
+      # that needs them. The iOS app links GhosttyKit via a local-path
+      # binaryTarget, so it must exist before package resolve.
+      - name: Download prebuilt GhosttyKit
+        id: ghosttykit_prebuilt
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          # The ghostty gitlink recorded in this commit is the submodule SHA
+          # the from-source build would key on, without checking ghostty out.
+          ghostty_sha="$(git rev-parse HEAD:ghostty)"
+          # Same bounded budget the from-source provisioner used for this
+          # download (3 retries, 300 s per attempt), so a missing release
+          # falls back fast.
+          if GHOSTTY_SHA="$ghostty_sha" \
+            GHOSTTYKIT_DOWNLOAD_RETRIES=3 \
+            GHOSTTYKIT_DOWNLOAD_RETRY_DELAY=5 \
+            GHOSTTYKIT_DOWNLOAD_MAX_TIME=300 \
+            ./scripts/download-prebuilt-ghosttykit.sh; then
+            available=true
           else
-            XCODE_APP="$(find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
-            if [ -z "$XCODE_APP" ]; then
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-            XCODE_DIR="$XCODE_APP/Contents/Developer"
+            available=false
+            echo "::warning::Prebuilt GhosttyKit for ghostty ${ghostty_sha} unavailable; building from source"
           fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
+          echo "available=$available" >> "$GITHUB_OUTPUT"
 
-      - name: Install zig
-        run: ./scripts/install-zig-ci.sh
-
-      - name: Provision GhosttyKit
+      - name: Fetch ghostty and install zig for GhosttyKit fallback
+        if: ${{ steps.ghosttykit_prebuilt.outputs.available != 'true' }}
         run: |
-          # Downloads the prebuilt GhosttyKit.xcframework pinned in
-          # scripts/ghosttykit-checksums.txt for the current ghostty SHA, or
-          # falls back to a from-source build. The iOS app links GhosttyKit via
-          # a local-path binaryTarget, so it must exist before package resolve.
-          ./scripts/ensure-ghosttykit.sh
+          set -euo pipefail
+          # ghostty has no nested submodules; its pinned commit is fetchable
+          # at depth 1.
+          git submodule update --init --depth 1 ghostty
+          ./scripts/install-zig-ci.sh
+
+      - name: Build fallback GhosttyKit
+        if: ${{ steps.ghosttykit_prebuilt.outputs.available != 'true' }}
+        env:
+          # The download step already proved the prebuilt path failed.
+          CMUX_GHOSTTYKIT_NO_PREBUILT: "1"
+        run: ./scripts/ensure-ghosttykit.sh
+
+      - name: Verify provisioned GhosttyKit
+        run: test -d GhosttyKit.xcframework
+
+      - name: Install asc CLI
+        run: |
+          set -euo pipefail
+          BREW_BIN="$(command -v brew || true)"
+          if [ -z "$BREW_BIN" ] && [ -x /opt/homebrew/bin/brew ]; then
+            BREW_BIN=/opt/homebrew/bin/brew
+          fi
+          if [ -z "$BREW_BIN" ] && [ -x /usr/local/bin/brew ]; then
+            BREW_BIN=/usr/local/bin/brew
+          fi
+          if [ -z "$BREW_BIN" ]; then
+            echo "Homebrew is required to install asc CLI" >&2
+            exit 1
+          fi
+          "$BREW_BIN" list asc >/dev/null 2>&1 || "$BREW_BIN" install asc
+          echo "$(dirname "$BREW_BIN")" >> "$GITHUB_PATH"
 
       - name: Materialize App Store Connect API key
         env:
@@ -444,6 +694,7 @@ jobs:
         env:
           IOS_BETA_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_BASE64 }}
           IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64 }}
+          IOS_BETA_EXTENSION_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_BETA_EXTENSION_PROVISIONING_PROFILE_BASE64 }}
         run: |
           set -euo pipefail
           if [ "$IOS_BETA_PROFILE_TYPE" = "beta" ]; then
@@ -494,6 +745,35 @@ jobs:
           echo "IOS_BETA_PROVISIONING_PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
           echo "Installed $IOS_BETA_PROFILE_TYPE provisioning profile: $PROFILE_NAME ($PROFILE_UUID)"
 
+          # The notification service is a nested executable and needs its own
+          # App Store profile. Resolve or create it through App Store Connect
+          # using the same certificate and API key as the host profile. The
+          # helper also installs an optional pre-provisioned extension secret,
+          # then falls back to the active profile in ASC.
+          EXTENSION_BUNDLE_ID="$(bash ./ios/scripts/notification-service-bundle-id.sh "$IOS_BETA_BUNDLE_ID")"
+          if [ "$IOS_BETA_PROFILE_TYPE" = "internal" ] || [ -n "${IOS_BETA_EXTENSION_PROVISIONING_PROFILE_BASE64:-}" ]; then
+            EXTENSION_ENV="$RUNNER_TEMP/cmux-${IOS_BETA_PROFILE_TYPE}-extension.env"
+            : > "$EXTENSION_ENV"
+            IOS_APPSTORE_TEAM_ID=7WLXT3NR37 \
+            IOS_APPSTORE_BUNDLE_IDENTIFIER="$IOS_BETA_BUNDLE_ID" \
+            IOS_APPSTORE_EXTENSION_BUNDLE_IDENTIFIER="$EXTENSION_BUNDLE_ID" \
+            IOS_APPSTORE_PROVISIONING_PROFILE_BASE64="$PROFILE_BASE64" \
+            IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64="${IOS_BETA_EXTENSION_PROVISIONING_PROFILE_BASE64:-}" \
+            IOS_APPSTORE_KEYCHAIN_NAME=ios-testflight.keychain \
+            GITHUB_ENV="$EXTENSION_ENV" \
+              ./.github/scripts/install-app-store-provisioning-profile.sh
+            EXTENSION_PROFILE_NAME="$(sed -n 's/^IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME=//p' "$EXTENSION_ENV")"
+            if [ -z "$EXTENSION_PROFILE_NAME" ]; then
+              echo "Internal notification extension profile resolver returned no profile name" >&2
+              exit 1
+            fi
+            echo "IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME=$EXTENSION_PROFILE_NAME" >> "$GITHUB_ENV"
+            echo "Installed $IOS_BETA_PROFILE_TYPE notification extension profile: $EXTENSION_PROFILE_NAME"
+          else
+            echo "Missing IOS_BETA_EXTENSION_PROVISIONING_PROFILE_BASE64 for $IOS_BETA_PROFILE_TYPE notification extension" >&2
+            exit 1
+          fi
+
       - name: Use DEMO-badged app icon
         if: needs.decide.outputs.variant == 'demo'
         run: |
@@ -510,6 +790,45 @@ jobs:
           done
           echo "Installed DEMO-badged icon variants into AppIcon.appiconset"
 
+      # Upload archives used to start cold: fresh DerivedData, every Swift
+      # package re-cloned, every module rebuilt in Release. Restore the Swift
+      # packages test-ios.yml seeds on main and this lane's own compilation
+      # cache (newest by prefix; r2_cache_prune.py keeps a day of them).
+      # IOS_UPLOAD_COMPILATION_CACHE=0 turns the compilation cache off.
+      - name: Compute iOS compilation cache key
+        id: ios-compilation-cache-key
+        if: ${{ (vars.IOS_UPLOAD_COMPILATION_CACHE || '1') != '0' }}
+        run: echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore iOS compilation cache
+        id: ios-compilation-cache-restore
+        if: ${{ (vars.IOS_UPLOAD_COMPILATION_CACHE || '1') != '0' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/cmux-ios-upload/DerivedData/CompilationCache.noindex
+          key: xcode-compilation-ios-testflight-${{ steps.distribution.outputs.bundle_id }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.ios-compilation-cache-key.outputs.toolchain }}-${{ github.sha }}
+          restore-keys: |
+            xcode-compilation-ios-testflight-${{ steps.distribution.outputs.bundle_id }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.ios-compilation-cache-key.outputs.toolchain }}-
+
+      - name: Restore iOS SwiftPM cache
+        id: ios-spm-restore
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/cmux-ios-spm
+          key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            ios-spm-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Sanitize iOS SwiftPM cache
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cmux-ios-spm"
+          python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$RUNNER_TEMP/cmux-ios-spm"
+
       - name: Archive, export, and upload to TestFlight
         id: upload
         env:
@@ -525,10 +844,19 @@ jobs:
           # The script writes the CFBundleVersion that actually shipped here (the
           # monotonic guard may bump it), so the summary reports the real value.
           CMUX_BUILD_NUMBER_OUT_FILE: ${{ runner.temp }}/cmux-final-build-number.txt
+          CMUX_TESTFLIGHT_NOTES_REQUEST_FILE: ${{ runner.temp }}/testflight-notes.json
           # Pin the archive/export workspace: the default is a /tmp dir keyed by
           # the build number, which this workflow cannot compute, and the
           # post-upload dSYM artifact step must find the archive's dSYM bundle.
           CMUX_IOS_UPLOAD_DIR: ${{ runner.temp }}/cmux-ios-upload
+          CMUX_IOS_SPM_CACHE_DIR: ${{ runner.temp }}/cmux-ios-spm
+          CMUX_IOS_COMPILATION_CACHE: ${{ (vars.IOS_UPLOAD_COMPILATION_CACHE || '1') != '0' && '1' || '0' }}
+          # xcodebuild runs for 15-20 minutes here and GitHub truncates a step
+          # log that long from the end, which is exactly where a build error
+          # is. Keep a full copy so a failed archive can be explained; run
+          # 35776199844 failed at 20:07:03 with a retrievable log ending
+          # 20:06:31 mid-compile and no artifacts at all.
+          ARCHIVE_LOG: ${{ runner.temp }}/ios-testflight-archive.log
           # The previous beta's commit (the last successful run's head_sha): base
           # of the per-build "What to Test" commit range. Empty on the very first
           # run / a missing history, where the generator falls back gracefully.
@@ -536,9 +864,20 @@ jobs:
           # Optional manual one-off override that reuses an older approved beta
           # marketing version so external testers can install it immediately.
           INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
+          INPUT_PREPARE_ONLY: ${{ github.event.inputs.prepare_only }}
         run: |
           set -euo pipefail
-          if [ "$IOS_TESTFLIGHT_UPLOAD_MODE" = "marketing_version_override" ]; then
+          if [ "${INPUT_PREPARE_ONLY:-false}" = "true" ]; then
+            ARGS=(--lane beta --signing manual --export-only --skip-notes)
+            if [ "$IOS_TESTFLIGHT_UPLOAD_MODE" = "marketing_version_override" ]; then
+              export BETA_MARKETING_VERSION="$INPUT_MARKETING_VERSION_OVERRIDE"
+              ARGS+=(--external)
+            fi
+            if [ -n "${INPUT_BUILD_NUMBER:-}" ]; then
+              ARGS+=(--build-number "$INPUT_BUILD_NUMBER")
+            fi
+            ./ios/scripts/upload-testflight.sh "${ARGS[@]}" 2>&1 | tee -a "$ARCHIVE_LOG"
+          elif [ "$IOS_TESTFLIGHT_UPLOAD_MODE" = "marketing_version_override" ]; then
             # One-time operator escape hatch: upload latest main as another build
             # of an already-approved beta marketing version, which avoids starting a
             # fresh Beta App Review for that version. This path intentionally
@@ -552,7 +891,7 @@ jobs:
             ./ios/scripts/cloud-testflight.sh \
               --external \
               --marketing-version "$INPUT_MARKETING_VERSION_OVERRIDE" \
-              --skip-notes
+              --skip-notes 2>&1 | tee -a "$ARCHIVE_LOG"
           else
             # Reuse the checked-in CMUX_IOS_BETA_MARKETING_VERSION for automatic betas.
             # Main-push builds use:
@@ -569,7 +908,7 @@ jobs:
             if [ -n "${INPUT_BUILD_NUMBER:-}" ]; then
               ARGS+=(--build-number "$INPUT_BUILD_NUMBER")
             fi
-            ./ios/scripts/upload-testflight.sh "${ARGS[@]}"
+            ./ios/scripts/upload-testflight.sh "${ARGS[@]}" 2>&1 | tee -a "$ARCHIVE_LOG"
           fi
           if [ -f "$CMUX_BUILD_NUMBER_OUT_FILE" ]; then
             FINAL_BN="$(cat "$CMUX_BUILD_NUMBER_OUT_FILE")"
@@ -577,7 +916,124 @@ jobs:
             FINAL_BN="${INPUT_BUILD_NUMBER:-unknown}"
           fi
           echo "final_build_number=$FINAL_BN" >> "$GITHUB_OUTPUT"
-          echo "Shipped CFBundleVersion: $FINAL_BN"
+          echo "Prepared CFBundleVersion: $FINAL_BN"
+
+
+      - name: Package prepared candidate
+        id: package_candidate
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && github.event.inputs.prepare_only == 'true' }}
+        env:
+          FINAL_BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number }}
+          CANDIDATE_BUNDLE_ID: ${{ steps.distribution.outputs.bundle_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ios-candidate"
+          cp "$RUNNER_TEMP/cmux-ios-upload/export/cmux-resigned.ipa" "$RUNNER_TEMP/ios-candidate/"
+          ditto -c -k --keepParent "$RUNNER_TEMP/cmux-ios-upload/cmux.xcarchive/dSYMs" "$RUNNER_TEMP/ios-candidate/dSYMs.zip"
+          python3 - <<'PYTHON'
+          import hashlib, json, os
+          from pathlib import Path
+          output = Path(os.environ["RUNNER_TEMP"]) / "ios-candidate"
+          packages = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in output.glob("*.ipa")}
+          assert len(packages) == 1, "expected exactly one candidate IPA"
+          (output / "candidate.json").write_text(json.dumps({
+              "head_sha": os.environ["GITHUB_SHA"],
+              "build_number": os.environ["FINAL_BUILD_NUMBER"],
+              "bundle_id": os.environ["CANDIDATE_BUNDLE_ID"],
+              "uploaded": False,
+              "sha256": packages,
+          }, indent=2) + "\n")
+          PYTHON
+
+      - name: Upload prepared candidate artifact
+        id: candidate_artifact
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && steps.package_candidate.outcome == 'success' && github.event.inputs.prepare_only == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-testflight-candidate-${{ github.run_id }}
+          path: ${{ runner.temp }}/ios-candidate/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Bound iOS compilation cache size
+        id: ios-compilation-cache-bound
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && (vars.IOS_UPLOAD_COMPILATION_CACHE || '1') != '0' && steps.ios-compilation-cache-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cache_path="$RUNNER_TEMP/cmux-ios-upload/DerivedData/CompilationCache.noindex"
+          max_cache_kib=$((5 * 1024 * 1024))
+          save=false
+          if [ -d "$cache_path" ]; then
+            # Drop the CAS generations Xcode itself would collect (see nightly.yml).
+            python3 scripts/ci/prune-xcode-compilation-cache.py "$cache_path" \
+              || echo "::warning::Xcode compilation cache pruning failed; measuring it unpruned"
+            cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
+            echo "iOS compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
+            if [ "$cache_kib" -gt "$max_cache_kib" ]; then
+              echo "::warning::iOS compilation cache exceeds 5 GiB; skipping cache save"
+            elif [ "$cache_kib" -gt 0 ]; then
+              save=true
+            fi
+          fi
+          echo "save=${save}" >> "$GITHUB_OUTPUT"
+
+      - name: Save iOS compilation cache
+        if: ${{ !cancelled() && steps.ios-compilation-cache-bound.outputs.save == 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          # Only an R2 save sees the bucket credentials.
+          AWS_ACCESS_KEY_ID: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/cmux-ios-upload/DerivedData/CompilationCache.noindex
+          key: xcode-compilation-ios-testflight-${{ steps.distribution.outputs.bundle_id }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.ios-compilation-cache-key.outputs.toolchain }}-${{ github.sha }}
+
+      # test-ios.yml saves this key only on a seed_cache dispatch, so nothing
+      # wrote it; the upload lanes resolve the same packages on main anyway.
+      - name: Save iOS SwiftPM cache
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && steps.ios-spm-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          # Only an R2 save sees the bucket credentials.
+          AWS_ACCESS_KEY_ID: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/cmux-ios-spm
+          key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+      - name: Save deferred TestFlight notes request
+        id: notes_request
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && github.event.inputs.prepare_only != 'true' && steps.distribution.outputs.upload_mode != 'marketing_version_override' }}
+        # Notes are best effort after the IPA has shipped, including transport.
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: testflight-notes-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/testflight-notes.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload the archive log
+        # Only on failure: on the success path this is 15-20 minutes of
+        # xcodebuild noise nobody reads. `!cancelled()` is deliberately absent
+        # -- a cancelled archive has no error to explain.
+        if: ${{ failure() && steps.upload.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-testflight-archive-log-${{ needs.decide.outputs.variant }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/ios-testflight-archive.log
+          # A step that failed before the build started leaves no log, and
+          # failing the upload of a failure report helps nobody.
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Summary
         if: always()
@@ -588,8 +1044,25 @@ jobs:
           UPLOAD_DISPLAY_NAME: ${{ steps.distribution.outputs.display_name }}
           UPLOAD_AUDIENCE: ${{ steps.distribution.outputs.audience }}
           UPLOAD_REVIEW_NOTE: ${{ steps.distribution.outputs.review_note }}
+          PREPARATION_RESULT: ${{ steps.package_candidate.outcome || 'not_run' }}
+          CANDIDATE_ARTIFACT_RESULT: ${{ steps.candidate_artifact.outcome || 'not_run' }}
+          INPUT_PREPARE_ONLY: ${{ github.event.inputs.prepare_only }}
         run: |
           {
+            if [ "${INPUT_PREPARE_ONLY:-false}" = "true" ]; then
+              echo "### iOS candidate preparation (not uploaded)"
+              echo "- source: ${GITHUB_SHA}"
+              echo "- bundle: ${UPLOAD_BUNDLE_ID}"
+              echo "- build: ${BUILD_NUMBER}"
+              echo "- packaging result: ${PREPARATION_RESULT}"
+              echo "- artifact result: ${CANDIDATE_ARTIFACT_RESULT}"
+              if [ "$CANDIDATE_ARTIFACT_RESULT" = "success" ]; then
+                echo "- signed IPA is attached to this run for migration testing"
+              else
+                echo "- no complete candidate artifact was published"
+              fi
+              exit 0
+            fi
             echo "### iOS TestFlight upload"
             echo
             echo "- lane: \`beta\` (bundle id \`${UPLOAD_BUNDLE_ID}\`, ${UPLOAD_AUDIENCE})"
@@ -605,7 +1078,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Persist uploaded build metadata
-        if: success()
+        if: ${{ success() && github.event.inputs.prepare_only != 'true' }}
         env:
           FINAL_BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number }}
           UPLOAD_MODE: ${{ steps.distribution.outputs.upload_mode }}
@@ -616,7 +1089,7 @@ jobs:
           EOF
 
       - name: Upload build metadata artifact
-        if: success()
+        if: ${{ success() && github.event.inputs.prepare_only != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # Variant-specific names keep the decide job's last-upload lookup (and
@@ -638,7 +1111,7 @@ jobs:
         # IPA reached TestFlight its symbols must be persisted even if a later
         # step (summary/metadata artifact) failed, or a shipped build becomes
         # unsymbolicatable again.
-        if: ${{ !cancelled() && steps.upload.outcome == 'success' && steps.distribution.outputs.assign_internal_group == '1' }}
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && github.event.inputs.prepare_only != 'true' && steps.distribution.outputs.assign_internal_group == '1' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ios-dsyms-${{ needs.decide.outputs.variant }}-${{ steps.upload.outputs.final_build_number }}
@@ -646,10 +1119,58 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Upload dSYMs to Sentry
+        # Sentry symbolicates crashes server-side from its own dSYM store; the
+        # Symbols/ files inside the IPA only serve App Store Connect. Same gate
+        # as the artifact step above: once the IPA reached TestFlight, symbols
+        # must reach Sentry even if a later step fails, or every crash for this
+        # build shows raw addresses. No --include-sources: the archive builds
+        # on a fleet Mac, so its DWARF source paths do not exist on this
+        # runner.
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && github.event.inputs.prepare_only != 'true' && steps.distribution.outputs.assign_internal_group == '1' }}
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: manaflow
+          SENTRY_PROJECT: cmux-ios
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "SENTRY_AUTH_TOKEN not set, skipping dSYM upload"
+            exit 0
+          fi
+          SENTRY_CLI="$(./scripts/ensure-sentry-cli.sh)"
+          "$SENTRY_CLI" debug-files upload "$RUNNER_TEMP/cmux-ios-upload/cmux.xcarchive/dSYMs"
+
       - name: Cleanup keychain
         if: always()
         run: |
           security delete-keychain ios-testflight.keychain >/dev/null 2>&1 || true
+
+  set-testflight-notes:
+    name: Set TestFlight notes
+    needs: upload
+    # Run alongside tester assignment and even if later Mac metadata/Sentry
+    # steps fail. Notes timeouts must not turn an accepted upload into a failure.
+    if: ${{ !cancelled() && needs.upload.outputs.uploaded == 'success' && needs.upload.outputs.notes_artifact_id != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Download notes request
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          artifact-ids: ${{ needs.upload.outputs.notes_artifact_id }}
+          path: ${{ runner.temp }}/testflight-notes
+          merge-multiple: true
+      - name: Apply uploaded build notes
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: python3 ios/scripts/apply-deferred-testflight-notes.py "${{ runner.temp }}/testflight-notes/testflight-notes.json"
 
   # Normal and demo runs assign their internal group after upload. A manual
   # external marketing-version override assigns Founder's Edition and Pro
@@ -657,8 +1178,13 @@ jobs:
   assign-internal-group:
     name: Assign build to internal TestFlight group
     needs: [decide, upload]
-    if: github.ref == 'refs/heads/main' && needs.upload.result == 'success' && needs.upload.outputs.assign_internal_group == '1'
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Gated on the upload step's outcome, not the upload job's result: once
+    # the IPA reached TestFlight it must reach its testers, even if a later
+    # step in that job failed. `!cancelled()` is required because a failed
+    # `needs` otherwise skips this job before the condition is read; a
+    # cancelled run still cancels assignment.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.upload.outputs.uploaded == 'success' && needs.upload.outputs.assign_internal_group == '1' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}

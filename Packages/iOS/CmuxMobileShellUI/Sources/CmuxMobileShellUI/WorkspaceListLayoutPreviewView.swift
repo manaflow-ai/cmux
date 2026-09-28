@@ -7,8 +7,8 @@ import Observation
 import SwiftUI
 
 /// Owns the mutable rows and live-update stimulus for the DEBUG preview.
-@MainActor
 @Observable
+@MainActor
 private final class WorkspaceListLayoutPreviewModel {
     /// The continuous update feed's payload shape
     /// (`CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES`).
@@ -17,6 +17,9 @@ private final class WorkspaceListLayoutPreviewModel {
         case off
         /// `1`: visible churn — unread toggles plus activity restamps.
         case visible
+        /// `sessions`: several agent rows complete together, changing their
+        /// description height while the list is being interacted with.
+        case agentSessions
         /// `timestamps`: sub-minute activity restamps only, the shape the Mac
         /// emits while agents stream (`last_activity_at` is the latest
         /// notification's `createdAt`). Rows render identically, so a correct
@@ -27,6 +30,23 @@ private final class WorkspaceListLayoutPreviewModel {
     var workspaces: [MobileWorkspacePreview]
     var groups: [MobileWorkspaceGroupPreview]
     private let liveUpdateMode: LiveUpdateMode
+    private let refreshGate = WorkspaceListPreviewRefreshGate()
+    var refreshIsWaiting = false
+
+    func waitForRefreshReleaseIfNeeded() async {
+        guard ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_HOLD_REFRESH"
+        ] == "1" else { return }
+        refreshIsWaiting = true
+        await refreshGate.wait()
+        refreshIsWaiting = false
+    }
+
+    func finishRefresh() {
+        refreshIsWaiting = false
+        let refreshGate = refreshGate
+        Task { await refreshGate.finish() }
+    }
 
     /// Creates a preview model with an optional continuous update feed.
     init(
@@ -43,6 +63,7 @@ private final class WorkspaceListLayoutPreviewModel {
     func runLiveUpdates() async {
         guard liveUpdateMode != .off else { return }
         var updateLane = 0
+        var updateGenerationByLane = Array(repeating: 0, count: 10)
         while !Task.isCancelled {
             do {
                 try await Task.sleep(for: .milliseconds(80))
@@ -50,10 +71,20 @@ private final class WorkspaceListLayoutPreviewModel {
                 return
             }
             for index in workspaces.indices where index % 10 == updateLane {
-                if liveUpdateMode == .visible {
+                if liveUpdateMode == .visible || liveUpdateMode == .agentSessions {
                     workspaces[index].hasUnread.toggle()
+                    workspaces[index].unreadCount = workspaces[index].hasUnread ? 1 + index % 5 : 0
                     workspaces[index].previewAt = Date()
                     workspaces[index].lastActivityAt = Date()
+                    if liveUpdateMode == .agentSessions {
+                        let completed = updateGenerationByLane[updateLane].isMultiple(of: 2)
+                        workspaces[index].customDescription = completed
+                            ? "Agent session \(index) completed"
+                            : nil
+                        workspaces[index].previewText = completed
+                            ? "Agent session completed"
+                            : "Agent session is working"
+                    }
                 } else {
                     // Restamp relative to the row's own clock: the seeded
                     // timestamps are hours old, so jumping them to `Date()`
@@ -76,6 +107,7 @@ private final class WorkspaceListLayoutPreviewModel {
                     workspaces[index].lastActivityAt = restamped
                 }
             }
+            updateGenerationByLane[updateLane] += 1
             updateLane = (updateLane + 1) % 10
         }
     }
@@ -103,7 +135,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     /// Store-free stand-ins for the device-local sort preference, so the
     /// fixture's sort menu and computer-order editor are fully interactive.
     /// `CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT` (a raw mode value) and
-    /// `..._SORT_PRIORITY` (comma-separated Mac device ids) seed them so a
+    /// `..._SORT_PRIORITY` (comma-separated pairing ids) seed them so a
     /// harness can verify each mode's rendering without driving the menu.
     @State private var fixtureSortMode: MobileWorkspaceSortMode =
         ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT"]
@@ -131,7 +163,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         _filterState = State(
             initialValue: WorkspaceListFilterState(filter: initialFilter)
         )
-        let seedCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT"].flatMap(Int.init) ?? 0
+        let seedCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT"].flatMap(Int.init)
         let reorderEnabled = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER"] == "1"
         let usesMixedGroupFixture = environment[
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_MIXED_GROUPS"
@@ -140,7 +172,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         let initialGroups: [MobileWorkspaceGroupPreview]
         if usesMixedGroupFixture {
             (initialWorkspaces, initialGroups) = Self.mixedGroupFixture()
-        } else if seedCount > 0 {
+        } else if let seedCount, seedCount >= 0 {
             let groupCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS"].flatMap(Int.init) ?? 0
             (initialWorkspaces, initialGroups) = Self.seeded(
                 count: seedCount,
@@ -170,6 +202,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         let liveUpdateMode: WorkspaceListLayoutPreviewModel.LiveUpdateMode
         switch environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES"] {
         case "1": liveUpdateMode = .visible
+        case "sessions": liveUpdateMode = .agentSessions
         case "timestamps": liveUpdateMode = .timestampsOnly
         default: liveUpdateMode = .off
         }
@@ -229,6 +262,7 @@ public struct WorkspaceListLayoutPreviewView: View {
             previewAt: seedActivityTime(hour: 11, minute: 32),
             lastActivityAt: seedActivityTime(hour: 11, minute: 32),
             hasUnread: true,
+            unreadCount: 3,
             terminals: [
                 MobileTerminalPreview(id: "terminal-login-agent", name: "Agent"),
             ]
@@ -255,6 +289,7 @@ public struct WorkspaceListLayoutPreviewView: View {
             previewAt: seedActivityTime(hour: 10, minute: 47),
             lastActivityAt: seedActivityTime(hour: 10, minute: 47),
             hasUnread: true,
+            unreadCount: 1,
             terminals: [
                 MobileTerminalPreview(id: "terminal-rate-agent", name: "Agent"),
             ]
@@ -361,7 +396,8 @@ public struct WorkspaceListLayoutPreviewView: View {
             name: String,
             groupID: MobileWorkspaceGroupPreview.ID? = nil,
             activityOffset: TimeInterval? = nil,
-            hasUnread: Bool = false
+            hasUnread: Bool = false,
+            unreadCount: Int? = nil
         ) -> MobileWorkspacePreview {
             let activityAt = activityOffset.map { now.addingTimeInterval($0) }
             var workspace = MobileWorkspacePreview(
@@ -373,6 +409,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                 previewAt: activityAt,
                 lastActivityAt: activityAt,
                 hasUnread: hasUnread,
+                unreadCount: unreadCount,
                 terminals: []
             )
             workspace.macInstanceTag = macInstanceTag
@@ -414,7 +451,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                     defaultValue: "Inactive Member"
                 ),
                 groupID: alphaGroupID,
-                hasUnread: true
+                hasUnread: true,
+                unreadCount: 2
             ),
             workspace(
                 id: "workspace-mixed-between",
@@ -450,7 +488,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                 ),
                 groupID: betaGroupID,
                 activityOffset: -120,
-                hasUnread: true
+                hasUnread: true,
+                unreadCount: 1
             ),
             workspace(
                 id: "workspace-mixed-after",
@@ -532,6 +571,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                 previewAt: anchorTime.addingTimeInterval(-Double(index) * 3600),
                 lastActivityAt: anchorTime.addingTimeInterval(-Double(index) * 3600),
                 hasUnread: index % 4 == 0,
+                unreadCount: index % 4 == 0 ? 1 + index % 12 : 0,
                 terminals: [
                     MobileTerminalPreview(
                         id: MobileTerminalPreview.ID(rawValue: "terminal-seed-\(index)"),
@@ -545,8 +585,13 @@ public struct WorkspaceListLayoutPreviewView: View {
         return (workspaces, groups)
     }
 
-    private var showNotificationBanner: Bool {
-        ProcessInfo.processInfo.environment["CMUX_UITEST_NOTIFICATION_BANNER"] == "1"
+    /// `"1"` = agent-input banner; `"reply"` = inline-reply lock-screen fixture.
+    private var notificationBannerMode: String? {
+        switch ProcessInfo.processInfo.environment["CMUX_UITEST_NOTIFICATION_BANNER"] {
+        case "1": "1"
+        case "reply": "reply"
+        default: nil
+        }
     }
 
     /// `CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS=1` wraps the list in a tab
@@ -584,14 +629,24 @@ public struct WorkspaceListLayoutPreviewView: View {
             return model.workspaces
         }
         var rank: [String: Int] = [:]
-        for (index, deviceID) in fixtureComputerPriority.enumerated()
-            where rank[deviceID] == nil {
-            rank[deviceID] = index
+        for (index, computerID) in fixtureComputerPriority.enumerated()
+            where rank[computerID] == nil {
+            rank[computerID] = index
         }
         return model.workspaces.enumerated()
             .sorted { lhs, rhs in
-                let lhsRank = rank[lhs.element.macDeviceID ?? ""] ?? Int.max
-                let rhsRank = rank[rhs.element.macDeviceID ?? ""] ?? Int.max
+                let lhsDeviceID = lhs.element.macDeviceID ?? ""
+                let rhsDeviceID = rhs.element.macDeviceID ?? ""
+                let lhsComputerID = MobilePairedMac.pairingID(
+                    macDeviceID: lhsDeviceID,
+                    instanceTag: lhs.element.macInstanceTag
+                )
+                let rhsComputerID = MobilePairedMac.pairingID(
+                    macDeviceID: rhsDeviceID,
+                    instanceTag: rhs.element.macInstanceTag
+                )
+                let lhsRank = rank[lhsComputerID] ?? rank[lhsDeviceID] ?? Int.max
+                let rhsRank = rank[rhsComputerID] ?? rank[rhsDeviceID] ?? Int.max
                 if lhsRank != rhsRank { return lhsRank < rhsRank }
                 return lhs.offset < rhs.offset
             }
@@ -621,10 +676,13 @@ public struct WorkspaceListLayoutPreviewView: View {
             createWorkspaceGroup: reorderEnabled ? {} : nil,
             macSelection: $macSelection,
             refresh: {
+                await model.waitForRefreshReleaseIfNeeded()
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     performPreviewRefresh()
                 }
             },
+            isRecoveringWorkspaceList: model.refreshIsWaiting,
             renameWorkspace: reorderEnabled ? { id, newName in
                 if let index = model.workspaces.firstIndex(where: { $0.id == id }) {
                     model.workspaces[index].name = newName
@@ -649,6 +707,8 @@ public struct WorkspaceListLayoutPreviewView: View {
             setUnread: reorderEnabled ? { id, unread in
                 if let index = model.workspaces.firstIndex(where: { $0.id == id }) {
                     model.workspaces[index].hasUnread = unread
+                    // Manual unread counts as 1, mirroring the Mac indicator.
+                    model.workspaces[index].unreadCount = unread ? 1 : 0
                 }
             } : nil,
             closeWorkspace: reorderEnabled ? { id in
@@ -704,7 +764,9 @@ public struct WorkspaceListLayoutPreviewView: View {
 
     public var body: some View {
         Group {
-            if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
+            if UITestConfig.workspaceDetailDisconnectedPreviewEnabled {
+                WorkspaceDetailDisconnectedPreviewView()
+            } else if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
                 WorkspaceDetailCreateDelayedTerminalPreviewView()
             } else if UITestConfig.workspaceDetailRefreshingTerminalMenuPreviewEnabled {
                 WorkspaceDetailDelayedTerminalPreviewView()
@@ -749,22 +811,26 @@ public struct WorkspaceListLayoutPreviewView: View {
                     } notifications: {
                         Text("Notification feed fixture")
                             .foregroundStyle(.secondary)
-                    } workspaceSearch: {
-                        NavigationStack(path: $searchFixturePath) {
-                            MobilePrimaryWorkspaceSearchContentHost(
-                                searchCoordinator: primarySearchCoordinator
-                            ) { searchText in
-                                workspaceListFixture(searchText: searchText)
+                    } search: {
+                        MobilePrimarySearchNavigationStack(
+                            path: $searchFixturePath,
+                            selection: $selectedPrimaryTab,
+                            searchCoordinator: primarySearchCoordinator
+                        ) {
+                            switch primarySearchCoordinator.scope {
+                            case .workspaces:
+                                MobilePrimaryWorkspaceSearchContentHost(
+                                    searchCoordinator: primarySearchCoordinator
+                                ) { searchText in
+                                    workspaceListFixture(searchText: searchText)
+                                }
+                            case .notifications:
+                                Text("Notification feed fixture")
+                                    .foregroundStyle(.secondary)
                             }
-                            // Mirrors the shell: a tapped search result pushes
-                            // inside the search tab with the system back button.
-                            .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
-                                fixtureWorkspaceDetail(for: workspaceID)
-                            }
+                        } destination: { workspaceID in
+                            fixtureWorkspaceDetail(for: workspaceID)
                         }
-                    } notificationSearch: {
-                        Text("Notification feed fixture")
-                            .foregroundStyle(.secondary)
                     }
                 } else {
                     workspaceListStack
@@ -786,6 +852,18 @@ public struct WorkspaceListLayoutPreviewView: View {
         }
         .overlay(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
+                if model.refreshIsWaiting {
+                    Button {
+                        model.finishRefresh()
+                    } label: {
+                        Rectangle()
+                            .fill(Color.primary.opacity(0.01))
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .offset(x: 60)
+                    .accessibilityIdentifier("MobileWorkspaceListPreviewFinishRefresh")
+                }
                 Color.clear
                     .frame(width: 1, height: 1)
                     .offset(x: 2)
@@ -815,9 +893,10 @@ public struct WorkspaceListLayoutPreviewView: View {
         }
         .task {
             // Fire a REAL local notification (not a drawn banner) so the system
-            // renders the genuine banner over this workspace list.
-            if showNotificationBanner {
-                notificationPresenter.fire()
+            // renders the genuine banner over this workspace list. Mode "reply"
+            // schedules the inline-reply fixture for the lock-screen shot.
+            if let mode = notificationBannerMode {
+                notificationPresenter.fire(mode: mode)
             }
 
             await model.runLiveUpdates()
@@ -852,7 +931,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                 .foregroundStyle(.secondary)
         }
         .accessibilityIdentifier("FixtureWorkspaceDetail")
-        .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
+        .mobileToolbarVisibility(.hidden, for: .tabBar, .bottomBar)
     }
 }
 

@@ -8,9 +8,12 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     nonisolated let currentRemotePTYLifecycleOwnerProvider:
         (@Sendable () -> ControlRemotePTYLifecycleOwner?)?
     nonisolated let beforeMainResolution: (@Sendable () -> Void)?
+    nonisolated let feedJumpMatch: Bool
     var listResolution: ControlWorkspaceListResolution = .tabManagerUnavailable
     var currentResolution: ControlWorkspaceCurrentResolution = .tabManagerUnavailable
     var closeResolution: ControlWorkspaceCloseResolution = .tabManagerUnavailable
+    var reorderResolution: ControlWorkspaceReorderResolution = .notFound
+    var reorderCall: (workspaceID: UUID, index: Int?, before: UUID?, after: UUID?, dryRun: Bool)?
     var addWorkspaceToGroupResolution: ControlWorkspaceGroupAddResolution = .tabManagerUnavailable
     var addWorkspaceToGroupCall: (
         groupID: UUID,
@@ -49,11 +52,25 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner? = nil,
         currentRemotePTYLifecycleOwnerProvider:
             (@Sendable () -> ControlRemotePTYLifecycleOwner?)? = nil,
-        beforeMainResolution: (@Sendable () -> Void)? = nil
+        beforeMainResolution: (@Sendable () -> Void)? = nil,
+        feedJumpMatch: Bool = false
     ) {
         self.currentRemotePTYLifecycleOwner = currentRemotePTYLifecycleOwner
         self.currentRemotePTYLifecycleOwnerProvider = currentRemotePTYLifecycleOwnerProvider
         self.beforeMainResolution = beforeMainResolution
+        self.feedJumpMatch = feedJumpMatch
+    }
+
+    nonisolated func controlFeedResolvePossibleSurfaceAsync(
+        workstreamID: String
+    ) async -> Bool {
+        feedJumpMatch && workstreamID == "known"
+    }
+
+    nonisolated func controlFeedResolvePossibleSurface(
+        workstreamID: String
+    ) -> Bool {
+        feedJumpMatch && workstreamID == "known"
     }
 
     nonisolated func controlResolveOnMain<T: Sendable>(
@@ -87,9 +104,13 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
             closeFailed: "close failed",
             reorderManyMissingOrder: "missing order",
             reorderManyDuplicateWorkspace: "duplicate workspace",
-            reorderManyWorkspaceNotFound: "workspace not found",
-            reorderManyInvalidWorkspace: "invalid workspace",
-            reorderManyTabManagerUnavailable: "tab manager unavailable"
+            workspaceNotFound: "workspace not found",
+            invalidWorkspaceRef: "invalid workspace",
+            reorderIndexNotAnInteger: "index not an integer",
+            reorderMissingWorkspaceID: "missing workspace_id",
+            reorderTargetRequired: "exactly one target",
+            reorderManyTabManagerUnavailable: "tab manager unavailable",
+            relayOwnerUnavailable: "relay owner workspace unavailable"
         )
     }
 
@@ -126,6 +147,18 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
             referenceWorkspaceID: referenceWorkspaceID
         )
         return addWorkspaceToGroupResolution
+    }
+
+    func controlReorderWorkspace(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID,
+        toIndex: Int?,
+        beforeWorkspaceID: UUID?,
+        afterWorkspaceID: UUID?,
+        dryRun: Bool
+    ) -> ControlWorkspaceReorderResolution {
+        reorderCall = (workspaceID, toIndex, beforeWorkspaceID, afterWorkspaceID, dryRun)
+        return reorderResolution
     }
 
     func controlWorkspaceRemoteTerminalSessionEnd(

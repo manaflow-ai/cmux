@@ -22,16 +22,6 @@ import CmuxGit
         return service
     }
 
-    private func waitUntil(maxYields: Int = 5_000, _ predicate: () -> Bool) async -> Bool {
-        for _ in 0..<maxYields {
-            if predicate() {
-                return true
-            }
-            await Task.yield()
-        }
-        return predicate()
-    }
-
     /// The initial probe's retry offsets [0, 0.5, 1.5, 3, 6, 10] are absolute
     /// offsets from scheduling time, walked as sequential clock gaps. The
     /// reader gate stays closed so no snapshot applies mid-walk (an applied
@@ -118,10 +108,13 @@ import CmuxGit
         #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
     }
 
-    @Test func remotePwdPreservesMetadataReportedBeforeFirstTrustedDirectory() async throws {
+    /// Metadata received before directory provenance is established cannot be
+    /// attributed to the first trusted path (including a restored local fallback).
+    @Test(arguments: [nil, "/local/fallback"] as [String?])
+    func firstTrustedRemoteDirectoryClearsUnboundMetadata(previousDirectory: String?) async throws {
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
-        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: nil)
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: previousDirectory)
         host.workspaces[0].state.isRemote = true
         host.workspaces[0].state.panels[panelId]?.isRemoteTerminal = true
         let clock = ManualGitPollClock()
@@ -154,14 +147,11 @@ import CmuxGit
             displayLabel: nil
         )
 
-        #expect(host.workspaces[0].state.panels[panelId]?.branch == SidebarPanelGitBranch(
-            branch: "remote-main",
-            isDirty: false
-        ))
-        #expect(host.workspaces[0].state.panels[panelId]?.badge == badge)
+        #expect(host.workspaces[0].state.panels[panelId]?.branch == nil)
+        #expect(host.workspaces[0].state.panels[panelId]?.badge == nil)
         #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
-        #expect(!host.events.contains(.clearGitBranch(workspaceId, panelId)))
-        #expect(!host.events.contains(.clearPullRequestBadge(workspaceId, panelId)))
+        #expect(host.events.contains(.clearGitBranch(workspaceId, panelId)))
+        #expect(host.events.contains(.clearPullRequestBadge(workspaceId, panelId)))
     }
 
     @Test func trustedRemoteDirectoryChangeClearsStaleMetadataWithoutLocalProbe() async throws {
@@ -369,10 +359,8 @@ import CmuxGit
         #expect(service.workspaceGitProbeRerunPending(for: key))
         await reader.openGate()
 
-        for _ in 0..<500 {
-            let immediateProbeSleeps = await clock.recordedDurations.filter { $0 == 0 }.count
-            if immediateProbeSleeps >= 3 { break }
-            await Task.yield()
+        _ = await waitUntil("three immediate probe sleeps") {
+            await clock.recordedDurations.filter { $0 == 0 }.count >= 3
         }
         let immediateProbeSleeps = await clock.recordedDurations.filter { $0 == 0 }.count
 
@@ -494,5 +482,30 @@ import CmuxGit
 
         #expect(service.activeWorkspaceGitProbePanelIds(workspaceId: workspaceId).isEmpty)
         #expect(pullRequestProbing.clearedTrackingWorkspaceIds == [workspaceId])
+    }
+
+    @Test func resetAllWorkspaceGitProbeTrackingClearsTrackedDirectoryAndSignaturesOnce() {
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        let pullRequestProbing = RecordingPullRequestProbing()
+        let service = makeService(
+            host: host,
+            reader: GatedMetadataReader(metadata: .nonRepository),
+            clock: ManualGitPollClock(),
+            pullRequestProbing: pullRequestProbing
+        )
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        service.workspaceGitTrackedDirectoryByKey[key] = "/tmp/repo"
+        service.workspaceGitCleanIndexSignatureByKey[key] = "index"
+        service.workspaceGitCleanIndexContentSignatureByKey[key] = "content"
+        service.workspaceGitHeadSignatureByKey[key] = "head"
+
+        service.resetAllWorkspaceGitProbeTracking()
+
+        #expect(service.workspaceGitTrackedDirectoryByKey.isEmpty)
+        #expect(service.workspaceGitCleanIndexSignatureByKey.isEmpty)
+        #expect(service.workspaceGitCleanIndexContentSignatureByKey.isEmpty)
+        #expect(service.workspaceGitHeadSignatureByKey.isEmpty)
+        #expect(pullRequestProbing.resetCount == 1)
     }
 }

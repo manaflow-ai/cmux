@@ -1,4 +1,5 @@
 public import Foundation
+internal import CmuxFoundation
 internal import CMUXAgentLaunch
 internal import Darwin
 internal import OSLog
@@ -10,6 +11,21 @@ internal import OSLog
 // spawn assembly and exercised directly by environment tests.
 
 extension TerminalSurface {
+    /// Stable per-surface history storage used by interactive POSIX shells.
+    /// The surface UUID survives session restoration, so history remains
+    /// available after quitting while separate terminals never share entries.
+    public static func terminalHistoryFileURL(
+        surfaceID: UUID,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL {
+        homeDirectory
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("terminal-history", isDirectory: true)
+            .appendingPathComponent("surface-\(surfaceID.uuidString).history", isDirectory: false)
+    }
+
     /// The managed `TERM` value exported to spawned shells.
     public static let managedTerminalType = "xterm-256color"
 
@@ -18,6 +34,19 @@ extension TerminalSurface {
 
     /// The managed `COLORTERM` value exported to spawned shells.
     public static let managedColorTerm = "truecolor"
+
+    /// Spawn-time fallback for the app-managed Computer Use setting.
+    public static let computerUseAppEnabledEnvironmentKey = "CMUX_COMPUTER_USE_APP_ENABLED"
+
+    /// The live computer-use authority read by every generated agent shim.
+    public static func computerUseLiveSettingFileURL(homeDirectory: URL) -> URL {
+        homeDirectory
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("cmux-cua", isDirectory: true)
+            .appendingPathComponent("enabled", isDirectory: false)
+    }
 
     private static let inheritedClaudeAuthSelectionEnvironmentKeys: Set<String> = [
         "ANTHROPIC_API_KEY",
@@ -60,6 +89,15 @@ extension TerminalSurface {
             environment[key] = value
             protectedKeys.insert(key)
         }
+
+        let historyURL = terminalHistoryFileURL(surfaceID: context.surfaceId)
+        try? FileManager.default.createDirectory(
+            at: historyURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        environment["CMUX_HISTORY_FILE"] = historyURL.path
+        protectedKeys.insert("CMUX_HISTORY_FILE")
     }
 
     /// Applies the sidebar git/PR watch flags and protects them.
@@ -77,26 +115,7 @@ extension TerminalSurface {
 
     /// Prepends `directory` to a `PATH`-style string exactly once.
     public static func pathByPrependingUniqueDirectory(_ directory: String, to path: String) -> String {
-        let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDirectory.isEmpty else { return path }
-        let standardizedDirectory = URL(fileURLWithPath: trimmedDirectory, isDirectory: true)
-            .standardizedFileURL
-            .path
-        guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return standardizedDirectory
-        }
-        var entries = path
-            .split(separator: ":", omittingEmptySubsequences: false)
-            .map(String.init)
-            .filter { entry in
-                let trimmedEntry = entry.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmedEntry.isEmpty else { return true }
-                return URL(fileURLWithPath: trimmedEntry, isDirectory: true)
-                    .standardizedFileURL
-                    .path != standardizedDirectory
-            }
-        entries.insert(standardizedDirectory, at: 0)
-        return entries.joined(separator: ":")
+        CmuxPathEnvironment().prependingUniqueDirectory(directory, to: path)
     }
 
     /// Merges base, additional, and override environments with key
@@ -219,8 +238,9 @@ extension TerminalSurface {
         return false
     }
 
-    /// Applies the shell-specific startup redirection (zsh/bash/fish) and
-    /// returns a replacement launch command when one is required (fish).
+    /// Applies the shell-specific startup redirection (zsh/bash/fish/nushell)
+    /// and returns a replacement launch command when one is required
+    /// (fish, nushell).
     public static func applyManagedShellSpecificStartupEnvironment(
         shell: String,
         integrationDir: String,
@@ -229,6 +249,23 @@ extension TerminalSurface {
         protectedKeys: inout Set<String>,
         readFile: (String) throws -> String = { try String(contentsOfFile: $0, encoding: .utf8) }
     ) -> String? {
+        applyManagedShellStartupPlan(
+            shell: shell, integrationDir: integrationDir,
+            userGhosttyShellIntegrationMode: userGhosttyShellIntegrationMode,
+            to: &environment, protectedKeys: &protectedKeys, readFile: readFile
+        ).command
+    }
+
+    /// Installs the command and its readiness capability from the same integration payload.
+    public static func applyManagedShellStartupPlan(
+        shell: String,
+        integrationDir: String,
+        userGhosttyShellIntegrationMode: String,
+        to environment: inout [String: String],
+        protectedKeys: inout Set<String>,
+        readFile: (String) throws -> String = { try String(contentsOfFile: $0, encoding: .utf8) }
+    ) -> TerminalManagedShellStartupPlan {
+        let unavailable = TerminalManagedShellStartupPlan(command: nil, reportsPromptReadiness: false)
         let shellName = URL(fileURLWithPath: shell).lastPathComponent
         func setManagedEnvironmentValue(_ key: String, _ value: String) {
             environment[key] = value
@@ -252,7 +289,7 @@ extension TerminalSurface {
         }
         switch shellName {
         case "zsh":
-            guard bundledBootstrapIsReadable(".zshenv") else { return nil }
+            guard bundledBootstrapIsReadable(".zshenv") else { return unavailable }
             if userGhosttyShellIntegrationMode != "none" { setManagedEnvironmentValue("CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION", "1") }
             let candidateZdotdir = (environment["ZDOTDIR"]?.isEmpty == false ? environment["ZDOTDIR"] : nil)
                 ?? getenv("ZDOTDIR").map { String(cString: $0) }
@@ -265,6 +302,7 @@ extension TerminalSurface {
                 if candidateZdotdir != ghosttyZdotdir { setManagedEnvironmentValue("CMUX_ZSH_ZDOTDIR", candidateZdotdir) }
             }
             setManagedEnvironmentValue("ZDOTDIR", integrationDir)
+            return TerminalManagedShellStartupPlan(command: nil, reportsPromptReadiness: true)
         case "bash":
             if userGhosttyShellIntegrationMode != "none" { setManagedEnvironmentValue("CMUX_LOAD_GHOSTTY_BASH_INTEGRATION", "1") }
             let bashBootstrapPath = (integrationDir as NSString).appendingPathComponent("cmux-bash-bootstrap.bash")
@@ -276,19 +314,84 @@ extension TerminalSurface {
                         return !trimmed.isEmpty && !trimmed.hasPrefix("#")
                     }
                     .joined(separator: "\n")
-                if !bootstrap.isEmpty { setManagedEnvironmentValue("PROMPT_COMMAND", bootstrap) }
+                if !bootstrap.isEmpty {
+                    setManagedEnvironmentValue("PROMPT_COMMAND", bootstrap)
+                    return TerminalManagedShellStartupPlan(command: nil, reportsPromptReadiness: true)
+                }
             } catch {
                 Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
                     .error("cmux bash bootstrap unreadable at \(bashBootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); bash shell integration will not load")
             }
         case "fish":
-            guard bundledBootstrapIsReadable("fish/config.fish") else { return nil }
+            guard bundledBootstrapIsReadable("fish/config.fish") else { return unavailable }
             applyManagedFishStartupEnvironment(integrationDir: integrationDir, to: &environment, protectedKeys: &protectedKeys)
-            return managedFishShellCommand(shell: shell)
+            return TerminalManagedShellStartupPlan(command: managedFishShellCommand(shell: shell), reportsPromptReadiness: true)
+        case "nu":
+            guard bundledBootstrapIsReadable("nushell/cmux-nushell-bootstrap.nu") else { return unavailable }
+            let bootstrapPath = (integrationDir as NSString)
+                .appendingPathComponent("nushell/cmux-nushell-bootstrap.nu")
+            do {
+                let integrationPath = (integrationDir as NSString).appendingPathComponent("nushell/cmux-nushell-integration.nu")
+                let integrationSourced = FileManager.default.isReadableFile(atPath: integrationPath)
+                let payload = nushellStartupPayload(
+                    bootstrapContents: try readFile(bootstrapPath),
+                    integrationDir: integrationDir,
+                    integrationFileIsReadable: { _ in integrationSourced }
+                )
+                guard !payload.isEmpty else { return unavailable }
+                return TerminalManagedShellStartupPlan(
+                    command: managedNushellShellCommand(shell: shell, startupPayload: payload),
+                    reportsPromptReadiness: integrationSourced
+                )
+            } catch {
+                Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
+                    .error("cmux nushell bootstrap unreadable at \(bootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); nushell shell integration will not load")
+                return unavailable
+            }
         default:
             break
         }
-        return nil
+        return unavailable
+    }
+
+    /// Builds the nushell `-e` payload: the bootstrap squashed to one line
+    /// (comments and blank lines dropped, statements joined with `; `), plus a
+    /// `source` of the bundled integration file when it is present. The
+    /// integration path is baked in as a literal because nushell's `source`
+    /// requires a parse-time constant.
+    public static func nushellStartupPayload(
+        bootstrapContents: String,
+        integrationDir: String,
+        integrationFileIsReadable: (String) -> Bool = { FileManager.default.isReadableFile(atPath: $0) }
+    ) -> String {
+        var statements = bootstrapContents
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+        let integrationPath = (integrationDir as NSString)
+            .appendingPathComponent("nushell/cmux-nushell-integration.nu")
+        if integrationFileIsReadable(integrationPath) {
+            statements.append("source \(nushellDoubleQuoted(integrationPath))")
+        }
+        return statements.joined(separator: "; ")
+    }
+
+    /// The managed nushell launch command: a login shell that evaluates the
+    /// cmux payload after the user's env.nu/config.nu/login.nu, then enters
+    /// the interactive REPL (`--execute` semantics).
+    public static func managedNushellShellCommand(shell: String, startupPayload: String) -> String {
+        "\(shellSingleQuoted(shell)) -l -e \(shellSingleQuoted(startupPayload))"
+    }
+
+    /// Double-quotes a value for nushell (`\` and `"` escaped). Used for
+    /// literals embedded in generated nushell source; nushell single-quoted
+    /// strings cannot contain single quotes at all, so double quotes are the
+    /// safe general form.
+    public static func nushellDoubleQuoted(_ value: String) -> String {
+        "\"" + value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            + "\""
     }
 
     /// The managed fish launch command sourcing the cmux integration file.

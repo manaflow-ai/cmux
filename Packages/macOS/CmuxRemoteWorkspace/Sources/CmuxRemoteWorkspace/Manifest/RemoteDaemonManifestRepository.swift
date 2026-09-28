@@ -34,8 +34,9 @@ public struct RemoteDaemonManifestRepository: Sendable {
     // FileManager is documented thread-safe for these path-based operations;
     // scoping the escape hatch to the one property beats `@unchecked
     // Sendable` on the type.
-    private nonisolated(unsafe) let fileManager: FileManager
+    nonisolated(unsafe) let fileManager: FileManager
     private let homeDirectory: URL
+    let bundledAssetsDirectory: URL?
 
     /// Creates a repository rooted at `homeDirectory`'s cmux state cache.
     ///
@@ -44,9 +45,16 @@ public struct RemoteDaemonManifestRepository: Sendable {
     ///   - homeDirectory: The user's home directory; composition roots pass
     ///     `FileManager.default.homeDirectoryForCurrentUser` so the app and
     ///     CLI agree on the cache path independently of `$HOME` overrides.
-    public init(fileManager: FileManager = .default, homeDirectory: URL) {
+    ///   - bundledAssetsDirectory: Signed app resources for unpublished builds;
+    ///     nil preserves the release download path.
+    public init(
+        fileManager: FileManager = .default,
+        homeDirectory: URL,
+        bundledAssetsDirectory: URL? = nil
+    ) {
         self.fileManager = fileManager
         self.homeDirectory = homeDirectory
+        self.bundledAssetsDirectory = bundledAssetsDirectory
     }
 
     /// The cache path for one version/platform daemon binary
@@ -72,6 +80,11 @@ public struct RemoteDaemonManifestRepository: Sendable {
     public func validatedCachedBinary(entry: WorkspaceRemoteDaemonManifest.Entry, version: String) throws -> URL? {
         let cacheURL = try cachedBinaryURL(version: version, goOS: entry.goOS, goArch: entry.goArch)
         guard fileManager.fileExists(atPath: cacheURL.path) else { return nil }
+        let fileSize = (try? cacheURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        guard fileSize > 0 else {
+            try? fileManager.removeItem(at: cacheURL)
+            return nil
+        }
         let cachedSHA = try sha256Hex(forFile: cacheURL)
         if cachedSHA == entry.sha256.lowercased(),
            fileManager.isExecutableFile(atPath: cacheURL.path) {
@@ -106,7 +119,8 @@ public struct RemoteDaemonManifestRepository: Sendable {
         return try? JSONDecoder().decode(WorkspaceRemoteDaemonManifest.self, from: data)
     }
 
-    /// Downloads `entry`'s binary, verifies its checksum (falling back to the
+    /// Installs a checksum-verified bundled binary when available, otherwise
+    /// downloads `entry`'s binary and verifies its checksum (falling back to the
     /// live release manifest when the embedded checksum is stale), marks it
     /// executable, and atomically installs it at the cache path (blocking;
     /// 60s request timeout, 75s overall wait).
@@ -115,6 +129,9 @@ public struct RemoteDaemonManifestRepository: Sendable {
         version: String,
         releaseURL: String? = nil
     ) throws -> Download {
+        if let binaryURL = try installBundledBinary(entry: entry, version: version) {
+            return Download(binaryURL: binaryURL, usedLiveManifestChecksumFallback: false)
+        }
         guard let url = URL(string: entry.downloadURL) else {
             throw NSError(domain: "cmux.remote.daemon", code: 25, userInfo: [
                 NSLocalizedDescriptionKey: "remote daemon manifest has an invalid download URL",

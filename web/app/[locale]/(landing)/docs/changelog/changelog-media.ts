@@ -1,19 +1,46 @@
 /**
- * Supplementary media and narrative for changelog versions.
+ * Patch notes for changelog versions.
  *
  * CHANGELOG.md remains the source of truth for the raw list of changes.
- * This file adds titles, feature highlights, and narrative descriptions
- * for major releases. Versions not listed here render as plain bullet lists.
+ * This file adds the recap on top: a title, an optional hero, and feature
+ * cards that show what shipped and how to try it. Versions not listed here
+ * render as plain bullet lists.
  *
- * Images live in public/changelog/ and should be 2x (e.g. 1600×900 for a
- * 800px display width). Use PNG for UI screenshots, WebP for photos.
+ * Media convention (new releases):
+ * - Put files under public/changelog/<version>/, for example
+ *   /changelog/0.65.0/vault-search.png. Older releases keep their flat
+ *   /changelog/<version>-<name>.png paths.
+ * - Screenshots: 2x PNG (1600x900 for the 800px card width). Crop to the
+ *   feature, keep the window chrome, and do not include personal data.
+ * - Clips: 5-10 s loops, no audio, at most 2 MB each. Ship an H.264 mp4
+ *   (`src`) and a WebM (`webm`), plus a 2x PNG `poster` of a representative
+ *   frame. The poster is what readers with reduced motion see, and it sets
+ *   the card's aspect ratio before the clip loads.
+ * - `tryIt` is one line: a shortcut, a Settings path, or a CLI command.
+ *   Wrap commands and shortcuts in backticks so they render as code.
  */
+
+export interface FeatureVideo {
+  /** H.264 mp4 path relative to /public. */
+  src: string;
+  /** Optional WebM of the same clip, offered before the mp4. */
+  webm?: string;
+  /** 2x PNG still shown before playback and under reduced motion. */
+  poster?: string;
+}
 
 export interface FeatureHighlight {
   title: string;
   description: string;
-  /** Path relative to /public, e.g. "/changelog/0.61.0-command-palette.png" */
+  /** Path relative to /public, e.g. "/changelog/0.65.0/command-palette.png" */
   image?: string;
+  /** Short looping clip. Takes the media slot instead of `image`. */
+  video?: FeatureVideo;
+  /**
+   * How to try the feature: a shortcut, Settings path, or CLI command.
+   * Backticks render as code, e.g. "Run `cmux ssh user@host`".
+   */
+  tryIt?: string;
 }
 
 export interface VersionMedia {
@@ -21,11 +48,135 @@ export interface VersionMedia {
   title: string;
   /** Hero image shown at the top of the version entry. */
   hero?: string;
-  /** Feature highlights shown inline below the title. */
+  /** Feature highlights shown as cards below the title. */
   features?: FeatureHighlight[];
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  // Placeholder key for the next release. The release cut renames it to the
+  // new version (see .claude/commands/release.md step 3).
+  Unreleased: {
+    title: "Agents over SSH, Predictive Echo, Prompt Markers",
+    features: [
+      {
+        title: "Agents on SSH Hosts",
+        description:
+          "Claude Code and Codex on a cmux ssh host show Running, Needs input, or Idle in the sidebar, like local agents. A stopped Claude Code session can move between your Mac and a host with its transcript and git working tree.",
+        tryIt: "Run `cmux session move <session-id> --to user@host`.",
+      },
+      {
+        title: "Predictive Local Echo (Beta)",
+        description:
+          "Over a slow remote link, the characters you type appear right away, underlined until the remote shell confirms them.",
+        tryIt: "Settings > Beta Features > Predictive local echo.",
+      },
+      {
+        title: "Jump to Your Prompts",
+        description:
+          "Each prompt you submit to an agent leaves a marker on the terminal scrollbar. Click a marker to jump back to that prompt in scrollback.",
+        tryIt:
+          "Submit a few prompts to Claude Code or Codex, then click a marker on the terminal scrollbar.",
+      },
+      {
+        title: "Search Terminal Scrollback",
+        description:
+          "Global Search finds text in the scrollback of open terminals. Return on a terminal hit opens that pane's find bar on the match.",
+        tryIt: "Press `⌥⌘F` and type text from any open terminal.",
+      },
+      {
+        title: "Password Input Indicator",
+        description:
+          "A lock badge shows while a program such as sudo or ssh reads a password with echo off, so you can tell it is waiting for one.",
+        tryIt:
+          "Run `read -s` at a shell prompt, or turn it off in Settings > Terminal > Password Input Indicator.",
+      },
+    ],
+  },
+  "0.64.25": {
+    title: "SSH Workspaces Connect Again, Steady Agent Layouts, Light Mode Terminals",
+    features: [
+      {
+        title: "SSH Workspaces Connect Again",
+        description:
+          "Released builds ship a checksum-verified cmuxd-remote again, so SSH workspaces bootstrap on macOS and Linux hosts. A session that cannot become ready reports an actionable error within 60 seconds instead of sitting at Last login, terminals keep raw input across reconnects, and new splits open in the remote directory.",
+        tryIt: "Run `cmux ssh user@host` to open a workspace on the remote machine.",
+      },
+      {
+        title: "Steady Agent Layouts",
+        description:
+          "Agents resumed with cmux restore or cmux fork receive terminal resizes again, so their layout no longer garbles after a restore. Images dropped or pasted into a terminal stay on disk long enough for Claude Code and Codex to read them.",
+        tryIt:
+          "Run `cmux restore --surface <ref>` or `cmux fork --surface <ref>` on a saved agent session, then resize its pane.",
+      },
+      {
+        title: "Light Mode Terminals",
+        description:
+          "A terminal no longer reloads its dark theme after macOS switches to light, and Light applies the light palette when the Ghostty config sets only a font, keybinding, or opacity.",
+        tryIt:
+          "Set Settings > App > Appearance to System, then switch macOS to Light.",
+        video: {
+          src: "/changelog/0.64.25/light-mode-terminals.mp4",
+          webm: "/changelog/0.64.25/light-mode-terminals.webm",
+          poster: "/changelog/0.64.25/light-mode-terminals-poster.png",
+        },
+      },
+    ],
+  },
+  "0.64.24": {
+    title: "Reliable Codex Resumes, Account Switching, Cloud CLI Compatibility",
+    features: [
+      {
+        title: "Reliable Codex Resumes",
+        description:
+          "Codex --yolo no longer calls a missing helper or replays a restore command after repeated resume cycles, keeping the active session identity attached to the right terminal.",
+      },
+      {
+        title: "Switch CLI Accounts",
+        description:
+          "The CLI authorization page can sign out the current browser account and return to sign-in with the original confirmation code intact.",
+      },
+      {
+        title: "Cloud CLI Compatibility",
+        description:
+          "Cloud terminal sessions accept the workspace-close syntax used by the in-terminal CLI while preserving routing, JSON output, revision fences, and idempotency.",
+      },
+    ],
+  },
+  "0.64.23": {
+    title: "Vault Search and Checkpoints, Inline Notification Replies, Nine Languages",
+    features: [
+      {
+        title: "Vault Search, Checkpoints, and Fork",
+        description:
+          "Every agent session lands in a recency-first Vault with day sections and filters, search with agent:, repo:, ws:, before:, and after: operators, and checkpoints you can fork from for Claude Code, Codex, Pi, and Grok, in the app or through cmux vault and cmux fork.",
+      },
+      {
+        title: "Reply to Agents from Notifications",
+        description:
+          "Answer an agent straight from the macOS banner or the iPhone Lock Screen: type a reply on turn-complete and idle notifications, pick an option on AskUserQuestion banners, or send a revision on exit-plan banners. Automations, agent-event context for notification hooks, and per-agent sounds round out the pipeline.",
+      },
+      {
+        title: "cmux in Nine Languages",
+        description:
+          "The macOS app is fully localized in German, French, Spanish, Arabic, Korean, Simplified and Traditional Chinese, and Japanese alongside English.",
+      },
+      {
+        title: "More Agents, More Shells",
+        description:
+          "Amp and Hermes join Claude Code, Codex, Pi, and Grok as first-class agents with auto-resume, notifications, and Vault history, Cursor approvals show up as Needs input, and Nushell gets shell integration and session resume.",
+      },
+      {
+        title: "Stability and Performance",
+        description:
+          "Workspace switching no longer ghosts or hangs, idle CPU burn from logging and git watchers is gone, terminals in hidden windows release about 40 MB each, persistent SSH reconnects survive sleep and network changes, and Google Sheets no longer pins a core.",
+      },
+      {
+        title: "cmux on iPhone (beta)",
+        description:
+          "Each Computer picks its own connection method with an honest Tailscale Only mode, Simulator panes stream as low-latency video with touch forwarding, the Task Composer keeps drafts and attachments, and workspaces sort, group, and reconnect quietly. Current iOS builds need cmux 0.64.23 on the Mac.",
+      },
+    ],
+  },
   "0.64.21": {
     title: "Simulator Panes, Mosh Transport, Idle CPU Reclaimed",
     features: [

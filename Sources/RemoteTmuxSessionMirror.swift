@@ -119,6 +119,10 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// Per-pane filter that strips the screen/tmux `ESC k <title> ST` window-title
     /// escape from `%output` (stateful across chunk boundaries).
     var titleFilters: [Int: RemoteTmuxScreenTitleFilter] = [:]
+    /// Per-pane filter that intercepts OSC 777/9 desktop-notification escapes
+    /// from `%output` (stateful across chunk boundaries) so a remote process
+    /// inside the mirrored session can notify locally (issue #833).
+    var notificationFilters: [Int: RemoteTmuxNotificationOSCFilter] = [:]
     /// Authoritative seed bytes waiting for Ghostty's terminal grid to consume
     /// the pane's published dimensions. Surface sizing APIs expose the requested
     /// grid before Ghostty's I/O thread applies it, so seed delivery cannot use
@@ -213,6 +217,9 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             onPaneReflow: { [weak self] paneId, noReflow in
                 self?.routeNoReflow(paneId: paneId, noReflow: noReflow)
             },
+            onPaneTitleChanged: { [weak self] paneId in
+                self?.handlePaneTitleChanged(paneId: paneId)
+            },
             onActivePaneChanged: { [weak self] windowId, paneId in
                 self?.handleActivePaneChanged(windowId: windowId, paneId: paneId)
             },
@@ -237,6 +244,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 // arrives while not connected).
                 if state != .connected {
                     self?.titleFilters.removeAll()
+                    self?.notificationFilters.removeAll()
                     self?.clearPendingPaneSeedDeliveries()
                     self?.windowMirrorByWindowId.values.forEach {
                         $0.cancelPendingControlPaneFocus()
@@ -479,6 +487,15 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
               let mirror = windowMirrorByWindowId[windowId] else { return }
         mirror.surface(forPane: paneId)?.setManualIONoReflow(noReflow)
         mirror.updatePaneTitle(paneId)
+    }
+
+    /// Updates only the mirror-owned tab for a pane whose tmux title changed.
+    /// Title events do not alter topology, so rebuilding every window here would
+    /// turn a single-pane retitle into a session-wide reconciliation.
+    private func handlePaneTitleChanged(paneId: Int) {
+        guard let windowId = windowIdContaining(pane: paneId),
+              let mirror = windowMirrorByWindowId[windowId] else { return }
+        mirror.updatePaneTitleMetadata(paneId)
     }
 
     /// Whether `surfaceId` is one of this session mirror's pane surfaces. Used to route

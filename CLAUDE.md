@@ -1,129 +1,100 @@
 # cmux agent notes
 
-## Setup
+Keep repo-wide decisions here; procedures belong in [CONTRIBUTING.md](CONTRIBUTING.md),
+[area instructions](#area-instructions) and [task skills](skills/README.md).
+Read the matching skill before changing an area, then only the references needed.
 
-`./scripts/setup.sh` initializes submodules, builds GhosttyKit, and installs the pbxproj normalization pre-commit hook.
+## Verification and isolation
 
-## Build and reload
+- Before committing, setup or a native build, [choose scoped verification](skills/cmux-testing/references/local-vs-ci-validation.md).
+  Start with `python3 scripts/verify-local.py`; docs and portable tooling need no app build.
+  Run repository commands only in a [trusted checkout](docs/contributor-verification.md#trust-boundary),
+  including `verify-local.py --help`, `--list` and `--repo`. Push does not run checks for you.
+- Use [CONTRIBUTING.md](CONTRIBUTING.md#getting-started) for setup. Outside cmuxterm-hq-created
+  checkouts, set `CMUX_DEV_BACKEND_MODE=local` for dev builds. Follow [tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md)
+  for commands and cache reuse; team fleet rules live in cmuxterm-hq.
+  Never use bare `xcodebuild` or an untagged `cmux DEV.app`. Clean up only your own tags.
+- Never quit, kill, relaunch, replace or launch-profile the user's running cmux
+  (`/Applications/cmux.app`, `com.cmuxterm.app`), including through a Release build or
+  another bundle with that ID. Never set `CMUX_ALLOW_REPLACING_RUNNING_CMUX`; only the
+  user may. Reproduce in a tagged build and attach profiling to its PID.
+- Dogfood through `CMUX_TAG=<tag> scripts/cmux-debug-cli.sh`, never `/tmp/cmux-cli`.
+  Never report raw `.app` paths or `file://` URLs.
+- App-linked code (`Sources/`, `CLI/`, `TunnelExtension/` and their packages) must
+  remain [Swift 6.0 compatible](skills/cmux-architecture/references/swift-6-0-compatibility.md).
 
-Always build with a tag. **Never run bare `xcodebuild` or `open` an untagged `cmux DEV.app`**: untagged builds share the default debug socket and bundle ID with other agents, causing conflicts and stealing focus.
+## Area instructions
 
-```bash
-./scripts/reload.sh --tag <branch-slug>            # build Debug, kill same-tag app, do not launch
-./scripts/reload.sh --tag <branch-slug> --launch   # also open it
-```
+Read these before working in their scope; nested files may not load automatically:
 
-A tag gives the app its own name, bundle ID, socket, and derived data path, so it runs side-by-side with the user's main app. Report the build to the user as a markdown link to `http://127.0.0.1:17320/<tag>`. Never put a `file://` URL, a raw `.app` path, or `/tmp/cmux-<tag>/...` in chat output.
+- `ios/` or `Packages/iOS/`: [ios/AGENTS.md](ios/AGENTS.md).
+- `web/` or any cmux Cloud database work: [web/AGENTS.md](web/AGENTS.md).
+- `cmux-tui/`: [cmux-tui/AGENTS.md](cmux-tui/AGENTS.md).
 
-Other variants: `reloadp.sh` (Release), `reloads.sh` (Release as isolated "cmux STAGING"), `reload2.sh --tag <tag>` (both).
+## Contributions and publication
 
-Compile-only check, no launch:
+Before fixing a bug or adding a feature, search open upstream PRs by symptom or
+issue number. Prefer landing an outside contributor's existing PR; push fixups
+only when maintainer edits are allowed, and explain the changes. If using their
+approach in your own PR, credit them in every such commit with `Co-authored-by`
+using their commit email, link your PR from theirs and thank them. Let a human
+close it; never close an outside PR without a human-written explanation.
 
-```bash
-xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/cmux-<tag> build
-```
+The server directories listed in [LICENSE](LICENSE) (`web/`, `workers/ci-artifacts/`,
+`workers/iroh-v2/`, `workers/presence/`, `services/iroh-relay-minter/`,
+`cmux-tui/relays/cloudflare-do/`) use the Business Source License, which needs
+every outside author's CLA grant. Do not merge a PR that changes those
+directories while CLA Assistant is red, and do not copy an outside
+contributor's work there under a `Co-authored-by` trailer unless that person
+has signed the CLA. Keep code that ships in the macOS or iOS app out of those
+directories.
 
-Rebuild GhosttyKit.xcframework with Release optimizations:
+Read [STYLE.md](STYLE.md) before drafting or revising issues, PR descriptions,
+RFCs or progress updates. Fill the PR's `## Changelog` section with one
+`Added`/`Changed`/`Fixed`/`Removed` line for user-visible changes, otherwise `none`.
+Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 
-```bash
-cd ghostty && zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
-```
+## CI, review and merge
 
-Clean up older tags you started this session (quit the app, remove its `/tmp` socket and derived data) before launching a new one.
+- Commit the failing behavioral regression before its fix; record the same
+  focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).
+- Check executed tests on the current SHA; green skipped jobs do not establish coverage.
+  Add `full-ci` only for a user-requested or agreed broad validation plan,
+  naming the extra lanes and why ([CI coverage](skills/cmux-testing/references/pr-ci-coverage.md)).
+- Let PR catch-up handle main. When needed locally, use `scripts/merge-main.sh`;
+  never overwrite a catch-up merge with a force-push ([branch updates](docs/ci/merge-main.md)).
+- A first implementation pass ends with passed scoped verification and an open PR;
+  do not watch CI or run speculative reviews by default.
+- Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness
+  first; a second model is not a review gate. Wait for checks relevant to the
+  change; disclose skipped verification on the PR. `main` is nightly: fix forward,
+  do not revert.
+- App/runtime/UI merges require the user’s explicit approval after dogfood **or a direct merge directive**
+  (`merge`, `merge it`, `auto-merge`; not `finish`, `lgtm` or `ship it`). Follow
+  [dogfood, re-dogfood and merge receipts](skills/cmux-review/SKILL.md#dogfood-and-merge).
+  Notify with `cmux notify` when a socket is available.
 
-## Tag-bound debug CLI
+## Implementation rules by task
 
-For CLI or socket dogfood against a tagged Debug app, set `CMUX_TAG` and use the helper. Do not use `/tmp/cmux-cli`, which points at the most recently reloaded build and can target the user's main app socket.
+Use these existing owners instead of duplicating their checklists here:
 
-```bash
-CMUX_TAG=<tag> scripts/cmux-debug-cli.sh list-workspaces
-CMUX_TAG=<tag> scripts/cmux-debug-cli.sh send --workspace workspace:1 --surface surface:1 "echo ok"
-```
+| Touching | Read before editing |
+| --- | --- |
+| Typing paths, SwiftUI list/store boundaries, rendering, find layering, UTTypes or OS-specific bugs | [cmux-debugging](skills/cmux-debugging/SKILL.md) |
+| Packages, workspace groups, lockfiles or feature flags | [cmux-architecture](skills/cmux-architecture/SKILL.md) |
+| Submodules or GhosttyKit | [cmux-ghostty](skills/cmux-ghostty/SKILL.md) |
+| User-facing strings, docs or help | [cmux-localization](skills/cmux-localization/SKILL.md); report the localization audit |
+| New cmux shortcuts | [cmux-keyboard-shortcuts](skills/cmux-keyboard-shortcuts/SKILL.md) |
+| Tests or target wiring | [cmux-testing](skills/cmux-testing/SKILL.md); run `scripts/sync-test-wiring` after adding, renaming or deleting a `cmuxTests/` file |
+| Multiple entrypoints or a bug that tests previously missed | [cmux-shared-behavior](skills/cmux-shared-behavior/SKILL.md); share action/mutation paths, verify every entrypoint, and cover the missed repro |
 
-The helper refuses to run without `CMUX_TAG`, targets `/tmp/cmux-debug-<tag>.sock`, and uses the matching tagged CLI from DerivedData. It scrubs ambient cmux terminal context (`CMUX_SOCKET`, `CMUX_SOCKET_PASSWORD`, workspace/surface/tab/panel IDs, cmuxd socket, debug log), then sets `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`, and `CMUX_BUNDLED_CLI_PATH` for the tag.
+## Remote CLI relay
 
-## iOS builds open on the iPhone by default
-
-Any work verified by opening the iOS app installs BOTH an isolated-simulator build AND the same build on the user's iPhone. Never stop at simulator-only. Use `ios/scripts/reload-cloud.sh --tag <tag>` (or `ios/scripts/reload.sh --tag <tag>`); with a default iPhone configured (`CMUX_IPHONE_DEVICE_ID` or `~/.config/cmux/iphone-device-id`) the device leg is automatic, and `--device-id <id>` still overrides (`xcrun devicectl list devices`). Physical iPhone builds always select the `personal` auth profile. Agent-driven Simulator verification always selects `agent`. Both named profiles live in `~/.secrets/cmuxterm-dev.env`; neither may fall back to the other. The simulator leg uses the tag's own isolated device `cmux-dev-<slug>`, created on demand; do not target a shared or user-visible simulator.
-
-**Every phone install MUST be authenticated before handoff. Installed-but-signed-out is a failed install.** A tagged bundle id can retain an older account, so every authenticated launch clears that tagged session, signs both surfaces into the selected profile, verifies the exact tagged Mac account through `auth status`, then mints the pairing ticket. The iPhone auth gate passes only after the same-account host accepts the phone RPC and emits `mobile.rpc.ready`. `scripts/verify-iphone-auth.sh --tag <tag> [--device-id <id>]` repeats the Mac-account check, relaunches the phone without credentials, and passes only when persisted phone state reconnects. Never install with raw `devicectl device install app`, and never pass `--no-sign-in`/`--no-attach`/`--no-setup` for a dogfood build. The scripts refuse those device paths unless a human sets `CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1`. If setup fails, report the gate reason and exact retry command.
-
-Every phone build requires the same-tag Mac dev build (the iOS app is unusable without its Mac). The reload scripts build the Mac tag first when it is missing and refuse to ship a phone-only build if that fails; do not bypass this with `CMUX_IOS_SKIP_MAC_BUILD_CHECK` in normal work.
-
-If the iPhone is unreachable at build time, the signed build is parked in `scripts/iphone-install-queue.sh`. Each entry stores the chosen profile, normalized account, and credentials-file path. Drain revalidates that snapshot before device mutation and uses installed stable copies of the launcher and auth helpers, so an old or pruned feature worktree cannot change policy. Install or refresh that control plane with `scripts/install-iphone-queue-agent.sh install`. Report `scripts/iphone-install-queue.sh list` in the handoff; `drain` retries delivery and `clear` abandons a queued build.
-
-## All fleet slots are general-purpose
-
-Agent verification, macOS/iOS builds, archives, tests, profiling, and any other work too resource-intensive for the local Mac use the same Mac fleet. A slot is not a "build slot" or a "verify slot". From the cmuxterm-hq checkout that owns this worktree, every workload leases the canonical `~/.config/macfleet/hosts.json` inventory and shared `maclease` state.
-
-Before waiting for a builder, run `scripts/macfleet-doctor.sh report --probe` from that hq checkout. If it reports `needs-sync`, run `scripts/macfleet-doctor.sh sync --apply`; it backs up the canonical manifest and merges legacy `hosts-verify.json` entries by SSH endpoint. Refresh the hq checkout before diagnosing capacity. Do not infer capacity from a stale checkout, one pool tag, or a remembered host list.
-
-Agent verification runs on the fleet, not on the local Mac. `scripts/verify-remote.sh` leases a general-purpose slot, pushes the tagged build to the leased Mac, drives it there (per-lease uniquely named simulator for iOS; console launch with debug-socket and computer-use evidence for macOS), and fetches screenshots, recordings, and logs back into the hq `artifacts/verify-remote/` directory:
-
-```bash
-scripts/verify-remote.sh ios --tag <tag>
-scripts/verify-remote.sh mac --tag <tag>
-scripts/verify-remote.sh capacity             # all-purpose slots
-```
-
-Boot a local simulator only when all-purpose `capacity` reports no free slot, and keep at most 3 local sims booted. Scripted XCUITests go through the hosted `test-e2e.yml` lane when appropriate. The physical-iPhone signing/install leg stays local via the install queue; its archive build may use any healthy fleet slot. Verify leases carry a description and TTL, so a crashed agent frees its slot automatically; see `skills/infra/macfleet/references/verify-remote.md` in cmuxterm-hq for the shared-pool contract and host onboarding.
-
-## iOS dev auth
-
-`~/.secrets/cmuxterm-dev.env` is the only mobile dev credential file. `CMUX_DOGFOOD_STACK_*` is the `personal` profile for physical iPhone dogfood. `CMUX_UITEST_STACK_*` is the `agent` profile for isolated Simulators. Run `scripts/setup-team-dev.sh` once to verify and merge the personal pair without deleting the agent pair. Use `scripts/mobile-dev-launch.sh --check-auth-contract --auth-profile personal` or `--auth-profile agent` for a mutation-free preflight. Never substitute one profile when the requested profile is incomplete.
-
-## Regression test commits
-
-Two commits, so CI proves the test catches the bug: commit 1 adds the failing test only (CI red), commit 2 adds the fix (CI green). This is visible in the PR Commits tab.
-
-## First pass, then dogfood
-
-A first pass ends when the change is implemented, the tagged build succeeded on the pushed HEAD, focused tests ran, and the PR is open (for `web/` PRs, also the live Vercel preview URL). Then hand off to the user. Do not sit in the main conversation watching CI or running speculative review passes after that point.
-
-Do not launch a background review agent (`$autoreview`, `codex review`, `claude review`, or a judge loop) by default. Second-model review is explicit user opt-in in the current conversation; an implementation request, open PR, CI failure, closeout, or handoff is not that opt-in. Let required GitHub checks and the automatic review bots run asynchronously, then return to address only concrete check failures and actionable findings before merge.
-
-The main agent owns dogfood, approval, mergeability, and every pushed fix. Merging app/runtime/UI changes requires the user's explicit approval after dogfood; if a fix changes runtime behavior mid-dogfood, rebuild the tag and re-notify, since the earlier verdict covers only the build the user tested.
-
-Notify through `cmux notify` so the user can leave and return. Handoff: `--title "Dogfood ready: <short task>" --subtitle "<branch> · <tag>" --body "Was: <prior bad behavior>. Now: <expected behavior>. <concrete check>. PR: <pr-url>"`. Later closeout notifications use `"CI green: <branch>"` or `"CI blocked: <branch>"` with a one-line cause and the next decision. Titles carry outcome and branch, bodies carry the single next action. Skip notify if there is no cmux socket.
-
-## Pitfalls
-
-Each of these has full detail in the skill named in parentheses.
-
-- **Typing-latency-sensitive paths** (`cmux-debugging`): `WindowTerminalHostView.hitTest()` in `TerminalWindowPortal.swift`, `TabItemView` in `ContentView.swift`, and `TerminalSurface.forceRefresh()` in `GhosttyTerminalView.swift` run on every keystroke. Read the skill before touching them.
-- **SwiftUI list boundaries** (`cmux-debugging`): no view below a `LazyVStack`/`LazyHStack`/`List`/`ForEach` boundary may hold an observable store reference, and no function called from `body` may write state. Violating either reintroduces the 100% CPU spin loop from https://github.com/manaflow-ai/cmux/issues/2586. Reference pattern: `IndexSectionActions` / `SectionGapActions` / `SessionSearchFn` in `Sources/SessionIndexView.swift`.
-- **Do not add an app-level display link or manual `ghostty_surface_draw` loop.** Rely on Ghostty wakeups and its renderer, or typing lags.
-- **Terminal find layering** (`cmux-debugging`): `SurfaceSearchOverlay` mounts from `GhosttySurfaceScrollView` in `Sources/GhosttyTerminalView.swift` (AppKit portal layer), never from SwiftUI panel containers such as `Sources/Panels/TerminalPanelView.swift`. Portal-hosted terminal views can sit above SwiftUI during split/workspace churn.
-- **Custom UTTypes** for drag-and-drop must be declared in `Resources/Info.plist` under `UTExportedTypeDeclarations` (e.g. `com.splittabbar.tabtransfer`, `com.cmux.sidebar-tab-reorder`).
-- **Submodule safety** (`cmux-ghostty`): push the submodule commit to its remote `main` before committing the pointer in the parent repo. Never commit on a detached HEAD. Verify with `git merge-base --is-ancestor HEAD origin/main`.
-- **Localize every user-facing string** (`cmux-localization`): `String(localized:)` with keys in `Resources/Localizable.xcstrings`, plus every web message catalog (`web/messages/en.json`, `web/messages/ja.json`). A localization audit is required for any UI, Settings, menu, schema, docs, or help-text change, and the handoff must state what was audited.
-- **Shortcut policy** (`cmux-keyboard-shortcuts`): every new cmux-owned shortcut goes in `KeyboardShortcutSettings`, is editable in Settings, is supported in `~/.config/cmux/cmux.json`, and is documented.
-- **Test wiring** (`cmux-testing`): a `.swift` file in `cmuxTests/` without a `PBXFileReference` + `PBXSourcesBuildPhase` entry is silently skipped, and both `xcodebuild test` and bot reviews pass with "Executed 0 tests". `workflow-guard-tests` runs `./scripts/lint-pbxproj-test-wiring.sh` to catch it.
-- **SPM package groups** (`cmux-architecture`): packages live under `Packages/{Shared,iOS,macOS}/<pkg>` and the workspace mirrors that folder shape. To move one, `git mv` the directory then `python3 scripts/check-workspace-package-groups.py --write`. Never hand-edit workspace group membership.
-- **Do not gitignore cmux-owned `Package.resolved`.** SwiftPM resolution changes must show in PR diffs; package-local lockfiles are not replaced by the root one. `python3 scripts/check-package-resolved-policy.py` fails on drift.
-- **"Feature flag" means a remote PostHog runtime flag.** Implement through `CmuxFeatureFlags` with a PostHog key, explicit unavailable fallback, registry metadata, live update behavior, and focused tests. A local override may support dogfood but must not be the production control plane.
-- **Foundation, SwiftUI, AttributeGraph, and WebKit semantics change between macOS major versions.** `URL(fileURLWithPath: "/").deletingLastPathComponent().path` returns `"/.."` on macOS 14 and 15 but `"/"` on macOS 26 (https://github.com/manaflow-ai/cmux/issues/4529); CI and maintainer machines were all on the fixed side while every reporter was on the broken side. Test on the reporter's macOS before declaring a repro disproven. AWS M4 Pro builders (`aws-m4pro-1..6`) run macOS 15.7.4.
-
-## Shared behavior policy
-
-When a behavior is exposed through multiple entrypoints (shortcut, command palette, context menu, CLI, settings, debug menu), implement one shared action path and verify every entrypoint. Do not patch one surface and leave the others with duplicated logic.
-
-For optimistic UI or CLI updates, keep one mutation path, record pending state with a request id or previous snapshot, reconcile from the authoritative result, and roll back explicitly on failure. Do not let each entrypoint keep its own optimistic copy.
-
-When a user says tests missed a bug, add behavior-level coverage around the exact repro path before claiming the fix is complete.
-
-## Skills
-
-Detailed contributor rules live in `skills/`. Use the task-specific skill before changing that area.
-
-- `cmux-dev-workflow`: setup, tagged reloads, Xcode project normalization, sidebar extension tagging, build isolation.
-- `cmux-architecture`: package boundaries, file/API discipline, testability, Swift concurrency.
-- `cmux-backend`: backend TypeScript, Effect, Cloud VM control plane, provider secrets, Postgres and migrations.
-- `cmux-billing`: Stripe checkout, entitlements, webhooks, pricing dev stack, live provisioning.
-- `cmux-debugging`: debug event log, Debug menu, runtime pitfalls, typing-sensitive paths, SwiftUI list boundaries.
-- `cmux-localization`: user-facing strings, localization files, shortcut text, localization audit.
-- `cmux-testing`: regression policy, Swift Testing, test quality, test wiring, local vs CI validation.
-- `cmux-socket-policy`: socket command threading and focus preservation.
-- `cmux-shared-behavior`: shared action paths for multi-entrypoint behavior and optimistic updates.
-- `cmux-ghostty`: Ghostty submodule and GhosttyKit workflow.
-- `cmux-release`: release, version bump, changelog, pretag guard, release assets.
+For v2 socket methods and remote CLI changes, read [relay authorization](skills/cmux-socket-policy/references/remote-relay-authorization.md).
+`RemoteRelayCommandPolicy` defaults to deny. Allowlist only for a needed remote
+flow, scoped to the session's objects; command-bearing params stay denied except
+for the documented audited exception. The PR must analyze local command/content
+execution, access to unowned objects and local-state exposure, and include the
+required policy tests and ID scoping. Unsafe local effects must be redesigned.
+Never allowlist terminal spawn/respawn without live verification that it executes
+on the remote host. An allowlist addition without this analysis blocks review.

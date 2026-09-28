@@ -10,6 +10,19 @@ extension CMUXCLI {
         return "\\n\\033[33m\(status)\\033[0m\\n\\033[2m\(stopHint)\\033[0m\\n"
     }
 
+    /// Returns the localized success note printed after a transient SSH
+    /// supervisor retry.  Keeping this beside the retry/error formats makes a
+    /// historical warning in scrollback unambiguous once the bridge is live.
+    func sshAutoReconnectRecoveredNoteFormat() -> String {
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let status = String(
+            localized: "cli.ssh.autoReconnect.recovered",
+            defaultValue: "[cmux] SSH reconnected (attempt %s/%s).",
+            bundle: bundle
+        )
+        return "\\n\\033[32m\(status)\\033[0m\\n"
+    }
+
     func sshManualReconnectExitPromptFormat() -> String {
         let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         let status = String(localized: "cli.ssh.manualReconnectPrompt.status", defaultValue: "[cmux] ssh exited with status %s.", bundle: bundle)

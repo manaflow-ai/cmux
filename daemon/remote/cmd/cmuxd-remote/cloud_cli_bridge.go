@@ -29,17 +29,20 @@ type cloudCLIForwardTarget struct {
 }
 
 type cloudCLIBridge struct {
-	mu       sync.Mutex
-	nextID   uint64
-	servers  map[*rpcServer]struct{}
-	pending  map[string]chan cloudCLIResponse
-	listener net.Listener
+	mu sync.Mutex
+	// Set before start; every accepted connection must prove its OS user identity.
+	peerUserID func(net.Conn) (uint32, error)
+	nextID     uint64
+	servers    map[*rpcServer]struct{}
+	pending    map[string]chan cloudCLIResponse
+	listener   net.Listener
 }
 
 func newCloudCLIBridge() *cloudCLIBridge {
 	return &cloudCLIBridge{
-		servers: map[*rpcServer]struct{}{},
-		pending: map[string]chan cloudCLIResponse{},
+		peerUserID: cloudCLIConnectionUserID,
+		servers:    map[*rpcServer]struct{}{},
+		pending:    map[string]chan cloudCLIResponse{},
 	}
 }
 
@@ -63,7 +66,7 @@ func (b *cloudCLIBridge) start(ctx context.Context, socketPath string, stderr io
 	if err != nil {
 		return err
 	}
-	if err := os.Chmod(socketPath, 0o666); err != nil {
+	if err := os.Chmod(socketPath, 0o600); err != nil {
 		_ = listener.Close()
 		_ = os.Remove(socketPath)
 		return err
@@ -107,6 +110,13 @@ func (b *cloudCLIBridge) register(server *rpcServer) func() {
 
 func (b *cloudCLIBridge) handleConn(conn net.Conn) {
 	defer conn.Close()
+	if b.peerUserID == nil {
+		return
+	}
+	uid, err := b.peerUserID(conn)
+	if err != nil || uid != uint32(os.Geteuid()) {
+		return
+	}
 	_ = conn.SetDeadline(time.Now().Add(16 * time.Second))
 	reader := bufio.NewReaderSize(conn, maxRPCFrameBytes)
 	line, oversized, err := readRPCFrame(reader, maxRPCFrameBytes)

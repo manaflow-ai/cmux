@@ -20,12 +20,6 @@ cmux_existing_db_password_set="${CMUX_DB_PASSWORD+x}"
 cmux_existing_db_password="${CMUX_DB_PASSWORD-}"
 cmux_existing_db_name_set="${CMUX_DB_NAME+x}"
 cmux_existing_db_name="${CMUX_DB_NAME-}"
-cmux_existing_freestyle_snapshot_set="${FREESTYLE_SANDBOX_SNAPSHOT+x}"
-cmux_existing_freestyle_snapshot="${FREESTYLE_SANDBOX_SNAPSHOT-}"
-cmux_existing_e2b_template_set="${E2B_CMUXD_WS_TEMPLATE+x}"
-cmux_existing_e2b_template="${E2B_CMUXD_WS_TEMPLATE-}"
-cmux_existing_daytona_snapshot_set="${DAYTONA_SANDBOX_SNAPSHOT+x}"
-cmux_existing_daytona_snapshot="${DAYTONA_SANDBOX_SNAPSHOT-}"
 
 cmux_extra_secret_file="${CMUXTERM_EXTRA_ENV_FILE:-${CMUX_WEB_EXTRA_ENV_FILE:-}}"
 if [[ -z "$cmux_extra_secret_file" && -f "$HOME/.secrets/cmux.env" ]]; then
@@ -86,9 +80,6 @@ if [[ -n "$cmux_existing_db_port_set" ]]; then export CMUX_DB_PORT="$cmux_existi
 if [[ -n "$cmux_existing_db_user_set" ]]; then export CMUX_DB_USER="$cmux_existing_db_user"; fi
 if [[ -n "$cmux_existing_db_password_set" ]]; then export CMUX_DB_PASSWORD="$cmux_existing_db_password"; fi
 if [[ -n "$cmux_existing_db_name_set" ]]; then export CMUX_DB_NAME="$cmux_existing_db_name"; fi
-if [[ -n "$cmux_existing_freestyle_snapshot_set" ]]; then export FREESTYLE_SANDBOX_SNAPSHOT="$cmux_existing_freestyle_snapshot"; fi
-if [[ -n "$cmux_existing_e2b_template_set" ]]; then export E2B_CMUXD_WS_TEMPLATE="$cmux_existing_e2b_template"; fi
-if [[ -n "$cmux_existing_daytona_snapshot_set" ]]; then export DAYTONA_SANDBOX_SNAPSHOT="$cmux_existing_daytona_snapshot"; fi
 
 cmux_port="${CMUX_PORT:-${PORT:-3777}}"
 if [[ ! "$cmux_port" =~ ^[0-9]+$ ]]; then
@@ -109,7 +100,15 @@ export CMUX_DB_PASSWORD="${CMUX_DB_PASSWORD:-cmux}"
 export CMUX_DB_NAME="${CMUX_DB_NAME:-cmux}"
 export CMUX_DB_PORT="${CMUX_DB_PORT:-$((cmux_port + cmux_db_offset))}"
 
-if [[ "${CMUX_DEV_USE_EXTERNAL_DATABASE_URL:-0}" != "1" ]]; then
+cmux_external_database_url="${PLANETSCALE_DATABASE_URL:-${DATABASE_URL:-}}"
+if [[ "${CMUX_DEV_USE_PLANETSCALE:-0}" == "1" || "${CMUX_DEV_USE_EXTERNAL_DATABASE_URL:-0}" == "1" ]]; then
+  if [[ -z "$cmux_external_database_url" ]]; then
+    echo "CMUX_DEV_USE_PLANETSCALE=1 requires PLANETSCALE_DATABASE_URL or DATABASE_URL" >&2
+    return 1 2>/dev/null || exit 1
+  fi
+  export DATABASE_URL="$cmux_external_database_url"
+  export DIRECT_DATABASE_URL="$cmux_external_database_url"
+elif [[ "${CMUX_DEV_USE_EXTERNAL_DATABASE_URL:-0}" != "1" ]]; then
   export DATABASE_URL="postgres://${CMUX_DB_USER}:${CMUX_DB_PASSWORD}@localhost:${CMUX_DB_PORT}/${CMUX_DB_NAME}"
   export DIRECT_DATABASE_URL="$DATABASE_URL"
 elif [[ -z "${DIRECT_DATABASE_URL:-}" && -n "${DATABASE_URL:-}" ]]; then
@@ -119,6 +118,11 @@ fi
 if [[ "${CMUX_DEV_USE_EXTERNAL_VM_API_BASE_URL:-0}" != "1" ]]; then
   export CMUX_VM_API_BASE_URL="http://localhost:${CMUX_PORT}"
 fi
+
+# Local Cloud VM dogfood uses Freestyle (the public platform) by default. A
+# caller can still opt into another provider explicitly with
+# CMUX_VM_DEFAULT_PROVIDER.
+export CMUX_VM_DEFAULT_PROVIDER="${CMUX_VM_DEFAULT_PROVIDER:-freestyle}"
 
 # Local dev should not require a checked-in or per-worktree .env.local just to pass
 # startup validation for routes the developer is not exercising.

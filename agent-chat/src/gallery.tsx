@@ -20,6 +20,8 @@ import {
 import { groupTurns } from "./turns";
 
 const cwd = "/Users/lawrence/fun/cmuxterm-hq/worktrees/feat-agent-chat-ui/agent-chat";
+const noLoadingProviders = new Set<string>();
+const codexModelsLoading = new Set(["codex"]);
 
 function setOption(options: SessionOption[], id: string, value: OptionValue): SessionOption[] {
   return options.map((o) => o.id === id ? { ...o, value } : o);
@@ -37,18 +39,21 @@ function Section({ id, title, children }: { id: string; title: string; children:
 function DemoStatusRow({
   provider,
   running = false,
+  modelsLoading = false,
 }: {
   provider: string;
   running?: boolean;
+  modelsLoading?: boolean;
 }) {
-  const [options, setOptions] = useState(() => galleryOptions[provider] ?? []);
+  const [options, setOptions] = useState(() => modelsLoading ? [] : galleryOptions[provider] ?? []);
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   return (
     <div className="gallery-card compact">
       <StatusRow
         provider={provider}
         providers={galleryProviders}
-        allProviderOptions={galleryOptions}
+        allProviderOptions={modelsLoading ? {} : galleryOptions}
+        loadingProviderIds={modelsLoading ? new Set([provider]) : noLoadingProviders}
         onProviderModelChange={(nextProvider, model) => console.log("gallery model", nextProvider, model)}
         cwd={cwd}
         options={options}
@@ -61,8 +66,11 @@ function DemoStatusRow({
   );
 }
 
-function ComposerMock({ state }: { state: "idle" | "starting" | "draft" | "error" }) {
+function ComposerMock({ state }: { state: "idle" | "starting" | "draft" | "error" | "loading-models" }) {
   const provider = state === "error" ? "claude" : "codex";
+  const modelsLoading = state === "loading-models";
+  const options = modelsLoading ? [] : galleryOptions[provider];
+  const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   return (
     <div className="gallery-composer-wrap">
       <div id="composer-card">
@@ -78,13 +86,14 @@ function ComposerMock({ state }: { state: "idle" | "starting" | "draft" | "error
         <StatusRow
           provider={provider}
           providers={galleryProviders}
-          allProviderOptions={galleryOptions}
+          allProviderOptions={modelsLoading ? {} : galleryOptions}
+          loadingProviderIds={modelsLoading ? codexModelsLoading : noLoadingProviders}
           onProviderModelChange={(p, model) => console.log("gallery composer pick", p, model)}
           cwd={cwd}
-          options={galleryOptions[provider]}
+          options={options}
           onChange={(id, value) => console.log("gallery composer option", id, value)}
-          openOptionId={null}
-          setOpenOptionId={() => {}}
+          openOptionId={openOptionId}
+          setOpenOptionId={setOpenOptionId}
           trailing={(
             <button className="send" type="button" aria-label="Start" disabled={state === "starting"}>
               {state === "starting" ? <PinwheelSpinner size={14} /> : <span aria-hidden>↑</span>}
@@ -240,6 +249,10 @@ export function GalleryApp() {
                 <DemoStatusRow provider={provider.id} running />
               </div>
             ))}
+            <div>
+              <div className="gallery-label">Codex models loading, running</div>
+              <DemoStatusRow provider="codex" running modelsLoading />
+            </div>
           </div>
         </Section>
 
@@ -247,6 +260,7 @@ export function GalleryApp() {
           <div className="gallery-stack">
             <div><div className="gallery-label">Idle</div><ComposerMock state="idle" /></div>
             <div><div className="gallery-label">Draft</div><ComposerMock state="draft" /></div>
+            <div><div className="gallery-label">Models loading</div><ComposerMock state="loading-models" /></div>
             <div><div className="gallery-label">Invalid cwd error</div><ComposerMock state="error" /></div>
           </div>
         </Section>

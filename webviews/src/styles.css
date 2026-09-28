@@ -1336,3 +1336,56 @@ body[data-loading="true"] #status::before {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* Find in diff (Cmd+F) */
+#diff-find-anchor {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 60;
+  pointer-events: none;
+}
+#diff-find-bar {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 10px 22px 0 0;
+  padding: 5px 6px;
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
+  border-radius: 8px;
+  background: var(--cmux-diff-bg);
+  box-shadow: 0 16px 34px color-mix(in lab, #000 28%, transparent);
+}
+#diff-find-input {
+  width: 180px;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
+  color: var(--cmux-diff-fg);
+  font-family: var(--cmux-diff-ui-font-family);
+  font-size: var(--cmux-diff-ui-font-size);
+  outline: none;
+}
+#diff-find-input:focus-visible {
+  border-color: color-mix(in lab, var(--cmux-diff-fg) 24%, transparent);
+}
+#diff-find-count {
+  min-width: 40px;
+  text-align: right;
+  padding: 0 4px;
+  color: var(--cmux-diff-text-muted);
+  font-family: var(--cmux-diff-ui-font-family);
+  font-size: calc(var(--cmux-diff-ui-font-size) - 1px);
+  font-variant-numeric: tabular-nums;
+}
+#diff-find-bar .toolbar-icon:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The find match ::highlight() rules live in src/find/highlight.ts: they
+   must be adopted into each diffs-container shadow root (highlight pseudo
+   styles do not cross shadow boundaries), so the TS module is their single
+   source. */

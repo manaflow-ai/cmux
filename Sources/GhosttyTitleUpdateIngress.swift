@@ -15,7 +15,6 @@ final class GhosttyTitleUpdateIngress {
     /// Ghostty serializes action callbacks for a view; no other context reads
     /// or writes this duplicate-rejection snapshot.
     private var lastSubmittedUpdate: GhosttyTitleUpdate?
-
     init(
         center: NotificationCenter = .default,
         titleChurnFilter: TerminalTitleChurnFilter = TerminalTitleChurnFilter(),
@@ -34,6 +33,7 @@ final class GhosttyTitleUpdateIngress {
                     tabId: update.tabId,
                     surfaceId: update.surfaceId,
                     title: update.title,
+                    stableTitle: update.stableTitle,
                     sourceSurfaceIdentifier: update.sourceSurfaceIdentifier,
                     terminalLifecycleID: update.terminalLifecycleID
                 )
@@ -69,22 +69,42 @@ final class GhosttyTitleUpdateIngress {
     /// Returns false when normalization removes a label-less spinner frame,
     /// when the update duplicates the callback-local snapshot, or when the
     /// ingress has already terminated.
+    ///
+    /// Animation frames are forwarded rather than collapsed, so the tab label
+    /// still animates. What they carry is a `stableTitle` equal to the previous
+    /// frame's, which is how a consumer distinguishes "the label changed" from
+    /// "the spinner advanced" and skips the expensive path for the latter.
     @discardableResult
     func submit(
         tabId: UUID,
         surfaceId: UUID,
-        sourceSurface: AnyObject,
+        sourceSurfaceIdentifier: ObjectIdentifier,
         terminalLifecycleID: UUID,
-        title: String
+        title: String,
+        titleOverride: String? = nil
     ) -> Bool {
-        guard let stableTitle = titleChurnFilter.stableTitle(for: title) else {
+        let displayTitle: String
+        let stableTitle: String
+        if let titleOverride {
+            guard let boundedTitle = AutomaticTerminalTitle(titleOverride)?.value else {
+                return false
+            }
+            // An override is already the resolved label; there is no frame in it.
+            displayTitle = boundedTitle
+            stableTitle = boundedTitle
+        } else if let churnStableTitle = titleChurnFilter.stableTitle(for: title) {
+            displayTitle = title
+            stableTitle = churnStableTitle
+        } else {
+            // Nothing but spinner glyphs: no label to show, so drop it entirely.
             return false
         }
         let update = GhosttyTitleUpdate(
             tabId: tabId,
             surfaceId: surfaceId,
-            title: stableTitle,
-            sourceSurfaceIdentifier: ObjectIdentifier(sourceSurface),
+            title: displayTitle,
+            stableTitle: stableTitle,
+            sourceSurfaceIdentifier: sourceSurfaceIdentifier,
             terminalLifecycleID: terminalLifecycleID,
             attachmentGeneration: attachmentGeneration.loadRelaxed()
         )

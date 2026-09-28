@@ -23,7 +23,7 @@ extension DockSplitStore {
 
         switch action {
         case .rename:
-            _ = promptRenameDockSurface(
+            _ = requestPaletteRenameDockSurface(
                 tabId: tab.id,
                 presentingWindow: dockContextMenuWindow
             )
@@ -166,10 +166,11 @@ extension DockSplitStore {
         let warningStore = CloseTabWarningStore(
             defaults: manager?.closeTabWarningDefaults ?? .standard
         )
-        if warningStore.shouldConfirmClose(
+        let warningKinds = warningStore.warningKinds(
             requiresConfirmation: needsConfirmation,
             source: .shortcut
-        ) {
+        )
+        if !warningKinds.isEmpty {
             guard let manager else { return false }
             let prompt = CloseOtherTabsConfirmationPrompt(
                 titles: candidates.map(\.title)
@@ -178,7 +179,8 @@ extension DockSplitStore {
                 title: prompt.title,
                 message: prompt.message,
                 scrollableDetails: prompt.details,
-                acceptCmdD: false
+                acceptCmdD: false,
+                dontAskAgain: warningKinds
             ) else {
                 return true
             }
@@ -253,7 +255,10 @@ extension DockSplitStore {
         panelId: UUID,
         movement: SurfacePaneMovement
     ) {
-        focusPanel(panelId)
+        focusPanelFromDockInteraction(
+            panelId,
+            window: dockContextMenuWindow
+        )
         _ = performShortcutCommand(
             .moveSurfaceToPane(
                 movement,
@@ -277,11 +282,12 @@ extension DockSplitStore {
         let sourceBrowser = sourcePanelId.flatMap {
             browserPanel(for: $0)
         }
+        noteKeyboardFocusIntent(window: dockContextMenuWindow)
         guard let panelId = newSurface(
             kind: kind,
             inPane: paneId,
             sourcePanelId: sourcePanelId,
-            focus: true,
+            focus: false,
             preferredProfileID: sourceBrowser?.profileID,
             websiteDataStore:
                 sourceBrowser?.explicitEphemeralWebsiteDataStoreForSibling
@@ -292,6 +298,10 @@ extension DockSplitStore {
         _ = bonsplitController.reorderTab(
             newTabId,
             toIndex: anchorIndex + 1
+        )
+        focusPanelFromDockInteraction(
+            panelId,
+            window: dockContextMenuWindow
         )
         if let browser = browserPanel(for: panelId) {
             _ = AppDelegate.shared?.focusBrowserAddressBar(in: browser)

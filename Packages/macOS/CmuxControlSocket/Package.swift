@@ -4,6 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "CmuxControlSocket",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v14),
     ],
@@ -14,13 +15,23 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../CmuxCore"),
         .package(path: "../CmuxSettings"),
     ],
     targets: [
         .target(
+            name: "CmuxControlSocketAtomicsC",
+            publicHeadersPath: "include"
+        ),
+        .target(
             name: "CmuxControlSocket",
             dependencies: [
+                .product(name: "CmuxCore", package: "CmuxCore"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
+                "CmuxControlSocketAtomicsC",
+            ],
+            resources: [
+                .process("Resources/Localizable.xcstrings"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

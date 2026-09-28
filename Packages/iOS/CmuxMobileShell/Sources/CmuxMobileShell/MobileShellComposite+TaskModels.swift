@@ -2,11 +2,6 @@ internal import CmuxMobileRPC
 public import CmuxMobileShellModel
 import Foundation
 
-private enum MobileTaskModelRefreshEvent: Sendable {
-    case host(MobileTaskModelListResult?)
-    case backend([MobileTaskAgentModel]?)
-}
-
 private struct MobileTaskModelRequestContext {
     enum Owner {
         case foreground(generation: UUID)
@@ -36,30 +31,15 @@ extension MobileShellComposite {
         )?.client.instanceID
     }
 
-    /// Resolves a secondary control subscription for a physical Mac: the
-    /// exact pairing when a tag is given, otherwise any same-device pairing.
-    /// Mirrors the pre-MacPairingKey device-id lookup these capability
-    /// checks were written against.
+    /// Resolves a secondary control subscription for one exact pairing.
+    /// A missing tag names only a legacy untagged row. It never selects an
+    /// arbitrary Stable/Nightly sibling on the same physical Mac.
     func controlSubscriptionMatching(
         macDeviceID: String,
         instanceTag: String?
     ) -> SecondaryMacSubscription? {
         let probe = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
-        if probe.normalizedInstanceTag != nil,
-           let exact = secondaryMacSubscriptions[probe] {
-            return exact
-        }
-        for key in secondaryMacSubscriptions.keys
-        where key.canonicalMacDeviceID == probe.canonicalMacDeviceID {
-            guard let subscription = secondaryMacSubscriptions[key] else { continue }
-            if instanceTag == nil
-                || key.normalizedInstanceTag == probe.normalizedInstanceTag
-                || subscription.authenticatedInstanceTag == instanceTag
-                || subscription.storedInstanceTag == instanceTag {
-                return subscription
-            }
-        }
-        return nil
+        return secondaryMacSubscriptions[probe]
     }
 
     /// Whether the selected Mac instance advertises task model discovery.
@@ -164,17 +144,10 @@ extension MobileShellComposite {
                     context = replacement
                     continue
                 }
-                if isCurrentTaskModelRequestContext(
-                    context,
-                    macDeviceID: macDeviceID,
-                    instanceTag: instanceTag
-                ), case .foreground(let generation) = context.owner {
-                    handleMacAvailabilityFailureIfCurrent(
-                        after: error,
-                        expectedClient: context.client,
-                        expectedGeneration: generation
-                    )
-                }
+                // Model discovery is a read-only optional capability probe.
+                // Its deadline or transport failure must not mark the whole
+                // Mac unavailable; the connection lifecycle owns that state
+                // and will publish a new refresh identity when it recovers.
                 throw error
             }
         }
@@ -192,23 +165,70 @@ extension MobileShellComposite {
               let rawModels = object["models"] as? [[String: Any]] else {
             throw MobileShellConnectionError.invalidResponse
         }
+        let discoveryError: MobileTaskModelListError?
+        if let rawError = object["error"] {
+            guard let rawError = rawError as? String,
+                  let parsedError = MobileTaskModelListError(rawValue: rawError) else {
+                throw MobileShellConnectionError.invalidResponse
+            }
+            discoveryError = parsedError
+        } else {
+            discoveryError = nil
+        }
+        func parseModel(_ rawModel: [String: Any]) throws -> MobileTaskAgentModel {
+            guard let id = rawModel["id"] as? String,
+                  !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let displayName = rawModel["display_name"] as? String,
+                  !displayName.isEmpty else {
+                throw MobileShellConnectionError.invalidResponse
+            }
+            let rawEfforts = rawModel["efforts"] as? [[String: Any]] ?? []
+            var seenEffortIDs: Set<String> = []
+            var efforts: [MobileTaskAgentEffort] = []
+            efforts.reserveCapacity(rawEfforts.count)
+            for rawEffort in rawEfforts {
+                guard let effortID = rawEffort["id"] as? String,
+                      !effortID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      let effortDisplayName = rawEffort["display_name"] as? String,
+                      !effortDisplayName.isEmpty,
+                      seenEffortIDs.insert(effortID).inserted else {
+                    throw MobileShellConnectionError.invalidResponse
+                }
+                efforts.append(MobileTaskAgentEffort(
+                    id: effortID,
+                    displayName: effortDisplayName,
+                    description: rawEffort["description"] as? String
+                ))
+            }
+            return MobileTaskAgentModel(
+                id: id,
+                displayName: displayName,
+                efforts: efforts,
+                defaultEffortID: rawModel["default_effort_id"] as? String
+            )
+        }
         var models: [MobileTaskAgentModel] = []
         models.reserveCapacity(rawModels.count)
         var seenIDs: Set<String> = []
         for rawModel in rawModels {
-            guard let id = rawModel["id"] as? String,
-                  !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  let displayName = rawModel["display_name"] as? String,
-                  !displayName.isEmpty,
-                  seenIDs.insert(id).inserted else {
+            let model = try parseModel(rawModel)
+            guard seenIDs.insert(model.id).inserted else {
                 throw MobileShellConnectionError.invalidResponse
             }
-            models.append(MobileTaskAgentModel(
-                id: id,
-                displayName: displayName
-            ))
+            models.append(model)
         }
-        return MobileTaskModelListResult(models: models, source: source)
+        let defaultModel: MobileTaskAgentModel?
+        if let rawDefaultModel = object["default_model"] as? [String: Any] {
+            defaultModel = try parseModel(rawDefaultModel)
+        } else {
+            defaultModel = nil
+        }
+        return MobileTaskModelListResult(
+            models: models,
+            source: source,
+            defaultModel: defaultModel,
+            error: discoveryError
+        )
     }
 
     private func captureTaskModelRequestContext(
@@ -258,10 +278,15 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) -> MacConnection? {
-        guard let connection = connections[macDeviceID] else { return nil }
-        guard let instanceTag else { return connection }
-        guard connection.storedInstanceTag == instanceTag
-                || connection.authenticatedInstanceTag == instanceTag else {
+        let key = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
+        guard let connection = connections[key] else { return nil }
+        guard macInstanceTagAuthority.sameStoredAuthority(
+            connection.storedInstanceTag,
+            instanceTag
+        ) || macInstanceTagAuthority.sameStoredAuthority(
+            connection.authenticatedInstanceTag,
+            instanceTag
+        ) else {
             return nil
         }
         return connection
@@ -295,20 +320,34 @@ extension MobileShellComposite {
     /// - Parameters:
     ///   - provider: Coding-agent provider to resolve.
     ///   - macDeviceID: Physical Mac selected in the task composer.
-    ///   - instanceTag: Exact paired instance; the cache intentionally remains
-    ///     device/provider scoped so app rebuilds on one Mac share discovery.
+    ///   - instanceTag: Exact paired instance. Stable and Nightly keep separate
+    ///     discovery results even when their physical device id is shared.
     /// - Returns: Previously fetched models, or `nil`.
     public func discoveredTaskModels(
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
-        instanceTag _: String?
+        instanceTag: String?
     ) -> [MobileTaskAgentModel]? {
+        discoveredTaskModelResult(
+            provider: provider,
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )?.models
+    }
+
+    /// Returns the cached model list and implicit Default metadata together.
+    public func discoveredTaskModelResult(
+        provider: MobileTaskAgentProvider,
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> MobileTaskModelListResult? {
         taskModelCache[
             MobileTaskModelCacheKey(
                 macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
                 provider: provider
             )
-        ]?.result.models
+        ]?.result
     }
 
     /// Refreshes one provider from the selected Mac and the over-the-air
@@ -328,39 +367,117 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?,
         didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
-    ) async {
-        await refreshTaskModels(
+    ) async -> MobileTaskModelRefreshOutcome {
+        let startedAt = appDiagnosticNow()
+        recordAppEvent(
+            .taskModelListLoadStarted,
+            correlationID: macDeviceID
+        )
+        let outcome = await refreshTaskModels(
             provider: provider,
             macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
             hostResultLoader: { [weak self] in
-                guard let self else { return nil }
-                return try? await self.fetchTaskModels(
-                    provider: provider,
-                    macDeviceID: macDeviceID,
-                    instanceTag: instanceTag
-                )
+                guard let self else {
+                    return MobileTaskModelHostRefreshResult(
+                        result: nil,
+                        outcome: .stopped(.cancelled)
+                    )
+                }
+                do {
+                    let result = try await self.fetchTaskModels(
+                            provider: provider,
+                            macDeviceID: macDeviceID,
+                            instanceTag: instanceTag
+                        )
+                    let outcome: MobileTaskModelRefreshOutcome
+                    switch result.error {
+                    case .providerUnavailable:
+                        outcome = .stopped(.providerUnavailable)
+                    case .queryFailed:
+                        outcome = .retry(.endpointUnavailable)
+                    case .hostUnavailable:
+                        outcome = .retry(.hostUnreachable)
+                    case nil:
+                        outcome = result.models.isEmpty && result.defaultModel == nil
+                            ? .retry(.unknown)
+                            : .succeeded
+                    }
+                    return MobileTaskModelHostRefreshResult(
+                        result: result,
+                        outcome: outcome
+                    )
+                } catch {
+                    let outcome = MobileTaskModelRefreshOutcome(classifying: error)
+                    return MobileTaskModelHostRefreshResult(
+                        result: MobileTaskModelListResult(
+                            models: [],
+                            source: .fallback,
+                            error: .hostUnavailable
+                        ),
+                        outcome: outcome
+                    )
+                }
             },
-            didUpdate: didUpdate
+            didUpdate: { [weak self] result in
+                self?.recordTaskModelResult(
+                    provider: provider,
+                    correlationID: macDeviceID,
+                    result: result
+                )
+                didUpdate?(result)
+            }
         )
+        let result = discoveredTaskModelResult(
+            provider: provider,
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        if case .succeeded = outcome,
+           let result,
+           result.error == nil,
+           (!result.models.isEmpty || result.defaultModel != nil) {
+            recordAppEvent(
+                .taskModelListLoadSucceeded,
+                correlationID: macDeviceID,
+                startedAt: startedAt,
+                count: result.models.count
+            )
+        } else if outcome != .stopped(.cancelled) {
+            recordAppEvent(
+                .taskModelListLoadFailed,
+                correlationID: macDeviceID,
+                startedAt: startedAt,
+                failure: outcome.diagnosticFailure,
+                count: result?.models.count ?? 0
+            )
+        }
+        return outcome
     }
 
     private func refreshTaskModels(
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
-        hostResultLoader: @escaping @Sendable () async -> MobileTaskModelListResult?,
+        instanceTag: String? = nil,
+        hostResultLoader: @escaping @Sendable () async -> MobileTaskModelHostRefreshResult,
         didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
-    ) async {
+    ) async -> MobileTaskModelRefreshOutcome {
         let key = MobileTaskModelCacheKey(
             macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
             provider: provider
         )
         let catalogClient = taskModelCatalogClient
+        var hostFailure: MobileTaskModelListResult?
+        var hostOutcome: MobileTaskModelHostRefreshResult?
+        var backendResult: MobileTaskModelListResult?
+        var refreshOutcome: MobileTaskModelRefreshOutcome?
         await withTaskGroup(of: MobileTaskModelRefreshEvent.self) { group in
             group.addTask {
                 .host(await hostResultLoader())
             }
             group.addTask {
-                .backend(try? await catalogClient.models(for: provider))
+                .backend(try? await catalogClient.result(for: provider))
             }
 
             for await event in group {
@@ -369,31 +486,70 @@ extension MobileShellComposite {
                     return
                 }
                 switch event {
-                case .host(let result):
-                    guard let result,
-                          result.source == .discovered,
-                          !result.models.isEmpty else {
+                case .host(let outcome):
+                    guard let result = outcome.result else {
+                        hostOutcome = outcome
+                        continue
+                    }
+                    if result.error != nil {
+                        hostOutcome = outcome
+                        hostFailure = result
+                        if let backendResult, backendResult.error == nil {
+                            // The backend catalog is usable while transient
+                            // host discovery is unavailable. Preserve a
+                            // permanent provider error so the agent picker
+                            // explains why these fallback models cannot run.
+                            let fallback = MobileTaskModelListResult(
+                                models: backendResult.models,
+                                source: backendResult.source,
+                                defaultModel: backendResult.defaultModel,
+                                error: outcome.outcome == .stopped(.providerUnavailable)
+                                    ? .providerUnavailable
+                                    : nil
+                            )
+                            self.cacheTaskModels(fallback, for: key)
+                            didUpdate?(fallback)
+                        }
+                        continue
+                    }
+                    guard result.source == .discovered,
+                          !result.models.isEmpty || result.defaultModel != nil else {
+                        hostOutcome = outcome
                         continue
                     }
                     cacheTaskModels(result, for: key)
                     didUpdate?(result)
+                    refreshOutcome = .succeeded
                     group.cancelAll()
                     return
                 case .backend(let models):
-                    guard let models,
-                          !models.isEmpty,
+                    guard let result = models,
+                          !result.models.isEmpty,
                           taskModelCache[key]?.result.source != .discovered else {
                         continue
                     }
-                    let result = MobileTaskModelListResult(
-                        models: models,
-                        source: .backend
+                    backendResult = result
+                    let fallback = MobileTaskModelListResult(
+                        models: result.models,
+                        source: result.source,
+                        defaultModel: result.defaultModel,
+                        error: hostOutcome?.outcome == .stopped(.providerUnavailable)
+                            ? .providerUnavailable
+                            : nil
                     )
-                    cacheTaskModels(result, for: key)
-                    didUpdate?(result)
+                    cacheTaskModels(fallback, for: key)
+                    didUpdate?(fallback)
                 }
             }
+            if let hostFailure, backendResult == nil {
+                cacheTaskModels(hostFailure, for: key)
+                didUpdate?(hostFailure)
+            }
         }
+        if Task.isCancelled {
+            return .stopped(.cancelled)
+        }
+        return refreshOutcome ?? hostOutcome?.outcome ?? .retry(.unknown)
     }
 
     /// Applies the source-priority policy through an injectable host result.
@@ -402,30 +558,29 @@ extension MobileShellComposite {
     func refreshTaskModels(
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
+        instanceTag: String? = nil,
         hostResult: MobileTaskModelListResult?
     ) async {
         let key = MobileTaskModelCacheKey(
             macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
             provider: provider
         )
         if let hostResult,
            hostResult.source == .discovered,
-           !hostResult.models.isEmpty {
+           !hostResult.models.isEmpty || hostResult.defaultModel != nil {
             guard !Task.isCancelled else { return }
             cacheTaskModels(hostResult, for: key)
             return
         }
 
         guard !Task.isCancelled,
-              let models = try? await taskModelCatalogClient.models(for: provider),
-              !models.isEmpty,
+              let result = try? await taskModelCatalogClient.result(for: provider),
+              !result.models.isEmpty,
               !Task.isCancelled else {
             return
         }
-        cacheTaskModels(
-            MobileTaskModelListResult(models: models, source: .backend),
-            for: key
-        )
+        cacheTaskModels(result, for: key)
     }
 
     private func cacheTaskModels(
@@ -442,11 +597,12 @@ extension MobileShellComposite {
     public func taskModelListSource(
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
-        instanceTag _: String?
+        instanceTag: String?
     ) -> MobileTaskModelListSource? {
         taskModelCache[
             MobileTaskModelCacheKey(
                 macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
                 provider: provider
             )
         ]?.result.source
@@ -456,11 +612,12 @@ extension MobileShellComposite {
     func taskModelsFetchedAt(
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
-        instanceTag _: String?
+        instanceTag: String?
     ) -> Date? {
         taskModelCache[
             MobileTaskModelCacheKey(
                 macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
                 provider: provider
             )
         ]?.fetchedAt

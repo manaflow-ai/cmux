@@ -78,11 +78,13 @@ extension MobileShellComposite {
                 expectedStoredTag = reportedTag
             }
             let exactExisting = scopedMacs.first {
-                $0.macDeviceID == ticket.macDeviceID
-                    && $0.instanceTag == expectedStoredTag
+                MacPairingKey($0) == MacPairingKey(
+                    macDeviceID: ticket.macDeviceID,
+                    instanceTag: expectedStoredTag
+                )
             }
             let physicalMatches = scopedMacs.filter {
-                $0.macDeviceID == ticket.macDeviceID
+                MacPairingKey($0).isOnDevice(ticket.macDeviceID)
             }
             let existing: MobilePairedMac?
             if let exactExisting {
@@ -104,7 +106,10 @@ extension MobileShellComposite {
                     stackUserID: nil, teamID: scope?.teamID
                 )) ?? []
                 displayName = knownMacs.first {
-                    $0.macDeviceID == ticket.macDeviceID
+                    MacPairingKey($0) == MacPairingKey(
+                        macDeviceID: ticket.macDeviceID,
+                        instanceTag: expectedStoredTag
+                    )
                 }?.displayName
             }
             let instanceTag: String?

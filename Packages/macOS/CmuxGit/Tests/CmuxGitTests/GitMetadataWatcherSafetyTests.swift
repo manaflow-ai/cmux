@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import Testing
 @testable import CmuxGit
@@ -105,6 +106,35 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
         ))
     }
 
+    @Test func forcedRootPreservesExistingSpecificDegradation() throws {
+        let fixture = try GitRepositoryFixture()
+        let degradation = GitWorkspaceMetadataWatchDegradation.unfilteredWorkTreeEvents(
+            entryCount: 10,
+            trackedPathLimit: 9,
+            indexByteCount: 32,
+            indexByteLimit: 1_024,
+            throttleSeconds: 30
+        )
+        let descriptor = GitWorkspaceMetadataWatchDescriptor(
+            repositoryRoot: fixture.root.path,
+            watchedPaths: [fixture.gitDirectory.path],
+            gitMetadataPaths: [fixture.gitDirectory.path],
+            trackedEntryPaths: [],
+            acceptsAllWorkTreeEvents: true,
+            eventCoalescingInterval: .seconds(30),
+            eventFilterIdentity: nil,
+            degradation: degradation
+        )
+
+        let rebuilt = GitMetadataService().applyingForcedWorkTreeRoots(
+            descriptor,
+            repositories: [fixture.root.path]
+        )
+
+        #expect(rebuilt.forcedWorkTreeRoots == [fixture.root.path])
+        #expect(rebuilt.degradation == degradation)
+    }
+
     @Test func unreadableIndexDisablesWorkTreeEventsUntilMetadataChanges() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
@@ -121,6 +151,74 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
         #expect(!descriptor.containsRelevantChange(path: workTreeChange))
         #expect(descriptor.containsRelevantChange(path: indexPath))
         #expect(descriptor.degradation == .unreadableIndex)
+    }
+
+    @Test func expiredWatchPlanStillBuildsConservativeDescriptor() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let now = DispatchTime.now().uptimeNanoseconds
+        let expiredDeadline = DispatchTime(
+            uptimeNanoseconds: now > 1_000_000 ? now - 1_000_000 : 0
+        )
+        let inputs = GitMetadataWatchInputs(
+            deadline: expiredDeadline,
+            configPathsByRepository: [:],
+            watchOnlyPathsByRepository: [:],
+            metadataSentinelPathsByRepository: [:],
+            indexSnapshotsByRepository: [:],
+            forceWorkTreeRootRepositories: [repository.workTreeRoot]
+        )
+
+        let descriptor = await GitMetadataService().watchDescriptorBlocking(
+            for: fixture.root.path,
+            repository: repository,
+            safetyConfiguration: GitMetadataSafetyConfiguration(),
+            watchInputs: inputs
+        )
+
+        #expect(descriptor != nil)
+    }
+
+    @Test func forcedRootRebuildsOnlyForGitMetadataEvents() throws {
+        let root = "/tmp/cmux-forced-root"
+        let descriptor = GitWorkspaceMetadataWatchDescriptor(
+            repositoryRoot: root,
+            watchedPaths: [root],
+            gitMetadataPaths: [],
+            trackedEntryPaths: [],
+            forcedWorkTreeRoots: [root],
+            acceptsAllWorkTreeEvents: true,
+            eventCoalescingInterval: .seconds(30),
+            eventFilterIdentity: nil,
+            degradation: .unreadableIndex
+        )
+
+        #expect(descriptor.containsGitMetadataChange(paths: [root + "/.git/config"]))
+        #expect(!descriptor.containsGitMetadataChange(paths: [root + "/Sources/App.swift"]))
+        #expect(!descriptor.containsGitMetadataChange(paths: [root + "/.git/objects/pack/a.pack"]))
+    }
+
+    @Test func sha256RepositoriesUseBoundedStatusFallbackForDirtyState() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [extensions]
+            objectFormat = sha256
+        """)
+        try fixture.writeRawIndex(Data("sha256 index bytes".utf8))
+        let dirtyStatusReader = RecordingGitDirtyStatusReader(result: true)
+        let service = GitMetadataService(
+            fileStatusReader: CountingGitFileStatusReader(),
+            dirtyStatusReader: dirtyStatusReader
+        )
+
+        let metadata = await service.workspaceMetadata(for: fixture.root.path)
+
+        #expect(metadata.isDirty)
+        #expect(dirtyStatusReader.callCount == 1)
     }
 
     @Test func gitlinkPlanningRejectsIndexAboveByteBudgetBeforeParsing() throws {

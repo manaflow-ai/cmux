@@ -1,7 +1,9 @@
+import CmuxCloud
 import CMUXAuthCore
 import CmuxAuthRuntime
 import AppKit
 import Foundation
+import Network
 import StackAuth
 
 /// The macOS auth composition root.
@@ -26,6 +28,9 @@ struct MacAuthComposition {
     let browserAppSession: BrowserAppSessionController
     /// Shared observable account projection used by Settings and sidebar UI.
     let accountFlow: HostAccountFlow
+    /// Reconciles Cloud transports with the coordinator's selected team.
+    let cloudTeamScopeObserver: CloudTeamScopeObserver
+    let teamScopeRecoveryTriggers: MacAuthTeamScopeRecoveryTriggers
 
     /// Build the auth graph.
     /// - Parameters:
@@ -145,6 +150,7 @@ struct MacAuthComposition {
                 browserAppSessionSignInRelay.sessionWillTransition()
             },
             onSignedIn: {
+                await CmuxTuiSurfaceProviderRegistry.shared.resumeAfterSignIn()
                 await browserAppSessionSignInRelay.signedIn()
             }
         )
@@ -177,14 +183,32 @@ struct MacAuthComposition {
             callbackScheme: { AuthEnvironment.callbackScheme },
             openExternalURL: { NSWorkspace.shared.open($0) },
             beginSignOut: {
+                // Tear down local Cloud VM workspaces before the coordinator
+                // clears auth. This closes live WebSockets, removes persisted
+                // reconnect configuration, and prevents a signed-out Mac (or
+                // a paired phone still connected to it) from retaining a
+                // usable remote surface.
+                AppDelegate.shared?.prepareCloudVMAccessForSignOut()
                 browserAppSession.beginAuthTransition()
-                MobileHostIrohRuntime.shared.beginSignOutPreparation()
+                DeviceRegistryClient.shared.beginSignOut()
+                MobileHostIrxRuntime.shared.beginSignOutPreparation()
             },
             localSignOut: {
                 await browserAppSession.clearCmuxWebSession()
             },
             onSignedOut: { accessToken, refreshToken in
-                await MobileHostIrohRuntime.shared.revokeAfterSignOut(
+                await DeviceRegistryClient.shared.withdrawForSignOut(
+                    accessToken: accessToken, refreshToken: refreshToken
+                )
+                await VMClient.revokeCloudAccess(
+                    deviceID: MobileHostIdentity.deviceID(),
+                    accessToken: accessToken,
+                    refreshToken: refreshToken
+                )
+                // Endpoint/preview credentials are separate from Stack Auth;
+                // revoke them with the captured pre-clear token pair before
+                // the coordinator's server-session revocation tail completes.
+                await VMClient.revokeEndpointLeases(
                     accessToken: accessToken,
                     refreshToken: refreshToken
                 )
@@ -195,11 +219,17 @@ struct MacAuthComposition {
             coordinator: coordinator,
             browserSignIn: browserSignIn
         )
+        self.teamScopeRecoveryTriggers = MacAuthTeamScopeRecoveryTriggers(coordinator: coordinator)
+        self.cloudTeamScopeObserver = CloudTeamScopeObserver(auth: coordinator) {
+            AppDelegate.shared?.prepareCloudVMAccessForTeamSwitch()
+        }
     }
 
     /// Begin asynchronous session restore. Call once after construction, at
     /// the composition root.
     func start() {
+        cloudTeamScopeObserver.start()
+        teamScopeRecoveryTriggers.start()
         coordinator.start()
     }
 
@@ -323,4 +353,52 @@ struct MacAuthComposition {
         environment
     }
     #endif
+}
+
+/// Retries a missing team scope when a retry is likely to succeed.
+///
+/// macOS has no foreground revalidation like iOS, and a login-item launch
+/// often runs before the network is up. The coordinator's backoff loop is the
+/// guarantee; these signals (network path restored, system wake, app
+/// activation) only shorten the wait. Each call is a no-op for a healthy
+/// session.
+@MainActor
+final class MacAuthTeamScopeRecoveryTriggers {
+    private let coordinator: AuthCoordinator
+    private let pathMonitor = NWPathMonitor()
+    private var tasks: [Task<Void, Never>] = []
+
+    init(coordinator: AuthCoordinator) {
+        self.coordinator = coordinator
+    }
+
+    func start() {
+        guard tasks.isEmpty else { return }
+        let notifications: [(NotificationCenter, Notification.Name)] = [
+            (NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification),
+            (NotificationCenter.default, NSApplication.didBecomeActiveNotification),
+        ]
+        for (center, name) in notifications {
+            tasks.append(Task { @MainActor [weak self] in
+                for await _ in center.notifications(named: name) {
+                    await self?.coordinator.recoverTeamScopeIfNeeded()
+                }
+            })
+        }
+        let (pathSatisfied, continuation) = AsyncStream<Bool>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        pathMonitor.pathUpdateHandler = { path in
+            continuation.yield(path.status == .satisfied)
+        }
+        pathMonitor.start(queue: DispatchQueue(label: "com.cmux.auth.team-scope-path"))
+        tasks.append(Task { @MainActor [weak self] in
+            var wasSatisfied = false
+            for await satisfied in pathSatisfied {
+                defer { wasSatisfied = satisfied }
+                guard satisfied, !wasSatisfied else { continue }
+                await self?.coordinator.recoverTeamScopeIfNeeded()
+            }
+        })
+    }
 }

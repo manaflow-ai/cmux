@@ -11,12 +11,39 @@ permissions:
   attestations: write
   id-token: write
 
+concurrency:
+  group: stable-appcast-publication
+  cancel-in-progress: false
+
 env:
   CREATE_DMG_VERSION: 8.0.0
 
 jobs:
+  generate-ios-screenshots:
+    name: Generate iOS App Store screenshots
+    # Runs alongside the macOS build so every stable tag still ships screenshot
+    # artifacts captured at the exact release ref. It is deliberately not a
+    # dependency of build-sign-notarize: the DMG consumes nothing from it, and a
+    # slow or flaky simulator capture (up to 300 minutes) must neither delay nor
+    # fail a macOS release (https://github.com/manaflow-ai/cmux/issues/12149).
+    # A failed capture still turns the run red, so it stays visible.
+    #
+    # Least privilege: capture-only reads the repository and nothing else, so
+    # this job hands the callee neither the release token scopes nor the
+    # repository secrets. The App Store Connect upload path inside the called
+    # workflow is gated to workflow_dispatch from main and is unreachable from
+    # a release run, so `secrets: inherit` would only have exposed the signing,
+    # notarization, Sparkle and R2 secrets to a UI-test job.
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ios-screenshots.yml
+    with:
+      ref: ${{ github.ref }}
+      languages: "en-US,de-DE,fr-FR,ar-SA,es-ES,zh-Hant,zh-Hans,ko,ja"
+      upload: false
+
   build-ghostty-cli-helper:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 20
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -34,6 +61,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - name: Install zig
@@ -68,10 +96,15 @@ jobs:
     # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.
     # Import the Apple Developer ID intermediate chain into the build keychain
     # below so signing does not depend on mutable runner login-keychain state.
-    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-    # Notarization wait times vary on Apple's side; v0.64.14 finished at 19m16s
-    # and v0.64.15 attempt 1 was killed by a 20-minute budget mid-notarization.
-    timeout-minutes: 40
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # Notarization wait times vary on Apple's side. The standalone Computer Use
+    # helper starts as soon as the unsigned app exists and overlaps the remaining
+    # release preparation; the outer app and final DMG still serialize afterward.
+    # v0.64.22 took 40 minutes before the Cloud tunnel extension, its Go engine
+    # build and the universal diff sidecar joined this job, and the helper's
+    # Gatekeeper propagation wait alone can now take twenty minutes, so 60 left
+    # no headroom. Keep at least 25 percent above the measured duration.
+    timeout-minutes: 90
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -91,6 +124,12 @@ jobs:
           submodules: recursive
 
       - name: Validate Sparkle build number is monotonic
+        # A tag push is about to publish, so a stale build number must fail.
+        # A non-tag workflow_dispatch is the built-in dry run: it publishes
+        # nothing and normally runs from a branch that has not been bumped yet,
+        # so the same condition only warns there.
+        env:
+          CMUX_SPARKLE_MONOTONIC_MODE: ${{ startsWith(github.ref, 'refs/tags/') && 'enforce' || 'warn' }}
         run: ./tests/test_ci_sparkle_build_monotonic.sh
 
       - name: Guard immutable release assets
@@ -156,28 +195,7 @@ jobs:
 
       - name: Select Xcode
         if: steps.guard_release_assets.outputs.skip_all != 'true'
-        run: |
-          set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(
-              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
-                | sort \
-                | tail -n 1 \
-                || true
-            )"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
-          xcrun --sdk macosx --show-sdk-path
+        run: ./scripts/select-ci-xcode.sh
 
       # Same self-sufficiency as nightly: a self-hosted macOS runner may lack npm
       # on PATH, which breaks the pinned create-dmg install below. setup-node
@@ -187,6 +205,12 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "20"
+
+      - name: Setup Bun
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
 
       - name: Install build deps
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -215,19 +239,12 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
-
-      - name: Setup Go
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version-file: daemon/remote/go.mod
-          cache-dependency-path: daemon/remote/go.sum
 
       - name: Derive Sparkle public key from private key
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -242,6 +259,13 @@ jobs:
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
+      - name: Set up Go for the Cloud tunnel extension and SSH daemon
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache: false
+
       - name: Build universal app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
@@ -252,6 +276,66 @@ jobs:
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO build
 
+      - name: Build and embed verified SSH daemon assets
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
+          ./scripts/build_remote_daemon_release_assets.sh \
+            --version "$version" --release-tag "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" --output-dir remote-daemon-assets
+          python3 scripts/verify_remote_daemon_release.py \
+            --manifest remote-daemon-assets/cmuxd-remote-manifest.json \
+            --assets-dir remote-daemon-assets --app "$app" --embed --verify-cli
+
+      - name: Attest SSH daemon release assets
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: remote-daemon-assets/cmuxd-remote-*
+
+      - name: Import signing cert
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE_BASE64" ]; then
+            echo "Missing APPLE_CERTIFICATE_BASE64 secret" >&2
+            exit 1
+          fi
+          if [ -z "$APPLE_CERTIFICATE_PASSWORD" ]; then
+            echo "Missing APPLE_CERTIFICATE_PASSWORD secret" >&2
+            exit 1
+          fi
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > /tmp/cert.p12
+          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          ./scripts/import-apple-developer-id-intermediates.sh build.keychain
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user -s build.keychain
+
+      - name: Start Computer Use helper notarization
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          state="$RUNNER_TEMP/cmux-computer-use-notarization.state"
+          rm -f "$state"
+          ./scripts/ci/notarize-computer-use-helper.sh \
+            --start "$state" \
+            "build-universal/Build/Products/Release/cmux.app" \
+            cmux.release.entitlements \
+            "$APPLE_SIGNING_IDENTITY"
+
       - name: Download universal Ghostty CLI helper
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -261,16 +345,35 @@ jobs:
 
       - name: Install universal Ghostty CLI helper
         if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          # install-cmux-tui-client.sh verifies the manifest's build-provenance
+          # attestation with gh before trusting it.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           ./scripts/install-prebuilt-ghostty-cli-helper.sh \
             ghostty-cli-helper/ghostty \
             build-universal/Build/Products/Release/cmux.app
+          # actions/checkout is depth 1 here, so a bare `git log -1 -- cmux-tui` would answer
+          # HEAD. A release bundles the exact client of the newest cmux-tui commit or fails.
+          cmux_tui_commit="$(./scripts/ci/resolve-cmux-tui-client-commit.sh)"
+          test -n "$cmux_tui_commit"
+          ./scripts/install-cmux-tui-client.sh \
+            build-universal/Build/Products/Release/cmux.app \
+            --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
+            --expected-commit "$cmux_tui_commit" \
+            --require-capability wireguard-hub
 
       - name: Verify binary architectures
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           set -euo pipefail
+          APP="build-universal/Build/Products/Release/cmux.app"
+          # The Release build's tunnel extension is com.cmuxterm.app.tunnel: the
+          # bundle identifier carries no team prefix (only NEMachServiceName and
+          # the profile's App ID do), exactly as nightly ships <bundle id>.tunnel.
+          # tests/test_ci_release_tunnel_identifiers.sh pins this to the project.
+          ./scripts/normalize-system-extension-bundle.sh "$APP" "com.cmuxterm.app.tunnel"
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
@@ -286,23 +389,14 @@ jobs:
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
+          TUNNEL_BINARY="$APP/Contents/Library/SystemExtensions/com.cmuxterm.app.tunnel.systemextension/Contents/MacOS/cmuxTunnel"
+          [ -x "$TUNNEL_BINARY" ] || { echo "Cloud tunnel extension binary not found at $TUNNEL_BINARY" >&2; exit 1; }
+          TUNNEL_ARCHS="$(lipo -archs "$TUNNEL_BINARY")"
+          echo "Tunnel extension architectures: $TUNNEL_ARCHS"
+          [[ "$TUNNEL_ARCHS" == *arm64* && "$TUNNEL_ARCHS" == *x86_64* ]]
+          ./scripts/verify-tunnel-extension-engine.sh "$TUNNEL_BINARY"
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
-
-      - name: Build remote daemon release assets and inject manifest
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        run: |
-          set -euo pipefail
-          APP_PLIST="build-universal/Build/Products/Release/cmux.app/Contents/Info.plist"
-          APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PLIST")
-          ./scripts/build_remote_daemon_release_assets.sh \
-            --version "$APP_VERSION" \
-            --release-tag "$GITHUB_REF_NAME" \
-            --repo "manaflow-ai/cmux" \
-            --output-dir "remote-daemon-assets"
-          MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding="utf-8")), separators=(",",":")))' remote-daemon-assets/cmuxd-remote-manifest.json)"
-          plutil -remove CMUXRemoteDaemonManifestJSON "$APP_PLIST" >/dev/null 2>&1 || true
-          plutil -insert CMUXRemoteDaemonManifestJSON -string "$MANIFEST_JSON" "$APP_PLIST"
 
       - name: Run CLI version memory guard regression
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -332,31 +426,6 @@ jobs:
           echo "Verifying:"
           /usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$APP_PLIST"
           /usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$APP_PLIST"
-
-      - name: Import signing cert
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          if [ -z "$APPLE_CERTIFICATE_BASE64" ]; then
-            echo "Missing APPLE_CERTIFICATE_BASE64 secret" >&2
-            exit 1
-          fi
-          if [ -z "$APPLE_CERTIFICATE_PASSWORD" ]; then
-            echo "Missing APPLE_CERTIFICATE_PASSWORD secret" >&2
-            exit 1
-          fi
-          KEYCHAIN_PASSWORD="$(uuidgen)"
-          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > /tmp/cert.p12
-          security delete-keychain build.keychain >/dev/null 2>&1 || true
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -lut 21600 build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          ./scripts/import-apple-developer-id-intermediates.sh build.keychain
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          security list-keychains -d user -s build.keychain
 
       - name: Embed release provisioning profile
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -391,9 +460,34 @@ jobs:
           fi
           cp "$TMP_PROFILE" "$PROFILE_PATH"
 
+      - name: Embed Cloud tunnel extension provisioning profile
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          APPLE_RELEASE_TUNNEL_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_RELEASE_TUNNEL_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          ./scripts/ci/embed-tunnel-extension-profile.sh \
+            "build-universal/Build/Products/Release/cmux.app" \
+            "7WLXT3NR37.com.cmuxterm.app.tunnel" \
+            "${APPLE_RELEASE_TUNNEL_PROVISIONING_PROFILE_BASE64:-}"
+
       - name: Strip release binaries
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: ./scripts/strip-release-bundle.sh "build-universal/Build/Products/Release/cmux.app"
+
+      - name: Verify Cloud tunnel engine before signing
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          sysext="$(find "$app/Contents/Library/SystemExtensions" -mindepth 1 -maxdepth 1 -name '*.systemextension' -print -quit 2>/dev/null || true)"
+          if [[ -z "$sysext" ]]; then
+            echo "::error::Cloud tunnel system extension is missing"
+            exit 1
+          fi
+          executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$sysext/Contents/Info.plist")"
+          binary="$sysext/Contents/MacOS/$executable"
+          ./scripts/verify-tunnel-extension-engine.sh "$binary"
 
       - name: Codesign app
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -405,10 +499,43 @@ jobs:
             exit 1
           fi
           APP_PATH="build-universal/Build/Products/Release/cmux.app"
-          ./scripts/sign-cmux-bundle.sh \
+          CMUX_SIGN_MODE=all-except-computer-use \
+            ./scripts/sign-cmux-bundle.sh \
             "$APP_PATH" \
             cmux.release.entitlements \
             "$APPLE_SIGNING_IDENTITY"
+
+      - name: Verify bundled Mach-O load commands
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: ./scripts/verify-bundle-load-commands.sh "build-universal/Build/Products/Release/cmux.app"
+
+      - name: Verify signed app SSH daemon contract
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          python3 scripts/verify_remote_daemon_release.py \
+            --manifest remote-daemon-assets/cmuxd-remote-manifest.json \
+            --assets-dir remote-daemon-assets \
+            --app "build-universal/Build/Products/Release/cmux.app" --verify-cli
+
+      - name: Smoke launch signed app before notarization
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          # Catch macOS policy failures before the Apple ticket wait and DMG
+          # work. Direct execution is isolated from the runner's Dock state.
+          CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 \
+            ./scripts/smoke-launch-macos-app.sh \
+            "build-universal/Build/Products/Release/cmux.app"
+
+      - name: Smoke bundled CLI against the signed app
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          # Launch-only smoke proves the process lives; this drives the shipped
+          # app through the CLI inside the same bundle (version, help, SSH
+          # daemon manifest, ping, capabilities, workspace create/list/close).
+          ./scripts/smoke-signed-app-cli.sh \
+            "build-universal/Build/Products/Release/cmux.app"
 
       - name: Notarize app
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -425,6 +552,11 @@ jobs:
           APP_PATH="build-universal/Build/Products/Release/cmux.app"
           ZIP_SUBMIT="cmux-notary.zip"
           DMG_RELEASE="cmux-macos.dmg"
+          ./scripts/ci/notarize-computer-use-helper.sh \
+            --finish "$RUNNER_TEMP/cmux-computer-use-notarization.state" \
+            "$APP_PATH" \
+            cmux.release.entitlements \
+            "$APPLE_SIGNING_IDENTITY"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
           APP_SUBMIT_JSON="$(xcrun notarytool submit "$ZIP_SUBMIT" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
           APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$APP_SUBMIT_JSON")"
@@ -463,6 +595,12 @@ jobs:
           xcrun stapler staple "$DMG_RELEASE"
           xcrun stapler validate "$DMG_RELEASE"
 
+      - name: Gate distribution with syspolicy_check
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          syspolicy_check distribution "build-universal/Build/Products/Release/cmux.app"
+
       - name: Upload dSYMs to Sentry
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
@@ -487,32 +625,13 @@ jobs:
             exit 1
           fi
           ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$GITHUB_REF_NAME" appcast.xml
-
-      - name: Attest remote daemon release assets
-        id: attest-remote-daemon-release-assets
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        continue-on-error: true
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          subject-path: |
-            remote-daemon-assets/cmuxd-remote-darwin-arm64
-            remote-daemon-assets/cmuxd-remote-darwin-amd64
-            remote-daemon-assets/cmuxd-remote-linux-arm64
-            remote-daemon-assets/cmuxd-remote-linux-amd64
-            remote-daemon-assets/cmuxd-remote-checksums.txt
-            remote-daemon-assets/cmuxd-remote-manifest.json
-
-      - name: Retry remote daemon release asset attestation
-        if: steps.guard_release_assets.outputs.skip_all != 'true' && steps.attest-remote-daemon-release-assets.outcome == 'failure'
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          subject-path: |
-            remote-daemon-assets/cmuxd-remote-darwin-arm64
-            remote-daemon-assets/cmuxd-remote-darwin-amd64
-            remote-daemon-assets/cmuxd-remote-linux-arm64
-            remote-daemon-assets/cmuxd-remote-linux-amd64
-            remote-daemon-assets/cmuxd-remote-checksums.txt
-            remote-daemon-assets/cmuxd-remote-manifest.json
+          # macOS /bin/bash 3.2 can report "unbound variable" from a script with
+          # an EXIT trap and still exit 0; dry run 34227505375 (2026-09-08)
+          # uploaded a DMG with no appcast that way. The feed must exist, carry
+          # an EdDSA signature and point at this DMG before anything uploads it.
+          test -s appcast.xml
+          grep -q 'sparkle:edSignature' appcast.xml
+          grep -q 'cmux-macos.dmg' appcast.xml
 
       - name: Upload build artifacts (dry-run)
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'workflow_dispatch'
@@ -527,19 +646,24 @@ jobs:
 
       - name: Upload release asset
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/ci/publish-release-assets.py \
+            --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" \
+            --immutable cmux-macos.dmg \
+            --immutable 'remote-daemon-assets/cmuxd-remote-*' \
+            --feed appcast.xml
+
+      # Keep a new stable release hidden until its entire asset set is verified.
+      - name: Publish verified release
+        if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
-          files: |
-            cmux-macos.dmg
-            appcast.xml
-            remote-daemon-assets/cmuxd-remote-darwin-arm64
-            remote-daemon-assets/cmuxd-remote-darwin-amd64
-            remote-daemon-assets/cmuxd-remote-linux-arm64
-            remote-daemon-assets/cmuxd-remote-linux-amd64
-            remote-daemon-assets/cmuxd-remote-checksums.txt
-            remote-daemon-assets/cmuxd-remote-manifest.json
+          tag_name: ${{ github.ref_name }}
           generate_release_notes: true
-          overwrite_files: false
+          prerelease: false
+          draft: false
 
       - name: Upload release appcast to R2
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
@@ -570,6 +694,7 @@ jobs:
             --endpoint-url "$R2_ENDPOINT" \
             --bucket cmux-binaries \
             --key stable/appcast.xml \
+            --content-type "application/xml" \
             --cache-control "no-cache, no-store, must-revalidate"
 
           echo "R2 appcast upload complete: https://files.cmux.com/stable/appcast.xml"

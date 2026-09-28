@@ -1,4 +1,5 @@
 import CryptoKit
+import CmuxTerminalCore
 import Darwin
 import Foundation
 
@@ -10,7 +11,12 @@ struct CMUXAgentTurnDiffBaselineRecord: Codable {
     var agent: String
     var repoRoot: String
     var baseCommit: String
+    /// Untracked paths present at the baseline. An entry ending in "/" covers its
+    /// whole subtree. Bounded by `maxBaselinePaths` so the shared store stays small.
     var untrackedPaths: [String]?
+    /// True when the baseline had too many untracked entries to record, so paths
+    /// outside `untrackedPathHashes` cannot be classified as new or preexisting.
+    var untrackedPathsOmitted: Bool?
     var untrackedPathHashes: [String: String]?
     var untrackedSnapshotId: String?
     var capturedAt: TimeInterval
@@ -25,6 +31,7 @@ private enum CMUXAgentTurnUntrackedSnapshotLimits {
     static let maxFiles = 64
     static let maxFileBytes: UInt64 = 1 * 1024 * 1024
     static let maxTotalBytes: UInt64 = 4 * 1024 * 1024
+    static let maxBaselinePaths = 512
 }
 
 enum CMUXAgentTurnDiffBaselineFile {
@@ -558,6 +565,10 @@ extension CMUXCLI {
                 "expandAllDiffs": CMUXDiffViewerLocalization.string("diffViewer.expandAllDiffs", defaultValue: "Expand all diffs"),
                 "expandUnchangedContext": CMUXDiffViewerLocalization.string("diffViewer.expandUnchangedContext", defaultValue: "Expand unchanged context"),
                 "files": CMUXDiffViewerLocalization.string("diffViewer.files", defaultValue: "Files"),
+                "findClose": CMUXDiffViewerLocalization.string("diffViewer.findClose", defaultValue: "Close find"),
+                "findInDiff": CMUXDiffViewerLocalization.string("diffViewer.findInDiff", defaultValue: "Find in diff"),
+                "findNextMatch": CMUXDiffViewerLocalization.string("diffViewer.findNextMatch", defaultValue: "Next match"),
+                "findPreviousMatch": CMUXDiffViewerLocalization.string("diffViewer.findPreviousMatch", defaultValue: "Previous match"),
                 "hideBackgrounds": CMUXDiffViewerLocalization.string("diffViewer.hideBackgrounds", defaultValue: "Hide backgrounds"),
                 "hideFiles": CMUXDiffViewerLocalization.string("diffViewer.hideFiles", defaultValue: "Hide files"),
                 "hideFileSearch": CMUXDiffViewerLocalization.string("diffViewer.hideFileSearch", defaultValue: "Hide file search"),
@@ -1465,8 +1476,7 @@ extension CMUXCLI {
            scheme == "http" || scheme == "https" {
             return .url(url.absoluteString, defaultFocus: true)
         }
-
-        let resolved = resolvePath(raw)
+        let resolved = TerminalPathResolver().resolveOpenURLFileReference(raw, cwd: FileManager.default.currentDirectoryPath)?.path ?? resolvePath(raw)
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir) else {
             throw CLIError(message: "Path does not exist: \(resolved)")
@@ -2602,9 +2612,33 @@ extension CMUXCLI {
         return result.stdout
     }
 
-    private func gitUntrackedPaths(in repoRoot: String) throws -> [String] {
-        let output = try gitStdout(["ls-files", "--others", "--exclude-standard", "-z"], in: repoRoot)
+    private func gitUntrackedPaths(in repoRoot: String, collapsingDirectories: Bool = false) throws -> [String] {
+        var arguments = ["ls-files", "--others", "--exclude-standard", "-z"]
+        if collapsingDirectories {
+            arguments += ["--directory", "--no-empty-directory"]
+        }
+        let output = try gitStdout(arguments, in: repoRoot)
         return output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
+    }
+
+    /// The untracked path list to persist in a baseline record, or nil when even the
+    /// directory-collapsed listing exceeds `maxBaselinePaths`.
+    private func agentTurnDiffBaselineUntrackedPaths(_ paths: [String], in repoRoot: String) throws -> [String]? {
+        let limit = CMUXAgentTurnUntrackedSnapshotLimits.maxBaselinePaths
+        guard paths.count > limit else {
+            return paths
+        }
+        let collapsed = try gitUntrackedPaths(in: repoRoot, collapsingDirectories: true)
+        return collapsed.count <= limit ? collapsed : nil
+    }
+
+    private func agentTurnDiffBaselineCoversUntrackedPath(_ path: String, baselinePaths: Set<String>) -> Bool {
+        if baselinePaths.contains(path) {
+            return true
+        }
+        return path.indices.contains { index in
+            path[index] == "/" && baselinePaths.contains(String(path[...index]))
+        }
     }
 
     private func gitUntrackedPatchSinceBaseline(
@@ -2616,10 +2650,14 @@ extension CMUXCLI {
         let baselineHashes = record.untrackedPathHashes ?? [:]
         let currentPaths = try gitUntrackedPaths(in: repoRoot)
         let currentPathSet = Set(currentPaths)
+        let baselinePathsOmitted = record.untrackedPathsOmitted == true
         var patches: [String] = []
         for path in currentPaths {
-            guard baselinePaths.contains(path) else {
-                patches.append(try gitAddedUntrackedPatch(path: path, in: repoRoot))
+            guard baselineHashes[path] != nil
+                    || agentTurnDiffBaselineCoversUntrackedPath(path, baselinePaths: baselinePaths) else {
+                if !baselinePathsOmitted {
+                    patches.append(try gitAddedUntrackedPatch(path: path, in: repoRoot))
+                }
                 continue
             }
             guard let baselineHash = baselineHashes[path] else {
@@ -2642,11 +2680,9 @@ extension CMUXCLI {
                 patches.append(patch)
             }
         }
-        for path in baselinePaths.subtracting(currentPathSet).sorted() {
+        for (path, baselineHash) in baselineHashes.sorted(by: { $0.key < $1.key })
+            where !currentPathSet.contains(path) {
             guard !repoPathExists(path, in: repoRoot) else {
-                continue
-            }
-            guard let baselineHash = baselineHashes[path] else {
                 continue
             }
             let patch: String?
@@ -3148,6 +3184,7 @@ extension CMUXCLI {
         let repoRoot = try gitRepoRoot(startingAt: cwd)
         let baseCommit = try agentTurnDiffBaselineCommit(in: repoRoot)
         let untrackedPaths = try gitUntrackedPaths(in: repoRoot)
+        let baselineUntrackedPaths = try agentTurnDiffBaselineUntrackedPaths(untrackedPaths, in: repoRoot)
         let storePath = CMUXAgentTurnDiffBaselineFile.path(env: env)
         let untrackedSnapshot = try gitUntrackedPathHashes(
             paths: untrackedPaths,
@@ -3162,7 +3199,8 @@ extension CMUXCLI {
             agent: normalizedDiffSourceValue(agent) ?? "agent",
             repoRoot: repoRoot,
             baseCommit: baseCommit,
-            untrackedPaths: untrackedPaths.isEmpty ? nil : untrackedPaths,
+            untrackedPaths: baselineUntrackedPaths?.isEmpty == false ? baselineUntrackedPaths : nil,
+            untrackedPathsOmitted: baselineUntrackedPaths == nil ? true : nil,
             untrackedPathHashes: untrackedSnapshot.hashes.isEmpty ? nil : untrackedSnapshot.hashes,
             untrackedSnapshotId: untrackedSnapshot.snapshotId,
             capturedAt: Date().timeIntervalSince1970
@@ -3327,6 +3365,13 @@ extension CMUXCLI {
         if store.records.count > 200 {
             store.records.removeSubrange(200..<store.records.count)
         }
+        // Records written before `maxBaselinePaths` existed can hold hundreds of
+        // thousands of paths; drop those lists so every later store read stays small.
+        for index in store.records.indices
+        where (store.records[index].untrackedPaths?.count ?? 0) > CMUXAgentTurnUntrackedSnapshotLimits.maxBaselinePaths {
+            store.records[index].untrackedPaths = nil
+            store.records[index].untrackedPathsOmitted = true
+        }
     }
 
     private func pruneAgentTurnDiffBaselineArtifacts(
@@ -3415,6 +3460,7 @@ extension CMUXCLI {
             && lhs.agent == rhs.agent
             && lhs.baseCommit == rhs.baseCommit
             && lhs.untrackedPaths == rhs.untrackedPaths
+            && lhs.untrackedPathsOmitted == rhs.untrackedPathsOmitted
             && lhs.untrackedPathHashes == rhs.untrackedPathHashes
             && lhs.untrackedSnapshotId == rhs.untrackedSnapshotId
             && lhs.capturedAt == rhs.capturedAt

@@ -40,6 +40,8 @@ def run_claude_teams(
     base_env: dict[str, str],
     node_options: str,
     tmpdir: str | None = None,
+    block_preload_directory: bool = False,
+    unexpected_path_entries: tuple[str, ...] = (),
 ) -> tuple[subprocess.CompletedProcess[str], str, str, str]:
     with (
         tempfile.TemporaryDirectory(prefix="cmux-claude-teams-env-") as td,
@@ -68,6 +70,12 @@ def run_claude_teams(
         child_node_options_log = tmp / "child-node-options.log"
         fake_home = tmp / "home"
         fake_home.mkdir(parents=True, exist_ok=True)
+        if block_preload_directory:
+            # A regular file where the restore preload's directory belongs
+            # makes creating the preload fail without touching the tmux shim.
+            cmuxterm = fake_home / ".cmuxterm"
+            cmuxterm.mkdir(parents=True, exist_ok=True)
+            (cmuxterm / "cmux-claude-node-options").write_text("occupied", encoding="utf-8")
 
         make_executable(
             wrapper_shim_bin / "claude",
@@ -142,7 +150,10 @@ fs.writeFileSync(
 
         env = base_env.copy()
         env["HOME"] = str(fake_home)
-        env["PATH"] = f"{real_bin}:{base_env.get('PATH', '/usr/bin:/bin')}"
+        inherited_path = base_env.get("PATH", "/usr/bin:/bin")
+        if unexpected_path_entries:
+            inherited_path = ":".join((*unexpected_path_entries, inherited_path))
+        env["PATH"] = f"{real_bin}:{inherited_path}"
         env["FAKE_AGENT_TEAMS_LOG"] = str(env_log)
         env["FAKE_SANDBOXED_LOG"] = str(sandboxed_log)
         env["FAKE_SANDBOXED_MARKER_LOG"] = str(marker_log)
@@ -258,6 +269,36 @@ fs.writeFileSync(
                 f"(managed shim first, invoking tool path retained), got {transported_path!r}"
             )
             raise SystemExit(1)
+        if unexpected_path_entries:
+            transported_components = transported_path.split(":")
+            for unexpected_path_entry in unexpected_path_entries:
+                normalized_unexpected_path = os.path.normpath(
+                    os.path.join(os.getcwd(), unexpected_path_entry.strip())
+                )
+                if (
+                    unexpected_path_entry in transported_path
+                    or normalized_unexpected_path in transported_components
+                ):
+                    print(
+                        "FAIL: respawn transport must reject the malformed relative PATH entry "
+                        "and its cwd-normalized form, "
+                        f"got {transported_path!r}"
+                    )
+                    raise SystemExit(1)
+            malformed_scalars = {
+                scalar
+                for component in transported_components
+                for scalar in component
+                if ord(scalar) < 0x20
+                or 0x7F <= ord(scalar) <= 0x9F
+                or scalar == "\uFFFD"
+            }
+            if malformed_scalars:
+                print(
+                    "FAIL: respawn transport PATH contains malformed control/replacement "
+                    f"scalars {sorted(malformed_scalars)!r}: {transported_path!r}"
+                )
+                raise SystemExit(1)
 
         expected_config_directory = str(fake_home / "claude-config")
         if respawn_environment.get("CLAUDE_CONFIG_DIR") != expected_config_directory:
@@ -375,7 +416,8 @@ fs.writeFileSync(
 
 
 def main() -> int:
-    if ensure_node_on_path() is None:
+    node_path = ensure_node_on_path()
+    if node_path is None:
         print("SKIP: node runtime not found; fake claude execs node")
         return 0
     try:
@@ -385,11 +427,20 @@ def main() -> int:
         return 1
 
     base_env = os.environ.copy()
+    # Keep the PATH fixture independent of the runner's shell. In particular,
+    # an ambient component resolving to this checkout would make the malformed
+    # `.../..` assertion indistinguishable from a pre-existing current-directory
+    # entry. The fake Claude only needs its Node directory and the system tools.
+    base_env["PATH"] = f"{Path(node_path).parent}:/usr/bin:/bin"
 
     proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
         cli_path,
         base_env,
         "--trace-warnings",
+        unexpected_path_entries=(
+            "\ncmux-10221-garbage-dir\n",
+            "\ncmux-10221-garbage-dir/..\n",
+        ),
     )
     if proc.returncode != 0:
         print("FAIL: `cmux claude-teams --version` exited non-zero")
@@ -468,6 +519,8 @@ def main() -> int:
         )
         return 1
 
+    # The restore preload lives in ~/.cmuxterm, not $TMPDIR (#14814), so an
+    # unusable TMPDIR must not cost the session its NODE_OPTIONS restore.
     with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-bad-tmp-") as td:
         bad_tmpdir = Path(td) / "not-a-directory"
         bad_tmpdir.write_text("occupied", encoding="utf-8")
@@ -484,23 +537,71 @@ def main() -> int:
         print(f"stderr={proc.stderr.strip()}")
         return 1
 
-    if node_options_value != "--trace-warnings":
+    require_flag, _, remaining_flags = node_options_value.partition(" ")
+    if (
+        not require_flag.startswith("--require=")
+        or "/.cmuxterm/cmux-claude-node-options/" not in require_flag
+        or str(bad_tmpdir) in require_flag
+    ):
         print(
-            "FAIL: expected claude-teams to skip restore preload injection when TMPDIR is unusable, "
+            "FAIL: expected claude-teams to inject the ~/.cmuxterm restore preload when TMPDIR is unusable, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+
+    if remaining_flags != "--max-old-space-size=4096 --trace-warnings":
+        print(
+            "FAIL: expected the heap cap after the restore preload when TMPDIR is unusable, "
             f"got {node_options_value!r}"
         )
         return 1
 
     if runtime_node_options_value != "--trace-warnings":
         print(
-            "FAIL: expected Claude runtime NODE_OPTIONS to remain unchanged when TMPDIR is unusable, "
+            "FAIL: expected Claude runtime NODE_OPTIONS to be restored when TMPDIR is unusable, "
             f"got {runtime_node_options_value!r}"
         )
         return 1
 
     if child_node_options_value != "--trace-warnings":
         print(
-            "FAIL: expected child NODE_OPTIONS to remain unchanged when TMPDIR is unusable, "
+            "FAIL: expected child NODE_OPTIONS to be restored when TMPDIR is unusable, "
+            f"got {child_node_options_value!r}"
+        )
+        return 1
+
+    # When the preload itself cannot be written, the launcher must skip the
+    # injection rather than point NODE_OPTIONS at a missing module.
+    proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
+        cli_path,
+        base_env,
+        "--trace-warnings",
+        block_preload_directory=True,
+    )
+    if proc.returncode != 0:
+        print("FAIL: `cmux claude-teams --version` should still succeed when the restore preload cannot be written")
+        print(f"exit={proc.returncode}")
+        print(f"stdout={proc.stdout.strip()}")
+        print(f"stderr={proc.stderr.strip()}")
+        return 1
+
+    if node_options_value != "--trace-warnings":
+        print(
+            "FAIL: expected claude-teams to skip restore preload injection when the preload cannot be written, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+
+    if runtime_node_options_value != "--trace-warnings":
+        print(
+            "FAIL: expected Claude runtime NODE_OPTIONS to remain unchanged when the preload cannot be written, "
+            f"got {runtime_node_options_value!r}"
+        )
+        return 1
+
+    if child_node_options_value != "--trace-warnings":
+        print(
+            "FAIL: expected child NODE_OPTIONS to remain unchanged when the preload cannot be written, "
             f"got {child_node_options_value!r}"
         )
         return 1

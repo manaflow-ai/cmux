@@ -127,6 +127,36 @@ struct AgentExecutableResolverTests {
     }
 
     @Test
+    func testRejectsMissingParentBeforeNormalizingSearchPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let realBin = root.appendingPathComponent("real", isDirectory: true)
+        try FileManager.default.createDirectory(at: realBin, withIntermediateDirectories: true)
+        let executable = realBin.appendingPathComponent("claude")
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let missingParentTraversal = root
+            .appendingPathComponent("missing-directory", isDirectory: true)
+            .appendingPathComponent("..", isDirectory: true)
+        let resolver = AgentExecutableResolver(
+            environment: [
+                "PATH": "\(missingParentTraversal.path):\(realBin.path)",
+                "HOME": root.path,
+            ],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            includeStandardSearchDirectories: false
+        )
+
+        let plan = try resolver.resolve(.claude)
+        let runtimePath = plan.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
+        expectEqual(plan.executableURL.path, executable.standardizedFileURL.path)
+        expectFalse(runtimePath.contains(root.standardizedFileURL.path))
+    }
+
+    @Test
     func testReturnsMissingForAbsentExecutable() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(

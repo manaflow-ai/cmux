@@ -72,24 +72,36 @@ import Testing
 
         #expect(snapshot.resolvedColorScheme == expectedScheme)
         #expect(snapshot.chromeColorScheme == expectedScheme)
-        #expect(snapshot.sidebarContentColorScheme == expectedScheme)
-        #expect(snapshot.sidebarSettings.colorScheme == expectedScheme)
+        // A separate sidebar follows the ambient scheme (makeSettings: .dark).
+        #expect(snapshot.sidebarContentColorScheme == .dark)
+        #expect(snapshot.sidebarSettings.colorScheme == .dark)
     }
 
     @Test(arguments: [
-        (ColorScheme.light, ColorScheme.light),
-        (ColorScheme.light, ColorScheme.dark),
-        (ColorScheme.dark, ColorScheme.light),
-        (ColorScheme.dark, ColorScheme.dark),
+        // Opaque themes own their rendered pixels: the terminal scheme stays
+        // authoritative even when the ambient window appearance disagrees.
+        (ColorScheme.light, ColorScheme.light, 1.0, ColorScheme.light),
+        (ColorScheme.light, ColorScheme.dark, 1.0, ColorScheme.light),
+        (ColorScheme.dark, ColorScheme.light, 1.0, ColorScheme.dark),
+        (ColorScheme.dark, ColorScheme.dark, 1.0, ColorScheme.dark),
+        // Translucent themes composite over the ambient window base, so the
+        // readable scheme follows the rendered backdrop (issue #10477: a
+        // translucent dark theme in a light window renders light chrome).
+        (ColorScheme.light, ColorScheme.light, 0.3, ColorScheme.light),
+        (ColorScheme.light, ColorScheme.dark, 0.3, ColorScheme.dark),
+        (ColorScheme.dark, ColorScheme.light, 0.3, ColorScheme.light),
+        (ColorScheme.dark, ColorScheme.dark, 0.3, ColorScheme.dark),
     ])
-    func resolverPropagatesOneInjectedTerminalAuthority(
+    func resolverFollowsRenderedBackdropAuthority(
         terminalScheme: ColorScheme,
-        ambientScheme: ColorScheme
+        ambientScheme: ColorScheme,
+        opacity: Double,
+        expectedScheme: ColorScheme
     ) {
         let resolver = WindowAppearanceResolver(
             terminalAppearance: WindowTerminalAppearanceSnapshot(
                 backgroundColor: NSColor(hex: terminalScheme == .dark ? "#101820" : "#F8F8F2") ?? .black,
-                backgroundOpacity: 0.35,
+                backgroundOpacity: opacity,
                 backgroundBlur: .disabled,
                 usesHostLayerBackground: true,
                 resolvedColorScheme: terminalScheme
@@ -102,10 +114,72 @@ import Testing
             colorScheme: ambientScheme
         ))
 
+        #expect(snapshot.resolvedColorScheme == expectedScheme)
+        #expect(snapshot.chromeColorScheme == expectedScheme)
+        #expect(snapshot.sidebarContentColorScheme == ambientScheme)
+        #expect(snapshot.sidebarSettings.colorScheme == ambientScheme)
+    }
+
+    /// A separate sidebar draws a material that resolves against the app
+    /// appearance, so its content must follow that appearance even when an
+    /// opaque terminal theme disagrees. A sidebar sharing the terminal
+    /// backdrop keeps following the terminal.
+    @Test(arguments: [
+        (false, ColorScheme.dark, ColorScheme.light, ColorScheme.light),
+        (false, ColorScheme.light, ColorScheme.dark, ColorScheme.dark),
+        (true, ColorScheme.dark, ColorScheme.light, ColorScheme.dark),
+        (true, ColorScheme.light, ColorScheme.dark, ColorScheme.light),
+    ])
+    func sidebarSchemeFollowsTheSurfaceItIsDrawnOn(
+        unifySurfaceBackdrops: Bool,
+        terminalScheme: ColorScheme,
+        ambientScheme: ColorScheme,
+        expectedSidebarScheme: ColorScheme
+    ) {
+        let resolver = WindowAppearanceResolver(
+            terminalAppearance: WindowTerminalAppearanceSnapshot(
+                backgroundColor: NSColor(hex: terminalScheme == .dark ? "#262427" : "#F8F8F2") ?? .black,
+                backgroundOpacity: 1,
+                backgroundBlur: .disabled,
+                usesHostLayerBackground: true,
+                resolvedColorScheme: terminalScheme
+            )
+        )
+        let snapshot = resolver.current(settings: makeSettings(
+            unifySurfaceBackdrops: unifySurfaceBackdrops,
+            sidebarBlendMode: "withinWindow",
+            bgGlassEnabled: false,
+            colorScheme: ambientScheme
+        ))
+
         #expect(snapshot.resolvedColorScheme == terminalScheme)
-        #expect(snapshot.chromeColorScheme == terminalScheme)
-        #expect(snapshot.sidebarContentColorScheme == terminalScheme)
-        #expect(snapshot.sidebarSettings.colorScheme == terminalScheme)
+        #expect(snapshot.sidebarContentColorScheme == expectedSidebarScheme)
+        #expect(snapshot.sidebarSettings.colorScheme == expectedSidebarScheme)
+    }
+
+    /// Callers that omit the ambient scheme must not have translucent chrome
+    /// resolved against a guessed light window: without an injected ambient
+    /// the resolver fails closed to the terminal authority.
+    @Test(arguments: [
+        ("#101820", ColorScheme.dark),
+        ("#F8F8F2", ColorScheme.light),
+    ])
+    func omittedAmbientSchemeFailsClosedToTerminalAuthority(
+        backgroundHex: String,
+        terminalScheme: ColorScheme
+    ) {
+        let resolver = WindowAppearanceResolver(
+            terminalAppearance: WindowTerminalAppearanceSnapshot(
+                backgroundColor: NSColor(hex: backgroundHex) ?? .black,
+                backgroundOpacity: 0.3,
+                backgroundBlur: .disabled,
+                usesHostLayerBackground: true,
+                resolvedColorScheme: terminalScheme
+            )
+        )
+        let snapshot = resolver.currentFromUserDefaults(defaults: UserDefaults(suiteName: "cmux.tests.omitted-ambient")!)
+
+        #expect(snapshot.resolvedColorScheme == terminalScheme)
     }
 
     @Test func ghosttyMacOSGlassStyleForcesClearRootAndTerminalTintedGlass() {

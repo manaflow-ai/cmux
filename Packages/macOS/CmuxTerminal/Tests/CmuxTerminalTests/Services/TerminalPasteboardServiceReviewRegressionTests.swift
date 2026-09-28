@@ -1,8 +1,10 @@
 import AppKit
+import GhosttyKit
 import Testing
 
 @testable import CmuxTerminal
 
+// On the main actor, not the cooperative pool: see PasteboardTextContentsTests.
 @MainActor
 @Suite("Terminal pasteboard service review regressions", .serialized)
 struct TerminalPasteboardServiceReviewRegressionTests {
@@ -24,18 +26,22 @@ struct TerminalPasteboardServiceReviewRegressionTests {
             standardPasteboard: standard,
             selectionPasteboard: selection
         )
-        let item = NSPasteboardItem()
-        #expect(item.setString("replacement", forType: .string))
-
-        let write = Task { @MainActor in
-            await service.replaceContentsAndWait(
-                of: standard,
+        let write = Task<TerminalPasteboardMutationResult?, Never> {
+            let item = NSPasteboardItem()
+            guard item.setString("replacement", forType: .string),
+                  let pasteboard = service.pasteboard(
+                      for: GHOSTTY_CLIPBOARD_STANDARD
+                  ) else {
+                return nil
+            }
+            return await service.replaceContentsAndWait(
+                of: pasteboard,
                 with: [item]
             )
         }
         write.cancel()
 
-        let result = await write.value
+        let result = try #require(await write.value)
         #expect(result.status == .written)
         #expect(result.didWrite)
         #expect(standard.string(forType: .string) == "replacement")
