@@ -334,6 +334,7 @@ nightly and switching back to stable, run this from the install you want to open
 ```bash
 cmux restore-session --from nightly          # or stable, rc, staging, debug:<tag>
 cmux restore-session --export ~/session.json # write this install's saved session to a file
+cmux restore-session --export ~/session.json --force # replace an existing export file
 cmux restore-session --from ~/session.json   # reopen an exported file
 ```
 
