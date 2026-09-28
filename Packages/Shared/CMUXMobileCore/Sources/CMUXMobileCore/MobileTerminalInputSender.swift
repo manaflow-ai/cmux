@@ -35,6 +35,11 @@ public final class MobileTerminalInputSender<Payload: Sendable> {
         case awaitingAcknowledgement
         /// The Mac answered this unit.
         case acknowledged(MobileTerminalInputAcknowledgement)
+        /// The Mac accepted and wrote the unit but did not identify it: it no
+        /// longer supports exactly-once delivery (a downgraded build). The
+        /// unit is settled as delivered and never resent, because a resend
+        /// would be written again.
+        case appliedWithoutIdentity
         /// The Mac answered with an error before admitting the unit, so it was
         /// not written.
         case refused
@@ -92,7 +97,7 @@ public final class MobileTerminalInputSender<Payload: Sendable> {
     private var outboxes: [Key: MobileTerminalInputOutbox<Unit>] = [:]
     private var keyByStream: [UUID: Key] = [:]
     private var handlers: [UUID: [SettlementHandler]] = [:]
-    private var pumps: [Key: Task<Void, Never>] = [:]
+    private var pumps: [Key: (id: UUID, task: Task<Void, Never>)] = [:]
     private var repump: Set<Key> = []
     private var retryAttempts: [Key: Int] = [:]
     private var refusals: [Key: Int] = [:]
@@ -176,7 +181,7 @@ public final class MobileTerminalInputSender<Payload: Sendable> {
     /// are settled as abandoned; they are never sent anywhere else.
     public func abandon(where matches: (Key) -> Bool) {
         for key in Array(outboxes.keys) where matches(key) {
-            pumps.removeValue(forKey: key)?.cancel()
+            pumps.removeValue(forKey: key)?.task.cancel()
             repump.remove(key)
             retryAttempts[key] = nil
             refusals[key] = nil
@@ -216,13 +221,18 @@ public final class MobileTerminalInputSender<Payload: Sendable> {
             repump.insert(key)
             return
         }
-        pumps[key] = Task { @MainActor [weak self] in
+        // A cancelled pump can outlive its removal from `pumps` (it finishes
+        // its in-flight send first), so only the task that still owns the
+        // entry may clear it.
+        let id = UUID()
+        pumps[key] = (id, Task { @MainActor [weak self] in
             await self?.runPump(key)
-            self?.pumpFinished(key)
-        }
+            self?.pumpFinished(key, id: id)
+        })
     }
 
-    private func pumpFinished(_ key: Key) {
+    private func pumpFinished(_ key: Key, id: UUID) {
+        guard pumps[key]?.id == id else { return }
         pumps[key] = nil
         if repump.remove(key) != nil { pump(key) }
     }
@@ -253,6 +263,14 @@ public final class MobileTerminalInputSender<Payload: Sendable> {
             case .acknowledged(let acknowledgement):
                 retryAttempts[key] = nil
                 apply(acknowledgement, key: key)
+            case .appliedWithoutIdentity:
+                retryAttempts[key] = nil
+                guard isPending(entry, key: key) else { continue }
+                apply(MobileTerminalInputAcknowledgement(
+                    status: .applied,
+                    streamID: entry.delivery.streamID,
+                    sequence: entry.delivery.sequence
+                ), key: key)
             case .failed:
                 guard isPending(entry, key: key) else { continue }
                 outboxes[key]?.rewind(from: entry.delivery.sequence)

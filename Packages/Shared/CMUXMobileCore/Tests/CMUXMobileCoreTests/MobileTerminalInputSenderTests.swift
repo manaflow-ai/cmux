@@ -87,7 +87,16 @@ private final class Harness {
         }
     }
 
-    func settle() async {
+    /// Waits for `condition` with a real deadline, so a loaded runner cannot
+    /// fail correct code, and a hung pump fails within the deadline.
+    func settle(until condition: () -> Bool) async {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !condition(), ContinuousClock.now < deadline { await Task.yield() }
+        #expect(condition())
+    }
+
+    /// A bounded window for negative assertions (nothing may happen).
+    func settleBriefly() async {
         for _ in 0..<200 { await Task.yield() }
     }
 }
@@ -101,11 +110,10 @@ struct MobileTerminalInputSenderTests {
     @Test func laneUnitsAreSettledWhenTheMacAcknowledgesThem() async {
         let harness = Harness()
         for text in ["l", "s", "\r"] { harness.submit(text, to: a) }
-        await harness.settle()
-        #expect(harness.laneInFlight.count == 3)
+        await harness.settle(until: { harness.laneInFlight.count == 3 })
         #expect(harness.settlements.isEmpty)
         harness.flushLane()
-        await harness.settle()
+        await harness.settle(until: { harness.settlements.count == 3 })
         #expect(harness.mac.screens[a.surfaceID] == "ls\r")
         #expect(harness.settlements == ["l": [.delivered], "s": [.delivered], "\r": [.delivered]])
         #expect(harness.sender.pendingUnitCount(for: a) == 0)
@@ -114,7 +122,7 @@ struct MobileTerminalInputSenderTests {
     @Test func aLaneThatDropsAfterTheMacAppliedResendsWithoutDuplicating() async {
         let harness = Harness()
         for text in ["a", "b", "c"] { harness.submit(text, to: a) }
-        await harness.settle()
+        await harness.settle(until: { harness.laneInFlight.count == 3 })
         // The Mac applies "a" and "b", then the lane dies before any ack.
         let frames = harness.laneInFlight
         harness.laneInFlight = []
@@ -122,7 +130,7 @@ struct MobileTerminalInputSenderTests {
         _ = harness.mac.deliver(frames[1].0, frames[1].1)
         harness.laneUp = false
         harness.sender.resendUnacknowledged()
-        await harness.settle()
+        await harness.settle(until: { harness.settlements.count == 3 })
         #expect(harness.mac.screens[a.surfaceID] == "abc")
         // Resending 1 is answered "applied through 2", so 2 is never resent.
         #expect(harness.rpcSends.map(\.sequence) == [1, 3])
@@ -134,7 +142,7 @@ struct MobileTerminalInputSenderTests {
         harness.laneUp = false
         harness.rpcLosesResponses = 1
         harness.submit("rm -rf build\r", to: a)
-        await harness.settle()
+        await harness.settle(until: { harness.settlements["rm -rf build\r"] != nil })
         #expect(harness.mac.screens[a.surfaceID] == "rm -rf build\r")
         #expect(harness.rpcSends.count == 2)
         #expect(harness.rpcSends[0] == harness.rpcSends[1])
@@ -147,10 +155,10 @@ struct MobileTerminalInputSenderTests {
         harness.submit("to-a ", to: a)
         harness.submit("to-b ", to: b)
         harness.submit("more-a", to: a)
-        await harness.settle()
+        await harness.settle(until: { harness.laneInFlight.count == 3 })
         harness.laneUp = false
         harness.sender.resendUnacknowledged()
-        await harness.settle()
+        await harness.settle(until: { harness.settlements.count == 3 })
         #expect(harness.mac.screens[a.surfaceID] == "to-a more-a")
         #expect(harness.mac.screens[b.surfaceID] == "to-b ")
         #expect(harness.rpcSends.allSatisfy { [a.surfaceID, b.surfaceID].contains($0.surfaceID) })
@@ -159,15 +167,15 @@ struct MobileTerminalInputSenderTests {
     @Test func aRequestNeverOvertakesUnitsStillOnTheLane() async {
         let harness = Harness()
         harness.submit("first", to: a)
-        await harness.settle()
+        await harness.settle(until: { harness.laneInFlight.count == 1 })
         // The lane cannot carry the next unit (a paste), so it waits for the
         // lane's acknowledgement instead of racing it over RPC.
         harness.laneUp = false
         harness.submit("paste", to: a)
-        await harness.settle()
+        await harness.settleBriefly()
         #expect(harness.rpcSends.isEmpty)
         harness.flushLane()
-        await harness.settle()
+        await harness.settle(until: { harness.settlements.count == 2 })
         #expect(harness.mac.screens[a.surfaceID] == "firstpaste")
     }
 
@@ -176,7 +184,7 @@ struct MobileTerminalInputSenderTests {
         harness.laneUp = false
         harness.mac.busySequences = [1]
         harness.submit("x", to: a)
-        await harness.settle()
+        await harness.settle(until: { harness.settlements["x"] != nil })
         #expect(harness.mac.screens[a.surfaceID] == "x")
         #expect(harness.pauses == [1])
         #expect(harness.settlements["x"] == [.delivered])
@@ -187,7 +195,7 @@ struct MobileTerminalInputSenderTests {
         harness.laneUp = false
         harness.mac.closedTerminals = [a.surfaceID]
         harness.submit("typed into a", to: a)
-        await harness.settle()
+        await harness.settle(until: { harness.settlements["typed into a"] != nil })
         #expect(harness.settlements["typed into a"] == [.undeliverable])
         #expect(harness.mac.screens.isEmpty)
         #expect(harness.sender.pendingUnitCount(for: a) == 0)
@@ -197,19 +205,18 @@ struct MobileTerminalInputSenderTests {
         let harness = Harness()
         harness.laneUp = false
         harness.submit("one", to: a)
-        await harness.settle()
+        await harness.settle(until: { harness.settlements["one"] != nil })
         let firstStream = harness.sender.streamID(for: a)
         harness.mac.restart()
         harness.mac.screens = [:]
         harness.reachable = false
         harness.submit("two", to: a)
         harness.submit("three", to: a)
-        await harness.settle()
         // The restarted Mac forgot the stream: "two" (sequence 2) is a gap
         // below this outbox's view, so pending units move to a new stream.
         harness.reachable = true
         harness.sender.resume()
-        await harness.settle()
+        await harness.settle(until: { harness.settlements["three"] != nil })
         #expect(harness.mac.screens[a.surfaceID] == "twothree")
         #expect(harness.sender.streamID(for: a) != firstStream)
         #expect(harness.settlements["two"] == [.delivered])
@@ -225,12 +232,12 @@ struct MobileTerminalInputSenderTests {
         harness.submit("after", to: a)
         harness.reachable = true
         harness.sender.resume()
-        await harness.settle()
+        await harness.settle(until: { harness.settlements["after"] != nil })
         #expect(harness.settlements["bad"] == [.undeliverable])
         #expect(harness.settlements["after"] == [.undeliverable])
         #expect(harness.mac.screens.isEmpty)
         harness.submit("next", to: a)
-        await harness.settle()
+        await harness.settle(until: { harness.settlements["next"] != nil })
         #expect(harness.mac.screens[a.surfaceID] == "next")
         #expect(harness.rpcSends.last?.sequence == 1)
     }
@@ -243,7 +250,7 @@ struct MobileTerminalInputSenderTests {
         #expect(harness.sender.pendingUnitCount(for: a) == 1)
         harness.reachable = true
         harness.sender.resume()
-        await harness.settle()
+        await harness.settle(until: { harness.settlements["o"] != nil })
         #expect(harness.mac.screens[a.surfaceID] == "echo")
         #expect(harness.rpcSends.count == 1)
         #expect(["e", "c", "h", "o"].allSatisfy { harness.settlements[$0] == [.delivered] })
@@ -256,7 +263,7 @@ struct MobileTerminalInputSenderTests {
         harness.sender.abandon { $0.hostID == "mac" }
         harness.reachable = true
         harness.sender.resume()
-        await harness.settle()
+        await harness.settleBriefly()
         #expect(harness.settlements["pending"] == [.abandoned])
         #expect(harness.rpcSends.isEmpty)
         #expect(harness.sender.pendingKeys().isEmpty)
@@ -265,18 +272,16 @@ struct MobileTerminalInputSenderTests {
     @Test func outOfOrderArrivalIsRepairedWithoutLosingOrDuplicatingUnits() async {
         let harness = Harness()
         for text in ["1", "2", "3"] { harness.submit(text, to: a) }
-        await harness.settle()
+        await harness.settle(until: { harness.laneInFlight.count == 3 })
         // The Mac reads "3" first (another path overtook), then the rest.
         let frames = harness.laneInFlight
         harness.laneInFlight = []
         harness.sender.receive(harness.mac.deliver(frames[2].0, frames[2].1))
-        await harness.settle()
+        await harness.settle(until: { harness.laneInFlight.count == 3 })
         harness.sender.receive(harness.mac.deliver(frames[0].0, frames[0].1))
         harness.sender.receive(harness.mac.deliver(frames[1].0, frames[1].1))
-        await harness.settle()
         harness.flushLane()
-        await harness.settle()
+        await harness.settle(until: { harness.sender.pendingUnitCount(for: a) == 0 })
         #expect(harness.mac.screens[a.surfaceID] == "123")
-        #expect(harness.sender.pendingUnitCount(for: a) == 0)
     }
 }

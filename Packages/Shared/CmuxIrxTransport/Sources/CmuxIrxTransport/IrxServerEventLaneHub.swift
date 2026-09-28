@@ -9,8 +9,9 @@ public import Foundation
 /// only whole mobile-sync frames into the single subscriber stream, which lets
 /// the RPC session decode the merged output exactly like one ordered lane:
 /// ordering holds per lane, and every surface's frames stay on one lane.
-/// A surface lane's frames are forwarded inside a ``MobileEventLaneScope`` so
-/// the decoder can refuse a frame that names another terminal.
+/// Every frame from a surface lane is forwarded behind a
+/// ``MobileEventLaneScope`` marker so the decoder can refuse an event that
+/// names another terminal.
 ///
 /// The hub accepts lanes for the connection lifetime. Keeping one acceptor
 /// per connection means a replaced subscriber can never leave a stale accept
@@ -168,6 +169,8 @@ public actor IrxServerEventLaneHub {
         }
         subscriber?.yield(MobileEventLaneScope().scoped(frames, surfaceID: laneSurfaceID))
     }
+    // deliver() forwards shared-lane frames untouched; scoped() stamps each
+    // surface-lane frame with the lane's own identity from its descriptor.
 
     private func laneEnded(laneID: UInt64) {
         readerTasks.removeValue(forKey: laneID)

@@ -37,7 +37,7 @@ enum MobileHostIrxTerminalLaneServer {
         }
 
         func send(_ envelope: CmxIrohTerminalOutputEnvelope) async throws {
-            let data = try CmxIrohTerminalOutputEnvelopeCodec().encode(envelope)
+            let data = CmxIrohTerminalOutputEnvelopeCodec().encode(envelope)
             while sending {
                 await withCheckedContinuation { waiters.append($0) }
             }
@@ -300,6 +300,11 @@ enum MobileHostIrxTerminalLaneServer {
                             try? await writer.send(
                                 .inputAcknowledgement(acknowledgement)
                             )
+                            // A reset can drop queued bytes; finishing drains
+                            // the acknowledgement to the phone first.
+                            try? await stream.sendStream.finish()
+                            await stream.receiveStream.stop(errorCode: ErrorCode.invalidInput)
+                            return true
                         }
                         await reject(stream, errorCode: ErrorCode.invalidInput)
                         return true

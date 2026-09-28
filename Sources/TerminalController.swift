@@ -14855,6 +14855,7 @@ class TerminalController {
         // control socket shares the same bodies through `handleMobileHost`, so the
         // wire bytes stay identical across both entrypoints without a bridge here.
         if request.mustNameItsTerminal,
+           MobileHostRPCRequest.phoneNamedTerminalID(params: request.params) == nil,
            !["surface_id", "terminal_id", "tab_id"].contains(where: { v2UUID(request.params, $0) != nil }) {
             // A phone must name the terminal it writes to or closes; the
             // focused terminal on this Mac is never a stand-in.

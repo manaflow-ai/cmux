@@ -4,21 +4,11 @@ import Foundation
 
 /// RPC glue for exactly-once phone input (``MobileHostTerminalInputApplier``).
 extension TerminalController {
-    /// The terminal the phone addressed, as it stamped it. A stream is bound
-    /// to this id, not to the canonical surface it resolves to, so the input
-    /// lane (bound to the same id) and the RPCs share one ledger entry.
-    func mobileInputRequestedSurfaceID(params: [String: Any]) -> UUID? {
-        for key in ["surface_id", "terminal_id", "tab_id"] {
-            if let raw = params[key] as? String,
-               let id = UUID(uuidString: raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                return id
-            }
-        }
-        return nil
-    }
-
+    /// The delivery identity of a phone request, bound to the terminal the
+    /// phone stamped (not the canonical surface it resolves to), so the input
+    /// lane bound to the same id and the RPCs share one ledger entry.
     func mobileInputDelivery(params: [String: Any]) -> MobileTerminalInputDelivery? {
-        guard let surfaceID = mobileInputRequestedSurfaceID(params: params) else { return nil }
+        guard let surfaceID = MobileHostRPCRequest.phoneNamedTerminalID(params: params) else { return nil }
         return MobileTerminalInputDelivery.fromRPC(parameters: params, surfaceID: surfaceID)
     }
 

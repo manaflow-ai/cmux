@@ -2145,6 +2145,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     isolated deinit {
+        // Pending input settles as abandoned so no awaiting submitter stays
+        // suspended past the store that owned it.
+        exactlyOnceSenderStorage?.abandon { _ in true }
         connectionRecoveryOwner.cancel()
         connectionRecoveryAttemptDeadlineTask?.cancel()
         automaticReconnectRetryTask?.cancel()
@@ -13585,7 +13588,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 latencyBatchNumber: latencyBatchNumber,
                 sendStatusOperationID: sendStatusOperationID
             )
-            handleRawTerminalInputOverflow()
+            // One terminal's full outbox is not a connection failure: its
+            // pending units keep retrying, other terminals and Macs are fine.
+            analytics.capture("ios_terminal_input_dropped", [
+                "pending_byte_count": .int(text.utf8.count),
+                "reason": .string("outbox_full"),
+            ])
+            connectionError = L10n.string(
+                "mobile.terminal.inputQueueFull",
+                defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
+            )
             return true
         case .unsupported:
             if let sendStatusOperationID {

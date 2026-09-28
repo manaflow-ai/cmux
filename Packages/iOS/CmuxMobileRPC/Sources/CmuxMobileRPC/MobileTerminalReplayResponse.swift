@@ -11,6 +11,9 @@ public import Foundation
 public struct MobileTerminalReplayResponse: Decodable, Sendable {
     /// The terminal the host captured. Absent on hosts that predate it.
     public let surfaceID: String?
+    /// Whether `surface_id` was present but not a string. An identity that
+    /// cannot be read is never treated as absent.
+    private let surfaceIDMalformed: Bool
     /// Base64-encoded raw byte tail, the lowest-fidelity fallback.
     public let dataBase64: String?
     /// Base64-encoded VT snapshot, the mid-fidelity fallback.
@@ -44,7 +47,13 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        surfaceID = try? container.decodeIfPresent(String.self, forKey: .surfaceID)
+        do {
+            surfaceID = try container.decodeIfPresent(String.self, forKey: .surfaceID)
+            surfaceIDMalformed = false
+        } catch {
+            surfaceID = nil
+            surfaceIDMalformed = true
+        }
         dataBase64 = try container.decodeIfPresent(String.self, forKey: .dataBase64)
         snapshotBase64 = try container.decodeIfPresent(String.self, forKey: .snapshotBase64)
         // A malformed render_grid must not fail the whole replay; the legacy
@@ -72,6 +81,7 @@ extension MobileTerminalReplayResponse {
     /// Whether any part of this response names a terminal other than
     /// `surfaceID`. Such a response is never applied, not even its bytes.
     public func namesAnotherTerminal(than surfaceID: String) -> Bool {
+        if surfaceIDMalformed { return true }
         let names = [self.surfaceID, renderGrid?.surfaceID].compactMap { $0 }
         return names.contains { $0.caseInsensitiveCompare(surfaceID) != .orderedSame }
     }

@@ -55,29 +55,43 @@ extension MobileShellComposite {
     /// The outbox a unit for this terminal joins, or nil when its Mac does not
     /// deliver input exactly once (older Macs and unidentified hosts keep the
     /// previous path).
+    ///
+    /// The Mac's live capability snapshot decides. While its connection is
+    /// down, the verdict its last snapshot gave still applies, so input typed
+    /// during a reconnect queues instead of being dropped; the next snapshot
+    /// (including a downgraded build under the same identity) replaces it.
     func exactlyOnceInputKey(
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
     ) -> MobileTerminalInputUnitSender.Key? {
         guard let surfaceID = UUID(uuidString: terminalID.rawValue),
-              let (hostID, capabilities) = exactlyOnceHost(workspaceID: workspaceID) else {
+              let host = exactlyOnceHost(workspaceID: workspaceID) else {
             return nil
         }
-        if capabilities.contains(MobileTerminalInputDelivery.capability) {
-            exactlyOnceInputHostIDs.insert(hostID)
+        if let capabilities = host.liveCapabilities {
+            if capabilities.contains(MobileTerminalInputDelivery.capability) {
+                exactlyOnceInputHostIDs.insert(host.hostID)
+            } else {
+                exactlyOnceInputHostIDs.remove(host.hostID)
+            }
         }
-        // A reconnect briefly clears the capability snapshot; input typed then
-        // still joins the outbox of a Mac already known to support it.
-        guard exactlyOnceInputHostIDs.contains(hostID) else { return nil }
-        return MobileTerminalInputUnitSender.Key(hostID: hostID, surfaceID: surfaceID)
+        guard exactlyOnceInputHostIDs.contains(host.hostID) else { return nil }
+        return MobileTerminalInputUnitSender.Key(hostID: host.hostID, surfaceID: surfaceID)
+    }
+
+    /// A Mac answered an identified unit without identifying it back: it was
+    /// downgraded to a build without exactly-once delivery. Later units for it
+    /// take the previous path.
+    func noteHostLostExactlyOnceInput(_ hostID: String) {
+        exactlyOnceInputHostIDs.remove(hostID)
     }
 
     /// The Mac a workspace row belongs to, from the row's own identity so it
     /// stays the same whether that Mac is foreground or secondary, plus the
-    /// capabilities that Mac reported on its live connection.
+    /// capability snapshot of its live connection (nil while it is down).
     private func exactlyOnceHost(
         workspaceID: MobileWorkspacePreview.ID
-    ) -> (hostID: String, capabilities: Set<String>)? {
+    ) -> (hostID: String, liveCapabilities: Set<String>?)? {
         let row = workspaces.first { $0.id == workspaceID }
         let target = workspaceMutationTarget(for: workspaceID)
         let rowDeviceID = row?.macDeviceID.flatMap { $0.isEmpty ? nil : $0 }
@@ -86,11 +100,12 @@ extension MobileShellComposite {
         let instanceTag = rowDeviceID != nil ? row?.macInstanceTag : activeMacInstanceTag
         let hostID = Self.exactlyOnceHostID(macDeviceID: macDeviceID, instanceTag: instanceTag)
         if target.isForeground {
-            return (hostID, supportedHostCapabilities)
+            let live = connectionState == .connected && !supportedHostCapabilities.isEmpty
+            return (hostID, live ? supportedHostCapabilities : nil)
         }
         let capabilities = target.ownerKey.flatMap {
             secondaryMacSubscriptions[$0]?.supportedHostCapabilities
-        } ?? []
+        }
         return (hostID, capabilities)
     }
 
@@ -306,9 +321,11 @@ extension MobileShellComposite {
             }
             guard let object = try? JSONSerialization.jsonObject(with: response) as? [String: Any],
                   let acknowledgement = MobileTerminalInputAcknowledgement.fromRPC(payload: object) else {
-                // A Mac that advertised exactly-once always answers with an
-                // acknowledgement; anything else is treated as a refusal.
-                return .refused
+                // Success without an acknowledgement: a Mac downgraded to a
+                // build without exactly-once delivery wrote the unit the
+                // legacy way. It is delivered; a resend would write it again.
+                noteHostLostExactlyOnceInput(key.hostID)
+                return .appliedWithoutIdentity
             }
             return .acknowledged(acknowledgement)
         } catch MobileShellConnectionError.rpcError(let code, let message) {

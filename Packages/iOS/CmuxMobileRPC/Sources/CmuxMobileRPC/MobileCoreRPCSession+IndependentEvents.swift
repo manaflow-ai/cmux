@@ -91,9 +91,9 @@ extension MobileCoreRPCSession {
         }
 
         var buffer = Data()
-        // The terminal whose lane the following frames were read from, set by
-        // the lane hub's scope frames; nil on the shared events lane.
-        var laneSurfaceID: String?
+        // The terminal whose lane the NEXT frame was read from, set by the
+        // lane hub's marker directly before it; nil for shared-lane frames.
+        var pendingLaneScope: UUID?
         do {
             for try await chunk in stream {
                 try Task.checkCancellation()
@@ -107,7 +107,7 @@ extension MobileCoreRPCSession {
                         maximumDecodedFrameCount: Self.maximumDecodedFrameCountPerRead
                     )
                     for frame in frames {
-                        dispatchIndependent(frame: frame, laneSurfaceID: &laneSurfaceID)
+                        dispatchIndependent(frame: frame, pendingLaneScope: &pendingLaneScope)
                     }
                     guard frames.count == Self.maximumDecodedFrameCountPerRead else { break }
                     await Task.yield()
@@ -119,20 +119,24 @@ extension MobileCoreRPCSession {
     }
 
     /// Dispatches one frame from the merged event lanes. An event read from a
-    /// terminal's own lane must name that terminal; anything else is refused
-    /// and never reaches a terminal view.
-    func dispatchIndependent(frame: Data, laneSurfaceID: inout String?) {
-        let parsed = try? JSONSerialization.jsonObject(with: frame) as? [String: Any]
-        guard let envelope = parsed else { return }
-        if let scope = MobileEventLaneScope().scopeChange(in: envelope) {
-            laneSurfaceID = scope
+    /// terminal's own lane arrives directly behind the hub's marker for that
+    /// lane and must name that terminal; anything else is refused and never
+    /// reaches a terminal view. Only the hub writes markers, and each scopes
+    /// exactly one frame, so received bytes cannot move an event's scope.
+    func dispatchIndependent(frame: Data, pendingLaneScope: inout UUID?) {
+        if let scope = MobileEventLaneScope().markerScope(inPayload: frame) {
+            pendingLaneScope = scope
             return
         }
-        if let laneSurfaceID,
+        let laneScope = pendingLaneScope
+        pendingLaneScope = nil
+        let parsed = try? JSONSerialization.jsonObject(with: frame) as? [String: Any]
+        guard let envelope = parsed else { return }
+        if let laneScope,
            (envelope["kind"] as? String) == "event",
-           !MobileEventLaneScope().eventBelongs(payload: envelope["payload"], toScope: laneSurfaceID) {
+           !MobileEventLaneScope().eventBelongs(payload: envelope["payload"], toScope: laneScope) {
             independentEventLog.error(
-                "refused event on another terminal's lane lane=\(laneSurfaceID, privacy: .public) topic=\((envelope["topic"] as? String) ?? "-", privacy: .public)"
+                "refused event on another terminal's lane lane=\(laneScope.uuidString, privacy: .public) topic=\((envelope["topic"] as? String) ?? "-", privacy: .public)"
             )
             return
         }

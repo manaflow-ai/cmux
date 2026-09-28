@@ -61,12 +61,20 @@ extension MobileHostRPCRequest {
     /// canonical UUID spelling, so two spellings of one terminal never land
     /// in different buckets and overtake each other.
     var orderedInputSurfaceKey: String {
+        Self.phoneNamedTerminalID(params: params)?.uuidString ?? ""
+    }
+
+    /// The terminal a phone request names, exactly as the phone stamped it.
+    /// The ordering bucket, the explicit-terminal gate and the input ledger
+    /// all read this one parser, so a request can never pass one and land
+    /// differently in another.
+    static func phoneNamedTerminalID(params: [String: Any]) -> UUID? {
         for key in ["surface_id", "terminal_id", "tab_id"] {
             guard let raw = params[key] as? String,
                   let id = UUID(uuidString: raw.trimmingCharacters(in: .whitespacesAndNewlines))
             else { continue }
-            return id.uuidString
+            return id
         }
-        return ""
+        return nil
     }
 }
