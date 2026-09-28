@@ -25,8 +25,14 @@ public final class DirectQuicCarrierConnection: IrxCarrierConnection, @unchecked
     private let unidirectional = DirectQuicInbox()
     private let handshakeStreams = DirectQuicInbox()
 
+    /// Identifies this connection for continuity checks. Random, because
+    /// Network.framework exposes no connection-level identifier of its own.
     public let stableID = UInt64.random(in: 1 ... UInt64.max)
+    private var onAdmissionSettled: (@Sendable () -> Void)?
+    private var admissionSettled = false
 
+    /// Lowercase hex Ed25519 device key the handshake proved; empty until
+    /// the handshake completes.
     public var remoteEndpointIDHex: String { lock.withLock { peerEndpointIDHex } }
 
     private init(group: NWConnectionGroup, role: Role, queue: DispatchQueue) {
@@ -101,10 +107,13 @@ public final class DirectQuicCarrierConnection: IrxCarrierConnection, @unchecked
         return carrier
     }
 
+    /// The QUIC options both the dialer and the listener build from, so the
+    /// two sides always negotiate the same ALPN, timeouts, and stream budget.
     static func makeOptions() -> NWProtocolQUIC.Options {
-        let options = NWProtocolQUIC.Options(alpn: [DirectQuicProtocol.alpn])
-        options.idleTimeout = DirectQuicProtocol.idleTimeoutMilliseconds
-        options.initialMaxStreamsBidirectional = DirectQuicProtocol.maximumStreams
+        let wire = DirectQuicProtocol()
+        let options = NWProtocolQUIC.Options(alpn: [wire.alpn])
+        options.idleTimeout = wire.idleTimeoutMilliseconds
+        options.initialMaxStreamsBidirectional = wire.maximumStreams
         options.initialMaxStreamsUnidirectional = 0
         sec_protocol_options_set_min_tls_protocol_version(options.securityProtocolOptions, .TLSv13)
         return options
@@ -137,7 +146,7 @@ public final class DirectQuicCarrierConnection: IrxCarrierConnection, @unchecked
         switch state {
         case .ready:
             if let metadata = group.metadata(definition: NWProtocolQUIC.definition) as? NWProtocolQUIC.Metadata {
-                metadata.keepAlive = .seconds(DirectQuicProtocol.keepAliveSeconds)
+                metadata.keepAlive = .seconds(DirectQuicProtocol().keepAliveSeconds)
             }
             let waiter = lock.withLock { () -> CheckedContinuation<Void, any Error>? in
                 isReady = true
@@ -171,8 +180,9 @@ public final class DirectQuicCarrierConnection: IrxCarrierConnection, @unchecked
         return Data(secret as DispatchData)
     }
 
+    /// The exporter-bound bytes each side signs with its Ed25519 device key.
     static func signedMessage(role: String, exporter: Data) -> Data {
-        Data("\(DirectQuicProtocol.alpn) \(role) key proof".utf8) + exporter
+        Data("\(DirectQuicProtocol().alpn) \(role) key proof".utf8) + exporter
     }
 
     private func clientHandshake(identity: IrxIdentity, expected: String) async throws {
@@ -245,12 +255,15 @@ public final class DirectQuicCarrierConnection: IrxCarrierConnection, @unchecked
 
     // MARK: IrxCarrierConnection
 
+    /// Opens an outbound two-way lane; both halves are one QUIC stream.
     public func openBi() async throws -> (send: any IrxCarrierSendStream, recv: any IrxCarrierRecvStream) {
         try throwIfClosed()
         let stream = try await DirectQuicStream.open(in: group, kind: .bidirectional, queue: queue)
         return (stream, stream)
     }
 
+    /// Opens an outbound one-way lane: a bidirectional stream whose receive
+    /// half this side abandons (see `DirectQuicProtocol.StreamKind`).
     public func openUni() async throws -> any IrxCarrierSendStream {
         try throwIfClosed()
         let stream = try await DirectQuicStream.open(in: group, kind: .unidirectional, queue: queue)
@@ -258,17 +271,46 @@ public final class DirectQuicCarrierConnection: IrxCarrierConnection, @unchecked
         return stream
     }
 
+    /// The next inbound two-way lane, in arrival order.
     public func acceptBi() async throws -> (send: any IrxCarrierSendStream, recv: any IrxCarrierRecvStream) {
         let stream = try await bidirectional.next()
         return (stream, stream)
     }
 
+    /// The next inbound one-way lane, in arrival order.
     public func acceptUni() async throws -> any IrxCarrierRecvStream {
         try await unidirectional.next()
     }
 
+    /// Registers the exactly-once release of this connection's listener
+    /// admission slot. Fires immediately when the connection already settled
+    /// (it died between accept and registration), so a slot can never leak.
+    func setOnAdmissionSettled(_ callback: @escaping @Sendable () -> Void) {
+        let fireNow = lock.withLock { () -> Bool in
+            if admissionSettled { return true }
+            onAdmissionSettled = callback
+            return false
+        }
+        if fireNow { callback() }
+    }
+
+    /// Releases the listener admission slot held since accept: called on the
+    /// irx admission verdict, and by connection teardown so a dead
+    /// connection frees its slot. Idempotent.
+    public func settleAdmission() {
+        let fire = lock.withLock { () -> (@Sendable () -> Void)?? in
+            guard !admissionSettled else { return nil }
+            admissionSettled = true
+            defer { onAdmissionSettled = nil }
+            return .some(onAdmissionSettled)
+        }
+        if case let .some(callback) = fire { callback?() }
+    }
+
+    /// The rendered close cause already published, without waiting.
     public func closeReason() -> String? { lock.withLock { cause } }
 
+    /// Waits for the connection to end and returns the rendered cause.
     public func closed() async -> String {
         await withCheckedContinuation { continuation in
             let resolved: String? = lock.withLock {
@@ -300,10 +342,14 @@ public final class DirectQuicCarrierConnection: IrxCarrierConnection, @unchecked
         }
     }
 
+    /// A no-op: the stream budget is fixed in `makeOptions` at connect time,
+    /// and Network.framework cannot raise it afterwards.
     public func setMaxConcurrentStreams(bi: UInt64, uni: UInt64) {}
 
+    /// A no-op: Direct QUIC never relays, so there is no traversal to allow.
     public func authorizeNatTraversal() async throws {}
 
+    /// Always direct; the carrier dials one exact host and port.
     public func selectedPath() -> (kind: IrxCarrierPathKind, description: String) {
         (.direct, "direct-quic:\(group.descriptor)")
     }
@@ -324,64 +370,9 @@ public final class DirectQuicCarrierConnection: IrxCarrierConnection, @unchecked
         }
         readyWaiter?.resume(throwing: DirectQuicError.connectionClosed(published))
         for waiter in waiters { waiter.resume(returning: published) }
+        settleAdmission()
         bidirectional.finish()
         unidirectional.finish()
         handshakeStreams.finish()
     }
-}
-
-/// A single-consumer queue of accepted streams that fails waiters on close.
-final class DirectQuicInbox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var pending: [DirectQuicStream] = []
-    private var waiters: [CheckedContinuation<DirectQuicStream, any Error>] = []
-    private var finished = false
-    private static let maximumPending = DirectQuicProtocol.maximumStreams
-
-    /// Returns false when the inbox is closed or full.
-    func offer(_ stream: DirectQuicStream) -> Bool {
-        let waiter = lock.withLock { () -> CheckedContinuation<DirectQuicStream, any Error>?? in
-            guard !finished else { return .none }
-            if !waiters.isEmpty { return .some(waiters.removeFirst()) }
-            guard pending.count < Self.maximumPending else { return .none }
-            pending.append(stream)
-            return .some(nil)
-        }
-        switch waiter {
-        case .none: return false
-        case .some(nil): return true
-        case let .some(continuation?):
-            continuation.resume(returning: stream)
-            return true
-        }
-    }
-
-    func next() async throws -> DirectQuicStream {
-        try await withCheckedThrowingContinuation { continuation in
-            let resolved: Result<DirectQuicStream, any Error>? = lock.withLock {
-                if !pending.isEmpty { return .success(pending.removeFirst()) }
-                if finished { return .failure(DirectQuicError.connectionClosed("closed")) }
-                waiters.append(continuation)
-                return nil
-            }
-            if let resolved { continuation.resume(with: resolved) }
-        }
-    }
-
-    func finish() {
-        let (waiters, dropped) = lock.withLock { () -> ([CheckedContinuation<DirectQuicStream, any Error>], [DirectQuicStream]) in
-            finished = true
-            defer {
-                self.waiters.removeAll()
-                pending.removeAll()
-            }
-            return (self.waiters, pending)
-        }
-        for waiter in waiters { waiter.resume(throwing: DirectQuicError.connectionClosed("closed")) }
-        for stream in dropped { Task { try? await stream.reset(errorCode: 0) } }
-    }
-}
-
-extension Data {
-    var hexString: String { map { String(format: "%02x", $0) }.joined() }
 }

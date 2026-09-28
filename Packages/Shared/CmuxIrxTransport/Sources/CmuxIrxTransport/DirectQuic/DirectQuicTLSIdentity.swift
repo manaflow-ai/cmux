@@ -12,11 +12,15 @@ import Security
 /// cannot produce either device's signature over the other session, so a
 /// shared, public certificate key costs nothing. TLS 1.3 key agreement stays
 /// ephemeral, so the certificate key cannot decrypt recorded traffic.
-enum DirectQuicTLSIdentity {
-    static let passphrase = "cmux-direct-quic"
+struct DirectQuicTLSIdentity {
+    init() {}
+
+    /// Protects the embedded PKCS#12 blob; its secrecy is irrelevant because
+    /// peers never trust the certificate (see above).
+    let passphrase = "cmux-direct-quic"
 
     /// Self-signed P-256 certificate, CN=cmux-direct-quic, valid until 2126.
-    static let pkcs12Base64 = """
+    let pkcs12Base64 = """
 MIIELAIBAzCCA+IGCSqGSIb3DQEHAaCCA9MEggPPMIIDyzCCAnoGCSqGSIb3DQEHBqCCAmswggJn
 AgEAMIICYAYJKoZIhvcNAQcBMF8GCSqGSIb3DQEFDTBSMDEGCSqGSIb3DQEFDDAkBBDdCwjnu1D1
 ZQmgGBaSYafKAgIIADAMBggqhkiG9w0CCQUAMB0GCWCGSAFlAwQBKgQQSby00Z+3LYjvfPnPmoZn
@@ -38,18 +42,48 @@ IwYJKoZIhvcNAQkVMRYEFM/1wrX80DNk6FKz9Tt59LTtIqE3MEEwMTANBglghkgBZQMEAgEFAAQg
 vAfNkYbr+46FJXF5FyNCVVtth3LvefO6QfLf/WfnIbsECDvvGihiV7xGAgIIAA==
 """
 
-    /// Imports the identity without touching the keychain. In-memory import
-    /// needs macOS 15; iOS never serves Direct QUIC.
-    static func load() -> sec_identity_t? {
-        guard #available(macOS 15.0, iOS 17.0, *),
-              let data = Data(base64Encoded: pkcs12Base64, options: .ignoreUnknownCharacters) else {
+    /// Loads the listener identity: in memory on macOS 15+, and through a
+    /// one-time import into the default keychain on macOS 14, which has no
+    /// in-memory PKCS#12 import. Both paths yield the same shared identity;
+    /// peers never trust it (see above), so where it is stored is only a
+    /// bookkeeping difference.
+    func load() -> sec_identity_t? {
+        guard let data = Data(base64Encoded: pkcs12Base64, options: .ignoreUnknownCharacters) else {
             return nil
         }
-        var items: CFArray?
-        var options: [String: Any] = [kSecImportExportPassphrase as String: passphrase]
         #if os(macOS)
-        options[kSecImportToMemoryOnly as String] = true
+        if #available(macOS 15.0, *) {
+            return importIdentity(data, options: [
+                kSecImportExportPassphrase as String: passphrase,
+                kSecImportToMemoryOnly as String: true,
+            ])
+        }
+        // macOS 14: a fresh import lands in the default keychain; a relaunch
+        // finds the already-imported identity by its certificate subject.
+        if let imported = importIdentity(data, options: [kSecImportExportPassphrase as String: passphrase]) {
+            return imported
+        }
+        var item: CFTypeRef?
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassIdentity,
+            kSecMatchSubjectWholeString as String: "cmux-direct-quic",
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnRef as String: true,
+        ]
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+              let item, CFGetTypeID(item) == SecIdentityGetTypeID() else {
+            return nil
+        }
+        // swiftlint:disable:next force_cast
+        return sec_identity_create(item as! SecIdentity)
+        #else
+        // iOS never serves Direct QUIC; the phone is always the dialer.
+        return nil
         #endif
+    }
+
+    private func importIdentity(_ data: Data, options: [String: Any]) -> sec_identity_t? {
+        var items: CFArray?
         guard SecPKCS12Import(data as CFData, options as CFDictionary, &items) == errSecSuccess,
               let entries = items as? [[String: Any]],
               let identity = entries.first?[kSecImportItemIdentity as String] else {

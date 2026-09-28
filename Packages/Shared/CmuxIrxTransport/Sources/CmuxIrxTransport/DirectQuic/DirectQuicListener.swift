@@ -5,15 +5,19 @@ public import Network
 /// after its dialer proved an Ed25519 device key. Admission (who that key
 /// belongs to and whether it may connect) stays with the irx server.
 public final class DirectQuicListener: @unchecked Sendable {
-    /// Unauthenticated connections allowed to be mid-handshake at once.
-    static let maximumPendingHandshakes = 16
+    /// Connections allowed between accept and their irx admission verdict.
+    /// A peer with a self-made key passes the key handshake, so the slot is
+    /// held until admission judges the key (or the connection dies); an
+    /// unauthorized dialer can occupy at most this many slots, not spawn
+    /// unbounded admission work.
+    let maximumPendingAdmissions: Int
 
     private let listener: NWListener
     private let identity: IrxIdentity
     private let handshakeDeadline: Duration
     private let queue = DispatchQueue(label: "cmux.direct-quic.listener")
     private let lock = NSLock()
-    private var pendingHandshakes = 0
+    private var pendingAdmissions = 0
     private var readyWaiter: CheckedContinuation<UInt16, any Error>?
     private var readyPort: UInt16?
     private var failure: (any Error)?
@@ -27,9 +31,11 @@ public final class DirectQuicListener: @unchecked Sendable {
     public init(
         port: UInt16,
         identity: IrxIdentity,
-        handshakeDeadline: Duration = .seconds(5)
+        handshakeDeadline: Duration = .seconds(5),
+        maximumPendingAdmissions: Int = 16
     ) throws {
-        guard let tlsIdentity = DirectQuicTLSIdentity.load(),
+        self.maximumPendingAdmissions = maximumPendingAdmissions
+        guard let tlsIdentity = DirectQuicTLSIdentity().load(),
               let nwPort = NWEndpoint.Port(rawValue: port) else {
             throw DirectQuicError.listenerUnavailable
         }
@@ -66,6 +72,7 @@ public final class DirectQuicListener: @unchecked Sendable {
         }
     }
 
+    /// Stops accepting connections and ends the `connections` stream.
     public func cancel() {
         listener.cancel()
         continuation.finish()
@@ -97,8 +104,8 @@ public final class DirectQuicListener: @unchecked Sendable {
 
     private func handshake(_ group: NWConnectionGroup) {
         let admitted = lock.withLock { () -> Bool in
-            guard pendingHandshakes < Self.maximumPendingHandshakes else { return false }
-            pendingHandshakes += 1
+            guard pendingAdmissions < maximumPendingAdmissions else { return false }
+            pendingAdmissions += 1
             return true
         }
         guard admitted else {
@@ -112,8 +119,16 @@ public final class DirectQuicListener: @unchecked Sendable {
                 carrier?.close(errorCode: 1, reason: IrxCloseCode.hostShutdown.reasonData)
                 return
             }
-            lock.withLock { pendingHandshakes -= 1 }
-            guard let carrier else { return }
+            guard let carrier else {
+                lock.withLock { pendingAdmissions -= 1 }
+                return
+            }
+            // The slot stays occupied until the consumer's admission verdict
+            // (or connection teardown, whichever first) releases it.
+            carrier.setOnAdmissionSettled { [weak self] in
+                guard let self else { return }
+                self.lock.withLock { self.pendingAdmissions -= 1 }
+            }
             if case .dropped = continuation.yield(carrier) {
                 carrier.close(errorCode: 1, reason: IrxCloseCode.hostShutdown.reasonData)
             }

@@ -727,6 +727,59 @@ import Testing
         #expect(factory.attemptedPins() == [nil, [CmxIrohDirectDialCandidate(address: "100.82.214.112", port: 50906)]])
     }
 
+    /// An account-wide automatic-Iroh backoff (armed by a failed Iroh-method
+    /// attempt) must not strip a Direct pairing's pinned identity route: the
+    /// exact user-selected dial is attempted, not failed unseen.
+    @Test func automaticIrohBackoffDoesNotBlockPinnedDirectReconnect() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "test-mac", instanceTag: "default", displayName: "Test Mac"
+        )
+        let factory = KindRecordingTransportFactory(router: router, box: TransportBox())
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "test-mac", displayName: "Test Mac",
+            routes: [try iroh()], instanceTag: "default", markActive: true,
+            stackUserID: "user-1", teamID: nil, now: clock.now
+        )
+        // `teamID` omitted so these resolve to the store's own setters.
+        try await pairedStore.setConnectionMethod(
+            macDeviceID: "test-mac", instanceTag: "default",
+            rawValue: MobileConnectionMethod.direct.rawValue, stackUserID: "user-1"
+        )
+        try await pairedStore.setDirectAddresses(
+            macDeviceID: "test-mac", instanceTag: "default",
+            rawJSON: MobilePairedMac.encodeDirectAddresses([
+                MobilePairedMacDirectAddress(address: "100.82.214.112", port: 50906),
+            ]),
+            stackUserID: "user-1"
+        )
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory, now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(suiteName: "backoff-pin-\(UUID().uuidString)")!,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+        store.recordTransientAutomaticReconnectBackoff(accountID: "user-1")
+        #expect(store.automaticIrohReconnectIsBlocked(accountID: "user-1"))
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(store.connectionState == .connected)
+        #expect(factory.attemptedKinds() == [.iroh])
+        #expect(factory.attemptedPins() == [
+            [CmxIrohDirectDialCandidate(address: "100.82.214.112", port: 50906)],
+        ])
+    }
+
     /// Direct is strict. If its pinned dial fails, the old Iroh session stays
     /// closed and no unpinned Iroh retry is allowed to mask the failure.
     @Test func failingDirectAfterMethodChangeDoesNotFallbackToIroh() async throws {
