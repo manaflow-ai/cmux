@@ -46,7 +46,7 @@ When invoked as `cmux` (via wrapper/symlink installed during bootstrap), the bin
 Current integration in cmux:
 1. `workspace.remote.configure` now bootstraps this binary over SSH when missing.
 2. Client sends `hello` before enabling remote proxy transport.
-3. Local workspace proxy broker serves SOCKS5 + HTTP CONNECT and tunnels stream traffic through `proxy.*` RPC over `serve --stdio`, using daemon-pushed stream events instead of polling reads.
+3. Local workspace proxy broker serves SOCKS5 + HTTP CONNECT and tunnels stream traffic through `proxy.*` RPC over `serve --stdio`, using daemon-pushed stream events instead of polling reads. Both handshakes require a per-tunnel credential that only the embedded browser receives.
 4. Daemon status/capabilities are exposed in `workspace.remote.status -> remote.daemon` (including `session.resize.min`).
 5. Persistent SSH terminals require the `pty.session.persistent_daemon` capability before cmux will restore a saved remote PTY session ID after relaunch.
 

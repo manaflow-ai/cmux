@@ -27,6 +27,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     private let configuration: WorkspaceRemoteConfiguration
     private let remotePath: String
     private let localPort: Int
+    private let credential: BrowserProxyCredential
     private let strings: RemoteDaemonStrings
     let ptyBridgeStrings: any RemotePTYBridgeStrings
     let clock: any RemoteProxyRetryClock
@@ -45,6 +46,8 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     /// - Parameters:
     ///   - remotePath: Resolved remote path of the daemon binary.
     ///   - localPort: Loopback port to bind the proxy listener to.
+    ///   - credential: Credential every proxy client must present before a
+    ///     daemon stream opens.
     ///   - strings: App-resolved daemon error strings, passed through to the
     ///     RPC client (localization stays app-side).
     ///   - ptyBridgeStrings: App-resolved PTY attach error strings, passed
@@ -57,6 +60,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String,
         localPort: Int,
+        credential: BrowserProxyCredential,
         strings: RemoteDaemonStrings,
         ptyBridgeStrings: any RemotePTYBridgeStrings,
         clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock(),
@@ -65,6 +69,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         self.configuration = configuration
         self.remotePath = remotePath
         self.localPort = localPort
+        self.credential = credential
         self.strings = strings
         self.ptyBridgeStrings = ptyBridgeStrings
         self.clock = clock
@@ -223,6 +228,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
 
         let session = RemoteDaemonProxySession(
             connection: connection,
+            credential: credential,
             rpcClient: rpcClient,
             queue: queue
         ) { [weak self] id in

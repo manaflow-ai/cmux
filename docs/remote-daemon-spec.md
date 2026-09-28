@@ -90,13 +90,14 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 ### 4.1 Browser Networking Path
 1. `DONE` one local proxy endpoint is created per SSH transport/session key (not per detected port).
 2. `DONE` endpoint is provided by a local broker that supports SOCKS5 + HTTP CONNECT and tunnels via daemon stream RPC.
+   Each tunnel start mints a random credential; SOCKS5 requires it through username/password authentication (RFC 1929) and HTTP CONNECT through `Proxy-Authorization: Basic`. Only the embedded browser receives it, so `workspace.remote.status` reports the endpoint without it.
 3. `DONE` browser panels in remote workspaces are auto-wired to the workspace proxy endpoint.
 4. `DONE` browser panels in local workspaces are not force-proxied.
 5. `DONE` identical SSH transports share one endpoint via a transport-scoped broker.
 
 ### 4.2 WKWebView Wiring
 1. `DONE` use workspace-scoped `WKWebsiteDataStore(forIdentifier:)`.
-2. `DONE` apply workspace/browser scoped `proxyConfigurations`.
+2. `DONE` apply workspace/browser scoped `proxyConfigurations`, each carrying the tunnel credential.
 3. `DONE` prefer SOCKS5 proxy config.
 4. `DONE` keep HTTP CONNECT proxy config as fallback.
 5. `DONE` re-apply proxy config on reconnect/state updates.
