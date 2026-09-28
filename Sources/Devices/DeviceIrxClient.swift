@@ -14,6 +14,16 @@ actor DeviceIrxClient {
         return cache.authorityRevoked || cache.device?.revoked == true
     }
 
+    /// Returns whether an authoritative verified-session failure retires its endpoint slot.
+    nonisolated static func shouldReleaseVerifiedSession(after failure: IrxMacPeerAuthorization.Failure) -> Bool {
+        switch failure {
+        case .staleDirectory:
+            return false
+        case .unavailable, .revoked, .notDiscoverable, .identityMismatch:
+            return true
+        }
+    }
+
     private enum Authorization {
         case waiting
         case verified(bindingID: String, generation: Int)
@@ -221,12 +231,7 @@ actor DeviceIrxClient {
                     ).resolve(cache: cache, localIdentity: cache.identity, now: permissionNow())
                     return !isAuthorized(peer, endpoint: endpoint, owner: entry.owner)
                 } catch let failure as IrxMacPeerAuthorization.Failure {
-                    switch failure {
-                    case .staleDirectory, .unavailable:
-                        return false
-                    case .revoked, .notDiscoverable, .identityMismatch:
-                        return true
-                    }
+                    return Self.shouldReleaseVerifiedSession(after: failure)
                 } catch {
                     return false
                 }

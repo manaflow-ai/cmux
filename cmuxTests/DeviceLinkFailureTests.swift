@@ -27,6 +27,13 @@ struct DeviceLinkFailureTests {
         #expect(DeviceIrxClient.shouldReleaseWaitingSession(cache: nil, releaseAll: true))
     }
 
+    @Test("A verified device session retires when the current directory removes its endpoint")
+    func verifiedSessionRetiresAfterDirectoryRemoval() {
+        #expect(!DeviceIrxClient.shouldReleaseVerifiedSession(after: .staleDirectory))
+        #expect(DeviceIrxClient.shouldReleaseVerifiedSession(after: .unavailable))
+        #expect(DeviceIrxClient.shouldReleaseVerifiedSession(after: .revoked))
+    }
+
     @Test("Confirmed Mac opt-out gives discoverability guidance and waits for a directory update")
     func undiscoverablePeerIsNotAnIdentityOrNetworkFailure() throws {
         let local = V2Identity(appNamespace: "cmux", buildTag: "nightly", deviceID: "viewer",
