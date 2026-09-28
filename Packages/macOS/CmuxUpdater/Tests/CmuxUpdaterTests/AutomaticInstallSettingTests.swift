@@ -68,6 +68,29 @@ import Testing
         }
     }
 
+    /// With automatic installs on, the launch check downloads the update, so a nightly user
+    /// gets it at the next quiet moment instead of after Sparkle's next scheduled check.
+    @Test func launchCheckDownloadsWhenInstallsAreAutomatic() throws {
+        try withDefaults { defaults in
+            defaults.set(true, forKey: UpdateSettings.installAutomaticallyKey)
+            let updater = FakeUpdater()
+            updater.automaticallyChecksForUpdates = true
+            let controller = makeController(defaults: defaults, updater: updater)
+            #expect(controller.startUpdaterIfNeeded())
+            #expect(updater.checkForUpdatesInBackgroundCallCount == 1)
+            #expect(updater.checkForUpdateInformationCallCount == 0)
+        }
+        try withDefaults { defaults in
+            defaults.set(false, forKey: UpdateSettings.installAutomaticallyKey)
+            let updater = FakeUpdater()
+            updater.automaticallyChecksForUpdates = true
+            let controller = makeController(defaults: defaults, updater: updater)
+            #expect(controller.startUpdaterIfNeeded())
+            #expect(updater.checkForUpdatesInBackgroundCallCount == 0)
+            #expect(updater.checkForUpdateInformationCallCount == 1)
+        }
+    }
+
     @Test func devBuildsAndManagedMacsNeverInstallOnTheirOwn() throws {
         try withDefaults { defaults in
             defaults.set(true, forKey: UpdateSettings.installAutomaticallyKey)
