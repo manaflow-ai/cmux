@@ -1,12 +1,7 @@
 import CmuxCloudTui
 import Foundation
 import Testing
-
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+@testable import CmuxCloud
 
 /// Viewer themes and terminal-authored OSC state have separate ownership.
 @Suite
