@@ -86,7 +86,15 @@ struct SidebarWorkspaceTitleRoomTests {
             let was = before.visibleCharacters(of: title)
             let now = current.visibleCharacters(of: title)
             report.append("\(title) | \(was) | \(now)")
-            #expect(now > was, "\(title) lost room: \(was) -> \(now)")
+            #expect(now >= was, "\(title) lost room: \(was) -> \(now)")
+            if was < title.count {
+                // A title that was being cut off gets strictly more room.
+                #expect(now > was, "\(title) gained nothing: \(was) -> \(now)")
+            } else {
+                // A title that already fitted whole cannot gain characters, and
+                // must not start losing them.
+                #expect(now == title.count, "\(title) no longer fits whole: \(now)")
+            }
             // The complaint was titles cutting off around a dozen characters.
             #expect(now >= 20, "\(title) still cuts off at \(now) characters")
         }

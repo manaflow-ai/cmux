@@ -621,12 +621,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
         reconcileStatusPopover(model: model, showsAnchor: showsStatusGlyph)
 
-        let titleLineLimit = SidebarRowTitleMetrics.lineLimit(
+        let titleMetrics = SidebarRowTitleMetrics(
             wrapsTitles: settings.wrapsWorkspaceTitles,
             usesTwoLines: settings.usesTwoLineWorkspaceTitles
         )
+        let titleLineLimit = titleMetrics.lineLimit
         titleView.maximumNumberOfLines = titleLineLimit
-        titleView.lineBreakMode = SidebarRowTitleMetrics.appKitLineBreakMode(lineLimit: titleLineLimit)
+        titleView.lineBreakMode = titleMetrics.appKitLineBreakMode
         let boundedTitle = snapshot.title.sidebarBoundedDisplayString(
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: 2048
@@ -1333,12 +1334,24 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         //
         // The reveal insets the title instead of overlaying it, which is safe
         // for a single line because a single line's height does not depend on
-        // its width. A wrapped title does, and hover must not restate a row's
-        // height, so those keep the reservation whenever the button can appear.
+        // its width.
+        //
+        // The shortcut hint pill takes the trailing edge too, as an overlay
+        // rather than a slot occupant, and it replaces the close button while it
+        // shows. The title has to yield to it for the same reason it yields to
+        // the button: a held modifier would otherwise paint the pill over the
+        // end of the title, and a one-line title now truncates in the middle, so
+        // its end is a part of the name worth reading.
+        //
+        // A title on more than one line keeps the slot reserved at all times,
+        // whatever is or is not in it. Such a title's height depends on its
+        // width, and neither hover nor a held modifier may restate a row's
+        // height.
         let titleWrapsToMultipleLines = titleView.maximumNumberOfLines != 1
         let trailingSlotActive = trailingStatusVisible
             || showsCloseNow
-            || (titleWrapsToMultipleLines && model.canCloseWorkspace)
+            || model.shortcutHintText != nil
+            || titleWrapsToMultipleLines
         let titleMaxX = trailingSlotActive ? (trailing - closeWidth - titleRowSpacing) : trailing
         let titleWidth = max(10, titleMaxX - x)
         let renameField = renameSession?.field
