@@ -40,6 +40,7 @@ struct MobileHostOrderedInputTests {
         }
         await newTicket.waitForTurn()
         #expect(ordering.isCurrent(newTicket))
+        ordering.commit(newTicket)
         ordering.finish(newTicket)
 
         guard case .failure(.staleSequence) = ordering.reserve(
