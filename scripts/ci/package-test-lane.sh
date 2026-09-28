@@ -73,6 +73,7 @@ select_packages() {
     CMUXAuthCore
     CmuxBrowser
     CmuxCanvasUI
+    CmuxCloud
     CmuxCloudMachines
     CmuxCloudTui
     CmuxComputerUse
@@ -166,7 +167,7 @@ select_packages() {
   output "selected_packages=$selected"
   output "selected_count=$count"
 
-  if grep -qxE 'CmuxTerminal|CmuxTerminalCore|CmuxCloudTui' "$selected"; then
+  if grep -qxE 'CmuxTerminal|CmuxTerminalCore|CmuxCloudTui|CmuxCloud' "$selected"; then
     needs_ghosttykit=true
   else
     needs_ghosttykit=false
