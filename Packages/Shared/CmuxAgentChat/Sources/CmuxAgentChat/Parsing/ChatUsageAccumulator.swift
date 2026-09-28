@@ -63,10 +63,11 @@ public struct ChatUsageAccumulator: Sendable {
     /// ample room for those clusters while bounding a long-lived tailer's
     /// memory use.
     static let recentResponseIdentityLimit = 4_096
+    static let retainedTranscriptStringByteLimit = 1_024
 
     /// Maximum distinct model rows retained by one long-lived tailer.
     static let usageModelBucketLimit = 64
-    private static let usageModelNameLengthLimit = 256
+    static let usageModelNameByteLimit = 256
     private static let overflowModelBucket = "<other models>"
 
     /// Claude's model name for a message it produced without an API call.
@@ -221,19 +222,20 @@ public struct ChatUsageAccumulator: Sendable {
               usageValue.object != nil
         else { return }
 
-        let model = message["model"]?.string.flatMap { $0.isEmpty ? nil : $0 }
+        let rawModel = message["model"]?.string.flatMap { $0.isEmpty ? nil : $0 }
         // Claude Code writes client-side assistant messages (API errors,
         // interrupts) with model `<synthetic>` and an all-zero usage block.
         // No API call happened, so they are not responses and must not
         // count as one or open a `<synthetic>` bucket in the model split.
-        if model == Self.claudeSyntheticModel { return }
+        if rawModel == Self.claudeSyntheticModel { return }
+        let model = Self.retainedModel(rawModel)
 
         // A usage block with no response id cannot be deduplicated, and
         // counting it risks the 1.8x overstatement this whole type exists
         // to avoid. Skipping it undercounts by one response instead, which
         // is the smaller and more visible error: `unidentifiedReports`
         // shows it happened.
-        guard let messageID = message["id"]?.string, !messageID.isEmpty else {
+        guard let messageID = Self.retainedIdentity(message["id"]?.string) else {
             Self.incrementSaturating(&unidentifiedReports)
             return
         }
@@ -258,7 +260,11 @@ public struct ChatUsageAccumulator: Sendable {
 
         // `requestId` is part of the identity on purpose: a retried request
         // reuses the message id, and the retry is a second billed response.
-        let key = "\(root["requestId"]?.string ?? "-")|\(messageID)"
+        let requestID = root["requestId"]?.string ?? "-"
+        guard let key = Self.retainedIdentity("\(requestID)|\(messageID)") else {
+            Self.incrementSaturating(&unidentifiedReports)
+            return
+        }
         guard let counted = claudeCountedResponses.value(forKey: key) else {
             let modelBucket = addToClaudeModel(model, usage)
             claudeCountedResponses.setValue(
@@ -354,11 +360,11 @@ public struct ChatUsageAccumulator: Sendable {
 
     private mutating func ingestCodexTurnContext(_ payload: TranscriptJSONValue) {
         observeCodexThreadID(payload["thread_id"]?.string)
-        guard let model = payload["model"]?.string, !model.isEmpty else { return }
-        if let turnID = payload["turn_id"]?.string, !turnID.isEmpty {
+        guard let model = Self.retainedModel(payload["model"]?.string) else { return }
+        if let turnID = Self.retainedIdentity(payload["turn_id"]?.string) {
             codexModelByTurn.setValue(model, forKey: turnID)
         }
-        if let threadID = payload["thread_id"]?.string, !threadID.isEmpty {
+        if let threadID = Self.retainedIdentity(payload["thread_id"]?.string) {
             codexModelByThread.setValue(model, forKey: threadID)
         }
     }
@@ -387,16 +393,16 @@ public struct ChatUsageAccumulator: Sendable {
         }
         observeCodexSessionID(payload["id"]?.string)
         observeCodexThreadID(payload["thread_id"]?.string)
-        guard let model = payload["model"]?.string, !model.isEmpty else { return }
+        guard let model = Self.retainedModel(payload["model"]?.string) else { return }
         codexSessionModel = model
-        if let threadID = payload["thread_id"]?.string, !threadID.isEmpty {
+        if let threadID = Self.retainedIdentity(payload["thread_id"]?.string) {
             codexModelByThread.setValue(model, forKey: threadID)
         }
     }
 
     private mutating func ingestCodexUsageRecord(_ payload: TranscriptJSONValue) {
         guard let usageValue = payload["usage"], usageValue.object != nil else { return }
-        guard let responseID = payload["response_id"]?.string, !responseID.isEmpty else {
+        guard let responseID = Self.retainedIdentity(payload["response_id"]?.string) else {
             Self.incrementSaturating(&unidentifiedReports)
             return
         }
@@ -447,7 +453,7 @@ public struct ChatUsageAccumulator: Sendable {
         for model: String,
         in usageByModel: [String: ChatTokenUsage]
     ) -> String {
-        guard model.count <= usageModelNameLengthLimit else { return overflowModelBucket }
+        guard model.utf8.count <= usageModelNameByteLimit else { return overflowModelBucket }
         if usageByModel[model] != nil { return model }
         // Reserve the final row for every later or oversized provider value.
         return usageByModel.count < usageModelBucketLimit - 1 ? model : overflowModelBucket
@@ -476,13 +482,15 @@ public struct ChatUsageAccumulator: Sendable {
     }
 
     private func codexModel(for payload: TranscriptJSONValue) -> String? {
-        if let turnID = payload["turn_id"]?.string, !turnID.isEmpty {
+        if let rawTurnID = payload["turn_id"]?.string, !rawTurnID.isEmpty {
             // A present turn identity is authoritative. If its bounded entry
-            // has expired, using the thread's latest model would silently
-            // charge an old turn to a newer one on the same thread.
-            return codexModelByTurn.value(forKey: turnID) ?? codexSessionModel
+            // is unknown or expired, every fallback could silently charge the
+            // response to another turn's model.
+            guard let turnID = Self.retainedIdentity(rawTurnID) else { return nil }
+            return codexModelByTurn.value(forKey: turnID)
         }
-        if let threadID = payload["thread_id"]?.string, !threadID.isEmpty {
+        if let rawThreadID = payload["thread_id"]?.string, !rawThreadID.isEmpty {
+            guard let threadID = Self.retainedIdentity(rawThreadID) else { return nil }
             return codexModelByThread.value(forKey: threadID) ?? codexSessionModel
         }
         return codexSessionModel
@@ -502,7 +510,7 @@ public struct ChatUsageAccumulator: Sendable {
     }
 
     private mutating func observeCodexSessionID(_ candidate: String?) {
-        guard let candidate, !candidate.isEmpty else { return }
+        guard let candidate = Self.retainedIdentity(candidate) else { return }
         if let codexSessionID, codexSessionID != candidate {
             beginCodexCumulativeRun()
             codexSessionModel = nil
@@ -511,7 +519,7 @@ public struct ChatUsageAccumulator: Sendable {
     }
 
     private mutating func observeCodexThreadID(_ candidate: String?) {
-        guard let candidate, !candidate.isEmpty else { return }
+        guard let candidate = Self.retainedIdentity(candidate) else { return }
         if let codexThreadID, codexThreadID != candidate {
             beginCodexCumulativeRun()
         }
@@ -570,10 +578,10 @@ public struct ChatUsageAccumulator: Sendable {
             codexCumulativeCurrent = usage
             return
         }
-        if usage.totalTokens > current.totalTokens {
-            codexCumulativeCurrent = usage
-        } else if usage.totalTokens == current.totalTokens {
+        if usage == current {
             Self.incrementSaturating(&duplicateReports)
+        } else if usage.totalTokens > current.totalTokens {
+            codexCumulativeCurrent = usage
         } else {
             // Without a structured boundary this could be either a provider
             // correction or a new thread. Preserve the latest snapshot and
@@ -762,6 +770,21 @@ public struct ChatUsageAccumulator: Sendable {
               total.reasoningOutputTokens >= value.reasoningOutputTokens
         else { return nil }
         return difference(total, value)
+    }
+
+    /// Returns a provider identity only while its retained UTF-8 storage is bounded.
+    private static func retainedIdentity(_ value: String?) -> String? {
+        guard let value,
+              !value.isEmpty,
+              value.utf8.count <= retainedTranscriptStringByteLimit
+        else { return nil }
+        return value
+    }
+
+    /// Maps oversized provider model labels to the shared bounded row.
+    private static func retainedModel(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value.utf8.count <= usageModelNameByteLimit ? value : overflowModelBucket
     }
 
     /// Whether a streamed Claude report is a later, larger version.

@@ -75,10 +75,11 @@ struct ChatUsageAccumulatorTests {
         reasoning: Int = 0,
         threadID: String = "t-1",
         turnID: String = "turn-1",
+        omitTurnID: Bool = false,
         omitResponseID: Bool = false
     ) -> String {
         var payload: [String: Any] = [
-            "thread_id": threadID, "turn_id": turnID, "session_id": "s-1",
+            "thread_id": threadID, "session_id": "s-1",
             "usage": [
                 "input_tokens": input,
                 "cached_input_tokens": cached,
@@ -88,6 +89,7 @@ struct ChatUsageAccumulatorTests {
                 "total_tokens": Self.saturatedSum(input, output),
             ],
         ]
+        if !omitTurnID { payload["turn_id"] = turnID }
         if !omitResponseID { payload["response_id"] = responseID }
         return Self.json([
             "type": "token_usage_record", "ordinal": 27,
@@ -326,6 +328,58 @@ struct ChatUsageAccumulatorTests {
         }
         #expect(codex.totals.usageByModel.count == ChatUsageAccumulator.usageModelBucketLimit)
         #expect(codex.totals.usageByModel.values.map(\.totalTokens).reduce(0, +) == reports)
+    }
+
+    @Test("retained provider identities are bounded by UTF-8 size")
+    func retainedProviderIdentitiesAreByteBounded() {
+        let oversized = String(
+            repeating: "x",
+            count: ChatUsageAccumulator.retainedTranscriptStringByteLimit + 1
+        )
+
+        var claude = ChatUsageAccumulator()
+        claude.ingest(claudeLine: claudeLine(uuid: "oversized", messageID: oversized))
+        #expect(claude.totals.responses == 0)
+        #expect(claude.totals.unidentifiedReports == 1)
+
+        var codex = ChatUsageAccumulator()
+        codex.ingest(codexLine: codexRecordLine(responseID: oversized))
+        #expect(codex.codexSource == .none)
+        #expect(codex.totals.responses == 0)
+        #expect(codex.totals.unidentifiedReports == 1)
+    }
+
+    @Test("oversized UTF-8 model labels use the bounded overflow row")
+    func oversizedModelLabelsUseOverflowBucket() {
+        // The character count fits the former limit, but UTF-8 storage does not.
+        let oversizedModel = String(
+            repeating: "é",
+            count: ChatUsageAccumulator.usageModelNameByteLimit / 2 + 1
+        )
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(claudeLine: claudeLine(
+            uuid: "oversized-model",
+            model: oversizedModel,
+            input: 1,
+            cacheRead: 0,
+            cacheWrite: 0,
+            output: 0
+        ))
+        accumulator.ingest(codexLines: [
+            codexTurnContextLine(model: oversizedModel, turnID: "turn-large", threadID: "thread-large"),
+            codexRecordLine(
+                responseID: "response-large",
+                input: 1,
+                cached: 0,
+                output: 0,
+                threadID: "thread-large",
+                turnID: "turn-large"
+            ),
+        ])
+
+        let totals = accumulator.totals
+        #expect(totals.usageByModel.keys.sorted() == ["<other models>"])
+        #expect(totals.usageByModel["<other models>"]?.totalTokens == 2)
     }
 
     @Test("mixed-provider model rows share one global bound")
@@ -590,8 +644,8 @@ struct ChatUsageAccumulatorTests {
         #expect(totals.usageByModel["model-b"] == nil)
     }
 
-    @Test("only an explicit session model can attribute a record with unknown turn identity")
-    func codexSessionModelIsTheOnlyIdentityFreeFallback() {
+    @Test("a present unknown turn never falls back to another model")
+    func codexUnknownTurnHasNoModelFallback() {
         var turnOnly = ChatUsageAccumulator()
         turnOnly.ingest(codexLines: [
             codexTurnContextLine(
@@ -612,10 +666,20 @@ struct ChatUsageAccumulatorTests {
                 threadID: "unknown-thread", turnID: "unknown-turn"
             ),
         ])
-        #expect(session.totals.usageByModel["session-model"]?.totalTokens == 110)
+        #expect(session.totals.usageByModel.isEmpty)
+
+        var identityFree = ChatUsageAccumulator()
+        identityFree.ingest(codexLines: [
+            codexSessionMetaLine(model: "session-model"),
+            codexRecordLine(
+                responseID: "identity-free-record", input: 100, cached: 0, output: 10,
+                threadID: "unknown-thread", omitTurnID: true
+            ),
+        ])
+        #expect(identityFree.totals.usageByModel["session-model"]?.totalTokens == 110)
     }
 
-    @Test("an evicted turn model falls back to the explicit session, not the thread's latest model")
+    @Test("an evicted turn model is left unattributed")
     func codexEvictedTurnDoesNotUseLatestThreadModel() {
         var accumulator = ChatUsageAccumulator()
         accumulator.ingest(codexLine: codexSessionMetaLine(model: "session-model"))
@@ -632,8 +696,29 @@ struct ChatUsageAccumulatorTests {
         ))
 
         let totals = accumulator.totals
-        #expect(totals.usageByModel["session-model"]?.totalTokens == 110)
+        #expect(totals.usageByModel.isEmpty)
         #expect(totals.usageByModel["turn-model-\(Self.recentResponseLimit)"] == nil)
+    }
+
+    @Test("an oversized turn identity is not retained or attributed")
+    func codexOversizedTurnIdentityIsUnattributed() {
+        let oversizedTurn = String(
+            repeating: "t",
+            count: ChatUsageAccumulator.retainedTranscriptStringByteLimit + 1
+        )
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexSessionMetaLine(model: "session-model"),
+            codexTurnContextLine(
+                model: "turn-model", turnID: oversizedTurn, threadID: "shared-thread"
+            ),
+            codexRecordLine(
+                responseID: "oversized-turn-record", input: 100, cached: 0, output: 10,
+                threadID: "shared-thread", turnID: oversizedTurn
+            ),
+        ])
+
+        #expect(accumulator.totals.usageByModel.isEmpty)
     }
 
     @Test("a repeated Codex record is counted once")
@@ -1238,6 +1323,27 @@ struct ChatUsageAccumulatorTests {
 
         let totals = accumulator.totals
         #expect(totals.usage.totalTokens == 30)
+        #expect(totals.cumulativeUsageIsAmbiguous)
+    }
+
+    @Test("an equal-total cumulative correction is not a duplicate")
+    func codexEqualTotalCumulativeCorrectionIsAmbiguous() {
+        var accumulator = ChatUsageAccumulator()
+        accumulator.ingest(codexLines: [
+            codexTokenCountLine(
+                cumulativeInput: 80, cumulativeOutput: 20,
+                lastInput: 80, lastOutput: 20
+            ),
+            codexTokenCountLine(
+                cumulativeInput: 100, cumulativeOutput: 0,
+                lastInput: 100, lastOutput: 0
+            ),
+        ])
+
+        let totals = accumulator.totals
+        #expect(totals.usage.freshInputTokens == 100)
+        #expect(totals.usage.outputTokens == 0)
+        #expect(totals.duplicateReports == 0)
         #expect(totals.cumulativeUsageIsAmbiguous)
     }
 
