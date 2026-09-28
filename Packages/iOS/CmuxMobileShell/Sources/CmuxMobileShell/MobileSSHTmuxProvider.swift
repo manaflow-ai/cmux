@@ -294,10 +294,27 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     func adopt(_ control: MobileSSHTmuxControlClient, session: String) {
         control.onTopologyChange = { [weak self] in self?.onTopologyChange?() }
         control.onClose = { [weak self, weak control] in
-            guard let self, let control, self.controls[session] === control else { return }
-            self.controls[session] = nil
+            guard let self, let control else { return }
+            self.controlEnded(control, session: session)
         }
         controls[session] = control
+    }
+
+    /// A control client ended without the phone closing it (a phone-
+    /// initiated close removes it from ``controls`` first). With the SSH
+    /// connection still open, that means the tmux server, or this session,
+    /// ended underneath us (a killed server takes every control channel
+    /// with it): the collection pass belonged to the dead server, so forget
+    /// it, and ask for one relist now so a restarted server's sessions
+    /// appear without pull-to-refresh. One event, one relist, no timers;
+    /// later listings ride the existing refresh triggers. A dead SSH
+    /// connection is torn down by the runtime's own close path instead.
+    private func controlEnded(_ control: MobileSSHTmuxControlClient, session: String) {
+        guard controls[session] === control else { return }
+        controls[session] = nil
+        guard hostConnectionIsOpen() else { return }
+        collection = nil
+        onTopologyChange?()
     }
 
     /// Test seam: whether the per-server grouped-session collection pass is
