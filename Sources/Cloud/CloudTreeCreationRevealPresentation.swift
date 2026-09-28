@@ -5,7 +5,8 @@ import Foundation
 /// The tree selects the new workspace row once, when the row first exists, and
 /// only while the selection is still the one the tree had when the create
 /// began. A withdrawn create puts that selection back if the revealed row is
-/// still selected. Any newer selection, user or programmatic, ends the reveal.
+/// still selected. Any newer selection, user or programmatic, ends the reveal,
+/// including one that leaves and comes back to the same row.
 /// A tree that mounts while a create is already in flight ignores that create,
 /// so a remount never replays an old reveal over the restored selection.
 struct CloudTreeCreationRevealPresentation {
@@ -14,15 +15,26 @@ struct CloudTreeCreationRevealPresentation {
         case restore(String?)
     }
 
+    private struct Selection: Equatable {
+        var nodeID: String?
+        var revision: Int
+    }
+
     private enum Phase {
         case idle
-        case waiting(baseline: String?)
-        case revealed(String, baseline: String?)
+        case waiting(baseline: Selection)
+        case revealed(Selection, baseline: String?)
     }
 
     private var token: UUID?
     private var phase = Phase.idle
     private var isPrimed = false
+    private var revision = 0
+
+    /// Records a selection change the tree did not make programmatically.
+    mutating func noteSelectionChange() {
+        revision += 1
+    }
 
     mutating func update(
         request: CloudWorkspaceCreationReveal?,
@@ -31,22 +43,23 @@ struct CloudTreeCreationRevealPresentation {
     ) -> Action? {
         defer { isPrimed = true }
         guard let request else { return nil }
+        let selection = Selection(nodeID: selectedNodeID, revision: revision)
         if request.token != token {
             token = request.token
-            phase = isPrimed ? .waiting(baseline: selectedNodeID) : .idle
+            phase = isPrimed ? .waiting(baseline: selection) : .idle
         }
         switch phase {
         case .idle:
             return nil
         case .waiting(let baseline):
-            guard !request.isWithdrawn, selectedNodeID == baseline else {
+            guard !request.isWithdrawn, selection == baseline else {
                 phase = .idle
                 return nil
             }
             guard let id = request.nodeID, contains(id) else { return nil }
             return .select(id)
-        case .revealed(let id, let baseline):
-            guard selectedNodeID == id else {
+        case .revealed(let revealed, let baseline):
+            guard selection == revealed else {
                 phase = .idle
                 return nil
             }
@@ -58,9 +71,9 @@ struct CloudTreeCreationRevealPresentation {
 
     /// Records that the tree selected the row a `.select` asked for. Until it
     /// does, the reveal keeps waiting, so a row the outline view could not
-    /// resolve yet is retried on the next update.
+    /// resolve or select yet is retried on the next update.
     mutating func didSelect(_ id: String) {
         guard case .waiting(let baseline) = phase else { return }
-        phase = .revealed(id, baseline: baseline)
+        phase = .revealed(Selection(nodeID: id, revision: revision), baseline: baseline.nodeID)
     }
 }

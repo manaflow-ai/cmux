@@ -43,6 +43,8 @@ extension CloudTreeOutlineView.Coordinator {
             guard row >= 0 else { return }
             // A regular selection change records the row, so reloads restore it.
             outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            // The outline view refuses rows it cannot select; retry those later.
+            guard outlineView.selectedRow == row else { return }
             outlineView.scrollRowToVisible(row)
             creationRevealPresentation.didSelect(id)
         case .restore(let baseline)?:

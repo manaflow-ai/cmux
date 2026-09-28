@@ -414,6 +414,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isUpdatingProgrammatically, let outlineView else { return }
+            creationRevealPresentation.noteSelectionChange()
             selectedNodeID = outlineView.selectedRow >= 0
                 ? (outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode)?.id
                 : nil
