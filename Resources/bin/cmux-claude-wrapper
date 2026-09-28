@@ -1770,6 +1770,16 @@ fi
 # Export the wrapper's PID. Because we exec claude below, this PID becomes
 # the actual claude process PID, which hooks use for stale-session detection.
 export CMUX_CLAUDE_PID=$$
+# Headless (`-p`/`--print`) runs share the pane's surface with any interactive
+# session there, so the agent message hooks skip them.
+export CMUX_CLAUDE_HEADLESS=0
+for cmux_claude_arg in "$@"; do
+    case "$cmux_claude_arg" in
+        --) break ;;
+        -p|--print|--print=*) export CMUX_CLAUDE_HEADLESS=1; break ;;
+    esac
+done
+unset cmux_claude_arg
 # A parent session's hook spool belongs to that session; this launch starts its own below.
 unset CMUX_CLAUDE_HOOK_SPOOL_DIR
 if [[ -z "$cmux_claude_hook_cmux_bin" ]]; then
@@ -1968,7 +1978,7 @@ CMUX_CLAUDE_QUEUED_HOOK_COMMAND
     local feed="${queued//@SUBCOMMAND@/feed}"
     local prompt_submit="${queued//@SUBCOMMAND@/prompt-submit}"
     # Background agent-message wait hook (asyncRewake), on SessionStart and Stop.
-    local inbox_wait='{"hooks":[{"asyncRewake":true,"command":"'"$direct_cli"' hooks claude inbox-wait","timeout":86400,"type":"command"}],"matcher":""}'
+    local inbox_wait='{"hooks":[{"async":true,"asyncRewake":true,"command":"'"$direct_cli"' hooks claude inbox-wait","timeout":86400,"type":"command"}],"matcher":""}'
 
     cmux_claude_standard_hook_settings_value='{"hooks":{'
     cmux_claude_standard_hook_settings_value+='"Notification":['"$q_prefix$notification$q_suffix"'"}],'

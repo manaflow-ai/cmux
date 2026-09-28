@@ -1155,7 +1155,7 @@ def build_socket_cases(ctx: StressContext, capabilities: set[str]) -> list[Socke
         SocketCase("agent.message.list", "agent.message.list", lambda c: {"surface": require(c.surface_id, "surface"), "limit": 5}),
         SocketCase("agent.message.claim", "agent.message.claim", lambda c: {"surface_id": require(c.surface_id, "surface"), "via": "stress"}),
         SocketCase("agent.message.mark_read", "agent.message.mark_read", lambda c: {"surface_id": require(c.surface_id, "surface")}),
-        SocketCase("agent.message.wait", "agent.message.wait", lambda c: {"surface_id": require(c.surface_id, "surface"), "timeout_ms": 0}),
+        SocketCase("agent.message.poll", "agent.message.poll", lambda c: {"surface_id": require(c.surface_id, "surface"), "poller_key": "stress"}),
         SocketCase("app.focus_override.set", "app.focus_override.set", lambda c: {"state": "clear"}, expect_ok=None),
         SocketCase("app.simulate_active", "app.simulate_active", lambda c: {}),
         SocketCase("debug.terminals", "debug.terminals", lambda c: {}),

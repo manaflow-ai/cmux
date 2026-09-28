@@ -170,42 +170,47 @@ struct AgentMessageStoreTests {
         #expect(again.messages(limit: .max).count == AgentMessageStore.retainedMessageCount)
     }
 
-    @Test("Waiting returns at once when a message is already queued")
-    func waitImmediate() async throws {
+    @Test("A poll counts queued messages for its surface without claiming them")
+    func pollCounts() throws {
         let store = AgentMessageStore(fileURL: nil)
-        try store.append(draft())
-        let outcome = await store.waitForQueued(recipientSurfaceId: "surface-b", waiterKey: "s1", timeout: .seconds(5))
-        #expect(outcome == .available)
-    }
-
-    @Test("A waiter wakes when a message arrives for its recipient only")
-    func waitWakes() async throws {
-        let store = AgentMessageStore(fileURL: nil)
-        async let outcome = store.waitForQueued(recipientSurfaceId: "surface-b", waiterKey: "s1", timeout: .seconds(10))
-        try await Task.sleep(for: .milliseconds(100))
-        try store.append(draft(to: "surface-c"))
-        try await Task.sleep(for: .milliseconds(100))
+        #expect(store.poll(recipientSurfaceId: "surface-b", pollerKey: "p1", register: true) == .current(queued: 0))
         try store.append(draft(to: "surface-b"))
-        #expect(await outcome == .available)
+        try store.append(draft(to: "surface-c"))
+        #expect(store.poll(recipientSurfaceId: "surface-b", pollerKey: "p1", register: false) == .current(queued: 1))
+        #expect(store.poll(recipientSurfaceId: "surface-b", pollerKey: "p1", register: false) == .current(queued: 1))
+        store.claimQueued(recipientSurfaceId: "surface-b", via: "claude.wake")
+        #expect(store.poll(recipientSurfaceId: "surface-b", pollerKey: "p1", register: false) == .current(queued: 0))
     }
 
-    @Test("A newer waiter under the same key supersedes the older one")
-    func waitSuperseded() async throws {
+    @Test("A newer poller for the same surface supersedes the older one")
+    func pollSuperseded() throws {
         let store = AgentMessageStore(fileURL: nil)
-        async let older = store.waitForQueued(recipientSurfaceId: "surface-b", waiterKey: "s1", timeout: .seconds(10))
-        try await Task.sleep(for: .milliseconds(100))
-        async let newer = store.waitForQueued(recipientSurfaceId: "surface-b", waiterKey: "s1", timeout: .seconds(10))
-        #expect(await older == .superseded)
-        try await Task.sleep(for: .milliseconds(100))
-        try store.append(draft())
-        #expect(await newer == .available)
+        _ = store.poll(recipientSurfaceId: "surface-b", pollerKey: "turn-1", register: true)
+        _ = store.poll(recipientSurfaceId: "surface-b", pollerKey: "turn-2", register: true)
+        #expect(store.poll(recipientSurfaceId: "surface-b", pollerKey: "turn-1", register: false) == .superseded)
+        #expect(store.poll(recipientSurfaceId: "surface-b", pollerKey: "turn-2", register: false) == .current(queued: 0))
+        // Other surfaces are independent.
+        #expect(store.poll(recipientSurfaceId: "surface-c", pollerKey: "turn-1", register: false) == .current(queued: 0))
     }
 
-    @Test("A waiter times out when nothing arrives")
-    func waitTimesOut() async {
+    @Test("After a restart the first poller to check in adopts the surface")
+    func pollAdoptsAfterRestart() {
         let store = AgentMessageStore(fileURL: nil)
-        let outcome = await store.waitForQueued(recipientSurfaceId: "surface-b", waiterKey: "s1", timeout: .milliseconds(50))
-        #expect(outcome == .timedOut)
+        #expect(store.poll(recipientSurfaceId: "surface-b", pollerKey: "old", register: false) == .current(queued: 0))
+        #expect(store.poll(recipientSurfaceId: "surface-b", pollerKey: "other", register: false) == .superseded)
+    }
+
+    @Test("A write that can't open an existing file never replaces it")
+    func appendNeverRewritesExistingFile() throws {
+        let url = temporaryFileURL()
+        let store = AgentMessageStore(fileURL: url)
+        try store.append(draft(body: "first"))
+        try store.append(draft(body: "second"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: url.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path) }
+        try store.append(draft(body: "third"))
+        let reopened = AgentMessageStore(fileURL: url)
+        #expect(reopened.messages(limit: .max).map(\.body) == ["second", "first"])
     }
 
     @Test("The change handler sees every state a message enters")

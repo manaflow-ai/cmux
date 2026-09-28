@@ -44,12 +44,14 @@ extension CMUXCLI {
         // Agent messages (`cmux agent message`) reach Claude through hooks,
         // never through the terminal, so they cannot land in a draft. The
         // wait hook runs in the background after every start and stop and
-        // wakes an idle session by exiting 2 (`asyncRewake`); the prompt
+        // wakes an idle session by exiting 2 (`asyncRewake`; `async` keeps a
+        // Claude Code without `asyncRewake` from blocking on it); the prompt
         // hook attaches anything still queued when the human submits first.
         // The drain must never exit 2, which would erase the human's prompt.
         let inboxWait = Self.claudeHookGroup(
             command: "\(hookCLI) hooks claude inbox-wait",
             timeout: Self.claudeInboxWaitTimeoutSeconds,
+            isAsync: true,
             isAsyncRewake: true
         )
         hooks["SessionStart", default: []].append(inboxWait)

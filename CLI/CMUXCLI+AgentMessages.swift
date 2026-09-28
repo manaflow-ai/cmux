@@ -43,14 +43,14 @@ extension CMUXCLI {
         let rest = Array(commandArgs.dropFirst())
         switch first {
         case "message", "msg":
-            if rest.contains("--help") || rest.contains("-h") {
+            if Self.agentMessageRequestsHelp(rest) {
                 print(Self.agentMessageHelp)
                 return true
             }
             try runAgentMessageSend(rest, client: client, jsonOutput: jsonOutput)
             return true
         case "inbox":
-            if rest.contains("--help") || rest.contains("-h") {
+            if Self.agentMessageRequestsHelp(rest) {
                 print(Self.agentInboxHelp)
                 return true
             }
@@ -61,22 +61,83 @@ extension CMUXCLI {
         }
     }
 
-    private func runAgentMessageSend(_ args: [String], client: SocketClient, jsonOutput: Bool) throws {
-        let (from, rem0) = parseOption(args, name: "--from")
-        let (thread, rem1) = parseOption(rem0, name: "--thread")
-        let (replyTo, rem2) = parseOption(rem1, name: "--reply-to")
-        var positional = rem2.filter { $0 != "--json" }
-        if positional.first == "--" { positional.removeFirst() }
-
-        var params: [String: Any] = [:]
-        if let replyTo {
-            params["reply_to"] = replyTo
-        } else {
-            guard !positional.isEmpty else { throw CLIError(message: Self.agentMessageHelp) }
-            params["target"] = positional.removeFirst()
-            if positional.first == "--" { positional.removeFirst() }
+    /// `-h`/`--help` before any `--`; words after it are message text.
+    static func agentMessageRequestsHelp(_ args: [String]) -> Bool {
+        for arg in args {
+            if arg == "--" { return false }
+            if arg == "-h" || arg == "--help" { return true }
         }
-        var body = positional.joined(separator: " ")
+        return false
+    }
+
+    /// Parsed `cmux agent message` arguments. Options are read only before
+    /// `--`, so the text can contain anything after it.
+    struct AgentMessageSendArguments: Equatable {
+        var from: String?
+        var thread: String?
+        var replyTo: String?
+        var target: String?
+        var body: String
+    }
+
+    static func parseAgentMessageSendArguments(_ args: [String]) throws -> AgentMessageSendArguments {
+        var from: String?
+        var thread: String?
+        var replyTo: String?
+        var words: [String] = []
+        var index = 0
+        var pastTerminator = false
+        while index < args.count {
+            let arg = args[index]
+            index += 1
+            if pastTerminator {
+                words.append(arg)
+                continue
+            }
+            switch arg {
+            case "--":
+                pastTerminator = true
+            case "--json":
+                // The global flag; read by the caller.
+                continue
+            case "--from", "--thread", "--reply-to":
+                guard index < args.count else { throw CLIError(message: Self.agentMessageHelp) }
+                let value = args[index]
+                index += 1
+                switch arg {
+                case "--from": from = value
+                case "--thread": thread = value
+                default: replyTo = value
+                }
+            default:
+                words.append(arg)
+            }
+        }
+        // A reply goes to the original sender, so every word is text.
+        var target: String?
+        if replyTo == nil {
+            guard !words.isEmpty else { throw CLIError(message: Self.agentMessageHelp) }
+            target = words.removeFirst()
+        }
+        return AgentMessageSendArguments(
+            from: from,
+            thread: thread,
+            replyTo: replyTo,
+            target: target,
+            body: words.joined(separator: " ")
+        )
+    }
+
+    private func runAgentMessageSend(_ args: [String], client: SocketClient, jsonOutput: Bool) throws {
+        let parsed = try Self.parseAgentMessageSendArguments(args)
+        let (from, thread) = (parsed.from, parsed.thread)
+        var params: [String: Any] = [:]
+        if let replyTo = parsed.replyTo {
+            params["reply_to"] = replyTo
+        } else if let target = parsed.target {
+            params["target"] = target
+        }
+        var body = parsed.body
         if body == "-" {
             body = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         }
@@ -167,7 +228,10 @@ extension CMUXCLI {
         let env = ProcessInfo.processInfo.environment
         let input = Self.agentInboxHookInput()
         let disabledKey = agent == "claude" ? "CMUX_CLAUDE_HOOKS_DISABLED" : "CMUX_CODEX_HOOKS_DISABLED"
-        guard let surfaceId = env["CMUX_SURFACE_ID"], !surfaceId.isEmpty, env[disabledKey] != "1" else {
+        // Headless `claude -p` runs share the pane's surface id with the
+        // interactive session there; they must not claim its messages.
+        let headless = agent == "claude" && env["CMUX_CLAUDE_HEADLESS"] == "1"
+        guard let surfaceId = env["CMUX_SURFACE_ID"], !surfaceId.isEmpty, env[disabledKey] != "1", !headless else {
             if subcommand != "inbox-wait" { print("{}") }
             return true
         }
@@ -201,60 +265,73 @@ extension CMUXCLI {
         return true
     }
 
-    /// Claude SessionStart/Stop `asyncRewake` hook. Waits in the background
-    /// for a message to this surface; on delivery it writes the message to
-    /// stderr and exits 2, which wakes Claude with the text as a system
-    /// reminder. The prompt box, and any draft in it, is never touched.
+    /// Claude SessionStart/Stop `asyncRewake` hook. Checks for messages to
+    /// this surface every ``agentInboxPollInterval``; when one is waiting it
+    /// claims it, writes it to stderr and exits 2, which wakes Claude with the
+    /// text as a system reminder. The prompt box, and any draft in it, is
+    /// never touched.
+    ///
+    /// Each check uses a new connection that is closed right after, so an
+    /// idle session never holds one of the app's socket connection slots.
+    /// Every Stop starts a new hook; the newest registers as the surface's
+    /// poller and the older ones exit when told they are superseded.
     private func runClaudeInboxWait(
         surfaceId: String,
         input: [String: Any],
         client: SocketClient,
         env: [String: String]
     ) -> Never {
-        let sessionId = (input["session_id"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? surfaceId
         let isStop = (input["hook_event_name"] as? String) == "Stop"
         let agentPID = env["CMUX_CLAUDE_PID"].flatMap { Int32($0) }
-        var markDeliveredRead = isStop
+        let pollerKey = UUID().uuidString
+        var registered = false
         var consecutiveFailures = 0
         while true {
             if let agentPID, agentPID > 1, kill(agentPID, 0) != 0, errno == ESRCH {
                 exit(0)
             }
             do {
+                defer { client.close() }
                 let payload = try client.sendV2(
-                    method: "agent.message.wait",
+                    method: "agent.message.poll",
                     params: [
                         "surface_id": surfaceId,
-                        "waiter_key": "claude:\(sessionId)",
-                        "via": "claude.wake",
-                        "timeout_ms": Self.agentInboxWaitMilliseconds,
-                        "mark_delivered_read": markDeliveredRead,
+                        "poller_key": pollerKey,
+                        "register": !registered,
+                        "mark_delivered_read": !registered && isStop,
                     ],
-                    responseTimeout: TimeInterval(Self.agentInboxWaitMilliseconds / 1_000 + 30)
+                    responseTimeout: 5
                 )
-                markDeliveredRead = false
+                registered = true
                 consecutiveFailures = 0
-                switch payload["status"] as? String {
-                case "delivered":
-                    let text = payload["text"] as? String ?? ""
-                    guard !text.isEmpty else { continue }
-                    FileHandle.standardError.write(Data((text + "\n").utf8))
-                    exit(2)
-                case "superseded":
+                if payload["status"] as? String == "superseded" {
                     exit(0)
-                default:
-                    continue
+                }
+                if (payload["queued"] as? Int ?? 0) > 0, payload["held"] as? Bool != true {
+                    let text = Self.agentInboxClaim(
+                        surfaceId: surfaceId,
+                        via: "claude.wake",
+                        markDeliveredRead: false,
+                        client: client
+                    )
+                    if !text.isEmpty {
+                        FileHandle.standardError.write(Data((text + "\n").utf8))
+                        exit(2)
+                    }
                 }
             } catch {
-                // The app may be restarting; give up after about a minute.
+                // The app may be restarting. Keep trying while Claude lives,
+                // for up to about ten minutes; a restarted app hands the
+                // surface to the first poller that checks in.
                 consecutiveFailures += 1
-                if consecutiveFailures >= 12 { exit(0) }
-                Thread.sleep(forTimeInterval: 5)
+                if consecutiveFailures >= Self.agentInboxMaximumPollFailures { exit(0) }
             }
+            Thread.sleep(forTimeInterval: Self.agentInboxPollInterval)
         }
     }
 
-    static let agentInboxWaitMilliseconds = 600_000
+    static let agentInboxPollInterval: TimeInterval = 2
+    static let agentInboxMaximumPollFailures = 300
 
     private static func agentInboxClaim(
         surfaceId: String,

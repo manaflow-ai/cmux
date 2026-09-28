@@ -7,14 +7,13 @@ public struct AgentMessageStoreChange: Sendable, Equatable {
     public let state: AgentMessageDeliveryState
 }
 
-/// Result of waiting for a recipient's queued messages.
-public enum AgentMessageWaitOutcome: Sendable, Equatable {
-    /// At least one message is queued for the recipient. Nothing is claimed;
-    /// the caller claims when it is ready to deliver.
-    case available
-    /// A newer waiter registered under the same key.
+/// Result of a hook's inbox check for its surface.
+public enum AgentMessagePollOutcome: Sendable, Equatable {
+    /// The poller owns the surface's inbox. `queued` messages are waiting;
+    /// nothing is claimed, so the poller claims when it is ready to deliver.
+    case current(queued: Int)
+    /// A newer poller registered for the surface; this one should stop.
     case superseded
-    case timedOut
 }
 
 /// Durable inbox of agent messages, keyed by recipient surface.
@@ -27,8 +26,9 @@ public enum AgentMessageWaitOutcome: Sendable, Equatable {
 ///
 /// Concurrency: callers are socket handlers on arbitrary threads, so every
 /// method is synchronous and serialized by one lock around in-memory state and
-/// a short file append. Waiters are continuations resumed outside the lock;
-/// waiting never blocks a thread.
+/// a short file append. Nothing waits inside the store: hooks poll with
+/// ``poll(recipientSurfaceId:pollerKey:register:)`` over short-lived socket
+/// connections, so an idle agent never holds a connection open.
 ///
 /// ```swift
 /// let store = AgentMessageStore(fileURL: url)
@@ -53,12 +53,6 @@ public final class AgentMessageStore: @unchecked Sendable {
         var via: String?
     }
 
-    private struct Waiter {
-        let token: UInt64
-        let recipientSurfaceId: String
-        let continuation: CheckedContinuation<AgentMessageWaitOutcome, Never>
-    }
-
     private let fileURL: URL?
     private let now: @Sendable () -> Date
     private let makeId: @Sendable () -> String
@@ -70,8 +64,9 @@ public final class AgentMessageStore: @unchecked Sendable {
     private let lock = NSLock()
     private var messagesById: [String: AgentMessage] = [:]
     private var order: [String] = []
-    private var waiters: [String: Waiter] = [:]
-    private var nextWaiterToken: UInt64 = 0
+    /// The poller that owns each recipient surface's inbox. In memory only:
+    /// after a restart the first poller to check in adopts the surface.
+    private var pollerBySurface: [String: String] = [:]
 
     /// Opens the store at `fileURL`, or an in-memory store when `nil`.
     public init(
@@ -91,13 +86,11 @@ public final class AgentMessageStore: @unchecked Sendable {
 
     // MARK: - Writes
 
-    /// Validates and stores a new queued message, then wakes the recipient's
-    /// waiters.
+    /// Validates and stores a new queued message.
     @discardableResult
     public func append(_ draft: AgentMessageDraft) throws -> AgentMessage {
         let draft = try AgentMessageValidation.validated(draft)
         let message: AgentMessage
-        let resumed: [Waiter]
         lock.lock()
         let id = makeId()
         let parent = draft.inReplyTo.flatMap { messagesById[$0] }
@@ -116,18 +109,15 @@ public final class AgentMessageStore: @unchecked Sendable {
         messagesById[id] = message
         order.append(id)
         appendRecord(Record(kind: .message, message: message))
-        resumed = removeWaiters(forRecipient: message.recipientSurfaceId)
         lock.unlock()
 
-        for waiter in resumed {
-            waiter.continuation.resume(returning: .available)
-        }
         onChange?(AgentMessageStoreChange(message: message, state: .queued))
         return message
     }
 
     /// Marks every queued message for the recipient delivered and returns
     /// them, oldest first.
+    @discardableResult
     public func claimQueued(recipientSurfaceId: String, via: String) -> [AgentMessage] {
         let claimed = advance(
             where: { $0.recipientSurfaceId == recipientSurfaceId && $0.state == .queued },
@@ -196,71 +186,30 @@ public final class AgentMessageStore: @unchecked Sendable {
         return result
     }
 
-    // MARK: - Waiting
+    // MARK: - Polling
 
-    /// Returns when a message is queued for the recipient, when a newer
-    /// waiter registers under `waiterKey`, or after `timeout`.
-    public func waitForQueued(
-        recipientSurfaceId: String,
-        waiterKey: String,
-        timeout: Duration
-    ) async -> AgentMessageWaitOutcome {
-        await withCheckedContinuation { continuation in
-            lock.lock()
-            let hasQueued = messagesById.values.contains {
-                $0.recipientSurfaceId == recipientSurfaceId && $0.state == .queued
-            }
-            if hasQueued {
-                lock.unlock()
-                continuation.resume(returning: .available)
-                return
-            }
-            nextWaiterToken &+= 1
-            let token = nextWaiterToken
-            let replaced = waiters.updateValue(
-                Waiter(token: token, recipientSurfaceId: recipientSurfaceId, continuation: continuation),
-                forKey: waiterKey
-            )
-            lock.unlock()
-            replaced?.continuation.resume(returning: .superseded)
-            Task { [weak self] in
-                try? await Task.sleep(for: timeout)
-                self?.expireWaiter(key: waiterKey, token: token)
-            }
-        }
-    }
-
-    /// Resumes every waiter with `.timedOut`, for shutdown.
-    public func cancelAllWaiters() {
+    /// A hook's inbox check. `register` makes `pollerKey` the surface's owner,
+    /// superseding any older poller; hooks register once when they start.
+    /// Later checks from any other key report ``AgentMessagePollOutcome/superseded``,
+    /// so an agent that starts a new hook every turn never has more than one
+    /// claiming messages.
+    public func poll(recipientSurfaceId: String, pollerKey: String, register: Bool) -> AgentMessagePollOutcome {
         lock.lock()
-        let all = Array(waiters.values)
-        waiters.removeAll()
-        lock.unlock()
-        for waiter in all {
-            waiter.continuation.resume(returning: .timedOut)
+        defer { lock.unlock() }
+        if register {
+            pollerBySurface[recipientSurfaceId] = pollerKey
+        } else if let owner = pollerBySurface[recipientSurfaceId], owner != pollerKey {
+            return .superseded
+        } else {
+            pollerBySurface[recipientSurfaceId] = pollerKey
         }
+        let queued = messagesById.values.filter {
+            $0.recipientSurfaceId == recipientSurfaceId && $0.state == .queued
+        }.count
+        return .current(queued: queued)
     }
 
     // MARK: - Private
-
-    private func expireWaiter(key: String, token: UInt64) {
-        lock.lock()
-        guard let waiter = waiters[key], waiter.token == token else {
-            lock.unlock()
-            return
-        }
-        waiters.removeValue(forKey: key)
-        lock.unlock()
-        waiter.continuation.resume(returning: .timedOut)
-    }
-
-    /// Must hold `lock`.
-    private func removeWaiters(forRecipient recipientSurfaceId: String) -> [Waiter] {
-        let keys = waiters.compactMap { key, waiter in
-            waiter.recipientSurfaceId == recipientSurfaceId ? key : nil
-        }
-        return keys.compactMap { waiters.removeValue(forKey: $0) }
-    }
 
     private func advance(
         where matches: (AgentMessage) -> Bool,
@@ -323,7 +272,10 @@ public final class AgentMessageStore: @unchecked Sendable {
     private func appendRecord(_ record: Record) {
         guard let fileURL, var data = try? Self.encoder.encode(record) else { return }
         data.append(0x0A)
-        if let handle = try? FileHandle(forWritingTo: fileURL) {
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            // Never fall back to rewriting an existing file: a failed open
+            // (out of descriptors, permissions) loses one record, not history.
+            guard let handle = try? FileHandle(forWritingTo: fileURL) else { return }
             defer { try? handle.close() }
             _ = try? handle.seekToEnd()
             try? handle.write(contentsOf: data)

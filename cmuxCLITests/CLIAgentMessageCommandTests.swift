@@ -157,34 +157,89 @@ struct CLIAgentMessageCommandTests {
         #expect(run.request("agent.message.claim") == nil)
     }
 
-    @Test func claudeWaitWakesTheSessionByExitingTwoWithTheMessage() throws {
+    @Test func claudeWaitClaimsThenWakesTheSessionByExitingTwo() throws {
         let run = try runCLI(
             arguments: ["hooks", "claude", "inbox-wait"],
             standardInput: #"{"session_id":"s-7","hook_event_name":"Stop"}"#,
-            responses: ["agent.message.wait": ["status": "delivered", "text": "[cmux agent message] from a\n---\nwake up\n---"]]
+            responses: [
+                "agent.message.poll": ["status": "current", "queued": 1, "held": false],
+                "agent.message.claim": ["messages": [], "text": "[cmux agent message] from a\n---\nwake up\n---"],
+            ]
         )
 
         #expect(run.result.status == 2, Comment(rawValue: run.result.stderr))
         #expect(run.result.stderr.contains("wake up"), Comment(rawValue: run.result.stderr))
         #expect(run.result.stdout.isEmpty)
-        let params = try #require(run.request("agent.message.wait")?["params"] as? [String: Any])
-        #expect(params["surface_id"] as? String == Self.callerSurfaceID)
-        #expect(params["waiter_key"] as? String == "claude:s-7")
-        #expect(params["via"] as? String == "claude.wake")
-        #expect(params["mark_delivered_read"] as? Bool == true)
+        let poll = try #require(run.request("agent.message.poll")?["params"] as? [String: Any])
+        #expect(poll["surface_id"] as? String == Self.callerSurfaceID)
+        #expect((poll["poller_key"] as? String)?.isEmpty == false)
+        #expect(poll["register"] as? Bool == true)
+        #expect(poll["mark_delivered_read"] as? Bool == true)
+        let claim = try #require(run.request("agent.message.claim")?["params"] as? [String: Any])
+        #expect(claim["via"] as? String == "claude.wake")
+        // The poll claims nothing; the claim is a separate call made right
+        // before the message is handed to Claude.
+        let methods = run.requests.compactMap { $0["method"] as? String }
+        #expect(methods.firstIndex(of: "agent.message.poll")! < methods.firstIndex(of: "agent.message.claim")!)
     }
 
-    @Test func claudeWaitExitsQuietlyWhenANewerWaiterTakesOver() throws {
+    @Test func claudeWaitExitsQuietlyWhenANewerHookTakesOver() throws {
         let run = try runCLI(
             arguments: ["hooks", "claude", "inbox-wait"],
             standardInput: #"{"session_id":"s-7","hook_event_name":"SessionStart"}"#,
-            responses: ["agent.message.wait": ["status": "superseded"]]
+            responses: ["agent.message.poll": ["status": "superseded"]]
         )
 
         #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
         #expect(run.result.stderr.isEmpty)
-        let params = try #require(run.request("agent.message.wait")?["params"] as? [String: Any])
+        let params = try #require(run.request("agent.message.poll")?["params"] as? [String: Any])
         #expect(params["mark_delivered_read"] as? Bool == false)
+        #expect(run.request("agent.message.claim") == nil)
+    }
+
+    @Test func claudeWaitDoesNotClaimWhileDeliveryIsHeld() throws {
+        // Held on every poll, then superseded, so the hook exits on its own.
+        let run = try runCLI(
+            arguments: ["hooks", "claude", "inbox-wait"],
+            standardInput: #"{"session_id":"s-7","hook_event_name":"Stop"}"#,
+            responses: ["agent.message.poll": ["status": "current", "queued": 2, "held": true]],
+            pollResponsesAfterFirst: ["status": "superseded"]
+        )
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+        #expect(run.request("agent.message.claim") == nil)
+        let polls = run.requests.filter { $0["method"] as? String == "agent.message.poll" }
+        #expect(polls.count == 2)
+        #expect((polls.last?["params"] as? [String: Any])?["register"] as? Bool == false)
+    }
+
+    @Test func headlessClaudeRunsLeaveTheInboxAlone() throws {
+        let drain = try runCLI(
+            arguments: ["hooks", "claude", "inbox-drain"],
+            standardInput: #"{"session_id":"s-1"}"#,
+            extraEnvironment: ["CMUX_CLAUDE_HEADLESS": "1"],
+            responses: ["agent.message.claim": ["messages": [], "text": "should not appear"]]
+        )
+        #expect(drain.result.status == 0)
+        #expect(drain.result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "{}")
+
+        let wait = try runCLI(
+            arguments: ["hooks", "claude", "inbox-wait"],
+            standardInput: #"{"session_id":"s-1","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: ["CMUX_CLAUDE_HEADLESS": "1"]
+        )
+        #expect(wait.result.status == 0)
+        #expect(drain.requests.isEmpty && wait.requests.isEmpty)
+    }
+
+    @Test func optionsAndHelpFlagsAfterTheSeparatorAreMessageText() throws {
+        let run = try runCLI(arguments: ["agent", "message", "surface:4", "--", "run", "ls", "-h", "--from", "x"])
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+        let params = try #require(run.request("agent.message.send")?["params"] as? [String: Any])
+        #expect(params["target"] as? String == "surface:4")
+        #expect(params["body"] as? String == "run ls -h --from x")
+        #expect(params["from"] == nil)
     }
 
     @Test func codexStopContinuesTheTurnWithPendingMessages() throws {
@@ -228,7 +283,9 @@ struct CLIAgentMessageCommandTests {
         arguments: [String],
         standardInput: String? = nil,
         surfaceID: String? = callerSurfaceID,
-        responses: [String: [String: Any]] = [:]
+        extraEnvironment: [String: String] = [:],
+        responses: [String: [String: Any]] = [:],
+        pollResponsesAfterFirst: [String: Any]? = nil
     ) throws -> Run {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cli-agent-message-\(UUID().uuidString)", isDirectory: true)
@@ -241,7 +298,12 @@ struct CLIAgentMessageCommandTests {
         let socketPath = makeCodexHookSocketPath("agentmsg")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
         let recorder = RequestRecorder()
-        let server = Self.startMockServer(listenerFD: listenerFD, recorder: recorder, responses: canned)
+        let server = Self.startMockServer(
+            listenerFD: listenerFD,
+            recorder: recorder,
+            responses: canned,
+            laterPoll: pollResponsesAfterFirst
+        )
         defer {
             server.stop.set()
             _ = server.done.wait(timeout: .now() + 5)
@@ -261,6 +323,7 @@ struct CLIAgentMessageCommandTests {
         if let surfaceID {
             environment["CMUX_SURFACE_ID"] = surfaceID
         }
+        environment.merge(extraEnvironment) { _, new in new }
         let result = CLIHookProcessRunner.run(
             executablePath: try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self),
             arguments: arguments,
@@ -291,21 +354,37 @@ struct CLIAgentMessageCommandTests {
     }
 
     private final class CannedResponses: @unchecked Sendable {
-        let byMethod: [String: [String: Any]]
+        private let lock = NSLock()
+        private let byMethod: [String: [String: Any]]
+        /// Answers every `agent.message.poll` after the first, when set.
+        private let laterPoll: [String: Any]?
+        private var polls = 0
 
-        init(_ byMethod: [String: [String: Any]]) {
+        init(_ byMethod: [String: [String: Any]], laterPoll: [String: Any]?) {
             self.byMethod = byMethod
+            self.laterPoll = laterPoll
+        }
+
+        func result(for method: String) -> [String: Any] {
+            lock.lock()
+            defer { lock.unlock() }
+            if method == "agent.message.poll" {
+                polls += 1
+                if polls > 1, let laterPoll { return laterPoll }
+            }
+            return byMethod[method] ?? [:]
         }
     }
 
     private static func startMockServer(
         listenerFD: Int32,
         recorder: RequestRecorder,
-        responses: [String: [String: Any]]
+        responses: [String: [String: Any]],
+        laterPoll: [String: Any]?
     ) -> (done: DispatchSemaphore, stop: StopFlag) {
         let done = DispatchSemaphore(value: 0)
         let stop = StopFlag()
-        let canned = CannedResponses(responses)
+        let canned = CannedResponses(responses, laterPoll: laterPoll)
         DispatchQueue.global(qos: .userInitiated).async {
             defer { done.signal() }
             while !stop.isSet {
@@ -365,7 +444,7 @@ struct CLIAgentMessageCommandTests {
                 let request = codexHookJSONObject(line)
                 let id = (request?["id"] as? String) ?? "unknown"
                 let method = request?["method"] as? String ?? ""
-                let result = canned.byMethod[method] ?? [:]
+                let result = canned.result(for: method)
                 let response = codexHookV2Response(id: id, ok: true, result: result)
                 guard writeAllToFixtureSocket(response + "\n", fd: clientFD) else { return }
             }

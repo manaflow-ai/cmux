@@ -260,7 +260,7 @@ extension TerminalController {
             "agent.message.list",
             "agent.message.claim",
             "agent.message.mark_read",
-            "agent.message.wait",
+            "agent.message.poll",
             "debug.terminals",
             "surface.send_text",
             "surface.send_key",

@@ -91,8 +91,8 @@ struct AgentMessageRecipient: Sendable {
 }
 
 extension TerminalController {
-    /// Handles `agent.message.*` on the socket worker. `agent.message.wait`
-    /// awaits a store continuation, so it never parks a thread.
+    /// Handles `agent.message.*` on the socket worker. Every method answers
+    /// at once; hooks poll instead of holding a connection open.
     nonisolated func agentMessageResponse(_ request: ControlRequest) async -> String {
         let params = request.params.mapValues(\.foundationObject)
         let result: V2CallResult
@@ -105,8 +105,8 @@ extension TerminalController {
             result = agentMessageClaim(params: params)
         case "agent.message.mark_read":
             result = agentMessageMarkRead(params: params)
-        case "agent.message.wait":
-            result = await agentMessageWait(params: params)
+        case "agent.message.poll":
+            result = await agentMessagePoll(params: params)
         default:
             result = .err(
                 code: "method_not_found",
@@ -122,8 +122,8 @@ extension TerminalController {
     private nonisolated func agentMessageSend(params: [String: Any]) async -> V2CallResult {
         let body = (params["body"] as? String) ?? ""
         let senderName = (params["from"] as? String) ?? ""
-        let senderSurfaceId = Self.agentMessageTrimmed(params["sender_surface_id"])
-        let senderWorkspaceId = Self.agentMessageTrimmed(params["sender_workspace_id"])
+        let senderSurfaceId = Self.agentMessageSurfaceUUID(params["sender_surface_id"])
+        let senderWorkspaceId = Self.agentMessageSurfaceUUID(params["sender_workspace_id"])
         let replyTo = Self.agentMessageTrimmed(params["reply_to"])
         let store = AgentMessageCenter.store
 
@@ -277,48 +277,34 @@ extension TerminalController {
         return .ok(["read": read.map(\.id)])
     }
 
-    /// Long poll for the Claude wake hook. Returns once messages are claimed,
-    /// when a newer waiter for the same session takes over, or at the
-    /// deadline. While the surface is waiting on a human (a question,
-    /// permission or plan prompt is open), delivery holds so a message never
-    /// lands on top of an open dialog.
-    private nonisolated func agentMessageWait(params: [String: Any]) async -> V2CallResult {
+    /// The Claude wake hook's check, answered at once. The hook opens a new
+    /// connection for each check, so an idle agent never holds one of the
+    /// socket's connection slots. `register` makes `poller_key` the surface's
+    /// owner; an older hook for the same surface then gets `superseded` and
+    /// exits. Nothing is claimed here: the hook claims right before handing
+    /// the messages to Claude, so a hook that died can't swallow them.
+    /// `held` is true while the surface is waiting on a human (a question,
+    /// permission or plan prompt is open), so a message never lands on top of
+    /// an open dialog.
+    private nonisolated func agentMessagePoll(params: [String: Any]) async -> V2CallResult {
         guard let surfaceId = Self.agentMessageSurfaceUUID(params["surface_id"]),
               let surfaceUUID = UUID(uuidString: surfaceId) else {
             return Self.agentMessageMissingSurface()
         }
-        let waiterKey = Self.agentMessageTrimmed(params["waiter_key"]) ?? surfaceId
-        let via = Self.agentMessageTrimmed(params["via"]) ?? "hook.wait"
-        let timeoutMilliseconds = min(max((params["timeout_ms"] as? Int) ?? 300_000, 0), 3_600_000)
+        let pollerKey = Self.agentMessageTrimmed(params["poller_key"]) ?? surfaceId
+        let register = params["register"] as? Bool == true
         let store = AgentMessageCenter.store
-        if params["mark_delivered_read"] as? Bool == true {
-            store.markDeliveredRead(recipientSurfaceId: surfaceId)
-        }
-        let deadline = ContinuousClock.now + .milliseconds(timeoutMilliseconds)
-        while true {
-            let remaining = ContinuousClock.now.duration(to: deadline)
-            guard remaining > .zero else { return .ok(["status": "timeout"]) }
-            switch await store.waitForQueued(recipientSurfaceId: surfaceId, waiterKey: waiterKey, timeout: remaining) {
-            case .superseded:
-                return .ok(["status": "superseded"])
-            case .timedOut:
-                return .ok(["status": "timeout"])
-            case .available:
-                let held = await v2MainAsync { self.agentMessageDeliveryHeld(surfaceId: surfaceUUID) }
-                if held {
-                    try? await Task.sleep(for: .seconds(1))
-                    continue
-                }
-                let messages = store.claimQueued(recipientSurfaceId: surfaceId, via: via)
-                // Another hook may have claimed them between the wake and
-                // this claim; go back to waiting.
-                guard !messages.isEmpty else { continue }
-                return .ok([
-                    "status": "delivered",
-                    "messages": messages.map(AgentMessageCenter.payload),
-                    "text": AgentMessagePromptRenderer.render(messages),
-                ])
+        switch store.poll(recipientSurfaceId: surfaceId, pollerKey: pollerKey, register: register) {
+        case .superseded:
+            return .ok(["status": "superseded"])
+        case .current(let queued):
+            if register, params["mark_delivered_read"] as? Bool == true {
+                store.markDeliveredRead(recipientSurfaceId: surfaceId)
             }
+            let held = queued > 0
+                ? await v2MainAsync { self.agentMessageDeliveryHeld(surfaceId: surfaceUUID) }
+                : false
+            return .ok(["status": "current", "queued": queued, "held": held])
         }
     }
 

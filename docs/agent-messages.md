@@ -19,7 +19,7 @@ Each message moves through three states: `queued`, then `delivered`, then `read`
 
 | Agent | How a message arrives |
 | --- | --- |
-| Claude Code | A background hook (`asyncRewake`) runs after every session start and stop and waits for messages. An idle session wakes up with the message as a system reminder. A busy one sees it at its next step. If the human submits a prompt first, the message is attached to that prompt as context. The prompt box, and any draft in it, is never touched. |
+| Claude Code | A background hook (`asyncRewake`) runs after every session start and stop and checks for messages about every 2 seconds, opening a short connection each time. Headless `claude -p` runs neither wait for nor receive messages. An idle session wakes up with the message as a system reminder. A busy one sees it at its next step. If the human submits a prompt first, the message is attached to that prompt as context. The prompt box, and any draft in it, is never touched. |
 | Codex | Stays `queued` for now. Codex hooks can't wake an idle session; delivery at the next prompt and before Codex goes idle is a follow-up. |
 
 While the recipient is waiting on a human (a question, permission or plan prompt is open), delivery holds until that prompt is answered.
@@ -53,6 +53,6 @@ The relay fix is on main; rebase when free.
 | `agent.message.list` | optional `surface` (target), `state` (string or array), `limit` | `messages`, newest first |
 | `agent.message.claim` | `surface_id`, `via`, optional `mark_delivered_read` | `messages` handed over and marked delivered, and the rendered `text` |
 | `agent.message.mark_read` | `ids`, `id` or `surface_id` | `read`: the ids marked read |
-| `agent.message.wait` | `surface_id`, `waiter_key`, `via`, `timeout_ms`, optional `mark_delivered_read` | `status`: `delivered` (with `messages` and `text`), `superseded` or `timeout` |
+| `agent.message.poll` | `surface_id`, `poller_key`, optional `register` and `mark_delivered_read` | `status`: `current` (with `queued` and `held`) or `superseded`. Claims nothing. |
 
 `cmux events --category agent` publishes `agent.message.queued`, `agent.message.delivered` and `agent.message.read` with the message id, thread, sender and recipient. Bodies are not included; read them with `agent.message.list`.

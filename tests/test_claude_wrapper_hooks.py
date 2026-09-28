@@ -102,7 +102,7 @@ def generated_claude_hook_settings() -> str:
             hook["asyncRewake"] = True
         return {"matcher": matcher, "hooks": [hook]}
 
-    inbox_wait = direct(f"{direct_cli} hooks claude inbox-wait", 86400, async_rewake=True)
+    inbox_wait = direct(f"{direct_cli} hooks claude inbox-wait", 86400, asynchronous=True, async_rewake=True)
 
     def queued(subcommand: str, *, matcher: str = "") -> dict:
         return direct(

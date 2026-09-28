@@ -192,6 +192,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
                 event: event,
                 command: #""${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude inbox-wait"#,
                 timeout: 86_400,
+                isAsync: true,
                 isAsyncRewake: true
             )
         }
