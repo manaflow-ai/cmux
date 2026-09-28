@@ -162,7 +162,9 @@ final class CanvasBrowserRenderingUITests: BrowserFixtureSocketTestCase {
                 ]
                 for (point, expectedMagenta) in points {
                     let x = Int((point.x - windowFrame.minX) * scaleX)
-                    let y = Int((point.y - windowFrame.minY) * scaleY)
+                    // XCUI frames use a bottom-left origin; screenshot
+                    // bitmaps start at the top-left pixel.
+                    let y = Int((windowFrame.maxY - point.y) * scaleY)
                     guard x >= 0, y >= 0, x < bitmap.pixelsWide, y < bitmap.pixelsHigh,
                           let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else {
                         diagnostic = "Unsampleable point \(point); browser=\(browserFrame)"
