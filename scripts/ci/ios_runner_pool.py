@@ -57,21 +57,22 @@ does) for same-repository runs and passes it as ROUTE_TOKEN. With it, "free"
 is read from live state, not estimated from run titles. Each in-flight
 test-ios.yml and ios-screenshots.yml run of the last SIM_WINDOW_MINUTES (only
 those two workflows hold simulators) is charged what its jobs show it holds
-or will take on the owned pool (hold()), and nothing else:
+or will take on the owned pool (hold()), and nothing else. ios-screenshots.yml
+runs are known by their workflow path and need one machine and one simulator.
 
     a job running on an owned runner   already shows as a busy runner; a
                                          simulator job (SIM_JOB) also holds its
                                          mini's simulator
     a queued job on an owned label     one machine, and a simulator if it is
                                          a simulator job
-    simulator jobs not created yet     one machine and one simulator each, for
-                                         a run whose picker placed it owned
-                                         (its marker) and whose jobs exist
+    simulator jobs not created yet     one simulator each, and a machine each
+                                         beyond the one a running build frees;
+                                         none once the build failed
     a run placed owned, no jobs yet    its whole need from its title
     a run still picking                its whole need: it may yet go owned
     a run on Blacksmith                nothing: a re-run, a named Blacksmith
-                                         pool, or a finished picker without a
-                                         marker
+                                         pool, macOS jobs on a Blacksmith label,
+                                         or a finished picker without a marker
 
 The pool is its online idle runners (pr_runner_pool.live_owned_free()) less
 the machines charged. Simulators are counted per mini, not per runner: every
@@ -80,10 +81,13 @@ runner instance of a simulator mini carries SIM_LABEL (`<member>-glaeda`,
 idle runner says nothing about its simulator. The free simulators are the
 online SIM_LABEL minis of the pool that no running simulator job holds, at
 most CI_OWNED_POOL_SLOTS' SIM_LABEL entry less those held, less the
-simulators charged. Neither count goes below zero. The jobs are read before
-the markers, so a run whose picker finishes between the two reads shows its
-marker. At most MAX_JOB_READS runs are read, newest first; a run left unread
-is charged its whole need unless its age already settles it (Placements).
+simulators charged. Neither count goes below zero. live_placements() lists
+the markers, reads the jobs of the runs they and age leave open (at most
+MAX_JOB_READS, newest first), and lists one more page of markers when a run
+read has a finished picker the first listing did not mark, so a picker that
+finishes between the reads is never taken for Blacksmith. A run left unread
+is charged its title's need, the machines only within
+pr_runner_pool.LIVE_WINDOW_MINUTES (after that its jobs show busy).
 Until 2026-09-28 every run was charged its whole need from its title, the
 simulators for SIM_WINDOW_MINUTES and the machines for
 pr_runner_pool.LIVE_WINDOW_MINUTES, wherever it went: a burst of pull
@@ -155,8 +159,9 @@ macOS 26 pool.
 
 API budget: the E2E picker's four requests, plus one page of runs for each
 of the two iOS workflows and up to MARKER_PAGES pages of `owned-pool-watch`
-markers; on the live path, four pages of in-flight runs, one job listing for
-each of at most MAX_JOB_READS runs, and the marker pages.
+markers; on the live path, four pages of in-flight runs, the marker pages,
+one job listing for each run they and age leave open (at most MAX_JOB_READS),
+and one more marker page when a run read was picked after the first listing.
 Anything uncertain keeps the default.
 """
 from __future__ import annotations
@@ -486,6 +491,11 @@ def owned_placements(client: Any, pages: int = MARKER_PAGES) -> Placements | Non
     return Placements(runs, since)
 
 
+def screenshots_run(run: Mapping[str, Any]) -> bool:
+    """An ios-screenshots.yml run, by its workflow path: one capture job, one simulator."""
+    return str(run.get("path") or "").split("@", 1)[0].endswith("/ios-screenshots.yml")
+
+
 def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = None,
                      now: dt.datetime | None = None) -> int:
     """The simulator jobs an in-flight iOS run may hold, read from its title; in full when unsure.
@@ -493,6 +503,8 @@ def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = Non
     With `placements`, an `auto` run the picker sent to Blacksmith is charged nothing (see "Where an
     `auto` run went").
     """
+    if screenshots_run(run):
+        return LANES["screenshots"].jobs
     title = str(run.get("display_title") or "")
     fields = title.split(TITLE_SEPARATOR)
     if not title.startswith(TITLE_PREFIX) or len(fields) != 7 or not fields[6].startswith("on "):
@@ -510,6 +522,8 @@ def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = Non
 
 def charged_jobs(run: Mapping[str, Any]) -> int:
     """The owned machines an in-flight iOS run may hold, read from its title; in full when unsure."""
+    if screenshots_run(run):
+        return LANES["screenshots"].jobs
     title = str(run.get("display_title") or "")
     fields = title.split(TITLE_SEPARATOR)
     if not title.startswith(TITLE_PREFIX) or len(fields) != 7 or not fields[6].startswith("on "):
@@ -548,37 +562,65 @@ def settled_off(run: Mapping[str, Any]) -> bool:
 
 
 def job_labels(job: Mapping[str, Any]) -> set[str]:
+    """A jobs-API job's labels (plain strings there, unlike the runners API)."""
     return {str(label) for label in job.get("labels") or []}
+
+
+def on_runner(job: Mapping[str, Any]) -> bool:
+    return job.get("status") == "in_progress" and bool(job.get("runner_name"))
+
+
+def picked_unmarked(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> bool:
+    """The run's picker finished and no macOS job exists yet: its marker alone says where it went."""
+    return (any(job.get("name") == PICKER_JOB and job.get("status") == "completed" for job in jobs)
+            and not any("macos" in label for job in jobs for label in job_labels(job)))
 
 
 def hold(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]] | None, pool: str,
          placements: Placements | None, now: dt.datetime) -> Hold:
     """What `run` holds or will take on `pool`, from its jobs when read (None: unread)."""
-    whole = Hold(charged_jobs(run), charged_sim_jobs(run))
+    need = Hold(charged_jobs(run), charged_sim_jobs(run))
     if settled_off(run):
         return Hold()
     if jobs is None:
-        # Unread: only the age rule can settle it.
-        return Hold() if placements is not None and placements.off_fleet(run, now) else whole
+        # Unread: the age rule may settle it; otherwise its title's need, the
+        # machines only while they may not have reached a runner yet (older
+        # runs' owned jobs show busy on the runners).
+        if placements is not None and placements.off_fleet(run, now):
+            return Hold()
+        age = pr_runner_pool.run_age_minutes(run, now)
+        young = age is None or age < pr_runner_pool.LIVE_WINDOW_MINUTES
+        return Hold(need.machines if young else 0, need.sims)
     owned = [job for job in jobs if job_labels(job) & {pool, SIM_LABEL}]
     if not owned:
-        picked = any(job.get("name") == PICKER_JOB and job.get("status") == "completed" for job in jobs)
-        if picked and placements is not None and run.get("id") not in placements.runs:
+        if any("macos" in label for job in jobs for label in job_labels(job)):
+            # Its macOS jobs asked for a Blacksmith (or hosted) label.
+            return Hold()
+        created = str(run.get("created_at") or "")
+        if (not screenshots_run(run) and picked_unmarked(run, jobs) and placements is not None
+                and run.get("id") not in placements.runs and created
+                and (placements.since is None or created >= placements.since)):
+            # Picked, and no marker: Blacksmith. (ios-screenshots.yml uploads
+            # no watch marker, so a capture waits for its job's label.)
             return Hold()
         # Still picking, or placed owned with no macOS job yet.
-        return whole
-    sim_jobs_ = [job for job in owned if SIM_JOB.fullmatch(str(job.get("name") or ""))]
-    running = [job for job in owned if job.get("status") == "in_progress" and job.get("runner_name")]
-    waiting = [job for job in owned if job.get("status") in WAITING
-               or job.get("status") == "in_progress" and not job.get("runner_name")]
-    sim_hosts = frozenset(runner_host({"name": job["runner_name"]}) for job in running if job in sim_jobs_)
-    # The simulator jobs the run still needs that GitHub has not created (the
-    # matrix follows the build). Each takes a machine the build's may free.
-    uncreated = max(0, whole.sims - len(sim_jobs_))
-    building = sum(1 for job in running if job not in sim_jobs_)
-    return Hold(machines=len(waiting) + max(0, uncreated - building),
-                sims=sum(1 for job in waiting if job in sim_jobs_) + uncreated,
-                sim_hosts=sim_hosts)
+        return need
+    sims = [job for job in owned if SIM_JOB.fullmatch(str(job.get("name") or ""))]
+    # ios-simulator-build: SIM_LABEL for the runtime, but no simulator of its own.
+    builds = [job for job in owned if job not in sims and SIM_LABEL in job_labels(job)]
+    waiting = [job for job in owned if job.get("status") != "completed" and not on_runner(job)]
+    failed = any(job.get("status") == "completed" and job.get("conclusion") != "success" for job in builds)
+    # Simulator jobs GitHub has not created yet: the matrix follows a
+    # successful build, so none will come after a failed one.
+    to_come = 0 if failed else max(0, need.sims - len(sims))
+    waiting_sims = sum(1 for job in waiting if job in sims)
+    waiting_rest = sum(1 for job in waiting if job not in sims and job not in builds)
+    running_builds = sum(1 for job in builds if on_runner(job))
+    # Now: every waiting job takes a machine. After the build: the rest still
+    # waiting, the simulator jobs, less the machine the running build frees.
+    machines = max(len(waiting), waiting_rest + waiting_sims + to_come - running_builds, 0)
+    return Hold(machines=machines, sims=waiting_sims + to_come,
+                sim_hosts=frozenset(runner_host({"name": job["runner_name"]}) for job in sims if on_runner(job)))
 
 
 def live_free(runners: Sequence[Mapping[str, Any]], pool: str, recent: Sequence[Mapping[str, Any]], *,
@@ -605,23 +647,51 @@ def live_free(runners: Sequence[Mapping[str, Any]], pool: str, recent: Sequence[
                     sim=max(0, sim_room - sum(item.sims for item in holds)))
 
 
-def run_jobs_read(client: Any, runs: Sequence[Mapping[str, Any]]) -> dict[int, list[Mapping[str, Any]]]:
-    """The latest jobs of the newest MAX_JOB_READS runs not settled on Blacksmith (one request each).
+def run_jobs_read(client: Any, runs: Sequence[Mapping[str, Any]], placements: Placements | None,
+                  now: dt.datetime) -> dict[int, list[Mapping[str, Any]]]:
+    """The latest jobs of the newest MAX_JOB_READS runs that may hold the fleet (one request each).
 
-    A run whose jobs cannot be read is left out, and so charged its whole need.
+    A run its attempt, title or age already settles on Blacksmith (settled_off(),
+    Placements.off_fleet()) is not read. A run whose jobs cannot be read is left
+    out, and so charged its title's need.
     """
-    wanted = sorted((run for run in runs if isinstance(run.get("id"), int) and not settled_off(run)),
+    wanted = sorted((run for run in runs if isinstance(run.get("id"), int) and not settled_off(run)
+                     and not (placements is not None and placements.off_fleet(run, now))),
                     key=lambda run: str(run.get("created_at") or ""), reverse=True)
     read: dict[int, list[Mapping[str, Any]]] = {}
     for run in wanted[:MAX_JOB_READS]:
         try:
             listing = client.get(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page={pr_runner_pool.PAGE_SIZE}")
-        except Exception as error:  # noqa: BLE001 - an unread run is charged its whole need
+        except Exception as error:  # noqa: BLE001 - an unread run is charged its title's need
             print(f"::warning title=live owned capacity::could not read run {run['id']}'s jobs ({error})",
                   file=sys.stderr)
             continue
         read[run["id"]] = [job for job in (listing or {}).get("jobs") or [] if isinstance(job, Mapping)]
     return read
+
+
+def live_placements(client: Any, runs: Sequence[Mapping[str, Any]], now: dt.datetime
+                    ) -> tuple[dict[int, list[Mapping[str, Any]]], Placements | None]:
+    """The runs' jobs and the markers, read so a picker finishing in between is never taken for Blacksmith.
+
+    The markers are listed first, to skip reading the runs they and age
+    already settle, then the jobs. A run read with its picker finished and
+    no macOS job, whose marker was not in the first listing, may have
+    uploaded it since: one more page of markers, read after its jobs, says.
+    If that page cannot be read, no such run is settled (placements None).
+    """
+    early = owned_placements(client)
+    jobs = run_jobs_read(client, runs, early, now)
+    if early is None:
+        return jobs, None
+    unsure = [run for run in runs if run.get("id") in jobs and run.get("id") not in early.runs
+              and picked_unmarked(run, jobs[run["id"]])]
+    if not unsure:
+        return jobs, early
+    late = owned_placements(client, pages=1)
+    if late is None:
+        return jobs, None
+    return jobs, Placements(early.runs | late.runs, early.since)
 
 
 def in_flight_ios_runs(client: Any, since: str, *, exclude_run_id: int | None) -> list[Mapping[str, Any]]:
@@ -689,10 +759,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 since = pr_runner_pool.iso(now - dt.timedelta(minutes=SIM_WINDOW_MINUTES))
                 recent = in_flight_ios_runs(client, since, exclude_run_id=exclude)
                 capacity = pr_runner_pool.capability_slots(args.owned_slots).get(SIM_LABEL, 0)
-                # The jobs first, then the markers: a picker that finishes in
-                # between has uploaded its marker by the second read.
-                jobs = run_jobs_read(client, recent)
-                placements = owned_placements(client)
+                jobs, placements = live_placements(client, recent, now)
                 return IOSLoad(None, live=live_free(runners, pools[0], recent, now=now, capacity=capacity,
                                                     placements=placements, jobs=jobs))
             except Exception as error:  # noqa: BLE001 - the snapshot path still decides
