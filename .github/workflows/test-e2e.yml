@@ -593,8 +593,16 @@ jobs:
 
       # PR media tours (pr-media.yml) ask for CI's product and never pay for
       # a second compile of the app.
+      # A reuse error is no evidence the product is unloadable, so it fails
+      # under its own name (pr_media.py compiles only after a refusal).
+      - name: Fail a dispatch that requires an adopted product when reuse errored
+        if: ${{ inputs.require_adopted_product && steps.reuse.outputs.hit != 'true' && (steps.reuse.outcome != 'success' || steps.reuse.outputs.reason != 'miss') }}
+        run: |
+          echo "::error::Compiled-product reuse did not complete, so this dispatch cannot tell whether a product loads."
+          exit 1
+
       - name: Refuse to compile for a dispatch that requires an adopted product
-        if: ${{ inputs.require_adopted_product && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ inputs.require_adopted_product && steps.reuse.outcome == 'success' && steps.reuse.outputs.reason == 'miss' && steps.reuse.outputs.hit != 'true' }}
         env:
           MISSES: ${{ steps.reuse.outputs.miss_reasons }}
         run: |
