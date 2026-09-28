@@ -16,18 +16,20 @@ When we change the fork, update this document and the parent submodule SHA.
 
 - Branch: `issue-15109-preserve-replay-row-tail`
   ([manaflow-ai/ghostty#240](https://github.com/manaflow-ai/ghostty/pull/240))
-- Commit: `3769eac63`
+- Commits: `3769eac63` (final-page delimiter correction), `6dae1978e`
+  (intermediate-page and styled-blank-cell corrections)
 - Summary: VT replay already emits the delimiter for the last row containing
-  cells. The trailing-row preservation path now emits only the remaining blank
-  rows, so a full viewport replay cannot scroll its first row into history.
-  This keeps Cloud Codex headers, composers, and status rows on the same cells
-  after restore.
+  cells. The trailing-row preservation path emits only the remaining blank
+  rows on the final page, while intermediate pages retain every row boundary.
+  Styled rows that contain only background cells are emitted instead of being
+  treated as text-free blank rows. This keeps Cloud Codex headers, composers,
+  status rows, and their grey background cells on the same cells after restore.
 - Coverage: cmux-tui's
-  `vt_replay_preserves_blank_tail_after_history` and
-  `vt_replay_preserves_codex_composer_before_incremental_redraw`.
-- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3769eac633a675accd7fa76b455d9c9a8169ae87-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-- SHA-256 `c20e07d9e2f44a3e6e3f356a2feaf51cbf18859cb2a128e61cd0c4f3fa82648a`
-  is pinned in `scripts/ghosttykit-checksums.txt`.
+  `vt_replay_preserves_blank_tail_after_history`,
+  `vt_replay_preserves_codex_composer_before_incremental_redraw`, the
+  page-boundary formatter test, and cell-level Cloud replay tests.
+- Artifact and SHA-256 will be recorded after the hosted GhosttyKit build for
+  `6dae1978e` completes.
 - Conflict note: keep the trailing-row count paired with the formatter's
   existing last-cell delimiter; adding a second delimiter reintroduces the
   one-row scroll.
@@ -119,8 +121,9 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `3769eac633`, the Cloud VT replay
-viewport-anchor fix on top of `e168fd31c0` and all prior fork changes. The
+The submodule pinned by this branch is `6dae1978e`, the Cloud VT replay
+viewport-anchor and styled-blank-cell fix on top of `3769eac633`, `e168fd31c0`
+and all prior fork changes. The
 previous pin was `edefce7785`, the unfocused surface
 frame pacing change on top of `0068ece733`. The previous pin was
 `0068ece733`, the CJK fallback sizing fix
