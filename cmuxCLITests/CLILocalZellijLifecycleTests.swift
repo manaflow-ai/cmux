@@ -152,6 +152,29 @@ struct CLILocalZellijLifecycleTests {
         #expect(sessions.first?["id"] as? String == (try jsonObject(plain.stdout)["id"] as? String))
     }
 
+    @Test func sessionThatExitsBeforeVerificationStaysOwned() throws {
+        // The zellij server can stop between creation and cmux's check; the
+        // session is then listed as exited and can still be resurrected.
+        let fixture = try makeFixture("exited-early", createdSessionsExit: true)
+        defer { try? FileManager.default.removeItem(at: fixture.base) }
+        let arguments = ["local-zellij", "start", "work", "--detached", "--cwd", fixture.base.path, "--command", "make deploy"]
+
+        let first = try runCLI(arguments, fixture)
+        let status = try runCLI(["local-zellij", "status", "work", "--json"], fixture)
+        let retry = try runCLI(arguments, fixture)
+        let close = try runCLI(["local-zellij", "close", "work"], fixture)
+
+        #expect(first.status != 0)
+        #expect(first.stderr.contains("has exited"), Comment(rawValue: first.stderr))
+        #expect(status.status == 0, Comment(rawValue: status.stderr))
+        let zellijName = try #require(try jsonObject(status.stdout)["zellij_session_name"] as? String)
+        #expect(try jsonObject(status.stdout)["state"] as? String == "exited", Comment(rawValue: status.stdout))
+        #expect(retry.status != 0, "the command must not run in a second session")
+        #expect(fixture.invocations().filter { $0.contains("--create-background") }.count == 1)
+        #expect(close.status == 0, Comment(rawValue: close.stderr))
+        #expect(fixture.invocations().contains { $0.hasSuffix("|delete-session --force \(zellijName)") })
+    }
+
     @Test func attachFinishingAfterTheRecordChangedKeepsTheRegistryValid() throws {
         let fixture = try makeFixture("attach-renamed")
         defer { try? FileManager.default.removeItem(at: fixture.base) }
@@ -231,7 +254,8 @@ struct CLILocalZellijLifecycleTests {
     private func makeFixture(
         _ label: String,
         holdDelete: Bool = false,
-        failListAfterFirstCreate: Bool = false
+        failListAfterFirstCreate: Bool = false,
+        createdSessionsExit: Bool = false
     ) throws -> Fixture {
         // Keep the root short: zellij sockets live below it.
         let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
@@ -254,7 +278,11 @@ struct CLILocalZellijLifecycleTests {
             exit 1 ;;
           attach)
             if [ "$2" = "--create-background" ]; then
-              printf '%s [Created 0s ago] \\n' "$3" >> "$FAKE_ZELLIJ_SESSIONS"
+              if [ -n "$FAKE_ZELLIJ_CREATED_SESSIONS_EXIT" ]; then
+                printf '%s [Created 0s ago] (EXITED - attach to resurrect)\\n' "$3" >> "$FAKE_ZELLIJ_SESSIONS"
+              else
+                printf '%s [Created 0s ago] \\n' "$3" >> "$FAKE_ZELLIJ_SESSIONS"
+              fi
               if [ -n "$FAKE_ZELLIJ_FAIL_LIST_AFTER_FIRST_CREATE" ] && [ ! -e "$FAKE_ZELLIJ_SESSIONS.created-once" ]; then
                 touch "$FAKE_ZELLIJ_SESSIONS.created-once" "$FAKE_ZELLIJ_SESSIONS.fail-next-list"
               fi
@@ -292,6 +320,7 @@ struct CLILocalZellijLifecycleTests {
         environment["FAKE_ZELLIJ_LAYOUT_COPY"] = layoutCopyURL.path
         if holdDelete { environment["FAKE_ZELLIJ_HOLD_DELETE"] = "1" }
         if failListAfterFirstCreate { environment["FAKE_ZELLIJ_FAIL_LIST_AFTER_FIRST_CREATE"] = "1" }
+        if createdSessionsExit { environment["FAKE_ZELLIJ_CREATED_SESSIONS_EXIT"] = "1" }
         for key in ["CMUX_SOCKET", "CMUX_SOCKET_PATH", "CMUX_WORKSPACE_ID", "ZELLIJ", "ZELLIJ_SESSION_NAME"] {
             environment.removeValue(forKey: key)
         }
