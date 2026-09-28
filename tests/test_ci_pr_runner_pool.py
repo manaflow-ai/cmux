@@ -2730,6 +2730,27 @@ class MainFullSuite(unittest.TestCase):
         pull = owned_choice(self.snap(roots_busy=5), owned_slots=self.SLOTS, jobs=9, root_jobs=9)
         self.assertEqual(pull.runner, MINI)
 
+    def test_a_split_run_queues_whole_on_the_owned_pool(self):
+        # Every root runner busy and 22 jobs queued there: 6 queue places, the
+        # run needs 9. A pull request would put the rest on the retry runner;
+        # main queues them on the minis instead, so they do not wait behind
+        # every overflowed pull request on Blacksmith (run 36402943637).
+        snap = self.snap(roots_busy=14)
+        snap["pools"][ROOT_MINI]["queued"] = 22
+        choice = self.main_choice(snap, split="1", queue_rounds="2")
+        self.assertEqual((choice.runner, choice.root_runner), (MINI, ROOT_MINI))
+        self.assertEqual(pool.place(self.PLAN, choice.owned_budget, root_budget=choice.root_budget)[0],
+                         ("admission", *(f"shard-{index}" for index in range(1, 8)), "lag", "cli-product"))
+        self.assertIn("0 of 14 root runners free and 6 queue places", choice.reason)
+        self.assertIn("the whole run queues there", choice.reason)
+        self.assertNotIn("the rest on the retry runner", choice.reason)
+        # A pull request with the same load still splits.
+        pull = owned_choice(snap, owned_slots=self.SLOTS, jobs=9, root_jobs=9, split="1", queue_rounds="2")
+        self.assertEqual((pull.runner, pull.root_budget), (MINI, 6))
+        # With the rounds at 0 (no queueing) main splits as before.
+        self.assertIn("the rest on the retry runner",
+                      self.main_choice(self.snap(roots_busy=6), split="1", queue_rounds="0").reason)
+
     def test_queues_a_round_like_a_pull_request_unless_a_reserve_is_set(self):
         # Every mini and root runner busy, Blacksmith backed up (12vcpu's wait
         # for 9 jobs is 15 minutes): a pull request queues its 9 root jobs
