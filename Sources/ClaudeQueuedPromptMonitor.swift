@@ -13,8 +13,14 @@ actor ClaudeQueuedPromptMonitor {
     /// live seconds to minutes, so their operations are near the end.
     static let initialTailBytes: UInt64 = 512 * 1024
 
+    /// How often, and how many times, to look for the pane's transcript when
+    /// the hook store hasn't recorded it yet.
+    static let pathRetryInterval: Duration = .seconds(1)
+    static let pathRetryLimit = 10
+
     private let surfaceID: UUID
-    private let homeDirectory: URL
+    private let hookStoreURL: URL
+    private var isStopped = false
     private let onChange: @MainActor @Sendable (Int) -> Void
     private var ledger = ClaudeQueuedPromptLedger()
     private var offset: UInt64 = 0
@@ -26,11 +32,11 @@ actor ClaudeQueuedPromptMonitor {
 
     init(
         surfaceID: UUID,
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        hookStoreURL: URL = RestorableAgentKind.claude.hookStoreFileURL(),
         onChange: @escaping @MainActor @Sendable (Int) -> Void
     ) {
         self.surfaceID = surfaceID
-        self.homeDirectory = homeDirectory
+        self.hookStoreURL = hookStoreURL
         self.onChange = onChange
     }
 
@@ -40,10 +46,17 @@ actor ClaudeQueuedPromptMonitor {
     }
 
     func start() async {
-        guard watcher == nil,
-              let path = Self.activeTranscriptPath(surfaceID: surfaceID, homeDirectory: homeDirectory) else {
-            return
+        guard watcher == nil else { return }
+        // The prompt-submit hook records the transcript just before the turn
+        // starts, so a missing path is usually a moment early.
+        var path = Self.activeTranscriptPath(surfaceID: surfaceID, hookStoreURL: hookStoreURL)
+        var attempts = 0
+        while path == nil, attempts < Self.pathRetryLimit, !isStopped {
+            attempts += 1
+            try? await Task.sleep(for: Self.pathRetryInterval)
+            path = Self.activeTranscriptPath(surfaceID: surfaceID, hookStoreURL: hookStoreURL)
         }
+        guard let path, !isStopped, watcher == nil else { return }
         self.path = path
         let watcher = FileWatcher(path: path, throttle: .milliseconds(150))
         self.watcher = watcher
@@ -57,6 +70,7 @@ actor ClaudeQueuedPromptMonitor {
     }
 
     func stop() async {
+        isStopped = true
         watchTask?.cancel()
         watchTask = nil
         await watcher?.stop()
@@ -66,11 +80,8 @@ actor ClaudeQueuedPromptMonitor {
     /// Transcript of the session the Claude hook store marks active on the
     /// surface. The active pointer, not the newest entry, so a nested
     /// `claude -p` run in the pane is never mistaken for the pane's session.
-    static func activeTranscriptPath(surfaceID: UUID, homeDirectory: URL) -> String? {
-        let file = homeDirectory
-            .appendingPathComponent(".cmuxterm", isDirectory: true)
-            .appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
-        guard let data = try? Data(contentsOf: file),
+    static func activeTranscriptPath(surfaceID: UUID, hookStoreURL: URL) -> String? {
+        guard let data = try? Data(contentsOf: hookStoreURL),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let active = root["activeSessionsBySurface"] as? [String: Any],
               let binding = active[surfaceID.uuidString] as? [String: Any],

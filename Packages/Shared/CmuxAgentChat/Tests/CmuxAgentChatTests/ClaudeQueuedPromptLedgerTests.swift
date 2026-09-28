@@ -33,10 +33,24 @@ struct ClaudeQueuedPromptLedgerTests {
         #expect(apply(&ledger, line: line("dequeue")))
         #expect(ledger.count == 0)
 
+        // Up pulls editable prompts back one popAll line each.
         ledger.apply(line: line("enqueue", "third"))
         ledger.apply(line: line("enqueue", "fourth"))
-        #expect(apply(&ledger, line: line("popAll", "third\nfourth")))
+        #expect(apply(&ledger, line: line("popAll", "third")))
+        #expect(apply(&ledger, line: line("popAll", "fourth")))
         #expect(ledger.count == 0)
+    }
+
+    @Test func taskNotificationsAndShellCommandsAreNotEditable() {
+        var ledger = ClaudeQueuedPromptLedger()
+        let notification = "<task-notification><task-id>b1</task-id></task-notification>"
+        #expect(!apply(&ledger, line: line("enqueue", notification)))
+        #expect(!apply(&ledger, line: line("enqueue", "<bash-input>ls</bash-input>")))
+        #expect(ledger.count == 0)
+        ledger.apply(line: line("enqueue", "edit me"))
+        // A notification resolved later never consumes the user's prompt.
+        #expect(!apply(&ledger, line: line("remove", notification, reason: "absorbed_mid_turn")))
+        #expect(ledger.pending == ["edit me"])
     }
 
     @Test func otherTranscriptLinesAndStrayOperationsAreIgnored() {

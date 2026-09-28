@@ -20,7 +20,7 @@ struct ClaudeQueuedPromptMonitorTests {
 
     /// Writes a hook store where `active` is the pane's session and a newer
     /// nested session is bound to the same surface.
-    private func makeHome(surface: UUID) throws -> (home: URL, transcript: URL) {
+    private func makeHome(surface: UUID) throws -> (home: URL, transcript: URL, store: URL) {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("claude-queue-\(UUID().uuidString)", isDirectory: true)
         let store = home.appendingPathComponent(".cmuxterm", isDirectory: true)
@@ -38,28 +38,29 @@ struct ClaudeQueuedPromptMonitorTests {
                            "transcriptPath": nested.path, "updatedAt": 2.0],
             ],
         ]
-        try JSONSerialization.data(withJSONObject: root)
-            .write(to: store.appendingPathComponent("claude-hook-sessions.json"))
-        return (home, transcript)
+        let storeFile = store.appendingPathComponent("claude-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: root).write(to: storeFile)
+        return (home, transcript, storeFile)
     }
 
     @Test func followsTheActiveSessionNotTheNewestEntry() throws {
         let surface = UUID()
-        let (home, transcript) = try makeHome(surface: surface)
+        let (home, transcript, store) = try makeHome(surface: surface)
         defer { try? FileManager.default.removeItem(at: home) }
-        #expect(ClaudeQueuedPromptMonitor.activeTranscriptPath(surfaceID: surface, homeDirectory: home) == transcript.path)
-        #expect(ClaudeQueuedPromptMonitor.activeTranscriptPath(surfaceID: UUID(), homeDirectory: home) == nil)
+        #expect(ClaudeQueuedPromptMonitor.activeTranscriptPath(surfaceID: surface, hookStoreURL: store) == transcript.path)
+        #expect(ClaudeQueuedPromptMonitor.activeTranscriptPath(surfaceID: UUID(), hookStoreURL: store) == nil)
     }
 
     @Test func reportsQueuedCountAsTheTranscriptGrows() async throws {
         let surface = UUID()
-        let (home, transcript) = try makeHome(surface: surface)
+        let (home, transcript, store) = try makeHome(surface: surface)
         defer { try? FileManager.default.removeItem(at: home) }
-        try (queueLine("enqueue", "one") + queueLine("enqueue", "two") + queueLine("dequeue"))
+        try (queueLine("enqueue", "one") + queueLine("enqueue", "<task-notification>t</task-notification>")
+             + queueLine("enqueue", "two") + queueLine("dequeue"))
             .write(to: transcript, atomically: false, encoding: .utf8)
 
         let counts = CountRecorder()
-        let monitor = ClaudeQueuedPromptMonitor(surfaceID: surface, homeDirectory: home) { count in
+        let monitor = ClaudeQueuedPromptMonitor(surfaceID: surface, hookStoreURL: store) { count in
             counts.values.append(count)
         }
         await monitor.start()
@@ -110,10 +111,12 @@ struct TerminalAgentEditQueuedTests {
         let before = fixture.panel.surface.debugPendingSocketInputForTesting()
 
         view.clickEditQueuedForTesting()
+        view.clickEditQueuedForTesting()
 
         let after = fixture.panel.surface.debugPendingSocketInputForTesting()
-        #expect(after.keyEvents == before.keyEvents + 1, "Edit Queued sends exactly one Up")
-        #expect(!view.isEditQueuedVisible, "The button hides once the queue is popped")
+        #expect(after.keyEvents == before.keyEvents + 1, "Two quick clicks send exactly one Up")
+        view.setQueuedPromptCount(0)
+        #expect(!view.isEditQueuedVisible, "The button hides once the transcript shows the queue popped")
     }
 
     @Test

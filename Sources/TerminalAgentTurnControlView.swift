@@ -24,6 +24,7 @@ final class TerminalAgentTurnControlView: NSView {
     /// How long Stop stays disabled after a click.
     static let stopHoldInterval: TimeInterval = 1.5
     private var stopHoldGeneration: UInt64 = 0
+    private var editQueuedHoldGeneration: UInt64 = 0
     private var isEnabledBySetting = false
     private(set) var isPromptEditingEnabled = false
     private(set) var queuedPromptCount = 0
@@ -118,6 +119,8 @@ final class TerminalAgentTurnControlView: NSView {
 
     /// Applies how many prompts Claude has queued in this pane.
     func setQueuedPromptCount(_ count: Int) {
+        editQueuedHoldGeneration &+= 1
+        editQueuedButton.isEnabled = true
         guard count != queuedPromptCount else { return }
         queuedPromptCount = count
         render()
@@ -217,10 +220,18 @@ final class TerminalAgentTurnControlView: NSView {
     }
 
     @objc private func handleEditQueued() {
-        guard target == .claudeCode, isPromptEditingEnabled, queuedPromptCount > 0 else { return }
-        // Up pops the whole queue; hide at once rather than wait for the transcript.
-        queuedPromptCount = 0
-        render()
+        guard target == .claudeCode, isPromptEditingEnabled, queuedPromptCount > 0,
+              editQueuedButton.isEnabled else { return }
+        // Hold until the transcript reports the queue, which hides the button
+        // once Up pulled the prompts back. If Up only moved the cursor, the
+        // count is unchanged and the button comes back.
+        editQueuedButton.isEnabled = false
+        let generation = editQueuedHoldGeneration &+ 1
+        editQueuedHoldGeneration = generation
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.stopHoldInterval) { [weak self] in
+            guard let self, self.editQueuedHoldGeneration == generation else { return }
+            self.editQueuedButton.isEnabled = true
+        }
         onEditQueued?()
     }
 }
