@@ -115,6 +115,7 @@ struct CloudEqualCursorConflictRecoveryTests {
         let provider = makeProvider()
         #expect(provider.installSnapshotIfNewer(try state(provider, "Applied")))
         #expect(!provider.installSnapshotIfNewer(try state(provider, "Daemon"), requestVersion: 1))
+        #expect(provider.equalCursorConflict != nil)
         provider.suspendForFeatureFlag()
         #expect(provider.equalCursorConflict == nil)
     }
@@ -124,11 +125,23 @@ struct CloudEqualCursorConflictRecoveryTests {
         let provider = makeProvider()
         #expect(provider.installSnapshotIfNewer(try state(provider, "Applied")))
         #expect(!provider.installSnapshotIfNewer(try state(provider, "Daemon"), requestVersion: 1))
+        #expect(provider.equalCursorConflict != nil)
         #expect(provider.installSnapshotIfNewer(try state(provider, "Next", revision: 4)))
         #expect(provider.equalCursorConflict == nil)
 
         // A conflict at the new cursor starts over: the first one keeps the graph.
         #expect(!provider.installSnapshotIfNewer(try state(provider, "Other", revision: 4), requestVersion: 2))
         #expect(name(provider) == "Next")
+    }
+
+    @Test("An equal-content install at the armed cursor clears the conflict")
+    func equalContentInstallClearsConflict() throws {
+        let provider = makeProvider()
+        #expect(provider.installSnapshotIfNewer(try state(provider, "Applied")))
+        #expect(!provider.installSnapshotIfNewer(try state(provider, "Daemon"), requestVersion: 1))
+        #expect(provider.equalCursorConflict != nil)
+        #expect(provider.installSnapshotIfNewer(try state(provider, "Applied"), requestVersion: 1))
+        #expect(provider.equalCursorConflict == nil)
+        #expect(name(provider) == "Applied")
     }
 }
