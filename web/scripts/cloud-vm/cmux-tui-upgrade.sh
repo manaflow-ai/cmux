@@ -15,7 +15,7 @@
 #
 # Usage: cmux-tui-upgrade.sh <target-sha256> <target-commit> <run-dir>
 # <run-dir> holds install.cmd (the pinned install command) and receives
-# `result` (one line: OK, SKIP, PENDING, ROLLBACK or FAIL), `log`, and the
+# `result` (one line: OK, UNVERIFIED, SKIP, PENDING, ROLLBACK or FAIL), `log`, and the
 # replaced binary. One run at a time per machine: a second run reports SKIP busy.
 set -u
 TARGET_SHA=${1:?target sha256}
@@ -85,7 +85,9 @@ if N=$(wait_serving "$TARGET_SHA"); then
   LOST=""; for p in $HOSTS_BEFORE; do kill -0 "$p" 2>/dev/null || LOST="$LOST $p"; done
   TERMS_AFTER=$(term_count)
   [ -z "$LOST" ] || finish "FAIL lost-hosts=[${LOST# }] terminals=$TERMS_BEFORE->$TERMS_AFTER daemon=$N"
-  case "$TERMS_BEFORE$TERMS_AFTER" in *'?'*) ;; *) [ "$TERMS_AFTER" -ge "$TERMS_BEFORE" ] || finish "FAIL terminals=$TERMS_BEFORE->$TERMS_AFTER daemon=$N" ;; esac
+  # Every host survived, but without both counts the terminals are not proven.
+  case "$TERMS_BEFORE$TERMS_AFTER" in *'?'*) finish "UNVERIFIED terminal count unavailable terminals=$TERMS_BEFORE->$TERMS_AFTER daemon=$N" ;; esac
+  [ "$TERMS_AFTER" -ge "$TERMS_BEFORE" ] || finish "FAIL terminals=$TERMS_BEFORE->$TERMS_AFTER daemon=$N"
   finish "OK upgraded terminals=$TERMS_BEFORE->$TERMS_AFTER daemon=$N hosts-before=$(echo $HOSTS_BEFORE | wc -w)"
 fi
 

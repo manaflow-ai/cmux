@@ -138,7 +138,8 @@ and holds a per-machine lock, so a second run reports `SKIP busy`.
   the listening daemon SIGTERM, and waits up to 10 minutes for the
   supervisor's new daemon to listen. `OK upgraded` means the new daemon serves,
   no terminal host died, and the terminal count did not drop; either loss is
-  `FAIL` instead.
+  `FAIL` instead, and `UNVERIFIED` means every host survived but a terminal
+  count could not be read, so check that machine by hand.
 - When the new daemon crashes or never listens, the script restores the saved
   binary and restarts the daemon. The new daemon may already have migrated
   on-disk state that the old binary cannot open, so the restore is trusted
