@@ -33,4 +33,31 @@ extension TabManager {
         }
         return outcome
     }
+
+    /// Adds a terminal pane from the focused panel and arranges the
+    /// workspace in Zellij's default tiling, the cmux-tui Alt-n behavior.
+    /// Remote tmux mirrors and Cloud panes keep their own layout owner, so
+    /// they receive an ordinary split right.
+    func createAutoLayoutPaneOutcome(
+        tabId: UUID,
+        surfaceId: UUID,
+        focus: Bool = true
+    ) -> TerminalPanelCreationOutcome {
+        guard let workspace = tabs.first(where: { $0.id == tabId }),
+              workspace.panels[surfaceId] != nil else { return .failed }
+        sentryBreadcrumb("split.create", data: ["direction": "autoLayout"])
+        return workspace.newTerminalSplitOutcome(
+            from: surfaceId,
+            orientation: .horizontal,
+            focus: focus,
+            autoLayout: true
+        )
+    }
+
+    func createAutoLayoutPaneOutcome() -> TerminalPanelCreationOutcome {
+        guard let selectedTabId,
+              let workspace = tabs.first(where: { $0.id == selectedTabId }),
+              let panelID = workspace.focusedPanelId else { return .failed }
+        return createAutoLayoutPaneOutcome(tabId: selectedTabId, surfaceId: panelID)
+    }
 }
