@@ -228,9 +228,11 @@ extension CMUXCLI {
         let env = ProcessInfo.processInfo.environment
         let input = Self.agentInboxHookInput()
         let disabledKey = agent == "claude" ? "CMUX_CLAUDE_HOOKS_DISABLED" : "CMUX_CODEX_HOOKS_DISABLED"
-        // Headless `claude -p` runs share the pane's surface id with the
-        // interactive session there; they must not claim its messages.
-        let headless = agent == "claude" && env["CMUX_CLAUDE_HEADLESS"] == "1"
+        // Headless `claude -p` and `codex exec` runs share the pane's surface
+        // id with the interactive session there; they must not claim its
+        // messages.
+        let headlessKey = agent == "claude" ? "CMUX_CLAUDE_HEADLESS" : "CMUX_CODEX_HEADLESS"
+        let headless = env[headlessKey] == "1"
         guard let surfaceId = env["CMUX_SURFACE_ID"], !surfaceId.isEmpty, env[disabledKey] != "1", !headless else {
             if subcommand != "inbox-wait" { print("{}") }
             return true

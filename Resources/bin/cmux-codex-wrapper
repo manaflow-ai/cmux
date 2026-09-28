@@ -571,6 +571,31 @@ should_inject_codex_hooks() {
     return 0
 }
 
+# `codex exec` runs headless. It shares the pane's surface with any
+# interactive Codex there, so the agent message hooks skip it.
+codex_launch_is_headless() {
+    local arg
+    local skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --) return 1 ;;
+            -*)
+                if [[ "$arg" != *=* ]] && codex_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                continue
+                ;;
+            exec|e) return 0 ;;
+            *) return 1 ;;
+        esac
+    done
+    return 1
+}
+
 # Codex does not emit its own SessionStart hook for an explicit `resume <id>`
 # launch. The wrapper is the only layer that knows both the resumed session id
 # and the new live process, so replay that lifecycle event after exporting the
@@ -705,6 +730,11 @@ else
     unset CMUX_CODEX_PARENT_INVOCATION_ID
 fi
 export CMUX_CODEX_PID=$$
+if codex_launch_is_headless "$@"; then
+    export CMUX_CODEX_HEADLESS=1
+else
+    export CMUX_CODEX_HEADLESS=0
+fi
 export CMUX_CODEX_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
 export CMUX_AGENT_LAUNCH_KIND="codex"
 export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CODEX"
