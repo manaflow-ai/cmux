@@ -10,6 +10,10 @@ final class DirectQuicInbox: @unchecked Sendable {
     private let lock = NSLock()
     private var pending: [DirectQuicStream] = []
     private var waiters: [(id: UUID, continuation: CheckedContinuation<DirectQuicStream, any Error>)] = []
+    /// Ids between `next()` entry and registration or immediate resolution.
+    /// Only these can receive a pre-registration cancel marker, so a cancel
+    /// that loses the race to delivery records nothing and nothing leaks.
+    private var unregisteredIDs: Set<UUID> = []
     /// Ids whose cancellation fired before their continuation registered.
     private var cancelledBeforeRegistration: Set<UUID> = []
     private var finished = false
@@ -44,9 +48,11 @@ final class DirectQuicInbox: @unchecked Sendable {
     /// The next accepted stream, in arrival order.
     func next() async throws -> DirectQuicStream {
         let id = UUID()
+        _ = lock.withLock { unregisteredIDs.insert(id) }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 lock.lock()
+                unregisteredIDs.remove(id)
                 if cancelledBeforeRegistration.remove(id) != nil {
                     lock.unlock()
                     continuation.resume(throwing: CancellationError())
@@ -74,10 +80,11 @@ final class DirectQuicInbox: @unchecked Sendable {
                 lock.unlock()
                 return
             }
-            // Either the continuation has not registered yet (mark it so
-            // registration fails immediately) or delivery already won (the
-            // insertion is consumed by nothing and cleared with the inbox).
-            cancelledBeforeRegistration.insert(id)
+            // Not yet registered: mark it so registration fails immediately.
+            // Otherwise delivery already won and there is nothing to record.
+            if unregisteredIDs.contains(id) {
+                cancelledBeforeRegistration.insert(id)
+            }
             lock.unlock()
         }
     }
@@ -89,6 +96,7 @@ final class DirectQuicInbox: @unchecked Sendable {
         let liveWaiters = waiters
         let dropped = pending
         waiters.removeAll()
+        unregisteredIDs.removeAll()
         cancelledBeforeRegistration.removeAll()
         pending.removeAll()
         lock.unlock()
