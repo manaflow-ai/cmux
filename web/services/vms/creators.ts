@@ -121,7 +121,11 @@ export async function readCreatorDisplayNames(
       if (name) names.set(row.userId, name);
     }
   } catch (error) {
-    options.onFailure?.(error);
+    try {
+      options.onFailure?.(error);
+    } catch {
+      // Reporting is best effort; it must not turn the fallback into a 500.
+    }
     return new Map();
   } finally {
     if (onAbort) signal.removeEventListener("abort", onAbort);

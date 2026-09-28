@@ -196,6 +196,17 @@ describe("cloud machine creator metadata", () => {
     expect(failures).toHaveLength(1);
   });
 
+  test("readCreatorDisplayNames keeps the empty-map fallback when reporting throws", async () => {
+    const names = await readCreatorDisplayNames(["user-a"], {
+      teamId: "team-shared",
+      db: throwingSelectDb(),
+      onFailure: () => {
+        throw new Error("span closed");
+      },
+    });
+    expect(names.size).toBe(0);
+  });
+
   test("readCreatorDisplayNames gives up on a stalled read and cancels it", async () => {
     // A stalled snapshot read must not hold the machine list. The query runs
     // under a signal the driver cancels on, and the wait ends at the deadline
