@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CryptoKit
 import Darwin
 import Foundation
@@ -69,6 +70,7 @@ extension RemoteCLIRelayServer {
 
         private let connection: NWConnection
         private let localSocketPath: String
+        private let localSocketPeerCheck: UnixSocketPeerCheck
         private let relayID: String
         private let relayToken: Data
         private let commandEvaluator: (Data) -> CommandDisposition
@@ -93,6 +95,7 @@ extension RemoteCLIRelayServer {
         init(
             connection: NWConnection,
             localSocketPath: String,
+            localSocketPeerCheck: UnixSocketPeerCheck,
             relayID: String,
             relayToken: Data,
             commandEvaluator: @escaping (Data) -> CommandDisposition,
@@ -102,6 +105,7 @@ extension RemoteCLIRelayServer {
         ) {
             self.connection = connection
             self.localSocketPath = localSocketPath
+            self.localSocketPeerCheck = localSocketPeerCheck
             self.relayID = relayID
             self.relayToken = relayToken
             self.commandEvaluator = commandEvaluator
@@ -259,11 +263,12 @@ extension RemoteCLIRelayServer {
             }
             forwardingSocketDescriptor = socketDescriptor
             DispatchQueue.global(qos: .utility).async {
-                [self, localSocketPath, forwardedCommandLine, queue] in
+                [self, localSocketPath, localSocketPeerCheck, forwardedCommandLine, queue] in
                 let result = Result {
                     try Self.roundTripUnixSocket(
                         socketDescriptor: socketDescriptor,
                         socketPath: localSocketPath,
+                        peerCheck: localSocketPeerCheck,
                         request: forwardedCommandLine,
                         maximumResponseBytes: maximumResponseBytes,
                         shouldContinue: {

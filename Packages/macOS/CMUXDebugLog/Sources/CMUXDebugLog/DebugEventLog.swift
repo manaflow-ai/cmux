@@ -1,4 +1,5 @@
 #if DEBUG
+import CmuxFoundation
 import Foundation
 
 /// Ring-buffer event log used by cmux debug builds.
@@ -23,6 +24,8 @@ public final class DebugEventLog: @unchecked Sendable {
     private let capacity = 500
     private let queue = DispatchQueue(label: "cmux.debug-event-log")
     private static let logPath = resolveLogPath()
+    /// The file this instance appends to and dumps into.
+    private let logPath: String
 
     // MARK: Serialized append state (confined to `queue`)
 
@@ -152,7 +155,14 @@ public final class DebugEventLog: @unchecked Sendable {
         return formatter
     }()
 
-    private init() {}
+    private convenience init() {
+        self.init(logPath: Self.logPath)
+    }
+
+    /// Creates a log that writes to `logPath`; tests pass a temporary path.
+    init(logPath: String) {
+        self.logPath = logPath
+    }
 
     public func log(_ message: String) {
         let date = Date()
@@ -171,8 +181,16 @@ public final class DebugEventLog: @unchecked Sendable {
             try? self.appendHandle?.close()
             self.appendHandle = nil
             let content = self.entries.joined(separator: "\n") + "\n"
-            try? content.write(toFile: Self.logPath, atomically: true, encoding: .utf8)
+            // The rename replaces a link at the path instead of following it;
+            // keep the replacement as private as the appended file.
+            guard (try? content.write(toFile: self.logPath, atomically: true, encoding: .utf8)) != nil else { return }
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: self.logPath)
         }
+    }
+
+    /// Blocks until every line queued by ``log(_:)`` so far has been handled.
+    func waitForPendingAppends() {
+        queue.sync {}
     }
 
     /// Must run on `queue`.
@@ -222,10 +240,9 @@ public final class DebugEventLog: @unchecked Sendable {
             return false
         }
         if appendHandle == nil {
-            let fd = open(Self.logPath, O_WRONLY | O_APPEND | O_CREAT, 0o644)
-            if fd >= 0 {
-                appendHandle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-            }
+            // The default paths are in the shared /tmp, so never append
+            // through a link or into a file another user created there.
+            appendHandle = OwnedFileAppendOpener().fileHandle(atPath: logPath)
         }
         guard let handle = appendHandle else {
             droppedInWindow += 1
