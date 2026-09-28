@@ -10,7 +10,9 @@ public struct CloudTreeRowGrid: Equatable, Sendable {
     public var detailGap: CGFloat = 5
     public var trailingGap: CGFloat = 10
     var trailingSlot: CGFloat = 16
-    public var trailingPadding: CGFloat = 12
+    /// The sidebar's trailing chrome column, so a row's accessories stop
+    /// where the header's controls do.
+    public var trailingPadding: CGFloat = CloudSidebarChromeMetrics.headerTrailingPadding
     public var machineLineSpacing: CGFloat = 1
 
     public init(
@@ -21,7 +23,7 @@ public struct CloudTreeRowGrid: Equatable, Sendable {
         detailGap: CGFloat = 5,
         trailingGap: CGFloat = 10,
         trailingSlot: CGFloat = 16,
-        trailingPadding: CGFloat = 12,
+        trailingPadding: CGFloat = CloudSidebarChromeMetrics.headerTrailingPadding,
         machineLineSpacing: CGFloat = 1
     ) {
         self.disclosureSlot = disclosureSlot
