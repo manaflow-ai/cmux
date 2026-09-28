@@ -1,14 +1,15 @@
-// Keep the canonical Ghostty declarations in scope for the local action
-// decoding helpers below. The framework import in the bridging header does
-// not make those C declarations visible while this header is parsed.
+// The binary GhosttyKit module contains the canonical ExternalHover symbols,
+// but its explicit-module import does not consistently surface every
+// fork-only declaration to the app bridging header. Keep these declarations
+// prefixed and bind them to the canonical symbols so the bridge adds no
+// duplicate C names or alternate ABI.
 #ifndef CMUX_GHOSTTY_EXTERNAL_HOVER_BRIDGE_H
 #define CMUX_GHOSTTY_EXTERNAL_HOVER_BRIDGE_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
-
-#include "ghostty/include/ghostty.h"
 
 typedef struct {
     uint64_t token_bits[4];
@@ -27,5 +28,25 @@ static inline cmux_external_link_hover_action_s cmux_ghostty_action_external_lin
     memcpy(&result, &action.action, sizeof(result));
     return result;
 }
+
+bool cmux_ghostty_surface_read_text_physical_rows(
+    ghostty_surface_t,
+    ghostty_selection_s,
+    ghostty_text_s*) __asm__("ghostty_surface_read_text_physical_rows");
+
+bool cmux_ghostty_surface_set_external_link_hover(
+    ghostty_surface_t,
+    uint32_t top_row,
+    uint32_t row_count,
+    const char* text,
+    size_t text_len,
+    const void* ranges,
+    size_t range_count,
+    uint64_t out_token_bits[4],
+    uint64_t host_event_id) __asm__("ghostty_surface_set_external_link_hover");
+
+void cmux_ghostty_surface_clear_external_link_hover(
+    ghostty_surface_t,
+    const uint64_t token_bits[4]) __asm__("ghostty_surface_clear_external_link_hover");
 
 #endif

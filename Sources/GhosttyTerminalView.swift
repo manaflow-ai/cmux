@@ -345,7 +345,7 @@ class GhosttyApp {
             )
             let selection = ghostty_selection_s(top_left: topLeft, bottom_right: bottomRight, rectangle: false)
             var text = ghostty_text_s()
-            guard ghostty_surface_read_text_physical_rows(lease.surface, selection, &text) else { return nil }
+            guard cmux_ghostty_surface_read_text_physical_rows(lease.surface, selection, &text) else { return nil }
             defer { ghostty_surface_free_text(lease.surface, &text) }
             let rawText: String
             if let ptr = text.text, text.text_len > 0 {
@@ -383,7 +383,7 @@ class GhosttyApp {
             let minted: Bool = text.withCString { cText in
                 cRanges.withUnsafeBufferPointer { rangesBuf in
                     outTokenBits.withUnsafeMutableBufferPointer { tokenBuf in
-                        ghostty_surface_set_external_link_hover(
+                        cmux_ghostty_surface_set_external_link_hover(
                             lease.surface,
                             topRow,
                             rowCount,
@@ -406,7 +406,7 @@ class GhosttyApp {
         callClear: { lease, token in
             var bits = [token.bits.0, token.bits.1, token.bits.2, token.bits.3]
             bits.withUnsafeBufferPointer { buf in
-                ghostty_surface_clear_external_link_hover(lease.surface, buf.baseAddress)
+                cmux_ghostty_surface_clear_external_link_hover(lease.surface, buf.baseAddress)
             }
         },
         // cmux fork: (C) ExternalHover diagnostics — the fourth (and
@@ -9029,7 +9029,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let selection = ghostty_selection_s(top_left: topLeft, bottom_right: bottomRight, rectangle: false)
 
         var text = ghostty_text_s()
-        guard ghostty_surface_read_text_physical_rows(surface, selection, &text) else { return nil }
+        guard cmux_ghostty_surface_read_text_physical_rows(surface, selection, &text) else { return nil }
         defer { ghostty_surface_free_text(surface, &text) }
         let raw: String
         if let ptr = text.text, text.text_len > 0 {
