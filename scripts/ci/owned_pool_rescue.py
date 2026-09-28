@@ -53,11 +53,14 @@ both the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images reported
 Xcode 26.6 build 17F113. If those builds ever differ, re-run the whole run
 here instead (rescue with failed_only=False).
 
-A refused job never goes back to the fleet: every runs-on sends a job's
-attempt 2 and later to retry_runner (Blacksmith), so the re-run of failed
-jobs cannot land on the mini that refused it, and one re-run is all a refusal
-costs. (Before 2026-09-27, attempt 2 tried the owned pool once more and could
-be refused again, by the same mini.) So the watch ends with that re-run.
+A refused job never goes back to the fleet: this rescue re-runs as
+github-actions[bot], and every runs-on sends the bot's re-run to retry_runner
+(Blacksmith), so it cannot land on the mini that refused it, and one re-run
+is all a refusal costs. So the watch ends with that re-run. A person's re-run
+of a pull request (a code failure) goes back to the minis on any attempt with
+no marker of its own; the sweeper finds it among the in-progress CI runs
+(person_reruns()) and watches it like attempt 1, and a job stuck or refused
+there gets the bot's re-run onto Blacksmith.
 
 E2E runs (test-e2e.yml) are watched the same way. Its `runner` job runs
 e2e_runner_pool.py, which may pick an owned pool, and uploads the same marker
@@ -301,10 +304,21 @@ RERUN_MARGIN_SECONDS = 60
 # costs far less than a refusal's rescue round trip and a Blacksmith re-run
 # (cmuxterm-hq#661 Workstream 7), so the window covers that wait with room.
 REFUSAL_SECONDS = 360
-# The last attempt that may run on an owned pool: a stuck run's full re-run
-# on the light tier (CI_OWNED_LIGHT_RETRY). A re-run of failed jobs never
-# takes one (see the module docstring).
+# The last attempt of the bot's own re-runs that may run on an owned pool: a
+# stuck run's full re-run on the light tier (CI_OWNED_LIGHT_RETRY). A person's
+# re-run of a pull request (a code failure: pr_runner_pool.host_fault_retry())
+# goes back to the minis on any attempt and is watched whatever its attempt
+# (person_rerun()); the rescue's re-run of it is the bot's, on Blacksmith.
 LAST_OWNED_ATTEMPT = 2
+RESCUE_ACTOR = "github-actions[bot]"
+
+
+def person_rerun(run: Mapping[str, Any]) -> bool:
+    """A re-run of a pull request's CI run someone other than github-actions[bot] started: its owned jobs go
+    back to the minis, so it is watched like attempt 1."""
+    return (int(run.get("run_attempt") or 0) > 1 and run.get("path") == CI_WORKFLOW_PATH
+            and run.get("event") == "pull_request"
+            and str((run.get("triggering_actor") or {}).get("login") or "") != RESCUE_ACTOR)
 # The runner's own steps, which run before glaeda's hook decides.
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 MAX_JOB_PAGES = 3
@@ -535,6 +549,13 @@ class GitHub:
 
     def run(self, run_id: int) -> Mapping[str, Any]:
         return self.request("GET", f"/actions/runs/{run_id}")
+
+    def person_reruns(self, count: int) -> list[tuple[int, int]]:
+        """(run id, attempt) of in-progress CI runs a person re-ran (person_rerun()): a re-run of failed jobs
+        uploads no marker."""
+        data = self.request("GET", f"/actions/workflows/ci.yml/runs?status=in_progress&per_page={count}")
+        return [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
+                if isinstance(run, Mapping) and run.get("id") and person_rerun(run)]
 
     def jobs(self, run_id: int, attempt: int) -> list[Mapping[str, Any]]:
         found: list[Mapping[str, Any]] = []
@@ -1144,7 +1165,7 @@ def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_re
     (a stuck run's re-run under CI_OWNED_LIGHT_RETRY).
     """
     attempt = int(run.get("run_attempt") or 0)
-    if attempt < 1 or attempt > LAST_OWNED_ATTEMPT:
+    if attempt < 1 or attempt > LAST_OWNED_ATTEMPT and not person_rerun(run):
         return f"attempt {attempt}"
     if run.get("status") == "completed":
         if run.get("conclusion") != "failure":
@@ -1172,6 +1193,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
     lock = threading.Lock()
     outcomes: dict[str, int] = {}
     seen: set[int] = set()
+    rerun_seen: set[tuple[int, int]] = set()  # person re-runs, once per attempt (person_reruns())
     threads: list[threading.Thread] = []
     started = now()
     latest = started + dt.timedelta(seconds=sweep_seconds + RESCUE_GRACE_SECONDS)
@@ -1209,6 +1231,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             seen.discard(run_id)  # the next tick tries again
             log(f"[run {run_id}] could not read the run ({error})")
             return
+        rerun_seen.add((run_id, int(run.get("run_attempt") or 0)))
         full_rerun = False
         if light_retry and int(run.get("run_attempt") or 0) > 1:
             # A full re-run ran the picker again; a re-run of failed jobs kept attempt 1's.
@@ -1241,6 +1264,15 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                 if run_id in seen or (created is not None and created < oldest):
                     continue
                 adopt(run_id, late)
+        # A person's re-run of failed jobs goes back to the minis with no marker of its own; one listing a tick.
+        try:
+            reruns = client.person_reruns(SWEEP_LISTING)
+        except READ_ERRORS as error:
+            log(f"could not list re-runs ({error}); next tick")
+            reruns = []
+        for run_id, attempt in reruns:
+            if (run_id, attempt) not in rerun_seen:
+                adopt(run_id, False)
         threads = [thread for thread in threads if thread.is_alive()]
         log(f"tick: {len(threads)} run(s) watched, {client.remaining or '?'} of "
             f"{client.limit or '?'} API requests left this hour")

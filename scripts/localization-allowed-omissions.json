@@ -2188,6 +2188,18 @@
       "ja": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
     }
   },
+  "settings.computers.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "settings.computers.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
   "settings.config.source.cmux": {
     "class": "brand",
     "source": "cmux"
@@ -2459,6 +2471,16 @@
     "class": "technical",
     "source": "pt"
   },
+  "settings.terminal.ghostty.scrollbackLimit.unit": {
+    "class": "technical",
+    "source": "MB"
+  },
+  "settings.terminal.ghostty.cursorStyle.block": {
+    "source": "Block",
+    "identityLocales": {
+      "de": "Block is the German word for a block cursor shape and has the same spelling as English."
+    }
+  },
   "settings.terminal.tabBarFontSize.points": {
     "class": "format",
     "source": "%@ pt"
@@ -2487,6 +2509,18 @@
     "identityLocales": {
       "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
     }
+  },
+  "shortcut.keymap.preset.iterm2": {
+    "class": "brand",
+    "source": "iTerm2"
+  },
+  "shortcut.keymap.preset.terminal": {
+    "class": "brand",
+    "source": "Terminal.app"
+  },
+  "shortcut.keymap.summary.change": {
+    "class": "format",
+    "source": "%1$@: %2$@ → %3$@"
   },
   "shortcut.recorder.pendingChord": {
     "class": "format",

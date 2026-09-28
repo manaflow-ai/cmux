@@ -9,6 +9,7 @@ import SwiftUI
 /// and a Reset Palette action.
 @MainActor
 public struct WorkspaceColorsSection: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
     private let errorLog: SettingsErrorLog
@@ -142,8 +143,8 @@ public struct WorkspaceColorsSection: View {
                 json: "notifications.paneFlashColor",
                 resetLabel: String(localized: "settings.workspaceColors.paneFlashColor.reset", defaultValue: "Reset"),
                 model: paneFlashHex,
-                // Matches the runtime's system-blue fallback.
-                fallback: Color(nsColor: .systemBlue)
+                // Matches the runtime's cmux accent fallback.
+                fallback: cmuxAccent.color
             )
             SettingsCardDivider()
 
@@ -182,7 +183,7 @@ public struct WorkspaceColorsSection: View {
     }
 
     @ViewBuilder
-    private func colorRow(title: String, subtitle: String, json: String, resetLabel: String, model: DefaultsValueModel<String>, fallback: Color = Self.cmuxAccentColor()) -> some View {
+    private func colorRow(title: String, subtitle: String, json: String, resetLabel: String, model: DefaultsValueModel<String>, fallback: Color? = nil) -> some View {
         let isCustom = !model.current.isEmpty
         SettingsCardRow(
             configurationReview: .json(json),
@@ -197,7 +198,7 @@ public struct WorkspaceColorsSection: View {
                 }
                 HexColorPicker(
                     storedHex: model.current,
-                    fallback: fallback,
+                    fallback: fallback ?? cmuxAccent.color,
                     reconcileRevision: model.revision
                 ) { hex in
                     model.set(hex)
@@ -303,22 +304,5 @@ public struct WorkspaceColorsSection: View {
         case .leftRail: return String(localized: "sidebar.activeTabIndicator.leftRail", defaultValue: "Left Rail")
         case .solidFill: return String(localized: "sidebar.activeTabIndicator.solidFill", defaultValue: "Solid Fill")
         }
-    }
-
-
-    /// cmux-themed accent color used as the live ColorPicker fallback
-    /// when the selection or notification badge has no custom hex.
-    /// Mirrors the legacy `cmuxAccentColor()` helper (see
-    /// `Sources/Sidebar/SidebarAppearanceSupport.swift`) so the rendered
-    /// swatch matches the rest of the app instead of the system accent.
-    private static func cmuxAccentColor() -> Color {
-        let nsColor = NSColor(name: nil) { appearance in
-            let bestMatch = appearance.bestMatch(from: [.darkAqua, .aqua])
-            if bestMatch == .darkAqua {
-                return NSColor(srgbRed: 0, green: 145.0 / 255.0, blue: 1.0, alpha: 1.0)
-            }
-            return NSColor(srgbRed: 0, green: 136.0 / 255.0, blue: 1.0, alpha: 1.0)
-        }
-        return Color(nsColor: nsColor)
     }
 }

@@ -22,7 +22,7 @@ struct GhosttyImportMapperTests {
         #expect(theme.contains("selection-foreground = #ffffff\n"))
 
         #expect(plan.settings == [
-            .init(key: "font-family", value: "\"JetBrains Mono\""),
+            .init(key: "font-family", values: ["\"\"", "\"JetBrains Mono\""]),
             .init(key: "font-size", value: "14.5"),
             .init(key: "cursor-style", value: "bar"),
             .init(key: "cursor-style-blink", value: "false"),

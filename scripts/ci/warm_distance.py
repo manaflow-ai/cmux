@@ -238,6 +238,11 @@ def have_commit(workspace: Path, sha: str) -> bool:
     return bool(sha) and git(workspace, "cat-file", "-e", f"{sha}^{{commit}}") is not None
 
 
+def have_tree(workspace: Path, sha: str) -> bool:
+    """SHA's commit and its root tree are in the checkout (a --filter=tree:0 history has the commit only)."""
+    return have_commit(workspace, sha) and git(workspace, "cat-file", "-e", f"{sha}^{{tree}}") is not None
+
+
 def ensure_commit(workspace: Path, sha: str) -> bool:
     """SHA's commit and trees in the checkout, fetched shallow (public, no credentials) when missing."""
     if not re.fullmatch(r"[0-9a-f]{40}", sha or ""):
@@ -445,6 +450,9 @@ def admission(store: Path, env: Mapping[str, str], workspace: Path, now: Callabl
     share_model(fleet_dir(store))
     if own is not None and env.get("KEPT") == "true":
         stamp_pull_request(store, own[0], own[1], hot_files)
+    elif own is not None and env.get("KEPT") == "parked" and (env.get("PR_NUMBER") or "").strip().isdigit():
+        # Kept in its PR slot beside a root that stays at main (owned_build_state.py holds_last_main).
+        stamp_pull_request(store / "pr-builds" / f"pr-{int(env['PR_NUMBER'])}", own[0], own[1], hot_files)
     return record
 
 
@@ -726,7 +734,11 @@ def fetch_bases(workspace: Path, shas: Iterable[str]) -> dict[str, Any]:
     every mini then cost the unknown start, so distance routing never pinned. A second attempt takes
     what the first left missing. Returns what happened, for the decision record: the bases missing,
     the seconds, and the last failure's stderr tail."""
-    missing = sorted({sha for sha in shas if WARM_SHA.fullmatch(sha) and not have_commit(workspace, sha)})
+    # The tree, not only the commit: the changes job's delta_since_green.py fetches main's history with
+    # --filter=tree:0, so most kept bases were present as bare commits, never fetched, and their diffs
+    # failed (09-27 18Z: 13 of 15 bases uncomparable on #15003's run). --refetch makes the server send
+    # the trees of a commit the checkout already has.
+    missing = sorted({sha for sha in shas if WARM_SHA.fullmatch(sha) and not have_tree(workspace, sha)})
     report: dict[str, Any] = {"missing": len(missing), "attempts": 0}
     started = time.monotonic()
     env = {**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"}
@@ -741,7 +753,8 @@ def fetch_bases(workspace: Path, shas: Iterable[str]) -> dict[str, Any]:
         report["attempts"] += 1
         try:
             result = subprocess.run(["git", "-C", str(workspace), "fetch", "--quiet", "--no-tags",
-                                     "--no-write-fetch-head", "--depth=1", "--filter=blob:none", "origin", *missing],
+                                     "--no-write-fetch-head", "--refetch", "--depth=1", "--filter=blob:none",
+                                     "origin", *missing],
                                     capture_output=True, text=True, timeout=timeout, env=env)
             if result.returncode != 0:
                 report["error"] = f"exit {result.returncode}: {result.stderr.strip()[-300:]}"
@@ -751,7 +764,7 @@ def fetch_bases(workspace: Path, shas: Iterable[str]) -> dict[str, Any]:
             report["error"] = f"timed out after {timeout:.0f} s"
         except OSError as error:
             report["error"] = f"{type(error).__name__}: {error}"[:300]
-        missing = [sha for sha in missing if not have_commit(workspace, sha)]
+        missing = [sha for sha in missing if not have_tree(workspace, sha)]
     report["left"] = len(missing)
     report["seconds"] = round(time.monotonic() - started, 1)
     return report
@@ -835,10 +848,11 @@ def distance_route(runners: Sequence[Mapping[str, Any]], root: str, *,
             stamp = entry if entry.get("merged_onto") or entry.get("pr") else None
             cost = hook_root_cost(changes(str(entry.get("merged_onto") or "")) if stamp else None, stamp,
                                   pr_number, hook, own)
-            # This pull request's build parked beside the root: admission's `check` swaps it in (and the
-            # hook ranks the root by it) unless the kept build is a main build, which `check` never parks.
+            # This pull request's build parked beside the root: admission's `check` swaps it in, or adopts
+            # from it where the root keeps main (owned_build_state.py holds_last_main), and the hook ranks
+            # the root by it.
             parked = own_parked(entry, pr_number)
-            if parked and (stamp is None or entry.get("pr")):
+            if parked:
                 cost = hook_root_cost(changes(str(parked[0].get("merged_onto") or "")), parked[0], pr_number,
                                       hook, own)
             costs.append((*cost, number if isinstance(number, int) and not isinstance(number, bool) else 0))

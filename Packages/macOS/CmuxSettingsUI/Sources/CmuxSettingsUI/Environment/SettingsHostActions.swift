@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CMUXMobileCore
 import CmuxSettings
 import Foundation
@@ -110,6 +111,13 @@ public protocol SettingsHostActions: AnyObject {
     /// Opens the interactive terminal theme picker in a focused cmux terminal pane.
     func openTerminalThemePicker()
 
+    /// Theme directories, managed config file and current theme for the
+    /// Settings theme gallery, or `nil` to show only the terminal picker button.
+    func terminalThemeGalleryContext() -> TerminalThemeGalleryContext?
+
+    /// Reloads terminals after the gallery rewrote the managed theme block.
+    func terminalThemeConfigDidChange(phase: TerminalThemeReloadPhase)
+
     /// Opens a focused cmux terminal pane running `cmux import`, which lists other
     /// terminals' settings and imports the one the user picks.
     func openTerminalImport()
@@ -211,6 +219,19 @@ public protocol SettingsHostActions: AnyObject {
     /// Formats a point size for display next to a font-size slider
     /// (e.g. `12`, `13.5`), trimming trailing zeros.
     func formattedFontSize(_ points: Double) -> String
+
+    /// The effective values of the Ghostty options Settings > Terminal edits
+    /// natively, folded from the user's Ghostty config and cmux's config in
+    /// load order, with the file that last set each key. Reads the config
+    /// files off the main actor.
+    func terminalGhosttyOptions() async -> GhosttyTerminalOptionsSnapshot
+
+    /// Writes one option's key to cmux's Ghostty config and reloads the
+    /// configuration so open terminals pick it up.
+    ///
+    /// - Returns: `false` when the write failed.
+    @discardableResult
+    func applyTerminalGhosttyOption(_ change: GhosttyTerminalOptionChange) async -> Bool
 
     /// The current status of the Mac-side iOS pairing host (the actual bound
     /// port, whether it fell back from the configured port, the active iOS
@@ -497,6 +518,10 @@ public extension SettingsHostActions {
 
     /// Default no-op for package-only settings hosts without a terminal theme picker.
     func openTerminalThemePicker() {}
+
+    /// Package-only hosts have no Ghostty config, so the gallery stays hidden.
+    func terminalThemeGalleryContext() -> TerminalThemeGalleryContext? { nil }
+    func terminalThemeConfigDidChange(phase: TerminalThemeReloadPhase) {}
 
     /// Default no-op for package-only settings hosts without a bundled cmux CLI.
     func openTerminalImport() {}

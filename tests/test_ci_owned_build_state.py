@@ -161,7 +161,7 @@ class AdoptAndSave(Fixture):
         result = run(state.save, self.store, self.packages, self.workspace)
         self.assertEqual(result["packages"], "true")
         self.assertTrue((self.store / "source-packages" / "checkouts" / "new").is_file())
-        self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [])
+        self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [".keep.lock"])
 
     def test_a_job_without_packages_leaves_the_kept_ones(self):
         self.keep()
@@ -194,7 +194,7 @@ class AdoptAndSave(Fixture):
         with unittest.mock.patch.object(Path, "rename", racing):
             result = run(state.save, self.store / "cmux-ci-2", self.packages, self.workspace, self.store)
         self.assertEqual(result["packages"], "false")
-        self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [])
+        self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [".keep.lock"])
         self.assertFalse((self.store / "cmux-ci-2" / "source-packages").exists())
 
     def test_a_save_leaves_another_slots_save_in_flight(self):
@@ -224,7 +224,7 @@ class AdoptAndSave(Fixture):
         self.assertEqual(sorted(path.name for path in (kept / "Build").iterdir()), ["new.o"])
         self.assertFalse((kept / "derived-data-compile-admission").exists())
         self.assertEqual(json.loads((self.store / "stamp.json").read_text())["fingerprint"], "fp2-owned-rec1")
-        self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [])
+        self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [".keep.lock"])
 
     def test_clear_refuses_to_leave_anything_behind(self):
         target = self.store / "x"
@@ -349,9 +349,80 @@ class WarmKeys(Fixture):
         self.build("main")
         self.kept(pr="")  # idle warming keeps main: 7 stays parked, main cannot be
         result = run(state.check, self.store, "fp", self.workspace, None, "7")
-        self.assertEqual(result["reason"], "kept DerivedData matches")
+        # The main build stays in place; the job adopts its own parked build directly.
+        slot = self.store / "pr-builds" / "pr-7"
+        self.assertEqual((result["warm"], result["reason"], result["adopt_from"]),
+                         ("true", "this pull request's parked build", str(slot)))
         self.assertEqual(self.kept_marker(), "main")
-        self.assertTrue((self.store / "pr-builds" / "pr-7" / "derived-data").is_dir())
+        self.assertTrue((slot / "derived-data").is_dir())
+        # With another Xcode's slot, nothing to adopt from: the main build is the start.
+        self.assertNotIn("adopt_from", run(state.check, self.store, "other", self.workspace, None, "7"))
+
+    def second_root(self, pr=""):
+        """Root 2 of this mini (STORE/cmux-ci-2), keeping a build of PR (main when "")."""
+        other = self.store / "cmux-ci-2"
+        (other / "derived-data").mkdir(parents=True, exist_ok=True)
+        stamp = {"fingerprint": f"x-{state.STATE_VERSION}", "merged_onto": B, **({"pr": int(pr)} if pr else {})}
+        (other / "stamp.json").write_text(json.dumps(stamp))
+        return other
+
+    def test_the_minis_last_main_root_stays_at_main_and_parks_pull_requests(self):
+        self.build("main")
+        self.kept(pr="")
+        self.second_root(pr="3")  # the other root holds a pull request's build
+        self.assertTrue(state.holds_last_main(self.store))
+        self.build("seven")
+        self.assertEqual(self.kept(pr="7"), {"kept": "parked", "parked": "pr-7",
+                                             "reason": "this root keeps the mini's only main build"})
+        self.assertEqual(self.kept_marker(), "main")
+        slot = self.store / "pr-builds" / "pr-7"
+        self.assertEqual(json.loads((slot / "stamp.json").read_text()), {"fingerprint": state.stamped("fp"),
+                                                                          "merged_onto": A, "pr": 7})
+        self.assertEqual((slot / "derived-data" / "Build" / "marker").read_text(), "seven")
+        self.assertFalse((self.store / ".derived-data.incoming").exists())
+        # The root publishes main plus the parked build, which routing ranks for pull request 7 only.
+        self.assertEqual(self.keys(cache=False)["roots"][0], {"root": 1, "merged_onto": A,
+                                                              "parked": [{"merged_onto": A, "pr": 7}]})
+
+    def test_an_oversized_slot_falls_back_to_the_main_build(self):
+        self.build("seven")
+        self.kept(pr="7")
+        self.build("main")
+        self.kept(pr="")
+        with unittest.mock.patch.object(state, "MAX_DERIVED_BYTES", 1):
+            result = run(state.check, self.store, "fp", self.workspace, None, "7")
+        self.assertNotIn("adopt_from", result)
+        # The start is the main build again (itself over this test's 1-byte cap).
+        self.assertEqual((result["warm"], result["reason"]), ("false", "kept DerivedData grew to 4 bytes"))
+        self.assertFalse((self.store / "pr-builds" / "pr-7").exists())
+
+    def test_main_from_another_xcode_does_not_hold_the_root(self):
+        self.build("main")
+        self.kept(fingerprint="old-xcode", pr="")
+        self.second_root(pr="3")
+        self.assertFalse(state.holds_last_main(self.store, "fp"))
+        self.build("seven")
+        self.assertEqual(self.kept(pr="7")["kept"], "true")
+
+    def test_a_main_build_is_replaced_while_another_root_keeps_main(self):
+        self.build("main")
+        self.kept(pr="")
+        self.second_root()  # root 2 keeps main too
+        self.assertFalse(state.holds_last_main(self.store))
+        self.build("seven")
+        self.assertEqual(self.kept(pr="7"), {"kept": "true"})
+        self.assertEqual(self.kept_marker(), "seven")
+
+    def test_a_single_root_mini_keeps_pull_request_builds_as_before(self):
+        self.build("main")
+        self.kept(pr="")
+        self.assertFalse(state.holds_last_main(self.store))
+        self.build("seven")
+        self.assertEqual(self.kept(pr="7"), {"kept": "true"})
+        # Main's own keep (a dispatch or idle warming) always replaces the kept build.
+        self.second_root(pr="3")
+        self.build("main again")
+        self.assertEqual(self.kept(pr=""), {"kept": "true", "parked": "pr-7"})
 
     def test_check_replaces_an_unreadable_kept_build_and_skips_an_expired_slot(self):
         self.build("seven")

@@ -24,6 +24,14 @@ extension CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[AppearanceSettings.appearanceModeKey] = .string(normalized)
         }
+        if section.keys.contains("accentColor") {
+            if let raw = jsonString(section["accentColor"]),
+               let mode = CmuxAccentColorMode(rawValue: raw) {
+                snapshot.managedUserDefaults[CmuxAccentColorMode.userDefaultsKey] = .string(mode.rawValue)
+            } else {
+                logInvalid("app.accentColor", sourcePath: sourcePath)
+            }
+        }
         if let raw = jsonString(section["appIcon"]) {
             guard let mode = AppIconMode(rawValue: raw) else {
                 logInvalid("app.appIcon", sourcePath: sourcePath)

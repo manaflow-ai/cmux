@@ -599,6 +599,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         registryProvider: { [weak self] in self?.tabDragTransferRegistry }
     )
     private let systemAppearanceObserver = SystemAppearanceObserver()
+    /// Resolves `app.accentColor` once per change. Window roots, the sidebar
+    /// snapshot and AppKit chrome read ``accentColor`` from here.
+    let accentColorObserver = CmuxAccentColorObserver()
+    /// The resolved cmux accent for chrome drawing.
+    var accentColor: CmuxAccentColor { accentColorObserver.current }
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = MacSentryStartupPolicy.isRunningUnderXCTest(
         environment: ProcessInfo.processInfo.environment
@@ -1196,6 +1201,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         uiTestDiagnosticsWriter.write(stage: stage)
     }
     var debugCloseMainWindowConfirmationHandler: ((NSWindow) -> Bool)?
+    /// Test seam: with `debugCloseMainWindowConfirmationHandler`, reports the
+    /// "Don't ask again" warnings offered and returns whether it was ticked.
+    var debugCloseMainWindowDontAskAgainHandler: ((CloseWarningKinds) -> Bool)?
     /// Test seam: when set, ``openDiffViewerForFocusedWorkspace(for:)`` invokes this
     /// instead of spawning the bundled `cmux diff` CLI, so shortcut-dispatch tests can
     /// assert routing without launching a subprocess.
@@ -1668,6 +1676,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         AppIconLaunchState.markDidFinishLaunching()
         AppearanceSettingsUserDefaultsObserver.shared.startObserving()
         systemAppearanceObserver.startObserving()
+        accentColorObserver.startObserving()
         BrowserSystemProxyWatcher.shared.startObserving()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
@@ -6716,10 +6725,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func confirmCloseMainWindow(_ window: NSWindow) -> Bool {
+    private func confirmCloseMainWindow(_ window: NSWindow, warningDefaults: UserDefaults) -> Bool {
+        let dontAskAgain: CloseWarningKinds = .window
 #if DEBUG
         if let debugCloseMainWindowConfirmationHandler {
-            return debugCloseMainWindowConfirmationHandler(window)
+            let accepted = debugCloseMainWindowConfirmationHandler(window)
+            if debugCloseMainWindowDontAskAgainHandler?(dontAskAgain) == true {
+                CloseTabWarningStore(defaults: warningDefaults).disableWarnings(dontAskAgain)
+            }
+            return accepted
         }
 #endif
 
@@ -6742,7 +6756,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        return alert.runModal() == .alertFirstButtonReturn
+        CloseDontAskAgainCheckbox.add(to: alert, offering: dontAskAgain)
+        let accepted = alert.runModal() == .alertFirstButtonReturn
+        CloseDontAskAgainCheckbox.apply(from: alert, offering: dontAskAgain, defaults: warningDefaults)
+        return accepted
     }
 
     @discardableResult
@@ -6751,7 +6768,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.performClose(nil)
             return true
         }
-        guard confirmCloseMainWindow(window) else { return true }
+        // Ask only when something would be lost, counting the window Dock that
+        // closes with the window. A close that skips the dialog is not
+        // preconfirmed, so the last-window quit policy still applies. Without a
+        // context there is no way to tell, so only the setting decides.
+        let shouldConfirm: Bool
+        let warningDefaults: UserDefaults
+        if let context = mainWindowContext(forExactWindowIdentity: window) {
+            warningDefaults = context.tabManager.closeTabWarningDefaults
+            shouldConfirm = context.tabManager.shouldConfirmWindowClose(
+                windowDockNeedsConfirmation: context.existingWindowDock()?.needsConfirmClose() == true
+            )
+        } else {
+            warningDefaults = .standard
+            shouldConfirm = CloseTabWarningStore(defaults: warningDefaults).warnsBeforeClosingWindow
+        }
+        guard shouldConfirm else {
+            window.performClose(nil)
+            return true
+        }
+        guard confirmCloseMainWindow(window, warningDefaults: warningDefaults) else { return true }
         performPreconfirmedMainWindowClose(window)
         return true
     }
@@ -19252,7 +19288,9 @@ private extension AppDelegate {
             self.reloadGhosttyConfigurationForCmuxThemeSource(source)
         }
     }
+}
 
+extension AppDelegate {
     func reloadGhosttyConfigurationForCmuxThemeSource(_ source: String) {
         if GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(source: source) {
             cmuxThemePreviewReloadScheduler.schedule(
