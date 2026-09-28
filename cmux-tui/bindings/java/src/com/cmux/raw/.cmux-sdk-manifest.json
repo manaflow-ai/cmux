@@ -737,8 +737,8 @@
     },
     {
       "path": "MintTerminalRendererResult.java",
-      "sha256": "61c148590d00f2e31a79d3911ced3f0963da72f3e15afe2f1d71c98bf512cf21",
-      "size": 6460
+      "sha256": "0a5de4d8cd1c534a5f469170ed315af188f9efaa91d6998561bb97838a43e19a",
+      "size": 7454
     },
     {
       "path": "MoveTabRequest.java",
@@ -907,7 +907,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "c452418563aeb3348e089c321e692005234671a4e9fbebce438661c44b5f3712",
+      "sha256": "915b183f28e0a553e71af9be4f0b98ddbe42ab88e315c710071e771efc84d0f3",
       "size": 4260
     },
     {
@@ -1622,7 +1622,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "133bac0154f8f94aa30e40c11ff7ed38b10dd4d82974aec87c02d404fcd12619",
+  "ir_sha256": "75b844eaad8ff11b56ae2900f6cf07ceb0c3b8f13d164a874c74051de5bc9b53",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -3832,6 +3832,15 @@
      "nullable": false,
      "since": 11
     },
+    "supports_viewer_size_priority": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
+    },
     "ttl_ms": {
      "type": {
       "kind": "scalar",

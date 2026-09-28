@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 133bac0154f8f94aa30e40c11ff7ed38b10dd4d82974aec87c02d404fcd12619. */
+/* cmux-tui mux protocol 12, IR 75b844eaad8ff11b56ae2900f6cf07ceb0c3b8f13d164a874c74051de5bc9b53. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -352,6 +352,7 @@ export type MintTerminalRendererResult = {
   "incarnation": string;
   "protocol_version": number;
   "rights": number;
+  "supports_viewer_size_priority"?: boolean;
   "terminal_id": string;
   "token": string;
   "ttl_ms": bigint;
