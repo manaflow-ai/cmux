@@ -1762,6 +1762,26 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         stale = self.pool.pr_runner_pool.MAX_SNAPSHOT_MINUTES + 1
         self.assertEqual(self.owned(age=stale, test_filter="cmuxUITests/A", owned_ui="1"), MINI)
 
+    def test_a_ui_run_pinned_to_blacksmith_macos_26_moves_to_an_owned_mac(self):
+        # Blacksmith macOS 26 sessions cannot capture the screen, so a pinned UI
+        # run failed its capture preflight (run 36426283823, 2026-09-28).
+        ui = dict(test_filter="cmuxUITests/ExampleUITests", owned_ui="1")
+        for requested in (SMALL, LARGE, "blacksmith-6vcpu-macos-latest"):
+            with self.subTest(requested=requested):
+                self.assertEqual(self.owned(requested=requested, **ui), MINI)
+                self.assertEqual(self.owned(requested=requested, running=8, queued=40, **ui), MINI)
+        kept = {
+            "a cmuxTests run": dict(test_filter="cmuxTests/ExampleTests", owned_ui="1"),
+            "UI runs not allowed on owned Macs": dict(test_filter="cmuxUITests/ExampleUITests", owned_ui=""),
+            "owned pools off": dict(owned="0", **ui),
+            "a drained fleet": dict(slots={}, **ui),
+        }
+        for why, kwargs in kept.items():
+            with self.subTest(why=why):
+                self.assertEqual(self.owned(requested=SMALL, **kwargs), SMALL)
+        # macOS 15 captures, so a pin there is honored.
+        self.assertEqual(self.owned(requested=OLD, **ui), OLD)
+
     def test_owned_macs_record_no_video(self):
         step = next(step for step in self.jobs["filter"]["steps"] if step.get("id") == "filter")
         self.assertIn("runner", self.jobs["filter"]["needs"])
