@@ -115,14 +115,17 @@ class FakeAPI:
     def force_cancel(self, run_id):
         self.calls.append("force-cancel")
 
-    def rerun(self, run_id):
+    def rerun(self, run_id, next_attempt):
         self.calls.append("rerun")
+        # The attempt the re-run starts, which ci-ui-tests.yml is dispatched for.
+        assert next_attempt == self.attempt + 1, (next_attempt, self.attempt)
         # cancelled_at stays for the assertions; the cancel was of the attempt before.
         self.attempt += 1
         self.rerun_at = self.clock.seconds
 
-    def rerun_failed(self, run_id):
+    def rerun_failed(self, run_id, next_attempt):
         self.calls.append("rerun-failed")
+        assert next_attempt == self.attempt + 1, (next_attempt, self.attempt)
         self.attempt += 1
         self.cancelled_at, self.rerun_at = None, self.clock.seconds
 
@@ -1548,7 +1551,7 @@ class Tokens(unittest.TestCase):
         with patch:
             api = rescue.GitHub("repo-token", "o/r", read_token="app-token")
             api.run(1)
-            api.rerun_failed(1)
+            api.rerun_failed(1, 2)
             api.cancel(1)
         # A re-run started by the App would not be github-actions[bot], which
         # ci-macos.yml's attempt-2 routing requires. The re-run then reads the
@@ -1569,11 +1572,12 @@ class Tokens(unittest.TestCase):
         def urlopen(request, timeout):
             sent.append((request.get_method(), request.full_url, request.data))
             if request.get_method() == "GET":
+                # A read right after the re-run may still report the old attempt.
                 return Response(json.dumps({"path": ".github/workflows/ci.yml", "event": "pull_request",
-                                            "run_attempt": 2}).encode())
+                                            "run_attempt": 1}).encode())
             return Response(b"")
         with unittest.mock.patch.object(rescue.urllib.request, "urlopen", urlopen):
-            rescue.GitHub("repo-token", "o/r").rerun(7)
+            rescue.GitHub("repo-token", "o/r").rerun(7, 2)
         # A GITHUB_TOKEN re-run may emit no workflow_run event for ci-ui-tests.yml.
         self.assertEqual(sent[-1][:2], ("POST", f"{rescue.API}/repos/o/r/actions/workflows/ci-ui-tests.yml/dispatches"))
         self.assertEqual(json.loads(sent[-1][2]), {"ref": "main", "inputs": {"run_id": "7", "run_attempt": "2"}})
