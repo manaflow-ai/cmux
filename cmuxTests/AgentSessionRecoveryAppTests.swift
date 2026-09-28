@@ -121,6 +121,90 @@ struct AgentSessionRecoveryAppTests {
         #expect(plainCommand.contains("plain"))
     }
 
+    /// Closing a Claude pane kills the agent before its own end hook reports,
+    /// so the journal kept the session open and the next crash recovery
+    /// reopened a pane the user had closed.
+    @MainActor
+    @Test
+    func closedClaudePaneIsNotRecoveredAfterACrash() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-recovery-close-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let closedID = "5d1c7a52-0d0e-4b1f-9a4e-2f0f7a9c1e01"
+        let killedID = "5d1c7a52-0d0e-4b1f-9a4e-2f0f7a9c1e02"
+        let now = Date()
+        let journalURL = root.appendingPathComponent("journal.sqlite3")
+        let store = try AgentJournalStore(databaseURL: journalURL)
+        for id in [closedID, killedID] {
+            _ = try store.append(AgentJournalEventDraft(
+                kind: .sessionStarted,
+                occurredAtMs: Int64(now.addingTimeInterval(-60).timeIntervalSince1970 * 1000),
+                source: "claude",
+                agentKey: "claude_code",
+                sessionId: id,
+                workspaceId: UUID().uuidString,
+                surfaceId: UUID().uuidString
+            ))
+        }
+        store.close()
+
+        var file = RestorableAgentHookSessionStoreFile()
+        for id in [closedID, killedID] {
+            let transcript = root.appendingPathComponent("\(id).jsonl")
+            try Data("{}\n".utf8).write(to: transcript)
+            file.sessions[id] = RestorableAgentHookSessionRecord(
+                sessionId: id,
+                workspaceId: UUID().uuidString,
+                surfaceId: UUID().uuidString,
+                cwd: "/tmp",
+                transcriptPath: transcript.path,
+                pid: nil,
+                launchCommand: AgentLaunchCommand(launcher: "claude", arguments: ["claude"]),
+                isRestorable: true,
+                updatedAt: now.timeIntervalSince1970
+            )
+        }
+        try JSONEncoder().encode(file).write(to: root.appendingPathComponent("claude-hook-sessions.json"))
+
+        let center = AgentJournalLifecycleCenter(databaseURL: journalURL)
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        workspace.agentSessionCloseJournal = AgentSessionCloseJournal(center: center)
+        let keptPanel = try #require(workspace.focusedPanelId)
+        let closedPanel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false)).id
+        #expect(closedPanel != keptPanel)
+        // What the Claude session-start hook leaves on the surface.
+        workspace.surfaceResumeBindingsByPanelId[closedPanel] = SurfaceResumeBindingSnapshot(
+            name: "Claude Code", kind: "claude", command: "claude --resume \(closedID)",
+            checkpointId: closedID, source: "agent-hook", updatedAt: now.timeIntervalSince1970
+        )
+
+        #expect(workspace.closePanel(closedPanel, force: true))
+
+        // The close is journaled on the center's consumer; wait for it to land.
+        let reader = AgentJournalSessionTailReader(databaseURL: journalURL)
+        func closedHasEnded() -> Bool {
+            let tails = (try? reader.sessionTails(occurredAtOrAfterMs: 0)) ?? []
+            return tails.first { $0.sessionId == closedID }?.hasEnded == true
+        }
+        for _ in 0..<100 where !closedHasEnded() {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(closedHasEnded())
+
+        // cmux now crashes; the next launch recovers only the session that
+        // died with the app.
+        let recovery = AgentSessionRecovery(
+            journalURL: journalURL,
+            homeDirectory: root.path,
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": root.path]
+        )
+        let recovered = recovery.candidates(openSessionIds: [], activeSince: now.addingTimeInterval(-600), now: now)
+        #expect(recovered.map(\.sessionId) == [killedID])
+    }
+
     @Test
     func restoreRejectsMalformedSessionIDsBeforeReadingAppState() {
         let invalidValues: [Any] = [
