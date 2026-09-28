@@ -27,9 +27,12 @@ final class CloudCreateTeamSheetPresenter {
         }
         let sessionID = UUID()
         self.sessionID = sessionID
+        // The open sheet holds its presenter, so Cancel still closes it after
+        // the Cloud surface that opened it is gone. `reset()` releases the
+        // window when the sheet ends, which breaks the cycle.
         let controller = NSHostingController(rootView: CloudCreateTeamSheet(
             accountFlow: accountFlow,
-            onFinish: { [weak self] in self?.dismiss(sessionID) }
+            onFinish: { [self] in dismiss(sessionID) }
         ))
         controller.sizingOptions = [.preferredContentSize]
         let window = NSWindow(contentViewController: controller)
@@ -41,9 +44,9 @@ final class CloudCreateTeamSheetPresenter {
         let host = NSApp.cmuxMainWindowForModalPresentation(preferring: preferredWindow ?? NSApp.keyWindow)
         if let host, host.attachedSheet == nil {
             hostWindow = host
-            host.beginSheet(window) { [weak self] _ in
+            host.beginSheet(window) { [self] _ in
                 // Also runs when AppKit ends the sheet on its own.
-                self?.dismiss(sessionID)
+                dismiss(sessionID)
             }
         } else {
             // Cancel is the only way out, so no close button can leave the
