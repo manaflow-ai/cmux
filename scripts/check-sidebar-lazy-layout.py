@@ -115,11 +115,15 @@ NSVIEW_REPRESENTABLE_DECL = re.compile(
 
 # These are condition-gated leaf controls. SidebarInlineRenameField exists only
 # during inline rename, and GPUSpinner is mounted indirectly by
-# SidebarWorkspaceLoadingSpinner only while agent activity is visible. Neither
-# writes row state from representable lifecycle callbacks.
+# SidebarWorkspaceLoadingSpinner only while agent activity is visible.
+# SidebarCompactStatusGlyphView is mounted only with sidebar.compactAgentStatus
+# on; like GPUSpinner, its lifecycle callbacks only start or stop its own
+# layer's pulse animation. None writes row state from representable lifecycle
+# callbacks.
 ROW_NSVIEW_REPRESENTABLE_ALLOWLIST = frozenset({
     "SidebarInlineRenameField",
     "GPUSpinner",
+    "SidebarCompactStatusGlyphView",
 })
 
 # Row-view regions guarded against per-row geometry feedback. Four of the five
