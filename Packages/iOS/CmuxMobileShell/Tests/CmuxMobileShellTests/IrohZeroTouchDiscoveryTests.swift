@@ -644,6 +644,94 @@ struct IrohZeroTouchDiscoveryTests {
         })
     }
 
+    /// Two directory entries whose dials never answer sort ahead of the only
+    /// live Mac. A clean install must still connect the live Mac while both
+    /// stalled dials are in flight, instead of spending the whole reconnect
+    /// deadline on them one at a time.
+    @Test
+    func unresponsiveDiscoveredMacsDoNotBlockLiveMac() async throws {
+        let stalledA = try candidate(deviceID: "mac-stalled-a", endpointByte: "a")
+        let stalledB = try candidate(deviceID: "mac-stalled-b", endpointByte: "b")
+        let live = try candidate(deviceID: "mac-live", endpointByte: "c")
+        let candidates = [stalledA, stalledB, live]
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let store = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        var routers: [String: LivenessHostRouter] = [:]
+        for candidate in candidates {
+            let router = LivenessHostRouter()
+            await router.setHostIdentity(
+                deviceID: candidate.deviceID,
+                instanceTag: candidate.instanceTag,
+                displayName: candidate.displayName
+            )
+            routers[candidate.routes[0].id] = router
+        }
+        let stalledRouters = try [stalledA, stalledB].map {
+            try #require(routers[$0.routes[0].id])
+        }
+        for router in stalledRouters {
+            await router.delayHostStatusRequest(number: 1)
+        }
+        let factory = RoutedZeroTouchFactory(routers: routers)
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { Self.fixedNow },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: store,
+            personalIrohDiscovery: ScriptedIrohDiscovery(
+                snapshots: [candidates]
+            ),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "iroh-stalled-discovery-\(UUID().uuidString)"
+            )!
+        )
+        defer {
+            for (_, subscription) in shell.secondaryMacSubscriptions {
+                subscription.cancel()
+            }
+            Task { await shell.remoteClient?.disconnect() }
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let reconnect = Task { @MainActor in
+            await shell.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        let connectedWhileStalled = try await pollUntil {
+            shell.connectionState == .connected
+                && shell.foregroundMacDeviceID == live.deviceID
+        }
+        var stalledDialsStillHeld = true
+        for router in stalledRouters where await router.heldRequestCount() != 1 {
+            stalledDialsStillHeld = false
+        }
+        for router in stalledRouters {
+            await router.releaseAllHeld()
+        }
+        #expect(
+            connectedWhileStalled,
+            "the live Mac must connect while earlier directory entries stall"
+        )
+        #expect(stalledDialsStillHeld)
+        #expect(await reconnect.value)
+        #expect(shell.foregroundMacDeviceID == live.deviceID)
+        let rows = try await store.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(rows.map(\.macDeviceID).contains(live.deviceID))
+        // The winning dial is adopted, not repeated.
+        #expect(factory.attemptedRouteIDs().filter { $0 == live.routes[0].id }.count == 1)
+    }
+
     @Test
     func signOutWhileDiscoveryIsSuspendedPreventsDialAndPersistence() async throws {
         let live = try candidate(deviceID: "mac-a", endpointByte: "a")
