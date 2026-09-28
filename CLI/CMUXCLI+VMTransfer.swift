@@ -842,7 +842,7 @@ extension CMUXCLI {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> TimeInterval {
         guard let raw = environment["CMUX_VM_WAIT_POLL_SECONDS"],
-              let parsed = TimeInterval(raw), parsed >= 0 else {
+              let parsed = TimeInterval(raw), parsed.isFinite, parsed >= 0 else {
             return 3
         }
         return parsed
