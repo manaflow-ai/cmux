@@ -3181,6 +3181,7 @@
 		A13387000000000000000005 /* SplitPaneGeometryProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000006 /* SplitPaneGeometryProjection.swift */; };
 		A13387000000000000000013 /* SplitPaneGeometryProjectionRenderParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000014 /* SplitPaneGeometryProjectionRenderParityTests.swift */; };
 		A1338700000000000000000F /* SplitPaneGeometryProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000010 /* SplitPaneGeometryProjectionTests.swift */; };
+		0928F192E46E73B3D73237D5 /* SplitSpaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751E2E409D9D8EED12988A80 /* SplitSpaceTests.swift */; };
 		BB778780CAC943B89A7D904E /* SSHConfiguredRemoteCommandHostTests+Harness.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF9EEAA233347858BCF3320 /* SSHConfiguredRemoteCommandHostTests+Harness.swift */; };
 		F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */; };
 		797800040000000000000001 /* SSHDeepSleepReattachTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800040000000000000002 /* SSHDeepSleepReattachTests.swift */; };
@@ -7222,6 +7223,7 @@
 		A13387000000000000000006 /* SplitPaneGeometryProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneGeometryProjection.swift; sourceTree = "<group>"; };
 		A13387000000000000000014 /* SplitPaneGeometryProjectionRenderParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneGeometryProjectionRenderParityTests.swift; sourceTree = "<group>"; };
 		A13387000000000000000010 /* SplitPaneGeometryProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneGeometryProjectionTests.swift; sourceTree = "<group>"; };
+		751E2E409D9D8EED12988A80 /* SplitSpaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SplitSpaceTests.swift"; sourceTree = "<group>"; };
 		EDF9EEAA233347858BCF3320 /* SSHConfiguredRemoteCommandHostTests+Harness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHConfiguredRemoteCommandHostTests+Harness.swift"; sourceTree = "<group>"; };
 		F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHConfiguredRemoteCommandHostTests.swift; sourceTree = "<group>"; };
 		797800040000000000000002 /* SSHDeepSleepReattachTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHDeepSleepReattachTests.swift; sourceTree = "<group>"; };
@@ -12356,6 +12358,7 @@
 				5D45948E0E0E282796BE8936 /* NotificationSuppressWhenAppFocusedTests.swift */,
 				4772A4FA42EB29D54779B2F4 /* GhosttyConfigDiagnosticsNoticePlacementTests.swift */,
 				AE748DECE9679B649874A1FE /* WorkspaceActivityReorderControllerTests.swift */,
+				751E2E409D9D8EED12988A80 /* SplitSpaceTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16825,6 +16828,7 @@
 				7A0CE100000000000000072A /* SocksV5ClientTests.swift in Sources */,
 				A13387000000000000000013 /* SplitPaneGeometryProjectionRenderParityTests.swift in Sources */,
 				A1338700000000000000000F /* SplitPaneGeometryProjectionTests.swift in Sources */,
+				0928F192E46E73B3D73237D5 /* SplitSpaceTests.swift in Sources */,
 				BB778780CAC943B89A7D904E /* SSHConfiguredRemoteCommandHostTests+Harness.swift in Sources */,
 				F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */,
 				797800040000000000000001 /* SSHDeepSleepReattachTests.swift in Sources */,
