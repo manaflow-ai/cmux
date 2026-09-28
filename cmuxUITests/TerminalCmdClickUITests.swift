@@ -659,7 +659,11 @@ final class TerminalCmdClickUITests: XCTestCase {
     }
 
     func testStationaryCmdClickBareIssueReferenceOpensItAgainstThePaneRepository() throws {
-        try makeFixtureAGitRepository(remote: "https://github.com/manaflow-ai/cmux.git")
+        // The fixture names a repository that does not exist and is not the one
+        // CI is running from. If the pane ever resolved to the cmux checkout
+        // instead of this fixture, the opened URL would say `cmux`, and the
+        // assertion below would fail rather than pass for the wrong reason.
+        try makeFixtureAGitRepository(remote: "https://github.com/manaflow-ai/cmux-reference-fixture.git")
 
         let app = launchApp(
             displayMode: .raw,
@@ -678,7 +682,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         // the command result, is what says it happened.
         let openedURLs = waitForCapturedOpenPaths(timeout: 15.0, path: openURLCapturePath)
         XCTAssertTrue(
-            openedURLs.contains("https://github.com/manaflow-ai/cmux/issues/847"),
+            openedURLs.contains("https://github.com/manaflow-ai/cmux-reference-fixture/issues/847"),
             "Expected cmd-click on #847 to open the pane repository's issue 847. opened=\(openedURLs) result=\(result)"
         )
     }
@@ -705,7 +709,7 @@ final class TerminalCmdClickUITests: XCTestCase {
     }
 
     func testStationaryCmdClickCommitShaOpensThatCommit() throws {
-        try makeFixtureAGitRepository(remote: "git@github.com:manaflow-ai/cmux.git")
+        try makeFixtureAGitRepository(remote: "git@github.com:manaflow-ai/cmux-reference-fixture.git")
 
         let app = launchApp(
             displayMode: .raw,
@@ -721,13 +725,13 @@ final class TerminalCmdClickUITests: XCTestCase {
 
         let openedURLs = waitForCapturedOpenPaths(timeout: 15.0, path: openURLCapturePath)
         XCTAssertTrue(
-            openedURLs.contains("https://github.com/manaflow-ai/cmux/commit/73396e624a9"),
+            openedURLs.contains("https://github.com/manaflow-ai/cmux-reference-fixture/commit/73396e624a9"),
             "Expected cmd-click on an abbreviated SHA to open that commit, including from an ssh remote. opened=\(openedURLs) result=\(result)"
         )
     }
 
     func testStationaryCmdClickOrdinaryWordOpensNothingInARepository() throws {
-        try makeFixtureAGitRepository(remote: "https://github.com/manaflow-ai/cmux.git")
+        try makeFixtureAGitRepository(remote: "https://github.com/manaflow-ai/cmux-reference-fixture.git")
 
         let app = launchApp(
             displayMode: .raw,
@@ -741,13 +745,72 @@ final class TerminalCmdClickUITests: XCTestCase {
         _ = try waitForReadySetup()
         let result = try runCommand(action: "stationary_cmd_click_token")
 
-        // A word that is not a reference must not cost an open, and the wait
-        // has to be long enough that a late repository lookup would have
-        // surfaced one.
+        // This is the false-positive guard: a word that is not a reference must
+        // never become one. The detector rejects it outright, so no repository
+        // lookup is started and there is nothing late to wait for.
+        //
+        // An absence assertion passes when nothing happened at all, so first
+        // prove the click ran and found a point. Without this the test would
+        // stay green with the whole feature deleted.
+        XCTAssertEqual(
+            result["lastCommandAction"] as? String,
+            "stationary_cmd_click_token",
+            "The click harness did not run, so an empty capture proves nothing. result=\(result)"
+        )
+        XCTAssertNotEqual(
+            result["lastCommandError"] as? String,
+            "Missing command point",
+            "The click never resolved a point on the token. result=\(result)"
+        )
+        XCTAssertNotNil(
+            result["lastCommandResult"],
+            "The click never reached the terminal view. result=\(result)"
+        )
+
         let openedURLs = waitForCapturedOpenPaths(timeout: 6.0, path: openURLCapturePath)
         XCTAssertTrue(
             openedURLs.isEmpty,
             "Expected cmd-click on an ordinary word to open nothing. opened=\(openedURLs) result=\(result)"
+        )
+    }
+
+    func testStationaryCmdClickBareReferenceOpensNothingWhenTheRemoteIsNotGitHub() throws {
+        // The discriminating negative. `#847` is a reference, so unlike an
+        // ordinary word it does take the resolve-the-repository path: the click
+        // returns, the slug lookup runs, and it comes back with nothing because
+        // the remote is not GitHub. Opening must not happen afterwards. This is
+        // the late-lookup case, and it is the one an over-eager fallback (say,
+        // defaulting to some hardcoded slug) would break.
+        try makeFixtureAGitRepository(remote: "git@gitlab.com:manaflow-ai/cmux-reference-fixture.git")
+
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .githubReference,
+            captureOpenPaths: false,
+            captureHoverDiagnostics: false,
+            referenceToken: "#847"
+        )
+        defer { app.terminate() }
+
+        _ = try waitForReadySetup()
+        let result = try runCommand(action: "stationary_cmd_click_token")
+
+        XCTAssertEqual(
+            result["lastCommandAction"] as? String,
+            "stationary_cmd_click_token",
+            "The click harness did not run, so an empty capture proves nothing. result=\(result)"
+        )
+        XCTAssertNotEqual(
+            result["lastCommandError"] as? String,
+            "Missing command point",
+            "The click never resolved a point on the token. result=\(result)"
+        )
+
+        // Long enough that the asynchronous slug lookup has certainly finished.
+        let openedURLs = waitForCapturedOpenPaths(timeout: 10.0, path: openURLCapturePath)
+        XCTAssertTrue(
+            openedURLs.isEmpty,
+            "Expected #847 to open nothing when the pane's remote is not GitHub. opened=\(openedURLs) result=\(result)"
         )
     }
 
