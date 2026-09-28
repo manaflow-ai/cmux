@@ -198,6 +198,13 @@ public final class CloudMachineCreateCoordinator {
         remove(where: { $0.request.presentationWorkspaceID.map(workspaceIDs.contains) ?? false }, closePresentations: false)
     }
 
+    /// Retires every create that produced a machine whose deletion just began.
+    /// - Parameter machineID: The provider machine being deleted.
+    /// - Returns: Process and presentation effects, never a cleanup request.
+    public func retireCreates(producing machineID: String) -> CloudMachineCreateTransition {
+        CloudMachineCreateTransition()
+    }
+
     /// Fences an account transition and clears account-specific projection aliases.
     /// - Parameter cleanupCreatedMachines: Whether the departing account permits cleanup.
     /// - Returns: Teardown effects; old callbacks may only produce cleanup, never UI state.
