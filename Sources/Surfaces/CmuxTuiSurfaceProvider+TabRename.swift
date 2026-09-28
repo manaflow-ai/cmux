@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Placement rename writes share the provider revision/receipt fence for user and agent calls.
@@ -21,7 +22,7 @@ extension CmuxTuiSurfaceProvider {
         // trails it. The receipt's revision is a CAS fence, not a timing guess.
         let refreshEstablishedCurrentGraph = await refreshCurrentGraph(force: true)
         try Task.checkCancellation()
-        let pendingCreation = pendingCreation(forTabID: id)
+        let pendingCreation = self.pendingCreation(forTabID: id)
         let pendingRename = pendingRemoteRename(for: .tab(id))
         let observed = cloudState
         let previous = observed?.tabs.first(where: { $0.id == id })

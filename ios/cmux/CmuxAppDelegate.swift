@@ -192,7 +192,7 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
             return userInfo["cmux"] as? [String: Any]
         }
         guard
-              let installation = try? PhonePushKeyStore.current(
+              let installation = try? PhonePushKeyMaterial.current(
                   bundleID: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
                   accessGroup: configuredKeychainAccessGroup()
               ) else { return nil }
@@ -203,9 +203,9 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
                 && $0.tuple.iosInstallationID == installation.installationID
                 && $0.tuple.iosBuildID == (Bundle.main.bundleIdentifier ?? "dev.cmux.ios")
         }),
-              PhonePushActiveAccountStore.current() == envelope.tuple.accountID,
-              let sender = PhonePushPeerKeyStore.pinnedDescriptor(for: envelope.tuple),
-              let data = try? PhonePushCrypto.decrypt(
+              PhonePushActiveAccountStore().current() == envelope.tuple.accountID,
+              let sender = PhonePushPeerKeyStore().pinnedDescriptor(for: envelope.tuple),
+              let data = try? PhonePushCrypto().decrypt(
                   envelope: envelope,
                   tuple: envelope.tuple,
                   recipientInstallationID: installation.installationID,

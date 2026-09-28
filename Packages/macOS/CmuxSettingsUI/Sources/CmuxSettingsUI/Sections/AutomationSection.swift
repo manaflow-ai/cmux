@@ -1,17 +1,17 @@
 import CmuxFoundation
 import CmuxSettings
 import SwiftUI
-
 /// Automation settings, including socket access, agent integrations, and port ranges.
 @MainActor
 public struct AutomationSection: View {
     private let catalog: SettingCatalog
     private let hostActions: any SettingsHostActions
-
+    private let socketPolicyResolver: SocketControlPolicyResolver
     @State private var socketPasswordModel: SecretValueModel
     @State private var modeModel: DefaultsValueModel<SocketControlMode>
     @State private var claudeCodeModel: DefaultsValueModel<Bool>
     @State private var codexModel: DefaultsValueModel<Bool>
+    @State private var piModel: DefaultsValueModel<Bool>
     @State private var claudePathModel: DefaultsValueModel<String>
     @State private var autoNamingModel: DefaultsValueModel<Bool>
     @State private var autoNamingAgentModel: DefaultsValueModel<String>
@@ -25,27 +25,33 @@ public struct AutomationSection: View {
     @State private var kiroLevelModel: DefaultsValueModel<String>
     @State private var portBaseModel: DefaultsValueModel<Int>
     @State private var portRangeModel: DefaultsValueModel<Int>
+    @State private var socketPolicyResolution: SocketControlPolicyResolution
     @State private var socketPasswordDraft: String = ""
     @State private var socketPasswordStatus: SocketPasswordStatus?
     @State private var showOpenAccessConfirmation: Bool = false
     @State private var pendingOpenAccessMode: SocketControlMode?
     @State private var modeBeforePendingOpenAccess: SocketControlMode?
-
+    @State private var automationRulesStatus: AutomationRulesStatus?
+    @State private var automationRulesActionMessage: String?
+    @State private var automationRulesActionIsError = false
+    @State private var automationRulesRefreshID = 0
     private struct SocketPasswordStatus: Equatable {
         let message: String
         let isError: Bool
     }
-
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
         secretStore: SecretFileStore,
         catalog: SettingCatalog,
         errorLog: SettingsErrorLog,
-        hostActions: any SettingsHostActions
+        hostActions: any SettingsHostActions,
+        socketPolicyResolver: SocketControlPolicyResolver = SocketControlPolicyResolver()
     ) {
         self.catalog = catalog
         self.hostActions = hostActions
+        self.socketPolicyResolver = socketPolicyResolver
+        _socketPolicyResolution = State(initialValue: socketPolicyResolver.resolve())
         _socketPasswordModel = State(initialValue: SecretValueModel(
             store: secretStore,
             key: catalog.automation.socketPassword,
@@ -54,6 +60,7 @@ public struct AutomationSection: View {
         _modeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.socketControlMode))
         _claudeCodeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeHooksEnabled))
         _codexModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.codexHooksEnabled))
+        _piModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.piHooksEnabled))
         _claudePathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeCustomClaudePath))
         _autoNamingModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.workspaceAutoNaming))
         _autoNamingAgentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.autoNamingAgent))
@@ -75,16 +82,15 @@ public struct AutomationSection: View {
         _portBaseModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.portBase))
         _portRangeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.portRange))
     }
-
     private static let columnWidth: CGFloat = 196
-
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.automation", defaultValue: "Automation"), section: .automation)
-
             socketControlCard
+            automationRulesCard
             claudeCodeCard
             codexCard
+            PiIntegrationCard(isEnabled: piModel.current, setEnabled: { piModel.set($0) })
             claudePathCard
             autoNamingCard
             ripgrepPathCard
@@ -124,25 +130,124 @@ public struct AutomationSection: View {
                 localized: "settings.automation.openAccess.dialog.message",
                 defaultValue: "This disables ancestry and password checks and opens the socket to all local users. Only enable when you understand the risk."
             ))
-        }.task { startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel]) }
+        }
+        .task {
+            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
+        }
+        .task(id: automationRulesRefreshID) {
+            await refreshAutomationRulesStatus()
+        }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                socketPolicyResolution = socketPolicyResolver.resolve()
+            }
+        }
+    }
+    /// Thin native exposure of the existing JSON-backed automation engine.
+    @ViewBuilder
+    private var automationRulesCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .action,
+                String(localized: "settings.automation.rules", defaultValue: "Automation Rules", bundle: .module),
+                subtitle: automationRulesSubtitle
+            ) {
+                HStack(spacing: 8) {
+                    Button(String(localized: "settings.automation.rules.edit", defaultValue: "Edit Rules", bundle: .module)) {
+                        automationRulesActionMessage = nil
+                        hostActions.openAutomationRulesInExternalEditor()
+                        automationRulesRefreshID += 1
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsAutomationRulesEditButton")
+                    Button(String(localized: "settings.automation.rules.reload", defaultValue: "Reload", bundle: .module)) {
+                        let didRequestReload = hostActions.reloadAutomationRules()
+                        automationRulesActionIsError = !didRequestReload
+                        automationRulesActionMessage = didRequestReload
+                            ? String(localized: "settings.automation.rules.reload.requested", defaultValue: "Reload requested.", bundle: .module)
+                            : String(localized: "settings.automation.rules.reload.unavailable", defaultValue: "Automation engine unavailable.", bundle: .module)
+                        automationRulesRefreshID += 1
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsAutomationRulesReloadButton")
+                }
+            }
+            .accessibilityIdentifier("SettingsAutomationRulesStatus")
+
+            SettingsCardDivider()
+            SettingsCardNote(String(
+                localized: "settings.automation.rules.note",
+                defaultValue: "Rules live in ~/.cmuxterm/automations.json. Edit the JSON directly, then reload the running engine. The cmux automation CLI remains available for test and log diagnostics.",
+                bundle: .module
+            ))
+
+            if let automationRulesActionMessage {
+                SettingsCardDivider()
+                Text(automationRulesActionMessage)
+                    .cmuxFont(.caption)
+                    .foregroundStyle(automationRulesActionIsError ? Color.red : Color.secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .accessibilityIdentifier("SettingsAutomationRulesActionStatus")
+            }
+        }
+    }
+
+    /// Current rule-count or configuration-state summary shown under the card title.
+    private var automationRulesSubtitle: String {
+        guard let status = automationRulesStatus else {
+            return String(localized: "settings.automation.rules.loading", defaultValue: "Loading rules…", bundle: .module)
+        }
+        if status.hasError {
+            return String(
+                localized: "settings.automation.rules.error",
+                defaultValue: "The automation rules file could not be loaded. Edit the JSON file and reload.",
+                bundle: .module
+            )
+        }
+        if status.ruleCount == 0 {
+            return status.configExists
+                ? String(localized: "settings.automation.rules.empty", defaultValue: "No rules configured yet.", bundle: .module)
+                : String(localized: "settings.automation.rules.missing", defaultValue: "No rules file yet.", bundle: .module)
+        }
+        let format = String(
+            localized: "settings.automation.rules.counts",
+            defaultValue: "%1$lld total • %2$lld enabled • %3$lld disabled",
+            bundle: .module
+        )
+        return String.localizedStringWithFormat(
+            format,
+            Int64(status.ruleCount),
+            Int64(status.enabledCount),
+            Int64(status.disabledCount)
+        )
+    }
+
+    /// Refreshes the card from the authoritative config store through the host bridge.
+    private func refreshAutomationRulesStatus() async {
+        automationRulesStatus = await hostActions.automationRulesStatus()
     }
 
     @ViewBuilder
     private var socketControlCard: some View {
-        let isPassword = modeModel.current == .password
-        let isAllowAll = modeModel.current == .allowAll
+        let isManaged = socketPolicyResolution.isManaged
+        let effectiveMode = isManaged ? socketPolicyResolution.mode : SocketControlSettings.effectiveMode(userMode: modeModel.current)
+        let isPassword = effectiveMode == .password
+        let isAllowAll = effectiveMode == .allowAll
         let hasPassword = !socketPasswordModel.current.isEmpty
-
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("automation.socketControlMode"),
                 String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"),
-                subtitle: modeModel.current.description,
+                subtitle: String(localized: "settings.automation.socketMode.subtitle", defaultValue: "Choose which local processes can control cmux."),
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(
-                    get: { modeModel.current },
+                    get: { effectiveMode },
                     set: { newValue in
+                        guard !isManaged else { return }
                         if newValue == .allowAll && modeModel.current != .allowAll {
                             modeBeforePendingOpenAccess = modeModel.current
                             pendingOpenAccessMode = newValue
@@ -163,11 +268,18 @@ public struct AutomationSection: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+                .disabled(isManaged)
                 .accessibilityIdentifier("AutomationSocketModePicker")
             }
             SettingsCardDivider()
-            SettingsCardNote(String(localized: "settings.automation.socketMode.note", defaultValue: "Controls access to the local Unix socket for programmatic control. Choose a mode that matches your threat model."))
-
+            if isManaged {
+                let format = String(
+                    localized: "settings.automation.socketMode.managed",
+                    defaultValue: "Managed by your organization. Effective mode: %@."
+                )
+                SettingsCardNote(String.localizedStringWithFormat(format, effectiveMode.displayName))
+            }
+            SettingsCardNote(String(localized: "settings.automation.socketMode.note", defaultValue: "“Off” turns control off. “cmux processes only” accepts only processes started in cmux terminals. “Automation mode” also accepts other apps running as this Mac user. “Password mode” requires a password. “Full open access” accepts any local process without a password and is unsafe."))
             if isPassword {
                 SettingsCardDivider()
                 SettingsCardRow(
@@ -211,7 +323,6 @@ public struct AutomationSection: View {
                         .padding(.bottom, 8)
                 }
             }
-
             if isAllowAll {
                 SettingsCardDivider()
                 Text(String(localized: "settings.automation.openAccessWarning", defaultValue: "Warning: Full open access makes the control socket world-readable/writable on this Mac and disables auth checks. Use only for local debugging."))
@@ -220,20 +331,16 @@ public struct AutomationSection: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
             }
-
             SettingsCardNote(String(localized: "settings.automation.socketOverrides.note", defaultValue: "Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH (set CMUX_ALLOW_SOCKET_OVERRIDE=1 for stable/nightly builds)."))
         }
     }
-
     @ViewBuilder
     private var claudeCodeCard: some View {
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("automation.claudeCodeIntegration"),
                 String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"),
-                subtitle: claudeCodeModel.current
-                    ? String(localized: "settings.automation.claudeCode.subtitleOn", defaultValue: "Sidebar shows Claude session status and notifications.")
-                    : String(localized: "settings.automation.claudeCode.subtitleOff", defaultValue: "Claude Code runs without cmux integration.")
+                subtitle: String(localized: "settings.automation.claudeCode.subtitle", defaultValue: "Shows Claude Code status and notifications in the sidebar.")
             ) {
                 Toggle("", isOn: Binding(get: { claudeCodeModel.current }, set: { claudeCodeModel.set($0) }))
                     .labelsHidden()
@@ -244,16 +351,13 @@ public struct AutomationSection: View {
             SettingsCardNote(String(localized: "settings.automation.claudeCode.note", defaultValue: "When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself."))
         }
     }
-
     @ViewBuilder
     private var codexCard: some View {
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("automation.codexIntegration"),
                 String(localized: "settings.automation.codex", defaultValue: "Codex Integration"),
-                subtitle: codexModel.current
-                    ? String(localized: "settings.automation.codex.subtitleOn", defaultValue: "Sidebar shows Codex session status and notifications.")
-                    : String(localized: "settings.automation.codex.subtitleOff", defaultValue: "Codex runs without cmux integration.")
+                subtitle: String(localized: "settings.automation.codex.subtitle", defaultValue: "Shows Codex status and notifications in the sidebar.")
             ) {
                 Toggle("", isOn: Binding(get: { codexModel.current }, set: { codexModel.set($0) }))
                     .labelsHidden()
@@ -264,7 +368,6 @@ public struct AutomationSection: View {
             SettingsCardNote(String(localized: "settings.automation.codex.note", defaultValue: "When enabled, cmux wraps the codex command to inject session tracking and notification hooks. Disable if you prefer to manage Codex hooks yourself. cmux still tracks live Codex sessions it can observe even when this is off. To also track Codex launched through a custom launcher that bypasses the wrapper (e.g. a subrouter), run `cmux hooks setup --agent codex`, which installs hooks into ~/.codex/hooks.json."))
         }
     }
-
     @ViewBuilder
     private var claudePathCard: some View {
         SettingsCard {
@@ -282,16 +385,13 @@ public struct AutomationSection: View {
             }
         }
     }
-
     @ViewBuilder
     private var autoNamingCard: some View {
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("automation.workspaceAutoNaming"),
                 String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"),
-                subtitle: autoNamingModel.current
-                    ? String(localized: "settings.automation.workspaceAutoNaming.subtitleOn", defaultValue: "Workspaces and tabs are named from agent conversations.")
-                    : String(localized: "settings.automation.workspaceAutoNaming.subtitleOff", defaultValue: "Workspace and tab names are never generated.")
+                subtitle: String(localized: "settings.automation.workspaceAutoNaming.subtitle", defaultValue: "Generates workspace and tab titles from agent conversations.")
             ) {
                 Toggle("", isOn: Binding(get: { autoNamingModel.current }, set: { autoNamingModel.set($0) }))
                     .labelsHidden()
@@ -337,7 +437,6 @@ public struct AutomationSection: View {
             }
         }
     }
-
     @ViewBuilder
     private func autoNamingFootnote(_ text: String) -> some View {
         Text(text)
@@ -347,13 +446,11 @@ public struct AutomationSection: View {
             .padding(.horizontal, 14)
             .padding(.bottom, 8)
     }
-
     private var currentAutoNamingStatus: AutoNamingStatus? {
         guard !autoNamingStatusModel.current.isEmpty,
               let data = autoNamingStatusModel.current.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode(AutoNamingStatus.self, from: data)
     }
-
     @ViewBuilder
     private var ripgrepPathCard: some View {
         SettingsCard {
@@ -371,16 +468,13 @@ public struct AutomationSection: View {
             }
         }
     }
-
     @ViewBuilder
     private var suppressSubagentCard: some View {
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("automation.suppressSubagentNotifications"),
                 String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"),
-                subtitle: suppressSubagentModel.current
-                    ? String(localized: "settings.automation.suppressSubagentNotifications.subtitleOn", defaultValue: "Child agent completions stay in Feed without notifications.")
-                    : String(localized: "settings.automation.suppressSubagentNotifications.subtitleOff", defaultValue: "Child agent completions notify like top-level agents.")
+                subtitle: String(localized: "settings.automation.suppressSubagentNotifications.subtitle", defaultValue: "Lists subagent completions in Feed without sending notifications.")
             ) {
                 Toggle("", isOn: Binding(get: { suppressSubagentModel.current }, set: { suppressSubagentModel.set($0) }))
                     .labelsHidden()
@@ -391,16 +485,13 @@ public struct AutomationSection: View {
             SettingsCardNote(String(localized: "settings.automation.suppressSubagentNotifications.note", defaultValue: "Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."))
         }
     }
-
     @ViewBuilder
     private var ampCard: some View {
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("automation.ampIntegration"),
                 String(localized: "settings.automation.amp", defaultValue: "Amp Integration"),
-                subtitle: ampModel.current
-                    ? String(localized: "settings.automation.amp.subtitleOn", defaultValue: "Sidebar shows Amp agent status and notifications.")
-                    : String(localized: "settings.automation.amp.subtitleOff", defaultValue: "Amp runs without cmux integration.")
+                subtitle: String(localized: "settings.automation.amp.subtitle", defaultValue: "Shows Amp status and notifications in the sidebar.")
             ) {
                 Toggle("", isOn: Binding(get: { ampModel.current }, set: { ampModel.set($0) }))
                     .labelsHidden()
@@ -418,9 +509,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.cursorIntegration"),
                 String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"),
-                subtitle: cursorModel.current
-                    ? String(localized: "settings.automation.cursor.subtitleOn", defaultValue: "Sidebar shows Cursor agent status and notifications.")
-                    : String(localized: "settings.automation.cursor.subtitleOff", defaultValue: "Cursor runs without cmux integration.")
+                subtitle: String(localized: "settings.automation.cursor.subtitle", defaultValue: "Shows Cursor status and notifications in the sidebar.")
             ) {
                 Toggle("", isOn: Binding(get: { cursorModel.current }, set: { cursorModel.set($0) }))
                     .labelsHidden()
@@ -438,9 +527,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.geminiIntegration"),
                 String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"),
-                subtitle: geminiModel.current
-                    ? String(localized: "settings.automation.gemini.subtitleOn", defaultValue: "Sidebar shows Gemini session status and notifications.")
-                    : String(localized: "settings.automation.gemini.subtitleOff", defaultValue: "Gemini runs without cmux integration.")
+                subtitle: String(localized: "settings.automation.gemini.subtitle", defaultValue: "Shows Gemini CLI status and notifications in the sidebar.")
             ) {
                 Toggle("", isOn: Binding(get: { geminiModel.current }, set: { geminiModel.set($0) }))
                     .labelsHidden()
@@ -458,9 +545,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.kiroIntegration"),
                 String(localized: "settings.automation.kiro", defaultValue: "Kiro CLI Integration"),
-                subtitle: kiroModel.current
-                    ? String(localized: "settings.automation.kiro.subtitleOn", defaultValue: "Sidebar shows Kiro session status, notifications, and Feed tool events.")
-                    : String(localized: "settings.automation.kiro.subtitleOff", defaultValue: "Kiro runs without cmux integration.")
+                subtitle: String(localized: "settings.automation.kiro.subtitle", defaultValue: "Shows Kiro CLI status and notifications in the sidebar, and its tool events in Feed.")
             ) {
                 Toggle("", isOn: Binding(get: { kiroModel.current }, set: { kiroModel.set($0) }))
                     .labelsHidden()

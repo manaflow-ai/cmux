@@ -110,6 +110,12 @@ extension TerminalController {
         // pre-pass), minting into the same coordinator-owned registry.
         guard let app = AppDelegate.shared else { return }
 
+        // #2751: same guard as the v2 twin. This runs on the
+        // `drag_surface_to_split` v1 path and iterates the same structures, so
+        // skip the pre-mint pass while session restore is pending or in flight
+        // to avoid faulting on a half-built tree; refs mint lazily otherwise.
+        guard app.didCompleteInitialSessionRestore else { return }
+
         let windows = app.listMainWindowSummaries()
         for item in windows {
             _ = controlCommandCoordinator.ensureRef(kind: .window, uuid: item.windowId)

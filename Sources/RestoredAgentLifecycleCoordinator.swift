@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxWorkspaces
 import Foundation
 import Observation
@@ -25,12 +26,10 @@ final class RestoredAgentLifecycleCoordinator {
     private var completedGenerationsByPanelId: [UUID: RestoredAgentCompletedGeneration] = [:]
 
     /// Startup input a restored launch types into its shell, retained until shell
-    /// integration reports the command running. Ghostty writes that input as soon
-    /// as the PTY exists, and a slow login shell can discard the typeahead while it
-    /// initializes, which leaves the pane at an idle prompt with nothing typed.
-    /// The owner replays the retained input once when that happens (#5473).
+    /// integration reports the command running. The terminal's one-shot readiness
+    /// gate delivers it after the first prompt (#5473); this copy only records
+    /// restore ownership and travels with Workspace/Dock transfers.
     private var pendingStartupInputsByPanelId: [UUID: String] = [:]
-    private var armedStartupInputResendPanelIds: Set<UUID> = []
 
     /// Replaces one panel's mutable snapshot while preserving an in-flight restore target.
     func setSnapshot(_ snapshot: SessionRestorableAgentSnapshot?, panelId: UUID) {
@@ -160,14 +159,11 @@ final class RestoredAgentLifecycleCoordinator {
         panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot?,
         manualResumeAvailable: Bool,
-        willRunStartupCommand: Bool,
         willRunStartupInput: Bool,
         resumeWorkingDirectory: String?
     ) {
         let resumeState: Workspace.RestoredAgentResumeState?
-        if willRunStartupCommand {
-            resumeState = .autoResumeCommandRunning
-        } else if willRunStartupInput {
+        if willRunStartupInput {
             resumeState = .awaitingAutoResumeCommand
         } else if manualResumeAvailable {
             resumeState = .manualResumeAvailable
@@ -193,7 +189,6 @@ final class RestoredAgentLifecycleCoordinator {
     /// Retains the startup input a restored launch will type into its shell.
     /// Passing `nil` or an empty string forgets any earlier registration.
     func registerStartupInput(_ input: String?, panelId: UUID) {
-        armedStartupInputResendPanelIds.remove(panelId)
         guard let input, !input.isEmpty else {
             pendingStartupInputsByPanelId.removeValue(forKey: panelId)
             return
@@ -205,7 +200,6 @@ final class RestoredAgentLifecycleCoordinator {
     /// the pane, or the launch was abandoned.
     func clearStartupInput(panelId: UUID) {
         pendingStartupInputsByPanelId.removeValue(forKey: panelId)
-        armedStartupInputResendPanelIds.remove(panelId)
     }
 
     /// The retained startup input, so a pane transfer can carry it to the new owner.
@@ -217,44 +211,6 @@ final class RestoredAgentLifecycleCoordinator {
     func awaitsStartupInput(panelId: UUID) -> Bool {
         resumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand &&
             pendingStartupInputsByPanelId[panelId] != nil
-    }
-
-    /// Arms one grace-period replay for a launch whose shell reported an idle
-    /// prompt while the launch still awaits its startup input. Returns `false`
-    /// when nothing is pending or a replay is already armed.
-    func armStartupInputResend(panelId: UUID) -> Bool {
-        guard awaitsStartupInput(panelId: panelId),
-              !armedStartupInputResendPanelIds.contains(panelId) else {
-            return false
-        }
-        armedStartupInputResendPanelIds.insert(panelId)
-        return true
-    }
-
-    /// Consumes the retained startup input when the shell is still idle after
-    /// the grace period and the launch never entered its command phase. A
-    /// prompt-then-command sequence that settled into `.autoResumeCommandRunning`
-    /// yields `nil`, and only one replay is ever handed out per restored launch.
-    /// Positive evidence of the matching live agent retires the retry even when
-    /// shell integration never reported the command starting (for example,
-    /// Apple Bash 3.2 can leave the cached state at `.promptIdle`).
-    func takeStartupInputForResend(
-        panelId: UUID,
-        shellState: PanelShellActivityState,
-        hasLiveAgent: Bool = false
-    ) -> String? {
-        armedStartupInputResendPanelIds.remove(panelId)
-        guard awaitsStartupInput(panelId: panelId) else { return nil }
-        // A live matching process owns the selector. Forget it permanently so
-        // a later idle-prompt report cannot inject the selector into an agent
-        // that already resumed successfully (#12653).
-        if hasLiveAgent {
-            clearStartupInput(panelId: panelId)
-            setResumeState(.autoResumeCommandRunning, panelId: panelId)
-            return nil
-        }
-        guard shellState == .promptIdle else { return nil }
-        return pendingStartupInputsByPanelId.removeValue(forKey: panelId)
     }
 
     /// Removes continuation metadata without discarding an invalidation fingerprint.
@@ -276,16 +232,17 @@ final class RestoredAgentLifecycleCoordinator {
         resumeWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         completedGenerationsByPanelId.removeAll(keepingCapacity: false)
         pendingStartupInputsByPanelId.removeAll(keepingCapacity: false)
-        armedStartupInputResendPanelIds.removeAll(keepingCapacity: false)
     }
 
-    /// Shell integration has observed the restored launch enter its command
-    /// phase and has not subsequently reported the prompt returning.
+    /// Shell integration has advanced a cmux-authored restore into its command
+    /// phase without returning to the prompt. An observed command can instead
+    /// be unrelated shell activity, so it still requires matching process evidence.
     func confirmsRunningRestoredCommand(panelId: UUID) -> Bool {
         switch resumeStatesByPanelId[panelId] {
-        case .autoResumeCommandRunning, .observedAgentCommandRunning:
+        case .autoResumeCommandRunning:
             true
-        case .manualResumeAvailable, .awaitingAutoResumeCommand, .completedAgentExit, nil:
+        case .manualResumeAvailable, .awaitingAutoResumeCommand, .observedAgentCommandRunning,
+             .completedAgentExit, nil:
             false
         }
     }

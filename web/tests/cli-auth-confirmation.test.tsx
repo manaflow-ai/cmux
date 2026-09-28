@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import type { CliAuthConfirmationState } from "@stackframe/stack";
+import type { CliAuthConfirmationState } from "@hexclave/next";
 import React from "react";
 import en from "../messages/en.json";
 import ja from "../messages/ja.json";
@@ -11,7 +11,7 @@ let user: {
   selectedTeam: { displayName: string } | null;
 } | null;
 
-mock.module("@stackframe/stack", () => ({
+mock.module("@hexclave/next", () => ({
   useCliAuthConfirmation: () => auth,
   useUser: () => user,
   MessageCard: ({ title, children, primaryButtonText, secondaryButtonText }: {

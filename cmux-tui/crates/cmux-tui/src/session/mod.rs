@@ -85,6 +85,7 @@ pub(crate) fn apply_config_to_local_owner(mux: &Mux, config: &crate::config::Con
         crate::config::apply_browser_to_surface_options(config, options);
     });
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
+    mux.configure_journal_plugin(config.agents.plugin.clone());
 }
 
 #[derive(Clone)]
@@ -336,6 +337,9 @@ pub struct AgentInfo {
     pub state: String,
     pub source: String,
     pub session: Option<String>,
+    /// The reporting adapter id (`claude`, `codex`, ...), when known.
+    #[serde(default)]
+    pub agent: Option<String>,
     pub updated_at_ms: u64,
 }
 
@@ -979,6 +983,7 @@ impl Session {
                     state: agent.state.as_str().to_string(),
                     source: agent.source.as_str().to_string(),
                     session: agent.session,
+                    agent: agent.agent,
                     updated_at_ms: agent.updated_at_ms,
                 })
                 .collect(),

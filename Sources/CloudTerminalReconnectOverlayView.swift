@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import SwiftUI
 
@@ -5,9 +6,18 @@ import SwiftUI
 /// same responsive card, so a narrow terminal never gets a 260pt minimum dialog.
 @MainActor
 final class CloudTerminalReconnectOverlayView: NSView {
+    /// Identifies the card host inside the overlay. The card itself is SwiftUI,
+    /// so its AppKit class is an implementation detail; this identifier is the
+    /// stable handle for locating the laid-out card.
+    static let cardAccessibilityIdentifier = "CloudTerminalReconnectCard"
+
     var onReconnect: (() -> Void)?
     var onDismiss: (() -> Void)?
     private(set) var currentPresentation: CloudTerminalReconnectOverlayPolicy.Presentation?
+    /// The action wired to the card's Retry control, or nil when the current
+    /// presentation offers no retry. This is the value handed to the card, so
+    /// it is the same path the control invokes.
+    private(set) var reconnectAction: (() -> Void)?
     private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
     private var renderedWidth: CGFloat = 0
     private var needsContentUpdate = true
@@ -18,6 +28,7 @@ final class CloudTerminalReconnectOverlayView: NSView {
         hostingView.sizingOptions = [.intrinsicContentSize]
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+        hostingView.setAccessibilityIdentifier(Self.cardAccessibilityIdentifier)
         addSubview(hostingView)
     }
 
@@ -33,7 +44,7 @@ final class CloudTerminalReconnectOverlayView: NSView {
             hostingView.rootView = AnyView(
                 Content(
                     presentation: presentation,
-                    onReconnect: { [weak self] in self?.onReconnect?() },
+                    onReconnect: reconnectAction,
                     onDismiss: { [weak self] in self?.onDismiss?() }
                 )
                 .frame(width: width)
@@ -59,13 +70,16 @@ final class CloudTerminalReconnectOverlayView: NSView {
     func apply(_ presentation: CloudTerminalReconnectOverlayPolicy.Presentation) {
         guard currentPresentation != presentation else { return }
         currentPresentation = presentation
+        reconnectAction = presentation.showsReconnectButton
+            ? { [weak self] in self?.onReconnect?() }
+            : nil
         needsContentUpdate = true
         needsLayout = true
     }
 
     private struct Content: View {
         let presentation: CloudTerminalReconnectOverlayPolicy.Presentation
-        let onReconnect: () -> Void
+        let onReconnect: (() -> Void)?
         let onDismiss: () -> Void
         #if DEBUG
         @AppStorage("cloudPaneFailurePrototypeStyle") private var prototypeStyle = "compact-bordered"
@@ -87,7 +101,7 @@ final class CloudTerminalReconnectOverlayView: NSView {
                     detail: presentation.detail,
                     copyableText: presentation.copyableError,
                     style: style,
-                    onRetry: presentation.showsReconnectButton ? onReconnect : nil,
+                    onRetry: onReconnect,
                     onDismiss: onDismiss
                 )
             }

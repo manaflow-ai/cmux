@@ -4,6 +4,7 @@ import { trace, type Span } from "@opentelemetry/api";
 import * as analytics from "../services/coderouter/analytics";
 import {
   CODEROUTER_REQUEST_ID_HEADER,
+  CODEROUTER_SERVER_TIMING_HEADER,
   UNSCOPED_CODEROUTER_REQUEST_ID,
   classifyCoderouterFault,
   coderouterControlRoute,
@@ -14,6 +15,7 @@ import {
   recordCoderouterOutcome,
   recordCoderouterSpan,
   runWithCoderouterRequest,
+  spanned,
   traceEvents,
   withCoderouterRoute,
 } from "../services/coderouter/requestTelemetry";
@@ -381,7 +383,35 @@ describe("withCoderouterRoute", () => {
     });
     const response = await route(new Request("https://cmux.com/api/coderouter/vm-usage"), undefined);
     expect(response.headers.get(CODEROUTER_REQUEST_ID_HEADER)).toBeTruthy();
+    expect(response.headers.get(CODEROUTER_SERVER_TIMING_HEADER)).toMatch(/^total;dur=\d+\.\d$/);
     expect(await response.text()).toBe("hello");
+  });
+
+  test("reports recorded phases as Server-Timing, summed by name", async () => {
+    const route = coderouterControlRoute("accounts", "/api/coderouter/claude-upstream", async () => {
+      await spanned("auth", async () => undefined);
+      await spanned("rds", async () => undefined);
+      await spanned("rds", async () => undefined);
+      recordCoderouterSpan({ name: "provider config", startedAt: 100, endedAt: 105 });
+      return new Response(null, { status: 204 });
+    });
+    const response = await route(new Request("https://cmux.com/api/coderouter/claude-upstream"), undefined);
+    const timing = response.headers.get(CODEROUTER_SERVER_TIMING_HEADER);
+    expect(response.headers.get("server-timing")).toBe(timing);
+    const names = timing!.split(", ").map((part) => part.split(";")[0]);
+    expect(names).toEqual(["auth", "rds", "provider_config", "total"]);
+    expect(timing).toContain("provider_config;dur=5.0");
+  });
+
+  test("keeps a route's own Server-Timing", async () => {
+    const own = "auth;dur=1.0, provider;dur=2.0, total;dur=3.0";
+    const route = coderouterControlRoute("accounts", "/api/coderouter/accounts", async () => {
+      await spanned("auth", async () => undefined);
+      return new Response(null, { headers: { "server-timing": own, [CODEROUTER_SERVER_TIMING_HEADER]: own } });
+    });
+    const response = await route(new Request("https://cmux.com/api/coderouter/accounts"), undefined);
+    expect(response.headers.get(CODEROUTER_SERVER_TIMING_HEADER)).toBe(own);
+    expect(response.headers.get("server-timing")).toBe(own);
   });
 });
 

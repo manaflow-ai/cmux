@@ -4940,14 +4940,7 @@ fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()> {
         if metadata.permissions().mode() & 0o077 != 0 {
             platform::restrict_directory(dir)?;
         }
-        let verified = std::fs::symlink_metadata(dir)?;
-        if verified.file_type().is_symlink()
-            || !verified.is_dir()
-            || verified.uid() != unsafe { libc::geteuid() }
-            || verified.permissions().mode() & 0o077 != 0
-        {
-            anyhow::bail!("runtime socket directory is not private: {}", dir.display());
-        }
+        verify_private_socket_directory(dir)?;
     }
     #[cfg(not(unix))]
     {
@@ -4997,6 +4990,44 @@ pub fn prepare_socket_parent(path: &Path, is_derived: bool) -> anyhow::Result<()
         }
     } else {
         prepare_explicit_socket_directory(path)?;
+    }
+    Ok(())
+}
+
+/// Connect a client to a session socket. A derived path must sit in the
+/// private runtime directory a server prepared, and its listener must run as
+/// this user, before the caller writes anything. Explicit paths keep their
+/// caller-managed semantics.
+pub fn connect_session_socket(
+    path: &Path,
+    is_derived: bool,
+) -> std::io::Result<Box<dyn transport::Stream>> {
+    if !is_derived {
+        return transport::connect(path);
+    }
+    #[cfg(unix)]
+    if let Some(dir) = path.parent() {
+        verify_private_socket_directory(dir)?;
+    }
+    transport::connect_same_user(path)
+}
+
+/// Check, without changing anything, that a derived socket directory is still
+/// the private one `prepare_runtime_socket_directory` leaves behind.
+#[cfg(unix)]
+fn verify_private_socket_directory(dir: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let metadata = std::fs::symlink_metadata(dir)?;
+    if metadata.file_type().is_symlink()
+        || !metadata.is_dir()
+        || metadata.uid() != platform::effective_uid()
+        || metadata.permissions().mode() & 0o077 != 0
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("runtime socket directory is not private: {}", dir.display()),
+        ));
     }
     Ok(())
 }
@@ -8400,7 +8431,7 @@ fn handle_journal_extension_request(
     let origin = LOCAL_JOURNAL_PRINCIPAL;
     match request.envelope.operation {
         ResourceOperation::SessionJournalProducerList => mux
-            .journal_producer_manifests()
+            .userland_journal_producer_manifests()
             .map(|producers| json!({"producers":producers}))
             .map_err(|error| journal_extension_error("session.journal.producer.list", error)),
         ResourceOperation::SessionJournalProducerPut => {
@@ -10313,7 +10344,7 @@ fn parse_agent_source(source: &str) -> anyhow::Result<AgentSource> {
     match source {
         "socket" => Ok(AgentSource::Socket),
         "hook" => Ok(AgentSource::Hook),
-        other => anyhow::bail!("bad source {other}"),
+        other => anyhow::bail!("bad source {other}; raw report-agent accepts only socket or hook"),
     }
 }
 
@@ -10323,6 +10354,7 @@ fn agent_json(record: &AgentRecord) -> Value {
         "state": record.state.as_str(),
         "source": record.source.as_str(),
         "session": record.session,
+        "agent": record.agent,
         "updated_at_ms": record.updated_at_ms,
     })
 }
@@ -12326,6 +12358,9 @@ fn handle_command_with_cancellation(
                 "command": surface.spawn_command(),
                 "cwd": surface.local_cwd(),
                 "foreground_cwd": surface.process_id().and_then(platform::foreground_cwd),
+                "foreground_executable": surface
+                    .process_id()
+                    .and_then(platform::foreground_process_name),
             }))
         }
         Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {
@@ -13360,12 +13395,13 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::TitleChanged { surface, title } => {
             json!({"event": "title-changed", "surface": surface, "title": title.as_ref()})
         }
-        MuxEvent::AgentChanged { surface, state, source, session, updated_at_ms } => json!({
+        MuxEvent::AgentChanged { surface, state, source, session, agent, updated_at_ms } => json!({
             "event": "agent-changed",
             "surface": surface,
             "state": state.as_ref(),
             "source": source.as_ref(),
             "session": session.as_deref(),
+            "agent": agent.as_deref(),
             "updated_at_ms": updated_at_ms,
         }),
         MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
@@ -13819,6 +13855,39 @@ mod tests {
         std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
         prepare_runtime_socket_directory(&directory).unwrap();
         assert_eq!(std::fs::metadata(&directory).unwrap().permissions().mode() & 0o777, 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_socket_connect_requires_a_private_derived_parent() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let root = TestSocketDir::create("private-socket");
+        let runtime = root.path().join("rt");
+        std::fs::create_dir(&runtime).unwrap();
+        let socket = runtime.join("m.sock");
+        let _listener = transport::listen(&socket).unwrap();
+
+        std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(connect_session_socket(&socket, false).is_ok(), "explicit paths are unchanged");
+        let error = connect_session_socket(&socket, true)
+            .err()
+            .expect("a derived socket in a shared directory must be refused");
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+
+        std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(connect_session_socket(&socket, true).is_ok());
+
+        let alias = root.path().join("al");
+        symlink(&runtime, &alias).unwrap();
+        let error = connect_session_socket(&alias.join("m.sock"), true)
+            .err()
+            .expect("a derived socket behind a symlinked directory must be refused");
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+
+        let missing = root.path().join("missing").join("m.sock");
+        let error = connect_session_socket(&missing, true).err().expect("nothing listens there");
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
     }
 
     #[cfg(unix)]
@@ -19430,12 +19499,38 @@ mod tests {
         assert_eq!(result["source"], "socket");
         assert_eq!(result["session"], "raw-command");
         assert_eq!(mux.with_state(|state| state.resource_revision), revision + 1);
-        assert_eq!(mux.resource_event_epoch(), epoch + 1);
+        // A fresh direct report publishes twice on the shared change epoch:
+        // its resource commit and its journal echo.
+        assert_eq!(mux.resource_event_epoch(), epoch + 2);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         let events = mux.resource_events_after(revision).unwrap();
         assert_eq!(events.batches.len(), 1);
         assert_eq!(events.batches[0].changes[0]["resource"], "agent");
         assert_eq!(events.batches[0].changes[0]["value"]["source_session"], "raw-command");
+    }
+
+    #[test]
+    fn raw_report_agent_command_rejects_internal_projection_sources() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+
+        for source in ["plugin", "detected"] {
+            let error = handle_command(
+                &mux,
+                0,
+                Command::ReportAgent {
+                    surface: surface.id,
+                    state: "working".into(),
+                    source: source.into(),
+                    session: Some("raw-command".into()),
+                },
+                &test_writer(),
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("bad source"), "{source}: {error}");
+        }
+
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
     }
 
     #[test]
@@ -23184,6 +23279,7 @@ mod tests {
                 state: Arc::<str>::from("working"),
                 source: Arc::<str>::from("hook"),
                 session: Some(Arc::<str>::from("review")),
+                agent: Some(Arc::<str>::from("claude")),
                 updated_at_ms: 41,
             }),
             json!({
@@ -23192,6 +23288,7 @@ mod tests {
                 "state": "working",
                 "source": "hook",
                 "session": "review",
+                "agent": "claude",
                 "updated_at_ms": 41,
             })
         );

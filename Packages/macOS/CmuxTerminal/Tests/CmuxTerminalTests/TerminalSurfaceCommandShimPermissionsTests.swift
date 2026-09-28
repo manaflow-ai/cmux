@@ -94,6 +94,123 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         }
     }
 
+    @Test("Install skips a symlinked shim parent")
+    func installSkipsSymlinkedShimParent() throws {
+        let fileManager = FileManager.default
+        let root = URL.temporaryDirectory.appending(
+            path: "TerminalSurfaceCommandShimSymlinkParentTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        let temporaryDirectory = root.appending(path: "tmp", directoryHint: .isDirectory)
+        let parentDirectory = temporaryDirectory.appending(
+            path: "cmux-cli-shims",
+            directoryHint: .isDirectory
+        )
+        let linkTarget = root.appending(path: "elsewhere", directoryHint: .isDirectory)
+        let wrapperDirectory = try makeClaudeWrapperDirectory(in: root)
+        defer { try? fileManager.removeItem(at: root) }
+
+        for directory in [temporaryDirectory, linkTarget] {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: linkTarget.path)
+        try fileManager.createSymbolicLink(at: parentDirectory, withDestinationURL: linkTarget)
+
+        let shims = TerminalSurface.installAgentCommandShimsIfPossible(
+            wrapperDirectoryURL: wrapperDirectory,
+            surfaceId: UUID(),
+            temporaryDirectory: temporaryDirectory,
+            fileManager: fileManager
+        )
+        #expect(shims == nil)
+        #expect(try fileManager.contentsOfDirectory(atPath: linkTarget.path).isEmpty)
+        #expect(try posixPermissions(atPath: linkTarget.path) == 0o755)
+    }
+
+    @Test("Install skips a symlinked surface directory")
+    func installSkipsSymlinkedSurfaceDirectory() throws {
+        let fileManager = FileManager.default
+        let root = URL.temporaryDirectory.appending(
+            path: "TerminalSurfaceCommandShimSymlinkSurfaceTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        let temporaryDirectory = root.appending(path: "tmp", directoryHint: .isDirectory)
+        let parentDirectory = temporaryDirectory.appending(
+            path: "cmux-cli-shims",
+            directoryHint: .isDirectory
+        )
+        let surfaceId = UUID()
+        let shimDirectory = parentDirectory.appending(path: surfaceId.uuidString, directoryHint: .isDirectory)
+        let linkTarget = root.appending(path: "elsewhere", directoryHint: .isDirectory)
+        let wrapperDirectory = try makeClaudeWrapperDirectory(in: root)
+        defer { try? fileManager.removeItem(at: root) }
+
+        for directory in [parentDirectory, linkTarget] {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parentDirectory.path)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: linkTarget.path)
+        try fileManager.createSymbolicLink(at: shimDirectory, withDestinationURL: linkTarget)
+
+        let shims = TerminalSurface.installAgentCommandShimsIfPossible(
+            wrapperDirectoryURL: wrapperDirectory,
+            surfaceId: surfaceId,
+            temporaryDirectory: temporaryDirectory,
+            fileManager: fileManager
+        )
+        #expect(shims == nil)
+        #expect(try fileManager.contentsOfDirectory(atPath: linkTarget.path).isEmpty)
+        #expect(try posixPermissions(atPath: linkTarget.path) == 0o755)
+    }
+
+    @Test("Claude integration toggle controls the per-surface shim")
+    func claudeIntegrationToggleControlsPerSurfaceShim() throws {
+        let fileManager = FileManager.default
+        let root = URL.temporaryDirectory.appending(
+            path: "TerminalSurfaceClaudeShimToggleTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        let temporaryDirectory = root.appending(path: "tmp", directoryHint: .isDirectory)
+        let wrapperDirectory = root.appending(path: "bin", directoryHint: .isDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(at: wrapperDirectory, withIntermediateDirectories: true)
+        for wrapperName in ["cmux-claude-wrapper", "cmux-codex-wrapper"] {
+            let wrapper = wrapperDirectory.appending(path: wrapperName, directoryHint: .notDirectory)
+            try "#!/bin/sh\nexit 0\n".write(to: wrapper, atomically: true, encoding: .utf8)
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapper.path)
+        }
+
+        let enabled = try #require(
+            TerminalSurface.installAgentCommandShimsIfPossible(
+                wrapperDirectoryURL: wrapperDirectory,
+                surfaceId: UUID(),
+                temporaryDirectory: temporaryDirectory,
+                fileManager: fileManager
+            )
+        )
+        #expect(enabled.shim(named: "claude") != nil)
+        #expect(enabled.shim(named: "codex") != nil)
+
+        let disabled = try #require(
+            TerminalSurface.installAgentCommandShimsIfPossible(
+                wrapperDirectoryURL: wrapperDirectory,
+                surfaceId: UUID(),
+                temporaryDirectory: temporaryDirectory,
+                enabledCommands: [.codex],
+                fileManager: fileManager
+            )
+        )
+        #expect(disabled.shim(named: "claude") == nil)
+        let codexShim = try #require(disabled.shim(named: "codex"))
+        #expect(fileManager.isExecutableFile(atPath: codexShim.executablePath))
+        #expect(!fileManager.fileExists(
+            atPath: URL(fileURLWithPath: disabled.directoryPath)
+                .appending(path: "claude", directoryHint: .notDirectory)
+                .path
+        ))
+    }
+
     @Test("Fallback preserves literal glob characters in PATH entries")
     func fallbackPreservesLiteralGlobCharactersInPathEntries() throws {
         let fileManager = FileManager.default
@@ -351,6 +468,21 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             ) == ["-p", "audit", "--continue"]
         )
         #expect(scanCounter.value == 2)
+    }
+
+    private func makeClaudeWrapperDirectory(in root: URL) throws -> URL {
+        let fileManager = FileManager.default
+        let wrapperDirectory = root.appending(path: "bin", directoryHint: .isDirectory)
+        let wrapper = wrapperDirectory.appending(path: "cmux-claude-wrapper", directoryHint: .notDirectory)
+        try fileManager.createDirectory(at: wrapperDirectory, withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(to: wrapper, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapper.path)
+        return wrapperDirectory
+    }
+
+    private func posixPermissions(atPath path: String) throws -> UInt16 {
+        let attributes = try FileManager.default.attributesOfItem(atPath: path)
+        return try #require(attributes[.posixPermissions] as? NSNumber).uint16Value
     }
 
     private func capturedArguments(

@@ -1,5 +1,7 @@
 import AppKit
 import CmuxCore
+import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Observation
 import Testing
 @testable import cmux_DEV
@@ -7,6 +9,48 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct SidebarCloudWorkspaceBadgeTests {
+    @Test(arguments: [false, true])
+    func deviceNameIsVisibleBesideItsDirectory(vertical: Bool) throws {
+        let defaults = Self.makeDefaults()
+        let sidebar = SettingCatalog().sidebar
+        defaults.set(vertical, forKey: sidebar.branchVerticalLayout.userDefaultsKey)
+        let workspace = Workspace(title: "Project", initialSurface: .cloudVMLoading)
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.device(.init(deviceID: UUID().uuidString, tag: "test"))
+        workspace.cloudBindingState.updateCatalogMetadata(
+            resources: [panelID: .init(machine: machine, kind: .terminal, key: "terminal")],
+            machineNames: [machine.rawValue: "Studio Mac"]
+        )
+        workspace.updateCloudPanelDirectory(panelId: panelID, directory: "/Users/remote/project")
+        let snapshot = SidebarWorkspaceSnapshotFactory(workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults), showsAgentActivity: false).makeSnapshot()
+        let candidates = snapshot.compactDirectoryCandidates + snapshot.branchDirectoryLines.flatMap(\.directoryCandidates)
+        #expect(!candidates.isEmpty)
+        #expect(candidates.contains { $0.contains("Studio Mac") && $0.contains("/Users/remote/project") })
+        #expect(candidates.first?.contains("/Users/remote/project") == true)
+        #expect(snapshot.remoteWorkspaceBadgeSymbol == "desktopcomputer")
+        #expect(snapshot.cloudWorkspaceLabel == nil)
+    }
+
+    @Test func deviceProjectionUsesComputerBadgeInBothSidebarSnapshots() throws {
+        let workspace = Workspace(title: "Project", initialSurface: .cloudVMLoading)
+        let panelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "default"))
+        let factory = SidebarWorkspaceSnapshotFactory(workspace: workspace, settings: SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults()), showsAgentActivity: false)
+        let before = factory.makeSnapshot()
+        workspace.cloudBindingState.updateCatalogMetadata(
+            resources: [panelID: SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal")],
+            machineNames: [machine.rawValue: "Studio Mac"]
+        )
+        let snapshot = factory.makeSnapshot()
+        #expect(snapshot.remoteWorkspaceBadgeSymbol == "desktopcomputer")
+        #expect(snapshot.remoteWorkspaceBadgeLabel?.contains("Studio Mac") == true)
+        #expect(snapshot.cloudWorkspaceLabel == nil)
+        let shown = SidebarWorkspaceSnapshotRefreshPolicy().decision(current: before, next: snapshot, force: false, contextMenuVisible: true)
+        #expect(shown.workspaceSnapshotStorage?.remoteWorkspaceBadgeSymbol == "desktopcomputer")
+    }
+
     /// Ensures Cloud identity changes alter only the immutable row projection.
     @Test func cloudBindingChangesSidebarSnapshotWithoutTitleOrPathChanges() {
         let workspace = Workspace(title: "vm:vivid-newt", workingDirectory: "/tmp", initialSurface: .cloudVMLoading)
@@ -34,6 +78,46 @@ struct SidebarCloudWorkspaceBadgeTests {
         )
         #expect(decision.workspaceSnapshotStorage?.cloudWorkspaceLabel == cloud.cloudWorkspaceLabel)
         #expect(decision.workspaceSnapshotStorage?.cloudWorkspaceLabel != nil)
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func sidebarDetailSettingsHideCloudMachineInfo(hideAll: Bool, verticalLayout: Bool) throws {
+        let suite = "CloudSidebarVisibility.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let sidebar = SidebarCatalogSection()
+        defaults.set(verticalLayout, forKey: sidebar.branchVerticalLayout.userDefaultsKey)
+        let workspace = Workspace(initialSurface: .cloudVMLoading)
+        defer { for panel in workspace.panels.values { panel.close() } }
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
+        workspace.updateCloudPanelDirectory(panelId: try #require(workspace.focusedPanelId), directory: "/home/cmux")
+        let binding = workspace.cloudVMBinding
+        var cell: SidebarWorkspaceRowTableCellView?
+        for hidden in [false, true, false] {
+            defaults.set(hideAll && hidden, forKey: sidebar.hideAllDetails.userDefaultsKey)
+            defaults.set(hideAll || !hidden, forKey: sidebar.showBranchDirectory.userDefaultsKey)
+            let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+            let snapshot = SidebarWorkspaceSnapshotFactory(
+                workspace: workspace, settings: settings, showsAgentActivity: false
+            ).makeSnapshot()
+            let directories = snapshot.compactDirectoryCandidates + snapshot.branchDirectoryLines.flatMap(\.directoryCandidates)
+            #expect(directories.isEmpty == hidden)
+            #expect(snapshot.compactBranchDirectoryCandidates.isEmpty == (hidden || verticalLayout))
+            #expect(snapshot.cloudWorkspaceLabel?.contains("vivid-newt") == true)
+            let model = Self.makeModel(settings: settings, workspaceSnapshot: snapshot)
+            if let cell {
+                cell.applyRebuiltModel(model)
+            } else {
+                cell = SidebarAppKitRowCellTests.configuredCell(model: model, tab: workspace)
+            }
+            let rendered = try #require(cell)
+            let badge = try #require(SidebarAppKitRowCellTests.descendants(of: rendered).compactMap { $0 as? NSImageView }.first {
+                $0.accessibilityIdentifier() == "sidebarCloudBadge"
+            })
+            #expect(badge.isHidden == hidden)
+            #expect(rendered.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == true)
+            #expect(workspace.cloudVMBinding == binding)
+        }
     }
 
     /// Ensures restored Cloud identity survives every connection presentation state.
@@ -86,7 +170,8 @@ struct SidebarCloudWorkspaceBadgeTests {
         defaults.set(compact, forKey: "sidebarHideAllDetails")
         let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
         let workspace = Workspace(title: "Same project with a long workspace name",
-            workingDirectory: "/home/cmux", initialSurface: .cloudVMLoading)
+            workingDirectory: "/home/cmux", initialSurface: .terminal)
+        defer { for panel in workspace.panels.values { panel.close() } }
         workspace.isPinned = isPinned
         let factory = SidebarWorkspaceSnapshotFactory(workspace: workspace, settings: settings, showsAgentActivity: false)
         let localSnapshot = factory.makeSnapshot()
@@ -118,12 +203,16 @@ struct SidebarCloudWorkspaceBadgeTests {
         Attachment.record(try #require(bitmap.representation(using: .png, properties: [:])),
             named: "cloud-\(Int(width))-pin\(isPinned)-active\(isActive)-compact\(compact)-dark\(dark)-scale\(magnification).png")
         #endif
-        #expect(!badge.isHidden)
-        #expect(badge.image != nil)
-        #expect(badge.toolTip == "Cloud workspace on vivid-newt")
-        #expect(badge.contentTintColor != title.textColor)
+        #expect(badge.isHidden == compact)
+        #expect((badge.image != nil) == !compact)
+        #expect(compact || badge.toolTip == "Cloud workspace on vivid-newt")
+        if !compact {
+            #expect(badge.contentTintColor != title.textColor)
+        }
         #expect(title.frame.width > 60)
-        #expect(badge.frame.maxX + 8 == title.frame.minX)
+        if !compact {
+            #expect(badge.frame.maxX + 8 == title.frame.minX)
+        }
         #expect(title.frame.maxX <= width)
         #expect(title.lineBreakMode == .byTruncatingTail)
         #expect(cell.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == true)
@@ -132,8 +221,12 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(pins.count == (isPinned ? 1 : 0))
         if isPinned {
             let pin = try #require(pins.first)
-            #expect(pin.frame.maxX + 8 == badge.frame.minX)
-            #expect(pin.frame.midY == badge.frame.midY)
+            if !compact {
+                #expect(pin.frame.maxX + 8 == badge.frame.minX)
+            }
+            if !compact {
+                #expect(pin.frame.midY == badge.frame.midY)
+            }
         }
         let cloudTitleFrame = title.frame
         let directoryFrames = SidebarAppKitRowCellTests.descendants(of: cell)
@@ -145,7 +238,7 @@ struct SidebarCloudWorkspaceBadgeTests {
             colorSchemeIsDark: dark, isActive: isActive, magnification: magnification))
         cell.layoutSubtreeIfNeeded()
         #expect(badge.isHidden)
-        #expect(title.frame.minX < cloudTitleFrame.minX)
+        #expect(compact || title.frame.minX < cloudTitleFrame.minX)
         #expect(title.frame.maxX == cloudTitleFrame.maxX)
         #expect(cell.accessibilityLabel()?.contains("Cloud workspace") == false)
         #expect(cell.layoutContent(model: try #require(cell.currentModelForMeasurement), width: width, apply: false) == height)

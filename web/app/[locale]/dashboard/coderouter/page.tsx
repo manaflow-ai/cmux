@@ -22,9 +22,6 @@ import {
   type CoderouterTeamMetrics,
 } from "@/services/coderouter/teamMetrics";
 import { loadMachineUsage, MachineUsageSection } from "./machine-usage";
-import {
-  coderouterOrganizationFromCookieHeader,
-} from "@/services/coderouter/organizationScope";
 import { listClaudeAccounts } from "@/services/coderouter/claudeUpstream";
 import {
   CoderouterAccountsSection,
@@ -53,6 +50,7 @@ type DashboardTeam = {
   readonly name: string;
   readonly use: boolean;
   readonly manageAccounts: boolean;
+  readonly manageApiKeys: boolean;
   readonly personal: boolean;
 };
 
@@ -102,6 +100,8 @@ async function ResolvedCoderouterOverviewContent({ params, searchParams }: PageP
 
 type CoderouterAuthorization = {
   readonly selectedTeam: DashboardTeam;
+  /** Every team the viewer can open here, the selected one included. */
+  readonly teams: readonly DashboardTeam[];
   readonly accessToken: string;
   readonly userId: string;
 };
@@ -139,7 +139,12 @@ export async function CoderouterOverviewContent({
     redirect("/dashboard");
   }
 
-  const { selectedTeam, accessToken, userId } = authorization.value;
+  const { selectedTeam, teams, accessToken, userId } = authorization.value;
+  // The transfer route accepts only another team where the viewer manages
+  // accounts, so the destination list uses the same rule.
+  const transferTeams = teams
+    .filter((candidate) => candidate.id !== selectedTeam.id && candidate.manageAccounts)
+    .map((candidate) => ({ id: candidate.id, name: candidate.name }));
   const [tPage, sharedAccounts, metrics, claudeAccounts, nativeAccounts, machineUsage] = await Promise.all([
     getTranslations({ locale, namespace: "dashboard.coderouter" }),
     withPrioritySpan(
@@ -185,8 +190,11 @@ export async function CoderouterOverviewContent({
       <CoderouterAccountsSection
         key={selectedTeam.id}
         teamId={selectedTeam.id}
+        teamName={selectedTeam.name}
         viewerUserId={userId}
         canManage={selectedTeam.manageAccounts}
+        canManageApiKeys={selectedTeam.manageApiKeys}
+        transferTeams={transferTeams}
         claude={claudeAccounts}
         native={nativeAccounts}
         shared={sharedAccounts}
@@ -251,6 +259,7 @@ async function resolveCoderouterAuthorization(
         name: candidate.teamName,
         use: candidate.use,
         manageAccounts: candidate.manageAccounts,
+        manageApiKeys: candidate.manageApiKeys,
         personal: candidate.personal,
       }));
     if (teams.length === 0) {
@@ -261,16 +270,13 @@ async function resolveCoderouterAuthorization(
     const selectedTeam = selectTeam(
       teams,
       requestedTeamId,
-      coderouterOrganizationFromCookieHeader(
-        requestHeaders.get("cookie"),
-        authenticated.user.id,
-      ),
       authenticated.user.selectedTeamId,
     );
     return {
       kind: "authorized",
       value: {
         selectedTeam,
+        teams,
         accessToken,
         userId: authenticated.user.id,
       },
@@ -459,17 +465,12 @@ function StatusPanel({ title, body }: { title: string; body: string }) {
 function selectTeam(
   teams: readonly DashboardTeam[],
   requestedTeamId: string | undefined,
-  scopedTeamId: string | null,
   selectedTeamId: string | null,
 ): DashboardTeam {
   const requested = requestedTeamId?.trim();
   if (requested) {
     const selected = teams.find((team) => team.id === requested);
     if (selected) return selected;
-  }
-  if (scopedTeamId) {
-    const scoped = teams.find((team) => team.id === scopedTeamId);
-    if (scoped) return scoped;
   }
   if (selectedTeamId) {
     const selected = teams.find((team) => team.id === selectedTeamId);

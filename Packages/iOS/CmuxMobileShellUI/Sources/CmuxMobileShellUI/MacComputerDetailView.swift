@@ -10,6 +10,7 @@ import SwiftUI
 /// Per-computer connection settings, appearance, and saved routes.
 /// This detail holds its store directly and addresses one Mac and build tag.
 struct MacComputerDetailView: View {
+    @Environment(MobileMacListAuthState.self) private var listAuthState: MobileMacListAuthState?
     @Bindable var store: CMUXMobileShellStore
     let macDeviceID: String
     let instanceTag: String?
@@ -102,7 +103,7 @@ struct MacComputerDetailView: View {
     }
     var body: some View {
         Form {
-            if MobileMacListAuthState.shared.hasSnapshot,
+            if (listAuthState?.hasSnapshot == true),
                let listAuthEntry,
                listAuthEntry.isOutdated {
                 MacComputerCompatibilitySection(entry: listAuthEntry)
@@ -445,7 +446,7 @@ struct MacComputerDetailView: View {
     }
 
     private var listAuthEntry: MobileMacListAuthState.Entry? {
-        MobileMacListAuthState.shared.compatibilityEntry(
+        listAuthState?.compatibilityEntry(
             pairingID: MobilePairedMac.pairingID(macDeviceID: macDeviceID, instanceTag: instanceTag),
             routes: pairedMac?.routes ?? []
         )

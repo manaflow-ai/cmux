@@ -9,7 +9,7 @@ import Foundation
 /// request makes automation retry and duplicate remote tmux panes even though
 /// the first request already mutated the remote session.
 enum TerminalPanelCreationOutcome {
-    /// A local panel was created synchronously.
+    /// A local panel or a reserved native remote panel was created synchronously.
     case created(TerminalPanel)
     /// The request was forwarded to its remote owner. Its local panel arrives
     /// asynchronously after creation or the mirror's topology event.

@@ -1,7 +1,7 @@
 "use client";
 
 import { Menu } from "@base-ui-components/react/menu";
-import { UserAvatar, useStackApp } from "@stackframe/stack";
+import { UserAvatar, useStackApp } from "@hexclave/next";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
@@ -151,7 +151,7 @@ function TeamSubmenu({
 }: {
   readonly teams: readonly DashboardCatalogTeam[];
   readonly selected: DashboardCatalogTeam;
-  readonly onSelect: (team: DashboardCatalogTeam) => void;
+  readonly onSelect: (team: DashboardCatalogTeam) => void | Promise<void>;
 }) {
   const t = useTranslations("dashboard.teamSwitcher");
   return (
@@ -173,7 +173,7 @@ function TeamSubmenu({
               value={selected.id}
               onValueChange={(value) => {
                 const team = teams.find((candidate) => candidate.id === value);
-                if (team) onSelect(team);
+                if (team) void Promise.resolve(onSelect(team)).catch(() => undefined);
               }}
             >
               {teams.map((team) => (

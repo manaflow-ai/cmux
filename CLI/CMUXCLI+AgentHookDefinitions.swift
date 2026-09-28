@@ -445,18 +445,27 @@ extension CMUXCLI {
         let completion = failOpen
             ? "if [ \"$cmux_hook_status\" -ne 0 ]; then \(noOpSnippet); fi; exit 0"
             : "exit $cmux_hook_status"
-        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); \(noOpSnippet); } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); \(completion); }"
+        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); \(noOpSnippet); } || { \(pinnedHookAmbientEnvironment); \(dispatch); cmux_hook_status=$?; \(shellTraceExit); \(completion); }"
     }
+
+    // Grok validates plain environment references before invoking the shell.
+    // Read optional ambient values at execution time so a sanitized environment
+    // can reach the pinned fallback instead of failing that preflight check.
+    // The sentinel retains trailing newlines through command substitution;
+    // trim only printenv's final newline and the sentinel. Missing values also
+    // produce that pair, and their lookup remains safe under `set -e`.
+    static let pinnedHookAmbientEnvironment =
+        "cmux_hook_ambient_socket=$(printenv CMUX_SOCKET_PATH || printf '\\n'; printf '.'); cmux_hook_ambient_socket=${cmux_hook_ambient_socket%??}; cmux_hook_ambient_cli=$(printenv CMUX_BUNDLED_CLI_PATH || printf '\\n'; printf '.'); cmux_hook_ambient_cli=${cmux_hook_ambient_cli%??}"
 
     /// Shell test that is true only when the hook inherited a live cmux terminal
     /// environment: a socket that exists plus an executable bundled CLI file.
     /// `-f` matters because a directory also satisfies `-x`.
     static let pinnedHookAmbientDispatchGuard =
-        "[ -n \"${CMUX_SOCKET_PATH:-}\" ] && [ -S \"$CMUX_SOCKET_PATH\" ] && [ -f \"${CMUX_BUNDLED_CLI_PATH:-}\" ] && [ -x \"$CMUX_BUNDLED_CLI_PATH\" ]"
+        "[ -n \"${cmux_hook_ambient_socket:-}\" ] && [ -S \"${cmux_hook_ambient_socket:-}\" ] && [ -f \"${cmux_hook_ambient_cli:-}\" ] && [ -x \"${cmux_hook_ambient_cli:-}\" ]"
 
     /// Dispatches through the launching terminal's own cmux build and socket.
     static func pinnedHookAmbientInvocation(routedArguments: String) -> String {
-        "\(pinnedHookEnvironmentPrefix(routedArguments: routedArguments))\"$CMUX_BUNDLED_CLI_PATH\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments)"
+        "\(pinnedHookEnvironmentPrefix(routedArguments: routedArguments))\"${cmux_hook_ambient_cli:-}\" --socket \"${cmux_hook_ambient_socket:-}\" \(routedArguments)"
     }
 
     private static func pinnedHookEnvironmentPrefix(routedArguments: String) -> String {

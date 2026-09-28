@@ -77,7 +77,10 @@ private struct InternalFlagsView: View {
             InternalFlagHeaderRow()
 
             ScrollView {
-                LazyVStack(spacing: 0) {
+                // This small, fixed inspector does not need lazy materialization.
+                // macOS 26.4 lazy prefetch can select a segmented control before
+                // its segments exist (NSRangeException: index 2, bounds 0).
+                VStack(spacing: 0) {
 #if DEBUG
                     InternalBooleanSettingRow(
                         title: String(

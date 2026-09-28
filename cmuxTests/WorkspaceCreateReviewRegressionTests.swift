@@ -226,6 +226,11 @@ import Testing
             persistenceKey: "completed"
         )
         let rejectingManager = RejectingWorkspaceCreationTabManager()
+        // TabManager.init creates its initial workspace through the overridable
+        // addWorkspaceIfActive seam. Keep the rejection disabled until after
+        // construction so this fixture models a failed mobile create rather
+        // than a window manager that cannot be initialized.
+        rejectingManager.rejectsWorkspaceCreation = true
         let retryManager = TabManager()
         let operationID = UUID()
         defer {
@@ -267,6 +272,8 @@ import Testing
 
 @MainActor
 private final class RejectingWorkspaceCreationTabManager: TabManager {
+    var rejectsWorkspaceCreation = false
+
     override func addWorkspaceIfActive(
         id: UUID?,
         title: String?,
@@ -291,7 +298,33 @@ private final class RejectingWorkspaceCreationTabManager: TabManager {
         applyCreationTitleAsCustomTitle: Bool,
         allowTextBoxFocusDefault: Bool
     ) -> Workspace? {
-        nil
+        guard rejectsWorkspaceCreation else {
+            return super.addWorkspaceIfActive(
+                id: id,
+                title: title,
+                titleSource: titleSource,
+                workingDirectory: overrideWorkingDirectory,
+                initialSurface: initialSurface,
+                initialTerminalCommand: initialTerminalCommand,
+                initialTerminalInput: initialTerminalInput,
+                initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
+                initialTerminalEnvironment: initialTerminalEnvironment,
+                initialBrowserURL: initialBrowserURL,
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                workspaceEnvironment: workspaceEnvironment,
+                inheritWorkingDirectory: inheritWorkingDirectory,
+                select: select,
+                eagerLoadTerminal: eagerLoadTerminal,
+                placementOverride: placementOverride,
+                autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+                autoRefreshMetadata: autoRefreshMetadata,
+                normalizeWorkspaceGroupsAfterInsert: normalizeWorkspaceGroupsAfterInsert,
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            )
+        }
+        return nil
     }
 }
 

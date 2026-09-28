@@ -54,11 +54,6 @@ export function DashboardShell({
           label: t("cloudDevices"),
           active: pathname.startsWith("/dashboard/cloud"),
         },
-        {
-          href: "/dashboard/iroh",
-          label: t("irohDevices"),
-          active: pathname.startsWith("/dashboard/iroh"),
-        },
       ],
     },
     {
@@ -72,8 +67,13 @@ export function DashboardShell({
       ],
     },
     {
-      label: t("iosGroup"),
+      label: t("remoteControlGroup"),
       items: [
+        {
+          href: "/dashboard/mobile-devices",
+          label: t("mobileDevices"),
+          active: pathname.startsWith("/dashboard/mobile-devices"),
+        },
         {
           href: "/dashboard/testflight",
           label: t("testflight"),

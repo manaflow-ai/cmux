@@ -566,7 +566,9 @@ public actor PushRegistrationService: PushRegistering {
         if await sendDelete(
             tokenHex: hex,
             capturedAccessToken: accessToken,
-            capturedRefreshToken: refreshToken
+            capturedRefreshToken: refreshToken,
+            installationID: pushIdentityProvider?()?.installationID ?? pushInstallationID,
+            revokeSession: true
         ), let ownerID {
             clearPendingUnregister(tokenHex: hex, accountID: ownerID)
             clearRegisteredOwner(accountID: ownerID, tokenHex: hex)
@@ -863,7 +865,9 @@ public actor PushRegistrationService: PushRegistering {
         tokenHex: String,
         capturedAccessToken: String? = nil,
         capturedRefreshToken: String? = nil,
-        sessionSnapshot: AuthenticatedSessionSnapshot? = nil
+        sessionSnapshot: AuthenticatedSessionSnapshot? = nil,
+        installationID: String? = nil,
+        revokeSession: Bool = false
     ) async -> Bool {
         guard case let .success(context) = await makeRequest(
             method: "DELETE",
@@ -871,7 +875,13 @@ public actor PushRegistrationService: PushRegistering {
             body: [
                 "deviceToken": tokenHex,
                 "bundleId": bundleID,
-            ],
+            ].merging(
+                installationID.map { ["installationId": $0] } ?? [:],
+                uniquingKeysWith: { _, new in new }
+            ).merging(
+                revokeSession ? ["revokeSession": "true"] : [:],
+                uniquingKeysWith: { _, new in new }
+            ),
             capturedAccessToken: capturedAccessToken,
             capturedRefreshToken: capturedRefreshToken,
             sessionSnapshot: sessionSnapshot,
@@ -1419,7 +1429,7 @@ public actor PushRegistrationService: PushRegistering {
             let seconds = retryAfterSeconds(
                 response: response,
                 body: data
-            ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+            ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
             return .failure(
                 .rateLimited(retryAfterSeconds: seconds),
                 retryAfter: .seconds(seconds)
@@ -1435,7 +1445,7 @@ public actor PushRegistrationService: PushRegistering {
         response: HTTPURLResponse,
         body: Data
     ) -> Int? {
-        let headerDelay = CmxRetryAfterPolicy.seconds(
+        let headerDelay = CmxRetryAfterPolicy().seconds(
             from: response.value(forHTTPHeaderField: "Retry-After")
         )
         let bodyDelay = try? JSONDecoder().decode(

@@ -83,6 +83,10 @@
 import { Freestyle } from "freestyle";
 import { fileURLToPath } from "node:url";
 import { VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile, vmGuestModelPlaneEnv } from "../services/coderouter/vmGuestEnv";
+import { guestResourceReporterInstallCommand } from "../services/vms/guestResourceReporter";
+import { guestBrowserInstallCommand } from "../services/vms/guestBrowser";
+import { guestCliDistributionCommand } from "../services/vms/guestCliDistribution";
+import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../services/vms/guestCli";
 import {
   CMUX_TUI_LAYOUT_MARKER_PATH,
   CMUX_TUI_SESSION,
@@ -110,6 +114,8 @@ import {
   devboxIdentityInstallCommand,
   devboxJournalResetCommand,
   devboxParkDaemonCommand,
+  devboxSettleBeforeSnapshotCommand,
+  devboxPrepareTemplateTerminalCommand,
   devboxSnapshotClockCommand,
   devboxWaitForDaemonCommand,
   cmuxTuiWebsocketSmokeCommand,
@@ -476,6 +482,17 @@ try {
     `${cmuxTuiPinCheckCommand(cmuxTuiSource)} && mkdir -p /etc/cmux && printf '%s %s\n' ${cmuxTuiSource.sha256} ${cmuxTuiSource.commit} > /etc/cmux/cmux-tui-pin && cat /etc/cmux/cmux-tui-pin`,
   );
 
+  // The runtime VM path must not upload or install guest integration. These
+  // files are immutable image assets: create only allocates the image, while
+  // the boot supervisor starts the daemon and the reporter unit.
+  await step("guest-cli-directory", "mkdir -p /usr/local/libexec");
+  await vm.fs.writeFile(GUEST_CMUX_SHIM_PATH, GUEST_CMUX_SHIM, { mode: 0o755 });
+  await step(
+    "guest-cli-integration",
+    `mkdir -p /usr/local/libexec && ${guestBrowserInstallCommand()} && ${guestCliDistributionCommand()} && chmod 0755 ${GUEST_CMUX_SHIM_PATH} && test -x ${GUEST_CMUX_SHIM_PATH} && ${guestCliDistributionCommand(true)} && echo guest-cli-integration-ok`,
+  );
+  await step("guest-resource-reporter", guestResourceReporterInstallCommand());
+
   // The install above also wrote the work user's Claude Code and Codex hooks
   // (cmux-tui agent hook install), so a Stop, permission request, or question
   // in either agent reaches the daemon journal and the owner's Mac as a
@@ -535,10 +552,52 @@ try {
     "WantedBy=multi-user.target",
   ].join("\n");
   await put("cmux-devbox-boot", "/usr/local/bin/cmux-devbox-boot", 0o755);
+  await put("cmux-prompt-sync", "/usr/local/bin/cmux-prompt-sync", 0o755);
   await vm.fs.writeFile("/etc/systemd/system/cmux-tui-daemon.service", `${service}\n`, { mode: 0o644 });
+  await vm.fs.writeFile(
+    "/etc/systemd/system/cmux-prompt-sync.service",
+    [
+      "[Unit]",
+      "Description=cmux Cloud prompt identity sync",
+      "After=network-online.target cmux-tui-daemon.service",
+      "Wants=network-online.target",
+      "",
+      "[Service]",
+      "Type=simple",
+      "ExecStart=/usr/local/bin/cmux-prompt-sync",
+      "Restart=on-failure",
+      "RestartSec=2",
+      "",
+      "[Install]",
+      "WantedBy=multi-user.target",
+    ].join("\n") + "\n",
+    { mode: 0o644 },
+  );
+  // Quiet resume. Every machine is a memory-snapshot clone whose monotonic
+  // clock jumps by the snapshot's age on resume, and the kernel would spend
+  // the clone's first second (the New Machine critical path) printing a
+  // workqueue-lockup report. The switch is runtime state, which the memory
+  // snapshot carries into every clone and derived size; the tmpfiles line
+  // re-applies it on a cold boot. Service watchdogs and housekeeping timers
+  // are handled by cmux-devbox-boot's park branch, right before the snapshot.
+  await step("snapshot-resume-dirs", "mkdir -p /etc/tmpfiles.d");
+  await vm.fs.writeFile(
+    "/etc/tmpfiles.d/cmux-snapshot-resume.conf",
+    "# Clones resume with a monotonic clock jump; do not report a workqueue lockup.\nw- /sys/module/workqueue/parameters/watchdog_thresh - - - - 0\n",
+    { mode: 0o644 },
+  );
+  await step(
+    "snapshot-resume-quiet",
+    "{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && " +
+      "echo snapshot-resume-quiet-ok",
+  );
   await step(
     "cmux-tui-daemon-unit",
     "sh -n /usr/local/bin/cmux-devbox-boot && rm -f /etc/cmux/bake-instance-id && mkdir -p /etc/systemd/system/multi-user.target.wants && ln -sf /etc/systemd/system/cmux-tui-daemon.service /etc/systemd/system/multi-user.target.wants/cmux-tui-daemon.service && systemctl daemon-reload && systemctl enable cmux-tui-daemon && systemctl restart cmux-tui-daemon && systemctl is-active cmux-tui-daemon",
+  );
+  await step(
+    "cmux-prompt-sync-unit",
+    "python3 -m py_compile /usr/local/bin/cmux-prompt-sync && systemctl daemon-reload && systemctl enable cmux-prompt-sync && systemctl is-enabled cmux-prompt-sync",
   );
   // Prove the daemon contract on the builder: the supervisor started the
   // daemon on its own, the session answers, and the listener is dual-stack.
@@ -550,9 +609,17 @@ try {
   // WebSocket/Noise/RPC/PTY path before this machine can become a snapshot.
   await step("cmux-tui-ready", devboxWaitForDaemonCommand());
   await step("cmux-tui-websocket-smoke", cmuxTuiWebsocketSmokeCommand());
+  // Create the warm template terminal the snapshot carries: one armed shell,
+  // fully initialized and waiting at its first prompt. A clone's daemon adopts
+  // its host process with fresh identity, so New Machine gets a live shell
+  // without creating a workspace, terminal or PTY on its critical path.
+  await step("cmux-tui-template-terminal", devboxPrepareTemplateTerminalCommand());
+  // Let the daemon, first PTY and desktop settle before the memory snapshot.
+  // Freestyle resumes the snapshot rather than replaying these startup steps.
+  await step("cmux-tui-settle-before-snapshot", "sleep 30");
   // Park it (devboxParkDaemonCommand): the supervisor stops the daemon while
-  // the machine's id equals the recorded bake id, its identity and session
-  // state are wiped, and a clone (different id) starts fresh within one tick.
+  // the machine's id equals the recorded bake id, and every per-machine file
+  // is wiped except the template terminal's host record.
   await step("cmux-tui-daemon-park", devboxParkDaemonCommand());
 
   await step(
@@ -597,6 +664,8 @@ try {
   // is the same bytes on every machine and stays; the verifier checks it.)
   await step("clean", `rm -rf /var/lib/apt/lists/* /root/.npm/_cacache ${WORK_HOME}/.npm/_cacache 2>/dev/null; rm -f /root/.claude.json ${WORK_HOME}/.claude.json; ${devboxJournalResetCommand}; sync; true`);
   await step("no-stale-claude-seed", `test ! -e /root/.claude.json && test ! -e ${WORK_HOME}/.claude.json && echo no-stale-claude-seed`);
+  // Last guest step before the snapshot; see devboxSettleBeforeSnapshotCommand.
+  await step("settle-before-snapshot", devboxSettleBeforeSnapshotCommand());
 } catch (error) {
   console.error(`bake failed: ${String(error)}`);
   await deleteBuilder();

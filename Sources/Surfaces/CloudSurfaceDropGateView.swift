@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 
 /// Intercepts only forbidden live surface drags, leaving ordinary hit testing alone.
@@ -54,7 +55,10 @@ final class CloudSurfaceDropGateView: NSView {
         return []
     }
 
-    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool { false }
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        feedback.clear()
+        return false
+    }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         feedback.clear()
@@ -64,6 +68,16 @@ final class CloudSurfaceDropGateView: NSView {
     override func draggingExited(_ sender: (any NSDraggingInfo)?) { feedback.clear() }
     override func draggingEnded(_ sender: any NSDraggingInfo) { feedback.clear() }
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) { feedback.clear() }
+
+    override func viewDidHide() {
+        feedback.clear()
+        super.viewDidHide()
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if window !== newWindow { feedback.clear() }
+        super.viewWillMove(toWindow: newWindow)
+    }
 
     override func viewWillMove(toSuperview newSuperview: NSView?) {
         if newSuperview == nil { feedback.clear() }

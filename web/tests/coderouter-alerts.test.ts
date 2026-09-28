@@ -17,7 +17,7 @@ const healthy: CoderouterHealth = {
   checkedAt: "2026-09-03T00:00:00.000Z",
 };
 
-type Row = { outcome: string; failure_stage: string; team_id: string; provider: string; c: number };
+type Row = { outcome: string; failure_stage: string; team_id: string; provider: string; status?: number; c: number };
 
 function harness(rows: Row[] | { reason: string }, health: CoderouterHealth = healthy, env: Record<string, string> = {}) {
   const sent: AlertInput[] = [];
@@ -205,5 +205,66 @@ describe("coderouter alert checks", () => {
       coderouter_alert_dropped: true,
       window_minutes: 5,
     });
+  });
+
+  test("default thresholds match the documented ones", async () => {
+    const { run } = harness([], healthy, webhook);
+    const summary = await run();
+    expect(Object.fromEntries(summary.checks.map((check) => [check.key, check.threshold]))).toEqual({
+      "coderouter-route-crashes": 3,
+      "coderouter-operator-failures": 1,
+      "coderouter-upstream-failures": 5,
+      "coderouter-no-usable-account": 10,
+      "coderouter-auth-rejected": 25,
+    });
+  });
+
+  test("a route_crash burst is one critical alert that counts affected teams without naming them", async () => {
+    const { sent, run } = harness([
+      { outcome: "route_crash", failure_stage: "auth", team_id: "team-a", provider: "claude", status: 503, c: 150 },
+      { outcome: "route_crash", failure_stage: "auth", team_id: "team-b", provider: "codex", status: 503, c: 40 },
+      { outcome: "route_crash", failure_stage: "handler", team_id: "", provider: "control_plane", status: 503, c: 2 },
+      { outcome: "success", failure_stage: "none", team_id: "team-c", provider: "codex", status: 200, c: 8 },
+    ], healthy, webhook);
+    const summary = await run();
+    expect(sent.map((alert) => alert.key)).toEqual(["coderouter-route-crashes"]);
+    expect(sent[0]!.severity).toBe("critical");
+    expect(sent[0]!.body).toContain("192 of 200 requests");
+    expect(sent[0]!.body).toContain("2 identified team(s)");
+    expect(sent[0]!.body).toContain("auth: 190");
+    expect(sent[0]!.body).toContain("coderouter:route_crash");
+    expect(sent[0]!.body).not.toContain("team-a");
+    expect(summary.checks.find((check) => check.key === "coderouter-route-crashes"))
+      .toMatchObject({ triggered: true, count: 192, threshold: 3 });
+    // A crash is not also counted as a generic operator failure.
+    expect(summary.checks.find((check) => check.key === "coderouter-operator-failures"))
+      .toMatchObject({ triggered: false, count: 0 });
+  });
+
+  test("isolated crashes stay below the burst threshold, which is configurable", async () => {
+    const quiet = harness([
+      { outcome: "route_crash", failure_stage: "handler", team_id: "t1", provider: "codex", status: 503, c: 2 },
+    ], healthy, webhook);
+    const summary = await quiet.run();
+    expect(quiet.sent).toEqual([]);
+    expect(summary.checks.find((check) => check.key === "coderouter-route-crashes"))
+      .toMatchObject({ triggered: false, count: 2, threshold: 3 });
+
+    const strict = harness([
+      { outcome: "route_crash", failure_stage: "handler", team_id: "t1", provider: "codex", status: 503, c: 1 },
+    ], healthy, { ...webhook, CMUX_CODEROUTER_ALERT_ROUTE_CRASHES_5M: "1" });
+    await strict.run();
+    expect(strict.sent.map((alert) => alert.key)).toEqual(["coderouter-route-crashes"]);
+  });
+
+  test("other operator-fault outcomes count as operator failures", async () => {
+    const { sent, run } = harness([
+      { outcome: "server_error", failure_stage: "handler", team_id: "t1", provider: "codex", status: 500, c: 1 },
+      { outcome: "client_error", failure_stage: "request", team_id: "t1", provider: "codex", status: 400, c: 9 },
+    ], healthy, webhook);
+    const summary = await run();
+    expect(sent.map((alert) => alert.key)).toEqual(["coderouter-operator-failures"]);
+    expect(summary.checks.find((check) => check.key === "coderouter-operator-failures"))
+      .toMatchObject({ triggered: true, count: 1 });
   });
 });
