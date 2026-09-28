@@ -47,43 +47,90 @@ final class CloudSurfaceDropGateView: NSView {
               WindowInputRoutingContext(event: NSApp.currentEvent).allowsPaneDropHitTesting else { return nil }
         let pasteboard = NSPasteboard(name: .drag)
         guard sourceResolver.transfer(from: pasteboard) != nil else { return nil }
-        let rejection = rejection(for: pasteboard)
-#if DEBUG
-        dlog("cloud.dropGate.drag hitTest rejected=\(rejection != nil ? 1 : 0)")
-#endif
-        return rejection == nil ? nil : self
+        return rejection(for: pasteboard) == nil ? nil : self
     }
 
+    // MARK: - Drag destination
+
+    /// AppKit picks a drag destination by registered type and geometry, not by
+    /// `hitTest`, so this full-workspace overlay receives every tab drag over
+    /// the workspace. It keeps the drags it rejects and hands the rest to the
+    /// destination that would have received them without it (a tab strip, a
+    /// pane drop target), which is the one pointer hit testing finds with this
+    /// overlay passing through.
+    private weak var forwardedDestination: NSView?
+
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        update(sender, phase: "entered")
+        update(sender)
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        update(sender, phase: "updated")
+        update(sender)
     }
 
-    private func update(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
+    private func update(_ sender: any NSDraggingInfo) -> NSDragOperation {
         let rejection = rejection(for: sender.draggingPasteboard)
-#if DEBUG
-        dlog("cloud.dropGate.drag \(phase) rejected=\(rejection != nil ? 1 : 0)")
-#endif
         feedback.update(rejection, over: self)
-        return []
+        let destination = rejection == nil ? destinationBeneath(sender) : nil
+        if destination !== forwardedDestination {
+            forwardedDestination?.draggingExited(sender)
+            forwardedDestination = destination
+#if DEBUG
+            dlog(
+                "cloud.dropGate.forward rejected=\(rejection != nil ? 1 : 0) " +
+                "to=\(destination.map { String(describing: type(of: $0)) } ?? "nil")"
+            )
+#endif
+            return destination?.draggingEntered(sender) ?? []
+        }
+        return destination?.draggingUpdated(sender) ?? []
+    }
+
+    /// The nearest registered drag destination at the drag location with this
+    /// overlay out of the way.
+    private func destinationBeneath(_ sender: any NSDraggingInfo) -> NSView? {
+        guard let root = window?.contentView?.superview ?? window?.contentView else { return nil }
+        let types = Set(sender.draggingPasteboard.types ?? [])
+        guard !types.isEmpty else { return nil }
+        let reference = root.superview ?? root
+        var candidate = root.hitTest(reference.convert(sender.draggingLocation, from: nil))
+        while let view = candidate {
+            if view !== self, !view.isDescendant(of: self),
+               !types.isDisjoint(with: view.registeredDraggedTypes) {
+                return view
+            }
+            candidate = view.superview
+        }
+        return nil
     }
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         feedback.clear()
-        return false
+        return forwardedDestination?.prepareForDragOperation(sender) ?? false
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         feedback.clear()
-        return false
+        return forwardedDestination?.performDragOperation(sender) ?? false
     }
 
-    override func draggingExited(_ sender: (any NSDraggingInfo)?) { feedback.clear() }
-    override func draggingEnded(_ sender: any NSDraggingInfo) { feedback.clear() }
-    override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) { feedback.clear() }
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        feedback.clear()
+        forwardedDestination?.draggingExited(sender)
+        forwardedDestination = nil
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        feedback.clear()
+        forwardedDestination?.draggingEnded(sender)
+        forwardedDestination = nil
+    }
+
+    override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+        feedback.clear()
+        forwardedDestination?.concludeDragOperation(sender)
+        forwardedDestination = nil
+    }
 
     override func viewDidHide() {
         feedback.clear()
