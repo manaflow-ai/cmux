@@ -32,12 +32,10 @@ _cmux_sleep_cs() {
         zselect -t "$1" || :
         return 0
     fi
-    # Invoke the resolved external command explicitly.  Some zsh builds expose
-    # `sleep` as a builtin, which would bypass PATH (and the system utility) in
-    # this fallback branch.  The commands hash still resolves the executable
-    # selected by PATH, with /bin/sleep as the platform fallback.
-    local sleep_command="${commands[sleep]:-/bin/sleep}"
-    "$sleep_command" "$(( $1 / 100.0 ))"
+    # Invoke the external command through env explicitly.  Some zsh builds
+    # expose `sleep` as a builtin, which would bypass PATH in this fallback
+    # branch.  env preserves PATH resolution while avoiding shell builtins.
+    /usr/bin/env sleep "$(( $1 / 100.0 ))"
 }
 
 _cmux_zsh_job_table_saturated() {

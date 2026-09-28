@@ -44,7 +44,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         let workspace = manager.addWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
-                manager.closeWorkspace(workspace)
+                closeWorkspaceForTesting(workspace, in: manager)
             }
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
@@ -112,7 +112,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         let workspace = manager.addWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
-                manager.closeWorkspace(workspace)
+                closeWorkspaceForTesting(workspace, in: manager)
             }
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
@@ -159,7 +159,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         let workspace = manager.addWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
-                manager.closeWorkspace(workspace)
+                closeWorkspaceForTesting(workspace, in: manager)
             }
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
@@ -217,7 +217,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         let workspace = manager.addWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
-                manager.closeWorkspace(workspace)
+                closeWorkspaceForTesting(workspace, in: manager)
             }
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
@@ -275,7 +275,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         let workspace = manager.addWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
-                manager.closeWorkspace(workspace)
+                closeWorkspaceForTesting(workspace, in: manager)
             }
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
@@ -328,7 +328,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         let workspace = manager.addWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
-                manager.closeWorkspace(workspace)
+                closeWorkspaceForTesting(workspace, in: manager)
             }
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
@@ -381,10 +381,10 @@ final class TerminalNotificationQueueTests: XCTestCase {
         let unrelatedWorkspace = manager.addWorkspace(select: true)
         defer {
             if manager.tabs.contains(where: { $0.id == clearedWorkspace.id }) {
-                manager.closeWorkspace(clearedWorkspace)
+                closeWorkspaceForTesting(clearedWorkspace, in: manager)
             }
             if manager.tabs.contains(where: { $0.id == unrelatedWorkspace.id }) {
-                manager.closeWorkspace(unrelatedWorkspace)
+                closeWorkspaceForTesting(unrelatedWorkspace, in: manager)
             }
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
@@ -449,7 +449,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         let workspace = targetManager.addWorkspace(select: true)
         defer {
             if targetManager.tabs.contains(where: { $0.id == workspace.id }) {
-                targetManager.closeWorkspace(workspace)
+                closeWorkspaceForTesting(workspace, in: targetManager)
             }
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             store.replaceNotificationsForTesting([])
@@ -572,6 +572,16 @@ final class TerminalNotificationQueueTests: XCTestCase {
         TerminalMutationBus.shared.drainForTesting()
 
         XCTAssertEqual(applied, ["replacement"])
+    }
+
+    /// Kill test workspace shells before the product close path enqueues their
+    /// native frees, so a later app-host suite does not inherit Ghostty's
+    /// SIGHUP grace period.
+    private func closeWorkspaceForTesting(_ workspace: Workspace, in manager: TabManager) {
+        for case let terminalPanel as TerminalPanel in workspace.panels.values {
+            terminalPanel.surface.killShellProcessesForTesting()
+        }
+        manager.closeWorkspace(workspace)
     }
 
     private func makeSocketPath(_ name: String) -> String {
