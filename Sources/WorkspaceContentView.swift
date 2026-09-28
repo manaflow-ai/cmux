@@ -725,7 +725,7 @@ extension WorkspaceContentView {
             let ts = ISO8601DateFormatter().string(from: Date())
             let line = "[\(ts)] PANEL NOT FOUND for tabId=\(tab.id) ws=\(workspace.id) panelCount=\(workspace.panels.count)\n"
             let logPath = "/tmp/cmux-panel-debug.log"
-            guard let handle = OwnedLogFile.openForAppending(atPath: logPath) else { return }
+            guard let handle = OwnedLogFile(path: logPath).openForAppending() else { return }
             defer { try? handle.close() }
             try? handle.write(contentsOf: Data(line.utf8))
         }

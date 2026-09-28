@@ -17,7 +17,7 @@ import Testing
     }
 
     private func append(_ text: String, to path: String) -> Bool {
-        guard let handle = OwnedLogFile.openForAppending(atPath: path) else {
+        guard let handle = OwnedLogFile(path: path).openForAppending() else {
             return false
         }
         defer { try? handle.close() }
@@ -66,10 +66,19 @@ import Testing
         #expect(try String(contentsOfFile: target, encoding: .utf8) == "kept\n")
     }
 
+    @Test func doesNotWriteToAFileAnotherUserOwns() throws {
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let log = path("other.log")
+        try "kept\n".write(toFile: log, atomically: false, encoding: .utf8)
+        let otherUser = OwnedLogFile(path: log, owner: geteuid() &+ 1)
+        #expect(otherUser.openForAppending() == nil)
+        #expect(try String(contentsOfFile: log, encoding: .utf8) == "kept\n")
+    }
+
     @Test func doesNotOpenADirectory() throws {
         defer { try? FileManager.default.removeItem(at: directory) }
         let log = path("dir.log")
         try FileManager.default.createDirectory(atPath: log, withIntermediateDirectories: false)
-        #expect(OwnedLogFile.openForAppending(atPath: log) == nil)
+        #expect(OwnedLogFile(path: log).openForAppending() == nil)
     }
 }

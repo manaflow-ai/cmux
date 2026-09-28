@@ -730,7 +730,7 @@ class GhosttyApp {
     private static func initLog(_ message: String) {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let line = "[\(timestamp)] \(message)\n"
-        guard let handle = OwnedLogFile.openForAppending(atPath: initLogPath) else { return }
+        guard let handle = OwnedLogFile(path: initLogPath).openForAppending() else { return }
         defer { try? handle.close() }
         try? handle.write(contentsOf: Data(line.utf8))
     }

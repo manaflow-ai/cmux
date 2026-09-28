@@ -29,7 +29,7 @@ actor FileBackgroundLogLineSink: BackgroundLogLineSink {
             return handle
         }
         handleResolved = true
-        let opened = OwnedLogFile.openForAppending(atPath: fileURL.path)
+        let opened = OwnedLogFile(path: fileURL.path).openForAppending()
         handle = opened
         return opened
     }

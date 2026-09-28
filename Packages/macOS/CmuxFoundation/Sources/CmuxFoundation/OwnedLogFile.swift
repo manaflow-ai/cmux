@@ -1,15 +1,30 @@
-import Darwin
+public import Darwin
 public import Foundation
 
-/// Opens diagnostic log files for appending, such as the debug logs under `/tmp`.
+/// A diagnostic log file this user appends to, such as the debug logs under `/tmp`.
 ///
 /// A log in a shared directory can already exist under another user's control,
 /// so the path is opened without following a symlink and kept only when it is a
-/// regular file this user owns with no other hard link. New files are 0600.
-public enum OwnedLogFile {
-    /// Returns an append-only handle to the file at `path`, creating the file
-    /// when missing, or nil when it cannot be opened or is not private.
-    public static func openForAppending(atPath path: String) -> FileHandle? {
+/// regular file ``owner`` owns with no other hard link. New files are 0600.
+///
+/// ```swift
+/// guard let handle = OwnedLogFile(path: "/tmp/cmux-bg.log").openForAppending() else { return }
+/// ```
+public struct OwnedLogFile: Sendable {
+    /// The log file's path.
+    public let path: String
+    /// The user that must own the file.
+    public let owner: uid_t
+
+    /// Describes the log at `path`, owned by `owner`, the effective user by default.
+    public init(path: String, owner: uid_t = geteuid()) {
+        self.path = path
+        self.owner = owner
+    }
+
+    /// Returns an append-only handle to the file, creating it when missing, or
+    /// nil when it cannot be opened or is not private to ``owner``.
+    public func openForAppending() -> FileHandle? {
         // O_NONBLOCK keeps a FIFO at the path from blocking the open; it is
         // rejected by the regular-file check below.
         let fd = Darwin.open(
@@ -23,7 +38,7 @@ public enum OwnedLogFile {
         var info = stat()
         guard Darwin.fstat(fd, &info) == 0,
               (info.st_mode & S_IFMT) == S_IFREG,
-              info.st_uid == geteuid(),
+              info.st_uid == owner,
               info.st_nlink == 1 else {
             Darwin.close(fd)
             return nil
