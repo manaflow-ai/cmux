@@ -19,7 +19,8 @@ struct DarwinResourceSamplingTests {
                 var info = proc_bsdinfo()
                 info.pbi_pid = UInt32(pid)
                 return info
-            }
+            },
+            processHasExited: { _ in false }
         ).capture()
         #expect(!listing.isComplete)
         #expect(listing.missingProcessCount == 1)
