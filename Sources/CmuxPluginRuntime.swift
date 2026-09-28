@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSettings
 import Foundation
 
 /// Connects enabled extension plugins (`cmux-plugin.toml`, `kind = "extension"`)
@@ -93,8 +94,8 @@ final class CmuxPluginRuntime {
                 let session = AutomationProcessSession(command: invocation.shellScript, environment: [:])
                 Task.detached(priority: .utility) {
                     let result = await session.run(timeoutSeconds: timeout)
-                    if case .failure(let detail) = result {
-                        NSLog("[CmuxPlugin] %@ failed: %@", registryID, detail)
+                    if !result.succeeded {
+                        NSLog("[CmuxPlugin] %@ failed: %@", registryID, result.detail)
                     }
                 }
                 return true
