@@ -73,10 +73,23 @@ public struct MobileTerminalSizingPresentation: Equatable, Sendable {
         return max(0, grid.rows - viewer.rows)
     }
 
-    /// Whether the corner chip shows: the viewport differs, or another view
-    /// shares the terminal.
+    /// Whether the size chip shows. It shows only while this phone's
+    /// viewport differs from the grid, together with the border and hatch.
     public var showsChip: Bool {
-        viewportDiffers || !otherParticipants.isEmpty
+        viewportDiffers
+    }
+
+    /// Whether a participant sets a dimension of the grid.
+    /// - Parameter participantID: The host's participant id.
+    public func isOwner(_ participantID: String) -> Bool {
+        ownerIDs.contains(participantID)
+    }
+
+    /// Who the size chip and the sheet header name as the size owner.
+    public var ownerLabel: MobileTerminalSizingOwnerLabel {
+        guard let owner else { return .policy(policy.mode) }
+        if ownerIsSelf { return .thisDevice(owner.participant.deviceKind) }
+        return MobileTerminalSizingOwnerLabel(participant: owner.participant)
     }
 
     /// Whether this phone's own row counts toward size.
@@ -93,5 +106,36 @@ public struct MobileTerminalSizingPresentation: Equatable, Sendable {
             .split(whereSeparator: { $0.isWhitespace })
             .first
             .map(String.init)
+    }
+}
+
+/// The owner name the sizing UI shows, before localization.
+public enum MobileTerminalSizingOwnerLabel: Equatable, Sendable {
+    /// This phone or tablet sets the size.
+    case thisDevice(TerminalDeviceKind)
+    /// A named person's device: "Maya's Mac Studio", or "Maya" without a
+    /// device name.
+    case person(givenName: String, device: String?)
+    /// A device name that stands alone. Used when there is no person name,
+    /// or when the device name already contains it ("Maya's MacBook Pro").
+    case device(String)
+    /// Neither a person name nor a device name.
+    case unnamed
+    /// No participant sets the size; the policy does.
+    case policy(TerminalSizingMode)
+
+    /// The label for another participant.
+    /// - Parameter participant: The participant.
+    public init(participant: TerminalSizingParticipant) {
+        let device = participant.deviceName.flatMap { $0.isEmpty ? nil : $0 }
+        guard let given = MobileTerminalSizingPresentation.givenName(participant.displayName) else {
+            self = device.map { .device($0) } ?? .unnamed
+            return
+        }
+        if let device, device.localizedCaseInsensitiveContains(given) {
+            self = .device(device)
+        } else {
+            self = .person(givenName: given, device: device)
+        }
     }
 }

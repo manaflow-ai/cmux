@@ -414,207 +414,6 @@
         }
       }
     },
-    "mobile.terminal.sizing.hiddenColumns": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "+%lld col"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "+%lld cols"
-                }
-              }
-            }
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+%lld列"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+%lld Sp."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+%lld col."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+%lld عمود"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+%lld col."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+%lld 欄"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+%lld 列"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+%lld열"
-          }
-        }
-      }
-    },
-    "mobile.terminal.sizing.hiddenRows": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "+%lld row"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "+%lld rows"
-                }
-              }
-            }
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+%lld行"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+%lld Z."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+%lld lig."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+%lld صف"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+%lld fil."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+%lld 列"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+%lld 行"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+%lld행"
-          }
-        }
-      }
-    },
-    "mobile.terminal.sizing.cut.accessibility": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ not visible on this screen"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ はこの画面に表示されていません"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ auf diesem Bildschirm nicht sichtbar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ non visibles sur cet écran"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ غير ظاهرة على هذه الشاشة"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ no visibles en esta pantalla"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此螢幕未顯示 %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此屏幕未显示 %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@이(가) 이 화면에 표시되지 않음"
-          }
-        }
-      }
-    },
     "mobile.terminal.sizing.chip.accessibilityHint": {
       "extractionState": "manual",
       "localizations": {
@@ -680,55 +479,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Latest"
+            "value": "Follow latest"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最新"
+            "value": "最新に合わせる"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zuletzt aktiv"
+            "value": "Zuletzt aktiv folgen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le plus récent"
+            "value": "Suivre le plus récent"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الأحدث"
+            "value": "اتباع الأحدث"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Más reciente"
+            "value": "Seguir el más reciente"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "最新"
+            "value": "跟隨最新"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "最新"
+            "value": "跟随最新"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "최근"
+            "value": "최근 기기 따르기"
           }
         }
       }
@@ -739,55 +538,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Smallest"
+            "value": "Fit everyone"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最小"
+            "value": "全員に合わせる"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kleinste"
+            "value": "Für alle passend"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le plus petit"
+            "value": "Adapter à tous"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الأصغر"
+            "value": "ملاءمة الجميع"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Más pequeño"
+            "value": "Ajustar a todos"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "最小"
+            "value": "適合所有人"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "最小"
+            "value": "适合所有人"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "최소"
+            "value": "모두에 맞추기"
           }
         }
       }
@@ -798,55 +597,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Largest"
+            "value": "Largest window"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大"
+            "value": "最大のウインドウ"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Größte"
+            "value": "Größtes Fenster"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le plus grand"
+            "value": "Fenêtre la plus grande"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الأكبر"
+            "value": "أكبر نافذة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Más grande"
+            "value": "Ventana más grande"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大"
+            "value": "最大視窗"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大"
+            "value": "最大窗口"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "최대"
+            "value": "가장 큰 창"
           }
         }
       }
@@ -969,419 +768,6 @@
         }
       }
     },
-    "mobile.terminal.sizing.reason.latest": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Set by the most recently active client."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最後に操作したクライアントのサイズです。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vom zuletzt aktiven Client festgelegt."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Définie par le client actif le plus récent."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يحددها العميل الأحدث نشاطًا."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La define el cliente activo más reciente."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "由最近活動的用戶端決定。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "由最近活动的客户端决定。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "가장 최근에 활동한 클라이언트가 정합니다."
-          }
-        }
-      }
-    },
-    "mobile.terminal.sizing.reason.smallest": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fits the smallest client."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最も小さいクライアントに合わせています。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Passt zum kleinsten Client."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Adaptée au plus petit client."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تناسب أصغر عميل."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se ajusta al cliente más pequeño."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "配合最小的用戶端。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "适配最小的客户端。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "가장 작은 클라이언트에 맞춥니다."
-          }
-        }
-      }
-    },
-    "mobile.terminal.sizing.reason.largest": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fits the largest client."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最も大きいクライアントに合わせています。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Passt zum größten Client."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Adaptée au plus grand client."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تناسب أكبر عميل."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se ajusta al cliente más grande."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "配合最大的用戶端。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "适配最大的客户端。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "가장 큰 클라이언트에 맞춥니다."
-          }
-        }
-      }
-    },
-    "mobile.terminal.sizing.reason.priority": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Set by the highest-priority client."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "優先順位が最も高いクライアントのサイズです。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vom Client mit der höchsten Priorität festgelegt."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Définie par le client le plus prioritaire."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يحددها العميل ذو الأولوية الأعلى."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La define el cliente con mayor prioridad."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "由優先順序最高的用戶端決定。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "由优先级最高的客户端决定。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "우선순위가 가장 높은 클라이언트가 정합니다."
-          }
-        }
-      }
-    },
-    "mobile.terminal.sizing.reason.priorityFallback": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No priority client is attached, so the most recently active client sets the size."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "優先するクライアントが接続されていないため、最後に操作したクライアントのサイズです。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kein priorisierter Client ist verbunden, daher legt der zuletzt aktive Client die Größe fest."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aucun client prioritaire n’est connecté : le client actif le plus récent définit la taille."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا يوجد عميل ذو أولوية متصل، لذا يحدد العميل الأحدث نشاطًا الحجم."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No hay ningún cliente prioritario conectado, así que el cliente activo más reciente define el tamaño."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "沒有已連線的優先用戶端，因此由最近活動的用戶端決定大小。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "没有已连接的优先客户端，因此由最近活动的客户端决定大小。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "우선 클라이언트가 연결되어 있지 않아 가장 최근에 활동한 클라이언트가 크기를 정합니다."
-          }
-        }
-      }
-    },
-    "mobile.terminal.sizing.reason.fixed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fixed size."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "固定サイズです。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feste Größe."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Taille fixe."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حجم ثابت."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tamaño fijo."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "固定大小。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "固定大小。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "고정 크기입니다."
-          }
-        }
-      }
-    },
-    "mobile.terminal.sizing.reason.held": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No client sets the size, so it keeps its last size."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイズを決めるクライアントがいないため、前回のサイズを保っています。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kein Client legt die Größe fest, daher bleibt die letzte Größe erhalten."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aucun client ne définit la taille : la dernière taille est conservée."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا يحدد أي عميل الحجم، لذا يبقى الحجم الأخير."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ningún cliente define el tamaño, así que se mantiene el último."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "沒有用戶端決定大小，因此保持上次的大小。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "没有客户端决定大小，因此保持上次的大小。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "크기를 정하는 클라이언트가 없어 마지막 크기를 유지합니다."
-          }
-        }
-      }
-    },
     "mobile.terminal.sizing.reconnecting": {
       "extractionState": "manual",
       "localizations": {
@@ -1441,120 +827,61 @@
         }
       }
     },
-    "mobile.terminal.detached.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Detached from %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ から切断されました"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Von %@ getrennt"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Détaché de %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تم الفصل عن %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desconectado de %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已與 %@ 中斷連線"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已与 %@ 断开连接"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@에서 분리됨"
-          }
-        }
-      }
-    },
     "mobile.terminal.detached.message.iphone": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ (%2$@) disconnected this iPhone at %3$@. The terminal is still running."
+            "value": "%1$@ (%2$@) disconnected this iPhone at %3$@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@（%2$@）が%3$@にこのiPhoneを切断しました。ターミナルは引き続き実行中です。"
+            "value": "%1$@（%2$@）が%3$@にこのiPhoneを切断しました。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ (%2$@) hat dieses iPhone um %3$@ getrennt. Das Terminal läuft weiter."
+            "value": "%1$@ (%2$@) hat dieses iPhone um %3$@ getrennt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ (%2$@) a déconnecté cet iPhone à %3$@. Le terminal est toujours actif."
+            "value": "%1$@ (%2$@) a déconnecté cet iPhone à %3$@."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فصل %1$@ (%2$@) هذا الـ iPhone في %3$@. لا تزال الطرفية تعمل."
+            "value": "فصل %1$@ (%2$@) هذا الـ iPhone في %3$@."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ (%2$@) desconectó este iPhone a las %3$@. El terminal sigue en ejecución."
+            "value": "%1$@ (%2$@) desconectó este iPhone a las %3$@."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@（%2$@）於 %3$@ 中斷了此 iPhone 的連線。終端機仍在執行。"
+            "value": "%1$@（%2$@）於 %3$@ 中斷了此 iPhone 的連線。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@（%2$@）于 %3$@ 断开了此 iPhone 的连接。终端仍在运行。"
+            "value": "%1$@（%2$@）于 %3$@ 断开了此 iPhone 的连接。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@(%2$@) 님이 %3$@에 이 iPhone의 연결을 끊었습니다. 터미널은 계속 실행 중입니다."
+            "value": "%1$@(%2$@) 님이 %3$@에 이 iPhone의 연결을 끊었습니다."
           }
         }
       }
@@ -1565,55 +892,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ (%2$@) disconnected this iPad at %3$@. The terminal is still running."
+            "value": "%1$@ (%2$@) disconnected this iPad at %3$@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@（%2$@）が%3$@にこのiPadを切断しました。ターミナルは引き続き実行中です。"
+            "value": "%1$@（%2$@）が%3$@にこのiPadを切断しました。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ (%2$@) hat dieses iPad um %3$@ getrennt. Das Terminal läuft weiter."
+            "value": "%1$@ (%2$@) hat dieses iPad um %3$@ getrennt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ (%2$@) a déconnecté cet iPad à %3$@. Le terminal est toujours actif."
+            "value": "%1$@ (%2$@) a déconnecté cet iPad à %3$@."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فصل %1$@ (%2$@) هذا الـ iPad في %3$@. لا تزال الطرفية تعمل."
+            "value": "فصل %1$@ (%2$@) هذا الـ iPad في %3$@."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ (%2$@) desconectó este iPad a las %3$@. El terminal sigue en ejecución."
+            "value": "%1$@ (%2$@) desconectó este iPad a las %3$@."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@（%2$@）於 %3$@ 中斷了此 iPad 的連線。終端機仍在執行。"
+            "value": "%1$@（%2$@）於 %3$@ 中斷了此 iPad 的連線。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@（%2$@）于 %3$@ 断开了此 iPad 的连接。终端仍在运行。"
+            "value": "%1$@（%2$@）于 %3$@ 断开了此 iPad 的连接。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@(%2$@) 님이 %3$@에 이 iPad의 연결을 끊었습니다. 터미널은 계속 실행 중입니다."
+            "value": "%1$@(%2$@) 님이 %3$@에 이 iPad의 연결을 끊었습니다."
           }
         }
       }
@@ -1801,55 +1128,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reattach as viewer (doesn't resize)"
+            "value": "Reattach as viewer"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "閲覧のみで再接続（サイズを変更しません）"
+            "value": "閲覧のみで再接続"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Als Betrachter verbinden (ändert die Größe nicht)"
+            "value": "Als Betrachter verbinden"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rattacher en lecture (sans redimensionner)"
+            "value": "Rattacher en lecture"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعادة الإرفاق كمشاهد (دون تغيير الحجم)"
+            "value": "إعادة الإرفاق كمشاهد"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Volver a conectar como espectador (no cambia el tamaño)"
+            "value": "Volver a conectar como espectador"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "以檢視者身分重新連線（不調整大小）"
+            "value": "以檢視者身分重新連線"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "以查看者身份重新连接（不调整大小）"
+            "value": "以查看者身份重新连接"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "보기 전용으로 다시 연결(크기 변경 안 함)"
+            "value": "보기 전용으로 다시 연결"
           }
         }
       }
@@ -1913,179 +1240,61 @@
         }
       }
     },
-    "mobile.terminal.sizing.sheet.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal Size"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルのサイズ"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminalgröße"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Taille du terminal"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حجم الطرفية"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tamaño del terminal"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "終端機大小"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "终端大小"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "터미널 크기"
-          }
-        }
-      }
-    },
-    "mobile.terminal.sizing.sheet.current": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Current Size"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "現在のサイズ"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktuelle Größe"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Taille actuelle"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الحجم الحالي"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tamaño actual"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "目前大小"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "当前大小"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "현재 크기"
-          }
-        }
-      }
-    },
     "mobile.terminal.sizing.sheet.mode": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sizing"
+            "value": "Size"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイズの決め方"
+            "value": "サイズ"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Größenbestimmung"
+            "value": "Größe"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dimensionnement"
+            "value": "Taille"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تحديد الحجم"
+            "value": "الحجم"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tamaño según"
+            "value": "Tamaño"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "大小決定方式"
+            "value": "大小"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "大小决定方式"
+            "value": "大小"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "크기 결정 방식"
+            "value": "크기"
           }
         }
       }
@@ -2208,183 +1417,6 @@
         }
       }
     },
-    "mobile.terminal.sizing.badge.viewer": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Viewer"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "閲覧のみ"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Betrachter"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lecture"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مشاهد"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Espectador"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "檢視者"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "查看者"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "보기 전용"
-          }
-        }
-      }
-    },
-    "mobile.terminal.sizing.badge.detached": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Detached"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切断済み"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Getrennt"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Détaché"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مفصول"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desconectado"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已中斷"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已断开"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "분리됨"
-          }
-        }
-      }
-    },
-    "mobile.terminal.sizing.badge.you": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "You"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自分"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Du"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vous"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أنت"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tú"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "나"
-          }
-        }
-      }
-    },
     "mobile.terminal.sizing.sheet.counts": {
       "extractionState": "manual",
       "localizations": {
@@ -2503,120 +1535,61 @@
         }
       }
     },
-    "mobile.terminal.sizing.sheet.disconnect.accessibility": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disconnect %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ を切断"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ trennen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Déconnecter %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "قطع اتصال %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desconectar a %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "中斷 %@ 的連線"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "断开 %@ 的连接"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 연결 끊기"
-          }
-        }
-      }
-    },
     "mobile.terminal.sizing.sheet.disconnectOthers": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disconnect Other Clients"
+            "value": "Disconnect Others"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "他のクライアントを切断"
+            "value": "他を切断"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Andere Clients trennen"
+            "value": "Andere trennen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Déconnecter les autres clients"
+            "value": "Déconnecter les autres"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "قطع اتصال العملاء الآخرين"
+            "value": "قطع اتصال الآخرين"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desconectar otros clientes"
+            "value": "Desconectar a los demás"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "中斷其他用戶端的連線"
+            "value": "中斷其他連線"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "断开其他客户端"
+            "value": "断开其他连接"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다른 클라이언트 연결 끊기"
+            "value": "다른 연결 끊기"
           }
         }
       }
@@ -2680,65 +1653,6 @@
         }
       }
     },
-    "mobile.terminal.sizing.sheet.cancel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cancel"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャンセル"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abbrechen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Annuler"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إلغاء"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cancelar"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "取消"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "取消"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "취소"
-          }
-        }
-      }
-    },
     "mobile.terminal.sizing.sheet.done": {
       "extractionState": "manual",
       "localizations": {
@@ -2798,183 +1712,6 @@
         }
       }
     },
-    "mobile.terminal.sizing.sheet.priorityHint": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Drag to set which client sizes the terminal first."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ドラッグして、サイズを優先して決めるクライアントの順番を設定します。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ziehen, um festzulegen, welcher Client die Größe zuerst bestimmt."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Faites glisser pour choisir quel client définit la taille en premier."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "اسحب لتحديد العميل الذي يحدد حجم الطرفية أولًا."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arrastra para elegir qué cliente define primero el tamaño."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拖移以設定優先決定終端機大小的用戶端。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拖动以设置优先决定终端大小的客户端。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "드래그하여 터미널 크기를 먼저 정할 클라이언트를 설정합니다."
-          }
-        }
-      }
-    },
-    "mobile.terminal.sizing.sheet.fixedColumns": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Columns: %lld"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "列: %lld"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spalten: %lld"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Colonnes : %lld"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الأعمدة: %lld"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Columnas: %lld"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "欄數：%lld"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "列数：%lld"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "열: %lld"
-          }
-        }
-      }
-    },
-    "mobile.terminal.sizing.sheet.fixedRows": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rows: %lld"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "行: %lld"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeilen: %lld"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lignes : %lld"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الصفوف: %lld"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Filas: %lld"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "列數：%lld"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "行数：%lld"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "행: %lld"
-          }
-        }
-      }
-    },
     "mobile.terminal.sizing.sheet.failed": {
       "extractionState": "manual",
       "localizations": {
@@ -3030,6 +1767,502 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mac이 변경 사항을 적용하지 않았습니다."
+          }
+        }
+      }
+    },
+    "mobile.terminal.sizing.gridSizeCompact": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld×%2$lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld×%2$lld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld×%2$lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld×%2$lld"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld×%2$lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld×%2$lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld×%2$lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld×%2$lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld×%2$lld"
+          }
+        }
+      }
+    },
+    "mobile.terminal.sizing.colsHidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld col hidden"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld cols hidden"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld列非表示"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Sp. ausgeblendet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld col. masquées"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld عمود مخفي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld col. ocultas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 欄已隱藏"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 列已隐藏"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld열 숨겨짐"
+          }
+        }
+      }
+    },
+    "mobile.terminal.sizing.colsHidden.accessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld column hidden"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld columns hidden"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld列が表示されていません"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Spalten ausgeblendet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld colonnes masquées"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld عمود مخفي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld columnas ocultas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 欄已隱藏"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 列已隐藏"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld열이 숨겨짐"
+          }
+        }
+      }
+    },
+    "mobile.terminal.sizing.chip.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal size %1$lld by %2$lld, set by %3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルサイズ %1$lld×%2$lld、%3$@が設定"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalgröße %1$lld × %2$lld, festgelegt von %3$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille du terminal %1$lld × %2$lld, définie par %3$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم الطرفية %1$lld × %2$lld، يحدده %3$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño del terminal %1$lld × %2$lld, definido por %3$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機大小 %1$lld × %2$lld，由 %3$@ 設定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端大小 %1$lld × %2$lld，由 %3$@ 设置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 크기 %1$lld × %2$lld, %3$@에서 설정"
+          }
+        }
+      }
+    },
+    "mobile.terminal.detached.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detached"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切断されました"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Getrennt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détaché"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفصول"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desconectado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已中斷連線"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已断开连接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 해제됨"
+          }
+        }
+      }
+    },
+    "mobile.terminal.sizing.sheet.fixedSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Columns × Rows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列 × 行"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spalten × Zeilen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colonnes × lignes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأعمدة × الصفوف"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Columnas × filas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "欄 × 列"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列 × 行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열 × 행"
+          }
+        }
+      }
+    },
+    "mobile.terminal.sizing.sheet.columns": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Columns"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spalten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colonnes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأعمدة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Columnas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "欄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열"
+          }
+        }
+      }
+    },
+    "mobile.terminal.sizing.sheet.rows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeilen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lignes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصفوف"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "행"
           }
         }
       }

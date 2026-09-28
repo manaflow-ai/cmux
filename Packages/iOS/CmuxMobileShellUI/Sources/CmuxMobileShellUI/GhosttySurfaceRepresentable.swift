@@ -63,6 +63,8 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
     var onArtifactPathTapped: @MainActor (_ path: String) -> Void = { _ in }
     var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
     var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
+    /// Called when the shared-sizing chip on the terminal is tapped.
+    var onSharedSizingChipTapped: @MainActor () -> Void = {}
 
     func makeUIViewController(context: Context) -> UIViewController {
         let runtime: GhosttyRuntime
@@ -179,9 +181,12 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         // a reattach or owner change re-reports the viewport so the surface
         // learns its new grid through the normal acknowledgement path.
         let sizing = store.terminalSizing(for: surfaceID)
-        surfaceView.sharedSizingDecoration = sizing?.attachment.allowsTerminalTraffic == false
+        let sizingPresentation = sizing?.attachment.allowsTerminalTraffic == false
             ? nil
-            : store.terminalSizingPresentation(for: surfaceID)?.boundsDecoration
+            : store.terminalSizingPresentation(for: surfaceID)
+        surfaceView.sharedSizingDecoration = sizingPresentation?.boundsDecoration
+        surfaceView.sharedSizingChip = sizingPresentation?.chipContent
+        surfaceView.onSharedSizingChipTap = onSharedSizingChipTapped
         if let reassert = sizing?.viewportReassertGeneration,
            reassert != context.coordinator.appliedViewportReassertGeneration {
             context.coordinator.appliedViewportReassertGeneration = reassert

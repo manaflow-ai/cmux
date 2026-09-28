@@ -3,20 +3,43 @@ import CmuxMobileTerminalKit
 import QuartzCore
 import UIKit
 
-/// The decorative layers of the shared-sizing bounds: owner-color border,
-/// hatch outside the grid, and amber fades on cut edges. None of them take
-/// touches or key events.
+/// The text of the size chip: "118×38 · Maya's Mac Studio · 12 cols hidden".
+public struct TerminalSizingChipContent: Equatable, Sendable {
+    public var title: String
+    public var accessibilityLabel: String
+    public var accessibilityHint: String
+
+    public init(title: String, accessibilityLabel: String, accessibilityHint: String) {
+        self.title = title
+        self.accessibilityLabel = accessibilityLabel
+        self.accessibilityHint = accessibilityHint
+    }
+}
+
+/// The shared-sizing bounds: a thin owner-color border, a faint hatch
+/// outside the grid, a short fade on cut edges, and the size chip. Only the
+/// chip takes touches.
+@MainActor
 final class GhosttySurfaceSharedSizingLayers {
     /// Amber used for the cut-edge fade.
     static let cutFadeColor = UIColor(red: 0.96, green: 0.65, blue: 0.14, alpha: 1)
     /// Distance between hatch lines, in points.
-    static let hatchSpacing: CGFloat = 7
+    static let hatchSpacing: CGFloat = 8
+    /// Opacity of the owner-color border.
+    static let borderAlpha: CGFloat = 0.7
+    /// Opacity of the hatch lines.
+    static let hatchAlpha: CGFloat = 0.45
+    /// Opacity of the cut-edge fade at the edge.
+    static let cutFadeAlpha: CGFloat = 0.3
+    /// Distance between the chip and the grid's corner, in points.
+    static let chipInset: CGFloat = 6
 
     let container = CALayer()
     let border = CAShapeLayer()
     let hatch = CAShapeLayer()
     let hatchMask = CAShapeLayer()
     var fades: [CAGradientLayer] = []
+    private(set) var chip: UIButton?
 
     init(host: CALayer) {
         let noActions: [String: any CAAction] = [
@@ -42,6 +65,61 @@ final class GhosttySurfaceSharedSizingLayers {
 
     func hide() {
         container.isHidden = true
+        chip?.isHidden = true
+    }
+
+    /// Shows the chip at the bottom-trailing corner of `gridRect`, or hides it.
+    func layoutChip(
+        _ content: TerminalSizingChipContent?,
+        in hostView: UIView,
+        gridRect: CGRect?,
+        onTap: @escaping @MainActor () -> Void
+    ) {
+        guard let content, let gridRect else {
+            chip?.isHidden = true
+            return
+        }
+        let button = chip ?? makeChip(in: hostView, onTap: onTap)
+        chip = button
+        if button.configuration?.title != content.title {
+            button.configuration?.title = content.title
+        }
+        button.accessibilityLabel = content.accessibilityLabel
+        button.accessibilityHint = content.accessibilityHint
+        button.isHidden = false
+        let inset = Self.chipInset
+        let limit = CGSize(width: max(0, gridRect.width - inset * 2), height: .greatestFiniteMagnitude)
+        var size = button.sizeThatFits(limit)
+        size.width = min(size.width, limit.width)
+        button.frame = CGRect(
+            x: gridRect.maxX - inset - size.width,
+            y: gridRect.maxY - inset - size.height,
+            width: size.width,
+            height: size.height
+        )
+        hostView.bringSubviewToFront(button)
+    }
+
+    private func makeChip(in hostView: UIView, onTap: @escaping @MainActor () -> Void) -> UIButton {
+        var configuration = UIButton.Configuration.plain()
+        configuration.cornerStyle = .capsule
+        configuration.baseForegroundColor = .secondaryLabel
+        configuration.background.visualEffect = UIBlurEffect(style: .systemThinMaterial)
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)
+        configuration.titleLineBreakMode = .byTruncatingMiddle
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+            var attributes = attributes
+            let size = UIFont.preferredFont(forTextStyle: .caption2).pointSize
+            attributes.font = UIFont.monospacedDigitSystemFont(ofSize: size, weight: .regular)
+            return attributes
+        }
+        let button = UIButton(configuration: configuration, primaryAction: UIAction { _ in
+            MainActor.assumeIsolated { onTap() }
+        })
+        button.accessibilityIdentifier = "MobileTerminalSizingChip"
+        button.layer.zPosition = 1001 // above the bounds layers
+        hostView.addSubview(button)
+        return button
     }
 
     func apply(
@@ -67,7 +145,7 @@ final class GhosttySurfaceSharedSizingLayers {
         }
 
         let inset = TerminalSizingBoundsGeometry.borderWidth / 2
-        border.strokeColor = ownerColor.cgColor
+        border.strokeColor = ownerColor.withAlphaComponent(Self.borderAlpha).cgColor
         border.path = UIBezierPath(rect: borderRect.insetBy(dx: inset, dy: inset)).cgPath
 
         let maskPath = UIBezierPath()
@@ -75,7 +153,7 @@ final class GhosttySurfaceSharedSizingLayers {
             maskPath.append(UIBezierPath(rect: rect))
         }
         hatchMask.path = maskPath.cgPath
-        hatch.strokeColor = hatchColor.cgColor
+        hatch.strokeColor = hatchColor.withAlphaComponent(Self.hatchAlpha).cgColor
         hatch.path = geometry.hatchRects.isEmpty ? nil : Self.hatchPath(in: bounds)
 
         fades.forEach { $0.removeFromSuperlayer() }
@@ -86,7 +164,7 @@ final class GhosttySurfaceSharedSizingLayers {
             layer.contentsScale = scale
             layer.colors = [
                 Self.cutFadeColor.withAlphaComponent(0).cgColor,
-                Self.cutFadeColor.withAlphaComponent(0.45).cgColor,
+                Self.cutFadeColor.withAlphaComponent(Self.cutFadeAlpha).cgColor,
             ]
             switch fade.edge {
             case .trailing:
@@ -137,12 +215,19 @@ extension GhosttySurfaceView {
             blue: decoration.ownerBlue,
             alpha: 1
         )
+        let geometry = decoration.geometry(viewportRect: viewportRect, renderRect: lastRenderRect)
         layers.apply(
-            geometry: decoration.geometry(viewportRect: viewportRect, renderRect: lastRenderRect),
+            geometry: geometry,
             ownerColor: ownerColor,
             hatchColor: UIColor.separator.resolvedColor(with: traitCollection),
             bounds: layer.bounds,
             scale: max(layer.contentsScale, 1)
+        )
+        layers.layoutChip(
+            sharedSizingChip,
+            in: self,
+            gridRect: geometry.borderRect,
+            onTap: { [weak self] in self?.onSharedSizingChipTap?() }
         )
     }
 }

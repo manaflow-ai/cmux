@@ -77,6 +77,9 @@ extension WorkspaceDetailView {
             if artifactGalleryRefreshSignal != signal {
                 artifactGalleryRefreshSignal = signal
             }
+        },
+        onSharedSizingChipTapped: {
+            isTerminalSizeSheetPresented = true
         }
     )
     .popover(

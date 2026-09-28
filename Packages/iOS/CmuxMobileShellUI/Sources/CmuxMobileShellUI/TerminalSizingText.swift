@@ -7,10 +7,18 @@ import Foundation
 struct TerminalSizingText {
     private init() {}
 
+    /// "118 × 38", for the sheet header.
     static func gridSize(_ size: TerminalGridSize) -> String {
         let cols = size.cols
         let rows = size.rows
         return L10n.string("mobile.terminal.sizing.gridSize", defaultValue: "\(cols) × \(rows)")
+    }
+
+    /// "118×38", for the chip.
+    static func gridSizeCompact(_ size: TerminalGridSize) -> String {
+        let cols = size.cols
+        let rows = size.rows
+        return L10n.string("mobile.terminal.sizing.gridSizeCompact", defaultValue: "\(cols)×\(rows)")
     }
 
     static func joined(_ first: String, _ second: String) -> String {
@@ -31,39 +39,52 @@ struct TerminalSizingText {
         L10n.string("mobile.terminal.sizing.unknownDevice", defaultValue: "Unknown device")
     }
 
-    static func deviceName(_ participant: TerminalSizingParticipant) -> String {
-        participant.deviceName ?? unknownDevice()
-    }
-
-    /// "Maya's Mac Studio", or "This iPhone" for this phone.
-    static func ownerLabel(_ participant: TerminalSizingParticipant, isSelf: Bool) -> String {
-        if isSelf { return thisDevice(participant.deviceKind) }
-        let device = deviceName(participant)
-        guard let name = MobileTerminalSizingPresentation.givenName(participant.displayName) else {
+    /// "Maya's Mac Studio", "This iPhone", or the mode when no one owns the size.
+    static func owner(_ label: MobileTerminalSizingOwnerLabel) -> String {
+        switch label {
+        case let .thisDevice(kind):
+            return thisDevice(kind)
+        case let .person(name, device?):
+            return L10n.string("mobile.terminal.sizing.ownerDevice", defaultValue: "\(name)'s \(device)")
+        case let .person(name, nil):
+            return name
+        case let .device(device):
             return device
+        case .unnamed:
+            return someone()
+        case let .policy(mode):
+            return modeName(mode)
         }
-        return L10n.string("mobile.terminal.sizing.ownerDevice", defaultValue: "\(name)'s \(device)")
     }
 
-    /// The corner chip: "118 × 38 · Maya's Mac Studio".
-    static func chip(_ presentation: MobileTerminalSizingPresentation) -> String {
-        let size = gridSize(presentation.grid)
-        if let owner = presentation.owner {
-            return joined(size, ownerLabel(owner.participant, isSelf: presentation.ownerIsSelf))
-        }
-        return joined(size, modeName(presentation.policy.mode))
-    }
-
+    /// "12 cols hidden".
     static func hiddenColumns(_ count: Int) -> String {
-        L10n.string("mobile.terminal.sizing.hiddenColumns", defaultValue: "+\(count) cols")
+        L10n.string("mobile.terminal.sizing.colsHidden", defaultValue: "\(count) cols hidden")
     }
 
-    static func hiddenRows(_ count: Int) -> String {
-        L10n.string("mobile.terminal.sizing.hiddenRows", defaultValue: "+\(count) rows")
+    /// The chip: "118×38 · Maya's Mac Studio", plus " · 12 cols hidden" when
+    /// this phone is narrower than the grid.
+    static func chip(_ presentation: MobileTerminalSizingPresentation) -> String {
+        let base = joined(gridSizeCompact(presentation.grid), owner(presentation.ownerLabel))
+        guard presentation.hiddenColumns > 0 else { return base }
+        return joined(base, hiddenColumns(presentation.hiddenColumns))
     }
 
-    static func cutAccessibilityLabel(_ pill: String) -> String {
-        L10n.string("mobile.terminal.sizing.cut.accessibility", defaultValue: "\(pill) not visible on this screen")
+    static func chipAccessibilityLabel(_ presentation: MobileTerminalSizingPresentation) -> String {
+        let cols = presentation.grid.cols
+        let rows = presentation.grid.rows
+        let who = owner(presentation.ownerLabel)
+        let base = L10n.string(
+            "mobile.terminal.sizing.chip.accessibilityLabel",
+            defaultValue: "Terminal size \(cols) by \(rows), set by \(who)"
+        )
+        guard presentation.hiddenColumns > 0 else { return base }
+        let hidden = presentation.hiddenColumns
+        let hiddenText = L10n.string(
+            "mobile.terminal.sizing.colsHidden.accessibility",
+            defaultValue: "\(hidden) columns hidden"
+        )
+        return "\(base). \(hiddenText)"
     }
 
     static func chipAccessibilityHint() -> String {
@@ -72,36 +93,11 @@ struct TerminalSizingText {
 
     static func modeName(_ mode: TerminalSizingMode) -> String {
         switch mode {
-        case .latest: L10n.string("mobile.terminal.sizing.mode.latest", defaultValue: "Latest")
-        case .smallest: L10n.string("mobile.terminal.sizing.mode.smallest", defaultValue: "Smallest")
-        case .largest: L10n.string("mobile.terminal.sizing.mode.largest", defaultValue: "Largest")
+        case .latest: L10n.string("mobile.terminal.sizing.mode.latest", defaultValue: "Follow latest")
+        case .smallest: L10n.string("mobile.terminal.sizing.mode.smallest", defaultValue: "Fit everyone")
+        case .largest: L10n.string("mobile.terminal.sizing.mode.largest", defaultValue: "Largest window")
         case .priority: L10n.string("mobile.terminal.sizing.mode.priority", defaultValue: "Priority")
         case .fixed: L10n.string("mobile.terminal.sizing.mode.fixed", defaultValue: "Fixed")
-        }
-    }
-
-    static func reason(_ reason: TerminalSizingReason) -> String {
-        switch reason {
-        case .latest:
-            L10n.string("mobile.terminal.sizing.reason.latest", defaultValue: "Set by the most recently active client.")
-        case .smallest:
-            L10n.string("mobile.terminal.sizing.reason.smallest", defaultValue: "Fits the smallest client.")
-        case .largest:
-            L10n.string("mobile.terminal.sizing.reason.largest", defaultValue: "Fits the largest client.")
-        case .priority:
-            L10n.string("mobile.terminal.sizing.reason.priority", defaultValue: "Set by the highest-priority client.")
-        case .priorityFallback:
-            L10n.string(
-                "mobile.terminal.sizing.reason.priorityFallback",
-                defaultValue: "No priority client is attached, so the most recently active client sets the size."
-            )
-        case .fixed:
-            L10n.string("mobile.terminal.sizing.reason.fixed", defaultValue: "Fixed size.")
-        case .held:
-            L10n.string(
-                "mobile.terminal.sizing.reason.held",
-                defaultValue: "No client sets the size, so it keeps its last size."
-            )
         }
     }
 
@@ -111,8 +107,8 @@ struct TerminalSizingText {
 
     // MARK: Detached card
 
-    static func detachedTitle(tab: String) -> String {
-        L10n.string("mobile.terminal.detached.title", defaultValue: "Detached from \(tab)")
+    static func detachedTitle() -> String {
+        L10n.string("mobile.terminal.detached.heading", defaultValue: "Detached")
     }
 
     static func detachedMessage(
@@ -128,12 +124,12 @@ struct TerminalSizingText {
             if deviceKind == .ipad {
                 return L10n.string(
                     "mobile.terminal.detached.message.ipad",
-                    defaultValue: "\(name) (\(device)) disconnected this iPad at \(time). The terminal is still running."
+                    defaultValue: "\(name) (\(device)) disconnected this iPad at \(time)."
                 )
             }
             return L10n.string(
                 "mobile.terminal.detached.message.iphone",
-                defaultValue: "\(name) (\(device)) disconnected this iPhone at \(time). The terminal is still running."
+                defaultValue: "\(name) (\(device)) disconnected this iPhone at \(time)."
             )
         case .hostShutdown:
             return L10n.string(
@@ -155,7 +151,7 @@ struct TerminalSizingText {
     }
 
     static func reattachAsViewer() -> String {
-        L10n.string("mobile.terminal.detached.reattachAsViewer", defaultValue: "Reattach as viewer (doesn't resize)")
+        L10n.string("mobile.terminal.detached.reattachAsViewer", defaultValue: "Reattach as viewer")
     }
 
     static func reattachFailed() -> String {
@@ -164,36 +160,45 @@ struct TerminalSizingText {
 
     // MARK: Size sheet
 
-    static func sheetTitle() -> String {
-        L10n.string("mobile.terminal.sizing.sheet.title", defaultValue: "Terminal Size")
+    static func sizePicker() -> String {
+        L10n.string("mobile.terminal.sizing.sheet.mode", defaultValue: "Size")
     }
 
-    static func currentSize() -> String {
-        L10n.string("mobile.terminal.sizing.sheet.current", defaultValue: "Current Size")
+    static func fixedSize() -> String {
+        L10n.string("mobile.terminal.sizing.sheet.fixedSize", defaultValue: "Columns × Rows")
     }
 
-    static func modePicker() -> String {
-        L10n.string("mobile.terminal.sizing.sheet.mode", defaultValue: "Sizing")
+    static func columns() -> String {
+        L10n.string("mobile.terminal.sizing.sheet.columns", defaultValue: "Columns")
+    }
+
+    static func rows() -> String {
+        L10n.string("mobile.terminal.sizing.sheet.rows", defaultValue: "Rows")
     }
 
     static func participants() -> String {
         L10n.string("mobile.terminal.sizing.sheet.participants", defaultValue: "Connected")
     }
 
-    static func badgeSetsSize() -> String {
+    static func setsSize() -> String {
         L10n.string("mobile.terminal.sizing.badge.setsSize", defaultValue: "Sets size")
     }
 
-    static func badgeViewer() -> String {
-        L10n.string("mobile.terminal.sizing.badge.viewer", defaultValue: "Viewer")
-    }
-
-    static func badgeDetached() -> String {
-        L10n.string("mobile.terminal.sizing.badge.detached", defaultValue: "Detached")
-    }
-
-    static func badgeYou() -> String {
-        L10n.string("mobile.terminal.sizing.badge.you", defaultValue: "You")
+    /// "Maya · Mac Studio", or "Maya · This iPhone" for this phone.
+    static func participantTitle(_ participant: TerminalSizingParticipant, isSelf: Bool) -> String {
+        let given = MobileTerminalSizingPresentation.givenName(participant.displayName)
+        let device = isSelf
+            ? thisDevice(participant.deviceKind)
+            : participant.deviceName.flatMap { $0.isEmpty ? nil : $0 }
+        // "Maya's MacBook Pro" already names its owner.
+        let deviceNamesOwner = !isSelf && given.map { device?.localizedCaseInsensitiveContains($0) ?? false } == true
+        let name = given == nil || deviceNamesOwner ? nil : participant.displayName
+        switch (name, device) {
+        case let (name?, device?): return joined(name, device)
+        case let (name?, nil): return name
+        case let (nil, device?): return device
+        case (nil, nil): return someone()
+        }
     }
 
     static func countsToggle() -> String {
@@ -204,12 +209,8 @@ struct TerminalSizingText {
         L10n.string("mobile.terminal.sizing.sheet.disconnect", defaultValue: "Disconnect")
     }
 
-    static func disconnectAccessibilityLabel(_ who: String) -> String {
-        L10n.string("mobile.terminal.sizing.sheet.disconnect.accessibility", defaultValue: "Disconnect \(who)")
-    }
-
     static func disconnectOthers() -> String {
-        L10n.string("mobile.terminal.sizing.sheet.disconnectOthers", defaultValue: "Disconnect Other Clients")
+        L10n.string("mobile.terminal.sizing.sheet.disconnectOthers", defaultValue: "Disconnect Others")
     }
 
     static func disconnectOthersConfirm() -> String {
@@ -219,27 +220,8 @@ struct TerminalSizingText {
         )
     }
 
-    static func cancel() -> String {
-        L10n.string("mobile.terminal.sizing.sheet.cancel", defaultValue: "Cancel")
-    }
-
     static func done() -> String {
         L10n.string("mobile.terminal.sizing.sheet.done", defaultValue: "Done")
-    }
-
-    static func priorityHint() -> String {
-        L10n.string(
-            "mobile.terminal.sizing.sheet.priorityHint",
-            defaultValue: "Drag to set which client sizes the terminal first."
-        )
-    }
-
-    static func fixedColumns(_ count: Int) -> String {
-        L10n.string("mobile.terminal.sizing.sheet.fixedColumns", defaultValue: "Columns: \(count)")
-    }
-
-    static func fixedRows(_ count: Int) -> String {
-        L10n.string("mobile.terminal.sizing.sheet.fixedRows", defaultValue: "Rows: \(count)")
     }
 
     static func changeFailed() -> String {

@@ -1,21 +1,22 @@
 #if os(iOS)
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileTerminal
 import CmuxMobileTerminalKit
 import CmuxTerminalSizing
 import SwiftUI
 
-/// Shared-sizing chrome over one terminal surface: the corner chip, the
-/// "+N cols" pill, the reconnecting capsule, and the detached card. The
-/// border, hatch and cut-edge fade are drawn by the surface itself (see
-/// `GhosttySurfaceView+SharedSizing`) because they follow the letterbox rect.
+/// Shared-sizing chrome over one terminal surface: the reconnecting capsule,
+/// the detached card, and the size sheet. The border, hatch, cut-edge fade
+/// and size chip are drawn by the surface itself (see
+/// `GhosttySurfaceView+SharedSizing`) because they follow the letterbox rect;
+/// the chip's tap sets `isSizeSheetPresented`.
 struct TerminalSharedSizingOverlay: View {
     let store: CMUXMobileShellStore
     let surfaceID: String
-    let tabTitle: String
     let topInset: CGFloat
+    @Binding var isSizeSheetPresented: Bool
 
-    @State private var isSizeSheetPresented = false
     @State private var reattachInFlight = false
     @State private var reattachFailed = false
 
@@ -25,19 +26,13 @@ struct TerminalSharedSizingOverlay: View {
 
     var body: some View {
         let sizing = store.terminalSizing(for: surfaceID)
-        let presentation = store.terminalSizingPresentation(for: surfaceID)
         ZStack {
             if case let .detached(reason, at)? = sizing?.attachment {
                 detachedCard(reason: reason, at: at)
-            } else {
-                if sizing?.attachment == .reconnecting {
-                    reconnectingCapsule
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .padding(.top, topInset + 10)
-                }
-                if let presentation {
-                    boundsChrome(presentation)
-                }
+            } else if sizing?.attachment == .reconnecting {
+                reconnectingCapsule
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .padding(.top, topInset + 10)
             }
         }
         .sheet(isPresented: $isSizeSheetPresented) {
@@ -47,73 +42,17 @@ struct TerminalSharedSizingOverlay: View {
         }
     }
 
-    // MARK: Bounds chrome
-
-    @ViewBuilder
-    private func boundsChrome(_ presentation: MobileTerminalSizingPresentation) -> some View {
-        let tint = Color(presentation.ownerColor)
-        if presentation.showsChip {
-            Button {
-                isSizeSheetPresented = true
-            } label: {
-                Label {
-                    Text(TerminalSizingText.chip(presentation))
-                        .lineLimit(1)
-                } icon: {
-                    Image(systemName: presentation.viewportDiffers
-                        ? "rectangle.dashed"
-                        : "rectangle.inset.filled")
-                }
-                .font(.caption.weight(.semibold).monospacedDigit())
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(.regularMaterial, in: Capsule())
-                .overlay(Capsule().strokeBorder(tint, lineWidth: 1.5))
-            }
-            .buttonStyle(.plain)
-            .accessibilityHint(TerminalSizingText.chipAccessibilityHint())
-            .accessibilityIdentifier("MobileTerminalSizingChip")
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(.top, topInset + 10)
-            .padding(.leading, 10)
-        }
-        if let pill = cutPillText(presentation) {
-            Text(pill)
-                .font(.caption2.weight(.bold).monospacedDigit())
-                .foregroundStyle(.black)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color(red: 0.96, green: 0.65, blue: 0.14), in: Capsule())
-                .accessibilityLabel(TerminalSizingText.cutAccessibilityLabel(pill))
-                .accessibilityIdentifier("MobileTerminalSizingCutPill")
-                .allowsHitTesting(false)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                .padding(.trailing, 6)
-        }
-    }
-
-    private func cutPillText(_ presentation: MobileTerminalSizingPresentation) -> String? {
-        var parts: [String] = []
-        if presentation.hiddenColumns > 0 {
-            parts.append(TerminalSizingText.hiddenColumns(presentation.hiddenColumns))
-        }
-        if presentation.hiddenRows > 0 {
-            parts.append(TerminalSizingText.hiddenRows(presentation.hiddenRows))
-        }
-        guard let first = parts.first else { return nil }
-        return parts.dropFirst().reduce(first) { TerminalSizingText.joined($0, $1) }
-    }
-
     private var reconnectingCapsule: some View {
         HStack(spacing: 6) {
             ProgressView()
                 .controlSize(.mini)
             Text(TerminalSizingText.reconnecting())
-                .font(.caption.weight(.semibold))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.regularMaterial, in: Capsule())
+        .padding(.vertical, 5)
+        .background(.thinMaterial, in: Capsule())
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("MobileTerminalSizingReconnecting")
         .allowsHitTesting(false)
@@ -126,14 +65,10 @@ struct TerminalSharedSizingOverlay: View {
             Rectangle()
                 .fill(.ultraThinMaterial)
                 .ignoresSafeArea()
-            VStack(spacing: 12) {
-                Image(systemName: "rectangle.portrait.slash")
-                    .font(.system(size: 34, weight: .light))
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-                Text(TerminalSizingText.detachedTitle(tab: tabTitle))
+            VStack(spacing: 8) {
+                Text(TerminalSizingText.detachedTitle())
                     .font(.headline)
-                    .multilineTextAlignment(.center)
+                    .accessibilityAddTraits(.isHeader)
                 Text(TerminalSizingText.detachedMessage(reason: reason, at: at, deviceKind: deviceKind))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -144,7 +79,7 @@ struct TerminalSharedSizingOverlay: View {
                         .foregroundStyle(.red)
                         .multilineTextAlignment(.center)
                 }
-                VStack(spacing: 8) {
+                VStack(spacing: 4) {
                     Button {
                         reattach(asViewer: false)
                     } label: {
@@ -152,22 +87,20 @@ struct TerminalSharedSizingOverlay: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     .accessibilityIdentifier("MobileTerminalDetachedReattach")
-                    Button {
+                    Button(TerminalSizingText.reattachAsViewer()) {
                         reattach(asViewer: true)
-                    } label: {
-                        Text(TerminalSizingText.reattachAsViewer())
-                            .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.borderless)
+                    .controlSize(.large)
                     .accessibilityIdentifier("MobileTerminalDetachedReattachAsViewer")
                 }
-                .controlSize(.large)
                 .disabled(reattachInFlight)
-                .padding(.top, 4)
+                .padding(.top, 12)
             }
             .padding(24)
-            .frame(maxWidth: 420)
+            .frame(maxWidth: 360)
         }
         .accessibilityIdentifier("MobileTerminalDetachedCard")
     }
@@ -204,6 +137,16 @@ extension MobileTerminalSizingPresentation {
             ownerRed: rgb.red,
             ownerGreen: rgb.green,
             ownerBlue: rgb.blue
+        )
+    }
+
+    /// The size chip's copy, or `nil` when the chip does not show.
+    var chipContent: TerminalSizingChipContent? {
+        guard showsChip else { return nil }
+        return TerminalSizingChipContent(
+            title: TerminalSizingText.chip(self),
+            accessibilityLabel: TerminalSizingText.chipAccessibilityLabel(self),
+            accessibilityHint: TerminalSizingText.chipAccessibilityHint()
         )
     }
 }

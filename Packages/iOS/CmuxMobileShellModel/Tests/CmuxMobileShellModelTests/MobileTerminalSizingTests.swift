@@ -170,6 +170,70 @@ private func sizeState(
         #expect(presentation.ownerIsSelf)
     }
 
+    @Test func matchingViewportHidesChipEvenWithOtherViewers() {
+        let presentation = MobileTerminalSizingPresentation(
+            state: sizeState(generation: 1),
+            selfParticipantID: "mobile:phone",
+            localViewport: TerminalGridSize(cols: 118, rows: 38)
+        )
+        #expect(!presentation.viewportDiffers)
+        #expect(!presentation.showsChip)
+        #expect(!presentation.otherParticipants.isEmpty)
+    }
+
+    @Test func chipFactsForASmallerPhone() {
+        let presentation = MobileTerminalSizingPresentation(
+            state: sizeState(generation: 1),
+            selfParticipantID: "mobile:phone",
+            localViewport: TerminalGridSize(cols: 106, rows: 38)
+        )
+        #expect(presentation.showsChip)
+        #expect(presentation.grid == TerminalGridSize(cols: 118, rows: 38))
+        #expect(presentation.ownerLabel == .person(givenName: "Maya", device: "Mac Studio"))
+        #expect(presentation.hiddenColumns == 12)
+        #expect(presentation.hiddenRows == 0)
+        #expect(presentation.isOwner("c3"))
+        #expect(!presentation.isOwner("mobile:phone"))
+    }
+
+    @Test func ownerLabelForThisPhone() {
+        let state = sizeState(
+            generation: 1,
+            cols: 50,
+            rows: 30,
+            owners: ["mobile:phone"]
+        )
+        let presentation = MobileTerminalSizingPresentation(
+            state: state,
+            selfParticipantID: "mobile:phone",
+            localViewport: TerminalGridSize(cols: 50, rows: 30)
+        )
+        #expect(presentation.ownerLabel == .thisDevice(.iphone))
+    }
+
+    @Test func ownerLabelWithoutOwnerNamesThePolicy() {
+        let state = sizeState(generation: 1, owners: [])
+        let presentation = MobileTerminalSizingPresentation(
+            state: state,
+            selfParticipantID: "mobile:phone",
+            localViewport: nil
+        )
+        #expect(presentation.ownerLabel == .policy(.latest))
+    }
+
+    @Test func ownerLabelVariants() {
+        func label(_ name: String?, _ device: String?) -> MobileTerminalSizingOwnerLabel {
+            MobileTerminalSizingOwnerLabel(participant: participant("x", name: name, device: device).participant)
+        }
+        #expect(label("Lawrence Chen", "Mac") == .person(givenName: "Lawrence", device: "Mac"))
+        // A macOS computer name often already carries the owner's name.
+        #expect(label("Lawrence Chen", "Lawrence's MacBook Pro") == .device("Lawrence's MacBook Pro"))
+        #expect(label("Maya", nil) == .person(givenName: "Maya", device: nil))
+        #expect(label(nil, "Mac mini") == .device("Mac mini"))
+        #expect(label(nil, "") == .unnamed)
+        #expect(label(" ", nil) == .unnamed)
+    }
+
     @Test func givenNameTakesTheFirstWord() {
         #expect(MobileTerminalSizingPresentation.givenName("Maya Ortiz") == "Maya")
         #expect(MobileTerminalSizingPresentation.givenName("  ") == nil)
