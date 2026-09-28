@@ -16,6 +16,9 @@ import {
   type ClickHouseInsertResult,
 } from "./clickhouse";
 import { reportCoderouterFailure } from "./observability";
+// Call-time use only: requestTelemetry also imports this module to write the
+// route_crash row, so neither side touches the other during module init.
+import { markCoderouterRouteEventRecorded } from "./requestTelemetry";
 
 export const USAGE_EVENTS_TABLE = "usage_events";
 export const ROUTE_EVENTS_TABLE = "route_events";
@@ -149,6 +152,8 @@ export function recordRouteEvent(
   input: RouteEventInput,
   dependencies: UsageLedgerDependencies = defaultDependencies,
 ): void {
+  // One row per request: a crash after this point must not add a second.
+  markCoderouterRouteEventRecorded();
   dependencies.defer(
     write(ROUTE_EVENTS_TABLE, routeEventRow(input, dependencies.now()), dependencies),
   );
