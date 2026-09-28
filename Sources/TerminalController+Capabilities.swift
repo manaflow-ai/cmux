@@ -265,6 +265,7 @@ extension TerminalController {
             "surface.read_selection",
             "surface.clear_history",
             "surface.trigger_flash",
+            "surface.offer_code_block",
             "pane.list",
             "pane.focus",
             "pane.surfaces",

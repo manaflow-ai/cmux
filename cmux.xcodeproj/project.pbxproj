@@ -3355,6 +3355,8 @@
 		B8835700000000000000000D /* TerminalClipboardInputSequencerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835700000000000000000E /* TerminalClipboardInputSequencerTests.swift */; };
 		B88357000000000000000013 /* TerminalClipboardRequestSurfaceIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000014 /* TerminalClipboardRequestSurfaceIdentity.swift */; };
 		C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */; };
+		ED9BDCAB43DACAAD6440E780 /* TerminalCodeBlockController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C75BEDED63282084F57B4CC /* TerminalCodeBlockController.swift */; };
+		3B8F37D7A813EB2DF9340ABE /* TerminalCodeBlockViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 890B0977CFDF5B7498838AD5 /* TerminalCodeBlockViews.swift */; };
 		A10557060000000000000001 /* TerminalConfigurationApplyCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10557060000000000000002 /* TerminalConfigurationApplyCompletion.swift */; };
 		A10557030000000000000001 /* TerminalConfigurationApplySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10557030000000000000002 /* TerminalConfigurationApplySnapshot.swift */; };
 		A10557040000000000000001 /* TerminalConfigurationPresentationMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10557040000000000000002 /* TerminalConfigurationPresentationMetrics.swift */; };
@@ -3381,6 +3383,7 @@
 		89842C7C379A8D850E90B3A4 /* TerminalController+CloudDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67E1C76D41B156E54A3C6075 /* TerminalController+CloudDiagnostics.swift */; };
 		7A7BA5FDAFA74986B5B764ED /* TerminalController+CloudSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C621745E616B46C2A15DEBAA /* TerminalController+CloudSidebar.swift */; };
 		3C8B1FADA2B94237ADBE70B9 /* TerminalController+CloudTerminalCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C422AAD63384578846BC05E /* TerminalController+CloudTerminalCreation.swift */; };
+		E71634258B0BFA44AFC3D53D /* TerminalController+CodeBlocks.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BF3EFDA2141B99A8A5B1B5 /* TerminalController+CodeBlocks.swift */; };
 		CC0033E15A1B2C3D4E5F0003 /* TerminalController+CommentsCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0004 /* TerminalController+CommentsCommands.swift */; };
 		C0DE00000000000000000C42 /* TerminalController+ControlAppFocusContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C41 /* TerminalController+ControlAppFocusContext.swift */; };
 		C0DE00000000000000000C82 /* TerminalController+ControlBrowserPanelContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C81 /* TerminalController+ControlBrowserPanelContext.swift */; };
@@ -7373,6 +7376,8 @@
 		B8835700000000000000000E /* TerminalClipboardInputSequencerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboardInputSequencerTests.swift; sourceTree = "<group>"; };
 		B88357000000000000000014 /* TerminalClipboardRequestSurfaceIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboardRequestSurfaceIdentity.swift; sourceTree = "<group>"; };
 		C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCmdClickUITests.swift; sourceTree = "<group>"; };
+		1C75BEDED63282084F57B4CC /* TerminalCodeBlockController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCodeBlocks/TerminalCodeBlockController.swift; sourceTree = "<group>"; };
+		890B0977CFDF5B7498838AD5 /* TerminalCodeBlockViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCodeBlocks/TerminalCodeBlockViews.swift; sourceTree = "<group>"; };
 		A10557060000000000000002 /* TerminalConfigurationApplyCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalConfigurationApplyCompletion.swift; sourceTree = "<group>"; };
 		A10557030000000000000002 /* TerminalConfigurationApplySnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalConfigurationApplySnapshot.swift; sourceTree = "<group>"; };
 		A10557040000000000000002 /* TerminalConfigurationPresentationMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalConfigurationPresentationMetrics.swift; sourceTree = "<group>"; };
@@ -7399,6 +7404,7 @@
 		67E1C76D41B156E54A3C6075 /* TerminalController+CloudDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+CloudDiagnostics.swift"; sourceTree = "<group>"; };
 		C621745E616B46C2A15DEBAA /* TerminalController+CloudSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/TerminalController+CloudSidebar.swift"; sourceTree = "<group>"; };
 		2C422AAD63384578846BC05E /* TerminalController+CloudTerminalCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+CloudTerminalCreation.swift"; sourceTree = "<group>"; };
+		B3BF3EFDA2141B99A8A5B1B5 /* TerminalController+CodeBlocks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+CodeBlocks.swift"; sourceTree = "<group>"; };
 		CC0033E15A1B2C3D4E5F0004 /* TerminalController+CommentsCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+CommentsCommands.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C41 /* TerminalController+ControlAppFocusContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlAppFocusContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C81 /* TerminalController+ControlBrowserPanelContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlBrowserPanelContext.swift"; sourceTree = "<group>"; };
@@ -10916,6 +10922,9 @@
 				28B357957683C6E50B1C4263 /* DeviceIrxClient+Discovery.swift */,
 				4681424F883829B8E87F5B0B /* DevicesSidebarControls.swift */,
 				93F4913B51A207BA657F0241 /* DevicesPreferencesModel.swift */,
+				890B0977CFDF5B7498838AD5 /* TerminalCodeBlockViews.swift */,
+				1C75BEDED63282084F57B4CC /* TerminalCodeBlockController.swift */,
+				B3BF3EFDA2141B99A8A5B1B5 /* TerminalController+CodeBlocks.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14937,6 +14946,8 @@
 				B8835A000000000000000001 /* TerminalClipboardInputSequencer+State.swift in Sources */,
 				B88357000000000000000005 /* TerminalClipboardInputSequencer.swift in Sources */,
 				B88357000000000000000013 /* TerminalClipboardRequestSurfaceIdentity.swift in Sources */,
+				ED9BDCAB43DACAAD6440E780 /* TerminalCodeBlockController.swift in Sources */,
+				3B8F37D7A813EB2DF9340ABE /* TerminalCodeBlockViews.swift in Sources */,
 				A10557060000000000000001 /* TerminalConfigurationApplyCompletion.swift in Sources */,
 				A10557030000000000000001 /* TerminalConfigurationApplySnapshot.swift in Sources */,
 				A10557040000000000000001 /* TerminalConfigurationPresentationMetrics.swift in Sources */,
@@ -14962,6 +14973,7 @@
 				89842C7C379A8D850E90B3A4 /* TerminalController+CloudDiagnostics.swift in Sources */,
 				7A7BA5FDAFA74986B5B764ED /* TerminalController+CloudSidebar.swift in Sources */,
 				3C8B1FADA2B94237ADBE70B9 /* TerminalController+CloudTerminalCreation.swift in Sources */,
+				E71634258B0BFA44AFC3D53D /* TerminalController+CodeBlocks.swift in Sources */,
 				CC0033E15A1B2C3D4E5F0003 /* TerminalController+CommentsCommands.swift in Sources */,
 				C0DE00000000000000000C42 /* TerminalController+ControlAppFocusContext.swift in Sources */,
 				C0DE00000000000000000C82 /* TerminalController+ControlBrowserPanelContext.swift in Sources */,

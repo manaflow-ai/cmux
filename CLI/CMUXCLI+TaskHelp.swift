@@ -209,6 +209,7 @@ extension CMUXCLI {
         hooks setup|uninstall [--agent <name>]
         hooks <agent> <install|uninstall|event> [options; opencode supports --project]
         hooks feed --source <agent> [--event <event>]
+        code-block [--label <text>] [--lang <tag>] [--run|--no-run] [--clear] [--surface <id|ref|index>] [--] [text...]
         \(localizedCoderouterAliases())
         \(localizedCoderouterCommands())
         ai-accounts <list|upload|remove> [--team <id>] [--json]

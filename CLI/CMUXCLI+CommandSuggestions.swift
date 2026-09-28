@@ -80,6 +80,7 @@ extension CMUXCLI {
         "close-window",
         "close-workspace",
         "cloud",
+        "code-block",
         "coderouter",
         "cr",
         "codex",

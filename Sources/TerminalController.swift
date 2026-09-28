@@ -3113,6 +3113,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceSetAutoTitle(params: params))
         case "surface.sync_codex_native_title":
             return v2Result(id: id, self.v2SurfaceSyncCodexNativeTitle(params: params))
+        case "surface.offer_code_block":
+            return v2Result(id: id, self.v2SurfaceOfferCodeBlock(params: params))
 
         // Settings/session/feedback: session.restore_previous, settings.open, and
         // feedback.open handled by ControlCommandCoordinator.
