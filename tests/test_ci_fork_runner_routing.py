@@ -126,11 +126,6 @@ FORK_GATE_EXEMPT = {
         "its hosted 6vcpu pool without reading this default, and every runs-on "
         "reads its output"
     ),
-    ("ci.yml", "CMUX_MACOS_RUNNER_TESTS: ${{ vars.MACOS_RUNNER_TESTS }}"): (
-        "dispatch-focused-test.py's input in the ui-tests job, which runs on "
-        "Linux and whose first step fails a fork pull request before any step "
-        "reads it; the test-e2e.yml run it dispatches picks its own runner"
-    ),
 }
 
 
