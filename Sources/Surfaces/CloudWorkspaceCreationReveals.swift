@@ -63,18 +63,17 @@ final class CloudWorkspaceCreationReveals {
         receive(token, machine: SurfaceMachineID(rawValue: binding.vmID), remoteWorkspaceID: remoteWorkspaceID)
     }
 
-    /// Runs a create that selects its workspace only when it finishes. The
-    /// reveal starts now, so a selection made while it runs still wins, and
-    /// follows the workspace `body` selected, or is withdrawn.
-    func revealing(in manager: TabManager?, _ body: @MainActor () async throws -> Workspace?) async rethrows {
-        guard let manager else {
-            _ = try await body()
-            return
-        }
-        let token = begin(in: manager)
+    /// Runs a create that selects its workspace only when it finishes. `token`
+    /// comes from `begin(in:)` before the create starts, so a selection made
+    /// while it runs still wins; the reveal then follows the workspace `body`
+    /// selected, or is withdrawn. Taking the token rather than the window's
+    /// manager keeps the create from holding a closed window alive.
+    func revealing(_ token: UUID?, _ body: @MainActor () async throws -> Workspace?) async rethrows {
         var selected: Workspace?
         defer {
-            if let selected { receive(token, revealing: selected) } else { withdraw(token) }
+            if let token {
+                if let selected { receive(token, revealing: selected) } else { withdraw(token) }
+            }
         }
         selected = try await body()
     }

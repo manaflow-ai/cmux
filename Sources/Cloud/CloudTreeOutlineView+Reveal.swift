@@ -6,14 +6,8 @@ extension CloudTreeOutlineView.Coordinator {
     func reveal(_ request: CloudTreeRevealRequest?) {
         guard let request, request.token != lastRevealToken, let outlineView,
               let path = request.path(in: nodes), let node = path.last else { return }
-        for ancestor in path.dropLast() where !outlineView.isItemExpanded(ancestor) {
-            expansionStore.setExpanded(true, node: ancestor)
-            outlineView.expandItem(ancestor)
-        }
-        if node.isExpandable, !outlineView.isItemExpanded(node) {
-            expansionStore.setExpanded(true, node: node)
-            outlineView.expandItem(node)
-        }
+        expand(path.dropLast(), in: outlineView)
+        if node.isExpandable { expand([node], in: outlineView) }
         let row = outlineView.row(forItem: node)
         guard row >= 0 else { return }
         lastRevealToken = request.token
@@ -29,16 +23,12 @@ extension CloudTreeOutlineView.Coordinator {
         // A drag defers node updates; the next update after it ends catches up.
         guard !isDragging, let outlineView else { return }
         let action = creationRevealPresentation.update(request: request, selectedNodeID: selectedNodeID) { id in
-            CloudTreeRevealRequest(token: UUID(), nodeID: id).path(in: nodes) != nil
+            CloudTreeNode.path(to: id, in: nodes) != nil
         }
         switch action {
         case .select(let id)?:
-            guard let path = CloudTreeRevealRequest(token: UUID(), nodeID: id).path(in: nodes),
-                  let node = path.last else { return }
-            for ancestor in path.dropLast() where !outlineView.isItemExpanded(ancestor) {
-                expansionStore.setExpanded(true, node: ancestor)
-                outlineView.expandItem(ancestor)
-            }
+            guard let path = CloudTreeNode.path(to: id, in: nodes), let node = path.last else { return }
+            expand(path.dropLast(), in: outlineView)
             let row = outlineView.row(forItem: node)
             guard row >= 0 else { return }
             // A regular selection change records the row, so reloads restore it.
@@ -50,8 +40,28 @@ extension CloudTreeOutlineView.Coordinator {
         case .restore(let baseline)?:
             selectedNodeID = baseline
             withProgrammaticUpdate { restoreSelection(in: outlineView) }
+            // The reveal scrolled away from the prior row; bring it back.
+            if outlineView.selectedRow >= 0 { outlineView.scrollRowToVisible(outlineView.selectedRow) }
         case nil:
             break
         }
+    }
+
+    private func expand(_ nodes: some Sequence<CloudTreeNode>, in outlineView: NSOutlineView) {
+        for node in nodes where !outlineView.isItemExpanded(node) {
+            expansionStore.setExpanded(true, node: node)
+            outlineView.expandItem(node)
+        }
+    }
+}
+
+extension CloudTreeNode {
+    /// The node with `id` and its ancestors, root first.
+    static func path(to id: String, in nodes: [CloudTreeNode]) -> [CloudTreeNode]? {
+        for node in nodes {
+            if node.id == id { return [node] }
+            if let descendants = path(to: id, in: node.children) { return [node] + descendants }
+        }
+        return nil
     }
 }

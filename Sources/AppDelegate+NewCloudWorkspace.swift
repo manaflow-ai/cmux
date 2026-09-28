@@ -25,7 +25,9 @@ extension AppDelegate {
         let revision = manager.cloudWorkspaceSelection.revision
         let windowID = context.windowId
         return operationController.start(key: "new-cloud-workspace.resolved.\(windowID.uuidString)") { [weak self, weak manager] in
-            try await SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.revealing(in: manager) {
+            let reveals = SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals
+            let token = manager.map { reveals.begin(in: $0) }
+            try await reveals.revealing(token) {
                 do {
                     guard let workspaceID = try await coordinator.createOnResolvedMachine(
                         selection: selection, windowID: windowID, scopeID: scopeID
@@ -61,7 +63,9 @@ extension AppDelegate {
         let request = CloudWorkspaceCreationRequest(machineID: vmID, scopeID: scopeID, windowID: context.windowId)
         let revision = tabManager.cloudWorkspaceSelection.revision
         return operationController.start(key: "new-cloud-workspace.\(vmID).\(context.windowId.uuidString)") { [weak self, weak tabManager] in
-            try await SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.revealing(in: tabManager) {
+            let reveals = SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals
+            let token = tabManager.map { reveals.begin(in: $0) }
+            try await reveals.revealing(token) {
                 guard let workspaceID = try await coordinator.createOnMachine(request),
                       !Task.isCancelled, coordinator.isAvailable, coordinator.scopeIdentifier == scopeID else { return nil }
                 resolvedDestination?.apply(workspaceID: workspaceID)

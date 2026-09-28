@@ -289,7 +289,8 @@ final class CloudWorkspaceCreationCoordinator {
         catalog.notifyChange()
     }
 
-    /// The daemon removed the receipt's workspace or starter, even after the create finished.
+    /// The daemon rejected the create, even after it finished: it lost its cursor, changed
+    /// generation, or dropped the receipt's workspace or starter.
     private func reject(_ operation: CloudWorkspaceCreationOperation) {
         withdrawReveal(operation)
         cancel(operation.id)
