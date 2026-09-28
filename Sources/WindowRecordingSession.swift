@@ -9,6 +9,7 @@ enum WindowRecordingSessionError: Error, LocalizedError {
     case captureFailed(String)
     case composeFailed
     case alreadyFinished
+    case stoppedWhileStarting
     case outputNotAFile(String)
 
     var errorDescription: String? {
@@ -23,6 +24,8 @@ enum WindowRecordingSessionError: Error, LocalizedError {
             "a frame could not be composed"
         case .alreadyFinished:
             "the recording has already finished"
+        case .stoppedWhileStarting:
+            "the recording was stopped before it captured anything"
         case let .outputNotAFile(path):
             "\(path) is not a file the recording may replace"
         }
@@ -178,7 +181,7 @@ actor WindowRecordingSession {
         // A caller that gave up on this start (see `abandon`) may have ended
         // the session while the capture above was in flight; open nothing then.
         guard state == .recording else {
-            throw WindowRecordingSessionError.alreadyFinished
+            throw WindowRecordingSessionError.stoppedWhileStarting
         }
         writer = try makeWriter(geometry: planned)
         startUptime = ProcessInfo.processInfo.systemUptime
@@ -191,7 +194,7 @@ actor WindowRecordingSession {
             throw error
         }
         guard state == .recording else {
-            throw WindowRecordingSessionError.alreadyFinished
+            throw WindowRecordingSessionError.stoppedWhileStarting
         }
         loop = Task { [weak self] in
             await self?.run()
@@ -292,8 +295,14 @@ actor WindowRecordingSession {
         defer { releaseWriter() }
         guard state == .recording else { return }
         guard let writer else {
+            // `start` claims the registry slot before it opens the file, so a
+            // stop can land while the first capture is still in flight. There
+            // is nothing to close and nothing on disk, and calling that "the
+            // recording has already finished" describes the wrong event: the
+            // clip never started. The `start` still in flight sees the state
+            // change and gives up the same way.
             state = .failed
-            failure = WindowRecordingSessionError.alreadyFinished.localizedDescription
+            failure = WindowRecordingSessionError.stoppedWhileStarting.localizedDescription
             return
         }
         self.writer = nil

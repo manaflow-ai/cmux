@@ -37,6 +37,20 @@ public struct WindowRecordingFrameGeometry: Equatable, Sendable {
         outputWidth == cropWidth && outputHeight == cropHeight
     }
 
+    /// A pixel coordinate as an `Int`, clamped instead of trapped.
+    ///
+    /// `Int(_: Double)` traps on a value past `Int`'s range, and a region is
+    /// only bounded by the request decoder: a geometry planned from a request
+    /// built in code must answer "outside the window" rather than kill the app.
+    /// A region that is not a number crops nothing and fails the same way.
+    private static func pixelIndex(_ value: Double, rounding rule: FloatingPointRoundingRule) -> Int {
+        let rounded = value.rounded(rule)
+        guard rounded.isFinite else { return 0 }
+        guard rounded > Double(Int.min) else { return Int.min }
+        guard rounded < Double(Int.max) else { return Int.max }
+        return Int(rounded)
+    }
+
     /// Plans the geometry from the first captured frame.
     ///
     /// - Parameters:
@@ -62,10 +76,10 @@ public struct WindowRecordingFrameGeometry: Equatable, Sendable {
         var cropHeight = windowPixelHeight
 
         if case let .region(region) = request.target {
-            let left = Int((region.x * pixelScale).rounded(.down))
-            let top = Int((region.y * pixelScale).rounded(.down))
-            let right = Int(((region.x + region.width) * pixelScale).rounded(.up))
-            let bottom = Int(((region.y + region.height) * pixelScale).rounded(.up))
+            let left = Self.pixelIndex(region.x * pixelScale, rounding: .down)
+            let top = Self.pixelIndex(region.y * pixelScale, rounding: .down)
+            let right = Self.pixelIndex((region.x + region.width) * pixelScale, rounding: .up)
+            let bottom = Self.pixelIndex((region.y + region.height) * pixelScale, rounding: .up)
             cropX = max(0, min(left, windowPixelWidth))
             cropY = max(0, min(top, windowPixelHeight))
             cropWidth = min(right, windowPixelWidth) - cropX

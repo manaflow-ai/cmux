@@ -94,6 +94,22 @@ import Testing
         }
     }
 
+    /// A finite region can still be absurd, and the geometry turns points into
+    /// pixel integers: a value past `Int`'s range used to take the app down with
+    /// it rather than come back as a bad parameter.
+    @Test func hugeRegionsAreRejected() {
+        #expect(throws: WindowRecordingRequest.Failure.regionTooLarge) {
+            try WindowRecordingRequest.make(params: ["region": [0, 0, 1e19, 1e19]])
+        }
+        #expect(throws: WindowRecordingRequest.Failure.regionTooLarge) {
+            try WindowRecordingRequest.make(params: ["region": [-1e19, 0, 100, 100]])
+        }
+        #expect(
+            WindowRecordingRequest.Failure.regionTooLarge.message
+                == "region position and size must each stay within 100000 points"
+        )
+    }
+
     @Test func unknownFormatsNameTheKnownOnes() throws {
         let failure = WindowRecordingRequest.Failure.unknownFormat("webm")
 

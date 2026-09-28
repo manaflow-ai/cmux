@@ -101,6 +101,37 @@ import Testing
         }
     }
 
+    /// The decoder bounds a region, but a request built in code is not bound by
+    /// it, and `Int(_: Double)` traps past `Int`'s range. Planning has to answer
+    /// rather than take the app down, whatever it is handed.
+    @Test func anAbsurdRegionFailsInsteadOfTrapping() throws {
+        let huge = WindowRecordingRequest(
+            target: .region(WindowRecordingRegion(x: 0, y: 0, width: 1e19, height: 1e19))
+        )
+        let planned = try WindowRecordingFrameGeometry.plan(
+            windowPixelWidth: 1600,
+            windowPixelHeight: 1000,
+            pointPixelScale: 2,
+            request: huge
+        )
+        // Clamped to the window, which is the same answer a merely oversized
+        // region gets.
+        #expect(planned.cropWidth == 1600)
+        #expect(planned.cropHeight == 1000)
+
+        let offscreen = WindowRecordingRequest(
+            target: .region(WindowRecordingRegion(x: -1e19, y: 0, width: 100, height: 100))
+        )
+        #expect(throws: WindowRecordingFrameGeometry.Failure.regionOutsideWindow) {
+            try WindowRecordingFrameGeometry.plan(
+                windowPixelWidth: 1600,
+                windowPixelHeight: 1000,
+                pointPixelScale: 2,
+                request: offscreen
+            )
+        }
+    }
+
     @Test func anEmptyWindowFails() throws {
         #expect(throws: WindowRecordingFrameGeometry.Failure.emptyWindow) {
             try plan(windowPixelWidth: 0)

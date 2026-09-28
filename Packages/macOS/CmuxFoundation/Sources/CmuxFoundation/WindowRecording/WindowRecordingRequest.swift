@@ -53,6 +53,7 @@ public struct WindowRecordingRequest: Equatable, Sendable {
         case outOfRange(field: String, message: String)
         case malformedRegion(String)
         case regionTooSmall
+        case regionTooLarge
         case outputPathNotAbsolute(String)
         case outputExtensionMismatch(path: String, format: Format)
 
@@ -71,6 +72,9 @@ public struct WindowRecordingRequest: Equatable, Sendable {
             case .regionTooSmall:
                 let minimum = Int(WindowRecordingRequest.minimumRegionExtent)
                 return "region width and height must each be at least \(minimum) points"
+            case .regionTooLarge:
+                let maximum = Int(WindowRecordingRequest.maximumRegionExtent)
+                return "region position and size must each stay within \(maximum) points"
             case let .outputPathNotAbsolute(path):
                 return "out '\(path)' must be an absolute path"
             case let .outputExtensionMismatch(path, format):
@@ -204,6 +208,15 @@ public struct WindowRecordingRequest: Equatable, Sendable {
               region.height >= Self.minimumRegionExtent else {
             throw Failure.regionTooSmall
         }
+        // An upper bound as well as a lower one: the geometry turns points into
+        // pixel integers, and "--region 0,0,1e19,1e19" is something a caller can
+        // type. No window is anywhere near this wide.
+        guard abs(region.x) <= Self.maximumRegionExtent,
+              abs(region.y) <= Self.maximumRegionExtent,
+              region.width <= Self.maximumRegionExtent,
+              region.height <= Self.maximumRegionExtent else {
+            throw Failure.regionTooLarge
+        }
         return .region(region)
     }
 
@@ -299,4 +312,5 @@ extension WindowRecordingRequest {
     public static let allowedScale = 0.1...1.0
     public static let allowedMaximumWidth = 64...4096
     public static let minimumRegionExtent: Double = 8
+    public static let maximumRegionExtent: Double = 100_000
 }

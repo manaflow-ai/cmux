@@ -146,7 +146,22 @@ final class WindowRecordingMP4Writer: WindowRecordingFrameWriter {
             guard ProcessInfo.processInfo.systemUptime < deadline else {
                 throw WindowRecordingWriterError.frame("the video compressor stalled")
             }
-            try? await Task.sleep(nanoseconds: 2_000_000)
+            await Self.pause()
+        }
+    }
+
+    /// Two milliseconds that a cancelled task still waits out.
+    ///
+    /// `stop()` and `abandon()` cancel the sampling loop before they take the
+    /// writer's turn, so this wait often runs inside a cancelled task. A
+    /// `Task.sleep` throws there at once, and swallowing that turns the wait
+    /// into a spin that holds the writer against the very stop that cancelled
+    /// it. The frame in hand is worth finishing, so the delay stays.
+    private static func pause() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(2)) {
+                continuation.resume()
+            }
         }
     }
 
