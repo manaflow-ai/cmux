@@ -154,6 +154,43 @@ struct CloudMachineDeletionCoordinatorTests {
         #expect(late.finished == nil)
     }
 
+    @Test func closingTheMachinesWorkspacesNeverDestroysItAfterAFailedDeletion() throws {
+        let creates = makeCreates()
+        let deletions = CloudMachineDeletionCoordinator()
+        let bound = request()
+        let workspaceID = try #require(bound.presentationWorkspaceID)
+        let attempt = creates.reserve(bound)
+        // The create bound its workspace to the machine before its receipt was read.
+        #expect(deletions.begin("bound"))
+        let retired = creates.retireCreates(producing: "bound", presentedIn: [workspaceID])
+        #expect(retired.cancelOperationIDs == [attempt.operationID])
+        #expect(retired.cleanupMachineIDs.isEmpty)
+        // The deletion then closes the machine's workspaces, which finds nothing to cancel.
+        #expect(creates.cancelPresentations([workspaceID]).cancelOperationIDs.isEmpty)
+        #expect(deletions.finish("bound", result: .failed) == .restored)
+        creates.machineDeletionFailed("bound")
+
+        // The person never cancelled that create, so its late receipts must not
+        // destroy the machine the failure alert said was kept.
+        #expect(creates.receive("OK machine=bound\n", from: attempt).cleanupMachineIDs.isEmpty)
+        #expect(creates.finish(completion(machine: "bound", cancelled: true), from: attempt).cleanupMachineIDs.isEmpty)
+    }
+
+    @Test func closingTheMachinesWorkspacesStillCleansUpAnotherMachine() throws {
+        let creates = makeCreates()
+        let deletions = CloudMachineDeletionCoordinator()
+        let bound = request()
+        let workspaceID = try #require(bound.presentationWorkspaceID)
+        let attempt = creates.reserve(bound)
+        #expect(deletions.begin("bound"))
+        _ = creates.retireCreates(producing: "bound", presentedIn: [workspaceID])
+        _ = creates.cancelPresentations([workspaceID])
+
+        // A machine the stopped create made that nobody is deleting would otherwise leak.
+        #expect(creates.receive("OK machine=other\n", from: attempt).cleanupMachineIDs == ["other"])
+        #expect(creates.finish(completion(machine: "other", cancelled: true), from: attempt).cleanupMachineIDs.isEmpty)
+    }
+
     @Test(arguments: [false, true])
     func cancelledCreateCleanupFollowsWhenItsReceiptArrived(duringDeletion: Bool) {
         let creates = makeCreates()

@@ -214,9 +214,11 @@ public final class CloudMachineCreateCoordinator {
     /// Running creates stop, and their presentations close. Deletion owns the
     /// destroy request, so these creates keep no receipt tombstone, and none of
     /// their receipts, including one after a failed deletion, requests another.
-    /// - Parameter machineID: The provider machine being deleted.
+    /// - Parameters:
+    ///   - machineID: The provider machine being deleted.
+    ///   - workspaceIDs: Local workspaces bound to the machine.
     /// - Returns: Process and presentation effects, never a cleanup request.
-    public func retireCreates(producing machineID: String) -> CloudMachineCreateTransition {
+    public func retireCreates(producing machineID: String, presentedIn workspaceIDs: Set<UUID> = []) -> CloudMachineCreateTransition {
         deletedMachineIDs.insert(machineID)
         return remove(where: { $0.createdMachineID == machineID }, closePresentations: true, cleanup: false)
     }
