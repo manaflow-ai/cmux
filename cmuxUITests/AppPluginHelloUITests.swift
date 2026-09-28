@@ -9,7 +9,7 @@ import XCTest
 /// never touch the real home of the machine running the test.
 final class AppPluginHelloUITests: SettingsUITestCase {
     func testLinkEnableAndRunHelloPlugin() throws {
-        let home = URL(fileURLWithPath: "/tmp")
+        let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-plugin-hello-\(UUID().uuidString.prefix(8))")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
