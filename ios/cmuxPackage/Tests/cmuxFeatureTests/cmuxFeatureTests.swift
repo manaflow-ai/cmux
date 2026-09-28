@@ -1188,8 +1188,10 @@ final class TerminalOutputCollector {
     #expect(try await responses.sentRequests().isEmpty)
 }
 
+/// A code this build cannot dial fails before any connection is touched, so
+/// the Mac already in use stays connected with its own client and workspace.
 @MainActor
-@Test func unsupportedAttachTicketClearsPreviousRemoteClient() async throws {
+@Test func unsupportedAttachTicketKeepsLiveMacConnected() async throws {
     let supportedRoute = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
     let supportedTicket = try CmxAttachTicket(
         workspaceID: "live-workspace",
@@ -1237,15 +1239,11 @@ final class TerminalOutputCollector {
     )
     await store.connectPairingURL(try attachURL(for: unsupportedTicket).absoluteString)
 
-    #expect(store.connectionState == .disconnected)
     #expect(store.connectionError == "This pairing code is not supported.")
-
-    store.terminalInputText = "echo should-not-hit-old-host"
-    await store.submitTerminalInput()
-
-    let requests = try await responses.sentRequests()
-    #expect(requests.contains { $0.method == "workspace.list" })
-    #expect(!requests.contains { $0.method == "terminal.input" })
+    #expect(store.connectionState == .connected)
+    #expect(store.hasActiveMacConnection)
+    #expect(store.activeTicket?.workspaceID == "live-workspace")
+    #expect(store.activeRoute?.id == supportedRoute.id)
 }
 
 @MainActor

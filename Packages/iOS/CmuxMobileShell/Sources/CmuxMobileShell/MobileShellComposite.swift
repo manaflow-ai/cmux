@@ -4719,6 +4719,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if await restorePreviousMacIfNeeded(restoreTarget, switchAttemptID: switchAttemptID) {
                 macSwitchRestoreBaseline = nil
             }
+        } else if let liveForeground = liveForegroundMacForSwitchRestore() {
+            // The failed target never displaced the live Mac, so no restore
+            // redial runs. Point the saved active pairing back at the Mac that
+            // is still in the foreground, as that redial would have.
+            await reassertLiveForegroundPairing(
+                liveForeground,
+                scope: scope,
+                ifStillCurrent: { [weak self] in
+                    self?.isCurrentMacSwitchAttempt(switchAttemptID) == true
+                }
+            )
+            macSwitchRestoreBaseline = nil
         }
         if isLegacyPrivateNetworkPairing,
            case .confirmedMissingIroh = refreshOutcome,
@@ -4844,6 +4856,35 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await task.value
         }
         return restored
+    }
+
+    /// Persist the live foreground Mac's routes and tag and mark it active,
+    /// without touching its connection.
+    private func reassertLiveForegroundPairing(
+        _ liveForeground: MobilePairedMac,
+        scope: MobileShellScopeSnapshot?,
+        ifStillCurrent: @escaping () -> Bool
+    ) async {
+        guard let ticket = try? Self.storedMacTicket(
+            name: liveForeground.displayName ?? liveForeground.macDeviceID,
+            routes: liveForeground.routes,
+            pairedMacDeviceID: liveForeground.macDeviceID
+        ) else { return }
+        let accepted = await persistPairedMacFromTicket(
+            ticket,
+            instanceTagUpdate: .replace(liveForeground.instanceTag),
+            requiredScope: scope,
+            ifStillCurrent: ifStillCurrent
+        )
+        guard accepted, ifStillCurrent() else { return }
+        if let task = enqueueActivePairedMacWrite(
+            macDeviceID: liveForeground.macDeviceID,
+            instanceTag: liveForeground.instanceTag,
+            scope: scope,
+            reloadAfterWrite: true
+        ) {
+            await task.value
+        }
     }
 
     func clearSavedMacHintWhenNoStoredMacsRemainIfNeeded() {
